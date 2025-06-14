@@ -216,3 +216,154 @@ class TestHamiltonTask:
         # Test serialization
         task_dict = task.model_dump()
         assert task_dict['modules'] == ['math', 'json']
+
+
+class TestShellTask:
+    """Test cases for the ShellTask class"""
+    
+    def test_shell_task_creation(self):
+        """Test basic ShellTask creation"""
+        task = mx.ShellTask(
+            name="shell_test",
+            readme="Test shell task",
+            commands=["echo 'hello'", "ls -la"]
+        )
+        assert task.name == "shell_test"
+        assert task.readme == "Test shell task"
+        assert task.commands == ["echo 'hello'", "ls -la"]
+    
+    def test_shell_task_empty_commands(self):
+        """Test ShellTask with empty commands"""
+        task = mx.ShellTask(name="empty_shell")
+        assert task.commands == []
+    
+    def test_shell_task_serialization(self):
+        """Test ShellTask serialization"""
+        task = mx.ShellTask(
+            name="shell_test",
+            commands=["echo 'test'", "pwd"],
+            args=["--verbose"],
+            kwargs={"timeout": 30}
+        )
+        
+        # Test YAML serialization
+        yaml_str = task.to_yaml()
+        assert "commands:" in yaml_str
+        assert "echo 'test'" in yaml_str
+        assert "pwd" in yaml_str
+        
+        # Test roundtrip
+        loaded_task = mx.ShellTask.from_yaml(yaml_str)
+        assert loaded_task.name == task.name
+        assert loaded_task.commands == task.commands
+        assert loaded_task.args == task.args
+        assert loaded_task.kwargs == task.kwargs
+    
+    def test_shell_task_with_dependencies(self):
+        """Test ShellTask with dependencies"""
+        task = mx.ShellTask(
+            name="dependent_shell",
+            commands=["echo 'depends on other'"],
+            deps=["prep_task", "data_task"]
+        )
+        assert task.deps == ["prep_task", "data_task"]
+
+
+class TestLocalTask:
+    """Test cases for the LocalTask class"""
+    
+    def test_local_task_creation(self):
+        """Test basic LocalTask creation"""
+        task = mx.LocalTask(
+            name="local_test",
+            readme="Test local task",
+            commands=["python script.py", "chmod +x output.sh"]
+        )
+        assert task.name == "local_test"
+        assert task.readme == "Test local task"
+        assert task.commands == ["python script.py", "chmod +x output.sh"]
+    
+    def test_local_task_inheritance(self):
+        """Test LocalTask inherits from ShellTask"""
+        task = mx.LocalTask(name="local_test")
+        assert isinstance(task, mx.ShellTask)
+        assert hasattr(task, 'commands')
+    
+    def test_local_task_serialization(self):
+        """Test LocalTask serialization"""
+        task = mx.LocalTask(
+            name="local_test",
+            commands=["make build", "make test"],
+            outputs=["build/output.bin", "test_results.xml"]
+        )
+        
+        # Test YAML serialization
+        yaml_str = task.to_yaml()
+        assert "commands:" in yaml_str
+        assert "make build" in yaml_str
+        assert "outputs:" in yaml_str
+        
+        # Test roundtrip
+        loaded_task = mx.LocalTask.from_yaml(yaml_str)
+        assert loaded_task.name == task.name
+        assert loaded_task.commands == task.commands
+        assert loaded_task.outputs == task.outputs
+
+
+class TestRemoteTask:
+    """Test cases for the RemoteTask class"""
+    
+    def test_remote_task_creation(self):
+        """Test basic RemoteTask creation"""
+        task = mx.RemoteTask(
+            name="remote_test",
+            readme="Test remote task",
+            commands=["ssh user@host 'ls -la'", "scp file.txt user@host:/tmp/"]
+        )
+        assert task.name == "remote_test"
+        assert task.readme == "Test remote task"
+        assert task.commands == ["ssh user@host 'ls -la'", "scp file.txt user@host:/tmp/"]
+    
+    def test_remote_task_inheritance(self):
+        """Test RemoteTask inherits from ShellTask"""
+        task = mx.RemoteTask(name="remote_test")
+        assert isinstance(task, mx.ShellTask)
+        assert hasattr(task, 'commands')
+    
+    def test_remote_task_serialization(self):
+        """Test RemoteTask serialization"""
+        task = mx.RemoteTask(
+            name="remote_test",
+            commands=["ssh host 'python script.py'"],
+            kwargs={"host": "compute-node-1", "user": "scientist"}
+        )
+        
+        # Test YAML serialization
+        yaml_str = task.to_yaml()
+        assert "commands:" in yaml_str
+        assert "ssh host 'python script.py'" in yaml_str
+        assert "kwargs:" in yaml_str
+        
+        # Test roundtrip
+        loaded_task = mx.RemoteTask.from_yaml(yaml_str)
+        assert loaded_task.name == task.name
+        assert loaded_task.commands == task.commands
+        assert loaded_task.kwargs == task.kwargs
+    
+    def test_remote_task_complex_workflow(self):
+        """Test RemoteTask in complex workflow scenario"""
+        task = mx.RemoteTask(
+            name="hpc_calculation",
+            readme="Run calculation on HPC cluster",
+            commands=[
+                "ssh hpc-login 'sbatch job.slurm'",
+                "ssh hpc-login 'squeue -u $USER'",
+                "scp hpc-login:~/results/* ./results/"
+            ],
+            deps=["data_prep", "job_setup"],
+            outputs=["results/output.dat", "results/log.txt"]
+        )
+        
+        assert task.deps == ["data_prep", "job_setup"]
+        assert task.outputs == ["results/output.dat", "results/log.txt"]
+        assert len(task.commands) == 3

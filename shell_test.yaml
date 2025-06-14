@@ -1,0 +1,10 @@
+name: shell_test
+args:
+- --verbose
+kwargs:
+  timeout: 30
+outputs: []
+deps: []
+commands:
+- echo 'test'
+- pwd

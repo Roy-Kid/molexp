@@ -1,0 +1,20 @@
+name: test_exp
+readme: Test experiment
+task_pool:
+  name: test_exp_tasks
+  tasks:
+    task1:
+      name: task1
+      readme: First task
+      args: []
+      kwargs: {}
+      outputs: []
+      deps: []
+    task2:
+      name: task2
+      readme: Second task
+      args: []
+      kwargs: {}
+      outputs: []
+      deps:
+      - task1
