@@ -8,9 +8,8 @@ readme = "README.md"
 requires-python = ">3.8"
 version = "0.1.0"
 dependencies = [
-    "sf-hamilton[visualization]",
-    "sf-hamilton[sdk]",
-    "tqdm",
+    "pyyaml",
+    "pydantic",
 ]
 [project.optional-dependencies]
 dev = [

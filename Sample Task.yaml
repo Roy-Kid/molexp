@@ -1,0 +1,8 @@
+name: Sample Task
+readme: This is a sample task
+args:
+- --input
+- data.txt
+kwargs:
+  output: result.txt
+  threads: 4
