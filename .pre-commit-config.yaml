@@ -1,0 +1,16 @@
+# See https://pre-commit.com for more information
+# Run `pre-commit install` to install the pre-commit hook on your machine
+# Run `pre-commit run --all-files` to run the pre-commit hooks on all files
+# To bypass the hooks, run `git commit --no-verify`
+# To update the pre-commit hooks, run `pre-commit autoupdate`
+repos:
+-   repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+    - id: black
+      args: [--line-length=100]
+-   repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+    - id: flake8
+

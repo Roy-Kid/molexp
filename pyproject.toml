@@ -1,0 +1,22 @@
+[project]
+name = "molexp"
+authors = [
+    { name = "Roy Kid", email = "lijichen365@gmail.com" },
+]
+description = "Workflow management system for simulations and analysis"
+readme = "README.md"
+requires-python = ">3.8"
+version = "0.1.0"
+dependencies = [
+    "sf-hamilton[visualization]",
+    "sf-hamilton[sdk]",
+    "tqdm",
+]
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pre-commit"
+]
+
+[tool.black]
+line-length = 100
