@@ -1,6 +1,6 @@
 from typing import Any
 from types import ModuleType
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_serializer, field_validator
 from pathlib import Path
 import yaml
 
@@ -44,10 +44,38 @@ class RemoteTask(ShellTask):
     ...
 
 class HamiltonTask(Task):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     modules: list[ModuleType] = Field(default_factory=list)
 
     # driver config
     config: dict[str, Any] = Field(default_factory=dict)
-   
     
+    @field_serializer('modules')
+    def serialize_modules(self, value: list[ModuleType]) -> list[str]:
+        """将模块列表序列化为模块名称列表"""
+        return [module.__name__ for module in value]
+    
+    @field_validator('modules', mode='before')
+    @classmethod
+    def validate_modules(cls, value) -> list[ModuleType]:
+        """将模块名称列表或模块列表验证为模块列表"""
+        if isinstance(value, list):
+            result = []
+            for item in value:
+                if isinstance(item, str):
+                    # 如果是字符串，尝试导入模块
+                    try:
+                        import importlib
+                        module = importlib.import_module(item)
+                        result.append(module)
+                    except ImportError as e:
+                        raise ValueError(f"Cannot import module '{item}': {e}")
+                elif isinstance(item, ModuleType):
+                    # 如果已经是模块，直接添加
+                    result.append(item)
+                else:
+                    raise ValueError(f"Invalid module type: {type(item)}")
+            return result
+        return value
+

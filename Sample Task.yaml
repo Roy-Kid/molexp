@@ -6,3 +6,4 @@ args:
 kwargs:
   output: result.txt
   threads: 4
+outputs: []
