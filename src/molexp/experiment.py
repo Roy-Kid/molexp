@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Optional
+from typing import Optional, Dict, Any
 from pathlib import Path
 from .pool import TaskPool
 from .logging_config import get_logger
@@ -16,6 +16,53 @@ class Experiment(BaseModel):
     name: str
     readme: str = ""
     task_pool: Optional[TaskPool] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    base_path: Optional[Path] = Field(
+        default=None,
+        description="Base directory path for the experiment"
+    )
+    
+    def __init__(self, name: str, base_path: Optional[str | Path] = None, **kwargs):
+        """Initialize experiment with name and optional base path."""
+        kwargs.update(name=name)
+        
+        # Set up base path
+        if base_path is not None:
+            kwargs['base_path'] = Path(base_path).resolve()
+        
+        super().__init__(**kwargs)
+        
+        # Create experiment directory structure if base_path is set
+        if self.base_path:
+            self._create_experiment_structure()
+        
+        logger.info(f"Created experiment: {self.name}" + (f" at {self.base_path}" if self.base_path else ""))
+    
+    def _create_experiment_structure(self) -> None:
+        """Create the experiment directory structure."""
+        if self.base_path:
+            # Create main experiment directory
+            self.base_path.mkdir(parents=True, exist_ok=True)
+            
+            # Create subdirectories
+            (self.base_path / "tasks").mkdir(exist_ok=True)
+            (self.base_path / "data").mkdir(exist_ok=True)
+            (self.base_path / "results").mkdir(exist_ok=True)
+            (self.base_path / "config").mkdir(exist_ok=True)
+            
+            logger.info(f"Created experiment directory structure at {self.base_path}")
+    
+    def get_experiment_file_path(self) -> Path:
+        """Get the path for the experiment YAML file."""
+        if self.base_path:
+            return self.base_path / f"{self.name}.yaml"
+        return Path(f"{self.name}_experiment.yaml")
+    
+    def get_tasks_dir(self) -> Path:
+        """Get the tasks directory path."""
+        if self.base_path:
+            return self.base_path / "tasks"
+        return Path("tasks")
 
     def set_task_pool(self, task_pool: TaskPool) -> None:
         """Set the task pool for this experiment"""
@@ -31,6 +78,14 @@ class Experiment(BaseModel):
         if self.task_pool is None:
             logger.debug(f"Creating new task pool for experiment '{self.name}'")
             self.task_pool = TaskPool(name=f"{self.name}_tasks")
+        
+        # Set task's base path if not already set and experiment has a base path
+        if hasattr(task, 'base_path') and task.base_path is None and self.base_path:
+            task_path = self.get_tasks_dir() / task.name
+            task.base_path = task_path
+            if hasattr(task, '_create_task_structure'):
+                task._create_task_structure()
+        
         logger.debug(f"Adding task '{task.name}' to experiment '{self.name}'")
         self.task_pool.add_task(task)
     
@@ -68,23 +123,26 @@ class Experiment(BaseModel):
         """Export experiment to YAML"""
         import yaml
         from pathlib import Path
-        
-        if path is None:
-            path = Path(f"{self.name}_experiment.yaml")
-        
+        # 优先级：path参数 > self.base_path > 当前目录
+        if path is not None:
+            out_path = Path(path)
+        elif self.base_path:
+            out_path = self.base_path / f"{self.name}.yaml"
+        else:
+            out_path = Path(f"{self.name}_experiment.yaml")
         # Export experiment data
         experiment_data = {
             "name": self.name,
             "readme": self.readme,
+            "metadata": self.metadata,
             "task_pool": {
                 "name": self.task_pool.name,
-                "tasks": {name: task.model_dump() for name, task in self.task_pool.tasks.items()}
+                "tasks": {name: task.model_dump(exclude={'base_path'}) for name, task in self.task_pool.tasks.items()}
             } if self.task_pool else None
         }
-        
         data = yaml.safe_dump(experiment_data, sort_keys=False)
-        if isinstance(path, Path):
-            with path.open("w") as f:
+        if isinstance(out_path, Path):
+            with out_path.open("w") as f:
                 f.write(data)
         return data
     

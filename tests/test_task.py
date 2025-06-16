@@ -16,6 +16,12 @@ class TestTask:
             args=["--input", "data.txt"],
             kwargs={"output": "result.txt", "threads": 4}
         )
+    
+    @pytest.fixture
+    def tmp_path(self):
+        """Fixture to provide a temporary directory path"""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
 
     def test_serialization_roundtrip(self, sample_task: mx.Task):
         # Test to_yaml + from_yaml string serialization roundtrip
@@ -47,6 +53,38 @@ class TestTask:
         task = mx.Task(name="Empty", args=[], kwargs={})
         assert task.args == []
         assert task.kwargs == {}
+
+    def test_task_type_serialization(self, tmp_path):
+
+        shell_task = mx.ShellTask(name="shell1", commands=["echo hello"])
+        local_task = mx.LocalTask(name="local1", commands=["ls"], args=["-l"])
+        remote_task = mx.RemoteTask(name="remote1", commands=["scp file"], kwargs={"host": "1.2.3.4"})
+        hamilton_task = mx.HamiltonTask(name="ham1", args=["-x"], config={"driver": "gmx"})
+
+        shell_path = tmp_path / "shell1.yaml"
+        local_path = tmp_path / "local1.yaml"
+        remote_path = tmp_path / "remote1.yaml"
+        hamilton_path = tmp_path / "ham1.yaml"
+        shell_task.to_yaml(shell_path)
+        local_task.to_yaml(local_path)
+        remote_task.to_yaml(remote_path)
+        hamilton_task.to_yaml(hamilton_path)
+
+        loaded_shell = mx.Task.from_yaml(shell_path)
+        loaded_local = mx.Task.from_yaml(local_path)
+        loaded_remote = mx.Task.from_yaml(remote_path)
+        loaded_hamilton = mx.Task.from_yaml(hamilton_path)
+
+        assert type(loaded_shell) is mx.ShellTask
+        assert type(loaded_local) is mx.LocalTask
+        assert type(loaded_remote) is mx.RemoteTask
+        assert type(loaded_hamilton) is mx.HamiltonTask
+
+        assert loaded_shell.commands == ["echo hello"]
+        assert loaded_local.args == ["-l"]
+        assert loaded_remote.kwargs["host"] == "1.2.3.4"
+        assert loaded_hamilton.config["driver"] == "gmx"
+
 
 class TestHamiltonTask:
     

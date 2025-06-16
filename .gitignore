@@ -415,3 +415,6 @@ cython_debug/
 
 *.dot
 *.pickle
+
+# Mac OS
+.DS_Store

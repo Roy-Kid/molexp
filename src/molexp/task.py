@@ -12,28 +12,90 @@ logger = get_logger("task")
 
 class Task(BaseModel):
     name: str
+    task_type: str = Field(default="task", description="Task type identifier")
     readme: str | None = None
     args: list[str] = Field(default_factory=list)
     kwargs: dict[str, Any] = Field(default_factory=dict)
     outputs: list[str] = Field(default_factory=list)
     deps: list[str] = Field(default_factory=list)  # Task dependencies by name
+    base_path: Optional[Path] = Field(
+        default=None,
+        description="Base directory path for the task"
+    )
+    
+    def __init__(self, name: str, base_path: Optional[str | Path] = None, **kwargs):
+        """Initialize task with name and optional base path."""
+        kwargs.update(name=name)
+        
+        # Set up base path
+        if base_path is not None:
+            kwargs['base_path'] = Path(base_path).resolve()
+        
+        super().__init__(**kwargs)
+        
+        # Create task directory structure if base_path is set
+        if self.base_path:
+            self._create_task_structure()
+        
+        logger.info(f"Created task: {self.name}" + (f" at {self.base_path}" if self.base_path else ""))
+    
+    def _create_task_structure(self) -> None:
+        """Create the task directory structure."""
+        if self.base_path:
+            # Create main task directory
+            self.base_path.mkdir(parents=True, exist_ok=True)
+            
+            # Create subdirectories
+            (self.base_path / "inputs").mkdir(exist_ok=True)
+            (self.base_path / "outputs").mkdir(exist_ok=True)
+            (self.base_path / "logs").mkdir(exist_ok=True)
+            (self.base_path / "scripts").mkdir(exist_ok=True)
+            
+            logger.info(f"Created task directory structure at {self.base_path}")
+    
+    def get_task_file_path(self) -> Path:
+        """Get the path for the task YAML file."""
+        if self.base_path:
+            return self.base_path / f"{self.name}.yaml"
+        return Path(f"{self.name}.yaml")
 
     def to_yaml(self, path: Path | None = None) -> str:
-        if path is None:
-            path = Path(f"{self.name}.yaml")
-        data = yaml.safe_dump(self.model_dump(exclude_none=True), sort_keys=False)
-        with path.open("w") as f:
+        # 优先级：path参数 > self.base_path > 当前目录
+        if path is not None:
+            out_path = Path(path)
+        elif self.base_path:
+            out_path = self.base_path / f"{self.name}.yaml"
+        else:
+            out_path = Path(f"{self.name}.yaml")
+        data = yaml.safe_dump(self.model_dump(exclude_none=True, exclude={'base_path'}), sort_keys=False)
+        with out_path.open("w") as f:
             f.write(data)
         return data
 
     @classmethod
     def from_yaml(cls, source: str | Path):
+        import yaml
+        from pathlib import Path
+        # 读取内容
         path = Path(source) if isinstance(source, (str, Path)) and Path(source).exists() else None
         content = Path(path).read_text() if path else str(source)
-        return cls.model_validate(yaml.safe_load(content))
+        data = yaml.safe_load(content)
+        # 自动分派到正确的Task子类
+        task_type = data.get("task_type", "task")
+        if task_type == "shell":
+            return ShellTask.model_validate(data)
+        elif task_type == "local":
+            return LocalTask.model_validate(data)
+        elif task_type == "remote":
+            return RemoteTask.model_validate(data)
+        elif task_type == "hamilton":
+            return HamiltonTask.model_validate(data)
+        else:
+            return Task.model_validate(data)
 
 
 class ShellTask(Task):    
+    task_type: str = Field(default="shell", description="Shell task type")
     commands: list[str] = Field(default_factory=list)
     
     def render_commands(self, **params) -> list[str]:
@@ -68,12 +130,15 @@ class ShellTask(Task):
         return rendered_commands
 
 class LocalTask(ShellTask):
-    ...
+    task_type: str = Field(default="local", description="Local task type")
+
 
 class RemoteTask(ShellTask):
-    ...
+    task_type: str = Field(default="remote", description="Remote task type")
+
 
 class HamiltonTask(Task):
+    task_type: str = Field(default="hamilton", description="Hamilton task type")
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     modules: list[ModuleType] = Field(default_factory=list)

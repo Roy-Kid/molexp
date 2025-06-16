@@ -22,10 +22,86 @@ One of the standout features of `molexp` is its advanced experiment management s
 
 8. **Community and Support**: As an open-source package, `molexp` benefits from a growing community of users and contributors. This ensures continuous improvements, updates, and a wealth of shared knowledge and resources.
 
-## Concepts
+## Installation
 
-`project`: a project represents a stand alone research topic, and contains necessary index and doc files
+Install molexp from PyPI:
 
-`Experiment`: an experiment is new science trial with new variable
+```bash
+pip install molexp
+```
 
-`Task`: several tasks in an experiment, each task is a complete workflow or graph or executation.
+Or install from source:
+
+```bash
+git clone https://github.com/your-repo/molexp.git
+cd molexp
+pip install -e .
+```
+
+## Quick Start
+
+```python
+import molexp as mx
+
+# Create a simple shell task
+task1 = mx.ShellTask(
+    name="setup",
+    commands=["echo 'Setting up environment'", "mkdir -p data"]
+)
+
+task2 = mx.ShellTask(
+    name="process",
+    commands=["echo 'Processing data'"],
+    deps=["setup"]  # This task depends on 'setup'
+)
+
+# Create an experiment
+experiment = mx.Experiment(name="my_experiment")
+experiment.add_task(task1)
+experiment.add_task(task2)
+
+# Run the experiment
+executor = mx.ExperimentExecutor(experiment)
+results = executor.run()
+print(results)
+```
+
+## Core Concepts
+
+- **Project**: A standalone research topic containing necessary index and documentation files
+- **Experiment**: A scientific trial with specific variables and parameters
+- **Task**: Individual workflow components that can be chained together with dependencies
+- **TaskPool**: Container for managing multiple tasks
+- **Executor**: Engine for executing experiments with proper dependency resolution
+
+## Task Types
+
+- **ShellTask**: Execute shell commands with parameter substitution
+- **HamiltonTask**: Integration with Hamilton workflows
+- **LocalTask**: Local execution tasks
+- **RemoteTask**: Remote execution capabilities
+
+## Examples
+
+See the `examples/` directory for comprehensive usage examples including:
+- Basic workflow creation
+- Parameter exploration
+- Advanced shell task usage
+- Hamilton integration
+- Complex dependency management
+
+## Documentation
+
+For detailed documentation, visit [our documentation site](docs/) or build locally:
+
+```bash
+mkdocs serve
+```
+
+## Contributing
+
+We welcome contributions! Please see our contributing guidelines and submit pull requests.
+
+## License
+
+This project is licensed under the terms specified in the LICENSE file.

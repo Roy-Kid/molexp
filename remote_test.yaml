@@ -1,9 +1,0 @@
-name: remote_test
-args: []
-kwargs:
-  host: compute-node-1
-  user: scientist
-outputs: []
-deps: []
-commands:
-- ssh host 'python script.py'

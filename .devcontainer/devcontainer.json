@@ -1,6 +1,6 @@
 {
     "name": "MolCrafts - molexp",
-    "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
+    "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
     "features": {
         "ghcr.io/molcrafts/features/utils:latest": {},
         "ghcr.io/molcrafts/features/miniforge": {}
