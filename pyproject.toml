@@ -1,0 +1,13 @@
+[project]
+name = "molexp"
+version = "0.1.0"
+description = "Minimal task graph framework with compiler, engine, and DSL"
+authors = [{name = "OpenAI Agent"}]
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.5",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
