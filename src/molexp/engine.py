@@ -2,14 +2,74 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping, Set
 
 from pydantic import BaseModel
 
-from .compiler import CompiledGraph, compile_graph
 from .assets import Asset, AssetRepo
 from .context import RunContext, use_run_context
 from .task_base import Task
+
+
+@dataclass(slots=True)
+class CompiledGraph:
+    """Result of compiling a task graph into execution order.
+    
+    Attributes
+    ----------
+    root : Task
+        The root/output task of the graph.
+    order : list[Task]
+        Topologically sorted list of tasks in execution order.
+    """
+    
+    root: Task
+    order: list[Task]
+
+    def __iter__(self) -> Iterable[Task]:
+        return iter(self.order)
+
+
+def compile_graph(root: Task) -> CompiledGraph:
+    """Compile a task graph into deterministic execution order.
+    
+    Performs topological sort to determine the order in which tasks
+    should be executed based on their dependencies.
+
+    Parameters
+    ----------
+    root : Task
+        Graph output node.
+
+    Returns
+    -------
+    CompiledGraph
+        Compiled graph with execution order.
+
+    Raises
+    ------
+    ValueError
+        If cycles are detected in the task graph.
+    """
+    order: list[Task] = []
+    visited: Set[Task] = set()
+    stack: Set[Task] = set()
+
+    def dfs(node: Task) -> None:
+        if node in stack:
+            raise ValueError(f"Cycle detected at {node.name}")
+        if node in visited:
+            return
+        stack.add(node)
+        for upstream in node.iter_task_upstreams():
+            dfs(upstream)
+        stack.remove(node)
+        visited.add(node)
+        order.append(node)
+
+    dfs(root)
+    return CompiledGraph(root=root, order=order)
 
 
 class TaskEngine:

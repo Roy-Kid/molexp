@@ -1,0 +1,15 @@
+asset_id: 6a430641-9c13-4d4c-99f1-b34ee385d16f
+type: other
+format: txt
+created_at: '2025-11-29T20:27:26.297629'
+producer_run_id: null
+size_bytes: 18
+content_hash: sha256:92b445b59340bdb2fb83e4ebe36f9335ef549853e929ee673a4ab70d327ba5a5
+mime_type: ''
+tags: []
+metadata:
+  original_filename: test_asset.txt
+files:
+- path: test_asset.txt
+  size: 18
+  hash: sha256:92b445b59340bdb2fb83e4ebe36f9335ef549853e929ee673a4ab70d327ba5a5

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -5,6 +6,20 @@ import { useAppStore } from '@/store/useAppStore';
 
 export const ExecutionList = () => {
   const executions = useAppStore((state) => state.executions);
+  const fetchExecutions = useAppStore((state) => state.fetchExecutions);
+  const isLoading = useAppStore((state) => state.isLoading);
+
+  useEffect(() => {
+    fetchExecutions();
+  }, [fetchExecutions]);
+
+  if (isLoading) {
+    return (
+      <div className="p-6">
+        <div className="text-center py-12 text-muted-foreground">Loading executions...</div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-6">

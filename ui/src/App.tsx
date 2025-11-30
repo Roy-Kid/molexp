@@ -5,6 +5,7 @@ import { Workflow } from "@/pages/Workflow"
 import { ExecutionList } from "@/pages/ExecutionList"
 import { ExecutionDetail } from "@/pages/ExecutionDetail"
 import { Assets } from "@/pages/Assets"
+import { Workspace } from "@/pages/Workspace"
 
 function App() {
   return (
@@ -12,6 +13,7 @@ function App() {
       <DashboardLayout>
         <Routes>
           <Route path="/" element={<Overview />} />
+          <Route path="/workspace" element={<Workspace />} />
           <Route path="/workflow" element={<Workflow />} />
           <Route path="/executions" element={<ExecutionList />} />
           <Route path="/executions/:id" element={<ExecutionDetail />} />

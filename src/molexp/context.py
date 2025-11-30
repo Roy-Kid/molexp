@@ -5,9 +5,13 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Iterator
+from typing import Any, Iterator, TYPE_CHECKING
 
-from .assets import AssetRepo
+if TYPE_CHECKING:
+    from .assets import AssetRepo
+    from .engine import TaskEngine
+    from .models import Run
+    from .workspace import Workspace
 
 
 @dataclass(slots=True)
@@ -15,9 +19,12 @@ class RunContext:
     """Per-run context shared implicitly by all tasks."""
 
     asset_repo: AssetRepo
-    engine: Any | None = None
+    engine: TaskEngine | None = None
     run_id: str | None = None
+    run_metadata: Run | None = None
+    workspace: Workspace | None = None
     extras: dict[str, Any] = field(default_factory=dict)
+
 
 
 _current_ctx: ContextVar[RunContext | None] = ContextVar("taskflow_run_context", default=None)

@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, FileText, Settings, FlaskConical, Database } from "lucide-react"
+import { LayoutDashboard, FileText, Settings, FlaskConical, Database, Folder } from "lucide-react"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLDivElement> {}
 
@@ -18,6 +18,12 @@ export function Sidebar({ className }: SidebarProps) {
               <Button variant="ghost" className="w-full justify-start">
                 <LayoutDashboard className="mr-2 h-4 w-4" />
                 Overview
+              </Button>
+            </Link>
+            <Link to="/workspace">
+              <Button variant="ghost" className="w-full justify-start">
+                <Folder className="mr-2 h-4 w-4" />
+                Workspace
               </Button>
             </Link>
             <Link to="/workflow">
@@ -38,6 +44,7 @@ export function Sidebar({ className }: SidebarProps) {
                 Assets
               </Button>
             </Link>
+
             <Button variant="ghost" className="w-full justify-start">
               <FileText className="mr-2 h-4 w-4" />
               Reports

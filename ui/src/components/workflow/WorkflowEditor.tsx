@@ -24,6 +24,8 @@ import { NodeConfigDialog } from './NodeConfigDialog';
 import { ContextMenu } from './ContextMenu';
 import { Button } from '../ui/button';
 import { useAppStore } from '@/store/useAppStore';
+import { getLayoutedElements } from '@/lib/workflow-utils';
+import type { TaskGraphJson } from '@/types/task_graph_ir';
 
 const nodeTypes = {
   start: StartNode,
@@ -43,10 +45,12 @@ const initialNodes: Node[] = [
 let id = 0;
 const getId = () => `node_${id++}`;
 
+
 interface WorkflowEditorProps {
   readOnly?: boolean;
   initialNodes?: Node[];
   initialEdges?: Edge[];
+  initialGraph?: TaskGraphJson;
   executionStatus?: Record<string, 'success' | 'failed' | 'pending'>;
 }
 
@@ -54,6 +58,7 @@ export const WorkflowEditor = ({
   readOnly = false, 
   initialNodes: propNodes, 
   initialEdges: propEdges,
+  initialGraph,
   executionStatus 
 }: WorkflowEditorProps) => {
   return (
@@ -62,6 +67,7 @@ export const WorkflowEditor = ({
         readOnly={readOnly} 
         initialNodes={propNodes} 
         initialEdges={propEdges}
+        initialGraph={initialGraph}
         executionStatus={executionStatus}
       />
     </ReactFlowProvider>
@@ -72,12 +78,28 @@ const WorkflowEditorContent = ({
   readOnly, 
   initialNodes: propNodes, 
   initialEdges: propEdges,
+  initialGraph,
   executionStatus 
 }: WorkflowEditorProps) => {
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState(propNodes || initialNodes);
+  
+  // Initialize state based on props
+  const getInitialState = () => {
+    if (initialGraph) {
+      const { nodes, edges } = getLayoutedElements(initialGraph.nodes, initialGraph.edges);
+      return { nodes, edges };
+    }
+    return { 
+      nodes: propNodes || initialNodes, 
+      edges: propEdges || [] 
+    };
+  };
+
+  const initialState = getInitialState();
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialState.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(
-    (propEdges || []).map(edge => ({
+    initialState.edges.map(edge => ({
       ...edge,
       style: executionStatus ? {
         stroke: executionStatus[edge.id] === 'success' ? '#16a34a' : 

@@ -1,49 +1,25 @@
-import { useState } from 'react';
-import { Folder, File, FileText, Database, ChevronRight, ChevronDown, Search } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Folder, File, FileText, Database, Search, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-
-// Mock Data
-const fileSystem = [
-  {
-    id: 'root',
-    name: 'My Projects',
-    type: 'folder',
-    children: [
-      {
-        id: 'proj1',
-        name: 'Aspirin Study',
-        type: 'folder',
-        children: [
-          { id: 'f1', name: 'aspirin.pdb', type: 'file', fileType: 'pdb', size: '12 KB', date: '2023-10-25' },
-          { id: 'f2', name: 'optimization.log', type: 'file', fileType: 'log', size: '45 KB', date: '2023-10-26' },
-          { id: 'f3', name: 'results.json', type: 'file', fileType: 'json', size: '2 KB', date: '2023-10-27' },
-        ]
-      },
-      {
-        id: 'proj2',
-        name: 'Protein Binding',
-        type: 'folder',
-        children: [
-          { id: 'f4', name: 'protein.pdb', type: 'file', fileType: 'pdb', size: '2.4 MB', date: '2023-10-20' },
-          { id: 'f5', name: 'ligand.sdf', type: 'file', fileType: 'sdf', size: '5 KB', date: '2023-10-21' },
-        ]
-      },
-      { id: 'f6', name: 'notes.txt', type: 'file', fileType: 'txt', size: '1 KB', date: '2023-10-01' },
-    ]
-  }
-];
+import { useAppStore } from '@/store/useAppStore';
+import { UploadAssetDialog } from '@/components/UploadAssetDialog';
+import { DetailPanel } from '@/components/DetailPanel';
 
 const FileIcon = ({ type }: { type: string }) => {
-  switch (type) {
+  switch (type?.toLowerCase()) {
     case 'pdb':
     case 'sdf':
+    case 'mol2':
       return <Database className="h-8 w-8 text-blue-500" />;
     case 'log':
     case 'txt':
+    case 'out':
       return <FileText className="h-8 w-8 text-gray-500" />;
     case 'json':
+    case 'yaml':
+    case 'yml':
       return <File className="h-8 w-8 text-yellow-500" />;
     default:
       return <File className="h-8 w-8 text-gray-400" />;
@@ -51,50 +27,30 @@ const FileIcon = ({ type }: { type: string }) => {
 };
 
 export const Assets = () => {
-  const [currentFolder, setCurrentFolder] = useState<any>(fileSystem[0]);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['root']));
+  const assets = useAppStore((state) => state.assets);
+  const fetchAssets = useAppStore((state) => state.fetchAssets);
+  const isLoading = useAppStore((state) => state.isLoading);
+  
+  const [selectedAsset, setSelectedAsset] = useState<any>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  const toggleFolder = (folderId: string) => {
-    const newExpanded = new Set(expandedFolders);
-    if (newExpanded.has(folderId)) {
-      newExpanded.delete(folderId);
-    } else {
-      newExpanded.add(folderId);
-    }
-    setExpandedFolders(newExpanded);
-  };
+  useEffect(() => {
+    fetchAssets();
+  }, [fetchAssets]);
 
-  const navigateTo = (folder: any) => {
-    setCurrentFolder(folder);
-    // Ideally update path breadcrumbs here
-  };
+  const filteredAssets = assets.filter((asset: any) => {
+    const name = asset.metadata?.original_filename || asset.asset_id;
+    return name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+           asset.asset_id.toLowerCase().includes(searchTerm.toLowerCase());
+  });
 
-  const renderTree = (items: any[], level = 0) => {
-    return items.map(item => (
-      <div key={item.id} style={{ paddingLeft: `${level * 12}px` }}>
-        {item.type === 'folder' ? (
-          <div>
-            <div 
-              className={`flex items-center py-1 px-2 rounded cursor-pointer hover:bg-accent ${currentFolder.id === item.id ? 'bg-accent' : ''}`}
-              onClick={() => navigateTo(item)}
-            >
-              <button 
-                onClick={(e) => { e.stopPropagation(); toggleFolder(item.id); }} 
-                className="p-1 hover:bg-muted rounded mr-1"
-              >
-                {expandedFolders.has(item.id) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-              </button>
-              <Folder className="h-4 w-4 mr-2 text-blue-500" />
-              <span className="text-sm truncate">{item.name}</span>
-            </div>
-            {expandedFolders.has(item.id) && item.children && (
-              <div>{renderTree(item.children, level + 1)}</div>
-            )}
-          </div>
-        ) : null}
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center text-muted-foreground">Loading assets...</div>
       </div>
-    ));
-  };
+    );
+  }
 
   return (
     <div className="h-full flex flex-col">
@@ -103,53 +59,62 @@ export const Assets = () => {
         <div className="flex items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Search assets..." className="pl-8 w-64" />
+            <Input 
+              placeholder="Search assets..." 
+              className="pl-8 w-64" 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-          <Button>Upload</Button>
+          <UploadAssetDialog />
         </div>
       </div>
       
       <div className="flex-1 flex overflow-hidden">
-        {/* Sidebar Tree */}
-        <div className="w-64 border-r bg-muted/10 overflow-y-auto p-2">
-          {renderTree(fileSystem)}
-        </div>
-
-        {/* Main Content */}
+        {/* Main Content - Grid */}
         <div className="flex-1 overflow-y-auto p-6">
           <div className="mb-4 text-sm text-muted-foreground">
-            {currentFolder.name}
+            All Assets ({filteredAssets.length})
           </div>
           
           <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {currentFolder.children?.map((item: any) => (
-              <Card key={item.id} className="cursor-pointer hover:shadow-md transition-shadow">
+            {filteredAssets.map((asset: any) => (
+              <Card 
+                key={asset.asset_id} 
+                className={`cursor-pointer hover:shadow-md transition-shadow ${selectedAsset?.asset_id === asset.asset_id ? 'ring-2 ring-primary' : ''}`}
+                onClick={() => setSelectedAsset(asset)}
+              >
                 <CardContent className="p-4 flex flex-col items-center text-center gap-3">
-                  {item.type === 'folder' ? (
-                    <Folder className="h-12 w-12 text-blue-500" />
-                  ) : (
-                    <FileIcon type={item.fileType} />
-                  )}
+                  <FileIcon type={asset.format} />
                   <div className="space-y-1 w-full">
-                    <div className="font-medium text-sm truncate w-full" title={item.name}>
-                      {item.name}
+                    <div className="font-medium text-sm truncate w-full" title={asset.metadata?.original_filename || asset.asset_id}>
+                      {asset.metadata?.original_filename || asset.asset_id}
                     </div>
-                    {item.type === 'file' && (
-                      <div className="text-xs text-muted-foreground">
-                        {item.size} • {item.date}
-                      </div>
-                    )}
+                    <div className="text-xs text-muted-foreground">
+                      {(asset.size / 1024).toFixed(1)} KB • {new Date(asset.created).toLocaleDateString()}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
             ))}
-            {(!currentFolder.children || currentFolder.children.length === 0) && (
+            {filteredAssets.length === 0 && (
               <div className="col-span-full text-center py-12 text-muted-foreground">
-                This folder is empty
+                No assets found
               </div>
             )}
           </div>
         </div>
+
+        {/* Right Sidebar - Details */}
+        {selectedAsset && (
+          <div className="w-80 border-l bg-background overflow-y-auto">
+            <div className="p-4 flex justify-between items-center border-b">
+              <h3 className="font-semibold">Asset Details</h3>
+              <Button variant="ghost" size="sm" onClick={() => setSelectedAsset(null)}>Close</Button>
+            </div>
+            <DetailPanel nodeId={selectedAsset.asset_id} nodeType="asset" />
+          </div>
+        )}
       </div>
     </div>
   );
