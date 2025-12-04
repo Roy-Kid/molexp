@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from "react-router-dom"
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
 import { DashboardLayout } from "@/components/DashboardLayout"
 import { Overview } from "@/pages/Overview"
 import { Workflow } from "@/pages/Workflow"
@@ -6,6 +6,7 @@ import { ExecutionList } from "@/pages/ExecutionList"
 import { ExecutionDetail } from "@/pages/ExecutionDetail"
 import { Assets } from "@/pages/Assets"
 import { Workspace } from "@/pages/Workspace"
+import { Toaster } from "@/components/ui/sonner"
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
           <Route path="/assets" element={<Assets />} />
         </Routes>
       </DashboardLayout>
+      <Toaster />
     </BrowserRouter>
   )
 }

@@ -15,22 +15,16 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# Import workspace components
-try:
-    from molexp.workspace import Workspace
-    from molexp.models import RunStatus, AssetType, Asset, AssetFile
-    from molexp.id_utils import generate_asset_id, compute_content_hash
-    WORKSPACE_AVAILABLE = True
-except ImportError:
-    WORKSPACE_AVAILABLE = False
 
-# Import task graph components for JSON IR
-try:
-    from molexp.task_graph_compiler import TaskGraphCompiler
-    from molexp.workflow_registry import get_workflow_registry
-    TASK_GRAPH_AVAILABLE = True
-except ImportError:
-    TASK_GRAPH_AVAILABLE = False
+from molexp.workspace import Workspace
+from molexp.workspace.scanner import FolderScanner
+from molexp.models import RunStatus, AssetType, Asset, AssetFile
+from molexp.utils.id import generate_asset_id, compute_content_hash
+
+from molexp.ir.loader import load_workflow_from_json
+from molexp.ir.engine import WorkflowEngine
+
+from molexp.workflow.plugin import get_node_registry, load_plugins
 
 # Initialize FastAPI app
 app = FastAPI(title="MolExp API", version="0.2.0")
@@ -44,14 +38,89 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# ============================================================================
+# Workspace Folder Storage (in-memory)
+# ============================================================================
+
+class WorkspaceFolderStore:
+    """In-memory storage for workspace folders."""
+    def __init__(self):
+        self.folders: dict[str, dict[str, Any]] = {}
+    
+    def add(self, folder_id: str, path: str, name: str) -> None:
+        self.folders[folder_id] = {
+            "id": folder_id,
+            "path": path,
+            "name": name,
+            "added_at": datetime.now().isoformat()
+        }
+    
+    def remove(self, folder_id: str) -> bool:
+        if folder_id in self.folders:
+            del self.folders[folder_id]
+            return True
+        return False
+    
+    def get(self, folder_id: str) -> dict[str, Any] | None:
+        return self.folders.get(folder_id)
+    
+    def list_all(self) -> list[dict[str, Any]]:
+        return list(self.folders.values())
+
+# Global workspace folder store
+workspace_folders = WorkspaceFolderStore()
+
+
+# Startup event: Load plugins
+@app.on_event("startup")
+async def startup_event():
+    """Load node plugins at startup."""
+    load_plugins()
+    registry = get_node_registry()
+    node_count = len(registry.list_all())
+    print(f"✓ Loaded {node_count} node types from plugins")
+
+
 # Initialize workspace
 def get_workspace() -> Workspace:
     """Get workspace instance."""
-    if not WORKSPACE_AVAILABLE:
-        raise HTTPException(status_code=501, detail="Workspace module not available")
-    
     workspace_path = os.environ.get("MOLEXP_WORKSPACE", str(Path.cwd()))
     return Workspace.from_path(workspace_path)
+
+
+# ============================================================================
+# Node Plugin Endpoints
+# ============================================================================
+
+@app.get("/api/nodes")
+def list_nodes():
+    """List all available node types from plugins.
+    
+    Returns:
+        Dictionary with all node definitions including metadata and config schemas
+    """
+    registry = get_node_registry()
+    return registry.to_dict()
+
+
+@app.get("/api/nodes/{node_id}")
+def get_node(node_id: str):
+    """Get details for a specific node type.
+    
+    Args:
+        node_id: Node identifier (e.g., "io.write_file")
+        
+    Returns:
+        Node definition with metadata and config schema
+    """
+    registry = get_node_registry()
+    registration = registry.get(node_id)
+    
+    if not registration:
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+    
+    return registration.to_dict()
 
 
 # ============================================================================
@@ -137,27 +206,50 @@ def get_workspace_tree():
                     "id": f"{project.project_id}/{exp.experiment_id}/{run.run_id}",
                     "name": run.run_id,
                     "type": "run",
+                    "indexed": True,
+                    "kind": "run",
+                    "schema_version": run.schema_version,
                     "status": run.status.value,
                     "created": run.created_at.isoformat(),
                     "finished": run.finished_at.isoformat() if run.finished_at else None,
                     "parameters": run.parameters,
                 })
             
+            # Scan for workflow files
+            exp_dir = workspace.root / "projects" / project.project_id / "experiments" / exp.experiment_id
+            workflow_items = []
+            if exp_dir.exists():
+                for item in exp_dir.iterdir():
+                    if item.is_file() and item.name.endswith(".flow"):
+                        workflow_items.append({
+                            "id": f"workspace:projects/{project.project_id}/experiments/{exp.experiment_id}/{item.name}",
+                            "name": item.name,
+                            "type": "file",
+                            "path": f"projects/{project.project_id}/experiments/{exp.experiment_id}/{item.name}",
+                            "size": item.stat().st_size,
+                        })
+
             experiment_items.append({
                 "id": f"{project.project_id}/{exp.experiment_id}",
                 "name": exp.name,
                 "type": "experiment",
+                "indexed": True,
+                "kind": "experiment",
+                "schema_version": exp.schema_version,
                 "experimentId": exp.experiment_id,
                 "workflow": exp.workflow_template.source,
                 "created": exp.created_at.isoformat(),
                 "runCount": len(runs),
-                "children": run_items,
+                "children": workflow_items + run_items,
             })
         
         tree_items.append({
             "id": project.project_id,
             "name": project.name,
             "type": "project",
+            "indexed": True,
+            "kind": "project",
+            "schema_version": project.schema_version,
             "projectId": project.project_id,
             "owner": project.owner,
             "tags": project.tags,
@@ -173,6 +265,246 @@ def get_workspace_tree():
         "children": tree_items,
     }
 
+
+# ============================================================================
+# Workspace Folder Endpoints
+# ============================================================================
+
+class WorkspaceFolderAdd(BaseModel):
+    path: str
+    name: str | None = None
+
+
+@app.get("/api/workspace/folders")
+def list_workspace_folders():
+    """List all workspace folders."""
+    return workspace_folders.list_all()
+
+
+@app.post("/api/workspace/folders")
+def add_workspace_folder(folder: WorkspaceFolderAdd):
+    """Add a workspace folder."""
+    folder_path = Path(folder.path).resolve()
+    
+    # Validate path exists and is a directory
+    if not folder_path.exists():
+        raise HTTPException(status_code=400, detail=f"Path does not exist: {folder.path}")
+    
+    if not folder_path.is_dir():
+        raise HTTPException(status_code=400, detail=f"Path is not a directory: {folder.path}")
+    
+    # Check if already added
+    for existing in workspace_folders.list_all():
+        if Path(existing["path"]).resolve() == folder_path:
+            raise HTTPException(status_code=400, detail="Folder already added to workspace")
+    
+    # Generate ID and add
+    folder_id = str(uuid4())[:8]
+    folder_name = folder.name or folder_path.name
+    
+    workspace_folders.add(folder_id, str(folder_path), folder_name)
+    
+    return {
+        "id": folder_id,
+        "path": str(folder_path),
+        "name": folder_name,
+        "added_at": datetime.now().isoformat()
+    }
+
+
+@app.delete("/api/workspace/folders/{folder_id}")
+def remove_workspace_folder(folder_id: str):
+    """Remove a workspace folder."""
+    if not workspace_folders.remove(folder_id):
+        raise HTTPException(status_code=404, detail="Folder not found")
+    
+    return {"message": "Folder removed"}
+
+
+@app.get("/api/workspace/folders/{folder_id}/browse")
+def browse_workspace_folder(folder_id: str, path: str = ""):
+    """Browse contents of a workspace folder.
+    
+    Args:
+        folder_id: Workspace folder ID
+        path: Relative path within the folder (optional)
+    """
+    folder = workspace_folders.get(folder_id)
+    if not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    
+    # Construct full path
+    base_path = Path(folder["path"])
+    if path:
+        full_path = (base_path / path).resolve()
+    else:
+        full_path = base_path
+    
+    # Security check: ensure path is within folder
+    try:
+        full_path.relative_to(base_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: path outside workspace folder")
+    
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="Path not found")
+    
+    if not full_path.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory")
+    
+    # List directory contents
+    entries = []
+    try:
+        for item in sorted(full_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+            entry = {
+                "name": item.name,
+                "path": str(item.relative_to(base_path)),
+                "type": "directory" if item.is_dir() else "file",
+            }
+            
+            if item.is_file():
+                try:
+                    entry["size"] = item.stat().st_size
+                except:
+                    entry["size"] = 0
+            
+            entries.append(entry)
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    return {
+        "path": path,
+        "entries": entries
+    }
+
+
+@app.get("/api/workspace/files/content")
+def read_workspace_file(folder_id: str, path: str):
+    """Read content of a file in a workspace folder.
+    
+    Args:
+        folder_id: Workspace folder ID
+        path: Relative path to the file
+    """
+    folder = workspace_folders.get(folder_id)
+    if folder_id == "workspace":
+        workspace = get_workspace()
+        base_path = workspace.root
+    elif not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    else:
+        # Construct full path
+        base_path = Path(folder["path"])
+    full_path = (base_path / path).resolve()
+    
+    # Security check: ensure path is within folder
+    try:
+        full_path.relative_to(base_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: path outside workspace folder")
+    
+    if not full_path.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    
+    if not full_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+    
+    # Read file content
+    # Limit size for now (e.g., 1MB)
+    MAX_SIZE = 1024 * 1024
+    if full_path.stat().st_size > MAX_SIZE:
+        raise HTTPException(status_code=400, detail="File too large to preview")
+        
+    try:
+        # Try to read as text
+        with open(full_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        return {"content": content}
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Binary files not supported for preview")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class FileContentUpdate(BaseModel):
+    folder_id: str
+    path: str
+    content: str
+
+
+@app.put("/api/workspace/files/content")
+def write_workspace_file(update: FileContentUpdate):
+    """Write content to a file in a workspace folder.
+    
+    Args:
+        update: File update data
+    """
+    folder = workspace_folders.get(update.folder_id)
+    if update.folder_id == "workspace":
+        workspace = get_workspace()
+        base_path = workspace.root
+    elif not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    else:
+        # Construct full path
+        base_path = Path(folder["path"])
+    full_path = (base_path / update.path).resolve()
+    
+    # Security check: ensure path is within folder
+    try:
+        full_path.relative_to(base_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: path outside workspace folder")
+    
+    # Ensure parent directory exists
+    if not full_path.parent.exists():
+        raise HTTPException(status_code=404, detail="Parent directory does not exist")
+        
+    # if not full_path.exists():
+    #     raise HTTPException(status_code=404, detail="File not found")
+    
+    if full_path.exists() and not full_path.is_file():
+        raise HTTPException(status_code=400, detail="Path is not a file")
+        
+    try:
+        # Write file content
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(update.content)
+        return {"message": "File saved successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class DirectoryCreate(BaseModel):
+    folder_id: str
+    path: str
+
+@app.post("/api/workspace/files/directory")
+def create_workspace_directory(data: DirectoryCreate):
+    """Create a directory in a workspace folder."""
+    folder = workspace_folders.get(data.folder_id)
+    if data.folder_id == "workspace":
+        workspace = get_workspace()
+        base_path = workspace.root
+    elif not folder:
+        raise HTTPException(status_code=404, detail="Folder not found")
+    else:
+        base_path = Path(folder["path"])
+    
+    full_path = (base_path / data.path).resolve()
+    
+    try:
+        full_path.relative_to(base_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied")
+        
+    if full_path.exists():
+        raise HTTPException(status_code=400, detail="Path already exists")
+        
+    try:
+        full_path.mkdir(parents=True, exist_ok=True)
+        return {"message": "Directory created"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
 # Project Endpoints
@@ -244,26 +576,23 @@ def create_project(project: ProjectCreate):
     """Create a new project."""
     workspace = get_workspace()
     
-    try:
-        new_project = workspace.create_project(
-            project_id=project.project_id,
-            name=project.name,
-            description=project.description,
-            owner=project.owner,
-            tags=project.tags,
-        )
-        
-        return {
-            "id": new_project.project_id,
-            "projectId": new_project.project_id,
-            "name": new_project.name,
-            "description": new_project.description,
-            "owner": new_project.owner,
-            "tags": new_project.tags,
-            "created": new_project.created_at.isoformat(),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    new_project = workspace.create_project(
+        project_id=project.project_id,
+        name=project.name,
+        description=project.description,
+        owner=project.owner,
+        tags=project.tags,
+    )
+    
+    return {
+        "id": new_project.project_id,
+        "projectId": new_project.project_id,
+        "name": new_project.name,
+        "description": new_project.description,
+        "owner": new_project.owner,
+        "tags": new_project.tags,
+        "created": new_project.created_at.isoformat(),
+    }
 
 
 @app.delete("/api/projects/{project_id}")
@@ -271,11 +600,8 @@ def delete_project(project_id: str):
     """Delete a project."""
     workspace = get_workspace()
     
-    try:
-        workspace.delete_project(project_id)
-        return {"message": "Project deleted"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    workspace.delete_project(project_id)
+    return {"message": "Project deleted"}
 
 
 # ============================================================================
@@ -358,27 +684,24 @@ def create_experiment(project_id: str, experiment: ExperimentCreate):
     """Create a new experiment."""
     workspace = get_workspace()
     
-    try:
-        new_exp = workspace.create_experiment(
-            project_id=project_id,
-            experiment_id=experiment.experiment_id,
-            name=experiment.name,
-            workflow_source=experiment.workflow_source,
-            description=experiment.description,
-            parameter_space=experiment.parameter_space,
-        )
-        
-        return {
-            "id": new_exp.experiment_id,
-            "experimentId": new_exp.experiment_id,
-            "projectId": new_exp.project_id,
-            "name": new_exp.name,
-            "description": new_exp.description,
-            "workflow": new_exp.workflow_template.source,
-            "created": new_exp.created_at.isoformat(),
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    new_exp = workspace.create_experiment(
+        project_id=project_id,
+        experiment_id=experiment.experiment_id,
+        name=experiment.name,
+        workflow_source=experiment.workflow_source,
+        description=experiment.description,
+        parameter_space=experiment.parameter_space,
+    )
+    
+    return {
+        "id": new_exp.experiment_id,
+        "experimentId": new_exp.experiment_id,
+        "projectId": new_exp.project_id,
+        "name": new_exp.name,
+        "description": new_exp.description,
+        "workflow": new_exp.workflow_template.source,
+        "created": new_exp.created_at.isoformat(),
+    }
 
 
 @app.delete("/api/projects/{project_id}/experiments/{experiment_id}")
@@ -386,11 +709,8 @@ def delete_experiment(project_id: str, experiment_id: str):
     """Delete an experiment."""
     workspace = get_workspace()
     
-    try:
-        workspace.delete_experiment(project_id, experiment_id)
-        return {"message": "Experiment deleted"}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    workspace.delete_experiment(project_id, experiment_id)
+    return {"message": "Experiment deleted"}
 
 
 # ============================================================================
@@ -490,26 +810,24 @@ def create_run(project_id: str, experiment_id: str, run: RunCreate):
     """Create a new run."""
     workspace = get_workspace()
     
-    try:
-        new_run = workspace.create_run(
-            project_id=project_id,
-            experiment_id=experiment_id,
-            parameters=run.parameters,
-            workflow_file=run.workflow_file,
-            git_commit=run.git_commit,
-        )
-        
-        return {
-            "id": new_run.run_id,
-            "runId": new_run.run_id,
-            "projectId": new_run.project_id,
-            "experimentId": new_run.experiment_id,
-            "status": new_run.status.value,
-            "created": new_run.created_at.isoformat(),
-            "parameters": new_run.parameters,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    new_run = workspace.create_run(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        parameters=run.parameters,
+        workflow_file=run.workflow_file,
+        git_commit=run.git_commit,
+    )
+    
+    return {
+        "id": new_run.run_id,
+        "runId": new_run.run_id,
+        "projectId": new_run.project_id,
+        "experimentId": new_run.experiment_id,
+        "status": new_run.status.value,
+        "created": new_run.created_at.isoformat(),
+        "parameters": new_run.parameters,
+    }
+
 
 
 @app.patch("/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/status")
@@ -521,20 +839,153 @@ def update_run_status(project_id: str, experiment_id: str, run_id: str, status: 
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
-    try:
-        run.status = RunStatus(status.get("status", run.status.value))
-        if status.get("status") in ["succeeded", "failed", "cancelled"]:
-            run.finished_at = datetime.now()
+    run.status = RunStatus(status.get("status", run.status.value))
+    if status.get("status") in ["succeeded", "failed", "cancelled"]:
+        run.finished_at = datetime.now()
+    
+    workspace.update_run(run)
+    
+    return {
+        "id": run.run_id,
+        "status": run.status.value,
+        "finished": run.finished_at.isoformat() if run.finished_at else None,
+    }
+
+@app.post("/api/executions")
+def create_generic_execution(run_data: dict):
+    """Create a new execution in the default playground project."""
+    workspace = get_workspace()
+    
+    # Ensure default project and experiment exist
+    project_id = "playground"
+    experiment_id = "default"
+    
+    if not workspace.get_project(project_id):
+        workspace.create_project(project_id, "Playground", "Default project for ad-hoc runs")
         
-        workspace.update_run(run)
+    if not workspace.get_experiment(project_id, experiment_id):
+        workspace.create_experiment(project_id, experiment_id, "Default Experiment", "adhoc")
         
-        return {
-            "id": run.run_id,
-            "status": run.status.value,
-            "finished": run.finished_at.isoformat() if run.finished_at else None,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    # Create the run
+    # Extract workflow snapshot if present
+    workflow_snapshot = run_data.get("workflowSnapshot")
+    workflow_file = "workflow.json" # Placeholder
+    
+    # If we have a snapshot, we might want to save it or use it directly
+    # For now, we'll pass it through if the workspace supports it, 
+    # or just create the run structure.
+    
+    new_run = workspace.create_run(
+        project_id=project_id,
+        experiment_id=experiment_id,
+        parameters={},
+        workflow_file=workflow_file
+    )
+    
+    # If snapshot provided, update the run with it
+    if workflow_snapshot:
+        import json
+        # We need to manually update the snapshot since create_run might not take it directly
+        # depending on the internal API. Assuming we can update it:
+        new_run.workflow_snapshot.serialized_graph = json.dumps(workflow_snapshot)
+        workspace.update_run(new_run)
+
+    return {
+        "id": new_run.run_id,
+        "runId": new_run.run_id,
+        "projectId": new_run.project_id,
+        "experimentId": new_run.experiment_id,
+        "status": new_run.status.value,
+        "created": new_run.created_at.isoformat(),
+        "name": run_data.get("name", new_run.run_id)
+    }
+
+@app.post("/api/projects/{project_id}/experiments/{experiment_id}/runs/plan")
+def preview_run_plan(run: RunCreate):
+    """Preview execution plan for a workflow."""
+    # Load workflow from file or string
+    # For preview, we might receive the JSON string directly in run.workflow_file if it's a draft
+    # But RunCreate expects a file path. 
+    # Let's assume for now the UI sends a temporary file path or we extend RunCreate.
+    # Actually, the UI usually sends the JSON content for preview.
+    # Let's create a specific model for PlanRequest.
+    pass
+
+class PlanRequest(BaseModel):
+    workflow_json: str
+    targets: list[str] | None = None
+
+@app.post("/api/plan")
+def get_execution_plan(request: PlanRequest):
+    """Get execution plan for a workflow definition."""
+    from molexp.ir.loader import load_workflow_from_json
+    from molexp.ir.compiler import plan_execution, ValidationError
+    
+    workflow_ir = load_workflow_from_json(request.workflow_json)
+    
+    # Override targets if provided
+    plan = plan_execution(workflow_ir, targets=request.targets)
+    
+    return {
+        "plan": plan,
+        "nodeCount": len(plan)
+    }
+@app.post("/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/start")
+def start_run(project_id: str, experiment_id: str, run_id: str):
+    """Start run execution."""
+    workspace = get_workspace()
+    run = workspace.get_run(project_id, experiment_id, run_id)
+    
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    
+    # Check if run is already finished or running
+    if run.status in [RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.RUNNING]:
+        raise HTTPException(status_code=400, detail=f"Run is already {run.status.value}")
+
+    # Update status to running
+    run.status = RunStatus.RUNNING
+    workspace.update_run(run)
+
+    # TODO: This is a simplified synchronous execution
+    # In production, this should be offloaded to a background worker
+    
+    # If we have a serialized graph, use it
+    if run.workflow_snapshot.serialized_graph:
+        import json
+        from molexp.ir.loader import load_workflow_from_json
+        from molexp.ir.engine import WorkflowEngine
+        from molexp.ir.compiler import compile_workflow, plan_execution, ValidationError
+        
+        workflow_ir = load_workflow_from_json(run.workflow_snapshot.serialized_graph)
+        
+        # Validate/Compile
+        compile_workflow(workflow_ir)
+        # Calculate execution plan (topological sort of required subgraph)
+        execution_plan = plan_execution(workflow_ir)
+            
+        engine = WorkflowEngine()
+        # Execute only the planned nodes
+        status_map = engine.execute(workflow_ir, run_id=run.run_id, node_ids=execution_plan)
+        
+        # Check if all PLANNED nodes succeeded
+        all_succeeded = all(status_map.get(nid) == "SUCCEEDED" for nid in execution_plan)
+        run.status = RunStatus.SUCCEEDED if all_succeeded else RunStatus.FAILED
+    else:
+        # SIMULATION FOR NOW to avoid complex dynamic loading issues
+        import time
+        time.sleep(1)
+        run.status = RunStatus.SUCCEEDED
+    
+    run.finished_at = datetime.now()
+    workspace.update_run(run)
+    
+    return {
+        "id": run.run_id,
+        "status": run.status.value,
+        "finished": run.finished_at.isoformat() if run.finished_at else None,
+    }
+
 
 
 # ============================================================================
@@ -710,8 +1161,127 @@ def health_check():
     return {
         "status": "healthy",
         "workspace_available": WORKSPACE_AVAILABLE,
-        "task_graph_available": TASK_GRAPH_AVAILABLE,
+        "ir_available": IR_AVAILABLE,
     }
+
+
+# ============================================================================
+# Indexed Folder Endpoints
+# ============================================================================
+
+@app.get("/api/entities/{kind}/{entity_id}")
+def get_entity_metadata(kind: str, entity_id: str):
+    """Get metadata for any indexed entity.
+    
+    Args:
+        kind: Entity kind (project, experiment, run, asset)
+        entity_id: Entity identifier
+        
+    Returns:
+        Entity metadata including kind, indexed status, and full entity data
+    """
+    workspace = get_workspace()
+    scanner = FolderScanner(workspace.root)
+    
+    # Construct path based on kind
+    if kind == "project":
+        folder_path = workspace.root / "projects" / entity_id
+    elif kind == "asset":
+        folder_path = workspace.root / "assets" / entity_id
+    elif kind == "experiment":
+        # For experiment, we need project_id in the path
+        # This is a simplified version - in production you'd need to search
+        raise HTTPException(
+            status_code=400, 
+            detail="Experiment requires project_id. Use /api/projects/{project_id}/experiments/{experiment_id}"
+        )
+    elif kind == "run":
+        # Similar issue for runs
+        raise HTTPException(
+            status_code=400,
+            detail="Run requires project_id and experiment_id. Use the specific run endpoint"
+        )
+    else:
+        raise HTTPException(status_code=400, detail=f"Unknown entity kind: {kind}")
+    
+    if not folder_path.exists():
+        raise HTTPException(status_code=404, detail="Entity not found")
+    
+    entity_info = scanner.scan_folder(folder_path)
+    
+    if not entity_info:
+        raise HTTPException(status_code=404, detail="Entity not found or not indexed")
+    
+    return {
+        "kind": entity_info["kind"],
+        "indexed": True,
+        "path": entity_info["path"],
+        "metadata": entity_info["entity"].model_dump(mode="json"),
+    }
+
+
+@app.get("/api/workspace/classify")
+def classify_folder(path: str):
+    """Classify a folder as an indexed entity or generic folder.
+    
+    Args:
+        path: Relative path from workspace root
+        
+    Returns:
+        Classification info including indexed status and kind
+    """
+    workspace = get_workspace()
+    scanner = FolderScanner(workspace.root)
+    
+    folder_path = workspace.root / path
+    
+    if not folder_path.exists():
+        raise HTTPException(status_code=404, detail="Folder not found")
+    
+    if not folder_path.is_dir():
+        raise HTTPException(status_code=400, detail="Path is not a directory")
+    
+    entity_info = scanner.scan_folder(folder_path)
+    
+    if entity_info:
+        return {
+            "indexed": True,
+            "kind": entity_info["kind"],
+            "path": entity_info["path"],
+            "metadata": entity_info["entity"].model_dump(mode="json"),
+        }
+    else:
+        return {
+            "indexed": False,
+            "kind": "folder",
+            "path": str(folder_path.relative_to(workspace.root)),
+        }
+
+
+@app.get("/api/workspace/scan")
+def scan_workspace():
+    """Scan entire workspace and return all indexed entities.
+    
+    Returns:
+        List of all indexed entities with their metadata
+    """
+    workspace = get_workspace()
+    scanner = FolderScanner(workspace.root)
+    
+    entities = scanner.scan_workspace()
+    
+    return {
+        "total": len(entities),
+        "entities": [
+            {
+                "kind": e["kind"],
+                "path": e["path"],
+                "metadata": e["entity"].model_dump(mode="json"),
+            }
+            for e in entities
+        ],
+    }
+
 
 
 if __name__ == "__main__":

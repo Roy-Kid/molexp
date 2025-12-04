@@ -1,0 +1,156 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.dev/schemas/workflow-ir.v1.json",
+    "title": "Unified Workflow Intermediate Representation",
+    "type": "object",
+    "required": [
+        "version",
+        "workflow"
+    ],
+    "properties": {
+        "version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+            "description": "Semantic version of the IR schema used."
+        },
+        "workflow": {
+            "type": "object",
+            "required": [
+                "id",
+                "nodes",
+                "edges"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique identifier for this workflow definition."
+                },
+                "name": {
+                    "type": "string",
+                    "description": "Human-readable name of the workflow."
+                },
+                "metadata": {
+                    "$ref": "#/definitions/Metadata",
+                    "description": "Non-execution related data (UI layout, tags, etc)."
+                },
+                "nodes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Node"
+                    },
+                    "description": "Collection of executable units."
+                },
+                "edges": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Edge"
+                    },
+                    "description": "Dependencies and data flow connections."
+                },
+                "inputs": {
+                    "type": "object",
+                    "description": "Global inputs required by the workflow at runtime.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "default": {}
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "Node": {
+            "type": "object",
+            "required": [
+                "id",
+                "op"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique identifier for this node within the workflow."
+                },
+                "op": {
+                    "type": "string",
+                    "description": "Operation Identifier (OpID) resolving to an executable action."
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Static configuration arguments for the operation.",
+                    "additionalProperties": true
+                },
+                "metadata": {
+                    "$ref": "#/definitions/Metadata"
+                }
+            }
+        },
+        "Edge": {
+            "type": "object",
+            "required": [
+                "source",
+                "target"
+            ],
+            "properties": {
+                "source": {
+                    "type": "string",
+                    "description": "ID of the source node."
+                },
+                "target": {
+                    "type": "string",
+                    "description": "ID of the target node."
+                },
+                "type": {
+                    "type": "string",
+                    "enum": [
+                        "dependency",
+                        "data"
+                    ],
+                    "default": "dependency",
+                    "description": "Nature of the connection: pure ordering (dependency) or value passing (data)."
+                },
+                "sourceHandle": {
+                    "type": "string",
+                    "description": "Name of the output port on the source node (required if type is 'data')."
+                },
+                "targetHandle": {
+                    "type": "string",
+                    "description": "Name of the input port on the target node (required if type is 'data')."
+                }
+            }
+        },
+        "Metadata": {
+            "type": "object",
+            "description": "Container for UI-specific or auxiliary data. Ignored by execution engine.",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "position": {
+                    "type": "object",
+                    "properties": {
+                        "x": {
+                            "type": "number"
+                        },
+                        "y": {
+                            "type": "number"
+                        }
+                    }
+                },
+                "uiConfig": {
+                    "type": "object"
+                },
+                "comments": {
+                    "type": "string"
+                }
+            }
+        }
+    }
+}

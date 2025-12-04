@@ -11,7 +11,7 @@ interface AppState {
     // Actions
     fetchExecutions: () => Promise<void>;
     fetchAssets: () => Promise<void>;
-    addExecution: (execution: Execution) => Promise<void>;
+    addExecution: (name: string, workflowSnapshot?: any) => Promise<void>;
     updateExecutionStatus: (id: string, status: Execution['status']) => void;
 }
 
@@ -45,15 +45,13 @@ export const useAppStore = create<AppState>((set) => ({
         }
     },
 
-    addExecution: async (execution) => {
+    addExecution: async (name: string, workflowSnapshot?: any) => {
         try {
-            const newExecution = await executionApi.create(execution.name, execution.workflowId);
+            const newExecution = await executionApi.create(name, undefined, workflowSnapshot);
             set((state) => ({ executions: [newExecution, ...state.executions] }));
         } catch (error) {
             console.error('Failed to create execution:', error);
             set({ error: 'Failed to create execution' });
-            // Fallback to local state
-            set((state) => ({ executions: [execution, ...state.executions] }));
         }
     },
 

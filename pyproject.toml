@@ -17,6 +17,9 @@ dependencies = [
 [project.scripts]
 molexp = "molexp.cli:app"
 
+[project.entry-points."molexp.nodes"]
+builtin = "molexp.workflow.nodes.register:register_builtin_nodes"
+
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"

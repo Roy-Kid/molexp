@@ -95,17 +95,26 @@ export const executionApi = {
         return response.data;
     },
 
-    create: async (name: string, workflowId?: string): Promise<Execution> => {
-        const response = await api.post('/api/executions', {
+    create: async (name: string, workflowId?: string, workflowSnapshot?: TaskGraphJson): Promise<Execution> => {
+        const payload: any = {
             name,
-            workflowId,
             status: 'Pending'
-        });
+        };
+
+        if (workflowId) payload.workflowId = workflowId;
+        if (workflowSnapshot) payload.workflowSnapshot = workflowSnapshot;
+
+        const response = await api.post('/api/executions', payload);
         return response.data;
     },
 
     updateStatus: async (id: string, status: Execution['status']): Promise<Execution> => {
         const response = await api.patch(`/api/executions/${id}`, { status });
+        return response.data;
+    },
+
+    start: async (projectId: string, experimentId: string, runId: string): Promise<Execution> => {
+        const response = await api.post(`/api/projects/${projectId}/experiments/${experimentId}/runs/${runId}/start`);
         return response.data;
     },
 };
@@ -129,6 +138,34 @@ export const assetApi = {
                 'Content-Type': 'multipart/form-data',
             },
         });
+        return response.data;
+    },
+};
+
+// ============================================================================
+// Node API
+// ============================================================================
+
+export interface NodeMetadata {
+    id: string;
+    label: string;
+    category: string;
+    description: string;
+    inputs: any[];
+    outputs: any[];
+    icon?: string;
+    tags?: string[];
+    config_schema?: any;
+}
+
+export const nodeApi = {
+    list: async (): Promise<{ nodes: NodeMetadata[] }> => {
+        const response = await api.get('/api/nodes');
+        return response.data;
+    },
+
+    get: async (id: string): Promise<NodeMetadata> => {
+        const response = await api.get(`/api/nodes/${id}`);
         return response.data;
     },
 };

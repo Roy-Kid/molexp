@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Calendar, User, Tag, GitBranch, Play, CheckCircle, XCircle, Clock, Loader, FileText, Database, Download } from 'lucide-react';
+import { Calendar, User, Tag, GitBranch, Play, CheckCircle, XCircle, Clock, Loader, FileText, Database, Download, Folder, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { API_ENDPOINTS } from '@/config/api';
 
 interface DetailPanelProps {
   nodeId: string | null;
-  nodeType: 'project' | 'experiment' | 'run' | 'asset' | null;
+  nodeType: 'project' | 'experiment' | 'run' | 'asset' | 'folder' | 'file' | null;
 }
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({ nodeId, nodeType }) => {
@@ -32,6 +32,74 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ nodeId, nodeType }) =>
       
       let url = '';
       const parts = nodeId.split('/');
+      
+      // Handle workspace folder/file types
+      if (nodeType === 'folder' || nodeType === 'file') {
+        // For workspace folders/files, nodeId format is "folderId:path"
+        const [folderId, ...pathParts] = nodeId.split(':');
+        const path = pathParts.join(':');
+        
+        // Special handling for workspace files (e.g., workflow files with "workspace:path" format)
+        if (folderId === 'workspace') {
+          // These are workspace-level files, not in a specific folder
+          setData({
+            id: 'workspace',
+            name: 'Workspace',
+            path: '/', // Workspace root
+            currentPath: path || '',
+            nodeType,
+            isFile: nodeType === 'file',
+            isWorkspaceFile: true,
+          });
+          setLoading(false);
+          return;
+        }
+        
+        // Fetch folder info for regular workspace folders
+        const foldersResponse = await fetch(API_ENDPOINTS.workspace.folders.list);
+        
+        if (!foldersResponse.ok) {
+          throw new Error('Failed to fetch folder info');
+        }
+        
+        const folders = await foldersResponse.json();
+        const folder = folders.find((f: any) => f.id === folderId);
+        
+        if (!folder) {
+          throw new Error('Folder not found');
+        }
+        
+        // For files, don't try to browse - just show folder info with current path
+        if (nodeType === 'file') {
+          setData({
+            ...folder,
+            currentPath: path || '',
+            nodeType,
+            isFile: true,
+          });
+          setLoading(false);
+          return;
+        }
+        
+        // For folders, browse if there's a path
+        let browseData = null;
+        if (path) {
+          const browseResponse = await fetch(API_ENDPOINTS.workspace.folders.browse(folderId, path));
+          if (browseResponse.ok) {
+            browseData = await browseResponse.json();
+          }
+        }
+        
+        setData({
+          ...folder,
+          currentPath: path || '',
+          browseData,
+          nodeType,
+          isFile: false,
+        });
+        setLoading(false);
+        return;
+      }
       
       switch (nodeType) {
         case 'project':
@@ -98,57 +166,78 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ nodeId, nodeType }) =>
       {nodeType === 'experiment' && <ExperimentDetails data={data} />}
       {nodeType === 'run' && <RunDetails data={data} />}
       {nodeType === 'asset' && <AssetDetails data={data} />}
+      {(nodeType === 'folder' || nodeType === 'file') && <WorkspaceFolderDetails data={data} />}
     </div>
   );
 };
 
 // Project Details
-const ProjectDetails: React.FC<{ data: any }> = ({ data }) => (
-  <div className="space-y-6">
-    <div>
-      <h1 className="text-2xl font-bold mb-2">{data.name}</h1>
-      <p className="text-sm text-muted-foreground">{data.description || 'No description'}</p>
-    </div>
-    
-    <div className="grid grid-cols-2 gap-4">
-      <InfoItem icon={<User className="h-4 w-4" />} label="Owner" value={data.owner || 'N/A'} />
-      <InfoItem icon={<Calendar className="h-4 w-4" />} label="Created" value={new Date(data.created).toLocaleDateString()} />
-      <InfoItem icon={<FileText className="h-4 w-4" />} label="Experiments" value={data.experimentCount} />
-    </div>
-    
-    {data.tags && data.tags.length > 0 && (
+const ProjectDetails: React.FC<{ data: any }> = ({ data }) => {
+  const totalRuns = data.experiments?.reduce((sum: number, exp: any) => {
+    return sum + (exp.runCount || 0);
+  }, 0) || 0;
+
+  return (
+    <div className="space-y-6">
       <div>
-        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
-          <Tag className="h-4 w-4" />
-          Tags
-        </h3>
-        <div className="flex flex-wrap gap-2">
-          {data.tags.map((tag: string) => (
-            <span key={tag} className="px-2 py-1 bg-accent rounded text-xs">
-              {tag}
-            </span>
-          ))}
+        <h1 className="text-2xl font-bold mb-2">{data.name}</h1>
+        <p className="text-sm text-muted-foreground">{data.description || 'No description'}</p>
+      </div>
+      
+      {/* Overview Statistics */}
+      <div>
+        <h3 className="text-sm font-semibold mb-3">Overview</h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div className="p-4 border rounded-lg">
+            <div className="text-2xl font-bold">{data.experimentCount || 0}</div>
+            <div className="text-xs text-muted-foreground mt-1">Experiments</div>
+          </div>
+          <div className="p-4 border rounded-lg">
+            <div className="text-2xl font-bold">{totalRuns}</div>
+            <div className="text-xs text-muted-foreground mt-1">Total Runs</div>
+          </div>
         </div>
       </div>
-    )}
-    
-    {data.experiments && data.experiments.length > 0 && (
-      <div>
-        <h3 className="text-sm font-semibold mb-2">Recent Experiments</h3>
-        <div className="space-y-2">
-          {data.experiments.slice(0, 5).map((exp: any) => (
-            <div key={exp.id} className="p-3 border rounded-lg">
-              <div className="font-medium text-sm">{exp.name}</div>
-              <div className="text-xs text-muted-foreground mt-1">
-                {new Date(exp.created).toLocaleDateString()}
+      
+      <div className="grid grid-cols-2 gap-4">
+        <InfoItem icon={<User className="h-4 w-4" />} label="Owner" value={data.owner || 'N/A'} />
+        <InfoItem icon={<Calendar className="h-4 w-4" />} label="Created" value={new Date(data.created).toLocaleDateString()} />
+      </div>
+      
+      {data.tags && data.tags.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+            <Tag className="h-4 w-4" />
+            Tags
+          </h3>
+          <div className="flex flex-wrap gap-2">
+            {data.tags.map((tag: string) => (
+              <span key={tag} className="px-2 py-1 bg-accent rounded text-xs">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+      
+      {data.experiments && data.experiments.length > 0 && (
+        <div>
+          <h3 className="text-sm font-semibold mb-2">Recent Experiments</h3>
+          <div className="space-y-2">
+            {data.experiments.slice(0, 5).map((exp: any) => (
+              <div key={exp.id} className="p-3 border rounded-lg">
+                <div className="font-medium text-sm">{exp.name}</div>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {new Date(exp.created).toLocaleDateString()}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
-    )}
-  </div>
-);
+      )}
+    </div>
+  );
+};
 
 // Experiment Details
 const ExperimentDetails: React.FC<{ data: any }> = ({ data }) => (
@@ -161,7 +250,9 @@ const ExperimentDetails: React.FC<{ data: any }> = ({ data }) => (
     <div className="grid grid-cols-2 gap-4">
       <InfoItem icon={<Calendar className="h-4 w-4" />} label="Created" value={new Date(data.created).toLocaleDateString()} />
       <InfoItem icon={<Play className="h-4 w-4" />} label="Runs" value={data.runCount} />
-      <InfoItem icon={<FileText className="h-4 w-4" />} label="Workflow" value={data.workflow} />
+      {typeof data.workflow === 'string' ? (
+        <InfoItem icon={<FileText className="h-4 w-4" />} label="Workflow" value={data.workflow} />
+      ) : null}
       {data.gitCommit && (
         <InfoItem icon={<GitBranch className="h-4 w-4" />} label="Git Commit" value={data.gitCommit.slice(0, 7)} />
       )}
@@ -220,11 +311,11 @@ const RunDetails: React.FC<{ data: any }> = ({ data }) => {
               View Workflow
             </Button>
           </DialogTrigger>
-          <DialogContent className="max-w-[90vw] h-[90vh]">
+          <DialogContent className="w-[90vw] max-w-[90vw] sm:max-w-[90vw] h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>Workflow Visualization: {data.runId}</DialogTitle>
             </DialogHeader>
-            <div className="flex-1 h-full min-h-0 pt-4">
+            <div className="flex-1 min-h-0 pt-4">
               <RunWorkflowViewer 
                 projectId={data.projectId} 
                 experimentId={data.experimentId} 
@@ -240,8 +331,10 @@ const RunDetails: React.FC<{ data: any }> = ({ data }) => {
         {data.finished && (
           <InfoItem icon={<Clock className="h-4 w-4" />} label="Finished" value={new Date(data.finished).toLocaleString()} />
         )}
-        <InfoItem icon={<FileText className="h-4 w-4" />} label="Workflow" value={data.workflow.file} />
-        {data.workflow.gitCommit && (
+        {data.workflow?.file && (
+          <InfoItem icon={<FileText className="h-4 w-4" />} label="Workflow" value={data.workflow.file} />
+        )}
+        {data.workflow?.gitCommit && (
           <InfoItem icon={<GitBranch className="h-4 w-4" />} label="Git Commit" value={data.workflow.gitCommit.slice(0, 7)} />
         )}
       </div>
@@ -392,6 +485,10 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     pending: { icon: Clock, color: 'text-gray-500', bg: 'bg-gray-500/10' },
   };
   
+  if (!status) {
+    return null;
+  }
+  
   const config = statusConfig[status.toLowerCase() as keyof typeof statusConfig] || statusConfig.pending;
   const Icon = config.icon;
   
@@ -399,6 +496,174 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     <div className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium", config.bg, config.color)}>
       <Icon className={cn("h-3.5 w-3.5", status.toLowerCase() === 'running' && 'animate-spin')} />
       {status}
+    </div>
+  );
+};
+
+// Workspace Folder Details
+const WorkspaceFolderDetails: React.FC<{ data: any }> = ({ data }) => {
+  const [stats, setStats] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [showDetails, setShowDetails] = React.useState(false);
+
+  React.useEffect(() => {
+    const fetchStats = async () => {
+      setLoading(true);
+      try {
+        // Fetch root contents to calculate statistics
+        const response = await fetch(API_ENDPOINTS.workspace.folders.browse(data.id, ''));
+        if (response.ok) {
+          const browseData = await response.json();
+          const entries = browseData.entries || [];
+          
+          const fileCount = entries.filter((e: any) => e.type === 'file').length;
+          const folderCount = entries.filter((e: any) => e.type === 'directory').length;
+          const totalSize = entries
+            .filter((e: any) => e.type === 'file')
+            .reduce((sum: number, e: any) => sum + (e.size || 0), 0);
+          
+          setStats({
+            fileCount,
+            folderCount,
+            totalSize,
+            totalItems: entries.length,
+          });
+        }
+      } catch (err) {
+        console.error('Failed to fetch stats:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    // Only fetch stats for valid workspace folders
+    // Skip if: it's a file, workspace file, or the ID is 'workspace' (which means it's a workspace-level file)
+    const isValidFolderId = data.id && 
+                           !data.isFile && 
+                           !data.isWorkspaceFile && 
+                           data.id !== 'workspace' &&
+                           data.nodeType === 'folder';
+    
+    if (isValidFolderId) {
+      fetchStats();
+    } else {
+      setLoading(false);
+    }
+  }, [data.id, data.isFile, data.isWorkspaceFile, data.nodeType]);
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+  };
+
+  // Construct full file path
+  const fullPath = data.isWorkspaceFile 
+    ? data.currentPath  // For workspace files, just show the path
+    : data.isFile && data.currentPath 
+      ? `${data.path}/${data.currentPath}`
+      : data.currentPath 
+        ? `${data.path}/${data.currentPath}`
+        : data.path;
+
+  // Get display name - for subfolders, show the folder name, not the workspace name
+  const displayName = data.isFile 
+    ? data.currentPath?.split('/').pop() || 'File'
+    : data.currentPath
+      ? data.currentPath.split('/').pop() || data.name || 'Workspace Folder'
+      : data.name || 'Workspace Folder';
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold mb-1">
+          {displayName}
+        </h1>
+        <div className="text-xs text-muted-foreground">
+          {data.isFile ? 'File' : data.currentPath ? 'Folder' : 'Workspace Folder'}
+        </div>
+      </div>
+      
+      {/* Prominent Path Display */}
+      <div className="bg-muted p-3 rounded-lg">
+        <div className="text-xs font-semibold text-muted-foreground mb-1">LOCAL PATH</div>
+        <code className="text-xs break-all font-mono">{fullPath || 'No path available'}</code>
+      </div>
+      
+      {!data.isFile && (
+        <>
+          {/* Compact Overview */}
+          {loading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : stats && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold">Overview</h3>
+                <button
+                  onClick={() => setShowDetails(!showDetails)}
+                  className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                >
+                  {showDetails ? (
+                    <>
+                      <ChevronDown className="h-3 w-3" />
+                      Hide Details
+                    </>
+                  ) : (
+                    <>
+                      <ChevronRight className="h-3 w-3" />
+                      Show Details
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              {/* Compact Summary */}
+              <div className="grid grid-cols-4 gap-2">
+                <div className="p-2 border rounded text-center">
+                  <div className="text-lg font-bold">{stats.totalItems}</div>
+                  <div className="text-xs text-muted-foreground">Items</div>
+                </div>
+                <div className="p-2 border rounded text-center">
+                  <div className="text-lg font-bold">{stats.fileCount}</div>
+                  <div className="text-xs text-muted-foreground">Files</div>
+                </div>
+                <div className="p-2 border rounded text-center">
+                  <div className="text-lg font-bold">{stats.folderCount}</div>
+                  <div className="text-xs text-muted-foreground">Folders</div>
+                </div>
+                <div className="p-2 border rounded text-center">
+                  <div className="text-lg font-bold">{formatBytes(stats.totalSize)}</div>
+                  <div className="text-xs text-muted-foreground">Size</div>
+                </div>
+              </div>
+
+              {/* Detailed Info (Collapsible) */}
+              {showDetails && (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    {data.added_at && (
+                      <InfoItem 
+                        icon={<Calendar className="h-3 w-3" />} 
+                        label="Added" 
+                        value={new Date(data.added_at).toLocaleDateString()} 
+                      />
+                    )}
+                    <InfoItem 
+                      icon={<Folder className="h-3 w-3" />} 
+                      label="Type" 
+                      value="Workspace Folder" 
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 };

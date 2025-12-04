@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Label } from '../ui/label';
 import { Input } from '../ui/input';
@@ -13,22 +13,43 @@ interface NodeConfigDialogProps {
   onClose: () => void;
   onConfirm: (data: any) => void;
   nodeType: string | null;
+  nodeDefinition?: any;
   initialData?: any;
 }
 
-export const NodeConfigDialog = ({ isOpen, onClose, onConfirm, nodeType, initialData }: NodeConfigDialogProps) => {
+export const NodeConfigDialog = ({ 
+  isOpen, 
+  onClose, 
+  onConfirm, 
+  nodeType, 
+  nodeDefinition,
+  initialData 
+}: NodeConfigDialogProps) => {
   const [formData, setFormData] = useState<Record<string, any>>({});
   const assets = useAppStore((state) => state.assets);
 
   useEffect(() => {
     if (isOpen) {
-      if (initialData) {
+      if (initialData && Object.keys(initialData).length > 0) {
         setFormData(initialData);
       } else if (nodeType) {
-        setFormData({ label: getDefaultLabel(nodeType), ...getDefaultConfig(nodeType) });
+        // Initialize with defaults from schema if available
+        const defaults: Record<string, any> = { label: nodeDefinition?.label || getDefaultLabel(nodeType) };
+        
+        if (nodeDefinition?.config_schema?.properties) {
+          Object.entries(nodeDefinition.config_schema.properties).forEach(([key, prop]: [string, any]) => {
+            if (prop.default !== undefined) {
+              defaults[key] = prop.default;
+            }
+          });
+        } else {
+          Object.assign(defaults, getDefaultConfig(nodeType));
+        }
+        
+        setFormData(defaults);
       }
     }
-  }, [isOpen, nodeType, initialData]);
+  }, [isOpen, nodeType, initialData, nodeDefinition]);
 
   const getDefaultLabel = (type: string) => {
     switch (type) {
@@ -37,7 +58,7 @@ export const NodeConfigDialog = ({ isOpen, onClose, onConfirm, nodeType, initial
       case 'calc-energy': return 'Calculate Energy';
       case 'run-md': return 'Molecular Dynamics';
       case 'save-results': return 'Save Results';
-      default: return 'Node';
+      default: return type.split('.').pop() || 'Node';
     }
   };
 
@@ -54,6 +75,68 @@ export const NodeConfigDialog = ({ isOpen, onClose, onConfirm, nodeType, initial
 
   const handleChange = (key: string, value: any) => {
     setFormData((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const renderSchemaFields = () => {
+    if (!nodeDefinition?.config_schema?.properties) return null;
+
+    return Object.entries(nodeDefinition.config_schema.properties).map(([key, prop]: [string, any]) => {
+      const isRequired = nodeDefinition.config_schema.required?.includes(key);
+      const title = prop.title || key;
+      const description = prop.description;
+
+      return (
+        <div key={key} className="grid gap-2">
+          <Label htmlFor={key} className="flex items-center gap-1">
+            {title}
+            {isRequired && <span className="text-red-500">*</span>}
+          </Label>
+          {description && <p className="text-xs text-muted-foreground">{description}</p>}
+          
+          {prop.enum ? (
+            <Select 
+              value={formData[key] || prop.default || ''} 
+              onValueChange={(val) => handleChange(key, val)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {prop.enum.map((val: any) => (
+                  <SelectItem key={val} value={String(val)}>
+                    {String(val)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          ) : prop.type === 'boolean' ? (
+             <Select 
+              value={formData[key] ? 'true' : 'false'} 
+              onValueChange={(val) => handleChange(key, val === 'true')}
+            >
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="true">True</SelectItem>
+                <SelectItem value="false">False</SelectItem>
+              </SelectContent>
+            </Select>
+          ) : prop.type === 'integer' || prop.type === 'number' ? (
+            <Input
+              id={key}
+              type="number"
+              value={formData[key] ?? ''}
+              onChange={(e) => handleChange(key, prop.type === 'integer' ? parseInt(e.target.value) : parseFloat(e.target.value))}
+            />
+          ) : (
+            <Input
+              id={key}
+              value={formData[key] || ''}
+              onChange={(e) => handleChange(key, e.target.value)}
+            />
+          )}
+        </div>
+      );
+    });
   };
 
   const renderFileSelector = () => {
@@ -88,6 +171,12 @@ export const NodeConfigDialog = ({ isOpen, onClose, onConfirm, nodeType, initial
   };
 
   const renderFields = () => {
+    // If we have a schema, use it
+    if (nodeDefinition?.config_schema) {
+      return renderSchemaFields();
+    }
+
+    // Fallback to legacy hardcoded forms
     switch (nodeType) {
       case 'load-molecule':
         return (
@@ -203,15 +292,22 @@ export const NodeConfigDialog = ({ isOpen, onClose, onConfirm, nodeType, initial
           </div>
         );
       default:
-        return null;
+        return (
+          <div className="text-sm text-muted-foreground p-4 text-center border rounded-lg border-dashed">
+            No configuration available for this node type.
+          </div>
+        );
     }
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[500px] max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Configure {formData.label}</DialogTitle>
+          <DialogDescription>
+            Configure the parameters for this node.
+          </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid gap-2">

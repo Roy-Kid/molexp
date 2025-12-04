@@ -8,7 +8,7 @@ interface DashboardLayoutProps {
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
-    <div className="h-full bg-background">
+    <div className="h-screen bg-background">
       <ResizablePanelGroup direction="horizontal">
         <ResizablePanel 
           defaultSize={20} 
@@ -24,7 +24,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         <ResizablePanel defaultSize={80}>
           <div className="flex flex-col h-full">
             <Header />
-            <main className="flex-1 overflow-auto p-6">
+            <main className="flex-1 overflow-hidden p-6">
               {children}
             </main>
           </div>

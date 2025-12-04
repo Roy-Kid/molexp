@@ -10,10 +10,12 @@ interface ContextMenuProps {
   onEdit?: () => void;
   onDelete?: () => void;
   onViewResults?: () => void;
+  onToggleOutput?: () => void;
+  isOutput?: boolean;
   // ... other props
 }
 
-export const ContextMenu = ({ id, top, left, right, bottom, onEdit, onDelete, onViewResults, ...props }: ContextMenuProps) => {
+export const ContextMenu = ({ id, top, left, right, bottom, onEdit, onDelete, onViewResults, onToggleOutput, isOutput, ...props }: ContextMenuProps) => {
   return (
     <div
       style={{ top, left, right, bottom }}
@@ -33,6 +35,11 @@ export const ContextMenu = ({ id, top, left, right, bottom, onEdit, onDelete, on
       {onViewResults && (
         <Button variant="ghost" size="sm" className="justify-start text-blue-600 hover:text-blue-700 hover:bg-blue-50" onClick={onViewResults}>
           View Results
+        </Button>
+      )}
+      {onToggleOutput && (
+        <Button variant="ghost" size="sm" className="justify-start" onClick={onToggleOutput}>
+          {isOutput ? 'Unset Output' : 'Set as Output'}
         </Button>
       )}
     </div>

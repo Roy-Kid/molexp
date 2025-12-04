@@ -1,0 +1,86 @@
+{
+  "name": "test",
+  "nodes": [
+    {
+      "id": "node_1764769527032",
+      "type": "io.Write File",
+      "label": "Write File",
+      "params": {
+        "label": "Write File",
+        "category": "io",
+        "encoding": "utf-8",
+        "create_dirs": true
+      },
+      "metadata": {
+        "position": {
+          "x": 200,
+          "y": 50
+        },
+        "label": "Write File",
+        "category": "io",
+        "encoding": "utf-8",
+        "create_dirs": true
+      }
+    },
+    {
+      "id": "node_1764769529773",
+      "type": "data.Read JSON",
+      "label": "Read JSON",
+      "params": {
+        "label": "Read JSON",
+        "category": "data",
+        "encoding": "utf-8",
+        "isOutput": true
+      },
+      "metadata": {
+        "position": {
+          "x": 117.49999999999997,
+          "y": 368.6344537815126
+        },
+        "label": "Read JSON",
+        "category": "data",
+        "encoding": "utf-8",
+        "isOutput": true
+      }
+    },
+    {
+      "id": "node_1764770156993",
+      "type": "io.Write File",
+      "label": "Write File",
+      "params": {
+        "label": "Write File",
+        "category": "io",
+        "encoding": "utf-8",
+        "create_dirs": true
+      },
+      "metadata": {
+        "position": {
+          "x": 382.3319327731092,
+          "y": 162.73109243697485
+        },
+        "label": "Write File",
+        "category": "io",
+        "encoding": "utf-8",
+        "create_dirs": true
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "node_1764769527032",
+      "to": "node_1764769529773",
+      "kind": "dependency"
+    },
+    {
+      "from": "node_1764769527032",
+      "to": "node_1764770156993",
+      "kind": "dependency"
+    }
+  ],
+  "targets": [
+    "node_1764769529773"
+  ],
+  "metadata": {
+    "createdAt": "2025-12-03T15:49:56.111Z"
+  }
+}

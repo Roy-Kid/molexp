@@ -28,6 +28,9 @@ export interface TaskGraphJson {
 
     /** Additional workflow-level metadata */
     metadata?: Record<string, any>;
+
+    /** List of target node IDs to execute */
+    targets?: string[];
 }
 
 /**

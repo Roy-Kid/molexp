@@ -10,8 +10,9 @@ from typing import TYPE_CHECKING
 
 import yaml
 
-from ..id_utils import compute_content_hash
+from ..utils.id import compute_content_hash
 from .base import AssetRepository, ExperimentRepository, ProjectRepository, RunRepository
+from .indexed import IndexFileManager
 
 if TYPE_CHECKING:
     from ..models import Asset, AssetRefsCollection, Experiment, Project, Run, RunContextSnapshot
@@ -158,10 +159,8 @@ class FileSystemProjectRepo(ProjectRepository):
         project_dir.mkdir(parents=True)
         (project_dir / "experiments").mkdir()
         
-        # Write project metadata
-        meta_path = project_dir / "project.yaml"
-        with open(meta_path, "w") as f:
-            yaml.safe_dump(project.model_dump(mode="json"), f, sort_keys=False)
+        # Write project metadata using IndexFileManager
+        IndexFileManager.write_index(project_dir, project)
         
         return project
 
@@ -169,23 +168,24 @@ class FileSystemProjectRepo(ProjectRepository):
         """Get project by ID."""
         from ..models import Project
         
-        meta_path = self.root / project_id / "project.yaml"
-        if not meta_path.exists():
+        project_dir = self.root / project_id
+        if not project_dir.exists():
             return None
         
-        with open(meta_path) as f:
-            data = yaml.safe_load(f)
-        
-        return Project.model_validate(data)
+        return IndexFileManager.read_index(project_dir, "project", Project)
 
     def update(self, project: Project) -> Project:
         """Update existing project."""
-        meta_path = self.root / project.project_id / "project.yaml"
-        if not meta_path.exists():
+        from datetime import datetime
+        
+        project_dir = self.root / project.project_id
+        if not project_dir.exists():
             raise ValueError(f"Project {project.project_id} not found")
         
-        with open(meta_path, "w") as f:
-            yaml.safe_dump(project.model_dump(mode="json"), f, sort_keys=False)
+        # Update timestamp
+        project.updated_at = datetime.now()
+        
+        IndexFileManager.write_index(project_dir, project)
         
         return project
 
@@ -230,10 +230,8 @@ class FileSystemExperimentRepo(ExperimentRepository):
         exp_dir.mkdir(parents=True)
         (exp_dir / "runs").mkdir()
         
-        # Write experiment metadata
-        meta_path = exp_dir / "experiment.yaml"
-        with open(meta_path, "w") as f:
-            yaml.safe_dump(experiment.model_dump(mode="json"), f, sort_keys=False)
+        # Write experiment metadata using IndexFileManager
+        IndexFileManager.write_index(exp_dir, experiment)
         
         return experiment
 
@@ -241,29 +239,29 @@ class FileSystemExperimentRepo(ExperimentRepository):
         """Get experiment by ID."""
         from ..models import Experiment
         
-        meta_path = self.root / project_id / "experiments" / experiment_id / "experiment.yaml"
-        if not meta_path.exists():
+        exp_dir = self.root / project_id / "experiments" / experiment_id
+        if not exp_dir.exists():
             return None
         
-        with open(meta_path) as f:
-            data = yaml.safe_load(f)
-        
-        return Experiment.model_validate(data)
+        return IndexFileManager.read_index(exp_dir, "experiment", Experiment)
 
     def update(self, experiment: Experiment) -> Experiment:
         """Update existing experiment."""
-        meta_path = (
+        from datetime import datetime
+        
+        exp_dir = (
             self.root
             / experiment.project_id
             / "experiments"
             / experiment.experiment_id
-            / "experiment.yaml"
         )
-        if not meta_path.exists():
+        if not exp_dir.exists():
             raise ValueError(f"Experiment {experiment.experiment_id} not found")
         
-        with open(meta_path, "w") as f:
-            yaml.safe_dump(experiment.model_dump(mode="json"), f, sort_keys=False)
+        # Update timestamp
+        experiment.updated_at = datetime.now()
+        
+        IndexFileManager.write_index(exp_dir, experiment)
         
         return experiment
 
@@ -315,10 +313,8 @@ class FileSystemRunRepo(RunRepository):
         (run_dir / "logs").mkdir()
         (run_dir / "artifacts").mkdir()
         
-        # Write run metadata
-        meta_path = run_dir / "run.json"
-        with open(meta_path, "w") as f:
-            json.dump(run.model_dump(mode="json"), f, indent=2)
+        # Write run metadata using IndexFileManager
+        IndexFileManager.write_index(run_dir, run)
         
         # Initialize empty asset_refs
         asset_refs_path = run_dir / "asset_refs.json"
@@ -332,33 +328,33 @@ class FileSystemRunRepo(RunRepository):
         """Get run by ID."""
         from ..models import Run
         
-        meta_path = (
-            self.root / project_id / "experiments" / experiment_id / "runs" / run_id / "run.json"
+        run_dir = (
+            self.root / project_id / "experiments" / experiment_id / "runs" / run_id
         )
-        if not meta_path.exists():
+        if not run_dir.exists():
             return None
         
-        with open(meta_path) as f:
-            data = json.load(f)
-        
-        return Run.model_validate(data)
+        return IndexFileManager.read_index(run_dir, "run", Run)
 
     def update(self, run: Run) -> Run:
         """Update existing run."""
-        meta_path = (
+        from datetime import datetime
+        
+        run_dir = (
             self.root
             / run.project_id
             / "experiments"
             / run.experiment_id
             / "runs"
             / run.run_id
-            / "run.json"
         )
-        if not meta_path.exists():
+        if not run_dir.exists():
             raise ValueError(f"Run {run.run_id} not found")
         
-        with open(meta_path, "w") as f:
-            json.dump(run.model_dump(mode="json"), f, indent=2)
+        # Update timestamp
+        run.updated_at = datetime.now()
+        
+        IndexFileManager.write_index(run_dir, run)
         
         return run
 

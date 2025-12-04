@@ -6,6 +6,21 @@ export const API_ENDPOINTS = {
     workspace: {
         info: `${API_BASE_URL}/api/workspace/info`,
         tree: `${API_BASE_URL}/api/workspace/tree`,
+        classify: `${API_BASE_URL}/api/workspace/classify`,
+        scan: `${API_BASE_URL}/api/workspace/scan`,
+        folders: {
+            list: `${API_BASE_URL}/api/workspace/folders`,
+            add: `${API_BASE_URL}/api/workspace/folders`,
+            remove: (id: string) => `${API_BASE_URL}/api/workspace/folders/${id}`,
+            browse: (id: string, path?: string) =>
+                `${API_BASE_URL}/api/workspace/folders/${id}/browse${path ? `?path=${encodeURIComponent(path)}` : ''}`,
+        },
+        files: {
+            read: (folderId: string, path: string) =>
+                `${API_BASE_URL}/api/workspace/files/content?folder_id=${folderId}&path=${encodeURIComponent(path)}`,
+            write: `${API_BASE_URL}/api/workspace/files/content`,
+            createDirectory: `${API_BASE_URL}/api/workspace/files/directory`,
+        },
     },
     projects: {
         list: `${API_BASE_URL}/api/projects`,
