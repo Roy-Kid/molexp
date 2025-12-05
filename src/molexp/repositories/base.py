@@ -10,6 +10,52 @@ if TYPE_CHECKING:
     from ..models import Asset, Experiment, Project, Run
 
 
+# ============================================================================
+# Repository Exceptions
+# ============================================================================
+
+
+class RepositoryError(Exception):
+    """Base exception for repository operations."""
+    pass
+
+
+class EntityNotFoundError(RepositoryError):
+    """Entity was not found in the repository."""
+    
+    def __init__(self, entity_type: str, entity_id: str) -> None:
+        self.entity_type = entity_type
+        self.entity_id = entity_id
+        super().__init__(f"{entity_type} '{entity_id}' not found")
+
+
+class DuplicateEntityError(RepositoryError):
+    """Entity already exists in the repository."""
+    
+    def __init__(self, entity_type: str, entity_id: str) -> None:
+        self.entity_type = entity_type
+        self.entity_id = entity_id
+        super().__init__(f"{entity_type} '{entity_id}' already exists")
+
+
+class RepositoryIOError(RepositoryError):
+    """I/O error during repository operation."""
+    
+    def __init__(self, operation: str, path: str, cause: Exception | None = None) -> None:
+        self.operation = operation
+        self.path = path
+        self.cause = cause
+        message = f"Failed to {operation} at '{path}'"
+        if cause:
+            message += f": {cause}"
+        super().__init__(message)
+
+
+# ============================================================================
+# Abstract Repository Interfaces
+# ============================================================================
+
+
 class AssetRepository(ABC):
     """Abstract interface for asset storage."""
 

@@ -158,7 +158,7 @@ const FileTreeItem: React.FC<{
           {node.name}
         </span>
         
-        {node.size !== undefined && (
+        {node.size !== undefined && !isDirectory && (
           <span className="text-xs text-muted-foreground flex-shrink-0">
             {formatFileSize(node.size)}
           </span>
@@ -342,11 +342,14 @@ const TreeItem: React.FC<{
 };
 
 // Helper function to format file size
-function formatFileSize(bytes: number): string {
+function formatFileSize(bytes: number | undefined | null): string {
+  if (bytes === undefined || bytes === null || isNaN(bytes)) return '';
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
+  // Validate index to prevent undefined access
+  if (i < 0 || i >= sizes.length) return bytes + ' B';
   return Math.round(bytes / Math.pow(k, i) * 10) / 10 + ' ' + sizes[i];
 }
 
@@ -460,12 +463,13 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
       <div className="p-4 text-sm text-red-500">
         <p>Error loading workspace:</p>
         <p className="text-xs mt-1">{error}</p>
-        <button
+        <Button
+          variant="link"
           onClick={fetchTree}
-          className="mt-2 text-xs underline hover:no-underline"
+          className="mt-2 h-auto p-0 text-xs underline hover:no-underline"
         >
           Retry
-        </button>
+        </Button>
       </div>
     );
   }
@@ -552,16 +556,18 @@ export const WorkspaceExplorer: React.FC<WorkspaceExplorerProps> = ({
             >
               <FolderPlus className="h-4 w-4" />
             </Button>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => {
                 fetchTree();
                 fetchFolders();
               }}
-              className="text-xs text-muted-foreground hover:text-foreground"
+              className="h-6 w-6 p-0"
               title="Refresh"
             >
-              ↻
-            </button>
+              <span className="text-xs">↻</span>
+            </Button>
           </div>
         </div>
         

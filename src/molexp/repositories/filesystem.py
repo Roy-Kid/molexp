@@ -3,19 +3,95 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import shutil
+import tempfile
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 import yaml
 
 from ..utils.id import compute_content_hash
-from .base import AssetRepository, ExperimentRepository, ProjectRepository, RunRepository
+from .base import (
+    AssetRepository,
+    ExperimentRepository,
+    ProjectRepository,
+    RunRepository,
+    DuplicateEntityError,
+    EntityNotFoundError,
+    RepositoryIOError,
+)
 from .indexed import IndexFileManager
 
 if TYPE_CHECKING:
     from ..models import Asset, AssetRefsCollection, Experiment, Project, Run, RunContextSnapshot
+
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Atomic File Operations
+# ============================================================================
+
+
+@contextmanager
+def atomic_write(target_path: Path, mode: str = "w") -> Iterator[Path]:
+    """Context manager for atomic file writes.
+    
+    Writes to a temporary file first, then atomically renames to target.
+    This prevents data corruption if the write is interrupted.
+    
+    Args:
+        target_path: Final destination path
+        mode: File mode ("w" for text, "wb" for binary)
+        
+    Yields:
+        Temporary file path to write to
+        
+    Raises:
+        RepositoryIOError: If the write operation fails
+    """
+    target_path = Path(target_path)
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    # Create temp file in same directory for atomic rename
+    fd, tmp_path = tempfile.mkstemp(
+        dir=target_path.parent,
+        prefix=f".{target_path.name}.",
+        suffix=".tmp",
+    )
+    tmp_path = Path(tmp_path)
+    
+    try:
+        os.close(fd)  # We'll reopen with proper mode
+        yield tmp_path
+        
+        # Atomic rename (works on POSIX, best-effort on Windows)
+        tmp_path.replace(target_path)
+        logger.debug(f"Atomically wrote {target_path}")
+        
+    except Exception as e:
+        # Clean up temp file on failure
+        tmp_path.unlink(missing_ok=True)
+        raise RepositoryIOError("write", str(target_path), e) from e
+
+
+def safe_yaml_dump(data: dict, path: Path) -> None:
+    """Safely dump YAML data to a file using atomic write."""
+    with atomic_write(path) as tmp_path:
+        with open(tmp_path, "w") as f:
+            yaml.safe_dump(data, f, sort_keys=False)
+
+
+def safe_json_dump(data: dict, path: Path) -> None:
+    """Safely dump JSON data to a file using atomic write."""
+    with atomic_write(path) as tmp_path:
+        with open(tmp_path, "w") as f:
+            json.dump(data, f, indent=2)
 
 
 class FileSystemAssetRepo(AssetRepository):

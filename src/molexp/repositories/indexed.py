@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
@@ -90,7 +91,8 @@ class IndexFileManager:
             return model_class.model_validate(data)
         except Exception as e:
             # Log error but don't crash
-            print(f"Error reading index file {index_path}: {e}")
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error reading index file {index_path}: {e}")
             return None
     
     @classmethod

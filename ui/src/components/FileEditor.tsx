@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { CodeEditor } from './CodeEditor';
 import { API_ENDPOINTS } from '@/config/api';
 import { cn } from '@/lib/utils';
+import { getMonacoLanguage } from '@/utils/file-utils';
 
 interface FileEditorProps {
   folderId: string;
@@ -81,34 +82,6 @@ export const FileEditor: React.FC<FileEditorProps> = ({
     }
   };
 
-  const getLanguage = (filename: string) => {
-    const ext = filename.split('.').pop()?.toLowerCase();
-    switch (ext) {
-      case 'py':
-      case 'ipynb':
-        return 'python';
-      case 'ts':
-      case 'tsx':
-        return 'typescript';
-      case 'js':
-      case 'jsx':
-        return 'javascript';
-      case 'json':
-        return 'json';
-      case 'yml':
-      case 'yaml':
-        return 'yaml';
-      case 'md':
-        return 'markdown';
-      case 'css':
-        return 'css';
-      case 'html':
-        return 'html';
-      default:
-        return 'plaintext';
-    }
-  };
-
   const hasChanges = content !== originalContent;
 
   return (
@@ -169,7 +142,7 @@ export const FileEditor: React.FC<FileEditorProps> = ({
           <div className="h-full w-full">
             <CodeEditor
               value={content}
-              language={getLanguage(name)}
+              language={getMonacoLanguage(name)}
               onChange={(val) => setContent(val || '')}
             />
           </div>

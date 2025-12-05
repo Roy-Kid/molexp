@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Loader, FileJson } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { API_ENDPOINTS } from '@/config/api';
 import { WorkflowEditor } from '@/components/workflow/WorkflowEditor';
 import type { TaskGraphJson } from '@/types/task_graph_ir';
@@ -120,12 +121,11 @@ export const FileWorkflowEditor: React.FC<FileWorkflowEditorProps> = ({
             <h2 className="text-lg font-semibold">{name}</h2>
             <p className="text-sm text-muted-foreground">Workflow Preview (Read-only)</p>
           </div>
-          <button
+          <Button
             onClick={onEdit}
-            className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
           >
             Edit Workflow
-          </button>
+          </Button>
         </div>
       )}
       <div className="flex-1 overflow-hidden">

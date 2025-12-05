@@ -1,5 +1,0 @@
-[console_scripts]
-molexp = molexp.cli:app
-
-[molexp.nodes]
-builtin = molexp.workflow.nodes.register:register_builtin_nodes

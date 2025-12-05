@@ -197,37 +197,24 @@ export const Workspace: React.FC = () => {
       const folderId = selectedNode.id.split(':')[0];
       const path = selectedNode.path || '';
       
-      // Check for workflow file
-      if (path.endsWith('.flow')) {
-          if (isEditing) {
-              return (
-                  <FileWorkflowEditor
-                      key={`${folderId}:${path}:edit`}
-                      folderId={folderId}
-                      path={path}
-                      name={selectedNode.name}
-                      onClose={() => {
-                        setIsEditing(false);
-                        setHasUnsavedChanges(false);
-                      }}
-                      onUnsavedChange={(unsaved) => setHasUnsavedChanges(unsaved)}
-                  />
-              );
-          }
-          // Use readonly WorkflowEditor for preview instead of WorkflowPreview
-          return (
-              <FileWorkflowEditor
-                  key={`${folderId}:${path}:preview`}
-                  folderId={folderId}
-                  path={path}
-                  name={selectedNode.name}
-                  onClose={() => {}} // No close in preview mode
-                  readOnly={true}
-                  onEdit={() => setIsEditing(true)}
-              />
-          );
+      // Check for workflow file in edit mode
+      if (path.endsWith('.flow') && isEditing) {
+        return (
+          <FileWorkflowEditor
+            key={`${folderId}:${path}:edit`}
+            folderId={folderId}
+            path={path}
+            name={selectedNode.name}
+            onClose={() => {
+              setIsEditing(false);
+              setHasUnsavedChanges(false);
+            }}
+            onUnsavedChange={(unsaved) => setHasUnsavedChanges(unsaved)}
+          />
+        );
       }
       
+      // Regular file editing (non-workflow)
       if (isEditing) {
         return (
           <FileEditor
@@ -243,6 +230,7 @@ export const Workspace: React.FC = () => {
         );
       }
       
+      // Preview mode - uses plugin system for all file types including .flow
       return (
         <FilePreview
           key={`${folderId}:${path}:preview`}
