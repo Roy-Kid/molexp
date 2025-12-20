@@ -11,17 +11,17 @@ from typing import Any
 
 class MolExpError(Exception):
     """Base exception for all MolExp API errors.
-    
+
     Provides structured error information that can be converted to
     consistent HTTP error responses.
-    
+
     Attributes:
         message: Human-readable error description
         code: Machine-readable error code (e.g., "NOT_FOUND", "VALIDATION_ERROR")
         status_code: HTTP status code
         details: Optional additional error details
     """
-    
+
     def __init__(
         self,
         message: str,
@@ -34,7 +34,7 @@ class MolExpError(Exception):
         self.code = code
         self.status_code = status_code
         self.details = details or {}
-    
+
     def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for JSON response."""
         result = {
@@ -52,9 +52,10 @@ class MolExpError(Exception):
 # Not Found Errors (404)
 # ============================================================================
 
+
 class NotFoundError(MolExpError):
     """Resource not found error."""
-    
+
     def __init__(self, resource: str, identifier: str) -> None:
         super().__init__(
             message=f"{resource} '{identifier}' not found",
@@ -66,14 +67,14 @@ class NotFoundError(MolExpError):
 
 class ProjectNotFoundError(NotFoundError):
     """Project not found."""
-    
+
     def __init__(self, project_id: str) -> None:
         super().__init__("Project", project_id)
 
 
 class ExperimentNotFoundError(NotFoundError):
     """Experiment not found."""
-    
+
     def __init__(self, experiment_id: str, project_id: str | None = None) -> None:
         super().__init__("Experiment", experiment_id)
         if project_id:
@@ -82,7 +83,7 @@ class ExperimentNotFoundError(NotFoundError):
 
 class RunNotFoundError(NotFoundError):
     """Run not found."""
-    
+
     def __init__(
         self,
         run_id: str,
@@ -98,28 +99,28 @@ class RunNotFoundError(NotFoundError):
 
 class AssetNotFoundError(NotFoundError):
     """Asset not found."""
-    
+
     def __init__(self, asset_id: str) -> None:
         super().__init__("Asset", asset_id)
 
 
 class NodeNotFoundError(NotFoundError):
     """Node type not found."""
-    
+
     def __init__(self, node_id: str) -> None:
         super().__init__("Node", node_id)
 
 
 class FolderNotFoundError(NotFoundError):
     """Workspace folder not found."""
-    
+
     def __init__(self, folder_id: str) -> None:
         super().__init__("Folder", folder_id)
 
 
 class FileNotFoundError(NotFoundError):
     """File not found."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__("File", path)
 
@@ -128,9 +129,10 @@ class FileNotFoundError(NotFoundError):
 # Validation Errors (400)
 # ============================================================================
 
+
 class ValidationError(MolExpError):
     """Request validation error."""
-    
+
     def __init__(
         self,
         message: str,
@@ -150,7 +152,7 @@ class ValidationError(MolExpError):
 
 class InvalidPathError(ValidationError):
     """Invalid path provided."""
-    
+
     def __init__(self, path: str, reason: str) -> None:
         super().__init__(
             message=f"Invalid path: {reason}",
@@ -160,7 +162,7 @@ class InvalidPathError(ValidationError):
 
 class PathNotDirectoryError(ValidationError):
     """Path is not a directory."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__(
             message=f"Path is not a directory: {path}",
@@ -170,7 +172,7 @@ class PathNotDirectoryError(ValidationError):
 
 class PathNotFileError(ValidationError):
     """Path is not a file."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__(
             message=f"Path is not a file: {path}",
@@ -180,7 +182,7 @@ class PathNotFileError(ValidationError):
 
 class FileTooLargeError(ValidationError):
     """File exceeds size limit."""
-    
+
     def __init__(self, path: str, size: int, max_size: int) -> None:
         super().__init__(
             message=f"File too large: {size} bytes (max: {max_size} bytes)",
@@ -190,7 +192,7 @@ class FileTooLargeError(ValidationError):
 
 class BinaryFileError(ValidationError):
     """Binary file not supported for this operation."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__(
             message="Binary files not supported for preview",
@@ -200,11 +202,14 @@ class BinaryFileError(ValidationError):
 
 class InvalidStatusError(ValidationError):
     """Invalid status transition."""
-    
+
     def __init__(self, current_status: str, requested_status: str) -> None:
         super().__init__(
             message=f"Cannot transition from '{current_status}' to '{requested_status}'",
-            details={"current_status": current_status, "requested_status": requested_status},
+            details={
+                "current_status": current_status,
+                "requested_status": requested_status,
+            },
         )
 
 
@@ -212,9 +217,10 @@ class InvalidStatusError(ValidationError):
 # Conflict Errors (409)
 # ============================================================================
 
+
 class ConflictError(MolExpError):
     """Resource conflict error."""
-    
+
     def __init__(
         self,
         message: str,
@@ -230,7 +236,7 @@ class ConflictError(MolExpError):
 
 class DuplicateResourceError(ConflictError):
     """Resource already exists."""
-    
+
     def __init__(self, resource: str, identifier: str) -> None:
         super().__init__(
             message=f"{resource} '{identifier}' already exists",
@@ -240,7 +246,7 @@ class DuplicateResourceError(ConflictError):
 
 class FolderAlreadyAddedError(ConflictError):
     """Folder already added to workspace."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__(
             message="Folder already added to workspace",
@@ -250,7 +256,7 @@ class FolderAlreadyAddedError(ConflictError):
 
 class PathExistsError(ConflictError):
     """Path already exists."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__(
             message=f"Path already exists: {path}",
@@ -262,9 +268,10 @@ class PathExistsError(ConflictError):
 # Permission Errors (403)
 # ============================================================================
 
+
 class PermissionError(MolExpError):
     """Permission denied error."""
-    
+
     def __init__(
         self,
         message: str = "Permission denied",
@@ -280,7 +287,7 @@ class PermissionError(MolExpError):
 
 class PathOutsideWorkspaceError(PermissionError):
     """Path is outside the allowed workspace."""
-    
+
     def __init__(self, path: str) -> None:
         super().__init__(
             message="Access denied: path outside workspace folder",
@@ -292,14 +299,16 @@ class PathOutsideWorkspaceError(PermissionError):
 # Workflow Errors (400/500)
 # ============================================================================
 
+
 class WorkflowError(MolExpError):
     """Base class for workflow-related errors."""
+
     pass
 
 
 class WorkflowValidationError(WorkflowError):
     """Workflow validation failed."""
-    
+
     def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
         super().__init__(
             message=message,
@@ -311,7 +320,7 @@ class WorkflowValidationError(WorkflowError):
 
 class WorkflowExecutionError(WorkflowError):
     """Workflow execution failed."""
-    
+
     def __init__(
         self,
         message: str,
@@ -333,7 +342,7 @@ class WorkflowExecutionError(WorkflowError):
 
 class CyclicDependencyError(WorkflowValidationError):
     """Workflow contains a cycle."""
-    
+
     def __init__(self, nodes: list[str] | None = None) -> None:
         details = {}
         if nodes:
@@ -346,7 +355,7 @@ class CyclicDependencyError(WorkflowValidationError):
 
 class TargetNodeNotFoundError(WorkflowValidationError):
     """Target node not found in workflow."""
-    
+
     def __init__(self, target: str) -> None:
         super().__init__(
             message=f"Target node '{target}' not found in workflow",
@@ -358,9 +367,10 @@ class TargetNodeNotFoundError(WorkflowValidationError):
 # Storage Errors (500)
 # ============================================================================
 
+
 class StorageError(MolExpError):
     """Storage operation error."""
-    
+
     def __init__(
         self,
         message: str,

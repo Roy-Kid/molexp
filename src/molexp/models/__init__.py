@@ -9,7 +9,6 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-
 # ============ Enums ============
 
 
@@ -50,7 +49,7 @@ class Project(BaseModel):
     tags: list[str] = Field(default_factory=list)
     created_at: datetime
     config: dict[str, Any] = Field(default_factory=dict)
-    
+
     # Indexed folder support
     updated_at: datetime | None = None
     schema_version: str = "1.0"
@@ -62,19 +61,21 @@ class Project(BaseModel):
         if not v or not 3 <= len(v) <= 50:
             raise ValueError("project_id must be 3-50 characters")
         if not all(c.islower() or c.isdigit() or c == "-" for c in v):
-            raise ValueError("project_id must contain only lowercase, digits, and hyphens")
+            raise ValueError(
+                "project_id must contain only lowercase, digits, and hyphens"
+            )
         return v
 
     @property
     def path(self) -> str:
         """Relative path within workspace."""
         return f"projects/{self.project_id}"
-    
+
     @property
     def kind(self) -> str:
         """Entity kind for indexed folder system."""
         return "project"
-    
+
     @property
     def id(self) -> str:
         """Entity ID for indexed folder system."""
@@ -103,7 +104,7 @@ class Experiment(BaseModel):
     workflow_template: WorkflowTemplate
     parameter_space: dict[str, Any] = Field(default_factory=dict)
     default_inputs: list[AssetRef] = Field(default_factory=list)
-    
+
     # Indexed folder support
     updated_at: datetime | None = None
     schema_version: str = "1.0"
@@ -115,19 +116,21 @@ class Experiment(BaseModel):
         if not v or not 3 <= len(v) <= 50:
             raise ValueError("experiment_id must be 3-50 characters")
         if not all(c.islower() or c.isdigit() or c == "-" for c in v):
-            raise ValueError("experiment_id must contain only lowercase, digits, and hyphens")
+            raise ValueError(
+                "experiment_id must contain only lowercase, digits, and hyphens"
+            )
         return v
 
     @property
     def path(self) -> str:
         """Relative path within workspace."""
         return f"projects/{self.project_id}/experiments/{self.experiment_id}"
-    
+
     @property
     def kind(self) -> str:
         """Entity kind for indexed folder system."""
         return "experiment"
-    
+
     @property
     def id(self) -> str:
         """Entity ID for indexed folder system."""
@@ -159,7 +162,7 @@ class Run(BaseModel):
     executor_info: dict[str, Any] = Field(default_factory=dict)
     working_dir: str
     logs_dir: str = "logs/"
-    
+
     # Indexed folder support
     updated_at: datetime | None = None
     schema_version: str = "1.0"
@@ -168,12 +171,12 @@ class Run(BaseModel):
     def path(self) -> str:
         """Relative path within workspace."""
         return f"projects/{self.project_id}/experiments/{self.experiment_id}/runs/{self.run_id}"
-    
+
     @property
     def kind(self) -> str:
         """Entity kind for indexed folder system."""
         return "run"
-    
+
     @property
     def id(self) -> str:
         """Entity ID for indexed folder system."""
@@ -205,7 +208,7 @@ class Asset(BaseModel):
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     files: list[AssetFile] = Field(default_factory=list)
-    
+
     # Indexed folder support
     updated_at: datetime | None = None
     schema_version: str = "1.0"
@@ -214,12 +217,12 @@ class Asset(BaseModel):
     def path(self) -> str:
         """Relative path within workspace."""
         return f"assets/{self.asset_id}"
-    
+
     @property
     def kind(self) -> str:
         """Entity kind for indexed folder system."""
         return "asset"
-    
+
     @property
     def id(self) -> str:
         """Entity ID for indexed folder system."""

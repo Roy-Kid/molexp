@@ -139,16 +139,23 @@ const calculateLayout = (nodes: { id: string }[], edges: { from: string, to: str
  * Converts React Flow nodes and edges to TaskGraph JSON IR.
  */
 export const toTaskGraphJson = (nodes: Node[], edges: Edge[], name: string = "Workflow"): TaskGraphJson => {
-    const taskNodes: TaskNodeJson[] = nodes.map(node => ({
-        id: node.id,
-        type: node.type === 'process' ? (node.data.category ? `${node.data.category}.${node.data.label}` : node.data.label as string) : node.type || 'process',
-        label: node.data.label as string,
-        params: { ...node.data },
-        metadata: {
-            position: node.position,
-            ...node.data
-        }
-    }));
+    const taskNodes: TaskNodeJson[] = nodes.map(node => {
+        // Extract config from node data (static configuration)
+        const { config, label, category, isOutput, status, plannedColor, ...otherData } = node.data;
+
+        return {
+            id: node.id,
+            type: node.type === 'process' ? (category ? `${category}.${label}` : label as string) : node.type || 'process',
+            label: label as string,
+            config: config || {}, // Static configuration for the node
+            params: otherData, // Other runtime parameters (if any)
+            metadata: {
+                position: node.position,
+                isOutput,
+                ...otherData
+            }
+        };
+    });
 
     const taskEdges: EdgeJson[] = edges.map(edge => ({
         from: edge.source,

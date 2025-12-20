@@ -9,8 +9,9 @@ This module provides the core abstractions for building and executing workflows:
 - Context: Runtime context management
 """
 
+from .context import (RunContext, get_current_context, require_current_context,
+                      use_run_context)
 from .node import Node
-from .context import RunContext, get_current_context, require_current_context, use_run_context
 
 __all__ = [
     "Node",

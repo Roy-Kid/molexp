@@ -6,7 +6,7 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .core import Workspace
@@ -48,16 +48,16 @@ class ValidationReport:
         """Get summary string."""
         errors = sum(1 for i in self.issues if i.severity == "error")
         warnings = sum(1 for i in self.issues if i.severity == "warning")
-        
+
         if not self.issues:
             return "✓ Workspace is valid"
-        
+
         parts = []
         if errors:
             parts.append(f"{errors} error(s)")
         if warnings:
             parts.append(f"{warnings} warning(s)")
-        
+
         return f"✗ Found {', '.join(parts)}"
 
 
@@ -66,7 +66,7 @@ class WorkspaceValidator:
 
     def __init__(self, workspace: Workspace) -> None:
         """Initialize workspace validator.
-        
+
         Args:
             workspace: Workspace to validate
         """
@@ -74,10 +74,10 @@ class WorkspaceValidator:
 
     def validate(self, verbose: bool = False) -> ValidationReport:
         """Run all validation checks.
-        
+
         Args:
             verbose: Include informational messages
-            
+
         Returns:
             Validation report
         """
@@ -108,13 +108,15 @@ class WorkspaceValidator:
         projects = self.workspace.list_projects()
         total_experiments = 0
         total_runs = 0
-        
+
         for project in projects:
             experiments = self.workspace.list_experiments(project.project_id)
             total_experiments += len(experiments)
-            
+
             for experiment in experiments:
-                runs = self.workspace.list_runs(project.project_id, experiment.experiment_id)
+                runs = self.workspace.list_runs(
+                    project.project_id, experiment.experiment_id
+                )
                 total_runs += len(runs)
 
         assets = self.workspace.list_assets()
@@ -132,7 +134,7 @@ class WorkspaceValidator:
 
     def check_structure(self) -> list[Issue]:
         """Check directory structure.
-        
+
         Returns:
             List of issues found
         """
@@ -170,7 +172,7 @@ class WorkspaceValidator:
 
     def check_metadata(self) -> list[Issue]:
         """Check metadata file consistency.
-        
+
         Returns:
             List of issues found
         """
@@ -203,7 +205,7 @@ class WorkspaceValidator:
             try:
                 with open(project_json) as f:
                     project_data = json.load(f)
-                
+
                 # Check required fields
                 required_fields = ["project_id", "name", "created_at"]
                 for field in required_fields:
@@ -274,7 +276,7 @@ class WorkspaceValidator:
 
     def check_assets(self) -> list[Issue]:
         """Check asset repository consistency.
-        
+
         Returns:
             List of issues found
         """
@@ -286,7 +288,7 @@ class WorkspaceValidator:
 
         # Check asset metadata vs actual files
         assets = self.workspace.list_assets()
-        
+
         for asset in assets:
             # Check if asset files exist
             if hasattr(asset, "files"):
@@ -307,7 +309,7 @@ class WorkspaceValidator:
 
     def find_orphaned_assets(self) -> list[str]:
         """Find assets not referenced by any run.
-        
+
         Returns:
             List of orphaned asset IDs
         """
@@ -316,12 +318,14 @@ class WorkspaceValidator:
 
         # Get all referenced assets
         referenced_assets = set()
-        
+
         projects = self.workspace.list_projects()
         for project in projects:
             experiments = self.workspace.list_experiments(project.project_id)
             for experiment in experiments:
-                runs = self.workspace.list_runs(project.project_id, experiment.experiment_id)
+                runs = self.workspace.list_runs(
+                    project.project_id, experiment.experiment_id
+                )
                 for run in runs:
                     # Get asset refs
                     refs = self.workspace.get_asset_refs(
@@ -337,10 +341,10 @@ class WorkspaceValidator:
 
     def fix_issues(self, issues: list[Issue]) -> list[Issue]:
         """Attempt to fix issues automatically.
-        
+
         Args:
             issues: List of issues to fix
-            
+
         Returns:
             List of issues that could not be fixed
         """

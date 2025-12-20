@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
 from dataclasses import dataclass, field
-from typing import Any, Iterator, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Iterator
 
 if TYPE_CHECKING:
     from ..assets import AssetRepo
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 @dataclass(slots=True)
 class RunContext:
     """Per-run context shared implicitly by all tasks.
-    
+
     Attributes:
         asset_repo: Asset repository for storing/retrieving assets
         run_id: Unique run identifier
@@ -32,8 +32,9 @@ class RunContext:
     extras: dict[str, Any] = field(default_factory=dict)
 
 
-
-_current_ctx: ContextVar[RunContext | None] = ContextVar("taskflow_run_context", default=None)
+_current_ctx: ContextVar[RunContext | None] = ContextVar(
+    "taskflow_run_context", default=None
+)
 
 
 def get_current_context() -> RunContext | None:
@@ -60,4 +61,3 @@ def use_run_context(ctx: RunContext) -> Iterator[RunContext]:
         yield ctx
     finally:
         _current_ctx.reset(token)
-

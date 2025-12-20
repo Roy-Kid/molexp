@@ -48,8 +48,11 @@ export interface TaskNodeJson {
     /** Human-readable label for display */
     label?: string | null;
 
-    /** Task-specific configuration parameters */
-    params: Record<string, any>;
+    /** Static configuration parameters (fixed at node creation) */
+    config: Record<string, any>;
+
+    /** Task-specific configuration parameters (deprecated, use config instead) */
+    params?: Record<string, any>;
 
     /** Additional metadata (e.g., UI layout, tags) */
     metadata?: Record<string, any>;

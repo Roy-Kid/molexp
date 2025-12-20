@@ -7,11 +7,11 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, UploadFile, File
+from fastapi import APIRouter, Depends, File, UploadFile
 from fastapi.responses import StreamingResponse
 
-from molexp.models import Asset, AssetType, AssetFile
-from molexp.utils.id import generate_asset_id, compute_content_hash
+from molexp.models import Asset, AssetFile, AssetType
+from molexp.utils.id import compute_content_hash, generate_asset_id
 
 from ..dependencies import get_workspace
 from ..exceptions import AssetNotFoundError
@@ -49,22 +49,22 @@ async def upload_asset(
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
         tmp_path = Path(tmp.name)
-    
+
     try:
         # Compute hash
         content_hash = compute_content_hash(tmp_path)
-        
+
         # Check if already exists
         existing_id = workspace.assets.exists(content_hash)
         if existing_id:
             asset = workspace.get_asset(existing_id)
             if asset:
                 return AssetResponse.from_model(asset)
-        
+
         # Create new asset
         asset_id = generate_asset_id()
         filename = file.filename or "untitled"
-        
+
         asset = Asset(
             asset_id=asset_id,
             type=AssetType.OTHER,
@@ -83,10 +83,10 @@ async def upload_asset(
             tags=[],
             producer_run_id=None,
         )
-        
+
         workspace.store_asset(asset, tmp_path)
         return AssetResponse.from_model(asset)
-        
+
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
@@ -98,18 +98,18 @@ def download_asset(asset_id: str, workspace=Depends(get_workspace)):
     asset = workspace.get_asset(asset_id)
     if not asset:
         raise AssetNotFoundError(asset_id)
-    
+
     asset_dir = workspace.assets.root / asset_id / "data"
     if not asset_dir.exists():
         raise AssetNotFoundError(asset_id)
-    
+
     files = list(asset_dir.iterdir())
     if not files:
         raise AssetNotFoundError(asset_id)
-    
+
     file_path = files[0]
     filename = asset.metadata.get("original_filename") or file_path.name
-    
+
     return StreamingResponse(
         open(file_path, "rb"),
         media_type="application/octet-stream",

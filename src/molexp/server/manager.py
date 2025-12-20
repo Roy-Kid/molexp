@@ -21,18 +21,18 @@ class ServerManager:
 
     def __init__(self, config_dir: Path | None = None) -> None:
         """Initialize server manager.
-        
+
         Args:
             config_dir: Configuration directory (default: ~/.molexp)
         """
         self.config_dir = config_dir or Path.home() / ".molexp"
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self.pid_file = self.config_dir / "server.pid"
         self.ui_pid_file = self.config_dir / "ui.pid"
         self.log_dir = self.config_dir / "logs"
         self.log_dir.mkdir(exist_ok=True)
-        
+
         self.server_log = self.log_dir / "server.log"
         self.ui_log = self.log_dir / "ui.log"
 
@@ -46,7 +46,7 @@ class ServerManager:
         sample_data: bool = False,
     ) -> dict[str, int]:
         """Start API server and optionally UI server.
-        
+
         Args:
             host: Host address
             port: Port number
@@ -54,10 +54,10 @@ class ServerManager:
             background: Run in background (daemon mode)
             ui: Also start UI dev server
             sample_data: Create sample data before starting
-            
+
         Returns:
             Dictionary with 'api' and optionally 'ui' PIDs
-            
+
         Raises:
             RuntimeError: If server is already running or fails to start
         """
@@ -92,11 +92,11 @@ class ServerManager:
 
     def stop(self, ui: bool = False, timeout: int = 10) -> bool:
         """Stop running server(s).
-        
+
         Args:
             ui: Also stop UI server if running
             timeout: Seconds to wait for graceful shutdown
-            
+
         Returns:
             True if stopped successfully, False otherwise
         """
@@ -120,7 +120,7 @@ class ServerManager:
 
     def status(self) -> dict:
         """Get server status information.
-        
+
         Returns:
             Dictionary with status information
         """
@@ -134,13 +134,13 @@ class ServerManager:
 
     def is_running(self) -> bool:
         """Check if API server is running.
-        
+
         Returns:
             True if running, False otherwise
         """
         if not self.pid_file.exists():
             return False
-        
+
         pid = self._read_pid(self.pid_file)
         return pid is not None and self._is_process_running(pid)
 
@@ -148,17 +148,17 @@ class ServerManager:
         self, lines: int = 50, follow: bool = False, ui: bool = False
     ) -> Iterator[str]:
         """Get server logs.
-        
+
         Args:
             lines: Number of lines to show
             follow: Follow log output (tail -f style)
             ui: Show UI logs instead of API logs
-            
+
         Yields:
             Log lines
         """
         log_file = self.ui_log if ui else self.server_log
-        
+
         if not log_file.exists():
             yield f"Log file not found: {log_file}"
             return
@@ -169,12 +169,12 @@ class ServerManager:
                 # Seek to end minus N lines
                 f.seek(0, 2)  # Go to end
                 file_size = f.tell()
-                
+
                 # Read last N lines
                 block_size = 1024
                 blocks = []
                 num_lines = 0
-                
+
                 while file_size > 0 and num_lines < lines:
                     read_size = min(block_size, file_size)
                     f.seek(file_size - read_size)
@@ -182,14 +182,14 @@ class ServerManager:
                     blocks.append(block)
                     num_lines += block.count("\n")
                     file_size -= read_size
-                
+
                 # Yield initial lines
                 content = "".join(reversed(blocks))
                 initial_lines = content.split("\n")[-lines:]
                 for line in initial_lines:
                     if line:
                         yield line
-                
+
                 # Follow new lines
                 f.seek(0, 2)  # Go to end
                 while True:
@@ -243,7 +243,7 @@ class ServerManager:
     def _start_ui_server(self, background: bool) -> int:
         """Start UI dev server process."""
         ui_dir = Path(__file__).parent.parent.parent / "ui"
-        
+
         if not ui_dir.exists():
             raise RuntimeError(f"UI directory not found: {ui_dir}")
 
@@ -266,7 +266,7 @@ class ServerManager:
     def _create_sample_data(self) -> None:
         """Create sample data using create_sample_data.py."""
         script_path = Path(__file__).parent.parent.parent / "create_sample_data.py"
-        
+
         if not script_path.exists():
             raise RuntimeError(f"Sample data script not found: {script_path}")
 
@@ -279,15 +279,13 @@ class ServerManager:
         if result.returncode != 0:
             raise RuntimeError(f"Failed to create sample data: {result.stderr}")
 
-    def _wait_for_health(
-        self, host: str, port: int, max_retries: int = 30
-    ) -> bool:
+    def _wait_for_health(self, host: str, port: int, max_retries: int = 30) -> bool:
         """Wait for server to be healthy."""
-        import urllib.request
         import urllib.error
+        import urllib.request
 
         url = f"http://{host}:{port}/health"
-        
+
         for _ in range(max_retries):
             try:
                 with urllib.request.urlopen(url, timeout=1) as response:
@@ -306,7 +304,7 @@ class ServerManager:
             try:
                 os.kill(pid, signal.SIGTERM)
                 time.sleep(1)
-                
+
                 # Check if still running
                 try:
                     os.kill(pid, 0)  # Check if process exists
@@ -325,14 +323,14 @@ class ServerManager:
         try:
             process = psutil.Process(pid)
             process.terminate()
-            
+
             try:
                 process.wait(timeout=timeout)
             except psutil.TimeoutExpired:
                 # Force kill
                 process.kill()
                 process.wait(timeout=5)
-            
+
             return True
         except psutil.NoSuchProcess:
             return True
@@ -343,7 +341,7 @@ class ServerManager:
         """Check if process is running."""
         if psutil:
             return psutil.pid_exists(pid)
-        
+
         # Fallback
         try:
             os.kill(pid, 0)

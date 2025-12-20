@@ -15,19 +15,14 @@ from typing import TYPE_CHECKING, Iterator
 import yaml
 
 from ..utils.id import compute_content_hash
-from .base import (
-    AssetRepository,
-    ExperimentRepository,
-    ProjectRepository,
-    RunRepository,
-    DuplicateEntityError,
-    EntityNotFoundError,
-    RepositoryIOError,
-)
+from .base import (AssetRepository, DuplicateEntityError, EntityNotFoundError,
+                   ExperimentRepository, ProjectRepository, RepositoryIOError,
+                   RunRepository)
 from .indexed import IndexFileManager
 
 if TYPE_CHECKING:
-    from ..models import Asset, AssetRefsCollection, Experiment, Project, Run, RunContextSnapshot
+    from ..models import (Asset, AssetRefsCollection, Experiment, Project, Run,
+                          RunContextSnapshot)
 
 
 logger = logging.getLogger(__name__)
@@ -41,23 +36,23 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def atomic_write(target_path: Path, mode: str = "w") -> Iterator[Path]:
     """Context manager for atomic file writes.
-    
+
     Writes to a temporary file first, then atomically renames to target.
     This prevents data corruption if the write is interrupted.
-    
+
     Args:
         target_path: Final destination path
         mode: File mode ("w" for text, "wb" for binary)
-        
+
     Yields:
         Temporary file path to write to
-        
+
     Raises:
         RepositoryIOError: If the write operation fails
     """
     target_path = Path(target_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
-    
+
     # Create temp file in same directory for atomic rename
     fd, tmp_path = tempfile.mkstemp(
         dir=target_path.parent,
@@ -65,15 +60,15 @@ def atomic_write(target_path: Path, mode: str = "w") -> Iterator[Path]:
         suffix=".tmp",
     )
     tmp_path = Path(tmp_path)
-    
+
     try:
         os.close(fd)  # We'll reopen with proper mode
         yield tmp_path
-        
+
         # Atomic rename (works on POSIX, best-effort on Windows)
         tmp_path.replace(target_path)
         logger.debug(f"Atomically wrote {target_path}")
-        
+
     except Exception as e:
         # Clean up temp file on failure
         tmp_path.unlink(missing_ok=True)
@@ -99,7 +94,7 @@ class FileSystemAssetRepo(AssetRepository):
 
     def __init__(self, root: Path) -> None:
         """Initialize repository.
-        
+
         Args:
             root: Root directory for assets (e.g., workspace/assets)
         """
@@ -129,11 +124,11 @@ class FileSystemAssetRepo(AssetRepository):
         """Store asset data and metadata."""
         asset_dir = self.root / asset.asset_id
         asset_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Create data directory
         data_dir = asset_dir / "data"
         data_dir.mkdir(exist_ok=True)
-        
+
         # Copy source file(s) to data directory
         source_path = Path(source_path)
         if source_path.is_file():
@@ -141,28 +136,28 @@ class FileSystemAssetRepo(AssetRepository):
             shutil.copy2(source_path, dest)
         elif source_path.is_dir():
             shutil.copytree(source_path, data_dir, dirs_exist_ok=True)
-        
+
         # Write metadata
         meta_path = asset_dir / "meta.yaml"
         with open(meta_path, "w") as f:
             yaml.safe_dump(asset.model_dump(mode="json"), f, sort_keys=False)
-        
+
         # Update hash index
         self._hash_index[asset.content_hash] = asset.asset_id
-        
+
         return asset.asset_id
 
     def retrieve(self, asset_id: str, dest_path: Path) -> None:
         """Retrieve asset data to destination."""
         asset_dir = self.root / asset_id
         data_dir = asset_dir / "data"
-        
+
         if not data_dir.exists():
             raise FileNotFoundError(f"Asset {asset_id} data not found")
-        
+
         dest_path = Path(dest_path)
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Copy all files from data directory
         if data_dir.is_dir():
             files = list(data_dir.iterdir())
@@ -176,14 +171,14 @@ class FileSystemAssetRepo(AssetRepository):
     def get_meta(self, asset_id: str) -> Asset | None:
         """Get asset metadata."""
         from ..models import Asset
-        
+
         meta_path = self.root / asset_id / "meta.yaml"
         if not meta_path.exists():
             return None
-        
+
         with open(meta_path) as f:
             data = yaml.safe_load(f)
-        
+
         return Asset.model_validate(data)
 
     def exists(self, content_hash: str) -> str | None:
@@ -217,7 +212,7 @@ class FileSystemProjectRepo(ProjectRepository):
 
     def __init__(self, root: Path) -> None:
         """Initialize repository.
-        
+
         Args:
             root: Root directory for projects (e.g., workspace/projects)
         """
@@ -227,42 +222,42 @@ class FileSystemProjectRepo(ProjectRepository):
     def create(self, project: Project) -> Project:
         """Create a new project."""
         from ..models import Project
-        
+
         project_dir = self.root / project.project_id
         if project_dir.exists():
             raise ValueError(f"Project {project.project_id} already exists")
-        
+
         project_dir.mkdir(parents=True)
         (project_dir / "experiments").mkdir()
-        
+
         # Write project metadata using IndexFileManager
         IndexFileManager.write_index(project_dir, project)
-        
+
         return project
 
     def get(self, project_id: str) -> Project | None:
         """Get project by ID."""
         from ..models import Project
-        
+
         project_dir = self.root / project_id
         if not project_dir.exists():
             return None
-        
+
         return IndexFileManager.read_index(project_dir, "project", Project)
 
     def update(self, project: Project) -> Project:
         """Update existing project."""
         from datetime import datetime
-        
+
         project_dir = self.root / project.project_id
         if not project_dir.exists():
             raise ValueError(f"Project {project.project_id} not found")
-        
+
         # Update timestamp
         project.updated_at = datetime.now()
-        
+
         IndexFileManager.write_index(project_dir, project)
-        
+
         return project
 
     def delete(self, project_id: str) -> None:
@@ -274,7 +269,7 @@ class FileSystemProjectRepo(ProjectRepository):
     def list_all(self) -> list[Project]:
         """List all projects."""
         from ..models import Project
-        
+
         projects = []
         for project_dir in self.root.iterdir():
             if project_dir.is_dir():
@@ -289,7 +284,7 @@ class FileSystemExperimentRepo(ExperimentRepository):
 
     def __init__(self, root: Path) -> None:
         """Initialize repository.
-        
+
         Args:
             root: Root directory for projects (e.g., workspace/projects)
         """
@@ -298,47 +293,46 @@ class FileSystemExperimentRepo(ExperimentRepository):
     def create(self, experiment: Experiment) -> Experiment:
         """Create a new experiment."""
         from ..models import Experiment
-        
-        exp_dir = self.root / experiment.project_id / "experiments" / experiment.experiment_id
+
+        exp_dir = (
+            self.root / experiment.project_id / "experiments" / experiment.experiment_id
+        )
         if exp_dir.exists():
             raise ValueError(f"Experiment {experiment.experiment_id} already exists")
-        
+
         exp_dir.mkdir(parents=True)
         (exp_dir / "runs").mkdir()
-        
+
         # Write experiment metadata using IndexFileManager
         IndexFileManager.write_index(exp_dir, experiment)
-        
+
         return experiment
 
     def get(self, project_id: str, experiment_id: str) -> Experiment | None:
         """Get experiment by ID."""
         from ..models import Experiment
-        
+
         exp_dir = self.root / project_id / "experiments" / experiment_id
         if not exp_dir.exists():
             return None
-        
+
         return IndexFileManager.read_index(exp_dir, "experiment", Experiment)
 
     def update(self, experiment: Experiment) -> Experiment:
         """Update existing experiment."""
         from datetime import datetime
-        
+
         exp_dir = (
-            self.root
-            / experiment.project_id
-            / "experiments"
-            / experiment.experiment_id
+            self.root / experiment.project_id / "experiments" / experiment.experiment_id
         )
         if not exp_dir.exists():
             raise ValueError(f"Experiment {experiment.experiment_id} not found")
-        
+
         # Update timestamp
         experiment.updated_at = datetime.now()
-        
+
         IndexFileManager.write_index(exp_dir, experiment)
-        
+
         return experiment
 
     def delete(self, project_id: str, experiment_id: str) -> None:
@@ -350,12 +344,12 @@ class FileSystemExperimentRepo(ExperimentRepository):
     def list_by_project(self, project_id: str) -> list[Experiment]:
         """List all experiments in a project."""
         from ..models import Experiment
-        
+
         experiments = []
         exp_root = self.root / project_id / "experiments"
         if not exp_root.exists():
             return experiments
-        
+
         for exp_dir in exp_root.iterdir():
             if exp_dir.is_dir():
                 exp = self.get(project_id, exp_dir.name)
@@ -369,7 +363,7 @@ class FileSystemRunRepo(RunRepository):
 
     def __init__(self, root: Path) -> None:
         """Initialize repository.
-        
+
         Args:
             root: Root directory for projects (e.g., workspace/projects)
         """
@@ -378,44 +372,49 @@ class FileSystemRunRepo(RunRepository):
     def create(self, run: Run) -> Run:
         """Create a new run."""
         from ..models import AssetRefsCollection, Run
-        
+
         run_dir = (
-            self.root / run.project_id / "experiments" / run.experiment_id / "runs" / run.run_id
+            self.root
+            / run.project_id
+            / "experiments"
+            / run.experiment_id
+            / "runs"
+            / run.run_id
         )
         if run_dir.exists():
             raise ValueError(f"Run {run.run_id} already exists")
-        
+
         run_dir.mkdir(parents=True)
         (run_dir / "logs").mkdir()
         (run_dir / "artifacts").mkdir()
-        
+
         # Write run metadata using IndexFileManager
         IndexFileManager.write_index(run_dir, run)
-        
+
         # Initialize empty asset_refs
         asset_refs_path = run_dir / "asset_refs.json"
         empty_refs = AssetRefsCollection()
         with open(asset_refs_path, "w") as f:
             json.dump(empty_refs.model_dump(mode="json"), f, indent=2)
-        
+
         return run
 
     def get(self, project_id: str, experiment_id: str, run_id: str) -> Run | None:
         """Get run by ID."""
         from ..models import Run
-        
+
         run_dir = (
             self.root / project_id / "experiments" / experiment_id / "runs" / run_id
         )
         if not run_dir.exists():
             return None
-        
+
         return IndexFileManager.read_index(run_dir, "run", Run)
 
     def update(self, run: Run) -> Run:
         """Update existing run."""
         from datetime import datetime
-        
+
         run_dir = (
             self.root
             / run.project_id
@@ -426,29 +425,31 @@ class FileSystemRunRepo(RunRepository):
         )
         if not run_dir.exists():
             raise ValueError(f"Run {run.run_id} not found")
-        
+
         # Update timestamp
         run.updated_at = datetime.now()
-        
+
         IndexFileManager.write_index(run_dir, run)
-        
+
         return run
 
     def delete(self, project_id: str, experiment_id: str, run_id: str) -> None:
         """Delete run."""
-        run_dir = self.root / project_id / "experiments" / experiment_id / "runs" / run_id
+        run_dir = (
+            self.root / project_id / "experiments" / experiment_id / "runs" / run_id
+        )
         if run_dir.exists():
             shutil.rmtree(run_dir)
 
     def list_by_experiment(self, project_id: str, experiment_id: str) -> list[Run]:
         """List all runs in an experiment."""
         from ..models import Run
-        
+
         runs = []
         run_root = self.root / project_id / "experiments" / experiment_id / "runs"
         if not run_root.exists():
             return runs
-        
+
         for run_dir in run_root.iterdir():
             if run_dir.is_dir():
                 run = self.get(project_id, experiment_id, run_dir.name)
@@ -457,7 +458,11 @@ class FileSystemRunRepo(RunRepository):
         return runs
 
     def save_context(
-        self, project_id: str, experiment_id: str, run_id: str, context: RunContextSnapshot
+        self,
+        project_id: str,
+        experiment_id: str,
+        run_id: str,
+        context: RunContextSnapshot,
     ) -> None:
         """Save run context snapshot."""
         context_path = (
@@ -477,7 +482,7 @@ class FileSystemRunRepo(RunRepository):
     ) -> RunContextSnapshot | None:
         """Get run context snapshot."""
         from ..models import RunContextSnapshot
-        
+
         context_path = (
             self.root
             / project_id
@@ -489,14 +494,18 @@ class FileSystemRunRepo(RunRepository):
         )
         if not context_path.exists():
             return None
-        
+
         with open(context_path) as f:
             data = json.load(f)
-        
+
         return RunContextSnapshot.model_validate(data)
 
     def save_asset_refs(
-        self, project_id: str, experiment_id: str, run_id: str, refs: AssetRefsCollection
+        self,
+        project_id: str,
+        experiment_id: str,
+        run_id: str,
+        refs: AssetRefsCollection,
     ) -> None:
         """Save asset references."""
         refs_path = (
@@ -516,7 +525,7 @@ class FileSystemRunRepo(RunRepository):
     ) -> AssetRefsCollection | None:
         """Get asset references."""
         from ..models import AssetRefsCollection
-        
+
         refs_path = (
             self.root
             / project_id
@@ -528,8 +537,8 @@ class FileSystemRunRepo(RunRepository):
         )
         if not refs_path.exists():
             return None
-        
+
         with open(refs_path) as f:
             data = json.load(f)
-        
+
         return AssetRefsCollection.model_validate(data)

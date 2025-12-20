@@ -17,12 +17,13 @@ if TYPE_CHECKING:
 
 class RepositoryError(Exception):
     """Base exception for repository operations."""
+
     pass
 
 
 class EntityNotFoundError(RepositoryError):
     """Entity was not found in the repository."""
-    
+
     def __init__(self, entity_type: str, entity_id: str) -> None:
         self.entity_type = entity_type
         self.entity_id = entity_id
@@ -31,7 +32,7 @@ class EntityNotFoundError(RepositoryError):
 
 class DuplicateEntityError(RepositoryError):
     """Entity already exists in the repository."""
-    
+
     def __init__(self, entity_type: str, entity_id: str) -> None:
         self.entity_type = entity_type
         self.entity_id = entity_id
@@ -40,8 +41,10 @@ class DuplicateEntityError(RepositoryError):
 
 class RepositoryIOError(RepositoryError):
     """I/O error during repository operation."""
-    
-    def __init__(self, operation: str, path: str, cause: Exception | None = None) -> None:
+
+    def __init__(
+        self, operation: str, path: str, cause: Exception | None = None
+    ) -> None:
         self.operation = operation
         self.path = path
         self.cause = cause
@@ -62,11 +65,11 @@ class AssetRepository(ABC):
     @abstractmethod
     def store(self, asset: Asset, source_path: Path) -> str:
         """Store asset data and metadata.
-        
+
         Args:
             asset: Asset metadata
             source_path: Path to source file/directory
-            
+
         Returns:
             asset_id
         """
@@ -75,7 +78,7 @@ class AssetRepository(ABC):
     @abstractmethod
     def retrieve(self, asset_id: str, dest_path: Path) -> None:
         """Retrieve asset data to destination.
-        
+
         Args:
             asset_id: Asset identifier
             dest_path: Destination path
@@ -85,10 +88,10 @@ class AssetRepository(ABC):
     @abstractmethod
     def get_meta(self, asset_id: str) -> Asset | None:
         """Get asset metadata.
-        
+
         Args:
             asset_id: Asset identifier
-            
+
         Returns:
             Asset metadata or None if not found
         """
@@ -97,10 +100,10 @@ class AssetRepository(ABC):
     @abstractmethod
     def exists(self, content_hash: str) -> str | None:
         """Check if asset with given hash exists.
-        
+
         Args:
             content_hash: Content hash to search for
-            
+
         Returns:
             asset_id if found, None otherwise
         """
@@ -109,7 +112,7 @@ class AssetRepository(ABC):
     @abstractmethod
     def delete(self, asset_id: str) -> None:
         """Delete asset.
-        
+
         Args:
             asset_id: Asset identifier
         """
@@ -118,7 +121,7 @@ class AssetRepository(ABC):
     @abstractmethod
     def list_all(self) -> list[Asset]:
         """List all assets.
-        
+
         Returns:
             List of all assets
         """

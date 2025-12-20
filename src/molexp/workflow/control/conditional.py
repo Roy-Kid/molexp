@@ -3,29 +3,31 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+
 from pydantic import BaseModel
 
-from ..node import Node
 from ..config import EmptyConfig
-from ..registry import register
+from ..node import Node
+from ..plugin.registry import register
 
 
 class ConditionalConfig(EmptyConfig):
     """Configuration for ConditionalNode.
-    
+
     The branching logic is determined by the condition function
     and tasks passed during initialization.
     """
+
     pass
 
 
 @register("control.conditional")
 class ConditionalNode(Node[ConditionalConfig, Any]):
     """Execute one of two branches based on a runtime condition.
-    
+
     This node evaluates a condition function and executes either
     the 'then' or 'else' branch, but not both (lazy evaluation).
-    
+
     Examples
     --------
     >>> def is_positive(x): return x > 0
@@ -39,9 +41,9 @@ class ConditionalNode(Node[ConditionalConfig, Any]):
     ... )
     >>> result = cond_node()
     """
-    
+
     config_type = ConditionalConfig
-    
+
     def __init__(
         self,
         condition_input: Any,
@@ -51,7 +53,7 @@ class ConditionalNode(Node[ConditionalConfig, Any]):
         id: str | None = None,
     ):
         """Initialize conditional node.
-        
+
         Parameters
         ----------
         condition_input : Any
@@ -69,17 +71,17 @@ class ConditionalNode(Node[ConditionalConfig, Any]):
         self.condition_fn = condition_fn
         self.then_task = then_task
         self.else_task = else_task
-    
-    def execute(self, condition_input: Any, config: ConditionalConfig) -> Any:
+
+    def execute(self, condition_input: Any) -> Any:
         """Evaluate condition and execute selected branch.
-        
+
         Parameters
         ----------
         condition_input : Any
             Input value
         config : ConditionalConfig
             Configuration (unused)
-            
+
         Returns
         -------
         Any
@@ -87,7 +89,7 @@ class ConditionalNode(Node[ConditionalConfig, Any]):
         """
         condition_result = self.condition_fn(condition_input)
         selected_task = self.then_task if condition_result else self.else_task
-        
+
         # Execute selected branch
         if isinstance(condition_input, tuple):
             return selected_task(*condition_input)

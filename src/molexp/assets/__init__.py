@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .context import require_current_context
+from molexp.workflow.context import require_current_context
 
 
 @dataclass(slots=True)
@@ -58,43 +58,43 @@ def register_asset(
     meta: dict[str, Any] | None = None,
 ) -> Asset:
     """Register an :class:`Asset` in the current run context.
-    
+
     If a workspace and run_metadata are available in the context, this will:
     1. Store the asset in the global asset repository (with deduplication)
     2. Create an AssetRef linking the run to the asset
     3. Update the run's asset_refs.json
-    
+
     Otherwise, it behaves as before (in-memory only).
     """
     ctx = require_current_context()
     asset = Asset(uri=str(uri), label=label, meta=dict(meta or {}))
     ctx.asset_repo.add(asset)
-    
+
     # If we have workspace integration, store in global repo
     if ctx.workspace and ctx.run_metadata:
         from datetime import datetime
         from pathlib import Path as PathLib
-        
-        from .id_utils import compute_content_hash, generate_asset_id
-        from .models import Asset as AssetModel
-        from .models import AssetFile, AssetRef, AssetType
-        
+
+        from molexp.models import Asset as AssetModel
+        from molexp.models import AssetFile, AssetRef, AssetType
+        from molexp.utils.id import compute_content_hash, generate_asset_id
+
         source_path = PathLib(uri)
         if not source_path.exists():
             return asset  # Can't store non-existent file
-        
+
         # Compute content hash
         content_hash = compute_content_hash(source_path)
-        
+
         # Check if asset already exists
         existing_asset_id = ctx.workspace.find_asset_by_hash(content_hash)
-        
+
         if existing_asset_id:
             asset_id = existing_asset_id
         else:
             # Create new asset
             asset_id = generate_asset_id()
-            
+
             # Determine asset type from file extension
             ext = source_path.suffix.lower()
             asset_type_map = {
@@ -113,7 +113,7 @@ def register_asset(
                 ".log": AssetType.LOG,
             }
             asset_type = asset_type_map.get(ext, AssetType.OTHER)
-            
+
             asset_model = AssetModel(
                 asset_id=asset_id,
                 type=asset_type,
@@ -133,9 +133,9 @@ def register_asset(
                     )
                 ],
             )
-            
+
             ctx.workspace.store_asset(asset_model, source_path)
-        
+
         # Create AssetRef
         asset_ref = AssetRef(
             asset_id=asset_id,
@@ -143,7 +143,7 @@ def register_asset(
             producer_run_id=ctx.run_metadata.run_id,
             produced_at=datetime.now(),
         )
-        
+
         # Update asset_refs.json
         refs = ctx.workspace.get_asset_refs(
             ctx.run_metadata.project_id,
@@ -158,6 +158,5 @@ def register_asset(
                 ctx.run_metadata.run_id,
                 refs,
             )
-    
-    return asset
 
+    return asset

@@ -6,11 +6,7 @@ from fastapi import APIRouter, Depends
 
 from ..dependencies import get_workspace
 from ..exceptions import ProjectNotFoundError
-from ..schemas import (
-    ProjectCreateRequest,
-    ProjectResponse,
-    MessageResponse,
-)
+from ..schemas import MessageResponse, ProjectCreateRequest, ProjectResponse
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -28,7 +24,7 @@ def get_project(project_id: str, workspace=Depends(get_workspace)) -> ProjectRes
     project = workspace.get_project(project_id)
     if not project:
         raise ProjectNotFoundError(project_id)
-    
+
     experiments = workspace.list_experiments(project_id)
     return ProjectResponse.from_model(project, experiment_count=len(experiments))
 

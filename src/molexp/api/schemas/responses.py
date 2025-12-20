@@ -15,18 +15,20 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ============================================================================
 # Base Models
 # ============================================================================
 
+
 class TimestampMixin(BaseModel):
     """Mixin for models with timestamps."""
+
     created: str = Field(..., description="ISO 8601 creation timestamp")
 
 
 class EntityMixin(BaseModel):
     """Mixin for entity models with an ID."""
+
     id: str
 
 
@@ -34,8 +36,10 @@ class EntityMixin(BaseModel):
 # Project Responses
 # ============================================================================
 
+
 class ProjectResponse(EntityMixin, TimestampMixin):
     """Project response model."""
+
     projectId: str
     name: str
     description: str = ""
@@ -43,9 +47,11 @@ class ProjectResponse(EntityMixin, TimestampMixin):
     tags: list[str] = Field(default_factory=list)
     config: dict[str, Any] = Field(default_factory=dict)
     experimentCount: int | None = None
-    
+
     @classmethod
-    def from_model(cls, project: Any, experiment_count: int | None = None) -> "ProjectResponse":
+    def from_model(
+        cls, project: Any, experiment_count: int | None = None
+    ) -> "ProjectResponse":
         """Create response from Project model."""
         return cls(
             id=project.project_id,
@@ -62,12 +68,14 @@ class ProjectResponse(EntityMixin, TimestampMixin):
 
 class ProjectListResponse(BaseModel):
     """List of projects."""
+
     projects: list[ProjectResponse]
     total: int
 
 
 class ExperimentSummary(EntityMixin, TimestampMixin):
     """Experiment summary for nested responses."""
+
     name: str
 
 
@@ -75,8 +83,10 @@ class ExperimentSummary(EntityMixin, TimestampMixin):
 # Experiment Responses
 # ============================================================================
 
+
 class ExperimentResponse(EntityMixin, TimestampMixin):
     """Experiment response model."""
+
     experimentId: str
     projectId: str
     name: str
@@ -88,7 +98,7 @@ class ExperimentResponse(EntityMixin, TimestampMixin):
     defaultInputs: list[dict[str, Any]] = Field(default_factory=list)
     runCount: int | None = None
     runs: list["RunSummary"] = Field(default_factory=list)
-    
+
     @classmethod
     def from_model(
         cls,
@@ -107,7 +117,7 @@ class ExperimentResponse(EntityMixin, TimestampMixin):
                 )
                 for r in runs
             ]
-        
+
         return cls(
             id=experiment.experiment_id,
             experimentId=experiment.experiment_id,
@@ -132,14 +142,17 @@ class ExperimentResponse(EntityMixin, TimestampMixin):
 # Run Responses
 # ============================================================================
 
+
 class RunSummary(EntityMixin, TimestampMixin):
     """Run summary for list responses."""
+
     status: str
     parameters: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkflowSnapshotResponse(BaseModel):
     """Workflow snapshot details."""
+
     file: str
     gitCommit: str | None = None
     serializedGraph: str | None = None
@@ -147,6 +160,7 @@ class WorkflowSnapshotResponse(BaseModel):
 
 class AssetRefResponse(BaseModel):
     """Asset reference response."""
+
     assetId: str
     role: str
     producerRunId: str | None = None
@@ -156,12 +170,14 @@ class AssetRefResponse(BaseModel):
 
 class AssetRefsResponse(BaseModel):
     """Collection of asset references."""
+
     inputs: list[AssetRefResponse] = Field(default_factory=list)
     outputs: list[AssetRefResponse] = Field(default_factory=list)
 
 
 class ContextSnapshotResponse(BaseModel):
     """Execution context snapshot."""
+
     environment: dict[str, str] = Field(default_factory=dict)
     dependencies: dict[str, str] = Field(default_factory=dict)
     hardware: dict[str, Any] = Field(default_factory=dict)
@@ -169,6 +185,7 @@ class ContextSnapshotResponse(BaseModel):
 
 class RunResponse(EntityMixin, TimestampMixin):
     """Full run response model."""
+
     runId: str
     projectId: str
     experimentId: str
@@ -181,7 +198,7 @@ class RunResponse(EntityMixin, TimestampMixin):
     logsDir: str | None = None
     assetRefs: AssetRefsResponse | None = None
     context: ContextSnapshotResponse | None = None
-    
+
     @classmethod
     def from_model(
         cls,
@@ -198,7 +215,9 @@ class RunResponse(EntityMixin, TimestampMixin):
                         assetId=ref.asset_id,
                         role=ref.role,
                         producerRunId=ref.producer_run_id,
-                        accessedAt=ref.accessed_at.isoformat() if ref.accessed_at else None,
+                        accessedAt=(
+                            ref.accessed_at.isoformat() if ref.accessed_at else None
+                        ),
                     )
                     for ref in asset_refs.inputs
                 ],
@@ -207,12 +226,14 @@ class RunResponse(EntityMixin, TimestampMixin):
                         assetId=ref.asset_id,
                         role=ref.role,
                         producerRunId=ref.producer_run_id,
-                        producedAt=ref.produced_at.isoformat() if ref.produced_at else None,
+                        producedAt=(
+                            ref.produced_at.isoformat() if ref.produced_at else None
+                        ),
                     )
                     for ref in asset_refs.outputs
                 ],
             )
-        
+
         context_response = None
         if context:
             context_response = ContextSnapshotResponse(
@@ -220,7 +241,7 @@ class RunResponse(EntityMixin, TimestampMixin):
                 dependencies=context.dependencies,
                 hardware=context.hardware,
             )
-        
+
         return cls(
             id=run.run_id,
             runId=run.run_id,
@@ -247,8 +268,10 @@ class RunResponse(EntityMixin, TimestampMixin):
 # Asset Responses
 # ============================================================================
 
+
 class AssetFileResponse(BaseModel):
     """Asset file details."""
+
     path: str
     size: int
     hash: str
@@ -256,6 +279,7 @@ class AssetFileResponse(BaseModel):
 
 class AssetResponse(EntityMixin, TimestampMixin):
     """Asset response model."""
+
     assetId: str
     type: str
     format: str
@@ -266,7 +290,7 @@ class AssetResponse(EntityMixin, TimestampMixin):
     tags: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     files: list[AssetFileResponse] = Field(default_factory=list)
-    
+
     @classmethod
     def from_model(cls, asset: Any) -> "AssetResponse":
         """Create response from Asset model."""
@@ -293,8 +317,10 @@ class AssetResponse(EntityMixin, TimestampMixin):
 # Workspace Responses
 # ============================================================================
 
+
 class WorkspaceInfoResponse(BaseModel):
     """Workspace info response."""
+
     root: str
     projectCount: int
     assetCount: int
@@ -302,6 +328,7 @@ class WorkspaceInfoResponse(BaseModel):
 
 class DashboardStatsResponse(BaseModel):
     """Dashboard statistics response."""
+
     totalExperiments: int
     activeWorkflows: int
     dataUsage: str
@@ -311,6 +338,7 @@ class DashboardStatsResponse(BaseModel):
 
 class FolderEntryResponse(BaseModel):
     """Folder entry for browsing."""
+
     name: str
     path: str
     type: str  # "file" or "directory"
@@ -319,12 +347,14 @@ class FolderEntryResponse(BaseModel):
 
 class FolderBrowseResponse(BaseModel):
     """Folder browse response."""
+
     path: str
     entries: list[FolderEntryResponse]
 
 
 class WorkspaceFolderResponse(BaseModel):
     """Workspace folder response."""
+
     id: str
     path: str
     name: str
@@ -333,6 +363,7 @@ class WorkspaceFolderResponse(BaseModel):
 
 class FileContentResponse(BaseModel):
     """File content response."""
+
     content: str
 
 
@@ -340,14 +371,17 @@ class FileContentResponse(BaseModel):
 # Execution Responses
 # ============================================================================
 
+
 class ExecutionPlanResponse(BaseModel):
     """Execution plan response."""
+
     plan: list[str]
     nodeCount: int
 
 
 class RunStatusResponse(BaseModel):
     """Run status update response."""
+
     id: str
     status: str
     finished: str | None = None
@@ -357,8 +391,10 @@ class RunStatusResponse(BaseModel):
 # Node Responses
 # ============================================================================
 
+
 class NodePortResponse(BaseModel):
     """Node port definition."""
+
     id: str
     label: str
     type: str
@@ -367,6 +403,7 @@ class NodePortResponse(BaseModel):
 
 class NodeResponse(BaseModel):
     """Node type response."""
+
     id: str
     label: str
     category: str
@@ -380,6 +417,7 @@ class NodeResponse(BaseModel):
 
 class NodeListResponse(BaseModel):
     """List of node types."""
+
     nodes: list[NodeResponse]
 
 
@@ -387,13 +425,16 @@ class NodeListResponse(BaseModel):
 # Generic Responses
 # ============================================================================
 
+
 class MessageResponse(BaseModel):
     """Generic message response."""
+
     message: str
 
 
 class HealthResponse(BaseModel):
     """Health check response."""
+
     status: str
     workspace_available: bool
     ir_available: bool
@@ -401,6 +442,7 @@ class HealthResponse(BaseModel):
 
 class EntityClassificationResponse(BaseModel):
     """Entity classification response."""
+
     indexed: bool
     kind: str
     path: str
@@ -409,5 +451,6 @@ class EntityClassificationResponse(BaseModel):
 
 class WorkspaceScanResponse(BaseModel):
     """Workspace scan response."""
+
     total: int
     entities: list[EntityClassificationResponse]

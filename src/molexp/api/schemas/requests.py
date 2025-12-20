@@ -13,13 +13,14 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ============================================================================
 # Workspace Requests
 # ============================================================================
 
+
 class WorkspaceFolderAddRequest(BaseModel):
     """Request to add a workspace folder."""
+
     path: str = Field(..., description="Absolute path to the folder")
     name: str | None = Field(None, description="Display name (defaults to folder name)")
 
@@ -28,8 +29,10 @@ class WorkspaceFolderAddRequest(BaseModel):
 # File Requests
 # ============================================================================
 
+
 class FileContentUpdateRequest(BaseModel):
     """Request to update file content."""
+
     folder_id: str = Field(..., description="Workspace folder ID or 'workspace'")
     path: str = Field(..., description="Relative path within the folder")
     content: str = Field(..., description="New file content")
@@ -37,6 +40,7 @@ class FileContentUpdateRequest(BaseModel):
 
 class DirectoryCreateRequest(BaseModel):
     """Request to create a directory."""
+
     folder_id: str = Field(..., description="Workspace folder ID or 'workspace'")
     path: str = Field(..., description="Relative path for new directory")
 
@@ -45,8 +49,10 @@ class DirectoryCreateRequest(BaseModel):
 # Project Requests
 # ============================================================================
 
+
 class ProjectCreateRequest(BaseModel):
     """Request to create a project."""
+
     project_id: str = Field(
         ...,
         description="Unique project identifier (slug)",
@@ -62,6 +68,7 @@ class ProjectCreateRequest(BaseModel):
 
 class ProjectUpdateRequest(BaseModel):
     """Request to update a project."""
+
     name: str | None = None
     description: str | None = None
     owner: str | None = None
@@ -73,8 +80,10 @@ class ProjectUpdateRequest(BaseModel):
 # Experiment Requests
 # ============================================================================
 
+
 class ExperimentCreateRequest(BaseModel):
     """Request to create an experiment."""
+
     experiment_id: str = Field(
         ...,
         description="Unique experiment identifier (slug)",
@@ -93,6 +102,7 @@ class ExperimentCreateRequest(BaseModel):
 
 class ExperimentUpdateRequest(BaseModel):
     """Request to update an experiment."""
+
     name: str | None = None
     description: str | None = None
     parameter_space: dict[str, Any] | None = None
@@ -102,8 +112,10 @@ class ExperimentUpdateRequest(BaseModel):
 # Run Requests
 # ============================================================================
 
+
 class RunCreateRequest(BaseModel):
     """Request to create a run."""
+
     parameters: dict[str, Any] = Field(
         default_factory=dict,
         description="Run parameters",
@@ -114,6 +126,7 @@ class RunCreateRequest(BaseModel):
 
 class RunStatusUpdateRequest(BaseModel):
     """Request to update run status."""
+
     status: str = Field(..., description="New status value")
 
 
@@ -121,8 +134,10 @@ class RunStatusUpdateRequest(BaseModel):
 # Execution Requests
 # ============================================================================
 
+
 class GenericExecutionRequest(BaseModel):
     """Request for generic execution (playground)."""
+
     name: str | None = Field(None, description="Execution name")
     workflowSnapshot: dict[str, Any] | None = Field(
         None,
@@ -132,6 +147,7 @@ class GenericExecutionRequest(BaseModel):
 
 class ExecutionPlanRequest(BaseModel):
     """Request for execution plan."""
+
     workflow_json: str = Field(..., description="Workflow definition as JSON string")
     targets: list[str] | None = Field(
         None,
@@ -143,7 +159,9 @@ class ExecutionPlanRequest(BaseModel):
 # Asset Requests
 # ============================================================================
 
+
 class AssetUpdateRequest(BaseModel):
     """Request to update asset metadata."""
+
     tags: list[str] | None = None
     metadata: dict[str, Any] | None = None

@@ -211,14 +211,17 @@ const WorkflowEditorContent = ({
 
     if (pendingNodeToAdd) {
       // Create new node
+      // Separate label from config
+      const { label, ...config } = data;
+      
       const newNode: Node = {
         id: `node_${Date.now()}`, // Use timestamp to avoid collisions
         type: pendingNodeToAdd,
         position: { x: Math.random() * 400 + 100, y: Math.random() * 400 + 100 },
         data: { 
-          label: pendingNodeToAdd.split('.').pop() || pendingNodeToAdd, 
+          label: label || pendingNodeToAdd.split('.').pop() || pendingNodeToAdd, 
           category: pendingNodeToAdd.split('.')[0],
-          ...data 
+          config: config // Store static configuration separately
         },
       };
       setNodes((nds) => nds.concat(newNode));
@@ -226,10 +229,19 @@ const WorkflowEditorContent = ({
       onChange?.();
     } else if (editingNodeId) {
       // Update existing node
+      const { label, ...config } = data;
+      
       setNodes((nds) =>
         nds.map((node) => {
           if (node.id === editingNodeId) {
-            return { ...node, data: { ...node.data, ...data } };
+            return { 
+              ...node, 
+              data: { 
+                ...node.data, 
+                label: label || node.data.label,
+                config: config // Update static configuration
+              } 
+            };
           }
           return node;
         })

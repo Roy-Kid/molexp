@@ -11,7 +11,7 @@ from uuid import uuid4
 
 def generate_run_id() -> str:
     """Generate a unique run ID with timestamp and short UUID.
-    
+
     Format: YYYYMMDD_HHMMSS_<short_uuid>
     Example: 20251129_181644_a3b2
     """
@@ -22,7 +22,7 @@ def generate_run_id() -> str:
 
 def generate_asset_id() -> str:
     """Generate a unique asset ID using UUID v4.
-    
+
     Returns:
         UUID string, e.g., 'a3f2e8d9-4b1c-4e5f-9a2b-1c3d4e5f6a7b'
     """
@@ -31,12 +31,12 @@ def generate_asset_id() -> str:
 
 def validate_slug(slug: str, min_len: int = 3, max_len: int = 50) -> bool:
     """Validate a slug (project_id or experiment_id).
-    
+
     Args:
         slug: String to validate
         min_len: Minimum length
         max_len: Maximum length
-        
+
     Returns:
         True if valid, False otherwise
     """
@@ -48,31 +48,31 @@ def validate_slug(slug: str, min_len: int = 3, max_len: int = 50) -> bool:
 
 def compute_content_hash(path: Path, algorithm: str = "sha256") -> str:
     """Compute hash of file content.
-    
+
     Args:
         path: Path to file
         algorithm: Hash algorithm (default: sha256)
-        
+
     Returns:
         Hash string with algorithm prefix, e.g., 'sha256:a3b4c5d6...'
     """
     hasher = hashlib.new(algorithm)
-    
+
     with open(path, "rb") as f:
         # Read in chunks for large files
         while chunk := f.read(8192):
             hasher.update(chunk)
-    
+
     return f"{algorithm}:{hasher.hexdigest()}"
 
 
 def slugify(text: str, max_len: int = 50) -> str:
     """Convert text to a valid slug.
-    
+
     Args:
         text: Input text
         max_len: Maximum length
-        
+
     Returns:
         Slugified string
     """

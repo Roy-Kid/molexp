@@ -9,12 +9,11 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from molexp.workflow.plugin import load_plugins, get_node_registry
+from molexp.workflow.plugin import get_node_registry, load_plugins
 
 from .handlers import register_exception_handlers
 from .routes import create_api_router
 from .schemas import HealthResponse
-
 
 # ============================================================================
 # Feature Flags
@@ -23,6 +22,7 @@ from .schemas import HealthResponse
 # Try to import workspace module
 try:
     from molexp.workspace import Workspace
+
     WORKSPACE_AVAILABLE = True
 except ImportError:
     WORKSPACE_AVAILABLE = False
@@ -30,6 +30,7 @@ except ImportError:
 # Try to import IR module
 try:
     from molexp.ir.loader import load_workflow_from_json
+
     IR_AVAILABLE = True
 except ImportError:
     IR_AVAILABLE = False
@@ -39,9 +40,10 @@ except ImportError:
 # Application Setup
 # ============================================================================
 
+
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application.
-    
+
     Returns:
         Configured FastAPI application
     """
@@ -50,7 +52,7 @@ def create_app() -> FastAPI:
         version="0.3.0",
         description="Research workflow management API with modular architecture",
     )
-    
+
     # CORS middleware
     app.add_middleware(
         CORSMiddleware,
@@ -59,14 +61,14 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    
+
     # Register exception handlers
     register_exception_handlers(app)
-    
+
     # Include API routes
     api_router = create_api_router()
     app.include_router(api_router)
-    
+
     # Register startup event
     @app.on_event("startup")
     async def startup_event():
@@ -75,7 +77,7 @@ def create_app() -> FastAPI:
         registry = get_node_registry()
         node_count = len(registry.list_all())
         print(f"✓ Loaded {node_count} node types from plugins")
-    
+
     # Health check endpoint
     @app.get("/health", response_model=HealthResponse, tags=["system"])
     def health_check() -> HealthResponse:
@@ -85,7 +87,7 @@ def create_app() -> FastAPI:
             workspace_available=WORKSPACE_AVAILABLE,
             ir_available=IR_AVAILABLE,
         )
-    
+
     return app
 
 
@@ -95,4 +97,5 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("molexp.api.server:app", host="0.0.0.0", port=8000, reload=True)

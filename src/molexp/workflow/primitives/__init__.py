@@ -1,11 +1,7 @@
-"""Primitive node types for user extension."""
+"""Primitive node types for user extension.
 
-from .transform import TransformNode
-from .aggregate import AggregateNode
-from .generator import GeneratorNode
+Note: As of the static configuration refactor, we no longer use
+intermediate primitive abstractions. All nodes inherit directly from Node.
+"""
 
-__all__ = [
-    "TransformNode",
-    "AggregateNode",
-    "GeneratorNode",
-]
+__all__ = []

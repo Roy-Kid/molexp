@@ -6,13 +6,12 @@ from fastapi import APIRouter, Depends
 
 from ..dependencies import get_workspace
 from ..exceptions import ExperimentNotFoundError
-from ..schemas import (
-    ExperimentCreateRequest,
-    ExperimentResponse,
-    MessageResponse,
-)
+from ..schemas import (ExperimentCreateRequest, ExperimentResponse,
+                       MessageResponse)
 
-router = APIRouter(prefix="/api/projects/{project_id}/experiments", tags=["experiments"])
+router = APIRouter(
+    prefix="/api/projects/{project_id}/experiments", tags=["experiments"]
+)
 
 
 @router.get("", response_model=list[ExperimentResponse])
@@ -35,7 +34,7 @@ def get_experiment(
     experiment = workspace.get_experiment(project_id, experiment_id)
     if not experiment:
         raise ExperimentNotFoundError(experiment_id, project_id)
-    
+
     runs = workspace.list_runs(project_id, experiment_id)
     return ExperimentResponse.from_model(experiment, runs=runs)
 

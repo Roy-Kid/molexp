@@ -7,26 +7,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ..models import (Asset, AssetRef, AssetRefsCollection, AssetType,
+                      Experiment, Project, Run, RunContextSnapshot, RunStatus,
+                      WorkflowSnapshot, WorkflowTemplate)
+from ..repositories import (FileSystemAssetRepo, FileSystemExperimentRepo,
+                            FileSystemProjectRepo, FileSystemRunRepo)
 from ..utils.id import generate_run_id
-from ..models import (
-    Asset,
-    AssetRef,
-    AssetRefsCollection,
-    AssetType,
-    Experiment,
-    Project,
-    Run,
-    RunContextSnapshot,
-    RunStatus,
-    WorkflowSnapshot,
-    WorkflowTemplate,
-)
-from ..repositories import (
-    FileSystemAssetRepo,
-    FileSystemExperimentRepo,
-    FileSystemProjectRepo,
-    FileSystemRunRepo,
-)
 
 
 class Workspace:
@@ -34,13 +20,13 @@ class Workspace:
 
     def __init__(self, root: Path) -> None:
         """Initialize workspace.
-        
+
         Args:
             root: Root directory for workspace
         """
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize repositories
         self.projects = FileSystemProjectRepo(self.root / "projects")
         self.experiments = FileSystemExperimentRepo(self.root / "projects")
@@ -50,10 +36,10 @@ class Workspace:
     @classmethod
     def from_env(cls, env_var: str = "MOLEXP_WORKSPACE") -> Workspace:
         """Create workspace from environment variable or current directory.
-        
+
         Args:
             env_var: Environment variable name (default: MOLEXP_WORKSPACE)
-            
+
         Returns:
             Workspace instance
         """
@@ -66,10 +52,10 @@ class Workspace:
     @classmethod
     def from_path(cls, path: str | Path) -> Workspace:
         """Create workspace from explicit path.
-        
+
         Args:
             path: Path to workspace root
-            
+
         Returns:
             Workspace instance
         """
@@ -87,7 +73,7 @@ class Workspace:
         config: dict[str, Any] | None = None,
     ) -> Project:
         """Create a new project.
-        
+
         Args:
             project_id: Unique project identifier (slug)
             name: Human-readable name
@@ -95,7 +81,7 @@ class Workspace:
             owner: Project owner
             tags: List of tags
             config: Project configuration
-            
+
         Returns:
             Created Project
         """
@@ -138,7 +124,7 @@ class Workspace:
         default_inputs: list[AssetRef] | None = None,
     ) -> Experiment:
         """Create a new experiment.
-        
+
         Args:
             project_id: Parent project ID
             experiment_id: Unique experiment identifier (slug)
@@ -149,7 +135,7 @@ class Workspace:
             git_commit: Git commit hash
             parameter_space: Parameter space definition
             default_inputs: Default input assets
-            
+
         Returns:
             Created Experiment
         """
@@ -194,7 +180,7 @@ class Workspace:
         run_id: str | None = None,
     ) -> Run:
         """Create a new run.
-        
+
         Args:
             project_id: Parent project ID
             experiment_id: Parent experiment ID
@@ -202,13 +188,13 @@ class Workspace:
             workflow_file: Workflow file path
             git_commit: Git commit hash
             run_id: Optional run ID (auto-generated if not provided)
-            
+
         Returns:
             Created Run
         """
         if run_id is None:
             run_id = generate_run_id()
-        
+
         run = Run(
             run_id=run_id,
             project_id=project_id,
