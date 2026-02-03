@@ -35,6 +35,9 @@ class ServerManager:
 
         self.server_log = self.log_dir / "server.log"
         self.ui_log = self.log_dir / "ui.log"
+        
+        # Track background processes for cleanup
+        self._background_pids: list[int] = []
 
     def start(
         self,
@@ -44,6 +47,7 @@ class ServerManager:
         background: bool = False,
         ui: bool = False,
         sample_data: bool = False,
+        kill_on_exit: bool = False,
     ) -> dict[str, int]:
         """Start API server and optionally UI server.
 
@@ -54,6 +58,7 @@ class ServerManager:
             background: Run in background (daemon mode)
             ui: Also start UI dev server
             sample_data: Create sample data before starting
+            kill_on_exit: If True and background=True, kill background processes when main process exits
 
         Returns:
             Dictionary with 'api' and optionally 'ui' PIDs
@@ -73,9 +78,13 @@ class ServerManager:
             self._create_sample_data()
 
         # Start API server
-        api_pid = self._start_api_server(host, port, dev, background)
+        api_pid = self._start_api_server(host, port, dev, background, kill_on_exit)
         pids["api"] = api_pid
         self._write_pid(self.pid_file, api_pid)
+        
+        # Track for cleanup if needed
+        if background and kill_on_exit:
+            self._background_pids.append(api_pid)
 
         # Wait for API to be healthy
         if not self._wait_for_health(host, port):
@@ -84,9 +93,17 @@ class ServerManager:
 
         # Start UI server if requested
         if ui:
-            ui_pid = self._start_ui_server(background)
+            ui_pid = self._start_ui_server(background, kill_on_exit)
             pids["ui"] = ui_pid
             self._write_pid(self.ui_pid_file, ui_pid)
+            
+            # Track for cleanup if needed
+            if background and kill_on_exit:
+                self._background_pids.append(ui_pid)
+        
+        # Register cleanup handler if kill_on_exit is True
+        if background and kill_on_exit:
+            self._register_cleanup_handler()
 
         return pids
 
@@ -208,14 +225,25 @@ class ServerManager:
     # ============ Private Methods ============
 
     def _start_api_server(
-        self, host: str, port: int, dev: bool, background: bool
+        self, host: str, port: int, dev: bool, background: bool, kill_on_exit: bool = False
     ) -> int:
-        """Start API server process."""
+        """Start API server process.
+        
+        Args:
+            host: Host address
+            port: Port number
+            dev: Development mode with auto-reload
+            background: Run in background
+            kill_on_exit: If True and background=True, process will be killed when parent exits
+        
+        Returns:
+            Process PID
+        """
         cmd = [
             sys.executable,
             "-m",
             "uvicorn",
-            "molexp.api.server:app",
+            "molexp.server.app:app",
             "--host",
             host,
             "--port",
@@ -228,11 +256,13 @@ class ServerManager:
         if background:
             # Run in background
             with open(self.server_log, "a") as log:
+                # Only detach from parent if kill_on_exit is False
+                # When kill_on_exit is True, keep it in the same process group
                 process = subprocess.Popen(
                     cmd,
                     stdout=log,
                     stderr=subprocess.STDOUT,
-                    start_new_session=True,
+                    start_new_session=(not kill_on_exit),
                 )
             return process.pid
         else:
@@ -240,8 +270,16 @@ class ServerManager:
             process = subprocess.Popen(cmd)
             return process.pid
 
-    def _start_ui_server(self, background: bool) -> int:
-        """Start UI dev server process."""
+    def _start_ui_server(self, background: bool, kill_on_exit: bool = False) -> int:
+        """Start UI dev server process.
+        
+        Args:
+            background: Run in background
+            kill_on_exit: If True and background=True, process will be killed when parent exits
+        
+        Returns:
+            Process PID
+        """
         ui_dir = Path(__file__).parent.parent.parent / "ui"
 
         if not ui_dir.exists():
@@ -251,12 +289,14 @@ class ServerManager:
 
         if background:
             with open(self.ui_log, "a") as log:
+                # Only detach from parent if kill_on_exit is False
+                # When kill_on_exit is True, keep it in the same process group
                 process = subprocess.Popen(
                     cmd,
                     cwd=ui_dir,
                     stdout=log,
                     stderr=subprocess.STDOUT,
-                    start_new_session=True,
+                    start_new_session=(not kill_on_exit),
                 )
             return process.pid
         else:
@@ -395,3 +435,28 @@ class ServerManager:
     def _write_pid(self, pid_file: Path, pid: int) -> None:
         """Write PID to file."""
         pid_file.write_text(str(pid))
+    
+    def _register_cleanup_handler(self) -> None:
+        """Register cleanup handler to kill background processes on exit."""
+        import atexit
+        
+        # Register cleanup function
+        atexit.register(self._cleanup_background_processes)
+        
+        # Also handle signals for graceful shutdown
+        def signal_handler(signum, frame):
+            self._cleanup_background_processes()
+            sys.exit(0)
+        
+        signal.signal(signal.SIGTERM, signal_handler)
+        signal.signal(signal.SIGINT, signal_handler)
+    
+    def _cleanup_background_processes(self) -> None:
+        """Clean up tracked background processes."""
+        for pid in self._background_pids:
+            if self._is_process_running(pid):
+                try:
+                    self._stop_process(pid, timeout=5)
+                except Exception:
+                    pass
+        self._background_pids.clear()

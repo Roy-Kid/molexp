@@ -11,10 +11,12 @@ from pathlib import Path
 from typing import Annotated, Optional
 
 import typer
+import uvicorn
 from rich import print as rprint
 from rich.console import Console
-
 from molexp.workspace import Workspace
+from molexp.server.app import create_app
+
 
 app = typer.Typer(
     name="molexp",
@@ -27,169 +29,62 @@ console = Console()
 
 @app.command()
 def serve(
-    host: Annotated[
-        str,
-        typer.Option("--host", "-h", help="Backend host address"),
-    ] = "localhost",
+    workdir: Annotated[
+        Path,
+        typer.Option(
+            "--workdir",
+            "-w",
+            help="Workspace directory path",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            writable=True,
+            resolve_path=True,
+        ),
+    ] = Path.cwd(),
     port: Annotated[
         int,
-        typer.Option("--port", "-p", help="Backend port"),
+        typer.Option("--port", "-p", help="Server port"),
     ] = 8000,
-    ui_port: Annotated[
-        int,
-        typer.Option("--ui-port", help="Frontend port"),
-    ] = 5173,
+    host: Annotated[
+        str,
+        typer.Option("--host", "-h", help="Server host"),
+    ] = "localhost",
     dev: Annotated[
         bool,
-        typer.Option("--dev", help="Development mode with auto-reload"),
-    ] = True,
+        typer.Option("--dev", help="Development mode (API only, reload enabled)"),
+    ] = False,
 ) -> None:
-    """Start both frontend and backend servers.
-
-    This command starts:
-    - Backend API server (FastAPI with uvicorn)
-    - Frontend dev server (Rsbuild)
-
-    Press Ctrl+C to stop both servers.
+    """Start the MolExp Backend Server.
+    
+    Arguments:
+        workdir: Workspace directory.
+        dev: If set, enables hot-reload and disables static file serving (API Only).
+             The frontend must be run separately (e.g., 'npm run dev').
     """
-    processes = []
-
-    try:
-        rprint("[bold]Starting molexp servers...[/bold]\n")
-
-        # Start backend
-        backend_cmd = [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "molexp.api.server:app",
-            "--host",
-            host,
-            "--port",
-            str(port),
-        ]
-
-        if dev:
-            backend_cmd.append("--reload")
-
-        rprint(f"[cyan]→[/cyan] Starting backend on http://{host}:{port}")
-        backend_process = subprocess.Popen(
-            backend_cmd,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
+    # 1. Switch to workspace directory
+    # This allows the backend to find workspace files relative to CWD.
+    os.chdir(workdir)
+    
+    rprint(f"[bold]Serving Workspace:[/bold] {workdir}")
+    rprint(f"[cyan]→[/cyan] API Server at http://{host}:{port}")
+    
+    if dev:
+        rprint("[yellow]Development Mode:[/yellow] Reload active. Serving API only.")
+        # Dev Mode: Use import string to enable reload.
+        # Relies on 'app = create_app()' at module level in app.py for default config.
+        uvicorn.run(
+            "molexp.server.app:app", 
+            host=host, 
+            port=port, 
+            reload=True,
+            log_level="info"
         )
-        processes.append(("backend", backend_process))
-
-        # Give backend time to start and check for errors
-        time.sleep(3)
-
-        # Check if backend started successfully
-        if backend_process.poll() is not None:
-            # Backend died, show error
-            stderr = backend_process.stderr.read() if backend_process.stderr else ""
-            rprint(f"[red]✗[/red] Backend failed to start")
-            if stderr:
-                rprint(f"[red]Error:[/red]")
-                print(stderr)
-            if "Address already in use" in stderr or "address already in use" in stderr:
-                rprint(
-                    f"\n[yellow]Port {port} is already in use. Try a different port:[/yellow]"
-                )
-                rprint(f"  molexp serve --port 8001")
-            raise typer.Exit(1)
-
-        # Start frontend
-        ui_dir = Path(__file__).parent.parent.parent.parent / "ui"
-
-        if ui_dir.exists():
-            if dev:
-                rprint(
-                    f"[cyan]→[/cyan] Starting frontend on http://localhost:{ui_port}"
-                )
-
-            # Check if node_modules exists
-            if not (ui_dir / "node_modules").exists():
-                rprint("[yellow]⚠[/yellow] Installing frontend dependencies...")
-                npm_install = subprocess.run(
-                    ["npm", "install"],
-                    cwd=ui_dir,
-                    capture_output=True,
-                    text=True,
-                )
-                if npm_install.returncode != 0:
-                    rprint("[red]✗[/red] Failed to install frontend dependencies")
-                    rprint(npm_install.stderr)
-                else:
-                    rprint("[green]✓[/green] Frontend dependencies installed")
-
-            frontend_process = subprocess.Popen(
-                ["npm", "run", "dev"],
-                cwd=ui_dir,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                env={**os.environ, "PORT": str(ui_port), "PUBLIC_USE_MOCK": "false"},
-            )
-            processes.append(("frontend", frontend_process))
-        else:
-            rprint(f"[yellow]⚠[/yellow] Frontend directory not found: {ui_dir}")
-            rprint("[yellow]  Only backend will be started[/yellow]")
-
-        rprint("\n[green]✓[/green] Servers started successfully!")
-        if dev:
-            rprint(f"\n[bold]API:[/bold] http://{host}:{port}")
-            rprint(f"[bold]API Docs:[/bold] http://{host}:{port}/docs")
-
-            if len(processes) > 1:
-                rprint(f"[bold]UI:[/bold] http://localhost:{ui_port}")
-
-        rprint("\n[bold]Press Ctrl+C to stop all servers[/bold]\n")
-
-        # Monitor processes
-        while True:
-            time.sleep(1)
-
-            # Check if any process died
-            for name, proc in processes:
-                if proc.poll() is not None:
-                    stderr = proc.stderr.read() if proc.stderr else ""
-                    rprint(
-                        f"\n[red]✗[/red] {name.capitalize()} server stopped unexpectedly"
-                    )
-                    if stderr:
-                        rprint(f"[red]Error:[/red] {stderr[:500]}")
-                    raise KeyboardInterrupt
-
-    except KeyboardInterrupt:
-        rprint("\n\n[bold]Stopping servers...[/bold]")
-
-        # Stop all processes
-        for name, proc in processes:
-            try:
-                proc.terminate()
-                proc.wait(timeout=5)
-                rprint(f"[green]✓[/green] {name.capitalize()} server stopped")
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                rprint(f"[yellow]⚠[/yellow] {name.capitalize()} server force killed")
-            except Exception as e:
-                rprint(f"[red]✗[/red] Error stopping {name}: {e}")
-
-        rprint("\n[green]✓[/green] All servers stopped")
-
-    except Exception as e:
-        rprint(f"\n[red]✗[/red] Error: {e}")
-
-        # Cleanup on error
-        for name, proc in processes:
-            try:
-                proc.terminate()
-            except:
-                pass
-
-        raise typer.Exit(1)
-
+    else:
+        # Production Mode: Serve Static Files
+        # Locate UI distribution relative to the installed package location.
+        # def load_static_dir():
+        raise NotImplementedError("Static file serving is not implemented yet.")
 
 # ============ Workspace Commands ============
 
@@ -235,11 +130,11 @@ def info(
     }
 
     for project in projects:
-        experiments = workspace.list_experiments(project.project_id)
+        experiments = workspace.list_experiments(project.id)
         total_experiments += len(experiments)
 
         for experiment in experiments:
-            runs = workspace.list_runs(project.project_id, experiment.experiment_id)
+            runs = workspace.list_runs(project.id, experiment.id)
             total_runs += len(runs)
 
             for run in runs:
@@ -449,7 +344,7 @@ app.add_typer(project_app, name="project")
 
 @project_app.command("create")
 def project_create(
-    project_id: Annotated[str, typer.Argument(help="Project ID (slug)")],
+    id: Annotated[str, typer.Argument(help="Project ID (slug)")],
     name: Annotated[str, typer.Option("--name", "-n", help="Project name")],
     description: Annotated[str, typer.Option("--desc", "-d", help="Description")] = "",
     owner: Annotated[str, typer.Option("--owner", "-o", help="Owner")] = "",
@@ -467,13 +362,13 @@ def project_create(
 
     try:
         project = workspace.create_project(
-            project_id=project_id,
+            id=id,
             name=name,
             description=description,
             owner=owner,
             tags=tag_list,
         )
-        rprint(f"[green]✓[/green] Created project: {project.project_id}")
+        rprint(f"[green]✓[/green] Created project: {project.id}")
         rprint(f"  Name: {project.name}")
         rprint(f"  Path: {workspace.root / project.path}")
     except Exception as e:
@@ -504,7 +399,7 @@ def project_list(
 
     for project in projects:
         table.add_row(
-            project.project_id,
+            project.id,
             project.name,
             project.owner,
             ", ".join(project.tags),
@@ -516,27 +411,27 @@ def project_list(
 
 @project_app.command("info")
 def project_info(
-    project_id: Annotated[str, typer.Argument(help="Project ID")],
+    id: Annotated[str, typer.Argument(help="Project ID")],
     path: Annotated[
         Optional[Path], typer.Option("--path", "-p", help="Workspace path")
     ] = None,
 ) -> None:
     """Show project information."""
     workspace = _get_workspace(path)
-    project = workspace.get_project(project_id)
+    project = workspace.get_project(id)
 
     if not project:
-        rprint(f"[red]✗[/red] Project not found: {project_id}")
+        rprint(f"[red]✗[/red] Project not found: {id}")
         raise typer.Exit(1)
 
-    rprint(f"[bold]Project:[/bold] {project.project_id}")
+    rprint(f"[bold]Project:[/bold] {project.id}")
     rprint(f"  Name: {project.name}")
     rprint(f"  Description: {project.description}")
     rprint(f"  Owner: {project.owner}")
     rprint(f"  Tags: {', '.join(project.tags)}")
     rprint(f"  Created: {project.created_at}")
 
-    experiments = workspace.list_experiments(project_id)
+    experiments = workspace.list_experiments(id)
     rprint(f"  Experiments: {len(experiments)}")
 
 
@@ -549,7 +444,6 @@ app.add_typer(experiment_app, name="experiment")
 @experiment_app.command("create")
 def experiment_create(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
-    experiment_id: Annotated[str, typer.Argument(help="Experiment ID (slug)")],
     name: Annotated[str, typer.Option("--name", "-n", help="Experiment name")],
     workflow: Annotated[
         str, typer.Option("--workflow", "-w", help="Workflow file path")
@@ -565,21 +459,21 @@ def experiment_create(
     """Create a new experiment."""
     workspace = _get_workspace(path)
 
-    param_space = json.loads(params) if params else {}
-
     try:
-        experiment = workspace.create_experiment(
-            project_id=project_id,
-            experiment_id=experiment_id,
-            name=name,
-            workflow_source=workflow,
-            description=description,
-            parameter_space=param_space,
-        )
-        rprint(f"[green]✓[/green] Created experiment: {experiment.experiment_id}")
+        project = workspace.get_project(project_id)
+        if not project:
+            rprint(f"[red]✗[/red] Project not found: {project_id}")
+            raise typer.Exit(1)
+
+        experiment = project.create_experiment(name=name)
+        if workflow or description or params:
+            rprint(
+                "[yellow]⚠[/yellow] Workflow/description/params are not persisted by the current core model"
+            )
+        rprint(f"[green]✓[/green] Created experiment: {experiment.id}")
         rprint(f"  Name: {experiment.name}")
-        rprint(f"  Workflow: {experiment.workflow_template.source}")
-        rprint(f"  Path: {workspace.root / experiment.path}")
+        rprint(f"  Project: {project_id}")
+        rprint(f"  Path: {workspace.root / 'projects' / project_id / 'experiments' / experiment.id}")
     except Exception as e:
         rprint(f"[red]✗[/red] Error: {e}")
         raise typer.Exit(1)
@@ -587,20 +481,20 @@ def experiment_create(
 
 @experiment_app.command("list")
 def experiment_list(
-    project_id: Annotated[str, typer.Argument(help="Project ID")],
+    id: Annotated[str, typer.Argument(help="Project ID")],
     path: Annotated[
         Optional[Path], typer.Option("--path", "-p", help="Workspace path")
     ] = None,
 ) -> None:
     """List all experiments in a project."""
     workspace = _get_workspace(path)
-    experiments = workspace.list_experiments(project_id)
+    experiments = workspace.list_experiments(id)
 
     if not experiments:
-        rprint(f"[yellow]No experiments found in project: {project_id}[/yellow]")
+        rprint(f"[yellow]No experiments found in project: {id}[/yellow]")
         return
 
-    table = Table(title=f"Experiments in {project_id}")
+    table = Table(title=f"Experiments in {id}")
     table.add_column("ID", style="cyan")
     table.add_column("Name", style="green")
     table.add_column("Workflow")
@@ -608,7 +502,7 @@ def experiment_list(
 
     for exp in experiments:
         table.add_row(
-            exp.experiment_id,
+            exp.id,
             exp.name,
             exp.workflow_template.source,
             exp.created_at.strftime("%Y-%m-%d %H:%M"),
@@ -656,20 +550,19 @@ def run_create(
 
     try:
         # Get experiment to get workflow info
-        experiment = workspace.get_experiment(project_id, experiment_id)
+        experiment = workspace.get_experiment(id, id)
         if not experiment:
-            rprint(f"[red]✗[/red] Experiment not found: {project_id}/{experiment_id}")
+            rprint(f"[red]✗[/red] Experiment not found: {id}/{id}")
             raise typer.Exit(1)
 
         run = workspace.create_run(
-            project_id=project_id,
-            experiment_id=experiment_id,
+            id=id,
             parameters=parameters,
             workflow_file=experiment.workflow_template.source,
             git_commit=experiment.workflow_template.git_commit,
         )
 
-        rprint(f"[green]✓[/green] Created run: {run.run_id}")
+        rprint(f"[green]✓[/green] Created run: {run.id}")
         rprint(f"  Project: {project_id}")
         rprint(f"  Experiment: {experiment_id}")
         rprint(f"  Status: {run.status.value}")
@@ -690,13 +583,13 @@ def run_list(
 ) -> None:
     """List all runs in an experiment."""
     workspace = _get_workspace(path)
-    runs = workspace.list_runs(project_id, experiment_id)
+    runs = workspace.list_runs(id, id)
 
     if not runs:
-        rprint(f"[yellow]No runs found in {project_id}/{experiment_id}[/yellow]")
+        rprint(f"[yellow]No runs found in {id}/{id}[/yellow]")
         return
 
-    table = Table(title=f"Runs in {project_id}/{experiment_id}")
+    table = Table(title=f"Runs in {id}/{id}")
     table.add_column("Run ID", style="cyan")
     table.add_column("Status", style="green")
     table.add_column("Created")
@@ -717,7 +610,7 @@ def run_list(
         }.get(run.status.value, "white")
 
         table.add_row(
-            run.run_id,
+            run.id,
             f"[{status_color}]{run.status.value}[/{status_color}]",
             run.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             duration,
@@ -740,10 +633,10 @@ def run_info(
     run = workspace.get_run(project_id, experiment_id, run_id)
 
     if not run:
-        rprint(f"[red]✗[/red] Run not found: {run_id}")
+        rprint(f"[red]✗[/red] Run not found: {id}")
         raise typer.Exit(1)
 
-    rprint(f"[bold]Run:[/bold] {run.run_id}")
+    rprint(f"[bold]Run:[/bold] {run.id}")
     rprint(f"  Status: {run.status.value}")
     rprint(f"  Created: {run.created_at}")
     rprint(f"  Finished: {run.finished_at or 'N/A'}")
@@ -751,7 +644,7 @@ def run_info(
     rprint(f"  Parameters: {json.dumps(run.parameters, indent=2)}")
 
     # Show asset refs
-    refs = workspace.get_asset_refs(project_id, experiment_id, run_id)
+    refs = workspace.get_asset_refs(id, id, id)
     if refs:
         rprint(f"\n[bold]Assets:[/bold]")
         rprint(f"  Inputs: {len(refs.inputs)}")
@@ -820,7 +713,7 @@ def asset_info(
     rprint(f"  Size: {asset.size_bytes / (1024 * 1024):.2f} MB")
     rprint(f"  Hash: {asset.content_hash}")
     rprint(f"  Created: {asset.created_at}")
-    rprint(f"  Producer: {asset.producer_run_id or 'N/A'}")
+    rprint(f"  Producer: {asset.producer_id or 'N/A'}")
     rprint(f"  Tags: {', '.join(asset.tags)}")
     rprint(f"  Files: {len(asset.files)}")
 

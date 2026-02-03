@@ -2,32 +2,36 @@
 
 from __future__ import annotations
 
-import logging
 from importlib.metadata import entry_points
 from typing import Callable
 
-from .registry import NodeRegistry, get_node_registry
+from molexp.config import get_config
+from mollog import get_logger
+from .registry import TaskRegistry, get_task_registry
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Entry point group name
 ENTRY_POINT_GROUP = "molexp.nodes"
 
 
-def load_plugins(registry: NodeRegistry | None = None) -> None:
-    """Discover and load all node plugins via entry points.
+def load_plugins(
+    registry: TaskRegistry | None = None,
+    fail_fast: bool | None = None,
+) -> None:
+    """Discover and load all task plugins via entry points.
 
     This function:
     1. Discovers all entry points in the "molexp.nodes" group
     2. Loads each registration function
-    3. Calls it with the Node Registry
+    3. Calls it with the task registry
     4. Handles errors gracefully (logs and continues)
 
     Args:
-        registry: Node registry to use (defaults to global registry)
+        registry: Task registry to use (defaults to global registry)
     """
     if registry is None:
-        registry = get_node_registry()
+        registry = get_task_registry()
 
     # Check if already loaded
     if registry.is_loaded():
@@ -46,12 +50,15 @@ def load_plugins(registry: NodeRegistry | None = None) -> None:
     loaded_count = 0
     error_count = 0
 
-    for ep in eps:
+    if fail_fast is None:
+        fail_fast = get_config().plugin_fail_fast
+
+    for ep in sorted(eps, key=lambda item: item.name):
         try:
             logger.debug(f"Loading plugin: {ep.name} from {ep.value}")
 
             # Load the registration function
-            register_func: Callable[[NodeRegistry], None] = ep.load()
+            register_func: Callable[[TaskRegistry], None] = ep.load()
 
             # Call it with the registry
             register_func(registry)
@@ -65,7 +72,10 @@ def load_plugins(registry: NodeRegistry | None = None) -> None:
                 f"Failed to load plugin '{ep.name}' from '{ep.value}': {e}",
                 exc_info=True,
             )
-            # Continue loading other plugins
+            if fail_fast:
+                raise RuntimeError(
+                    f"Plugin load failed for '{ep.name}' from '{ep.value}'"
+                ) from e
             continue
 
     # Mark registry as loaded

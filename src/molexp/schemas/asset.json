@@ -1,0 +1,45 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/asset.json",
+    "title": "Asset",
+    "description": "File or data artifact associated with an experiment",
+    "type": "object",
+    "properties": {
+        "id": {
+            "type": "string",
+            "description": "Unique asset identifier"
+        },
+        "name": {
+            "type": "string",
+            "description": "Asset name"
+        },
+        "path": {
+            "type": "string",
+            "description": "Asset file path (relative to experiment assets directory)"
+        },
+        "size": {
+            "type": "integer",
+            "description": "Asset size in bytes"
+        },
+        "mime_type": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "description": "MIME type"
+        },
+        "meta": {
+            "type": "object",
+            "description": "User-defined metadata",
+            "additionalProperties": true,
+            "default": {}
+        }
+    },
+    "required": [
+        "id",
+        "name",
+        "path",
+        "size"
+    ],
+    "additionalProperties": false
+}

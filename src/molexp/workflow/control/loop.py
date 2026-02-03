@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from typing import Any, Callable
+import warnings
 
 from pydantic import BaseModel, Field
 
 from ..config import EmptyConfig
-from ..node import Node
+from ..task import Task
 from ..plugin.registry import register
 
 
 class LoopConfig(BaseModel):
-    """Configuration for basic loop node.
+    """Configuration for basic loop task.
 
     Attributes
     ----------
@@ -24,66 +25,67 @@ class LoopConfig(BaseModel):
 
 
 @register("control.loop")
-class LoopNode(Node[LoopConfig, Any]):
-    """Repeat a node a fixed number of times.
+class LoopTask(Task[LoopConfig, Any]):
+    """Repeat a task a fixed number of times.
 
     Each iteration feeds its output to the next iteration.
 
     Examples
     --------
-    >>> body_task = IncrementNode()
-    >>> loop_node = LoopNode(initial_value, body_task=body_task)
-    >>> result = loop_node(iterations=10)
+    >>> body_task = IncrementTask()
+    >>> loop_task = LoopTask(body_task=body_task, iterations=10)
+    >>> result = loop_task(ctx=ctx, initial=0)
+    >>> final_value = result["result"]
     """
 
     config_type = LoopConfig
+    inputs = {"initial": Any}
+    outputs = {"result": Any}
+    replayable = False
 
-    def __init__(
-        self,
-        initial_value: Any,
-        body_task: Node,
-        id: str | None = None,
-    ):
-        """Initialize loop node.
+    def __init__(self, body_task: Task, iterations: int):
+        """Initialize loop task.
 
         Parameters
         ----------
-        initial_value : Any
-            Starting value
-        body_task : Node
-            Node to execute on each iteration
-        id : str | None
-            Unique identifier
+        body_task : Task
+            Task to execute on each iteration
+        iterations : int
+            Number of iterations
         """
-        super().__init__(initial_value, id=id or f"{body_task.id}__loop")
+        super().__init__(iterations=iterations)
         self.body_task = body_task
 
-    def execute(self, initial: Any) -> Any:
+    def execute(self, ctx=None, **inputs) -> dict[str, Any]:
         """Execute loop for specified iterations.
 
         Parameters
         ----------
-        initial : Any
-            Initial value
-        config : LoopConfig
-            Configuration with iteration count
+        ctx : Any | None
+            Execution context
+        **inputs : Any
+            Must contain 'initial' value
 
         Returns
         -------
-        Any
-            Final value after all iterations
+        dict[str, Any]
+            Dict with 'result' key containing final value
         """
-        value = initial
+        value = inputs.get("initial")
+        
         for _ in range(self.config.iterations):
-            if isinstance(value, tuple):
-                value = self.body_task(*value)
+            if isinstance(value, dict):
+                result = self.body_task(ctx=ctx, **value)
             else:
-                value = self.body_task(value)
-        return value
+                result = self.body_task(ctx=ctx, value=value)
+            # Extract value from result dict
+            value = result.get("result", result)
+        
+        return {"result": value}
 
 
 class WhileLoopConfig(BaseModel):
-    """Configuration for while loop node.
+    """Configuration for while loop task.
 
     Attributes
     ----------
@@ -97,89 +99,89 @@ class WhileLoopConfig(BaseModel):
 
 
 @register("control.while_loop")
-class WhileLoopNode(Node[WhileLoopConfig, Any]):
+class WhileLoopTask(Task[WhileLoopConfig, Any]):
     """Loop until a condition becomes False.
 
     Examples
     --------
     >>> def not_converged(x): return abs(x - 1.0) > 0.01
-    >>> body_task = OptimizeStepNode()
-    >>> loop_node = WhileLoopNode(
-    ...     initial_value,
+    >>> body_task = OptimizeStepTask()
+    >>> loop_task = WhileLoopTask(
     ...     condition_fn=not_converged,
-    ...     body_task=body_task
+    ...     body_task=body_task,
+    ...     max_iterations=100
     ... )
-    >>> result = loop_node(max_iterations=100)
+    >>> result = loop_task(ctx=ctx, initial=0.0)
+    >>> final_value = result["result"]
     """
 
     config_type = WhileLoopConfig
+    inputs = {"initial": Any}
+    outputs = {"result": Any}
+    replayable = False
 
     def __init__(
         self,
-        initial_value: Any,
+        body_task: Task,
         condition_fn: Callable[[Any], bool],
-        body_task: Node,
-        id: str | None = None,
+        max_iterations: int = 1000,
     ):
-        """Initialize while loop node.
+        """Initialize while loop task.
 
         Parameters
         ----------
-        initial_value : Any
-            Starting value
+        body_task : Task
+            Task to execute on each iteration
         condition_fn : Callable[[Any], bool]
             Function that returns True to continue
-        body_task : Node
-            Node to execute on each iteration
-        id : str | None
-            Unique identifier
+        max_iterations : int
+            Safety limit
         """
-        super().__init__(initial_value, id=id or f"{body_task.id}__while")
+        super().__init__(max_iterations=max_iterations)
         self.condition_fn = condition_fn
         self.body_task = body_task
 
-    def execute(self, initial: Any) -> Any:
+    def execute(self, ctx=None, **inputs) -> dict[str, Any]:
         """Execute loop until condition is False.
 
         Parameters
         ----------
-        initial : Any
-            Initial value
-        config : WhileLoopConfig
-            Configuration with max_iterations
+        ctx : Any | None
+            Execution context
+        **inputs : Any
+            Must contain 'initial' value
 
         Returns
         -------
-        Any
-            Final value when condition becomes False
+        dict[str, Any]
+            Dict with 'result' key containing final value
         """
-        value = initial
+        value = inputs.get("initial")
         iteration = 0
 
         while iteration < self.config.max_iterations:
             if not self.condition_fn(value):
                 break
 
-            if isinstance(value, tuple):
-                value = self.body_task(*value)
+            if isinstance(value, dict):
+                result = self.body_task(ctx=ctx, **value)
             else:
-                value = self.body_task(value)
-
+                result = self.body_task(ctx=ctx, value=value)
+            
+            value = result.get("result", result)
             iteration += 1
 
         if iteration >= self.config.max_iterations:
-            import warnings
-
             warnings.warn(
-                f"WhileLoopNode '{self.id}' reached max iterations ({self.config.max_iterations})",
+                f"WhileLoopTask reached max iterations ({self.config.max_iterations})",
                 RuntimeWarning,
             )
 
-        return value
+        return {"result": value}
 
 
 class ForLoopConfig(BaseModel):
-    """Configuration for for loop node.
+    """Configuration for for loop task.
 
     Attributes
     ----------
@@ -191,57 +193,57 @@ class ForLoopConfig(BaseModel):
 
 
 @register("control.for_loop")
-class ForLoopNode(Node[ForLoopConfig, Any]):
+class ForLoopTask(Task[ForLoopConfig, Any]):
     """Loop with index access.
 
-    The body task receives (current_value, index) as arguments.
+    The body task receives value and index as inputs.
 
     Examples
     --------
     >>> def accumulate(state, i): return state + i
-    >>> body_task = AccumulateNode()
-    >>> loop_node = ForLoopNode(initial_value, body_task=body_task)
-    >>> result = loop_node(iterations=10)
+    >>> body_task = AccumulateTask()
+    >>> loop_task = ForLoopTask(body_task=body_task, iterations=10)
+    >>> result = loop_task(ctx=ctx, initial=0)
+    >>> final_value = result["result"]
     """
 
     config_type = ForLoopConfig
+    inputs = {"initial": Any}
+    outputs = {"result": Any}
+    replayable = False
 
-    def __init__(
-        self,
-        initial_value: Any,
-        body_task: Node,
-        id: str | None = None,
-    ):
-        """Initialize for loop node.
+    def __init__(self, body_task: Task, iterations: int):
+        """Initialize for loop task.
 
         Parameters
         ----------
-        initial_value : Any
-            Starting value
-        body_task : Node
-            Node that takes (value, index) as inputs
-        id : str | None
-            Unique identifier
+        body_task : Task
+            Task that takes value and index as inputs
+        iterations : int
+            Number of iterations
         """
-        super().__init__(initial_value, id=id or f"{body_task.id}__for")
+        super().__init__(iterations=iterations)
         self.body_task = body_task
 
-    def execute(self, initial: Any) -> Any:
+    def execute(self, ctx=None, **inputs) -> dict[str, Any]:
         """Execute loop with index.
 
         Parameters
         ----------
-        initial : Any
-            Initial value
-        config : ForLoopConfig
-            Configuration with iteration count
+        ctx : Any | None
+            Execution context
+        **inputs : Any
+            Must contain 'initial' value
 
         Returns
         -------
-        Any
-            Final value after all iterations
+        dict[str, Any]
+            Dict with 'result' key containing final value
         """
-        value = initial
+        value = inputs.get("initial")
+        
         for i in range(self.config.iterations):
-            value = self.body_task(value, i)
-        return value
+            result = self.body_task(ctx=ctx, value=value, index=i)
+            value = result.get("result", result)
+        
+        return {"result": value}

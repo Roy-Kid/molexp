@@ -1,17 +1,17 @@
-"""Reduce node: Aggregate collection using a reduction strategy."""
+"""Reduce task: Aggregate collection using a reduction strategy."""
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from ..node import Node
+from ..task import Task
 from ..plugin.registry import register
 
 
 class ReduceConfig(BaseModel):
-    """Configuration for ReduceNode.
+    """Configuration for ReduceTask.
 
     Attributes:
         method: Reduction method: "sum", "mean", "max", "min", "concat"
@@ -23,53 +23,60 @@ class ReduceConfig(BaseModel):
 
 
 @register("control.reduce")
-class ReduceNode(Node[ReduceConfig, Any]):
+class ReduceTask(Task[ReduceConfig, Any]):
     """Reduce a collection to a single value using a strategy.
 
     Configuration (method) must be provided at construction.
 
     Examples:
-        >>> reduce_node = ReduceNode(source_collection, method="sum")
-        >>> total = reduce_node(data)
+        >>> reduce_task = ReduceTask(method="sum")
+        >>> result = reduce_task(ctx=ctx, collection=data)
+        >>> total = result["result"]
         >>>
-        >>> avg_node = ReduceNode(source_collection, method="mean")
-        >>> average = avg_node(data)
+        >>> avg_task = ReduceTask(method="mean")
+        >>> result = avg_task(ctx=ctx, collection=data)
+        >>> average = result["result"]
     """
 
     config_type = ReduceConfig
+    inputs = {"collection": list}
+    outputs = {"result": Any}
 
-    def execute(self, collection: Iterable[Any]) -> Any:
+    def execute(self, ctx=None, **inputs) -> dict[str, Any]:
         """Reduce collection using self.config.method.
 
         Args:
-            collection: Collection to reduce
+            ctx: Execution context
+            **inputs: Must contain 'collection' (list)
 
         Returns:
-            Reduced value
+            Dict with 'result' key containing reduced value
 
         Raises:
             ValueError: If method is unknown
         """
+        collection = inputs.get("collection", [])
         data = list(collection)
 
         if self.config.method == "sum":
-            return sum(data)
+            result = sum(data)
         elif self.config.method == "mean":
-            return sum(data) / len(data) if data else 0
+            result = sum(data) / len(data) if data else 0
         elif self.config.method == "max":
-            return max(data) if data else None
+            result = max(data) if data else None
         elif self.config.method == "min":
-            return min(data) if data else None
+            result = min(data) if data else None
         elif self.config.method == "concat":
             # Concatenate strings or lists
             if not data:
-                return []
-            if isinstance(data[0], str):
-                return "".join(data)
+                result = []
+            elif isinstance(data[0], str):
+                result = "".join(data)
             else:
                 result = []
                 for item in data:
                     result.extend(item)
-                return result
         else:
             raise ValueError(f"Unknown reduce method: {self.config.method}")
+        
+        return {"result": result}

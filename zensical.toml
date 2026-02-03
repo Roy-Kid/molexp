@@ -1,0 +1,39 @@
+[project]
+site_name = "MolExp Documentation"
+site_description = "Minimal Task Graph Framework with Compiler and Engine"
+
+# Navigation
+nav = [
+    { "Home" = "index.md" },
+    { "Get Started" = [
+        { "Overview" = "get-started/overview.md" },
+        { "Quick Start" = "get-started/quick-start.md" }
+    ]},
+    { "Core Concepts" = [
+        { "Task Abstraction" = "core/task.md" },
+        { "SubWorkflow" = "core/subworkflow.md" },
+        { "Execution Engine" = "core/engine.md" },
+        { "Context Management" = "core/context.md" }
+    ]},
+    { "Developer" = [
+        { "IR and Compiler" = "developer/ir-and-compiler.md" }
+    ]},
+    { "Workspace" = [
+        { "Project-Experiment-Run" = "workspace/architecture.md" },
+        { "Workspace API" = "workspace/api.md" }
+    ]},
+    { "Control Flow" = [
+        { "Overview" = "control-flow/index.md" },
+        { "Map and Reduce" = "control-flow/map-reduce.md" },
+        { "Conditional" = "control-flow/conditional.md" },
+        { "Loops" = "control-flow/loops.md" },
+        { "Parallel Execution" = "control-flow/parallel.md" }
+    ]},
+    { "Assets" = [
+        { "Asset Management" = "assets/management.md" }
+    ]}
+]
+
+[project.theme]
+name = "material"
+

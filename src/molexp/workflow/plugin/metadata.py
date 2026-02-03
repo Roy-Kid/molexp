@@ -1,4 +1,4 @@
-"""Metadata models for node plugins."""
+"""Metadata models for task plugins."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class PortMetadata(BaseModel):
-    """Metadata for a node input or output port.
+    """Metadata for a task input or output port.
 
     Attributes:
         name: Port identifier
@@ -23,12 +23,12 @@ class PortMetadata(BaseModel):
     required: bool = Field(default=True, description="Whether port is required")
 
 
-class NodeMetadata(BaseModel):
-    """Metadata for a node type.
+class TaskMetadata(BaseModel):
+    """Metadata for a task type.
 
     Attributes:
         label: Human-readable name
-        category: Node category (e.g., "io", "text", "http")
+        category: Task category (e.g., "io", "text", "http")
         description: Detailed description
         inputs: Input port definitions
         outputs: Output port definitions
@@ -37,7 +37,7 @@ class NodeMetadata(BaseModel):
     """
 
     label: str = Field(..., description="Human-readable name")
-    category: str = Field(..., description="Node category")
+    category: str = Field(..., description="Task category")
     description: str = Field(..., description="Detailed description")
     inputs: List[PortMetadata] = Field(default_factory=list, description="Input ports")
     outputs: List[PortMetadata] = Field(

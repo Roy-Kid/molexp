@@ -1,0 +1,65 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/workflow/task_config.json",
+    "title": "TaskConfig",
+    "description": "Serializable task configuration containing task metadata and config data",
+    "type": "object",
+    "properties": {
+        "task_id": {
+            "type": "string",
+            "description": "Unique task identifier",
+            "pattern": "^[A-Za-z0-9_]+_[a-f0-9]{8}$",
+            "examples": [
+                "MyTask_abc12345"
+            ]
+        },
+        "task_type": {
+            "type": "string",
+            "description": "Task class name for deserialization",
+            "pattern": "^[A-Z][A-Za-z0-9_]*$",
+            "examples": [
+                "AddTask",
+                "MultiplyTask",
+                "MyCustomTask"
+            ]
+        },
+        "config": {
+            "type": "object",
+            "description": "Task-specific configuration parameters",
+            "additionalProperties": true,
+            "examples": [
+                {
+                    "value": 10,
+                    "name": "test"
+                },
+                {
+                    "input_path": "/data/input.csv",
+                    "output_path": "/data/output.csv"
+                }
+            ]
+        },
+        "status": {
+            "type": "string",
+            "description": "Task execution status",
+            "enum": [
+                "pending",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled"
+            ]
+        },
+        "execution": {
+            "type": "object",
+            "description": "Optional execution policy (deprecated)",
+            "additionalProperties": true
+        }
+    },
+    "required": [
+        "task_id",
+        "task_type",
+        "config",
+        "status"
+    ],
+    "additionalProperties": false
+}

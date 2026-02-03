@@ -1,0 +1,200 @@
+import { registerRenderer } from "@/app/registry";
+import { MetadataViewer } from "@/app/renderers/MetadataViewer";
+import { MetadataInspector } from "@/app/renderers/MetadataInspector";
+import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
+import { TextEditor } from "@/app/renderers/TextEditor";
+import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
+import { ImageViewer } from "@/app/renderers/ImageViewer";
+import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
+import { ProjectViewer } from "@/app/renderers/ProjectViewer";
+import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
+import { RunViewer } from "@/app/renderers/RunViewer";
+import { WorkflowViewer } from "@/app/renderers/WorkflowViewer";
+
+export const registerDefaultRenderers = (): void => {
+  registerRenderer({
+    key: {
+      objectType: "project",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Project Overview",
+    panelSlot: "center",
+    Component: ProjectViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "experiment",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Experiment Overview",
+    panelSlot: "center",
+    Component: ExperimentViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "run",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Run Overview",
+    panelSlot: "center",
+    Component: RunViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "asset",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Asset Overview",
+    panelSlot: "center",
+    Component: MetadataViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "workflow",
+      fileKind: "yaml",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Workflow Overview",
+    panelSlot: "center",
+    Component: WorkflowViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "workflow",
+      fileKind: "yaml",
+      contentType: "workflow-graph",
+      panelKind: "viewer",
+    },
+    title: "Workflow Graph",
+    panelSlot: "center",
+    Component: WorkflowGraphViewer,
+  });
+
+  const workspaceFileKinds = ["yaml", "json", "python", "markdown", "text", "unknown", "image"] as const;
+  const editorFileKinds = ["yaml", "json", "python", "markdown", "text", "unknown"] as const;
+  editorFileKinds.forEach(fileKind => {
+    registerRenderer({
+      key: {
+        objectType: "workspace-file",
+        fileKind,
+        contentType: "text",
+        panelKind: "editor",
+      },
+      title: "Text Editor",
+      panelSlot: "center",
+      Component: TextEditor,
+    });
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "workspace-file",
+      fileKind: "image",
+      contentType: "image",
+      panelKind: "viewer",
+    },
+    title: "Image Preview",
+    panelSlot: "center",
+    Component: ImageViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "workspace-file",
+      fileKind: "json",
+      contentType: "workflow-graph",
+      panelKind: "viewer",
+    },
+    title: "Workflow Preview",
+    panelSlot: "center",
+    Component: WorkflowFileViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "project",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Project Inspector",
+    panelSlot: "right",
+    Component: MetadataInspector,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "experiment",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Experiment Inspector",
+    panelSlot: "right",
+    Component: MetadataInspector,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "run",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Run Inspector",
+    panelSlot: "right",
+    Component: MetadataInspector,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "asset",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Asset Inspector",
+    panelSlot: "right",
+    Component: MetadataInspector,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "workflow",
+      fileKind: "yaml",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Workflow Inspector",
+    panelSlot: "right",
+    Component: WorkflowInspector,
+  });
+
+  workspaceFileKinds.forEach(fileKind => {
+    registerRenderer({
+      key: {
+        objectType: "workspace-file",
+        fileKind,
+        contentType: "metadata",
+        panelKind: "inspector",
+      },
+      title: "File Inspector",
+      panelSlot: "right",
+      Component: MetadataInspector,
+    });
+  });
+};

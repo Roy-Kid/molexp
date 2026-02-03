@@ -1,22 +1,52 @@
 """Unified workflow system for molexp.
 
 This module provides the core abstractions for building and executing workflows:
-- Node: Base abstraction for executable units
-- Primitives: Base classes for user-defined nodes
-- Control flow: Built-in nodes for workflow logic
-- Registry: Node discovery and registration
+- Task: Base abstraction for executable units
+- Control flow: Built-in tasks for workflow logic
+- Compiler: Workflow compilation and validation
 - Engine: Workflow execution
-- Context: Runtime context management
 """
 
-from .context import (RunContext, get_current_context, require_current_context,
-                      use_run_context)
-from .node import Node
+# Core workflow abstractions
+from .protocol import TaskProtocol
+from .task import Task, TaskConfig
+
+# Compiler
+from .compiler import WorkflowCompiler
+
+# Engine
+from .engine import WorkflowEngine
+
+# Models and Registry
+from .link import Link
+from .workflow import Workflow, WorkflowMetadata
+from .registry import (
+    TaskRegistry,
+    get_task_registry,
+    register_task,
+    get_task_class,
+    get_task_id,
+    list_registered_tasks,
+)
 
 __all__ = [
-    "Node",
-    "RunContext",
-    "get_current_context",
-    "require_current_context",
-    "use_run_context",
+    # Core abstractions
+    "TaskProtocol",
+    "Task",
+    "TaskConfig",
+    # Compiler
+    "WorkflowCompiler",
+    # Engine
+    "WorkflowEngine",
+    # Models
+    "Workflow",
+    "WorkflowMetadata",
+    "Link",
+    # Registry
+    "TaskRegistry",
+    "get_task_registry",
+    "register_task",
+    "get_task_class",
+    "get_task_id",
+    "list_registered_tasks",
 ]

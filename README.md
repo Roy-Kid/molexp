@@ -75,40 +75,40 @@ molexp asset list
 
 ```python
 from molexp.workspace import Workspace
-from molexp.context import RunContext, use_run_context
-from molexp.assets import AssetRepo, register_asset
 
 # Create workspace
 workspace = Workspace.from_env()
 
-# Create project and experiment
-project = workspace.create_project("my-project", name="My Project")
-experiment = workspace.create_experiment(
-    project_id="my-project",
-    experiment_id="exp-1",
+# Create project (ID auto-generated from name)
+project = workspace.create_project(
+    name="My Project",
+    description="Research project description"
+)
+
+# Create experiment through project (hierarchical API)
+experiment = project.create_experiment(
     name="Experiment 1",
-    workflow_source="workflow.py",
+    workflow_source="workflow.py"
 )
 
-# Create run
-run = workspace.create_run(
-    project_id="my-project",
-    experiment_id="exp-1",
+# Create run through experiment (hierarchical API)
+run = experiment.create_run(
     parameters={"param": 1.0},
-    workflow_file="workflow.py",
+    workflow_file="workflow.py"
 )
 
-# Execute with asset tracking
-ctx = RunContext(
-    asset_repo=AssetRepo(),
-    run_metadata=run,
-    workspace=workspace,
-)
+# Use hierarchical asset libraries
+# Workspace-level assets (global)
+workspace.assets.create_asset("bert_model", "/models/bert.pt")
 
-with use_run_context(ctx):
-    # Your workflow code here
-    # Assets registered with register_asset() are automatically tracked
-    register_asset("output.txt", label="results")
+# Project-level assets (shared within project)
+project.assets.create_asset("dataset", "/data/qm9.tar.bz2")
+
+# Experiment-level assets (shared within experiment)
+experiment.assets.create_asset("features", "/data/features.h5")
+
+# Run-level assets (specific to this run)
+run.assets.create_asset("output", "/outputs/results.txt")
 ```
 
 ## Installation

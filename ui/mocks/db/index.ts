@@ -1,0 +1,650 @@
+/**
+ * In-memory database for MSW mock API responses.
+ * 
+ * This module provides stateful storage for workspace data (projects, experiments, runs, assets, files)
+ * with session-scoped persistence. Data survives across requests within a browser tab or test file.
+ */
+
+import type {
+    ApiProjectResponse,
+    ApiExperimentResponse,
+    ApiRunResponse,
+    ApiAssetResponse,
+} from "../../src/app/types";
+
+/**
+ * File tree node structure for mock filesystem
+ */
+export interface FileNode {
+    name: string;
+    path: string;
+    type: "file" | "folder";
+    size?: number;
+    modified?: string;
+    content?: string; // For text files
+    children?: FileNode[];
+}
+
+/**
+ * In-memory database structure
+ */
+interface MockDatabase {
+    projects: Map<string, ApiProjectResponse>;
+    experiments: Map<string, ApiExperimentResponse>;
+    runs: Map<string, ApiRunResponse>;
+    assets: Map<string, ApiAssetResponse>;
+    files: Map<string, FileNode>; // path -> node
+    runLogs: Map<string, string[]>; // runId -> log lines
+}
+
+/**
+ * Global database instance
+ */
+let db: MockDatabase;
+
+/**
+ * Helper to generate ISO timestamps relative to a base time
+ */
+const now = new Date("2025-01-15T12:00:00Z");
+const isoAt = (offsetMinutes: number): string => {
+    return new Date(now.getTime() + offsetMinutes * 60 * 1000).toISOString();
+};
+
+/**
+ * Create an empty database
+ */
+function createEmptyDb(): MockDatabase {
+    return {
+        projects: new Map(),
+        experiments: new Map(),
+        runs: new Map(),
+        assets: new Map(),
+        files: new Map(),
+        runLogs: new Map(),
+    };
+}
+
+/**
+ * Seed the database with default workspace data
+ */
+export function seed(): void {
+    // Projects
+    const projects: ApiProjectResponse[] = [
+        {
+            id: "protein-folding",
+            projectId: "protein-folding",
+            name: "Protein Folding",
+            description: "Benchmarking folding pipelines",
+            owner: "molexp",
+            tags: ["biology", "gpu"],
+            config: { priority: "high" },
+            created: isoAt(-1440),
+            experimentCount: 2,
+        },
+        {
+            id: "catalyst-search",
+            projectId: "catalyst-search",
+            name: "Catalyst Search",
+            description: "Screening catalysts for CO2 reduction",
+            owner: "molexp",
+            tags: ["chemistry"],
+            config: { priority: "medium" },
+            created: isoAt(-2880),
+            experimentCount: 1,
+        },
+    ];
+
+    projects.forEach((p) => db.projects.set(p.id, p));
+
+    // Experiments
+    const experiments: ApiExperimentResponse[] = [
+        {
+            id: "exp-001",
+            experimentId: "exp-001",
+            projectId: "protein-folding",
+            name: "AlphaFold Baseline",
+            description: "Initial baseline run with AF2",
+            workflow: "workflows/alphafold.yml",
+            workflowType: "yaml",
+            gitCommit: "a1b2c3d",
+            parameterSpace: { lr: [0.001, 0.0005] },
+            defaultInputs: [{ assetId: "asset-001", role: "dataset" }],
+            runCount: 1,
+            runs: [
+                {
+                    id: "run-001",
+                    status: "succeeded",
+                    parameters: { batch_size: 32 },
+                    created: isoAt(-120),
+                },
+            ],
+            created: isoAt(-1300),
+        },
+        {
+            id: "exp-002",
+            experimentId: "exp-002",
+            projectId: "protein-folding",
+            name: "Structure Sweep",
+            description: "Parameter sweep on secondary structure",
+            workflow: "workflows/structure_sweep.yml",
+            workflowType: "yaml",
+            gitCommit: "d4e5f6g",
+            parameterSpace: { temperature: [0.8, 1.0, 1.2] },
+            defaultInputs: [],
+            runCount: 0,
+            runs: [],
+            created: isoAt(-900),
+        },
+        {
+            id: "exp-101",
+            experimentId: "exp-101",
+            projectId: "catalyst-search",
+            name: "Catalyst Sweep",
+            description: "Screening ligand libraries",
+            workflow: "workflows/catalyst.yml",
+            workflowType: "yaml",
+            gitCommit: "h7i8j9k",
+            parameterSpace: { ligand: ["L1", "L2", "L3"] },
+            defaultInputs: [{ assetId: "asset-002", role: "catalog" }],
+            runCount: 1,
+            runs: [
+                {
+                    id: "run-101",
+                    status: "succeeded",
+                    parameters: { batch_size: 16 },
+                    created: isoAt(-100),
+                },
+            ],
+            created: isoAt(-700),
+        },
+    ];
+
+    experiments.forEach((e) => db.experiments.set(e.id, e));
+
+    // Runs
+    const runs: ApiRunResponse[] = [
+        {
+            id: "run-001",
+            runId: "run-001",
+            projectId: "protein-folding",
+            experimentId: "exp-001",
+            status: "succeeded",
+            finished: isoAt(-60),
+            parameters: { batch_size: 32 },
+            created: isoAt(-120),
+            workflow: {
+                file: "workflows/alphafold.yml",
+                gitCommit: "a1b2c3d",
+                serializedGraph: null,
+            },
+            executorInfo: { backend: "local" },
+            workingDir: "/tmp/molexp/run-001",
+            logsDir: "/tmp/molexp/run-001/logs",
+            assetRefs: {
+                inputs: [
+                    {
+                        assetId: "asset-001",
+                        role: "dataset",
+                        producerRunId: null,
+                        accessedAt: isoAt(-110),
+                        producedAt: null,
+                    },
+                ],
+                outputs: [
+                    {
+                        assetId: "asset-003",
+                        role: "model",
+                        producerRunId: "run-001",
+                        accessedAt: null,
+                        producedAt: isoAt(-65),
+                    },
+                ],
+            },
+            context: {
+                environment: { python: "3.12" },
+                dependencies: { pydantic: "2.5" },
+                hardware: { gpu: "A100" },
+            },
+        },
+        {
+            id: "run-101",
+            runId: "run-101",
+            projectId: "catalyst-search",
+            experimentId: "exp-101",
+            status: "succeeded",
+            finished: isoAt(-50),
+            parameters: { batch_size: 16 },
+            created: isoAt(-100),
+            workflow: {
+                file: "workflows/catalyst.yml",
+                gitCommit: "h7i8j9k",
+                serializedGraph: null,
+            },
+            executorInfo: { backend: "local" },
+            workingDir: "/tmp/molexp/run-101",
+            logsDir: "/tmp/molexp/run-101/logs",
+            assetRefs: {
+                inputs: [
+                    {
+                        assetId: "asset-002",
+                        role: "catalog",
+                        producerRunId: null,
+                        accessedAt: isoAt(-95),
+                        producedAt: null,
+                    },
+                ],
+                outputs: [],
+            },
+            context: {
+                environment: { python: "3.12" },
+                dependencies: { pydantic: "2.5" },
+                hardware: { gpu: "V100" },
+            },
+        },
+    ];
+
+    runs.forEach((r) => db.runs.set(r.id, r));
+
+    // Assets
+    const assets: ApiAssetResponse[] = [
+        {
+            id: "asset-001",
+            assetId: "asset-001",
+            type: "dataset",
+            format: "hdf5",
+            size: 104857600,
+            contentHash: "hash-001",
+            mimeType: "application/octet-stream",
+            producerRunId: null,
+            tags: ["training"],
+            metadata: { source: "s3://datasets/qm9" },
+            files: [
+                {
+                    path: "data/qm9.h5",
+                    size: 104857600,
+                    hash: "filehash-001",
+                },
+            ],
+            created: isoAt(-2000),
+        },
+        {
+            id: "asset-002",
+            assetId: "asset-002",
+            type: "catalog",
+            format: "csv",
+            size: 5242880,
+            contentHash: "hash-002",
+            mimeType: "text/csv",
+            producerRunId: null,
+            tags: ["ligands"],
+            metadata: { source: "internal" },
+            files: [
+                {
+                    path: "data/ligands.csv",
+                    size: 5242880,
+                    hash: "filehash-002",
+                },
+            ],
+            created: isoAt(-1600),
+        },
+        {
+            id: "asset-003",
+            assetId: "asset-003",
+            type: "model",
+            format: "pt",
+            size: 20971520,
+            contentHash: "hash-003",
+            mimeType: "application/octet-stream",
+            producerRunId: "run-001",
+            tags: ["checkpoint"],
+            metadata: { epoch: 24 },
+            files: [
+                {
+                    path: "models/alphafold.pt",
+                    size: 20971520,
+                    hash: "filehash-003",
+                },
+            ],
+            created: isoAt(-100),
+        },
+    ];
+
+    assets.forEach((a) => db.assets.set(a.id, a));
+
+    // File tree
+    const fileTree: FileNode[] = [
+        {
+            name: "workflows",
+            path: "/workflows",
+            type: "folder",
+            children: [
+                {
+                    name: "alphafold.yml",
+                    path: "/workflows/alphafold.yml",
+                    type: "file",
+                    size: 1024,
+                    modified: isoAt(-500),
+                    content: "# AlphaFold workflow\nname: alphafold\ntasks:\n  - train\n  - evaluate",
+                },
+                {
+                    name: "catalyst.yml",
+                    path: "/workflows/catalyst.yml",
+                    type: "file",
+                    size: 856,
+                    modified: isoAt(-400),
+                    content: "# Catalyst workflow\nname: catalyst\ntasks:\n  - screen\n  - analyze",
+                },
+                {
+                    name: "structure_sweep.yml",
+                    path: "/workflows/structure_sweep.yml",
+                    type: "file",
+                    size: 1200,
+                    modified: isoAt(-300),
+                    content: "# Structure sweep workflow\nname: structure_sweep\ntasks:\n  - sweep\n  - collect",
+                },
+            ],
+        },
+        {
+            name: "data",
+            path: "/data",
+            type: "folder",
+            children: [
+                {
+                    name: "qm9.h5",
+                    path: "/data/qm9.h5",
+                    type: "file",
+                    size: 104857600,
+                    modified: isoAt(-2000),
+                },
+                {
+                    name: "ligands.csv",
+                    path: "/data/ligands.csv",
+                    type: "file",
+                    size: 5242880,
+                    modified: isoAt(-1600),
+                },
+            ],
+        },
+        {
+            name: "models",
+            path: "/models",
+            type: "folder",
+            children: [
+                {
+                    name: "alphafold.pt",
+                    path: "/models/alphafold.pt",
+                    type: "file",
+                    size: 20971520,
+                    modified: isoAt(-100),
+                },
+            ],
+        },
+        {
+            name: "README.md",
+            path: "/README.md",
+            type: "file",
+            size: 2048,
+            modified: isoAt(-3000),
+            content: "# Molexp Workspace\n\nThis is a mock workspace for development and testing.",
+        },
+    ];
+
+    // Build file map
+    const addToFileMap = (node: FileNode) => {
+        db.files.set(node.path, node);
+        if (node.children) {
+            node.children.forEach(addToFileMap);
+        }
+    };
+
+    fileTree.forEach(addToFileMap);
+}
+
+/**
+ * Reset the database to default state (for test isolation)
+ */
+export function resetDatabase(): void {
+    db = createEmptyDb();
+    seed();
+}
+
+/**
+ * Initialize the database on module load
+ */
+db = createEmptyDb();
+seed();
+
+// ============================================================================
+// Database Accessors
+// ============================================================================
+
+/**
+ * Get all projects
+ */
+export function getAllProjects(): ApiProjectResponse[] {
+    return Array.from(db.projects.values());
+}
+
+/**
+ * Get project by ID
+ */
+export function getProject(id: string): ApiProjectResponse | undefined {
+    return db.projects.get(id);
+}
+
+/**
+ * Add or update a project
+ */
+export function setProject(project: ApiProjectResponse): void {
+    db.projects.set(project.id, project);
+}
+
+/**
+ * Delete a project
+ */
+export function deleteProject(id: string): boolean {
+    return db.projects.delete(id);
+}
+
+/**
+ * Get experiments for a project
+ */
+export function getExperimentsByProject(projectId: string): ApiExperimentResponse[] {
+    return Array.from(db.experiments.values()).filter((e) => e.projectId === projectId);
+}
+
+/**
+ * Get experiment by ID
+ */
+export function getExperiment(id: string): ApiExperimentResponse | undefined {
+    return db.experiments.get(id);
+}
+
+/**
+ * Add or update an experiment
+ */
+export function setExperiment(experiment: ApiExperimentResponse): void {
+    db.experiments.set(experiment.id, experiment);
+}
+
+/**
+ * Delete an experiment
+ */
+export function deleteExperiment(id: string): boolean {
+    return db.experiments.delete(id);
+}
+
+/**
+ * Get runs for an experiment
+ */
+export function getRunsByExperiment(experimentId: string): ApiRunResponse[] {
+    return Array.from(db.runs.values()).filter((r) => r.experimentId === experimentId);
+}
+
+/**
+ * Get run by ID
+ */
+export function getRun(id: string): ApiRunResponse | undefined {
+    return db.runs.get(id);
+}
+
+/**
+ * Add or update a run
+ */
+export function setRun(run: ApiRunResponse): void {
+    db.runs.set(run.id, run);
+}
+
+/**
+ * Delete a run
+ */
+export function deleteRun(id: string): boolean {
+    return db.runs.delete(id);
+}
+
+/**
+ * Get all assets
+ */
+export function getAllAssets(): ApiAssetResponse[] {
+    return Array.from(db.assets.values());
+}
+
+/**
+ * Get asset by ID
+ */
+export function getAsset(id: string): ApiAssetResponse | undefined {
+    return db.assets.get(id);
+}
+
+/**
+ * Get file tree (all root-level files)
+ */
+export function getFileTree(): FileNode[] {
+    return Array.from(db.files.values()).filter((f) => {
+        const parts = f.path.split("/").filter(Boolean);
+        return parts.length === 1; // Root level
+    });
+}
+
+/**
+ * Get file node by path
+ */
+export function getFile(path: string): FileNode | undefined {
+    return db.files.get(path);
+}
+
+/**
+ * Write or update a file
+ */
+export function writeFile(path: string, content: string): void {
+    const existing = db.files.get(path);
+    if (existing) {
+        existing.content = content;
+        existing.size = content.length;
+        existing.modified = new Date().toISOString();
+    } else {
+        const parts = path.split("/").filter(Boolean);
+        const name = parts[parts.length - 1];
+        const newFile: FileNode = {
+            name,
+            path,
+            type: "file",
+            size: content.length,
+            modified: new Date().toISOString(),
+            content,
+        };
+        db.files.set(path, newFile);
+
+        // Update parent directory
+        const parentPath = "/" + parts.slice(0, -1).join("/");
+        const parent = db.files.get(parentPath);
+        if (parent && parent.type === "folder") {
+            if (!parent.children) {
+                parent.children = [];
+            }
+            parent.children.push(newFile);
+        }
+    }
+}
+
+/**
+ * Delete a file
+ */
+export function deleteFile(path: string): boolean {
+    const file = db.files.get(path);
+    if (!file) return false;
+
+    db.files.delete(path);
+
+    // Remove from parent's children
+    const parts = path.split("/").filter(Boolean);
+    if (parts.length > 1) {
+        const parentPath = "/" + parts.slice(0, -1).join("/");
+        const parent = db.files.get(parentPath);
+        if (parent && parent.children) {
+            parent.children = parent.children.filter((c) => c.path !== path);
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Create a directory
+ */
+export function createDirectory(path: string): void {
+    const existing = db.files.get(path);
+    if (existing) return;
+
+    const parts = path.split("/").filter(Boolean);
+    const name = parts[parts.length - 1];
+    const newDir: FileNode = {
+        name,
+        path,
+        type: "folder",
+        modified: new Date().toISOString(),
+        children: [],
+    };
+    db.files.set(path, newDir);
+
+    // Update parent directory
+    if (parts.length > 1) {
+        const parentPath = "/" + parts.slice(0, -1).join("/");
+        const parent = db.files.get(parentPath);
+        if (parent && parent.type === "folder") {
+            if (!parent.children) {
+                parent.children = [];
+            }
+            parent.children.push(newDir);
+        }
+    }
+}
+
+/**
+ * Set run status
+ */
+export function setRunStatus(runId: string, status: string): void {
+    const run = db.runs.get(runId);
+    if (run) {
+        run.status = status;
+        if (status === "succeeded" || status === "failed" || status === "cancelled") {
+            run.finished = new Date().toISOString();
+        }
+    }
+}
+
+/**
+ * Get run logs
+ */
+export function getRunLogs(runId: string): string[] {
+    return db.runLogs.get(runId) || [];
+}
+
+/**
+ * Add run log line
+ */
+export function addRunLog(runId: string, line: string): void {
+    const logs = db.runLogs.get(runId) || [];
+    logs.push(line);
+    db.runLogs.set(runId, logs);
+}

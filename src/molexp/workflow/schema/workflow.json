@@ -1,0 +1,101 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/workflow/workflow.json",
+    "title": "Workflow",
+    "description": "Complete workflow definition containing tasks, links, and metadata",
+    "type": "object",
+    "properties": {
+        "workflow_id": {
+            "type": "string",
+            "description": "Unique workflow identifier (auto-generated)",
+            "pattern": "^workflow_[a-f0-9]{8}$",
+            "examples": [
+                "workflow_abc12345"
+            ]
+        },
+        "name": {
+            "type": [
+                "string",
+                "null"
+            ],
+            "description": "Optional workflow name",
+            "examples": [
+                "my_workflow",
+                "production_pipeline",
+                null
+            ]
+        },
+        "task_configs": {
+            "type": "array",
+            "description": "List of task configurations in the workflow",
+            "items": {
+                "$ref": "task_config.json"
+            },
+            "default": []
+        },
+        "links": {
+            "type": "array",
+            "description": "List of links between tasks defining the workflow graph",
+            "items": {
+                "$ref": "link.json"
+            },
+            "default": []
+        },
+        "metadata": {
+            "$ref": "workflow_metadata.json",
+            "description": "Optional workflow metadata"
+        }
+    },
+    "required": [
+        "workflow_id",
+        "task_configs",
+        "links",
+        "metadata"
+    ],
+    "additionalProperties": false,
+    "examples": [
+        {
+            "workflow_id": "workflow_abc12345",
+            "name": "example_workflow",
+            "task_configs": [
+                {
+                    "task_id": "AddTask_xyz",
+                    "task_type": "molexp.workflow.nodes.AddTask",
+                    "config": {
+                        "value": 10
+                    },
+                    "status": "succeeded"
+                },
+                {
+                    "task_id": "MultiplyTask_def",
+                    "task_type": "molexp.workflow.nodes.MultiplyTask",
+                    "config": {
+                        "factor": 2
+                    },
+                    "status": "running"
+                }
+            ],
+            "links": [
+                {
+                    "source": "AddTask_xyz",
+                    "target": "MultiplyTask_def",
+                    "mapping": {
+                        "result": "value"
+                    },
+                    "status": "running"
+                }
+            ],
+            "metadata": {
+                "label": "Example Workflow",
+                "description": "A simple example workflow",
+                "tags": [
+                    "example",
+                    "demo"
+                ],
+                "custom": {
+                    "owner": "user1"
+                }
+            }
+        }
+    ]
+}

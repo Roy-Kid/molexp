@@ -1,25 +1,22 @@
 """Control flow nodes for workflow logic."""
 
-from .conditional import ConditionalConfig, ConditionalNode
-from .loop import (ForLoopConfig, ForLoopNode, LoopConfig, LoopNode,
-                   WhileLoopConfig, WhileLoopNode)
-from .map import MapConfig, MapNode
-from .parallel import ParallelMapConfig, ParallelMapNode
-from .reduce import ReduceConfig, ReduceNode
+from .conditional import ConditionalConfig, ConditionalTask
+from .loop import (ForLoopConfig, ForLoopTask, LoopConfig, LoopTask,
+                   WhileLoopConfig, WhileLoopTask)
+from .map import MapConfig, MapTask
+from .reduce import ReduceConfig, ReduceTask
 
 __all__ = [
-    "MapNode",
+    "MapTask",
     "MapConfig",
-    "ReduceNode",
+    "ReduceTask",
     "ReduceConfig",
-    "ConditionalNode",
+    "ConditionalTask",
     "ConditionalConfig",
-    "LoopNode",
+    "LoopTask",
     "LoopConfig",
-    "WhileLoopNode",
+    "WhileLoopTask",
     "WhileLoopConfig",
-    "ForLoopNode",
+    "ForLoopTask",
     "ForLoopConfig",
-    "ParallelMapNode",
-    "ParallelMapConfig",
 ]

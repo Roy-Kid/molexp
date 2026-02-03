@@ -1,17 +1,17 @@
-"""Plugin system for molexp nodes.
+"""Plugin system for molexp tasks.
 
 This package provides the infrastructure for discovering and loading
-node plugins via Python entry points.
+task plugins via Python entry points.
 """
 
 from .loader import load_plugins
-from .metadata import NodeMetadata, PortMetadata
-from .registry import NodeRegistry, get_node_registry
+from .metadata import TaskMetadata, PortMetadata
+from .registry import TaskRegistry, get_task_registry
 
 __all__ = [
-    "NodeMetadata",
+    "TaskMetadata",
     "PortMetadata",
-    "NodeRegistry",
-    "get_node_registry",
+    "TaskRegistry",
+    "get_task_registry",
     "load_plugins",
 ]

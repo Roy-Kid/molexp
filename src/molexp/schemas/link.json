@@ -1,0 +1,42 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/workflow/link.json",
+    "title": "Link",
+    "description": "Connection between two tasks in a workflow, representing a dependency",
+    "type": "object",
+    "properties": {
+        "source": {
+            "type": "string",
+            "description": "Source task ID (the task that produces output)",
+            "pattern": "^[A-Za-z0-9_]+_[a-f0-9]{8}$",
+            "examples": [
+                "AddTask_abc12345"
+            ]
+        },
+        "target": {
+            "type": "string",
+            "description": "Target task ID (the task that consumes input)",
+            "pattern": "^[A-Za-z0-9_]+_[a-f0-9]{8}$",
+            "examples": [
+                "MultiplyTask_def67890"
+            ]
+        },
+        "status": {
+            "type": "string",
+            "description": "Link execution status",
+            "enum": [
+                "pending",
+                "running",
+                "succeeded",
+                "failed",
+                "cancelled"
+            ]
+        }
+    },
+    "required": [
+        "source",
+        "target",
+        "status"
+    ],
+    "additionalProperties": false
+}

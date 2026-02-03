@@ -1,0 +1,84 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/context.json",
+    "title": "Context",
+    "description": "Pure data model for execution state",
+    "type": "object",
+    "properties": {
+        "run_id": {
+            "type": "string",
+            "description": "Run identifier"
+        },
+        "experiment_id": {
+            "type": "string",
+            "description": "Experiment identifier"
+        },
+        "project_id": {
+            "type": "string",
+            "description": "Project identifier"
+        },
+        "work_dir": {
+            "type": "string",
+            "description": "Working directory path"
+        },
+        "artifacts_dir": {
+            "type": "string",
+            "description": "Artifacts directory path"
+        },
+        "tasks": {
+            "type": "object",
+            "description": "Task execution statuses",
+            "additionalProperties": {
+                "type": "string"
+            },
+            "default": {}
+        },
+        "results": {
+            "type": "object",
+            "description": "Execution results",
+            "additionalProperties": {
+                "type": "object"
+            },
+            "default": {}
+        },
+        "status": {
+            "type": "object",
+            "description": "Overall execution status",
+            "additionalProperties": true,
+            "default": {}
+        },
+        "errors": {
+            "type": "object",
+            "description": "Error information",
+            "additionalProperties": {
+                "type": "object"
+            },
+            "default": {}
+        },
+        "workflow": {
+            "description": "Serialized workflow data",
+            "oneOf": [
+                {
+                    "$ref": "workflow.json"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "execution": {
+            "type": "object",
+            "description": "Executor metadata and job tracking",
+            "additionalProperties": true,
+            "default": {}
+        }
+    },
+    "required": [
+        "run_id",
+        "experiment_id",
+        "project_id",
+        "work_dir",
+        "artifacts_dir"
+    ],
+    "additionalProperties": false
+}

@@ -1,41 +1,85 @@
-import { Suspense, lazy } from "react"
-import { BrowserRouter, Routes, Route } from "react-router-dom"
-import { DashboardLayout } from "@/components/DashboardLayout"
-import { Toaster } from "@/components/ui/sonner"
-import { ThemeProvider } from "@/providers/ThemeProvider"
-import { ErrorBoundary } from "@/components/ErrorBoundary"
-import { Loading } from "@/components/Loading"
+import { useEffect, useState } from "react";
 
-// Lazy load pages for better performance
-const Overview = lazy(() => import("@/pages/Overview").then(module => ({ default: module.Overview })))
-const Workspace = lazy(() => import("@/pages/Workspace").then(module => ({ default: module.Workspace })))
-const Workflow = lazy(() => import("@/pages/Workflow").then(module => ({ default: module.Workflow })))
-const ExecutionList = lazy(() => import("@/pages/ExecutionList").then(module => ({ default: module.ExecutionList })))
-const ExecutionDetail = lazy(() => import("@/pages/ExecutionDetail").then(module => ({ default: module.ExecutionDetail })))
-const Assets = lazy(() => import("@/pages/Assets").then(module => ({ default: module.Assets })))
+import type { InspectorTarget, Selection } from "@/app/types";
+import { AppShell } from "@/app/layout/AppShell";
+import { ErrorBoundary } from "@/app/layout/ErrorBoundary";
+import { registerDefaultRenderers } from "@/app/renderers/registerRenderers";
+import { useUrlState } from "@/app/state/useUrlState";
+import { useWorkspaceState } from "@/app/state/useWorkspaceState";
+import { workspaceApi } from "@/app/state/api";
 
-function App() {
+registerDefaultRenderers();
+
+const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarget => {
+  if (!selection) {
+    return { kind: "object", objectType: "project", objectId: "" };
+  }
+
+  return {
+    kind: "object",
+    objectType: selection.objectType,
+    objectId: selection.objectId,
+  };
+};
+
+const App = (): JSX.Element => {
+  const { snapshot, status, error, refresh } = useWorkspaceState();
+  const { leftPanelView, selection, setLeftPanelView, setSelection } = useUrlState();
+  const [inspectorTarget, setInspectorTarget] = useState<InspectorTarget>(
+    buildDefaultInspectorTarget(selection),
+  );
+
+  useEffect(() => {
+    setInspectorTarget(buildDefaultInspectorTarget(selection));
+  }, [selection]);
+
+  if (error) {
+    throw error;
+  }
+
+  const handleSelectionChange = (nextSelection: Selection): void => {
+    setSelection(nextSelection);
+  };
+
+  const handleOpenWorkspace = async (path: string): Promise<void> => {
+    await workspaceApi.openWorkspace(path);
+    refresh();
+  };
+
+  const handleCreateDirectory = async (path: string): Promise<void> => {
+    await workspaceApi.createDirectory(path);
+    refresh();
+  };
+
+  const handleCreateFile = async (path: string): Promise<void> => {
+    await workspaceApi.writeFile(path, "");
+    refresh();
+  };
+
   return (
-    <ThemeProvider>
-      <ErrorBoundary>
-        <BrowserRouter>
-          <DashboardLayout>
-            <Suspense fallback={<Loading />}>
-              <Routes>
-                <Route path="/" element={<Overview />} />
-                <Route path="/workspace" element={<Workspace />} />
-                <Route path="/workflow" element={<Workflow />} />
-                <Route path="/executions" element={<ExecutionList />} />
-                <Route path="/executions/:id" element={<ExecutionDetail />} />
-                <Route path="/assets" element={<Assets />} />
-              </Routes>
-            </Suspense>
-          </DashboardLayout>
-          <Toaster />
-        </BrowserRouter>
-      </ErrorBoundary>
-    </ThemeProvider>
-  )
-}
+    <ErrorBoundary>
+      <AppShell
+        leftPanelView={leftPanelView}
+        selection={selection}
+        snapshot={snapshot}
+        inspectorTarget={inspectorTarget}
+        onLeftPanelViewChange={setLeftPanelView}
+        onSelectionChange={handleSelectionChange}
+        onInspectorTargetChange={setInspectorTarget}
+        onOpenWorkspace={handleOpenWorkspace}
+        onCreateDirectory={handleCreateDirectory}
+        onCreateFile={handleCreateFile}
+        onWorkspaceRefresh={refresh}
+      />
+      {status === "loading" && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/50">
+          <div className="rounded-md border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
+            Syncing workspace state...
+          </div>
+        </div>
+      )}
+    </ErrorBoundary>
+  );
+};
 
-export default App
+export default App;
