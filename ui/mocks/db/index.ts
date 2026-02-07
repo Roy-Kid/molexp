@@ -104,7 +104,7 @@ export function seed(): void {
             projectId: "protein-folding",
             name: "AlphaFold Baseline",
             description: "Initial baseline run with AF2",
-            workflow: "workflows/alphafold.yml",
+            workflow: "/workflows/alphafold.yml",
             workflowType: "yaml",
             gitCommit: "a1b2c3d",
             parameterSpace: { lr: [0.001, 0.0005] },
@@ -126,7 +126,7 @@ export function seed(): void {
             projectId: "protein-folding",
             name: "Structure Sweep",
             description: "Parameter sweep on secondary structure",
-            workflow: "workflows/structure_sweep.yml",
+            workflow: "/workflows/structure_sweep.yml",
             workflowType: "yaml",
             gitCommit: "d4e5f6g",
             parameterSpace: { temperature: [0.8, 1.0, 1.2] },
@@ -141,7 +141,7 @@ export function seed(): void {
             projectId: "catalyst-search",
             name: "Catalyst Sweep",
             description: "Screening ligand libraries",
-            workflow: "workflows/catalyst.yml",
+            workflow: "/workflows/catalyst.yml",
             workflowType: "yaml",
             gitCommit: "h7i8j9k",
             parameterSpace: { ligand: ["L1", "L2", "L3"] },
@@ -324,7 +324,54 @@ export function seed(): void {
                     type: "file",
                     size: 1024,
                     modified: isoAt(-500),
-                    content: "# AlphaFold workflow\nname: alphafold\ntasks:\n  - train\n  - evaluate",
+                    content: `# AlphaFold Protein Structure Prediction
+name: alphafold-prediction
+version: 2.3.1
+description: Predicted protein structure using AlphaFold 2 system.
+
+defaults:
+  resources:
+    cpu: 4
+    memory: "16Gi"
+    gpu: "1"
+
+inputs:
+  fasta_file:
+    type: file
+    description: Input protein sequence in FASTA format
+  database_dir:
+    type: directory
+    description: Path to genetic databases
+
+tasks:
+  - name: feature_extraction
+    image: alphafold:2.3.1
+    command: 
+      - python
+      - run_alphafold.py
+      - --fasta_paths=\${inputs.fasta_file}
+      - --data_dir=\${inputs.database_dir}
+      - --output_dir=\${outputs.features}
+      - --model_preset=monomer
+    
+  - name: structure_prediction
+    image: alphafold:2.3.1
+    needs: [feature_extraction]
+    resources:
+      gpu: "1"
+    command:
+      - python 
+      - predict_structure.py
+      - --features_dir=\${tasks.feature_extraction.outputs.features}
+      - --output_path=\${outputs.pdb_file}
+
+outputs:
+  pdb_file:
+    type: file
+    path: predicted_structure.pdb
+  confidence_scores:
+    type: json
+    path: ranking_debug.json`,
                 },
                 {
                     name: "catalyst.yml",
@@ -332,7 +379,56 @@ export function seed(): void {
                     type: "file",
                     size: 856,
                     modified: isoAt(-400),
-                    content: "# Catalyst workflow\nname: catalyst\ntasks:\n  - screen\n  - analyze",
+                    content: `# Catalyst Screening Pipeline
+name: co2-reduction-catalyst-screen
+description: High-throughput screening of catalysts for CO2 reduction efficiency.
+
+inputs:
+  ligand_library:
+    type: file
+    format: csv
+  metal_centers:
+    type: list
+    default: ["Cu", "Ni", "Fe"]
+
+tasks:
+  - name: generate_structures
+    image: openbabel:3.1
+    command:
+      - obabel
+      - -i
+      - csv
+      - \${inputs.ligand_library}
+      - -o
+      - sdf
+      - -O
+      - ligands.sdf
+      - --gen3d
+
+  - name: dft_optimization
+    image: quantum-espresso:7.0
+    needs: [generate_structures]
+    parallelism: 10
+    command:
+      - run_dft.sh
+      - --input
+      - ligands.sdf
+      - --metals
+      - \${inputs.metal_centers}
+
+  - name: analysis
+    image: python:3.9
+    needs: [dft_optimization]
+    command:
+      - python
+      - analyze_results.py
+      - --logs
+      - \${tasks.dft_optimization.outputs.logs}
+
+outputs:
+  top_candidates:
+    type: file
+    path: candidates.csv`,
                 },
                 {
                     name: "structure_sweep.yml",
@@ -340,7 +436,55 @@ export function seed(): void {
                     type: "file",
                     size: 1200,
                     modified: isoAt(-300),
-                    content: "# Structure sweep workflow\nname: structure_sweep\ntasks:\n  - sweep\n  - collect",
+                    content: `# Secondary Structure Parameter Sweep
+name: secondary-structure-sweep
+description: Sensitivity analysis of secondary structure parameters.
+
+parameters:
+  temperature:
+    type: float
+    default: 1.0
+  pressure:
+    type: float
+    default: 1.0
+
+tasks:
+  - name: prepare_simulation
+    image: gromacs:2023
+    command:
+      - gmx
+      - grompp
+      - -f
+      - gromos.mdp
+      - -c
+      - protein.gro
+      - -p
+      - topol.top
+      - -o
+      - input.tpr
+
+  - name: run_md
+    image: gromacs:2023
+    needs: [prepare_simulation]
+    resources:
+      gpu: "1"
+    command:
+      - gmx
+      - mdrun
+      - -s
+      - input.tpr
+      - -temperature
+      - \${parameters.temperature}
+      - -pressure
+      - \${parameters.pressure}
+
+outputs:
+  trajectory:
+    type: file
+    path: traj.xtc
+  energy:
+    type: file
+    path: ener.edr`,
                 },
             ],
         },

@@ -1,7 +1,6 @@
 import { registerRenderer } from "@/app/registry";
 import { MetadataViewer } from "@/app/renderers/MetadataViewer";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
-import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
 import { TextEditor } from "@/app/renderers/TextEditor";
 import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
 import { ImageViewer } from "@/app/renderers/ImageViewer";
@@ -70,18 +69,6 @@ export const registerDefaultRenderers = (): void => {
     title: "Workflow Overview",
     panelSlot: "center",
     Component: WorkflowViewer,
-  });
-
-  registerRenderer({
-    key: {
-      objectType: "workflow",
-      fileKind: "yaml",
-      contentType: "workflow-graph",
-      panelKind: "viewer",
-    },
-    title: "Workflow Graph",
-    panelSlot: "center",
-    Component: WorkflowGraphViewer,
   });
 
   const workspaceFileKinds = ["yaml", "json", "python", "markdown", "text", "unknown", "image"] as const;

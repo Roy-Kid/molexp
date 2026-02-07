@@ -3,10 +3,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-export const TopBar = (): JSX.Element => {
+interface TopBarProps {
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
+}
+
+export const TopBar = ({ searchQuery = "", onSearchChange }: TopBarProps): JSX.Element => {
   return (
-    <header className="grid h-14 grid-cols-1 items-center border-b border-border bg-background px-4 md:grid-cols-3 md:px-6">
-      <div className="flex items-center gap-3">
+    <header className="flex h-14 items-center justify-between border-b border-border bg-background px-4 md:px-6">
+      {/* Left: Logo */}
+      <div className="flex items-center gap-3 w-[200px]">
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-foreground text-xs font-bold uppercase text-background">
           M
         </div>
@@ -15,34 +21,21 @@ export const TopBar = (): JSX.Element => {
         </span>
       </div>
 
-      <div className="hidden items-center justify-center justify-self-center md:flex">
-        <span className="text-sm font-semibold uppercase tracking-widest text-foreground">
-          Workflow Studio
-        </span>
+      {/* Center: Search */}
+      <div className="flex flex-1 items-center justify-center">
+        <div className="relative w-full max-w-md">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            className="h-9 pl-9"
+            placeholder="Search projects, workflows, runs, assets"
+            value={searchQuery}
+            onChange={(e) => onSearchChange?.(e.target.value)}
+          />
+        </div>
       </div>
 
-      <div className="flex items-center justify-end justify-self-end gap-3">
-        <div className="hidden items-center gap-3 lg:flex">
-          <Select defaultValue="workspace">
-            <SelectTrigger className="h-9 w-36">
-              <SelectValue placeholder="Scope" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="workspace">Workspace</SelectItem>
-              <SelectItem value="system">System</SelectItem>
-              <SelectItem value="admin">Admin</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-9 pl-9"
-              placeholder="Search projects, workflows, runs, assets"
-            />
-          </div>
-        </div>
-
+      {/* Right: Icons */}
+      <div className="flex items-center justify-end gap-3 w-[200px]">
         <Button variant="ghost" size="icon" aria-label="Notifications">
           <Bell className="h-5 w-5" />
         </Button>

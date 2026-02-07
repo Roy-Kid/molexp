@@ -69,7 +69,7 @@ export const renderPlanByObjectType: Record<SemanticObjectType, RenderPlan> = {
     right: [{ panelKind: "inspector", contentType: "metadata", fileKind: "json" }],
   },
   workflow: {
-    center: [{ panelKind: "viewer", contentType: "workflow-graph", fileKind: "yaml" }],
+    center: [{ panelKind: "viewer", contentType: "metadata", fileKind: "yaml" }],
     right: [{ panelKind: "inspector", contentType: "metadata", fileKind: "yaml" }],
   },
   "workspace-file": {

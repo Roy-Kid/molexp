@@ -167,26 +167,40 @@ class Workspace:
     
     # ============ Project Operations ============
     
-    def create_project(self, name: str) -> Project:
+    def create_project(self, name: str, exist_ok: bool = False) -> Project:
         """Create a new project.
-        
+
         Args:
             name: Human-readable project name (user input)
-            
+            exist_ok: If True, load existing project instead of raising error
+
         Returns:
             Created Project (already materialized)
-            
+
         Raises:
-            ValueError: If project with this ID already exists
+            ValueError: If project with this ID already exists and exist_ok=False
         """
         # Construct project (no side effects)
         project = Project(name=name, workspace=self)
-        
+
         # Check if project already exists
         project_dir = self.root / "projects" / project.id
         if project_dir.exists():
+            if exist_ok:
+                # Load existing project
+                metadata_file = project_dir / "project.json"
+                if metadata_file.exists():
+                    from .base import _load_metadata, _reconstruct
+                    from .metadata import ProjectMetadata
+                    metadata = _load_metadata(ProjectMetadata, metadata_file)
+                    attrs = {
+                        'metadata': metadata,
+                        'workspace': self,
+                        '_assets_lib': None,
+                    }
+                    return _reconstruct(Project, attrs)
             raise ValueError(f"Project '{project.id}' already exists")
-        
+
         # Explicitly materialize
         project.materialize()
 

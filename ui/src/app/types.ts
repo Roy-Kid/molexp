@@ -1,4 +1,4 @@
-export type LeftPanelView = "explorer" | "project" | "experiment" | "run" | "asset" | "workflow";
+export type LeftPanelView = "workspace" | "project" | "experiment" | "run" | "asset" | "workflow";
 
 export type SemanticObjectType =
   | "project"
@@ -37,7 +37,8 @@ export type SemanticStatus =
   | "succeeded"
   | "failed"
   | "failed"
-  | "cancelled";
+  | "cancelled"
+  | "skipped";
 
 import type { ProjectCreateRequest } from "../api/generated/models/ProjectCreateRequest";
 import type { ExperimentCreateRequest } from "../api/generated/models/ExperimentCreateRequest";
@@ -166,7 +167,7 @@ export interface WorkspaceSnapshot {
   runs: RunSummary[];
   assets: AssetSummary[];
   workflows: WorkflowSummary[];
-  explorerRoot: WorkspaceTreeNode | null;
+  workspaceRoot: WorkspaceTreeNode | null;
   consoleEntries: ConsoleEntry[];
 }
 

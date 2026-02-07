@@ -120,7 +120,7 @@ export const buildEmptySnapshot = (): WorkspaceSnapshot => {
     runs: [],
     assets: [],
     workflows: [],
-    explorerRoot: null,
+    workspaceRoot: null,
     consoleEntries: [],
   };
 };

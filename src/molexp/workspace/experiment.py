@@ -153,24 +153,56 @@ class Experiment:
         self.metadata.updated_at = datetime.now()
         _save_metadata(self.metadata, experiment_dir / "experiment.json")
     
-    def create_run(self, parameters: dict[str, Any] | None = None) -> Run:
+    def create_run(self, parameters: dict[str, Any] | None = None, id: str | None = None, exist_ok: bool = False) -> Run:
         """Create run in this experiment.
-        
+
         Args:
             parameters: Run parameters (user input)
-            
+            id: Optional custom run ID (if None, auto-generates UUID)
+            exist_ok: If True, always create new run (runs don't have names to match by)
+                     Only useful with custom id to load existing run by ID
+
         Returns:
-            Created Run (not yet materialized)
+            Created Run (already materialized)
+
+        Raises:
+            ValueError: If run with this ID already exists and exist_ok=False
+
+        Note:
+            Unlike create_project/create_experiment, runs don't have unique names,
+            so exist_ok only works when a custom id is provided. Without custom id,
+            a new run is always created (since each run should represent a new execution).
         """
         # Construct run (no side effects)
         run = Run(
             experiment=self,
             parameters=parameters,
+            id=id,
         )
-        
+
+        # Check if run already exists by ID
+        run_dir = (
+            self.workspace.root / "projects" / self.project.id /
+            "experiments" / self.id / "runs" / run.id
+        )
+        if run_dir.exists():
+            if exist_ok:
+                # Load existing run
+                metadata_file = run_dir / "run.json"
+                if metadata_file.exists():
+                    from .base import _load_metadata, _reconstruct
+                    from .metadata import RunMetadata
+                    metadata = _load_metadata(RunMetadata, metadata_file)
+                    attrs = {
+                        'metadata': metadata,
+                        'experiment': self,
+                    }
+                    return _reconstruct(Run, attrs)
+            raise ValueError(f"Run '{run.id}' already exists")
+
         # Explicitly materialize
         run.materialize()
-        
+
         return run
     
     def get_run(self, run_id: str) -> Run | None:

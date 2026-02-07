@@ -12,11 +12,12 @@ import type {
 const DEFAULT_VIEW: LeftPanelView = "project";
 
 const viewParamValues: LeftPanelView[] = [
-  "explorer",
+  "workspace",
   "project",
   "experiment",
   "run",
   "asset",
+  "workflow",
 ];
 
 const objectTypeValues: SemanticObjectType[] = [

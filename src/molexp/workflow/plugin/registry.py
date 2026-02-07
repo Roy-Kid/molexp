@@ -40,11 +40,6 @@ class TaskRegistration:
         self.config_class = config_class
         self.metadata = metadata
 
-    # Keep node_id as alias for backward compatibility
-    @property
-    def node_id(self) -> str:
-        return self.task_type_id
-
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for API responses.
 

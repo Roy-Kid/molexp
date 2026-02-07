@@ -68,17 +68,11 @@ class Asset(BaseModel):
     @property
     def path(self) -> Path:
         """Get filesystem path for the asset payload.
-        
+
         Returns:
-            Path to asset payload directory (supports both payload/ and data/).
+            Path to asset payload directory.
         """
-        # Try new payload structure first
-        payload_path = self.library_root / self.asset_id / "payload"
-        if payload_path.exists():
-            return payload_path
-        
-        # Fallback to legacy data structure
-        return self.library_root / self.asset_id / "data"
+        return self.library_root / self.asset_id / "payload"
     
     def update_metadata(self, **metadata_updates: Any) -> None:
         """Update asset metadata and save to disk.

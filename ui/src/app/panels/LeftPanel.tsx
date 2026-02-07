@@ -13,6 +13,7 @@ import {
   RefreshCw,
   LayoutDashboard,
   Workflow,
+  Settings,
 } from "lucide-react";
 import { useEffect, useState, useRef, useMemo } from "react";
 
@@ -56,7 +57,7 @@ interface ViewOption {
 }
 
 const viewOptions: ViewOption[] = [
-  { id: "explorer", label: "Explorer", icon: FolderTree },
+  { id: "workspace", label: "Workspace", icon: FolderTree },
   { id: "project", label: "Project", icon: Blocks },
   { id: "experiment", label: "Experiment", icon: FlaskConical },
   { id: "run", label: "Run", icon: PlayCircle }, // Fixed duplicate
@@ -95,7 +96,7 @@ const detectFileKind = (path: string): FileKind => {
 
 const buildListHeader = (view: LeftPanelView): string => {
   const labelByView: Record<LeftPanelView, string> = {
-    explorer: "Workspace Explorer",
+    workspace: "Workspace",
     project: "Projects",
     experiment: "Experiments",
     run: "Runs",
@@ -106,7 +107,7 @@ const buildListHeader = (view: LeftPanelView): string => {
   return labelByView[view];
 };
 
-const ExplorerTree = ({
+const WorkspaceTree = ({
   root,
   onSelect,
   activePath,
@@ -331,24 +332,42 @@ const RunTree = ({
   snapshot,
   onSelect,
   activeId,
+  searchQuery,
 }: {
   snapshot: WorkspaceSnapshot;
   onSelect: (selection: Selection) => void;
   activeId?: string;
+  searchQuery?: string;
 }): JSX.Element => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   // Build Hierarchy
   const hierarchy = useMemo(() => {
-    const projects = snapshot.projects.map(p => ({
+    const runs = snapshot.runs;
+    const lowerQuery = searchQuery?.toLowerCase() || "";
+    
+    return snapshot.projects.map(p => ({
         ...p,
         experiments: snapshot.experiments.filter(e => e.projectId === p.id).map(e => ({
             ...e,
-            runs: snapshot.runs.filter(r => r.experimentId === e.id)
-        }))
-    }));
-    return projects;
-  }, [snapshot]);
+            runs: runs.filter(r => r.experimentId === e.id).filter(r => 
+                !lowerQuery || r.name.toLowerCase().includes(lowerQuery) || r.id.includes(lowerQuery)
+            )
+        })).filter(e => e.runs.length > 0)
+    })).filter(p => p.experiments.length > 0);
+  }, [snapshot, searchQuery]);
+
+  // Auto-expand if searching
+  useEffect(() => {
+    if (searchQuery) {
+        const allIds = new Set<string>();
+        hierarchy.forEach(p => {
+             allIds.add(p.id);
+             p.experiments.forEach(e => allIds.add(e.id));
+        });
+        setExpandedIds(allIds);
+    }
+  }, [hierarchy, searchQuery]);
 
   const toggleExpanded = (id: string) => {
     setExpandedIds(prev => {
@@ -360,6 +379,7 @@ const RunTree = ({
   };
 
   if (hierarchy.length === 0) {
+      if (searchQuery) return <p className="text-xs text-muted-foreground px-4">No runs match "{searchQuery}".</p>;
       return <p className="text-xs text-muted-foreground">No runs found.</p>;
   }
 
@@ -437,21 +457,37 @@ const ExperimentTree = ({
   snapshot,
   onSelect,
   activeId,
+  searchQuery,
 }: {
   snapshot: WorkspaceSnapshot;
   onSelect: (selection: Selection) => void;
   activeId?: string;
+  searchQuery?: string;
 }): JSX.Element => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
-  // Build Hierarchy
   const hierarchy = useMemo(() => {
+    const lowerQuery = searchQuery?.toLowerCase() || "";
+    
     const projects = snapshot.projects.map(p => ({
         ...p,
-        experiments: snapshot.experiments.filter(e => e.projectId === p.id)
-    }));
+        experiments: snapshot.experiments.filter(e => 
+            e.projectId === p.id && 
+            (!lowerQuery || e.name.toLowerCase().includes(lowerQuery) || e.summary?.toLowerCase().includes(lowerQuery))
+        )
+    })).filter(p => p.experiments.length > 0);
+    
     return projects;
-  }, [snapshot]);
+  }, [snapshot, searchQuery]);
+
+  // Auto-expand if searching
+  useEffect(() => {
+    if (searchQuery) {
+        const allIds = new Set<string>();
+        hierarchy.forEach(p => allIds.add(p.id));
+        setExpandedIds(allIds);
+    }
+  }, [hierarchy, searchQuery]);
 
   const toggleExpanded = (id: string) => {
     setExpandedIds(prev => {
@@ -463,6 +499,7 @@ const ExperimentTree = ({
   };
 
   if (hierarchy.length === 0) {
+      if (searchQuery) return <p className="text-xs text-muted-foreground px-4">No experiments match "{searchQuery}".</p>;
       return <p className="text-xs text-muted-foreground">No experiments found.</p>;
   }
 
@@ -521,9 +558,10 @@ export const LeftPanel = ({
   onCreateDirectory,
   onCreateFile,
   onRefresh,
+  searchQuery = "",
 }: LeftPanelProps): JSX.Element => {
   const listHeader = buildListHeader(view);
-  const hasWorkspace = Boolean(snapshot.explorerRoot);
+  const hasWorkspace = Boolean(snapshot.workspaceRoot);
 
   // Track previous selection to only sync on change
   const prevSelectionRef = useRef(selection);
@@ -567,15 +605,24 @@ export const LeftPanel = ({
     onCreateDirectory(path);
   };
 
+  const filterItems = <T extends { name: string; summary?: string }>(items: T[]) => {
+    if (!searchQuery) return items;
+    const lowerQuery = searchQuery.toLowerCase();
+    return items.filter(item => 
+      item.name.toLowerCase().includes(lowerQuery) || 
+      item.summary?.toLowerCase().includes(lowerQuery)
+    );
+  };
+
   const listContent: Record<LeftPanelView, JSX.Element> = {
-    explorer: <ExplorerTree root={snapshot.explorerRoot} onSelect={onSelect} activePath={activePath} snapshot={snapshot} />,
+    workspace: <WorkspaceTree root={snapshot.workspaceRoot} onSelect={onSelect} activePath={activePath} snapshot={snapshot} />,
     project: (
       <div className="space-y-4">
         <div className="flex justify-end px-1">
           <CreateProjectDialog onProjectCreated={onRefresh} />
         </div>
         <SemanticList<ProjectSummary>
-          items={snapshot.projects}
+          items={filterItems(snapshot.projects)}
           onSelect={onSelect}
           objectType="project"
           activeId={activeId}
@@ -584,22 +631,22 @@ export const LeftPanel = ({
     ),
     experiment: (
       <div className="space-y-6">
-         <ExperimentTree snapshot={snapshot} onSelect={onSelect} activeId={activeId} />
+         <ExperimentTree snapshot={snapshot} onSelect={onSelect} activeId={activeId} searchQuery={searchQuery} />
       </div>
     ),
     run: (
-      <RunTree snapshot={snapshot} onSelect={onSelect} activeId={activeId} />
+      <RunTree snapshot={snapshot} onSelect={onSelect} activeId={activeId} searchQuery={searchQuery} />
     ),
     asset: (
       <SemanticList<AssetSummary>
-        items={snapshot.assets}
+        items={filterItems(snapshot.assets)}
         onSelect={onSelect}
         objectType="asset"
       />
     ),
     workflow: (
       <SemanticList<WorkflowSummary>
-        items={snapshot.workflows}
+        items={filterItems(snapshot.workflows)}
         onSelect={onSelect}
         objectType="workflow"
         activeId={activeId}
@@ -630,6 +677,16 @@ export const LeftPanel = ({
               </Tooltip>
             );
           })}
+          <div className="mt-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Settings</TooltipContent>
+            </Tooltip>
+          </div>
         </div>
       </TooltipProvider>
 
@@ -639,7 +696,7 @@ export const LeftPanel = ({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {listHeader}
             </p>
-            {view === "explorer" && (
+            {view === "workspace" && (
               <div className="flex items-center gap-1">
                 {!hasWorkspace ? (
                   <Button

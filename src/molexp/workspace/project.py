@@ -242,22 +242,66 @@ class Project:
         self.metadata.updated_at = datetime.now()
         _save_metadata(self.metadata, project_dir / "project.json")
     
-    def create_experiment(self, name: str, id: str | None = None) -> Experiment:
+    def create_experiment(self, name: str, id: str | None = None, exist_ok: bool = False) -> Experiment:
         """Create experiment in this project.
 
         Args:
             name: Experiment name (user input)
             id: Optional custom ID (if None, auto-generates UUID)
+            exist_ok: If True, return existing experiment if found by name (when id=None)
+                     or by id (when id is provided)
 
         Returns:
             Created Experiment (already materialized)
+
+        Raises:
+            ValueError: If experiment with this ID already exists and exist_ok=False
         """
+        # If exist_ok=True and no custom id, try to find existing experiment by name
+        if exist_ok and id is None:
+            experiments_dir = self.workspace.root / "projects" / self.id / "experiments"
+            if experiments_dir.exists():
+                from .base import _load_metadata, _reconstruct
+                from .metadata import ExperimentMetadata
+
+                for exp_dir in experiments_dir.iterdir():
+                    if exp_dir.is_dir():
+                        metadata_file = exp_dir / "experiment.json"
+                        if metadata_file.exists():
+                            metadata = _load_metadata(ExperimentMetadata, metadata_file)
+                            if metadata.name == name:
+                                # Found existing experiment with same name
+                                attrs = {
+                                    'metadata': metadata,
+                                    'project': self,
+                                    '_assets_lib': None,
+                                }
+                                return _reconstruct(Experiment, attrs)
+
         # Construct experiment (no side effects)
         experiment = Experiment(
             name=name,
             project=self,
             id=id,
         )
+
+        # Check if experiment already exists by ID
+        experiment_dir = self.workspace.root / "projects" / self.id / "experiments" / experiment.id
+        if experiment_dir.exists():
+            if exist_ok:
+                # Load existing experiment
+                metadata_file = experiment_dir / "experiment.json"
+                if metadata_file.exists():
+                    from .base import _load_metadata, _reconstruct
+                    from .metadata import ExperimentMetadata
+                    metadata = _load_metadata(ExperimentMetadata, metadata_file)
+                    attrs = {
+                        'metadata': metadata,
+                        'project': self,
+                        '_assets_lib': None,
+                    }
+                    return _reconstruct(Experiment, attrs)
+            raise ValueError(f"Experiment '{experiment.id}' already exists")
 
         # Explicitly materialize
         experiment.materialize()

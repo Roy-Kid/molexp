@@ -22,13 +22,13 @@ export interface WorkspaceState {
 }
 
 const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
-  let explorerRoot: WorkspaceSnapshot["explorerRoot"] = null;
+  let workspaceRoot: WorkspaceSnapshot["workspaceRoot"] = null;
 
   try {
     const workspaceTree = await workspaceApi.getWorkspaceTree("/");
-    explorerRoot = mapWorkspaceTree("/", workspaceTree);
+    workspaceRoot = mapWorkspaceTree("/", workspaceTree);
   } catch (err) {
-    console.warn("Workspace explorer tree unavailable:", err);
+    console.warn("Workspace tree unavailable:", err);
   }
 
   const projectsResponse = await workspaceApi.getProjects();
@@ -71,10 +71,12 @@ const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
     }),
   );
 
-  const assetSummaries = [
+  const allAssets = [
     ...mapAssets(await workspaceApi.getAssets()),
     ...projectAssets.flat(),
   ];
+
+  const assetSummaries = Array.from(new Map(allAssets.map(item => [item.id, item])).values());
   const rawExperiments = experimentsByProject.flatMap((item) => item.experiments);
   const workflowSummaries = mapWorkflows(experimentSummaries, rawExperiments);
 
@@ -84,7 +86,7 @@ const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
     runs: runSummaries,
     assets: assetSummaries,
     workflows: workflowSummaries,
-    explorerRoot,
+    workspaceRoot,
     consoleEntries: emptyConsoleEntries(),
   };
 };

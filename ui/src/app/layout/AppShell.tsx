@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import type { InspectorTarget, Selection, WorkspaceSnapshot } from "@/app/types";
 import { TopBar } from "@/app/layout/TopBar";
@@ -37,9 +38,11 @@ export const AppShell = ({
   onCreateFile,
   onWorkspaceRefresh,
 }: AppShellProps): JSX.Element => {
+  const [searchQuery, setSearchQuery] = useState("");
+
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <TopBar />
+      <TopBar searchQuery={searchQuery} onSearchChange={setSearchQuery} />
       <main className="flex flex-1 flex-col overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="flex-1">
           <ResizablePanel defaultSize={PANEL_DEFAULTS.left} minSize={16} maxSize={30}>
@@ -47,6 +50,7 @@ export const AppShell = ({
               view={leftPanelView}
               selection={selection}
               snapshot={snapshot}
+              searchQuery={searchQuery}
               onViewChange={onLeftPanelViewChange}
               onSelect={onSelectionChange}
               onOpenWorkspace={onOpenWorkspace}

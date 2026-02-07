@@ -1,9 +1,41 @@
-"""Base Task abstraction for all executable units."""
+"""Base Task abstraction for all executable units.
+
+This module provides the fundamental building blocks for workflow execution:
+
+1. **Task**: Base class for batch-style tasks that execute once and return results.
+   Tasks support local execution via execute() and external submission via submit().
+
+2. **Actor**: Specialized task for continuous concurrent execution using the actor model.
+   Actors run indefinitely, communicate via message passing, and store all state in config.
+
+The module implements a config-as-state pattern where task configuration doubles as
+runtime state, enabling hot reconfiguration and automatic persistence.
+
+Example:
+    Batch task::
+
+        class MyTask(Task[MyConfig, dict]):
+            config_type = MyConfig
+
+            def execute(self, ctx, **inputs) -> dict:
+                return {"result": self.config.value * 2}
+
+    Actor task::
+
+        class MyActor(Actor[MyConfig, dict]):
+            config_type = MyConfig
+
+            async def execute(self, ctx, **inputs) -> AsyncGenerator[None, dict]:
+                while self.config.running:
+                    data = await ctx.receive('input')
+                    await ctx.emit('output', data * 2)
+                    yield
+"""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from typing import Any, Generic, Type, TypeVar, TYPE_CHECKING
 from uuid import uuid4
 
@@ -84,12 +116,7 @@ class Task(Generic[CfgT, OutT], ABC):
                 f"{self.__class__.__name__}.config_type must be a Pydantic BaseModel"
             )
 
-        try:
-            self.config: CfgT = self.config_type(**config_kwargs)
-        except ValidationError as e:
-            raise ValueError(
-                f"Invalid Pydantic config for {self.__class__.__name__}: {e}"
-            ) from e
+        self.config: CfgT = self.config_type(**config_kwargs)
 
     @abstractmethod
     def execute(self, ctx: Any | None = None, **inputs: Any) -> dict[str, Any]:
@@ -204,6 +231,83 @@ class Task(Generic[CfgT, OutT], ABC):
 
     def __repr__(self) -> str:
         return f"{self.__class__.__name__}(id={self.task_id!r}, config={self.config!r})"
+
+
+class Actor(Task[CfgT, OutT], ABC):
+    """Base class for continuous concurrent execution using the Actor model.
+
+    Actor semantics:
+    - Independent execution unit with isolated state
+    - Communicates via explicit message passing (emit/receive)
+    - Runs indefinitely until stopped or completes naturally
+    - No shared state between actors
+    - **Stateless design**: All state stored in `config` (config = state)
+
+    Framework provides ONLY this base class; users must implement domain-specific actors.
+    Actors use async generators for execution and can dynamically emit/receive messages
+    on any channel without pre-declaration.
+
+    **Config-as-State Pattern:**
+    Store all actor state in the config field. This enables:
+    - Automatic persistence via workflow metadata serialization
+    - Hot reconfiguration by updating config
+    - Easy state inspection and debugging
+
+    Example:
+        >>> class SamplerConfig(BaseModel):
+        ...     threshold: float = 0.1
+        ...     samples_collected: int = 0  # State in config
+        ...
+        >>> class SamplerActor(Actor[SamplerConfig, dict]):
+        ...     config_type = SamplerConfig
+        ...
+        ...     async def execute(self, ctx, **inputs) -> AsyncGenerator[None, dict]:
+        ...         while True:
+        ...             data = await ctx.receive('input')
+        ...             if data['score'] > self.config.threshold:
+        ...                 self.config.samples_collected += 1
+        ...                 await ctx.emit('output', data)
+        ...             yield
+
+    Attributes:
+        Same as Task. State should be stored in config, not as instance variables.
+    """
+
+    @abstractmethod
+    def execute(self, ctx: Any | None = None, **inputs: Any) -> AsyncGenerator[None, dict[str, Any]]:
+        """Execute actor continuously.
+
+        Actors override this method to return an AsyncGenerator instead of a dict.
+        The generator runs indefinitely, using ctx.receive() to consume messages
+        and ctx.emit() to send messages. Must yield periodically to allow asyncio
+        task switching.
+
+        **Stateless Pattern:** Store all state in self.config, check config on each
+        iteration for hot reconfiguration.
+
+        Args:
+            ctx: RunContext providing receive() and emit() for message passing
+            **inputs: Initial inputs (typically empty for actors)
+
+        Yields:
+            None (control flow, allows asyncio switching)
+
+        Returns:
+            Use ctx.set_result(task_id, result) to return final results
+
+        Example:
+            >>> async def execute(self, ctx, **inputs) -> AsyncGenerator[None, dict]:
+            ...     while self.config.samples_collected < self.config.max_samples:
+            ...         data = await ctx.receive('data')
+            ...         if data['score'] > self.config.threshold:  # Check config
+            ...             self.config.samples_collected += 1
+            ...             await ctx.emit('results', data)
+            ...         yield  # Required for asyncio
+            ...
+            ...     ctx.set_result(self.task_id, {'count': self.config.samples_collected})
+            ...     return
+        """
+        raise NotImplementedError
 
 
 

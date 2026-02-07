@@ -1,7 +1,37 @@
-"""Run entity - execution record.
+"""Run entity and execution context with actor message passing support.
 
-A Run represents a single execution instance with runtime behavior and references.
-Construction auto-generates metadata; persistence happens via materialize().
+This module provides the Run and RunContext classes for workflow execution:
+
+1. **Run**: Represents a single execution instance within an experiment. Tracks
+   parameters, metadata, and execution state. Persisted via materialize().
+
+2. **RunContext**: Primary execution context interface for tasks and actors. Provides:
+   - Lifecycle management (__enter__/__exit__)
+   - Result binding (set_result/get_result)
+   - Checkpoint creation
+   - **Message passing**: emit() and receive() for actor communication
+   - **Channel management**: Dynamic channel registration and monitoring
+
+Message Passing (Hybrid Mode):
+    For workflows containing Actors, RunContext provides async message passing:
+    - `await ctx.receive(channel)`: Receive message from named channel (blocks if empty)
+    - `await ctx.emit(channel, msg)`: Send message to named channel (backpressure support)
+    - `ctx.get_channel_depths()`: Monitor channel queue sizes
+
+Example:
+    Batch task execution::
+
+        with run.start() as ctx:
+            result = task.execute(ctx=ctx, input_value=42)
+            ctx.set_result('task_id', result)
+
+    Actor message passing::
+
+        async def execute(self, ctx, **inputs):
+            data = await ctx.receive('input_channel')
+            result = self.process(data)
+            await ctx.emit('output_channel', result)
+            yield
 """
 
 from __future__ import annotations
@@ -68,6 +98,10 @@ class RunContext:
         
         # Runtime state
         self._start_time = None
+
+        # Actor message passing infrastructure
+        self._channels: dict[str, Any] = {}  # channel_name -> asyncio.Queue
+        self._channel_routing: dict[tuple[str, str], str] = {}  # (actor_id, channel_name) -> target_channel
     
     # ========== Lifecycle ==========
     
@@ -223,39 +257,21 @@ class RunContext:
         save overwrites run.json.
         """
         run_json = self.work_dir / "run.json"
-        if not run_json.exists():
+        if not run_json.exists() or run_json.stat().st_size == 0:
             return
-        try:
-            with open(run_json, "r") as f:
-                data = json.load(f)
-            persisted = data.get("context", {}).get("results", {})
-            for key, value in persisted.items():
-                if key not in self._context.results:
-                    self._context.results[key] = value
-        except Exception:
-            pass
+
+        with open(run_json, "r") as f:
+            data = json.load(f)
+        persisted = data.get("context", {}).get("results", {})
+        for key, value in persisted.items():
+            if key not in self._context.results:
+                self._context.results[key] = value
 
     def _save_context(self):
         """Serialize context to run.json."""
         run_json = self.work_dir / "run.json"
-        
-        try:
-            context_dict = self._context.model_dump(mode='json')
-        except Exception:
-            # If serialization fails (e.g., model objects in results), skip results
-            context_dict = {
-                "run_id": self._context.run_id,
-                "experiment_id": self._context.experiment_id,
-                "project_id": self._context.project_id,
-                "work_dir": str(self._context.work_dir),
-                "artifacts_dir": str(self._context.artifacts_dir),
-                "tasks": self._context.tasks,
-                "status": self._context.status,
-                "errors": self._context.errors,
-                "workflow": self._context.workflow,
-                # Skip results if they contain unserializable objects
-            }
-        
+        context_dict = self._context.model_dump(mode='json')
+
         with open(run_json, 'w') as f:
             json.dump({
                 "id": self.run.id,
@@ -298,13 +314,13 @@ class RunContext:
     @property
     def context(self) -> Context:
         """Access internal Context (for engine use only).
-        
+
         Note: Prefer using RunContext methods over direct context access.
         """
         return self._context
-    
-    # ========== Legacy Asset Registration (kept for compatibility) ==========
-    
+
+    # ========== Asset Registration ==========
+
     def register_asset(
         self,
         name: str,
@@ -387,6 +403,89 @@ class RunContext:
     def get_artifact_path(self, name: str) -> Path:
         """Get path to an artifact."""
         return self.artifacts_dir / name
+
+    # ========== Actor Message Passing API ==========
+
+    async def receive(self, channel: str) -> Any:
+        """Receive one message from named channel (for Actors).
+
+        Blocks if channel is empty until a message arrives.
+        Channel names are dynamic and routed by workflow Links.
+
+        Args:
+            channel: Channel name to receive from
+
+        Returns:
+            Message from the channel
+
+        Raises:
+            KeyError: If channel does not exist (not connected in workflow)
+
+        Example:
+            >>> async def execute(self, ctx, **inputs):
+            ...     data = await ctx.receive('data')
+            ...     result = self.process(data)
+            ...     await ctx.emit('results', result)
+        """
+        if channel not in self._channels:
+            raise KeyError(
+                f"Channel '{channel}' not found. Available channels: {list(self._channels.keys())}"
+            )
+
+        queue = self._channels[channel]
+        return await queue.get()
+
+    async def emit(self, channel: str, message: Any) -> None:
+        """Send message to named channel (for Actors).
+
+        Blocks if channel is full until space is available (backpressure).
+        Channel names are dynamic and routed by workflow Links.
+
+        If channel doesn't exist (no consumer connected), message is silently dropped.
+
+        Args:
+            channel: Channel name to send to
+            message: Message to send
+
+        Example:
+            >>> async def execute(self, ctx, **inputs):
+            ...     data = await ctx.receive('data')
+            ...     result = self.process(data)
+            ...     await ctx.emit('results', result)
+        """
+        if channel not in self._channels:
+            # Channel not connected - drop message silently
+            # This allows actors to produce output without requiring consumers
+            return
+
+        queue = self._channels[channel]
+        await queue.put(message)
+
+    def get_channel_depths(self) -> dict[str, int]:
+        """Get current depth (qsize) of all channels.
+
+        Useful for monitoring backpressure and debugging.
+
+        Returns:
+            Dict mapping channel names to current queue sizes
+
+        Example:
+            >>> depths = ctx.get_channel_depths()
+            >>> print(depths)  # {'data': 45, 'results': 12}
+        """
+        return {
+            name: queue.qsize()
+            for name, queue in self._channels.items()
+        }
+
+    def _register_channel(self, name: str, queue: Any) -> None:
+        """Register a channel (for engine use only).
+
+        Args:
+            name: Channel name
+            queue: asyncio.Queue instance
+        """
+        self._channels[name] = queue
 
     @classmethod
     def from_run_dir(cls, path: Path) -> RunContext:
@@ -542,19 +641,21 @@ class Run:
         experiment: Experiment,
         parameters: dict[str, Any] | None = None,
         assets: dict[str, Any] | None = None,
+        id: str | None = None,
     ):
         """Initialize run with user inputs and auto-generate metadata.
-        
+
         Args:
             experiment: Parent experiment (runtime dependency)
             parameters: Execution parameters (user input)
             assets: Input/output assets (user input)
+            id: Optional custom run ID (if None, auto-generates UUID)
         """
         self.experiment = experiment
-        
+
         # Auto-generate metadata with system fields
         self.metadata = RunMetadata(
-            id=generate_id(),  # Auto-generated UUID
+            id=id or generate_id(),  # Auto-generated UUID if not provided
             parameters=parameters or {},
             assets=assets or {},
             created_at=datetime.now(),  # Auto-generated timestamp
