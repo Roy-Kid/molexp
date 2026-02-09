@@ -12,11 +12,7 @@ const API_BASE = "/api";
 
 export const executionHandlers = [
     // POST /api/execute - Trigger run execution (placeholder)
-    http.post(`${API_BASE}/execute`, async ({ request }) => {
-        const body = (await request.json()) as {
-            experimentId: string;
-            parameters?: Record<string, unknown>;
-        };
+    http.post(`${API_BASE}/execute`, async () => {
 
         // Mock run ID
         const runId = `run-${Date.now()}`;

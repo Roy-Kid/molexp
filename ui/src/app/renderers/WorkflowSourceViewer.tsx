@@ -20,8 +20,6 @@ export const WorkflowSourceViewer = ({
   // In `mapExperiments`: workflowFile: experiment.workflow.
   // So we can find the experiment by ID (experimentId is in workflow summary)
   
-  const workflowPath = workflow?.summary || "workflow.yaml"; 
-
   useEffect(() => {
     if (!workflow) return;
 
@@ -74,6 +72,11 @@ export const WorkflowSourceViewer = ({
   return (
     <Card className="h-full border-0 shadow-none">
       <CardContent className="h-full p-0">
+        {error && (
+          <div className="border-b border-border px-4 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        )}
         <Editor
           height="100%"
           language="yaml"

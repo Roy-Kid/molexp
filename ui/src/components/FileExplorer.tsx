@@ -10,20 +10,11 @@
 
 import React, { useState, useEffect } from "react";
 import {
-  MoreVertical,
   Copy,
   Trash2,
   RefreshCw,
-  ChevronRight,
 } from "lucide-react";
 import { Tree, type TreeNodeProps } from "@/components/ui/tree";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -106,7 +97,6 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
       node: TreeNodeProps;
       event: React.MouseEvent;
     } | null>(null);
-    const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
     // Load root workspace files
     useEffect(() => {
@@ -153,8 +143,6 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
     };
 
     const handleSelectNode = (node: TreeNodeProps) => {
-      setSelectedNodeId(node.id);
-
       if (node.kind === "file") {
         onSelectFile?.(node.path, node);
       } else {

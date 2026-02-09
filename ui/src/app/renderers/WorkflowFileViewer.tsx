@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Edge, Node, NodeProps } from "@xyflow/react";
+import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
 import {
   Background,
   Controls,
@@ -34,12 +34,14 @@ interface WorkflowFilePayload {
   links: WorkflowFileLink[];
 }
 
-interface WorkflowNodeData {
+interface WorkflowNodeData extends Record<string, unknown> {
   label: string;
   nodeType: "task";
   status: SemanticStatus;
   description: string;
 }
+
+type WorkflowFlowNode = Node<WorkflowNodeData, "workflowNode">;
 
 const statusStyles: Record<SemanticStatus, { border: string; background: string; edge: string }> = {
   active: { border: "#10b981", background: "#ecfdf5", edge: "#10b981" },
@@ -50,9 +52,10 @@ const statusStyles: Record<SemanticStatus, { border: string; background: string;
   succeeded: { border: "#16a34a", background: "#f0fdf4", edge: "#16a34a" },
   failed: { border: "#ef4444", background: "#fef2f2", edge: "#ef4444" },
   cancelled: { border: "#6b7280", background: "#f3f4f6", edge: "#6b7280" },
+  skipped: { border: "#d97706", background: "#fffbeb", edge: "#d97706" },
 };
 
-const WorkflowNode = ({ data }: NodeProps<WorkflowNodeData>): JSX.Element => {
+const WorkflowNode = ({ data }: NodeProps<WorkflowFlowNode>): JSX.Element => {
   const style = statusStyles[data.status] ?? statusStyles.pending;
   return (
     <div
@@ -71,11 +74,10 @@ const WorkflowNode = ({ data }: NodeProps<WorkflowNodeData>): JSX.Element => {
 const layoutNodes = (
   tasks: WorkflowFileNode[],
   links: WorkflowFileLink[],
-): Array<Node<WorkflowNodeData>> => {
+): WorkflowFlowNode[] => {
   const columnWidth = 260;
   const rowHeight = 150;
 
-  const taskById = new Map(tasks.map(task => [task.task_id, task]));
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
 
@@ -176,7 +178,7 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
       });
   }, [selection]);
 
-  const nodes = useMemo<Array<Node<WorkflowNodeData>>>(() => {
+  const nodes = useMemo<WorkflowFlowNode[]>(() => {
     if (!payload) {
       return [];
     }
@@ -203,7 +205,7 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
     });
   }, [payload]);
 
-  const nodeTypes = useMemo<Record<string, (props: NodeProps<WorkflowNodeData>) => JSX.Element>>(
+  const nodeTypes = useMemo<NodeTypes>(
     () => ({ workflowNode: WorkflowNode }),
     [],
   );

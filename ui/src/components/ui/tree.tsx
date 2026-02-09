@@ -37,6 +37,16 @@ interface TreeItemProps {
   renderNode?: (node: TreeNodeProps, defaultRender: React.ReactNode) => React.ReactNode;
 }
 
+interface TreeItemRendererProps {
+  node: TreeNodeProps;
+  level: number;
+  expandedIds?: Map<string, boolean>;
+  onToggle: (id: string) => void;
+  onSelect?: (node: TreeNodeProps) => void;
+  onContextMenu?: (node: TreeNodeProps, event: React.MouseEvent) => void;
+  renderNode?: (node: TreeNodeProps, defaultRender: React.ReactNode) => React.ReactNode;
+}
+
 /**
  * TreeItem - Individual tree node renderer
  * Follows VS Code explorer styling and interactions
@@ -167,15 +177,16 @@ const TreeItemRenderer = React.memo(
     node,
     level,
     expandedIds,
+    onToggle,
     ...props
-  }: TreeItemProps & { expandedIds?: Map<string, boolean> }) => {
+  }: TreeItemRendererProps) => {
     const [expandedState, setExpandedState] = React.useState(
       expandedIds?.get(node.id) ?? level < 2
     );
 
     const handleToggle = (id: string) => {
       setExpandedState(!expandedState);
-      props.onToggle(id);
+      onToggle(id);
     };
 
     return (
@@ -239,7 +250,6 @@ const Tree = React.forwardRef<HTMLDivElement, TreeProps>(
             node={node}
             level={0}
             expandedIds={expandedIds}
-            isExpanded={expandedIds.get(node.id) ?? false}
             onToggle={handleToggle}
             onSelect={onSelect}
             onContextMenu={onContextMenu}

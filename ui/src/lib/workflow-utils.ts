@@ -142,12 +142,16 @@ export const toTaskGraphJson = (nodes: Node[], edges: Edge[], name: string = "Wo
     const taskNodes: TaskNodeJson[] = nodes.map(node => {
         // Extract config from node data (static configuration)
         const { config, label, category, isOutput, status, plannedColor, ...otherData } = node.data;
+        const configRecord =
+            typeof config === "object" && config !== null && !Array.isArray(config)
+                ? (config as Record<string, unknown>)
+                : ({} as Record<string, unknown>);
 
         return {
             id: node.id,
             type: node.type === 'process' ? (category ? `${category}.${label}` : label as string) : node.type || 'process',
             label: label as string,
-            config: config || {}, // Static configuration for the node
+            config: configRecord, // Static configuration for the node
             params: otherData, // Other runtime parameters (if any)
             metadata: {
                 position: node.position,

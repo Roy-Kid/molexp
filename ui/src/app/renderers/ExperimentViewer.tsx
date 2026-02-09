@@ -27,6 +27,7 @@ const StatusCell = ({ status }: { status: SemanticStatus }) => {
         running: "bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 animate-pulse",
         pending: "bg-muted text-muted-foreground",
         cancelled: "bg-muted text-muted-foreground strike-through",
+        skipped: "bg-amber-500/10 text-amber-700",
         active: "bg-muted",
         archived: "bg-muted",
         draft: "bg-amber-500/10 text-amber-700" 

@@ -36,7 +36,6 @@ export type SemanticStatus =
   | "running"
   | "succeeded"
   | "failed"
-  | "failed"
   | "cancelled"
   | "skipped";
 
@@ -218,4 +217,3 @@ export interface RendererProps {
   onInspectorTargetChange: (target: InspectorTarget) => void;
   onRefresh: () => void;
 }
-

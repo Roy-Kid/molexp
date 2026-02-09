@@ -7,6 +7,7 @@ interface RightPanelProps {
   snapshot: WorkspaceSnapshot;
   inspectorTarget: InspectorTarget;
   onInspectorTargetChange: (target: InspectorTarget) => void;
+  onRefresh: () => void;
 }
 
 export const RightPanel = ({
@@ -14,6 +15,7 @@ export const RightPanel = ({
   snapshot,
   inspectorTarget,
   onInspectorTargetChange,
+  onRefresh,
 }: RightPanelProps): JSX.Element => {
   if (!selection) {
     return (
@@ -38,6 +40,7 @@ export const RightPanel = ({
           snapshot={snapshot}
           inspectorTarget={inspectorTarget}
           onInspectorTargetChange={onInspectorTargetChange}
+          onRefresh={onRefresh}
         />
       ))}
     </div>

@@ -1,6 +1,6 @@
 import { Card } from "@/components/ui/card";
 import { buildRendererKeyFromSelection, renderPlanByObjectType, resolveRenderer } from "@/app/registry";
-import type { InspectorTarget, RendererProps, Selection, WorkspaceSnapshot } from "@/app/types";
+import type { InspectorTarget, Selection, WorkspaceSnapshot } from "@/app/types";
 
 interface CenterPanelProps {
   selection: Selection | null;

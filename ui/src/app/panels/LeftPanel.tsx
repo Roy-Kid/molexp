@@ -11,20 +11,17 @@ import {
   FolderTree,
   PlayCircle,
   RefreshCw,
-  LayoutDashboard,
   Workflow,
   Settings,
 } from "lucide-react";
 import { useEffect, useState, useRef, useMemo } from "react";
 
-import type { SVGProps } from "react";
+import type { ComponentType, SVGProps } from "react";
 import type {
   AssetSummary,
-  ExperimentSummary,
   FileKind,
   LeftPanelView,
   ProjectSummary,
-  RunSummary,
   Selection,
   SemanticStatus,
   WorkspaceSnapshot,
@@ -42,6 +39,7 @@ interface LeftPanelProps {
   view: LeftPanelView;
   selection: Selection | null;
   snapshot: WorkspaceSnapshot;
+  searchQuery?: string;
   onViewChange: (view: LeftPanelView) => void;
   onSelect: (selection: Selection) => void;
   onOpenWorkspace: (path: string) => void;
@@ -53,7 +51,7 @@ interface LeftPanelProps {
 interface ViewOption {
   id: LeftPanelView;
   label: string;
-  icon: (props: SVGProps<SVGSVGElement>) => JSX.Element;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
 const viewOptions: ViewOption[] = [
@@ -74,6 +72,7 @@ const statusStyles: Record<SemanticStatus, string> = {
   succeeded: "bg-emerald-100 text-emerald-900",
   failed: "bg-rose-100 text-rose-900",
   cancelled: "bg-slate-200 text-slate-900",
+  skipped: "bg-amber-100 text-amber-900",
 };
 
 const fileKindByExtension: Record<string, FileKind> = {
