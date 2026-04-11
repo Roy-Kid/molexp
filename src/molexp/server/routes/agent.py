@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from molexp.plugins import Capability, registry
-from molexp.plugins.agent.types import Goal
+from molexp.plugins.agent_pydanticai.types import Goal
 
 from ..dependencies import get_workspace
 from ..schemas import (

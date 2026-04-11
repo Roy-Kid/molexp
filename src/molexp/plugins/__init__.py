@@ -1,8 +1,13 @@
 """Plugin registry for optional molexp capabilities.
 
 Core molexp (workspace + local workflow) has zero optional dependencies.
-Heavy backends — remote HPC, AI agent, etc. — are loaded on demand through
-this registry so that ``import molexp`` never fails due to a missing package.
+Heavy backends — AI agent, etc. — are loaded on demand through this
+registry so that ``import molexp`` never fails due to a missing package.
+
+Plugin naming convention: ``{category}_{implementation}``
+
+- ``submit_molq``  — Job submission via molq (SLURM, PBS, LSF)
+- ``agent_pydanticai`` — AI agent via PydanticAI
 
 Usage::
 
@@ -21,10 +26,7 @@ from typing import Any
 class Capability(str, Enum):
     """Extension points that plugins can provide."""
 
-    REMOTE_EXECUTION = "remote_execution"
-    EXECUTION_BACKEND = "execution_backend"
     AGENT = "agent"
-    TRANSFER = "transfer"
 
 
 class CapabilityNotAvailable(RuntimeError):
@@ -43,37 +45,17 @@ class CapabilityNotAvailable(RuntimeError):
 # or raises ImportError if the backing package is missing.
 
 _INSTALL_HINTS: dict[Capability, str] = {
-    Capability.REMOTE_EXECUTION: "Install with: pip install molexp[remote]",
-    Capability.EXECUTION_BACKEND: "Install with: pip install molexp[remote]",
     Capability.AGENT: "Install with: pip install molexp[agent]",
-    Capability.TRANSFER: "Install with: pip install molexp[remote]",
 }
 
 
-def _load_remote() -> Any:
-    from molexp.plugins.remote import get_remote_plugin  # type: ignore[import-not-found]
-    return get_remote_plugin()
-
-
 def _load_agent() -> Any:
-    from molexp.plugins.agent import get_agent_plugin  # type: ignore[import-not-found]
+    from molexp.plugins.agent_pydanticai import get_agent_plugin  # type: ignore[import-not-found]
     return get_agent_plugin()
 
 
-def _load_execution_backend() -> Any:
-    from molq import Submitor  # noqa: F401 — verify molq is installed
-
-    from molexp.plugins.remote.backend import ExecutionBackend  # noqa: F401
-    from molexp.plugins.remote.molq_backend import MolqBackend
-
-    return MolqBackend
-
-
 _LOADERS: dict[Capability, Any] = {
-    Capability.REMOTE_EXECUTION: _load_remote,
-    Capability.EXECUTION_BACKEND: _load_execution_backend,
     Capability.AGENT: _load_agent,
-    Capability.TRANSFER: _load_remote,
 }
 
 

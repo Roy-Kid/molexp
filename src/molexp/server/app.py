@@ -104,8 +104,7 @@ def create_app(
         static_dir: Explicit path to built UI files.  When *None* and
             *serve_static* is ``True`` the bundled ``_webapp`` directory
             is auto-detected via ``importlib.resources``.
-        serve_static: Set to ``False`` to run in API-only mode (used by
-            ``molexp serve --dev`` with uvicorn reload).
+        serve_static: Set to ``False`` to run in API-only mode.
     """
     app = FastAPI(
         title="MolExp API",

@@ -1,7 +1,6 @@
 """Tests for health endpoint."""
 
 
-
 class TestHealthEndpoint:
     def test_health(self, client):
         resp = client.get("/api/health")
@@ -10,4 +9,4 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["workspace_available"] is True
         assert "capabilities" in data
-        assert "remote_execution" in data["capabilities"]
+        assert "agent" in data["capabilities"]

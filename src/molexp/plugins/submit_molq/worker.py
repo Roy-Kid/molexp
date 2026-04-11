@@ -1,10 +1,10 @@
 """Remote worker entry point for execution backends.
 
-Called by SLURM jobs (or other remote schedulers) as::
+Called by scheduler jobs (SLURM, PBS, LSF) as::
 
-    python -m molexp.plugins.remote.worker <script> <run_dir>
+    python -m molexp.plugins.submit_molq.worker <script> <run_dir>
 
-This is an internal implementation detail of the execution backend.
+This is an internal implementation detail of the submission plugin.
 Users never invoke this directly — they use ``molexp run``.
 """
 
@@ -44,6 +44,9 @@ def _execute(script: Path, run_dir: Path) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print("Usage: python -m molexp.plugins.remote.worker <script> <run_dir>", file=sys.stderr)
+        print(
+            "Usage: python -m molexp.plugins.submit_molq.worker <script> <run_dir>",
+            file=sys.stderr,
+        )
         sys.exit(1)
     _execute(Path(sys.argv[1]), Path(sys.argv[2]))

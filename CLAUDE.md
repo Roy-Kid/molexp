@@ -19,10 +19,7 @@ pytest tests/workspace/test_workspace.py
 # Run single test
 pytest tests/workspace/test_workspace.py::test_workspace_creation
 
-# Start API server (dev mode, hot-reload, API only)
-molexp serve --dev
-
-# Start with bundled UI (requires wheel build, see Packaging section)
+# Start server (serves bundled UI if available, otherwise API-only)
 molexp serve --workdir /path/to/workspace --port 8000
 
 # Initialize a workspace
@@ -183,7 +180,7 @@ ui/src/  →  (npm run build)  →  ui/dist/  →  (setup.py)  →  src/molexp/_
 - **`src/molexp/_webapp/`** is gitignored — it only exists transiently during wheel builds
 - **`MOLEXP_SKIP_UI_BUILD=1`** skips frontend compilation (for editable installs during dev, or CI that only tests Python)
 - **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "_webapp"` to locate the bundled assets. If not found, the server runs API-only.
-- **Dev mode** (`molexp serve --dev`): API with uvicorn reload; frontend dev server runs separately (`cd ui && npm run dev`)
+- **Dev mode**: Run backend (`molexp serve --port 8000`) and frontend (`cd ui && npm run dev -- --api-port=8000`) separately
 - **Production** (`molexp serve`): serves API + bundled SPA from the installed package
 
 ### Key Patterns

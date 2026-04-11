@@ -180,11 +180,16 @@ class TestRunCommand:
         assert result.exit_code == 1
         assert "--resume and --dry-run are mutually exclusive" in result.output
 
-    def test_dry_run_and_slurm_are_mutually_exclusive(self, tmp_path):
-        script = tmp_path / "train.py"
-        script.write_text("x = 1\n")
+    def test_run_help_shows_backends(self):
+        result = runner.invoke(app, ["run", "--help"])
+        assert result.exit_code == 0
+        assert "local" in result.output
+        # Remote backends appear when molq is installed
+        # (may or may not be present in test env)
 
-        result = runner.invoke(app, ["run", str(script), "--dry-run", "--slurm"])
-
-        assert result.exit_code == 1
-        assert "--dry-run and --slurm are mutually exclusive" in result.output
+    def test_run_local_help_has_no_resource_options(self):
+        result = runner.invoke(app, ["run", "local", "--help"])
+        assert result.exit_code == 0
+        assert "--partition" not in result.output
+        assert "--gpus" not in result.output
+        assert "--mem" not in result.output

@@ -6,14 +6,23 @@ from molexp.plugins import Capability, CapabilityNotAvailable, PluginRegistry
 
 
 class TestPluginRegistry:
-    def test_fresh_registry(self):
+    def test_fresh_registry_agent_probed(self):
         reg = PluginRegistry()
-        assert not reg.is_available(Capability.REMOTE_EXECUTION)
+        # Agent availability depends on pydantic-ai being installed
+        try:
+            import pydantic_ai  # noqa: F401
+            assert reg.is_available(Capability.AGENT)
+        except ImportError:
+            assert not reg.is_available(Capability.AGENT)
 
-    def test_remote_unavailable(self):
+    def test_unavailable_raises(self):
         reg = PluginRegistry()
+        # Use a fresh registry with cleared caches to test the raise path
+        reg.reset()
+        # Monkey-patch to make AGENT unavailable
+        reg._unavailable.add(Capability.AGENT)
         with pytest.raises(CapabilityNotAvailable):
-            reg.get(Capability.REMOTE_EXECUTION)
+            reg.get(Capability.AGENT)
 
     def test_agent_available_if_pydantic_ai_installed(self):
         reg = PluginRegistry()
@@ -25,10 +34,10 @@ class TestPluginRegistry:
 
     def test_reset_clears_caches(self):
         reg = PluginRegistry()
-        reg.is_available(Capability.REMOTE_EXECUTION)  # caches miss
+        reg.is_available(Capability.AGENT)  # caches result
         reg.reset()
-        # After reset, should re-probe
-        assert not reg.is_available(Capability.REMOTE_EXECUTION)
+        assert len(reg._cache) == 0
+        assert len(reg._unavailable) == 0
 
     def test_available_capabilities_returns_list(self):
         reg = PluginRegistry()
@@ -36,6 +45,4 @@ class TestPluginRegistry:
         assert isinstance(caps, list)
 
     def test_capability_enum_values(self):
-        assert Capability.REMOTE_EXECUTION == "remote_execution"
         assert Capability.AGENT == "agent"
-        assert Capability.TRANSFER == "transfer"

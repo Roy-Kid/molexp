@@ -5,7 +5,7 @@ Requires ``pydantic-ai``: ``pip install molexp[agent]``.
 
 Public API::
 
-    from molexp.plugins.agent import AgentService, Goal
+    from molexp.plugins.agent_pydanticai import AgentService, Goal
     service = AgentService.from_workspace("./lab")
     session = await service.run(Goal(description="..."))
 """

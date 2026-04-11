@@ -25,7 +25,10 @@ export default defineConfig(({ command }) => {
     server: {
       proxy: {
         '/api': {
-          target: 'http://localhost:8000',
+          target: `http://localhost:${(() => {
+            const arg = process.argv.find(a => a.startsWith('--api-port='));
+            return arg ? arg.split('=')[1] : '8000';
+          })()}`,
           changeOrigin: true,
         },
       },

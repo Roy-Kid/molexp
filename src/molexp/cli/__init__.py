@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any, Callable, Optional
 
 import typer
 import uvicorn
+from typer.core import TyperGroup
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
@@ -56,123 +57,50 @@ def _deterministic_run_id(params: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-# ============ Run Command ============
+# ============ Run Sub-App ============
 
 
-@app.command(
-    context_settings={"allow_extra_args": False, "ignore_unknown_options": False},
+class _DefaultLocalGroup(TyperGroup):
+    """Typer Group that defaults to ``local`` when the first arg isn't a
+    known sub-command name."""
+
+    def resolve_command(self, ctx: typer.Context, args: list[str]) -> tuple:  # type: ignore[override]
+        if args and args[0] not in self.commands:
+            args.insert(0, "local")
+        return super().resolve_command(ctx, args)
+
+
+run_cmd = typer.Typer(
+    cls=_DefaultLocalGroup,
+    help="Run or schedule a parameter sweep defined in a Python script.",
+    no_args_is_help=True,
 )
-def run(
-    script: Annotated[
-        Path,
-        typer.Argument(
-            help="Python script with me.entry(project) call.",
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-            readable=True,
-            resolve_path=True,
-        ),
-    ],
-    # ── Execution mode ────────────────────────────────────────────────
-    dry_run: Annotated[
-        bool,
-        typer.Option(
-            "--dry-run",
-            help=(
-                "Execute workflows in dry-run mode. Tasks still run and can "
-                "branch on ctx.dry_run; runs appear in the UI with a "
-                "[dry-run] badge."
-            ),
-        ),
-    ] = False,
-    resume: Annotated[
-        bool,
-        typer.Option(
-            "--resume",
-            help=(
-                "Resume existing dry-run runs for real execution. "
-                "Only runs with status 'dry_run' are executed; "
-                "no new runs are created."
-            ),
-        ),
-    ] = False,
-    slurm: Annotated[
-        bool,
-        typer.Option(
-            "--slurm",
-            help="Submit each run via ExecutionBackend plugin (SLURM).",
-        ),
-    ] = False,
-    # ── SLURM resource options (only relevant with --slurm) ──────────
-    partition: Annotated[
-        str,
-        typer.Option("--partition", "-p", help="SLURM partition.", rich_help_panel="SLURM Resources"),
-    ] = "gpu",
-    gpus: Annotated[
-        int,
-        typer.Option("--gpus", help="GPUs per job.", rich_help_panel="SLURM Resources"),
-    ] = 1,
-    gpu_type: Annotated[
-        Optional[str],
-        typer.Option("--gpu-type", help="GPU type constraint.", rich_help_panel="SLURM Resources"),
-    ] = None,
-    cpus: Annotated[
-        int,
-        typer.Option("--cpus", help="CPU cores per job.", rich_help_panel="SLURM Resources"),
-    ] = 8,
-    mem: Annotated[
-        str,
-        typer.Option("--mem", help="Memory per job.", rich_help_panel="SLURM Resources"),
-    ] = "40G",
-    time: Annotated[
-        str,
-        typer.Option("--time", "-t", help="Wall-clock time limit.", rich_help_panel="SLURM Resources"),
-    ] = "12:00:00",
-    account: Annotated[
-        Optional[str],
-        typer.Option("--account", "-A", help="SLURM account.", rich_help_panel="SLURM Resources"),
-    ] = None,
-    qos: Annotated[
-        Optional[str],
-        typer.Option("--qos", help="SLURM QOS.", rich_help_panel="SLURM Resources"),
-    ] = None,
-    cluster: Annotated[
-        str,
-        typer.Option("--cluster", help="molq cluster name.", rich_help_panel="SLURM Resources"),
-    ] = "hpc",
-    # ── Common options ────────────────────────────────────────────────
-    workspace: Annotated[
-        Optional[Path],
-        typer.Option("--workspace", "-w", help="Workspace root (overrides project config)."),
-    ] = None,
+app.add_typer(run_cmd, name="run")
+
+
+# ── Shared sweep logic ───────────────────────────────────────────────────────
+
+# run_handler signature: (script, mol_run, exp_spec, project_spec) -> None
+RunHandler = Callable[[Path, Any, Any, Any], None]
+
+
+def _execute_sweep(
+    *,
+    script: Path,
+    dry_run: bool,
+    resume: bool,
+    workspace: Path | None,
+    run_handler: RunHandler,
+    mode_label: str,
 ) -> None:
-    """Run or schedule a parameter sweep defined in a Python script.
+    """Iterate a parameter sweep and call *run_handler* for each run.
 
-    The script must call ``me.entry(project)`` at module level to register
-    the project and its experiments.
-
-    \b
-    Examples:
-
-    \b
-      # Execute all runs in dry-run mode
-      molexp run train.py --dry-run
-
-    \b
-      # Execute the sweep locally (sequential)
-      molexp run train.py
-
-    \b
-      # Submit to SLURM via execution backend plugin
-      molexp run train.py --slurm --partition gpu --gpus 1
+    This contains the shared project/experiment/run iteration logic used
+    by both the built-in ``local`` sub-command and plugin-provided backends.
     """
     from molexp.entry import load_projects
 
     # ── Validate flag combinations ──────────────────────────────────────
-    if dry_run and slurm:
-        rprint("[red]Error:[/red] --dry-run and --slurm are mutually exclusive.")
-        raise typer.Exit(1)
     if resume and dry_run:
         rprint("[red]Error:[/red] --resume and --dry-run are mutually exclusive.")
         raise typer.Exit(1)
@@ -193,7 +121,6 @@ def run(
 
     # ── Process each registered project ─────────────────────────────────
     for project_spec in projects:
-        # Resolve workspace root (CLI flag > project config)
         ws_root = Path(workspace).resolve() if workspace else project_spec.workspace_root.resolve()
         ws = Workspace.from_path(ws_root)
 
@@ -213,7 +140,6 @@ def run(
             workflow = exp_spec.workflow
             seeds = exp_spec.get_seeds()
 
-            # Determine parameter combos
             param_iter: list[dict[str, Any]]
             if exp_spec.params is not None:
                 param_iter = list(exp_spec.params)
@@ -222,20 +148,16 @@ def run(
 
             total = len(param_iter) * exp_spec.n_replicas
             if resume:
-                mode_label = "[cyan]resume[/cyan]" + (" + [magenta]slurm[/magenta]" if slurm else "")
-            elif dry_run:
-                mode_label = "[yellow]dry-run[/yellow]"
-            elif slurm:
-                mode_label = "[magenta]slurm[/magenta]"
+                label = f"[cyan]resume[/cyan] + {mode_label}"
             else:
-                mode_label = "[green]local[/green]"
+                label = mode_label
             rprint(
                 f"\n[bold]Experiment:[/bold] {exp_spec.name}"
                 f"\n  Script:    {script}"
                 f"\n  Workspace: {ws.root}"
                 f"\n  Project:   {project_spec.name}"
                 f"\n  Runs:      {len(param_iter)} combos x {exp_spec.n_replicas} replicas = {total}"
-                f"\n  Mode:      {mode_label}"
+                f"\n  Mode:      {label}"
             )
 
             created_runs: list[tuple[Any, dict[str, Any], int]] = []
@@ -263,7 +185,6 @@ def run(
 
                     existing = ws_exp.get_run(run_id)
                     if resume:
-                        # --resume: only execute existing dry_run runs
                         if existing is None:
                             rprint(f"  [dim]- {exp_id}  seed={seed} (no existing run, skipped)[/dim]")
                             continue
@@ -277,7 +198,6 @@ def run(
                         if status in ("succeeded", "running", "dry_run"):
                             rprint(f"  [dim]- {exp_id}  seed={seed} ({status}, skipped)[/dim]")
                             continue
-                        # Re-run failed/pending/cancelled
                         mol_run = existing
                     else:
                         mol_run = ws_exp.create_run(
@@ -296,41 +216,10 @@ def run(
             # ── Execute or submit ───────────────────────────────────────
             for mol_run, params, seed in created_runs:
                 exp_id = _params_to_id(params) if params else exp_spec.name
+                run_handler(script, mol_run, exp_spec, project_spec)
+                rprint(f"  [cyan]>[/cyan] dispatched {exp_id}  seed={seed}")
 
-                if slurm:
-                    _submit_via_backend(
-                        script=script,
-                        mol_run=mol_run,
-                        exp_spec=exp_spec,
-                        project_spec=project_spec,
-                        cluster=cluster,
-                        resources={
-                            "partition": partition,
-                            "gpus": gpus,
-                            "gpu_type": gpu_type,
-                            "cpus": cpus,
-                            "mem": mem,
-                            "time": time,
-                            "account": account,
-                            "qos": qos,
-                        },
-                    )
-                    rprint(f"  [magenta]>>[/magenta] queued  {exp_id}  seed={seed}")
-                else:
-                    if resume:
-                        verb = "resuming"
-                    elif dry_run:
-                        verb = "dry-running"
-                    else:
-                        verb = "running"
-                    rprint(f"  [cyan]>[/cyan] {verb} {exp_id}  seed={seed}")
-                    asyncio.run(workflow.execute(run=mol_run, dry_run=dry_run))
-
-            if slurm and resume:
-                verb = "submitted (resumed)"
-            elif slurm:
-                verb = "submitted"
-            elif resume:
+            if resume:
                 verb = "resumed"
             elif dry_run:
                 verb = "completed in dry-run mode"
@@ -339,31 +228,77 @@ def run(
             rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
 
 
-def _submit_via_backend(
-    *,
-    script: Path,
-    mol_run: Any,
-    exp_spec: Any,
-    project_spec: Any,
-    cluster: str,
-    resources: dict[str, Any],
-) -> None:
-    """Submit a run through the ExecutionBackend plugin."""
-    from molexp.plugins import Capability, registry
-    from molexp.plugins.remote.backend import RunSubmission
+# ── Built-in local sub-command ───────────────────────────────────────────────
 
-    backend_cls = registry.get(Capability.EXECUTION_BACKEND)
-    backend = backend_cls(cluster=cluster)
-    backend.submit_run(
-        RunSubmission(
-            script=script,
-            run_dir=mol_run.run_dir,
-            run_id=mol_run.id,
-            experiment_name=exp_spec.name,
-            project_name=project_spec.name,
-            resources=resources,
-        )
+
+@run_cmd.command(name="local", help="Execute runs locally (sequential).")
+def run_local(
+    script: Annotated[
+        Path,
+        typer.Argument(
+            help="Python script with me.entry(project) call.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=(
+                "Execute workflows in dry-run mode. Tasks still run and can "
+                "branch on ctx.dry_run; runs appear in the UI with a "
+                "[dry-run] badge."
+            ),
+        ),
+    ] = False,
+    resume: Annotated[
+        bool,
+        typer.Option(
+            "--resume",
+            help=(
+                "Resume existing dry-run runs for real execution. "
+                "Only runs with status 'dry_run' are executed; "
+                "no new runs are created."
+            ),
+        ),
+    ] = False,
+    workspace: Annotated[
+        Optional[Path],
+        typer.Option("--workspace", "-w", help="Workspace root (overrides project config)."),
+    ] = None,
+) -> None:
+    """Execute runs locally (sequential)."""
+    if dry_run:
+        label = "[yellow]dry-run[/yellow]"
+    else:
+        label = "[green]local[/green]"
+
+    def _local_handler(
+        script_: Path, mol_run: Any, exp_spec: Any, _project_spec: Any,
+    ) -> None:
+        asyncio.run(exp_spec.workflow.execute(run=mol_run, dry_run=dry_run))
+
+    _execute_sweep(
+        script=script,
+        dry_run=dry_run,
+        resume=resume,
+        workspace=workspace,
+        run_handler=_local_handler,
+        mode_label=label,
     )
+
+
+# ── Auto-discover submit plugins ─────────────────────────────────────────────
+
+try:
+    from molexp.plugins.submit_molq import register_commands as _register_molq
+    _register_molq(run_cmd)
+except ImportError:
+    pass  # molq not installed — only the local backend is available
 
 
 # ============ Server Command ============
@@ -392,10 +327,6 @@ def serve(
         str,
         typer.Option("--host", "-h", help="Server host"),
     ] = "localhost",
-    dev: Annotated[
-        bool,
-        typer.Option("--dev", help="Development mode (API only, reload enabled)"),
-    ] = False,
 ) -> None:
     """Start the MolExp server (API + bundled web UI)."""
     import os
@@ -417,32 +348,21 @@ def serve(
 
     rprint(f"[bold]Serving Workspace:[/bold] {workdir}")
 
-    if dev:
-        rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api")
-        rprint("[yellow]Dev mode:[/yellow] API with reload. Run the frontend separately:")
-        rprint(f"[dim]  cd ui && npm run dev  ->  http://localhost:5173[/dim]")
-        uvicorn.run(
-            "molexp.server.app:app",
-            host=host,
-            port=port,
-            reload=True,
-            log_level="info",
+    from molexp.server.app import _find_bundled_webapp, create_app
+
+    webapp = _find_bundled_webapp()
+    if webapp is None:
+        rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
+        rprint(
+            "[dim]  Build a wheel to include the frontend, "
+            "or run the frontend dev server separately:[/dim]"
         )
+        rprint(f"[dim]  cd ui && npm run dev -- --api-port={port}[/dim]")
     else:
-        from molexp.server.app import _find_bundled_webapp, create_app
+        rprint(f"[cyan]->[/cyan] http://{host}:{port}")
 
-        webapp = _find_bundled_webapp()
-        if webapp is None:
-            rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
-            rprint(
-                "[dim]  Build a wheel to include the frontend, "
-                "or use --dev for development.[/dim]"
-            )
-        else:
-            rprint(f"[cyan]->[/cyan] http://{host}:{port}")
-
-        application = create_app()
-        uvicorn.run(application, host=host, port=port, log_level="info")
+    application = create_app()
+    uvicorn.run(application, host=host, port=port, log_level="info")
 
 
 # ============ Workspace Commands ============
