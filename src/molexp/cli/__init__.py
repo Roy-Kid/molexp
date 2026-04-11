@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
-import signal
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Annotated, Optional
 
@@ -14,8 +13,9 @@ import typer
 import uvicorn
 from rich import print as rprint
 from rich.console import Console
+from rich.table import Table
+
 from molexp.workspace import Workspace
-from molexp.server.app import create_app
 
 
 app = typer.Typer(
@@ -25,6 +25,322 @@ app = typer.Typer(
 )
 
 console = Console()
+
+
+# ============ Run Command ============
+# molexp run <script>  [--dry-run]  [--slurm [SLURM options...]]
+#
+# SLURM submission is powered by the molq plugin (molq.Submitor).
+# Pass resources directly as CLI flags — no JSON file required.
+
+
+@app.command(
+    context_settings={"allow_extra_args": False, "ignore_unknown_options": False},
+)
+def run(
+    script: Annotated[
+        Path,
+        typer.Argument(
+            help="Python script with EXPERIMENT and train() definitions.",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+    # ── Execution mode ────────────────────────────────────────────────
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run",
+            help=(
+                "Register all runs in the workspace without executing them. "
+                "Runs appear in the UI with a [dry-run] badge."
+            ),
+        ),
+    ] = False,
+    slurm: Annotated[
+        bool,
+        typer.Option(
+            "--slurm",
+            help="Submit each run as a SLURM job via molq (instead of local execution).",
+        ),
+    ] = False,
+    # ── SLURM resource options (only relevant with --slurm) ──────────
+    partition: Annotated[
+        str,
+        typer.Option("--partition", "-p", help="SLURM partition / queue name.", rich_help_panel="SLURM Resources"),
+    ] = "gpu",
+    gpus: Annotated[
+        int,
+        typer.Option("--gpus", help="Number of GPUs per job.", rich_help_panel="SLURM Resources"),
+    ] = 1,
+    gpu_type: Annotated[
+        Optional[str],
+        typer.Option("--gpu-type", help="GPU type constraint (e.g. 'a100', 'v100').", rich_help_panel="SLURM Resources"),
+    ] = None,
+    cpus: Annotated[
+        int,
+        typer.Option("--cpus", help="CPU cores per job.", rich_help_panel="SLURM Resources"),
+    ] = 8,
+    mem: Annotated[
+        str,
+        typer.Option("--mem", help="Memory per job (e.g. '40G', '80G').", rich_help_panel="SLURM Resources"),
+    ] = "40G",
+    time: Annotated[
+        str,
+        typer.Option("--time", "-t", help="Wall-clock time limit (e.g. '12:00:00', '24h').", rich_help_panel="SLURM Resources"),
+    ] = "12:00:00",
+    account: Annotated[
+        Optional[str],
+        typer.Option("--account", "-A", help="SLURM account / billing project.", rich_help_panel="SLURM Resources"),
+    ] = None,
+    qos: Annotated[
+        Optional[str],
+        typer.Option("--qos", help="SLURM QOS name.", rich_help_panel="SLURM Resources"),
+    ] = None,
+    cluster: Annotated[
+        str,
+        typer.Option("--cluster", help="molq cluster name (label for the SLURM target).", rich_help_panel="SLURM Resources"),
+    ] = "hpc",
+    # ── Common options ────────────────────────────────────────────────
+    workspace: Annotated[
+        Optional[Path],
+        typer.Option("--workspace", "-w", help="Workspace root directory (overrides EXPERIMENT.workspace_root)."),
+    ] = None,
+    replicas: Annotated[
+        Optional[int],
+        typer.Option("--replicas", "-r", help="Override n_replicas from EXPERIMENT."),
+    ] = None,
+) -> None:
+    """Run or schedule a parameter sweep defined in a Python script.
+
+    The script must expose two names at module level:
+
+    \b
+      EXPERIMENT  — an ExperimentDef specifying the sweep
+      train(ctx)  — callable invoked once per run with a RunContext
+
+    \b
+    Examples:
+
+    \b
+      # Register all 81 runs in the workspace (no execution)
+      molexp run test_allegro_qm9.py --dry-run
+
+    \b
+      # Execute the sweep locally (sequential)
+      molexp run test_allegro_qm9.py
+
+    \b
+      # Submit to SLURM A100 queue via molq (one job per run)
+      molexp run test_allegro_qm9.py \\
+          --slurm \\
+          --partition gpu \\
+          --gpus 1 --gpu-type a100 \\
+          --mem 40G --time 12:00:00 \\
+          --cpus 8
+    """
+    from molexp.runner import ExperimentDef, _params_to_id, _params_to_label
+
+    # ── Validate flag combinations ──────────────────────────────────────
+    if dry_run and slurm:
+        rprint("[red]✗[/red] --dry-run and --slurm are mutually exclusive.")
+        raise typer.Exit(1)
+
+    # ── Load the script module ──────────────────────────────────────────
+    spec_obj = importlib.util.spec_from_file_location("_molexp_script", script)
+    if spec_obj is None or spec_obj.loader is None:
+        rprint(f"[red]✗[/red] Cannot load script: {script}")
+        raise typer.Exit(1)
+    module = importlib.util.module_from_spec(spec_obj)
+    try:
+        spec_obj.loader.exec_module(module)  # type: ignore[union-attr]
+    except SystemExit:
+        pass  # silence __main__ guards
+    except Exception as exc:
+        rprint(f"[red]✗[/red] Error importing {script.name}: {exc}")
+        raise typer.Exit(1)
+
+    if not hasattr(module, "EXPERIMENT"):
+        rprint(
+            "[red]✗[/red] Script must define "
+            "[bold]EXPERIMENT = ExperimentDef(...)[/bold] at module level."
+        )
+        raise typer.Exit(1)
+
+    experiment_def: ExperimentDef = module.EXPERIMENT
+    if replicas is not None:
+        import dataclasses
+        experiment_def = dataclasses.replace(experiment_def, n_replicas=replicas)
+
+    # ── Workspace / project setup ───────────────────────────────────────
+    ws_root = Path(workspace or experiment_def.workspace_root).resolve()
+    ws = Workspace.from_path(ws_root)
+
+    project = ws.get_project(experiment_def.project)
+    if project is None:
+        project = ws.create_project(name=experiment_def.project)
+        rprint(f"[green]✓[/green] Created project: {experiment_def.project}")
+
+    seeds = experiment_def.get_seeds()
+    n_combos = len(experiment_def.param_space)
+    total = n_combos * experiment_def.n_replicas
+
+    mode_label = (
+        "[yellow]dry-run[/yellow]"
+        if dry_run
+        else ("[magenta]slurm[/magenta]" if slurm else "[green]local[/green]")
+    )
+    rprint(
+        f"\n[bold]Experiment:[/bold] {experiment_def.name}"
+        f"\n  Script:    {script}"
+        f"\n  Workspace: {ws.root}"
+        f"\n  Project:   {experiment_def.project}"
+        f"\n  Runs:      {n_combos} combos × {experiment_def.n_replicas} replicas = {total}"
+        f"\n  Mode:      {mode_label}"
+    )
+    if slurm:
+        rprint(
+            f"\n  SLURM:     {cluster} | partition={partition}"
+            f" | {gpus}×{gpu_type or 'gpu'} | {mem} | {time}"
+            f"{' | account=' + account if account else ''}"
+        )
+
+    # ── Create experiments and runs ─────────────────────────────────────
+    created_runs = []
+
+    for params in experiment_def.param_space:
+        exp_id = _params_to_id(params)
+        exp_label = _params_to_label(params)
+
+        experiment = project.get_experiment(exp_id)
+        if experiment is None:
+            experiment = project.create_experiment(
+                name=exp_label,
+                id=exp_id,
+                workflow_source=str(script),
+                parameter_space=dict(params),
+            )
+
+        for replica_idx, seed in enumerate(seeds):
+            run_params = {**params, "seed": seed, "replica": replica_idx}
+            mol_run = experiment.create_run(parameters=run_params)
+
+            if dry_run:
+                mol_run.metadata = mol_run.metadata.model_copy(
+                    update={"dry_run": True, "labels": {"mode": "dry-run"}}
+                )
+                mol_run.save()
+                rprint(f"  [dim]◎[/dim] {exp_id}  seed={seed}")
+            else:
+                created_runs.append((mol_run, params, seed))
+
+    if dry_run:
+        rprint(
+            f"\n[green]✓[/green] Dry-run: [bold]{total}[/bold] runs registered (not executed)."
+            f"\n  Inspect in UI: [cyan]molexp serve -w {ws.root}[/cyan]"
+        )
+        return
+
+    # ── Execute or submit ───────────────────────────────────────────────
+    for mol_run, params, seed in created_runs:
+        exp_id = _params_to_id(params)
+        run_dir = mol_run.run_dir
+
+        if slurm:
+            _submit_slurm_run(
+                script=script,
+                run_dir=run_dir,
+                run_id=mol_run.id,
+                experiment_name=experiment_def.name,
+                cluster=cluster,
+                partition=partition,
+                gpus=gpus,
+                gpu_type=gpu_type,
+                cpus=cpus,
+                mem=mem,
+                time=time,
+                account=account,
+                qos=qos,
+            )
+            rprint(f"  [magenta]⬆[/magenta] queued  {exp_id}  seed={seed}")
+        else:
+            rprint(f"  [cyan]▶[/cyan] running {exp_id}  seed={seed}")
+            result = subprocess.run(
+                [sys.executable, str(script), "--run-dir", str(run_dir)],
+                check=False,
+            )
+            if result.returncode != 0:
+                rprint(f"  [red]✗[/red] exit {result.returncode}: {exp_id}  seed={seed}")
+
+    verb = "submitted" if slurm else "completed"
+    rprint(f"\n[green]✓[/green] {len(created_runs)} runs {verb}.")
+
+
+def _submit_slurm_run(
+    *,
+    script: Path,
+    run_dir: Path,
+    run_id: str,
+    experiment_name: str,
+    cluster: str,
+    partition: str,
+    gpus: int,
+    gpu_type: Optional[str],
+    cpus: int,
+    mem: str,
+    time: str,
+    account: Optional[str],
+    qos: Optional[str],
+) -> None:
+    """Submit one run to SLURM using the molq plugin.
+
+    molq's Submitor handles script materialisation, job tracking, and
+    scheduler interaction. No JSON resource file needed.
+    """
+    from molq import (
+        Duration,
+        JobExecution,
+        JobResources,
+        JobScheduling,
+        Memory,
+        Submitor,
+    )
+    from molq.options import SlurmSchedulerOptions
+
+    job_name = f"{experiment_name[:20]}-{run_id[:8]}"
+    submitor = Submitor(
+        cluster_name=cluster,
+        scheduler="slurm",
+        scheduler_options=SlurmSchedulerOptions(),
+    )
+    submitor.submit(
+        argv=[sys.executable, str(script.resolve()), "--run-dir", str(run_dir)],
+        resources=JobResources(
+            cpu_count=cpus,
+            memory=Memory.parse(mem),
+            gpu_count=gpus,
+            gpu_type=gpu_type,
+            time_limit=Duration.parse(time),
+        ),
+        scheduling=JobScheduling(
+            queue=partition,
+            account=account,
+            qos=qos,
+        ),
+        execution=JobExecution(
+            job_name=job_name,
+            cwd=str(run_dir),
+            output_file=str(run_dir / "slurm_%j.out"),
+            error_file=str(run_dir / "slurm_%j.err"),
+        ),
+        metadata={"run_id": run_id, "run_dir": str(run_dir)},
+    )
+
+
+# ============ Server Command ============
 
 
 @app.command()
@@ -56,35 +372,32 @@ def serve(
     ] = False,
 ) -> None:
     """Start the MolExp Backend Server.
-    
+
     Arguments:
         workdir: Workspace directory.
         dev: If set, enables hot-reload and disables static file serving (API Only).
              The frontend must be run separately (e.g., 'npm run dev').
     """
-    # 1. Switch to workspace directory
-    # This allows the backend to find workspace files relative to CWD.
     os.chdir(workdir)
-    
+
     rprint(f"[bold]Serving Workspace:[/bold] {workdir}")
     rprint(f"[cyan]→[/cyan] API Server at http://{host}:{port}")
-    
+
     if dev:
         rprint("[yellow]Development Mode:[/yellow] Reload active. Serving API only.")
-        # Dev Mode: Use import string to enable reload.
-        # Relies on 'app = create_app()' at module level in app.py for default config.
         uvicorn.run(
-            "molexp.server.app:app", 
-            host=host, 
-            port=port, 
+            "molexp.server.app:app",
+            host=host,
+            port=port,
             reload=True,
-            log_level="info"
+            log_level="info",
         )
     else:
-        # Production Mode: Serve Static Files
-        # Locate UI distribution relative to the installed package location.
-        # def load_static_dir():
-        raise NotImplementedError("Static file serving is not implemented yet.")
+        from molexp.server.app import create_app
+
+        application = create_app()
+        uvicorn.run(application, host=host, port=port, log_level="info")
+
 
 # ============ Workspace Commands ============
 
@@ -116,12 +429,10 @@ def info(
     workspace = _get_workspace(path)
 
     projects = workspace.list_projects()
-    assets = workspace.list_assets()
 
-    # Gather detailed statistics
     total_experiments = 0
     total_runs = 0
-    run_status_counts = {
+    run_status_counts: dict[str, int] = {
         "pending": 0,
         "running": 0,
         "succeeded": 0,
@@ -130,28 +441,23 @@ def info(
     }
 
     for project in projects:
-        experiments = workspace.list_experiments(project.id)
+        experiments = project.list_experiments()
         total_experiments += len(experiments)
 
         for experiment in experiments:
-            runs = workspace.list_runs(project.id, experiment.id)
+            runs = experiment.list_runs()
             total_runs += len(runs)
 
             for run in runs:
-                status = run.status.value.lower()
+                status = str(run.status).lower()
                 if status in run_status_counts:
                     run_status_counts[status] += 1
-
-    # Calculate total asset size
-    total_asset_size = sum(asset.size_bytes for asset in assets)
-    total_asset_size_mb = total_asset_size / (1024 * 1024)
 
     rprint(f"[bold]Workspace:[/bold] {workspace.root}")
     rprint(f"\n[bold]Statistics:[/bold]")
     rprint(f"  Projects: {len(projects)}")
     rprint(f"  Experiments: {total_experiments}")
     rprint(f"  Runs: {total_runs}")
-    rprint(f"  Assets: {len(assets)} ({total_asset_size_mb:.2f} MB)")
 
     if total_runs > 0:
         rprint(f"\n[bold]Run Status:[/bold]")
@@ -167,175 +473,6 @@ def info(
                 rprint(f"  [{color}]{status.capitalize()}[/{color}]: {count}")
 
 
-@app.command()
-def check(
-    path: Annotated[
-        Optional[Path],
-        typer.Option("--path", "-p", help="Workspace path"),
-    ] = None,
-    fix: Annotated[
-        bool,
-        typer.Option("--fix", help="Attempt to fix issues automatically"),
-    ] = False,
-    verbose: Annotated[
-        bool,
-        typer.Option("--verbose", "-v", help="Show detailed validation results"),
-    ] = False,
-) -> None:
-    """Validate workspace integrity."""
-    workspace = _get_workspace(path)
-    validator = WorkspaceValidator(workspace)
-
-    rprint("[bold]Validating workspace...[/bold]\n")
-
-    report = validator.validate(verbose=verbose)
-
-    # Show statistics
-    rprint(f"[bold]Statistics:[/bold]")
-    rprint(f"  Projects: {report.total_projects}")
-    rprint(f"  Experiments: {report.total_experiments}")
-    rprint(f"  Runs: {report.total_runs}")
-    rprint(f"  Assets: {report.total_assets}")
-    if report.orphaned_assets > 0:
-        rprint(f"  Orphaned Assets: [yellow]{report.orphaned_assets}[/yellow]")
-
-    # Show issues
-    if report.issues:
-        rprint(f"\n[bold]Issues Found:[/bold]")
-
-        for issue in report.issues:
-            color = {"error": "red", "warning": "yellow", "info": "blue"}.get(
-                issue.severity, "white"
-            )
-            icon = {"error": "✗", "warning": "⚠", "info": "ℹ"}.get(issue.severity, "•")
-
-            rprint(f"  [{color}]{icon}[/{color}] {issue.message}")
-            if verbose and issue.path:
-                rprint(f"      Path: {issue.path}")
-
-        # Attempt fixes if requested
-        if fix:
-            rprint(f"\n[bold]Attempting to fix issues...[/bold]")
-            unfixed = validator.fix_issues(report.issues)
-            fixed_count = len(report.issues) - len(unfixed)
-
-            if fixed_count > 0:
-                rprint(f"  [green]✓[/green] Fixed {fixed_count} issue(s)")
-            if unfixed:
-                rprint(f"  [yellow]⚠[/yellow] Could not fix {len(unfixed)} issue(s)")
-
-    # Show summary
-    rprint(f"\n{report.summary()}")
-
-    if report.has_errors:
-        raise typer.Exit(1)
-
-
-# ============ Workflow Commands ============
-
-workflow_app = typer.Typer(help="Workflow management commands")
-app.add_typer(workflow_app, name="workflow")
-
-
-@workflow_app.command("list")
-def workflow_list(
-    verbose: Annotated[
-        bool,
-        typer.Option("--verbose", "-v", help="Show detailed information"),
-    ] = False,
-) -> None:
-    """List all registered workflows."""
-    registry = get_workflow_registry()
-    inspector = WorkflowInspector(registry)
-
-    workflows = inspector.list_workflows()
-
-    if not workflows:
-        rprint("[yellow]No workflows registered[/yellow]")
-        return
-
-    table = Table(title="Registered Workflows")
-    table.add_column("Workflow ID", style="cyan")
-    table.add_column("Tasks", style="green")
-
-    if verbose:
-        table.add_column("Status")
-
-    for wf in workflows:
-        row = [wf["id"], str(wf["num_tasks"])]
-
-        if verbose:
-            if "error" in wf:
-                row.append(f"[red]{wf['error']}[/red]")
-            else:
-                row.append("[green]OK[/green]")
-
-        table.add_row(*row)
-
-    console.print(table)
-
-
-@workflow_app.command("info")
-def workflow_info(
-    workflow_id: Annotated[str, typer.Argument(help="Workflow ID")],
-) -> None:
-    """Show detailed workflow information."""
-    registry = get_workflow_registry()
-    inspector = WorkflowInspector(registry)
-
-    try:
-        info = inspector.get_workflow_info(workflow_id)
-        tree = inspector.render_tree(workflow_id)
-
-        rprint(f"[bold]Workflow:[/bold] {workflow_id}")
-        rprint(f"  Tasks: {info['num_tasks']}")
-        rprint(f"\n[bold]Task Graph:[/bold]")
-        rprint(tree)
-
-        if info["tasks"]:
-            rprint(f"\n[bold]Task Details:[/bold]")
-            for task in info["tasks"]:
-                rprint(f"  • {task['name']} ({task['type']})")
-                if task["dependencies"]:
-                    rprint(f"    Dependencies: {', '.join(task['dependencies'])}")
-
-    except ValueError as e:
-        rprint(f"[red]✗[/red] {e}")
-        raise typer.Exit(1)
-
-
-@workflow_app.command("export")
-def workflow_export(
-    workflow_id: Annotated[str, typer.Argument(help="Workflow ID")],
-    output: Annotated[
-        Optional[Path],
-        typer.Option("--output", "-o", help="Output file path (default: stdout)"),
-    ] = None,
-    pretty: Annotated[
-        bool,
-        typer.Option("--pretty", help="Pretty-print JSON"),
-    ] = True,
-) -> None:
-    """Export workflow to JSON IR format."""
-    registry = get_workflow_registry()
-    inspector = WorkflowInspector(registry)
-
-    try:
-        ir = inspector.export_json_ir(workflow_id)
-
-        json_str = json.dumps(ir, indent=2 if pretty else None)
-
-        if output:
-            output.write_text(json_str)
-            rprint(f"[green]✓[/green] Exported workflow to: {output}")
-        else:
-            print(json_str)
-
-    except ValueError as e:
-        rprint(f"[red]✗[/red] {e}")
-        raise typer.Exit(1)
-
-
 # ============ Project Commands ============
 
 project_app = typer.Typer(help="Project management commands")
@@ -344,13 +481,7 @@ app.add_typer(project_app, name="project")
 
 @project_app.command("create")
 def project_create(
-    id: Annotated[str, typer.Argument(help="Project ID (slug)")],
-    name: Annotated[str, typer.Option("--name", "-n", help="Project name")],
-    description: Annotated[str, typer.Option("--desc", "-d", help="Description")] = "",
-    owner: Annotated[str, typer.Option("--owner", "-o", help="Owner")] = "",
-    tags: Annotated[
-        Optional[str], typer.Option("--tags", "-t", help="Comma-separated tags")
-    ] = None,
+    name: Annotated[str, typer.Argument(help="Project name")],
     path: Annotated[
         Optional[Path], typer.Option("--path", "-p", help="Workspace path")
     ] = None,
@@ -358,19 +489,10 @@ def project_create(
     """Create a new project."""
     workspace = _get_workspace(path)
 
-    tag_list = [t.strip() for t in tags.split(",")] if tags else []
-
     try:
-        project = workspace.create_project(
-            id=id,
-            name=name,
-            description=description,
-            owner=owner,
-            tags=tag_list,
-        )
+        project = workspace.create_project(name=name)
         rprint(f"[green]✓[/green] Created project: {project.id}")
         rprint(f"  Name: {project.name}")
-        rprint(f"  Path: {workspace.root / project.path}")
     except Exception as e:
         rprint(f"[red]✗[/red] Error: {e}")
         raise typer.Exit(1)
@@ -411,17 +533,17 @@ def project_list(
 
 @project_app.command("info")
 def project_info(
-    id: Annotated[str, typer.Argument(help="Project ID")],
+    project_id: Annotated[str, typer.Argument(help="Project ID")],
     path: Annotated[
         Optional[Path], typer.Option("--path", "-p", help="Workspace path")
     ] = None,
 ) -> None:
     """Show project information."""
     workspace = _get_workspace(path)
-    project = workspace.get_project(id)
+    project = workspace.get_project(project_id)
 
     if not project:
-        rprint(f"[red]✗[/red] Project not found: {id}")
+        rprint(f"[red]✗[/red] Project not found: {project_id}")
         raise typer.Exit(1)
 
     rprint(f"[bold]Project:[/bold] {project.id}")
@@ -431,7 +553,7 @@ def project_info(
     rprint(f"  Tags: {', '.join(project.tags)}")
     rprint(f"  Created: {project.created_at}")
 
-    experiments = workspace.list_experiments(id)
+    experiments = project.list_experiments()
     rprint(f"  Experiments: {len(experiments)}")
 
 
@@ -445,13 +567,6 @@ app.add_typer(experiment_app, name="experiment")
 def experiment_create(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     name: Annotated[str, typer.Option("--name", "-n", help="Experiment name")],
-    workflow: Annotated[
-        str, typer.Option("--workflow", "-w", help="Workflow file path")
-    ],
-    description: Annotated[str, typer.Option("--desc", "-d", help="Description")] = "",
-    params: Annotated[
-        Optional[str], typer.Option("--params", help="Parameters JSON")
-    ] = None,
     path: Annotated[
         Optional[Path], typer.Option("--path", "-p", help="Workspace path")
     ] = None,
@@ -466,14 +581,11 @@ def experiment_create(
             raise typer.Exit(1)
 
         experiment = project.create_experiment(name=name)
-        if workflow or description or params:
-            rprint(
-                "[yellow]⚠[/yellow] Workflow/description/params are not persisted by the current core model"
-            )
         rprint(f"[green]✓[/green] Created experiment: {experiment.id}")
         rprint(f"  Name: {experiment.name}")
         rprint(f"  Project: {project_id}")
-        rprint(f"  Path: {workspace.root / 'projects' / project_id / 'experiments' / experiment.id}")
+    except typer.Exit:
+        raise
     except Exception as e:
         rprint(f"[red]✗[/red] Error: {e}")
         raise typer.Exit(1)
@@ -481,30 +593,34 @@ def experiment_create(
 
 @experiment_app.command("list")
 def experiment_list(
-    id: Annotated[str, typer.Argument(help="Project ID")],
+    project_id: Annotated[str, typer.Argument(help="Project ID")],
     path: Annotated[
         Optional[Path], typer.Option("--path", "-p", help="Workspace path")
     ] = None,
 ) -> None:
     """List all experiments in a project."""
     workspace = _get_workspace(path)
-    experiments = workspace.list_experiments(id)
+    project = workspace.get_project(project_id)
+
+    if not project:
+        rprint(f"[red]✗[/red] Project not found: {project_id}")
+        raise typer.Exit(1)
+
+    experiments = project.list_experiments()
 
     if not experiments:
-        rprint(f"[yellow]No experiments found in project: {id}[/yellow]")
+        rprint(f"[yellow]No experiments found in project: {project_id}[/yellow]")
         return
 
-    table = Table(title=f"Experiments in {id}")
+    table = Table(title=f"Experiments in {project_id}")
     table.add_column("ID", style="cyan")
     table.add_column("Name", style="green")
-    table.add_column("Workflow")
     table.add_column("Created")
 
     for exp in experiments:
         table.add_row(
             exp.id,
             exp.name,
-            exp.workflow_template.source,
             exp.created_at.strftime("%Y-%m-%d %H:%M"),
         )
 
@@ -514,7 +630,7 @@ def experiment_list(
 # ============ Run Commands ============
 
 run_app = typer.Typer(help="Run management commands")
-app.add_typer(run_app, name="run")
+app.add_typer(run_app, name="runs")
 
 
 @run_app.command("create")
@@ -534,14 +650,12 @@ def run_create(
     workspace = _get_workspace(path)
 
     # Parse parameters
-    parameters = {}
+    parameters: dict = {}
     if params:
-        # Check if it's a file path
         params_path = Path(params)
         if params_path.exists():
             parameters = json.loads(params_path.read_text())
         else:
-            # Try to parse as JSON string
             try:
                 parameters = json.loads(params)
             except json.JSONDecodeError:
@@ -549,25 +663,26 @@ def run_create(
                 raise typer.Exit(1)
 
     try:
-        # Get experiment to get workflow info
-        experiment = workspace.get_experiment(id, id)
-        if not experiment:
-            rprint(f"[red]✗[/red] Experiment not found: {id}/{id}")
+        project = workspace.get_project(project_id)
+        if not project:
+            rprint(f"[red]✗[/red] Project not found: {project_id}")
             raise typer.Exit(1)
 
-        run = workspace.create_run(
-            id=id,
-            parameters=parameters,
-            workflow_file=experiment.workflow_template.source,
-            git_commit=experiment.workflow_template.git_commit,
-        )
+        experiment = project.get_experiment(experiment_id)
+        if not experiment:
+            rprint(f"[red]✗[/red] Experiment not found: {experiment_id}")
+            raise typer.Exit(1)
 
+        run = experiment.create_run(parameters=parameters)
         rprint(f"[green]✓[/green] Created run: {run.id}")
         rprint(f"  Project: {project_id}")
         rprint(f"  Experiment: {experiment_id}")
-        rprint(f"  Status: {run.status.value}")
-        rprint(f"  Parameters: {json.dumps(parameters, indent=2)}")
+        rprint(f"  Status: {run.status}")
+        if parameters:
+            rprint(f"  Parameters: {json.dumps(parameters, indent=2)}")
 
+    except typer.Exit:
+        raise
     except Exception as e:
         rprint(f"[red]✗[/red] Error: {e}")
         raise typer.Exit(1)
@@ -583,37 +698,44 @@ def run_list(
 ) -> None:
     """List all runs in an experiment."""
     workspace = _get_workspace(path)
-    runs = workspace.list_runs(id, id)
+
+    project = workspace.get_project(project_id)
+    if not project:
+        rprint(f"[red]✗[/red] Project not found: {project_id}")
+        raise typer.Exit(1)
+
+    experiment = project.get_experiment(experiment_id)
+    if not experiment:
+        rprint(f"[red]✗[/red] Experiment not found: {experiment_id}")
+        raise typer.Exit(1)
+
+    runs = experiment.list_runs()
 
     if not runs:
-        rprint(f"[yellow]No runs found in {id}/{id}[/yellow]")
+        rprint(
+            f"[yellow]No runs found in {project_id}/{experiment_id}[/yellow]"
+        )
         return
 
-    table = Table(title=f"Runs in {id}/{id}")
+    table = Table(title=f"Runs in {project_id}/{experiment_id}")
     table.add_column("Run ID", style="cyan")
     table.add_column("Status", style="green")
     table.add_column("Created")
-    table.add_column("Duration")
 
     for run in runs:
-        duration = ""
-        if run.finished_at:
-            delta = run.finished_at - run.created_at
-            duration = f"{delta.total_seconds():.1f}s"
-
+        status = str(run.status).lower()
         status_color = {
             "succeeded": "green",
             "failed": "red",
             "running": "yellow",
             "pending": "blue",
             "cancelled": "gray",
-        }.get(run.status.value, "white")
+        }.get(status, "white")
 
         table.add_row(
             run.id,
-            f"[{status_color}]{run.status.value}[/{status_color}]",
-            run.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-            duration,
+            f"[{status_color}]{status}[/{status_color}]",
+            run.metadata.created_at.strftime("%Y-%m-%d %H:%M:%S"),
         )
 
     console.print(table)
@@ -630,25 +752,28 @@ def run_info(
 ) -> None:
     """Show run information."""
     workspace = _get_workspace(path)
-    run = workspace.get_run(project_id, experiment_id, run_id)
 
+    project = workspace.get_project(project_id)
+    if not project:
+        rprint(f"[red]✗[/red] Project not found: {project_id}")
+        raise typer.Exit(1)
+
+    experiment = project.get_experiment(experiment_id)
+    if not experiment:
+        rprint(f"[red]✗[/red] Experiment not found: {experiment_id}")
+        raise typer.Exit(1)
+
+    run = experiment.get_run(run_id)
     if not run:
-        rprint(f"[red]✗[/red] Run not found: {id}")
+        rprint(f"[red]✗[/red] Run not found: {run_id}")
         raise typer.Exit(1)
 
     rprint(f"[bold]Run:[/bold] {run.id}")
-    rprint(f"  Status: {run.status.value}")
-    rprint(f"  Created: {run.created_at}")
-    rprint(f"  Finished: {run.finished_at or 'N/A'}")
-    rprint(f"  Workflow: {run.workflow_snapshot.workflow_file}")
+    rprint(f"  Status: {run.status}")
+    rprint(f"  Created: {run.metadata.created_at}")
+    if run.metadata.finished_at:
+        rprint(f"  Finished: {run.metadata.finished_at}")
     rprint(f"  Parameters: {json.dumps(run.parameters, indent=2)}")
-
-    # Show asset refs
-    refs = workspace.get_asset_refs(id, id, id)
-    if refs:
-        rprint(f"\n[bold]Assets:[/bold]")
-        rprint(f"  Inputs: {len(refs.inputs)}")
-        rprint(f"  Outputs: {len(refs.outputs)}")
 
 
 # ============ Asset Commands ============
@@ -664,58 +789,27 @@ def asset_list(
     ] = None,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Limit results")] = 50,
 ) -> None:
-    """List all assets."""
+    """List workspace-level assets."""
     workspace = _get_workspace(path)
-    assets = workspace.list_assets()[:limit]
+    assets = workspace.assets.list_assets()[:limit]
 
     if not assets:
         rprint("[yellow]No assets found[/yellow]")
         return
 
-    table = Table(title="Assets")
+    table = Table(title="Workspace Assets")
     table.add_column("Asset ID", style="cyan")
-    table.add_column("Type", style="green")
-    table.add_column("Format")
-    table.add_column("Size")
+    table.add_column("Name", style="green")
     table.add_column("Created")
 
     for asset in assets:
-        size_mb = asset.size_bytes / (1024 * 1024)
         table.add_row(
-            asset.asset_id[:8] + "...",
-            asset.type.value,
-            asset.format,
-            f"{size_mb:.2f} MB",
+            asset.asset_id[:12] + "...",
+            asset.name,
             asset.created_at.strftime("%Y-%m-%d %H:%M"),
         )
 
     console.print(table)
-
-
-@asset_app.command("info")
-def asset_info(
-    asset_id: Annotated[str, typer.Argument(help="Asset ID")],
-    path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path")
-    ] = None,
-) -> None:
-    """Show asset information."""
-    workspace = _get_workspace(path)
-    asset = workspace.get_asset(asset_id)
-
-    if not asset:
-        rprint(f"[red]✗[/red] Asset not found: {asset_id}")
-        raise typer.Exit(1)
-
-    rprint(f"[bold]Asset:[/bold] {asset.asset_id}")
-    rprint(f"  Type: {asset.type.value}")
-    rprint(f"  Format: {asset.format}")
-    rprint(f"  Size: {asset.size_bytes / (1024 * 1024):.2f} MB")
-    rprint(f"  Hash: {asset.content_hash}")
-    rprint(f"  Created: {asset.created_at}")
-    rprint(f"  Producer: {asset.producer_id or 'N/A'}")
-    rprint(f"  Tags: {', '.join(asset.tags)}")
-    rprint(f"  Files: {len(asset.files)}")
 
 
 # ============ Helper Functions ============
