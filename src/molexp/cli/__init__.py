@@ -266,12 +266,23 @@ def run_local(
             ),
         ),
     ] = False,
+    bg: Annotated[
+        bool,
+        typer.Option(
+            "--bg",
+            help="Run in background. Logs to <workspace>/molexp_bg_<pid>.log.",
+        ),
+    ] = False,
     workspace: Annotated[
         Optional[Path],
         typer.Option("--workspace", "-w", help="Workspace root (overrides project config)."),
     ] = None,
 ) -> None:
     """Execute runs locally (sequential)."""
+    if bg:
+        _launch_bg(script=script, dry_run=dry_run, resume=resume, workspace=workspace)
+        return
+
     if dry_run:
         label = "[yellow]dry-run[/yellow]"
     else:
@@ -290,6 +301,38 @@ def run_local(
         run_handler=_local_handler,
         mode_label=label,
     )
+
+
+def _launch_bg(
+    *,
+    script: Path,
+    dry_run: bool,
+    resume: bool,
+    workspace: Path | None,
+) -> None:
+    """Fork a detached subprocess that re-runs the sweep without ``--bg``."""
+    import subprocess
+    import sys
+
+    cmd = [sys.executable, "-m", "molexp.cli", "run", "local", str(script)]
+    if dry_run:
+        cmd.append("--dry-run")
+    if resume:
+        cmd.append("--resume")
+    if workspace is not None:
+        cmd.extend(["--workspace", str(workspace)])
+
+    ws_root = Path(workspace).resolve() if workspace else Path.cwd()
+    ws_root.mkdir(parents=True, exist_ok=True)
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=open(ws_root / f"molexp_bg.log", "a"),
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    rprint(f"[green]OK[/green] Background PID {proc.pid}")
+    rprint(f"  Log: {ws_root / 'molexp_bg.log'}")
 
 
 # ── Auto-discover submit plugins ─────────────────────────────────────────────
