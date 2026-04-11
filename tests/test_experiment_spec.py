@@ -1,13 +1,14 @@
 """Tests for user-facing Experiment spec."""
 
 import json
+
 import pytest
 
 from molexp.experiment import Experiment, _promote_to_workflow
 from molexp.project import Project
+from molexp.workflow.spec import WorkflowBuilder, WorkflowSpec
 from molexp.workspace import Workspace
 from molexp.workspace.param import GridSpace
-from molexp.workflow.spec import WorkflowSpec, WorkflowBuilder
 
 
 @pytest.fixture

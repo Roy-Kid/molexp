@@ -1,22 +1,18 @@
 /**
  * FileExplorer - Workspace file explorer
- * 
+ *
  * Low-level, file-oriented navigation surface
  * Presents workspace as hierarchical, collapsible file structure
  * Does NOT impose semantic meaning beyond file system structure
- * 
+ *
  * Separated from semantic views (Project, Experiment, Run, Asset)
  */
 
-import React, { useState, useEffect } from "react";
-import {
-  Copy,
-  Trash2,
-  RefreshCw,
-} from "lucide-react";
-import { Tree, type TreeNodeProps } from "@/components/ui/tree";
+import { Copy, RefreshCw, Trash2 } from "lucide-react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tree, type TreeNodeProps } from "@/components/ui/tree";
 import { cn } from "@/lib/utils";
 
 interface FileExplorerProps {
@@ -36,25 +32,25 @@ interface ExplorerContextMenuProps {
 /**
  * ExplorerContextMenu - Right-click menu for file operations
  */
-const ExplorerContextMenu = ({
-  node,
-  onCopy,
-  onDelete,
-  event,
-}: ExplorerContextMenuProps) => {
+const ExplorerContextMenu = ({ node, onCopy, onDelete, event }: ExplorerContextMenuProps) => {
   const position = { x: event.clientX, y: event.clientY };
 
   return (
     <div
       className="fixed bg-popover border border-border rounded-md shadow-md z-50 min-w-[150px]"
+      role="menu"
       style={{
         top: `${position.y}px`,
         left: `${position.x}px`,
       }}
-      onClick={e => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") e.stopPropagation();
+      }}
     >
       <div className="py-1">
         <button
+          type="button"
           className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent flex items-center gap-2"
           onClick={() => {
             onCopy?.(node.path);
@@ -64,6 +60,7 @@ const ExplorerContextMenu = ({
           Copy path
         </button>
         <button
+          type="button"
           className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent text-destructive flex items-center gap-2"
           onClick={() => {
             onDelete?.(node.path);
@@ -77,19 +74,34 @@ const ExplorerContextMenu = ({
   );
 };
 
+const transformToTreeNodes = (items: unknown[]): TreeNodeProps[] => {
+  return items.map((rawItem) => {
+    const item = rawItem as Record<string, unknown>;
+    return {
+      id: (item.id as string) || (item.path as string),
+      name: item.name as string,
+      path: item.path as string,
+      kind: item.type === "folder" ? "folder" : ("file" as "folder" | "file"),
+      children: Array.isArray(item.children) ? transformToTreeNodes(item.children) : undefined,
+      metadata: {
+        size: item.size,
+        modified: item.modified,
+        type: item.type,
+      },
+    };
+  });
+};
+
 /**
  * FileExplorer - Main component
- * 
+ *
  * Provides pure file-system tree navigation
  * - No semantic interpretation of files
  * - No project/experiment/run context
  * - Pure hierarchical file structure
  */
 export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
-  (
-    { onSelectFile, onSelectFolder, rootPath = "/", className },
-    ref
-  ) => {
+  ({ onSelectFile, onSelectFolder, rootPath = "/", className }, ref) => {
     const [treeNodes, setTreeNodes] = useState<TreeNodeProps[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -98,20 +110,15 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
       event: React.MouseEvent;
     } | null>(null);
 
-    // Load root workspace files
-    useEffect(() => {
-      loadWorkspaceTree();
-    }, [rootPath]);
-
-    const loadWorkspaceTree = async () => {
+    const loadWorkspaceTree = useCallback(async () => {
       try {
         setLoading(true);
         setError(null);
 
         // Fetch the workspace tree from API
         // This should return the pure file-system structure
-        const response = await fetch("/api/workspace/files?path=" + encodeURIComponent(rootPath));
-        
+        const response = await fetch(`/api/workspace/files?path=${encodeURIComponent(rootPath)}`);
+
         if (!response.ok) {
           throw new Error(`Failed to load workspace: ${response.statusText}`);
         }
@@ -125,22 +132,12 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
       } finally {
         setLoading(false);
       }
-    };
+    }, [rootPath]);
 
-    const transformToTreeNodes = (items: any[]): TreeNodeProps[] => {
-      return items.map(item => ({
-        id: item.id || item.path,
-        name: item.name,
-        path: item.path,
-        kind: item.type === "folder" ? "folder" : "file",
-        children: item.children ? transformToTreeNodes(item.children) : undefined,
-        metadata: {
-          size: item.size,
-          modified: item.modified,
-          type: item.type,
-        },
-      }));
-    };
+    // Load root workspace files
+    useEffect(() => {
+      loadWorkspaceTree();
+    }, [loadWorkspaceTree]);
 
     const handleSelectNode = (node: TreeNodeProps) => {
       if (node.kind === "file") {
@@ -174,12 +171,7 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
             <p className="font-semibold">Error loading workspace</p>
             <p className="text-xs">{error}</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadWorkspaceTree}
-            className="w-full"
-          >
+          <Button variant="outline" size="sm" onClick={loadWorkspaceTree} className="w-full">
             <RefreshCw className="h-3.5 w-3.5 mr-1" />
             Retry
           </Button>
@@ -188,13 +180,7 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
     }
 
     return (
-      <div
-        ref={ref}
-        className={cn(
-          "flex flex-col h-full bg-background",
-          className
-        )}
-      >
+      <div ref={ref} className={cn("flex flex-col h-full bg-background", className)}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b">
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -208,9 +194,7 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
             disabled={loading}
             title="Refresh"
           >
-            <RefreshCw
-              className={cn("h-3.5 w-3.5", loading && "animate-spin")}
-            />
+            <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
           </Button>
         </div>
 
@@ -221,15 +205,9 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
               <div className="text-xs text-muted-foreground">Loading...</div>
             </div>
           ) : treeNodes.length === 0 ? (
-            <div className="text-xs text-muted-foreground p-4">
-              No files or folders found
-            </div>
+            <div className="text-xs text-muted-foreground p-4">No files or folders found</div>
           ) : (
-            <Tree
-              nodes={treeNodes}
-              onSelect={handleSelectNode}
-              onContextMenu={handleContextMenu}
-            />
+            <Tree nodes={treeNodes} onSelect={handleSelectNode} onContextMenu={handleContextMenu} />
           )}
         </ScrollArea>
 
@@ -244,7 +222,7 @@ export const FileExplorer = React.forwardRef<HTMLDivElement, FileExplorerProps>(
         )}
       </div>
     );
-  }
+  },
 );
 
 FileExplorer.displayName = "FileExplorer";

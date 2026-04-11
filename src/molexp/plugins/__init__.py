@@ -61,9 +61,9 @@ def _load_agent() -> Any:
 
 
 def _load_execution_backend() -> Any:
-    from molexp.plugins.remote.backend import ExecutionBackend  # noqa: F401
     from molq import Submitor  # noqa: F401 — verify molq is installed
 
+    from molexp.plugins.remote.backend import ExecutionBackend  # noqa: F401
     from molexp.plugins.remote.molq_backend import MolqBackend
 
     return MolqBackend

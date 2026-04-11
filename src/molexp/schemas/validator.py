@@ -1,11 +1,10 @@
 """Schema validation utilities for Molexp documents."""
 
-from pathlib import Path
 from typing import Any
-import jsonschema
+
 from jsonschema import Draft7Validator, RefResolver
 
-from . import get_schema, SCHEMA_DIR
+from . import SCHEMA_DIR, get_schema
 
 
 class ValidationError(Exception):

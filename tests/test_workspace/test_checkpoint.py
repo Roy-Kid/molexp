@@ -1,9 +1,7 @@
 """Tests for checkpoint system."""
 
-import json
-import pytest
 
-from molexp.workspace.checkpoint import Checkpoint, CheckpointState, generate_checkpoint_id
+from molexp.workspace.checkpoint import Checkpoint, generate_checkpoint_id
 
 
 class TestCheckpointState:

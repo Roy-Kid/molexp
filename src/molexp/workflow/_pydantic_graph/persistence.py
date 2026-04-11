@@ -19,10 +19,9 @@ from pathlib import Path
 from time import perf_counter
 from typing import Any, AsyncIterator
 
-from pydantic_graph import End
+from pydantic_graph import End, exceptions
 from pydantic_graph.nodes import BaseNode
-from pydantic_graph.persistence import BaseStatePersistence, NodeSnapshot, EndSnapshot
-from pydantic_graph import exceptions
+from pydantic_graph.persistence import BaseStatePersistence, EndSnapshot, NodeSnapshot
 
 from .state import WorkflowState
 

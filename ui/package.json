@@ -9,6 +9,10 @@
     "dev:mock": "MOLEXP_USE_MOCK=true rsbuild dev",
     "preview": "rsbuild preview",
     "generate:api": "npx openapi-typescript-codegen --input ../openapi.json --output src/api/generated --client fetch",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -49,6 +53,7 @@
     "zustand": "^5.0.8"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.11",
     "@rsbuild/core": "^1.6.7",
     "@rsbuild/plugin-react": "^1.4.2",
     "@tailwindcss/postcss": "^4.1.17",

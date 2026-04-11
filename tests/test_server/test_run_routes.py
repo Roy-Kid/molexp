@@ -1,6 +1,5 @@
 """Tests for run API routes."""
 
-import pytest
 
 
 class TestRunRoutes:

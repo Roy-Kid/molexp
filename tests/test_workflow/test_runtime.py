@@ -1,6 +1,7 @@
 """Tests for workflow execution through pydantic-graph runtime."""
 
 import json
+
 import pytest
 
 from molexp.workflow import Task, TaskContext, WorkflowBuilder, workflow
@@ -48,20 +49,18 @@ class TestFunctionalExecution:
         wf = workflow(name="with-run-context")
 
         class RunContextStub:
-            def __init__(self):
+            """Minimal stub — dry_run fixed at construction, no late-bind."""
+
+            def __init__(self, *, dry_run: bool = False):
                 self.run = None
                 self.work_dir = tmp_path / "run"
-                self.dry_run = False
-                self.context = type("ContextStub", (), {"status": {}})()
-
-            def _bind_execution_mode(self, *, dry_run: bool) -> bool:
                 self.dry_run = dry_run
-                return False
+                self.context = type("ContextStub", (), {"status": {}})()
 
             def _save_context(self) -> None:
                 return None
 
-        run_ctx = RunContextStub()
+        run_ctx = RunContextStub(dry_run=True)
 
         @wf.task
         async def inspect(ctx: TaskContext) -> bool:
@@ -69,10 +68,28 @@ class TestFunctionalExecution:
             assert ctx.dry_run is True
             return True
 
-        result = await wf.build().execute(run_context=run_ctx, dry_run=True)
+        result = await wf.build().execute(run_context=run_ctx)
         assert result.status == "completed"
         assert result.outputs["inspect"] is True
         assert run_ctx.dry_run is True
+
+    async def test_run_context_with_dry_run_raises(self, tmp_path):
+        """Passing run_context and dry_run=True is a hard error — no late-bind."""
+        wf = workflow(name="no-late-bind")
+
+        class RunContextStub:
+            def __init__(self):
+                self.run = None
+                self.work_dir = tmp_path / "run"
+                self.dry_run = False
+                self.context = type("ContextStub", (), {"status": {}})()
+
+        @wf.task
+        async def noop(ctx: TaskContext) -> None:
+            return None
+
+        with pytest.raises(ValueError, match="Cannot combine run_context"):
+            await wf.build().execute(run_context=RunContextStub(), dry_run=True)
 
     async def test_run_is_managed_by_runtime(self, tmp_path):
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")

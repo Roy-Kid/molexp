@@ -10,13 +10,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic_ai.toolsets import FunctionToolset, AbstractToolset
+from pydantic_ai.toolsets import AbstractToolset, FunctionToolset
 
 from ..policy import ApprovalPolicy
-from ..tools import Tool as MolexpTool, FunctionTool
+from ..tools import FunctionTool
+from ..tools import Tool as MolexpTool
 from ..types import ToolContext
-from .workspace_tools import get_all_builtin_tools
 from .deps import MolexpDeps
+from .workspace_tools import get_all_builtin_tools
 
 
 class MolexpToolCatalog:
@@ -89,6 +90,7 @@ def _make_pydantic_ai_wrapper(registration: FunctionTool):
     the correct JSON schema.
     """
     import inspect
+
     from pydantic_ai import RunContext
 
     original_fn = registration._fn
@@ -96,8 +98,8 @@ def _make_pydantic_ai_wrapper(registration: FunctionTool):
     params = list(sig.parameters.values())
 
     # Remove first param (ToolContext ctx)
-    inner_params = [p for p in params if p.annotation is not ToolContext
-                    and p.name not in ("ctx", "context")]
+    _inner_params = [p for p in params if p.annotation is not ToolContext
+                     and p.name not in ("ctx", "context")]
 
     async def wrapper(ctx: RunContext[MolexpDeps], **kwargs: Any) -> Any:
         tool_ctx = ToolContext(
@@ -123,7 +125,6 @@ def _make_pydantic_ai_wrapper(registration: FunctionTool):
 
 def _make_pydantic_ai_wrapper_from_tool(tool: MolexpTool):
     """Wrap an OOP Tool instance as a pydantic-ai tool function."""
-    import inspect
     from pydantic_ai import RunContext
 
     async def wrapper(ctx: RunContext[MolexpDeps], **kwargs: Any) -> Any:

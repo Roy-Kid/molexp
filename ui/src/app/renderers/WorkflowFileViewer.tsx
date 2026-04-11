@@ -1,18 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
 import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
 import {
   Background,
-  Controls,
   ControlButton,
+  Controls,
   MarkerType,
   Position,
   ReactFlow,
 } from "@xyflow/react";
+import { useEffect, useMemo, useState } from "react";
 import "@xyflow/react/dist/style.css";
+import { workspaceApi } from "@/app/state/api";
+import type { RendererProps, SemanticStatus } from "@/app/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { RendererProps, SemanticStatus } from "@/app/types";
-import { workspaceApi } from "@/app/state/api";
 
 interface WorkflowFileNode {
   task_id: string;
@@ -71,22 +71,19 @@ const WorkflowNode = ({ data }: NodeProps<WorkflowFlowNode>): JSX.Element => {
   );
 };
 
-const layoutNodes = (
-  tasks: WorkflowFileNode[],
-  links: WorkflowFileLink[],
-): WorkflowFlowNode[] => {
+const layoutNodes = (tasks: WorkflowFileNode[], links: WorkflowFileLink[]): WorkflowFlowNode[] => {
   const columnWidth = 260;
   const rowHeight = 150;
 
   const inDegree = new Map<string, number>();
   const adjacency = new Map<string, string[]>();
 
-  tasks.forEach(task => {
+  tasks.forEach((task) => {
     inDegree.set(task.task_id, 0);
     adjacency.set(task.task_id, []);
   });
 
-  links.forEach(link => {
+  links.forEach((link) => {
     if (!adjacency.has(link.source)) {
       adjacency.set(link.source, []);
     }
@@ -95,10 +92,12 @@ const layoutNodes = (
   });
 
   const queue = tasks
-    .filter(task => (inDegree.get(task.task_id) ?? 0) === 0)
-    .map(task => task.task_id);
+    .filter((task) => (inDegree.get(task.task_id) ?? 0) === 0)
+    .map((task) => task.task_id);
   const levels = new Map<string, number>();
-  queue.forEach(id => levels.set(id, 0));
+  for (const id of queue) {
+    levels.set(id, 0);
+  }
 
   while (queue.length > 0) {
     const current = queue.shift();
@@ -117,7 +116,7 @@ const layoutNodes = (
   }
 
   const layers = new Map<number, WorkflowFileNode[]>();
-  tasks.forEach(task => {
+  tasks.forEach((task) => {
     const level = levels.get(task.task_id) ?? 0;
     const layer = layers.get(level) ?? [];
     layer.push(task);
@@ -146,7 +145,7 @@ const layoutNodes = (
 export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element => {
   const [payload, setPayload] = useState<WorkflowFilePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [layoutVersion, setLayoutVersion] = useState(0);
+  const [_layoutVersion, setLayoutVersion] = useState(0);
   const [reactFlowInstance, setReactFlowInstance] = useState<{
     fitView: () => void;
   } | null>(null);
@@ -158,21 +157,21 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
 
     workspaceApi
       .getWorkspaceFileText(selection.objectId)
-      .then(content => {
+      .then((content) => {
         const parsed = JSON.parse(content) as WorkflowFilePayload;
         if (!parsed.task_configs || !parsed.links) {
           throw new Error("Invalid workflow.json payload");
         }
-        const missingTaskStatus = parsed.task_configs.some(task => !task.status);
-        const missingLinkStatus = parsed.links.some(link => !link.status);
+        const missingTaskStatus = parsed.task_configs.some((task) => !task.status);
+        const missingLinkStatus = parsed.links.some((link) => !link.status);
         if (missingTaskStatus || missingLinkStatus) {
           throw new Error("workflow.json is missing status fields for nodes or links");
         }
         setPayload(parsed);
         setError(null);
-        setLayoutVersion(prev => prev + 1);
+        setLayoutVersion((prev) => prev + 1);
       })
-      .catch(err => {
+      .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load workflow");
         setPayload(null);
       });
@@ -183,13 +182,13 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
       return [];
     }
     return layoutNodes(payload.task_configs, payload.links);
-  }, [payload, layoutVersion]);
+  }, [payload]);
 
   const edges = useMemo<Array<Edge>>(() => {
     if (!payload) {
       return [];
     }
-    return payload.links.map(link => {
+    return payload.links.map((link) => {
       const style = statusStyles[link.status] ?? statusStyles.pending;
       return {
         id: `${link.source}:${link.target}`,
@@ -205,10 +204,7 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
     });
   }, [payload]);
 
-  const nodeTypes = useMemo<NodeTypes>(
-    () => ({ workflowNode: WorkflowNode }),
-    [],
-  );
+  const nodeTypes = useMemo<NodeTypes>(() => ({ workflowNode: WorkflowNode }), []);
 
   return (
     <Card className="flex h-full flex-col border-border/60 bg-background">
@@ -229,7 +225,7 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
               nodeTypes={nodeTypes}
               fitView
               className="flex-1"
-              onInit={instance => {
+              onInit={(instance) => {
                 setReactFlowInstance(instance);
               }}
             >
@@ -237,7 +233,7 @@ export const WorkflowFileViewer = ({ selection }: RendererProps): JSX.Element =>
               <Controls>
                 <ControlButton
                   onClick={() => {
-                    setLayoutVersion(prev => prev + 1);
+                    setLayoutVersion((prev) => prev + 1);
                     reactFlowInstance?.fitView();
                   }}
                   title="Refresh layout"

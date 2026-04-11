@@ -8,19 +8,20 @@
  * Both panels are exported for use in RunViewer and ExperimentViewer respectively.
  */
 
-import { useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
 import {
-  Hash,
-  GitCompareArrows,
-  CheckCircle2,
   AlertCircle,
-  Code,
-  Settings,
-  Database,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Code,
+  Database,
+  GitCompareArrows,
+  Hash,
+  Settings,
 } from "lucide-react";
+import { useMemo, useState } from "react";
+import type { TaskSnapshotResponse } from "@/api/generated/models/TaskSnapshotResponse";
+import { Badge } from "@/components/ui/badge";
 import {
   Select,
   SelectContent,
@@ -28,7 +29,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { TaskSnapshotResponse } from "@/api/generated/models/TaskSnapshotResponse";
 
 // ============================================================================
 // Types
@@ -378,9 +378,7 @@ const ConfigValue = ({
   const changed = oldVal !== newVal;
   return (
     <div className="flex items-start gap-2 text-xs leading-relaxed">
-      <span className="text-muted-foreground min-w-[100px] shrink-0">
-        {label}
-      </span>
+      <span className="text-muted-foreground min-w-[100px] shrink-0">{label}</span>
       {changed ? (
         <span className="font-mono">
           <span className="line-through text-red-500/70">{oldVal ?? "—"}</span>
@@ -398,11 +396,7 @@ const ConfigValue = ({
 // SnapshotCard — single task snapshot (used in RunSnapshotPanel)
 // ============================================================================
 
-export const SnapshotCard = ({
-  snapshot,
-}: {
-  snapshot: TaskSnapshotResponse;
-}): JSX.Element => {
+export const SnapshotCard = ({ snapshot }: { snapshot: TaskSnapshotResponse }): JSX.Element => {
   const [codeExpanded, setCodeExpanded] = useState(false);
 
   return (
@@ -488,19 +482,22 @@ function computeLineDiff(oldCode: string, newCode: string): DiffLine[] {
   const dp: number[][] = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
-      dp[i][j] = oldLines[i - 1] === newLines[j - 1]
-        ? dp[i - 1][j - 1] + 1
-        : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      dp[i][j] =
+        oldLines[i - 1] === newLines[j - 1]
+          ? dp[i - 1][j - 1] + 1
+          : Math.max(dp[i - 1][j], dp[i][j - 1]);
     }
   }
 
   const result: DiffLine[] = [];
-  let i = m, j = n;
+  let i = m,
+    j = n;
   const stack: DiffLine[] = [];
   while (i > 0 || j > 0) {
     if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
       stack.push({ type: "same", text: oldLines[i - 1] });
-      i--; j--;
+      i--;
+      j--;
     } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
       stack.push({ type: "added", text: newLines[j - 1] });
       j--;
@@ -514,28 +511,24 @@ function computeLineDiff(oldCode: string, newCode: string): DiffLine[] {
   return result;
 }
 
-const CodeDiffBlock = ({
-  oldCode,
-  newCode,
-}: {
-  oldCode: string;
-  newCode: string;
-}): JSX.Element => {
+const CodeDiffBlock = ({ oldCode, newCode }: { oldCode: string; newCode: string }): JSX.Element => {
   const lines = useMemo(() => computeLineDiff(oldCode, newCode), [oldCode, newCode]);
 
   return (
     <pre className="text-xs font-mono rounded overflow-x-auto max-h-72 bg-slate-950 p-3">
-      {lines.map((line, idx) => {
+      {lines.map((line) => {
         const bgClass =
           line.type === "removed"
             ? "bg-red-500/15 text-red-300"
             : line.type === "added"
               ? "bg-emerald-500/15 text-emerald-300"
               : "text-slate-400";
-        const prefix =
-          line.type === "removed" ? "- " : line.type === "added" ? "+ " : "  ";
+        const prefix = line.type === "removed" ? "- " : line.type === "added" ? "+ " : "  ";
         return (
-          <div key={idx} className={`${bgClass} px-2 leading-relaxed`}>
+          <div
+            key={`diff-line-${line.type}-${line.text.slice(0, 40)}`}
+            className={`${bgClass} px-2 leading-relaxed`}
+          >
             <span className="select-none opacity-50 mr-2">{prefix}</span>
             {line.text}
           </div>
@@ -552,9 +545,7 @@ const CodeDiffBlock = ({
 const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
   const oldCfg = diff.oldSnapshot?.configData ?? {};
   const newCfg = diff.newSnapshot?.configData ?? {};
-  const allKeys = Array.from(
-    new Set([...Object.keys(oldCfg), ...Object.keys(newCfg)]),
-  );
+  const allKeys = Array.from(new Set([...Object.keys(oldCfg), ...Object.keys(newCfg)]));
 
   return (
     <div className="rounded-md border p-4 bg-card space-y-3">
@@ -600,9 +591,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
             <p className="font-mono">
               {diff.codeChanged ? (
                 <>
-                  <span className="line-through text-red-500/70">
-                    {diff.oldSnapshot?.codeHash}
-                  </span>
+                  <span className="line-through text-red-500/70">{diff.oldSnapshot?.codeHash}</span>
                   <br />
                   <span className="text-emerald-600 font-semibold">
                     {diff.newSnapshot?.codeHash}
@@ -637,44 +626,36 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       {/* Config field-level diff */}
       {diff.status === "modified" && diff.configChanged && allKeys.length > 0 && (
         <div className="border-t pt-3 space-y-1.5">
-          <p className="text-xs text-muted-foreground uppercase mb-2">
-            Config Diff
-          </p>
+          <p className="text-xs text-muted-foreground uppercase mb-2">Config Diff</p>
           {allKeys.map((key) => (
             <ConfigValue
               key={key}
               label={key}
-              oldVal={
-                oldCfg[key] !== undefined ? JSON.stringify(oldCfg[key]) : undefined
-              }
-              newVal={
-                newCfg[key] !== undefined ? JSON.stringify(newCfg[key]) : undefined
-              }
+              oldVal={oldCfg[key] !== undefined ? JSON.stringify(oldCfg[key]) : undefined}
+              newVal={newCfg[key] !== undefined ? JSON.stringify(newCfg[key]) : undefined}
             />
           ))}
         </div>
       )}
 
       {/* Code diff */}
-      {diff.status === "modified" && diff.codeChanged &&
-        diff.oldSnapshot?.codeSource && diff.newSnapshot?.codeSource && (
-        <div className="border-t pt-3">
-          <p className="text-xs text-muted-foreground uppercase mb-2">
-            Code Diff
-          </p>
-          <CodeDiffBlock
-            oldCode={diff.oldSnapshot.codeSource}
-            newCode={diff.newSnapshot.codeSource}
-          />
-        </div>
-      )}
+      {diff.status === "modified" &&
+        diff.codeChanged &&
+        diff.oldSnapshot?.codeSource &&
+        diff.newSnapshot?.codeSource && (
+          <div className="border-t pt-3">
+            <p className="text-xs text-muted-foreground uppercase mb-2">Code Diff</p>
+            <CodeDiffBlock
+              oldCode={diff.oldSnapshot.codeSource}
+              newCode={diff.newSnapshot.codeSource}
+            />
+          </div>
+        )}
 
       {/* Added task */}
       {diff.status === "added" && diff.newSnapshot?.configData && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">
-            Config (new)
-          </p>
+          <p className="text-xs text-muted-foreground uppercase mb-1">Config (new)</p>
           <pre className="text-xs font-mono bg-emerald-500/5 border border-emerald-500/20 rounded p-2 overflow-x-auto max-h-32">
             {JSON.stringify(diff.newSnapshot.configData, null, 2)}
           </pre>
@@ -682,9 +663,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       )}
       {diff.status === "added" && diff.newSnapshot?.codeSource && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">
-            Source Code (new)
-          </p>
+          <p className="text-xs text-muted-foreground uppercase mb-1">Source Code (new)</p>
           <pre className="text-xs font-mono bg-emerald-500/5 border border-emerald-500/20 rounded p-3 overflow-x-auto max-h-48 text-emerald-800">
             {diff.newSnapshot.codeSource}
           </pre>
@@ -694,9 +673,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       {/* Removed task */}
       {diff.status === "removed" && diff.oldSnapshot?.configData && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">
-            Config (removed)
-          </p>
+          <p className="text-xs text-muted-foreground uppercase mb-1">Config (removed)</p>
           <pre className="text-xs font-mono bg-red-500/5 border border-red-500/20 rounded p-2 overflow-x-auto max-h-32 line-through">
             {JSON.stringify(diff.oldSnapshot.configData, null, 2)}
           </pre>
@@ -704,9 +681,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
       )}
       {diff.status === "removed" && diff.oldSnapshot?.codeSource && (
         <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">
-            Source Code (removed)
-          </p>
+          <p className="text-xs text-muted-foreground uppercase mb-1">Source Code (removed)</p>
           <pre className="text-xs font-mono bg-red-500/5 border border-red-500/20 rounded p-3 overflow-x-auto max-h-48 line-through text-red-800">
             {diff.oldSnapshot.codeSource}
           </pre>
@@ -744,14 +719,10 @@ const DiffSummaryBar = ({ diffs }: { diffs: TaskDiff[] }): JSX.Element => {
         </span>
       )}
       {counts.added > 0 && (
-        <span className="flex items-center gap-1 text-blue-600">
-          + {counts.added} added
-        </span>
+        <span className="flex items-center gap-1 text-blue-600">+ {counts.added} added</span>
       )}
       {counts.removed > 0 && (
-        <span className="flex items-center gap-1 text-red-600">
-          - {counts.removed} removed
-        </span>
+        <span className="flex items-center gap-1 text-red-600">- {counts.removed} removed</span>
       )}
       {counts.unchanged > 0 && (
         <span className="flex items-center gap-1 text-emerald-600">
@@ -771,11 +742,7 @@ const DiffSummaryBar = ({ diffs }: { diffs: TaskDiff[] }): JSX.Element => {
  * Displays the fixed snapshot set for a single run.
  * This is read-only — a run's snapshot is immutable.
  */
-export const RunSnapshotPanel = ({
-  runId,
-}: {
-  runId: string;
-}): JSX.Element => {
+export const RunSnapshotPanel = ({ runId }: { runId: string }): JSX.Element => {
   // In production: fetch from API.  For now: mock data.
   const snapshotSet = getMockRunSnapshots(runId);
 

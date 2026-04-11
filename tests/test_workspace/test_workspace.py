@@ -1,15 +1,15 @@
 """Tests for Workspace / Project / Experiment / Run hierarchy."""
 
 import json
-import pytest
-from pathlib import Path
 
-from molexp.workspace import Workspace, Project, Experiment, Run
+import pytest
+
+from molexp.workspace import Workspace
 
 
 class TestWorkspace:
     def test_creation_no_side_effects(self, tmp_path):
-        ws = Workspace(root=tmp_path / "new", name="Lab")
+        Workspace(root=tmp_path / "new", name="Lab")
         assert not (tmp_path / "new" / "workspace.json").exists()
 
     def test_materialize_creates_files(self, tmp_path):

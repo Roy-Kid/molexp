@@ -44,6 +44,6 @@ def _execute(script: Path, run_dir: Path) -> None:
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:
-        print(f"Usage: python -m molexp.plugins.remote.worker <script> <run_dir>", file=sys.stderr)
+        print("Usage: python -m molexp.plugins.remote.worker <script> <run_dir>", file=sys.stderr)
         sys.exit(1)
     _execute(Path(sys.argv[1]), Path(sys.argv[2]))

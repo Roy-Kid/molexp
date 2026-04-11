@@ -1,6 +1,6 @@
 """Tests for TaskContext — workflow/workspace bridge."""
 
-from molexp.workflow.context import TaskContext, ActorContext
+from molexp.workflow.context import ActorContext, TaskContext
 
 
 class TestTaskContext:

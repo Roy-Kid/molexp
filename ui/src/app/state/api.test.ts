@@ -8,7 +8,17 @@
  */
 
 import { describe, expect, it } from "vitest";
-
+import {
+  fixtureAsset,
+  fixtureExperiment,
+  fixtureExperimentNoDescription,
+  fixtureProject,
+  fixtureProjectNoDescription,
+  fixtureRun,
+  fixtureRunCancelled,
+  fixtureRunFailed,
+  fixtureRunPending,
+} from "@/__fixtures__/api";
 import {
   buildEmptySnapshot,
   emptyConsoleEntries,
@@ -20,18 +30,6 @@ import {
   mapWorkflows,
   mapWorkspaceTree,
 } from "@/app/state/api";
-import {
-  fixtureAsset,
-  fixtureExperiment,
-  fixtureExperimentNoDescription,
-  fixtureExperimentSummary,
-  fixtureProject,
-  fixtureProjectNoDescription,
-  fixtureRun,
-  fixtureRunCancelled,
-  fixtureRunFailed,
-  fixtureRunPending,
-} from "@/__fixtures__/api";
 
 describe("buildEmptySnapshot", () => {
   it("returns empty arrays for all collections", () => {

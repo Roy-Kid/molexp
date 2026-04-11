@@ -15,31 +15,39 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { agentApi } from "@/app/state/api";
+import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
-import { agentApi } from "@/app/state/api";
 
 // ---------------------------------------------------------------------------
 // Event row
 // ---------------------------------------------------------------------------
 
 const EVENT_META: Record<string, { icon: typeof Bot; label: string; colorClass: string }> = {
-  PlanCreatedEvent:     { icon: Sparkles,    label: "Plan created",     colorClass: "text-violet-500" },
-  ToolCallEvent:        { icon: Terminal,    label: "Tool call",        colorClass: "text-blue-500"   },
-  ToolResultEvent:      { icon: CheckCircle2,label: "Tool result",      colorClass: "text-green-600"  },
-  WorkflowStartedEvent: { icon: Workflow,    label: "Workflow started", colorClass: "text-sky-500"    },
-  ObservationEvent:     { icon: Bot,         label: "Observation",      colorClass: "text-muted-foreground" },
-  ReplanEvent:          { icon: RotateCcw,   label: "Replanning",       colorClass: "text-amber-500"  },
-  ApprovalRequestEvent: { icon: ShieldAlert, label: "Approval needed",  colorClass: "text-orange-500" },
-  SessionCompletedEvent:{ icon: CheckCircle2,label: "Completed",        colorClass: "text-emerald-500"},
+  PlanCreatedEvent: { icon: Sparkles, label: "Plan created", colorClass: "text-violet-500" },
+  ToolCallEvent: { icon: Terminal, label: "Tool call", colorClass: "text-blue-500" },
+  ToolResultEvent: { icon: CheckCircle2, label: "Tool result", colorClass: "text-green-600" },
+  WorkflowStartedEvent: { icon: Workflow, label: "Workflow started", colorClass: "text-sky-500" },
+  ObservationEvent: { icon: Bot, label: "Observation", colorClass: "text-muted-foreground" },
+  ReplanEvent: { icon: RotateCcw, label: "Replanning", colorClass: "text-amber-500" },
+  ApprovalRequestEvent: {
+    icon: ShieldAlert,
+    label: "Approval needed",
+    colorClass: "text-orange-500",
+  },
+  SessionCompletedEvent: { icon: CheckCircle2, label: "Completed", colorClass: "text-emerald-500" },
 };
 
 const formatTs = (ts: string): string => {
   try {
-    return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    return new Date(ts).toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
   } catch {
     return ts;
   }
@@ -47,7 +55,7 @@ const formatTs = (ts: string): string => {
 
 const EventRow = ({
   event,
-  sessionId,
+  sessionId: _sessionId,
   onApprovalRespond,
 }: {
   event: ApiSessionEvent;
@@ -55,7 +63,11 @@ const EventRow = ({
   onApprovalRespond: (requestId: string, approved: boolean) => void;
 }): JSX.Element => {
   const [expanded, setExpanded] = useState(false);
-  const meta = EVENT_META[event.type] ?? { icon: Bot, label: event.type, colorClass: "text-muted-foreground" };
+  const meta = EVENT_META[event.type] ?? {
+    icon: Bot,
+    label: event.type,
+    colorClass: "text-muted-foreground",
+  };
   const Icon = meta.icon;
   const hasDetail = Object.keys(event.payload).length > 0;
 
@@ -84,10 +96,14 @@ const EventRow = ({
             <button
               type="button"
               className="text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => setExpanded(v => !v)}
+              onClick={() => setExpanded((v) => !v)}
               aria-label={expanded ? "Collapse" : "Expand"}
             >
-              {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {expanded ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
             </button>
           )}
         </div>
@@ -95,9 +111,12 @@ const EventRow = ({
         {/* Inline content for common event types */}
         {event.type === "PlanCreatedEvent" && Array.isArray(event.payload.plan_steps) && (
           <ol className="ml-2 space-y-0.5">
-            {(event.payload.plan_steps as string[]).map((step, i) => (
-              <li key={i} className="flex gap-2 text-xs text-muted-foreground">
-                <span className="font-mono text-primary/60">{i + 1}.</span>
+            {(event.payload.plan_steps as string[]).map((step, stepNum) => (
+              <li
+                key={`plan-step-${step.slice(0, 40)}`}
+                className="flex gap-2 text-xs text-muted-foreground"
+              >
+                <span className="font-mono text-primary/60">{stepNum + 1}.</span>
                 <span>{step}</span>
               </li>
             ))}
@@ -111,20 +130,28 @@ const EventRow = ({
         {event.type === "ReplanEvent" && (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
             {event.payload.reason && (
-              <p className="text-xs text-amber-700 dark:text-amber-400">{String(event.payload.reason)}</p>
-            )}
-            {Array.isArray(event.payload.new_plan) && (event.payload.new_plan as string[]).map((step, i) => (
-              <p key={i} className="text-xs text-amber-700 dark:text-amber-400">
-                {i + 1}. {step}
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                {String(event.payload.reason)}
               </p>
-            ))}
+            )}
+            {Array.isArray(event.payload.new_plan) &&
+              (event.payload.new_plan as string[]).map((step, stepNum) => (
+                <p
+                  key={`replan-step-${step.slice(0, 40)}`}
+                  className="text-xs text-amber-700 dark:text-amber-400"
+                >
+                  {stepNum + 1}. {step}
+                </p>
+              ))}
           </div>
         )}
 
         {event.type === "SessionCompletedEvent" && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
             {event.payload.summary && (
-              <p className="text-xs text-emerald-700 dark:text-emerald-400">{String(event.payload.summary)}</p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">
+                {String(event.payload.summary)}
+              </p>
             )}
           </div>
         )}
@@ -132,7 +159,11 @@ const EventRow = ({
         {event.type === "ApprovalRequestEvent" && event.payload.request_id && (
           <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30">
             <p className="flex-1 text-xs text-orange-700 dark:text-orange-400">
-              Approve <span className="font-mono font-semibold">{String(event.payload.tool_name ?? "action")}</span>?
+              Approve{" "}
+              <span className="font-mono font-semibold">
+                {String(event.payload.tool_name ?? "action")}
+              </span>
+              ?
             </p>
             <Button
               size="sm"
@@ -182,7 +213,7 @@ const GoalInput = ({
     if (!trimmed) return;
     const criteria = criteriaText
       .split("\n")
-      .map(l => l.trim())
+      .map((l) => l.trim())
       .filter(Boolean);
     onSubmit(trimmed, criteria);
     setDescription("");
@@ -208,7 +239,7 @@ const GoalInput = ({
         rows={3}
         placeholder="Describe your goal... (⌘+Enter to submit)"
         value={description}
-        onChange={e => setDescription(e.target.value)}
+        onChange={(e) => setDescription(e.target.value)}
         onKeyDown={handleKeyDown}
         disabled={disabled}
       />
@@ -217,15 +248,11 @@ const GoalInput = ({
         rows={2}
         placeholder="Success criteria (one per line, optional)"
         value={criteriaText}
-        onChange={e => setCriteriaText(e.target.value)}
+        onChange={(e) => setCriteriaText(e.target.value)}
         disabled={disabled}
       />
       <div className="flex justify-end">
-        <Button
-          disabled={disabled || !description.trim()}
-          onClick={handleSubmit}
-          className="gap-2"
-        >
+        <Button disabled={disabled || !description.trim()} onClick={handleSubmit} className="gap-2">
           {disabled ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {disabled ? "Submitting..." : "Start Session"}
         </Button>
@@ -239,10 +266,10 @@ const GoalInput = ({
 // ---------------------------------------------------------------------------
 
 const statusBadgeClass: Record<string, string> = {
-  running:   "bg-blue-500/10 text-blue-700 animate-pulse",
-  pending:   "bg-slate-100 text-slate-600",
+  running: "bg-blue-500/10 text-blue-700 animate-pulse",
+  pending: "bg-slate-100 text-slate-600",
   completed: "bg-emerald-500/10 text-emerald-700",
-  failed:    "bg-red-500/10 text-red-700",
+  failed: "bg-red-500/10 text-red-700",
   cancelled: "bg-slate-200 text-slate-500",
 };
 
@@ -263,7 +290,9 @@ const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element =
             <Clock className="h-3 w-3" />
             {formatTs(session.createdAt)}
           </span>
-          <span className="text-[10px] text-muted-foreground font-mono">{session.sessionId.slice(0, 8)}</span>
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {session.sessionId.slice(0, 8)}
+          </span>
         </div>
       </div>
     </div>
@@ -278,7 +307,7 @@ export const AgentViewer = ({
   selection,
   snapshot,
   onRefresh,
-}: RendererProps): JSX.Element => {
+}: RendererProps): JSX.Element | null => {
   const sessionId = selection.objectId === "new" ? null : selection.objectId;
   const [session, setSession] = useState<ApiAgentSession | null>(null);
   const [events, setEvents] = useState<ApiSessionEvent[]>([]);
@@ -297,12 +326,13 @@ export const AgentViewer = ({
     }
     setLoading(true);
     setError(null);
-    agentApi.getSession(sessionId)
-      .then(s => {
+    agentApi
+      .getSession(sessionId)
+      .then((s) => {
         setSession(s);
         setEvents(s.events);
       })
-      .catch(err => setError(String(err)))
+      .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
   }, [sessionId]);
 
@@ -316,52 +346,60 @@ export const AgentViewer = ({
         const data = JSON.parse(e.data);
         if (data.type === "done") {
           es.close();
-          agentApi.getSession(session.sessionId).then(s => {
+          agentApi.getSession(session.sessionId).then((s) => {
             setSession(s);
             setEvents(s.events);
           });
           return;
         }
         if (data.type !== "waiting") {
-          setEvents(prev => [...prev, data as ApiSessionEvent]);
+          setEvents((prev) => [...prev, data as ApiSessionEvent]);
         }
       } catch {
         // ignore parse errors
       }
     };
-    return () => { es.close(); };
-  }, [session?.sessionId, session?.status]);
+    return () => {
+      es.close();
+    };
+  }, [session?.sessionId, session?.status, session]);
 
   // Auto-scroll to bottom when events change
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [events]);
+  }, []);
 
-  const handleGoalSubmit = useCallback(async (description: string, criteria: string[]) => {
-    setSubmitting(true);
-    setError(null);
-    try {
-      const created = await agentApi.createSession(description, criteria);
-      setSession(created);
-      setEvents(created.events);
-      onRefresh();
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      setSubmitting(false);
-    }
-  }, [onRefresh]);
+  const handleGoalSubmit = useCallback(
+    async (description: string, criteria: string[]) => {
+      setSubmitting(true);
+      setError(null);
+      try {
+        const created = await agentApi.createSession(description, criteria);
+        setSession(created);
+        setEvents(created.events);
+        onRefresh();
+      } catch (err) {
+        setError(String(err));
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [onRefresh],
+  );
 
-  const handleApprovalRespond = useCallback(async (requestId: string, approved: boolean) => {
-    if (!session) return;
-    try {
-      await agentApi.respondApproval(session.sessionId, requestId, approved);
-    } catch (err) {
-      setError(String(err));
-    }
-  }, [session]);
+  const handleApprovalRespond = useCallback(
+    async (requestId: string, approved: boolean) => {
+      if (!session) return;
+      try {
+        await agentApi.respondApproval(session.sessionId, requestId, approved);
+      } catch (err) {
+        setError(String(err));
+      }
+    },
+    [session],
+  );
 
   // --- "new" state: show goal input ---
   if (!sessionId || (!loading && !session)) {
@@ -378,7 +416,7 @@ export const AgentViewer = ({
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">
               Recent sessions
             </p>
-            {snapshot.agentSessions.slice(0, 5).map(s => (
+            {snapshot.agentSessions.slice(0, 5).map((s) => (
               <div
                 key={s.id}
                 className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2 text-left hover:bg-muted/40"
@@ -419,7 +457,7 @@ export const AgentViewer = ({
     );
   }
 
-  if (!session) return <></>;
+  if (!session) return null;
 
   return (
     <div className="flex h-full flex-col gap-4 p-4">
@@ -447,14 +485,14 @@ export const AgentViewer = ({
           </div>
         ) : (
           <div className="space-y-1 pr-2">
-            {events.map((event, i) => (
-              <div key={i}>
+            {events.map((event, eventIdx) => (
+              <div key={`event-${event.type}-${event.ts}`}>
                 <EventRow
                   event={event}
                   sessionId={session.sessionId}
                   onApprovalRespond={handleApprovalRespond}
                 />
-                {i < events.length - 1 && <Separator className="opacity-30" />}
+                {eventIdx < events.length - 1 && <Separator className="opacity-30" />}
               </div>
             ))}
           </div>

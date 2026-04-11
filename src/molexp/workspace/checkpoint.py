@@ -10,12 +10,12 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
-    from .context import Context
+    pass
 
 
 class CheckpointState(BaseModel):

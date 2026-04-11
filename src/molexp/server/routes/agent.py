@@ -5,20 +5,19 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import AsyncGenerator
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
 from molexp.plugins import Capability, registry
 from molexp.plugins.agent.types import Goal
+
 from ..dependencies import get_workspace
 from ..schemas import (
     AgentSessionListResponse,
     AgentSessionResponse,
     ApprovalRespondRequest,
     GoalCreateRequest,
-    SessionEventResponse,
 )
 
 router = APIRouter(prefix="/agent", tags=["agent"])

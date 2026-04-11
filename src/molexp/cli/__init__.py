@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -15,7 +14,6 @@ from rich.console import Console
 from rich.table import Table
 
 from molexp.workspace import Workspace
-
 
 app = typer.Typer(
     name="molexp",
@@ -448,13 +446,13 @@ def info(
                     run_status_counts[status] += 1
 
     rprint(f"[bold]Workspace:[/bold] {ws.root}")
-    rprint(f"\n[bold]Statistics:[/bold]")
+    rprint("\n[bold]Statistics:[/bold]")
     rprint(f"  Projects: {len(projects)}")
     rprint(f"  Experiments: {total_experiments}")
     rprint(f"  Runs: {total_runs}")
 
     if total_runs > 0:
-        rprint(f"\n[bold]Run Status:[/bold]")
+        rprint("\n[bold]Run Status:[/bold]")
         for status, count in run_status_counts.items():
             if count > 0:
                 color = {
@@ -813,7 +811,7 @@ def _get_workspace(path: Path | None = None) -> Workspace:
     if path:
         return Workspace.from_path(path)
     # Default: try loading from cwd
-    from molcfg import Config, ConfigLoader, DictSource
+    from molcfg import ConfigLoader, DictSource
 
     sources = [DictSource({"workspace_root": str(Path.cwd())})]
     config_file = Path.cwd() / "molexp.toml"

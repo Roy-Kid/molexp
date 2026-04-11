@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import uuid
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from pydantic_ai import Agent
@@ -19,7 +18,6 @@ from pydantic_ai.messages import AgentStreamEvent
 
 from ..types import (
     AgentSession,
-    ApprovalRequestEvent,
     Goal,
     SessionCompletedEvent,
     SessionEvent,

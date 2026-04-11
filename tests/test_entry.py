@@ -1,10 +1,8 @@
 """Tests for entry point registry."""
 
 import pytest
-from pathlib import Path
-import tempfile
 
-from molexp.entry import entry, clear_registry, load_projects, _registry
+from molexp.entry import _registry, clear_registry, entry, load_projects
 from molexp.project import Project
 
 

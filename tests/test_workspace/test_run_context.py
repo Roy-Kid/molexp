@@ -1,26 +1,27 @@
 """Tests for RunContext lifecycle."""
 
 import json
-import pytest
 from pathlib import Path
 
-from molexp.workspace.run import RunContext, RunStatus
+import pytest
+
+from molexp.workspace.run import RunStatus
 
 
 class TestRunContextLifecycle:
     def test_enter_sets_running(self, run):
-        with run.start() as ctx:
+        with run.start():
             assert run.status == "running"
 
     def test_exit_success(self, run):
-        with run.start() as ctx:
+        with run.start():
             pass
         assert run.status == RunStatus.SUCCEEDED
 
     def test_exit_failure(self, experiment):
         run = experiment.create_run()
         try:
-            with run.start() as ctx:
+            with run.start():
                 raise ValueError("boom")
         except ValueError:
             pass
@@ -94,7 +95,7 @@ class TestRunContextParams:
             assert ctx.params == {"lr": 1e-4, "batch": 32}
             assert ctx.params is ctx.run.parameters
 
-    def test_dry_run_defaults_false_without_runtime_binding(self, run):
+    def test_dry_run_defaults_false(self, run):
         with run.start() as ctx:
             assert ctx.dry_run is False
             assert run.metadata.dry_run is False

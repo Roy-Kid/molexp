@@ -23,7 +23,6 @@ from pydantic_ai import RunContext
 
 from .deps import MolexpDeps
 
-
 # ── Level 1: Workspace read-only tools ────────────────────────────────────────
 
 async def list_projects(ctx: RunContext[MolexpDeps]) -> list[dict[str, Any]]:

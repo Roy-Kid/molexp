@@ -21,7 +21,7 @@ from ..types import WorkflowExecution, WorkflowResult
 from .compiler import CompiledWorkflow, WorkflowGraphCompiler
 from .node import WorkflowStep
 from .persistence import RunStorePersistence
-from .state import WorkflowState
+from .state import WorkflowDeps, WorkflowState
 
 logger = logging.getLogger(__name__)
 
@@ -70,14 +70,23 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         run_context: Any,
         dry_run: bool,
         kwargs: dict[str, Any],
-    ) -> tuple["WorkflowDeps", Path | None]:
-        """Build WorkflowDeps with optional remote executor from kwargs."""
+    ) -> tuple[WorkflowDeps, Path | None]:
+        """Build WorkflowDeps with optional remote executor from kwargs.
+
+        When *run_context* is provided its ``dry_run`` flag takes precedence
+        over the *dry_run* parameter — the context was created with a fixed
+        ``ExecutionConfig`` and we must honour it.
+        """
         user_deps = kwargs.get("deps")
         submitors = kwargs.get("submitors")
         run_dir = (
             Path(run_context.work_dir)
             if run_context is not None
             else _get_run_dir(run)
+        )
+
+        effective_dry_run = (
+            run_context.dry_run if run_context is not None else dry_run
         )
 
         remote_executor = None
@@ -88,7 +97,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         deps = compiled.make_deps(
             run=run,
             run_context=run_context,
-            dry_run=dry_run,
+            dry_run=effective_dry_run,
             user_deps=user_deps,
             remote_executor=remote_executor,
             run_dir=run_dir,
@@ -120,13 +129,21 @@ class GraphWorkflowRuntime(WorkflowRuntime):
             raise ValueError("Pass either run or run_context, not both")
 
         if run_context is not None:
-            run_context._bind_execution_mode(dry_run=dry_run)
+            if dry_run:
+                raise ValueError(
+                    "Cannot combine run_context with dry_run=True.  "
+                    "The execution mode must be fixed in ExecutionConfig when the "
+                    "RunContext is constructed — late-binding is not permitted."
+                )
             yield run_context
             return
 
         if run is not None:
-            managed_ctx = run.start()
-            managed_ctx._bind_execution_mode(dry_run=dry_run)
+            from molexp.workspace.models import ExecutionConfig
+            from molexp.workspace.run import RunContext as WorkspaceRunContext
+            managed_ctx = WorkspaceRunContext(
+                run, execution_config=ExecutionConfig(dry_run=dry_run)
+            )
             with managed_ctx:
                 yield managed_ctx
             return
@@ -147,6 +164,12 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         """Run the workflow to completion and return a WorkflowResult."""
         if run is not None and run_context is not None:
             raise ValueError("Pass either run or run_context, not both")
+        if run_context is not None and dry_run:
+            raise ValueError(
+                "Cannot combine run_context with dry_run=True.  "
+                "The execution mode must be fixed in ExecutionConfig when the "
+                "RunContext is constructed — late-binding is not permitted."
+            )
 
         compiled = self._get_compiled(spec)
         execution_id = f"exec-{uuid.uuid4().hex[:12]}"
@@ -218,7 +241,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     run_id=run_id,
                     execution_id=execution_id,
                 )
-        except Exception as exc:
+        except Exception:
             self._set_run_status(
                 owner_supplied_context,
                 failed=True,
@@ -250,6 +273,12 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         """Launch workflow as background asyncio task."""
         if run is not None and run_context is not None:
             raise ValueError("Pass either run or run_context, not both")
+        if run_context is not None and dry_run:
+            raise ValueError(
+                "Cannot combine run_context with dry_run=True.  "
+                "The execution mode must be fixed in ExecutionConfig when the "
+                "RunContext is constructed — late-binding is not permitted."
+            )
 
         compiled = self._get_compiled(spec)
         execution_id = f"exec-{uuid.uuid4().hex[:12]}"
@@ -302,7 +331,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                         run_id=_get_run_id(effective_run),
                         execution_id=execution_id,
                     )
-            except Exception as exc:
+            except Exception:
                 self._set_run_status(
                     owner_supplied_context,
                     failed=True,
@@ -364,7 +393,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )
-            except Exception as exc:
+            except Exception:
                 handle._result = WorkflowResult(
                     status="failed",
                     outputs={},

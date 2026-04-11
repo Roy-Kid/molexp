@@ -20,8 +20,11 @@ from pydantic_ai import Agent
 from ..policy import ApprovalPolicy
 from ..runtime import AgentRuntime
 from ..tools import Tool
-from ..types import AgentSession, Goal
-from ..types import ToolContext  # noqa: F401 - re-exported for tool wrappers
+from ..types import (
+    AgentSession,
+    Goal,
+    ToolContext,  # noqa: F401 - re-exported for tool wrappers
+)
 from .catalog import MolexpToolCatalog
 from .deps import MolexpDeps
 from .session import PydanticAISession

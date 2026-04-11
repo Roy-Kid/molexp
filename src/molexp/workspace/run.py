@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 from .base import _atomic_write_json, _save_metadata
 from .context import Context
-from .models import ErrorInfo, RunMetadata, WorkflowSnapshotRef
+from .models import ErrorInfo, ExecutionConfig, RunMetadata, WorkflowSnapshotRef
 from .utils import generate_id
 
 logger = logging.getLogger(__name__)
@@ -44,14 +44,21 @@ class RunContext:
 
     Entered via ``with run.start() as ctx:`` — manages lifecycle,
     result binding, checkpointing, artifact storage, and asset access.
-    Execution mode such as ``dry_run`` is bound by the workflow runtime.
+
+    Execution mode (e.g. ``dry_run``) is fixed at construction time via
+    ``execution_config``.  Late-binding after construction is not permitted.
     """
 
-    def __init__(self, run: Run) -> None:
+    def __init__(
+        self,
+        run: Run,
+        *,
+        execution_config: ExecutionConfig | None = None,
+    ) -> None:
         self.run = run
         self.work_dir = run.run_dir
         self.artifacts_dir = self.work_dir / "artifacts"
-        self._execution_dry_run = False
+        self._execution_config = execution_config if execution_config is not None else ExecutionConfig()
         self._entered = False
         self._context = Context(
             run_id=run.id,
@@ -112,7 +119,7 @@ class RunContext:
     @property
     def dry_run(self) -> bool:
         """Whether this execution is running in dry-run mode."""
-        return self._execution_dry_run
+        return self._execution_config.dry_run
 
     def get_data_dir(
         self,
@@ -278,16 +285,11 @@ class RunContext:
         run = experiment.get_run(run_dir.name)
         if run is None:
             raise FileNotFoundError(f"Run '{run_dir.name}' not found at {run_dir}")
-        return cls(run)
+        exec_config = ExecutionConfig(dry_run=run.metadata.dry_run)
+        return cls(run, execution_config=exec_config)
 
     def _register_channel(self, name: str, queue: Any) -> None:
         self._channels[name] = queue
-
-    def _bind_execution_mode(self, *, dry_run: bool) -> bool:
-        previous = self._execution_dry_run
-        self._execution_dry_run = dry_run
-        self._apply_execution_mode_metadata(save_context=self._entered)
-        return previous
 
     # ── Internal ────────────────────────────────────────────────────────
 
@@ -311,19 +313,16 @@ class RunContext:
             "context": self._context.model_dump(mode="json"),
         })
 
-    def _apply_execution_mode_metadata(self, *, save_context: bool = False) -> None:
+    def _apply_execution_mode_metadata(self) -> None:
         labels = dict(self.run.metadata.labels)
-        if self._execution_dry_run:
+        if self._execution_config.dry_run:
             labels["mode"] = "dry-run"
-            updates = {"dry_run": True, "labels": labels}
+            updates: dict[str, Any] = {"dry_run": True, "labels": labels}
         else:
             if labels.get("mode") == "dry-run":
                 labels.pop("mode")
             updates = {"dry_run": False, "labels": labels}
-
         self.run._update_metadata(**updates)
-        if save_context:
-            self._save_context()
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
@@ -399,8 +398,8 @@ class Run:
     # ── Execution ───────────────────────────────────────────────────────
 
     def start(self) -> RunContext:
-        """Return a context manager for this run's execution lifecycle."""
-        return RunContext(self)
+        """Return a context manager for normal-mode (non-dry-run) execution."""
+        return RunContext(self, execution_config=ExecutionConfig(dry_run=False))
 
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 

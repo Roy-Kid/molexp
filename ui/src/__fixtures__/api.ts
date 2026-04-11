@@ -3,10 +3,10 @@
  * Equivalent role to Python's conftest.py — import from here, do not inline in test files.
  */
 
-import type { ProjectResponse } from "@/api/generated/models/ProjectResponse";
-import type { ExperimentResponse } from "@/api/generated/models/ExperimentResponse";
-import type { RunResponse } from "@/api/generated/models/RunResponse";
 import type { AssetResponse } from "@/api/generated/models/AssetResponse";
+import type { ExperimentResponse } from "@/api/generated/models/ExperimentResponse";
+import type { ProjectResponse } from "@/api/generated/models/ProjectResponse";
+import type { RunResponse } from "@/api/generated/models/RunResponse";
 import type { ExperimentSummary, ProjectSummary, RunSummary } from "@/app/types";
 
 export const fixtureProject: ProjectResponse = {
@@ -84,12 +84,11 @@ export const fixtureRunCancelled: RunResponse = {
 export const fixtureAsset: AssetResponse = {
   id: "asset-001",
   assetId: "asset-001",
-  name: "model.pkl",
   type: "model",
   format: "pickle",
   created: "2026-03-01T16:00:00Z",
   size: 1024,
-  path: "/assets/model.pkl",
+  contentHash: "abc123def456",
 };
 
 export const fixtureProjectSummary: ProjectSummary = {

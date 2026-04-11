@@ -5,7 +5,7 @@ This package contains all the modularized API routes organized by domain.
 
 from fastapi import APIRouter
 
-from . import agent, asset, execution, experiment, registry, project, run, workspace
+from . import agent, asset, execution, experiment, project, registry, run, workspace
 
 
 def create_api_router() -> APIRouter:

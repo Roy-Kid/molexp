@@ -58,8 +58,9 @@ def create_default_agent_runtime() -> AgentRuntime:
     Override the model via molcfg config (key: ``agent.model``).
     """
     try:
+        from molcfg import ConfigLoader, DictSource
+
         from ._pydantic_ai import PydanticAIRuntime
-        from molcfg import Config, ConfigLoader, DictSource
 
         sources = [DictSource({"agent": {"model": "anthropic:claude-sonnet-4-6"}})]
         config = ConfigLoader(sources).load()

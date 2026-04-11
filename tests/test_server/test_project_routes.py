@@ -1,6 +1,5 @@
 """Tests for project API routes."""
 
-import pytest
 
 
 class TestProjectRoutes:

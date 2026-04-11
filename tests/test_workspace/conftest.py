@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workspace import Experiment, Project, Run, Workspace
+from molexp.workspace import Workspace
 from molexp.workspace.checkpoint import CheckpointState
-from molexp.workspace.run import RunStatus
 
 
 @pytest.fixture

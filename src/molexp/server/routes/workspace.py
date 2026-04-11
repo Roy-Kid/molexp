@@ -7,11 +7,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-
-from molexp.workspace import Workspace
-from ..dependencies import get_workspace, set_workspace_path_override
 from pydantic import BaseModel, Field
 
+from molexp.workspace import Workspace
+
+from ..dependencies import get_workspace, set_workspace_path_override
 from ..schemas import (
     FileContentResponse,
     WorkspaceInfoResponse,

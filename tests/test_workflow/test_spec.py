@@ -1,12 +1,10 @@
 """Tests for WorkflowSpec / WorkflowBuilder / DSL."""
 
-import pytest
 
 from molexp.workflow import (
     Task,
     TaskContext,
     WorkflowBuilder,
-    WorkflowSpec,
     workflow,
 )
 from molexp.workflow.spec import TaskRegistration, _stable_workflow_id

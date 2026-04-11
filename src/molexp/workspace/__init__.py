@@ -9,13 +9,14 @@ from .context import Context
 from .experiment import Experiment
 from .models import (
     ErrorInfo,
+    ExecutionConfig,
     ExperimentMetadata,
     ProjectMetadata,
     RunMetadata,
     WorkflowSnapshotRef,
     WorkspaceMetadata,
 )
-from .param import GridSpace, ParamSpace, Params, UniformSpace
+from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
 from .run import Run, RunContext, RunStatus
 from .workspace import Workspace
@@ -28,6 +29,8 @@ __all__ = [
     "Run",
     "RunContext",
     "RunStatus",
+    # Execution configuration
+    "ExecutionConfig",
     # Metadata models
     "WorkspaceMetadata",
     "ProjectMetadata",

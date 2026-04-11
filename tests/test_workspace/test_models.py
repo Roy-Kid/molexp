@@ -1,7 +1,8 @@
 """Tests for workspace.models — frozen metadata."""
 
-import pytest
 from datetime import datetime
+
+import pytest
 
 from molexp.workspace.models import (
     ErrorInfo,

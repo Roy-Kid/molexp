@@ -1,10 +1,9 @@
 """Tests for user-facing Project spec."""
 
-import pytest
 from pathlib import Path
 
-from molexp.project import Project
 from molexp.experiment import Experiment
+from molexp.project import Project
 from molexp.workspace.param import GridSpace
 
 

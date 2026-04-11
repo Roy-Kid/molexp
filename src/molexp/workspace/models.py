@@ -9,11 +9,28 @@ The server, CLI, and Python API all derive from these models.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
 
+# ── Execution configuration ─────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ExecutionConfig:
+    """Immutable execution configuration set once before a workflow starts.
+
+    Must be supplied at ``RunContext`` construction time.
+    Late-binding (setting after construction) is not permitted.
+
+    Attributes:
+        dry_run: When ``True`` the execution is in dry-run mode.
+            Tasks can inspect ``ctx.dry_run`` to skip side-effects.
+    """
+
+    dry_run: bool = False
 
 # ── Shared value objects ────────────────────────────────────────────────────
 

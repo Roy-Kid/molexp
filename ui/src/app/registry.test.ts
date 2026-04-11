@@ -8,15 +8,14 @@
  */
 
 import { describe, expect, it } from "vitest";
-
+import type { RendererEntry } from "@/app/registry";
 import {
   buildRegistryKey,
   buildRendererKeyFromSelection,
-  renderPlanByObjectType,
   registerRenderer,
+  renderPlanByObjectType,
   resolveRenderer,
 } from "@/app/registry";
-import type { RendererEntry } from "@/app/registry";
 import type { RendererKey } from "@/app/types";
 
 // ---------------------------------------------------------------------------
@@ -28,7 +27,7 @@ function makeEntry(key: RendererKey, title = "Test"): RendererEntry {
     key,
     title,
     panelSlot: "center",
-    Component: (() => null) as RendererEntry["Component"],
+    Component: (() => null) as unknown as RendererEntry["Component"],
   };
 }
 
@@ -86,9 +85,7 @@ describe("registerRenderer", () => {
       panelKind: "inspector",
     };
     registerRenderer(makeEntry(key, "First"));
-    expect(() => registerRenderer(makeEntry(key, "Second"))).toThrow(
-      /already registered/,
-    );
+    expect(() => registerRenderer(makeEntry(key, "Second"))).toThrow(/already registered/);
   });
 });
 
@@ -146,7 +143,11 @@ describe("renderPlanByObjectType", () => {
 describe("buildRendererKeyFromSelection", () => {
   it("uses target fileKind for non-workspace-file selection", () => {
     const selection = { objectType: "project" as const, objectId: "proj-1" };
-    const target = { panelKind: "viewer" as const, contentType: "metadata" as const, fileKind: "json" as const };
+    const target = {
+      panelKind: "viewer" as const,
+      contentType: "metadata" as const,
+      fileKind: "json" as const,
+    };
     const result = buildRendererKeyFromSelection(selection, target);
     expect(result.fileKind).toBe("json");
     expect(result.objectType).toBe("project");
@@ -159,7 +160,11 @@ describe("buildRendererKeyFromSelection", () => {
       filePath: "/ws/workflow.json",
       fileKind: "json" as const,
     };
-    const target = { panelKind: "editor" as const, contentType: "text" as const, fileKind: "text" as const };
+    const target = {
+      panelKind: "editor" as const,
+      contentType: "text" as const,
+      fileKind: "text" as const,
+    };
     const result = buildRendererKeyFromSelection(selection, target);
     expect(result.contentType).toBe("workflow-graph");
     expect(result.panelKind).toBe("viewer");
@@ -173,7 +178,11 @@ describe("buildRendererKeyFromSelection", () => {
       filePath: "/ws/photo.png",
       fileKind: "image" as const,
     };
-    const target = { panelKind: "editor" as const, contentType: "text" as const, fileKind: "text" as const };
+    const target = {
+      panelKind: "editor" as const,
+      contentType: "text" as const,
+      fileKind: "text" as const,
+    };
     const result = buildRendererKeyFromSelection(selection, target);
     expect(result.contentType).toBe("image");
     expect(result.panelKind).toBe("viewer");
@@ -187,7 +196,11 @@ describe("buildRendererKeyFromSelection", () => {
       filePath: "/ws/notes.md",
       fileKind: "markdown" as const,
     };
-    const target = { panelKind: "inspector" as const, contentType: "metadata" as const, fileKind: "text" as const };
+    const target = {
+      panelKind: "inspector" as const,
+      contentType: "metadata" as const,
+      fileKind: "text" as const,
+    };
     const result = buildRendererKeyFromSelection(selection, target);
     expect(result.objectType).toBe("workspace-file");
     expect(result.panelKind).toBe("inspector");
@@ -201,7 +214,11 @@ describe("buildRendererKeyFromSelection", () => {
       filePath: "/ws/data.yaml",
       fileKind: "yaml" as const,
     };
-    const target = { panelKind: "inspector" as const, contentType: "metadata" as const, fileKind: "text" as const };
+    const target = {
+      panelKind: "inspector" as const,
+      contentType: "metadata" as const,
+      fileKind: "text" as const,
+    };
     const result = buildRendererKeyFromSelection(selection, target);
     expect(result.fileKind).toBe("yaml");
   });

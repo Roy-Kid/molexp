@@ -1,6 +1,6 @@
 """Tests for workflow protocols — Runnable / Streamable."""
 
-from molexp.workflow import Runnable, Streamable, Task, Actor, TaskContext, ActorContext
+from molexp.workflow import Actor, ActorContext, Runnable, Streamable, Task, TaskContext
 
 
 class TestRunnableProtocol:

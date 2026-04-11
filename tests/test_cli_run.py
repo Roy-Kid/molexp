@@ -9,7 +9,6 @@ from typer.testing import CliRunner
 from molexp.cli import app
 from molexp.workspace import Workspace
 
-
 runner = CliRunner()
 
 

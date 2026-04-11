@@ -4,8 +4,8 @@ import type {
   PanelKind,
   RendererKey,
   RendererProps,
-  SemanticObjectType,
   Selection,
+  SemanticObjectType,
 } from "@/app/types";
 
 export type PanelSlot = "center" | "right";
@@ -14,7 +14,7 @@ export interface RendererEntry {
   key: RendererKey;
   title: string;
   panelSlot: PanelSlot;
-  Component: (props: RendererProps) => JSX.Element;
+  Component: (props: RendererProps) => JSX.Element | null;
 }
 
 const registry = new Map<string, RendererEntry>();

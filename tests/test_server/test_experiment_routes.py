@@ -1,6 +1,5 @@
 """Tests for experiment API routes."""
 
-import pytest
 
 
 class TestExperimentRoutes:

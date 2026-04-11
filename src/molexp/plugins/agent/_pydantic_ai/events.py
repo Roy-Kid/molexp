@@ -20,7 +20,6 @@ from pydantic_ai.messages import (
     FunctionToolCallEvent,
     FunctionToolResultEvent,
     PartStartEvent,
-    FinalResultEvent,
 )
 
 from ..types import (
