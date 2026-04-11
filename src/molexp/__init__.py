@@ -3,23 +3,32 @@
 Core packages:
     - ``molexp.workspace``: File-system-backed experiment management
     - ``molexp.workflow``: DAG-based workflow definition and execution
-    - ``molexp.runner``: Script-based parameter sweep helpers
-    - ``molexp.plugins``: Optional capabilities (remote HPC, AI agent, …)
+    - ``molexp.plugins``: Optional capabilities (remote HPC, AI agent, ...)
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
-# Eagerly export the lightweight runner API so training scripts can write:
-#   from molexp import ExperimentDef, standalone_run
-from molexp.runner import ExperimentDef, standalone_run
+# User-facing spec API
+from molexp.entry import entry
+from molexp.experiment import Experiment
+from molexp.project import Project
 
-__all__ = ["ExperimentDef", "standalone_run"]
+# Workspace types used in user scripts
+from molexp.workspace.param import GridSpace, ParamSpace, UniformSpace
+from molexp.workspace.run import RunContext
+
+__all__ = [
+    "Project",
+    "Experiment",
+    "RunContext",
+    "GridSpace",
+    "UniformSpace",
+    "ParamSpace",
+    "entry",
+]
 
 
 # Lazy imports — heavy sub-packages are only loaded on first access.
-# This keeps ``import molexp`` fast and free of optional-dependency errors.
-
-
 def __getattr__(name: str):
     if name == "workspace":
         from molexp import workspace as _ws

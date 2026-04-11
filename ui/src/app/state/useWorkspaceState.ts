@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { WorkspaceSnapshot } from "@/app/types";
 import {
+  agentApi,
   buildEmptySnapshot,
   emptyConsoleEntries,
+  mapAgentSessions,
   mapAssets,
   mapExperiments,
   mapProjects,
@@ -80,12 +82,21 @@ const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
   const rawExperiments = experimentsByProject.flatMap((item) => item.experiments);
   const workflowSummaries = mapWorkflows(experimentSummaries, rawExperiments);
 
+  let agentSessions: WorkspaceSnapshot["agentSessions"] = [];
+  try {
+    const rawSessions = await agentApi.listSessions();
+    agentSessions = mapAgentSessions(rawSessions);
+  } catch (err) {
+    console.warn("Agent sessions unavailable:", err);
+  }
+
   return {
     projects: projectSummaries,
     experiments: experimentSummaries,
     runs: runSummaries,
     assets: assetSummaries,
     workflows: workflowSummaries,
+    agentSessions,
     workspaceRoot,
     consoleEntries: emptyConsoleEntries(),
   };

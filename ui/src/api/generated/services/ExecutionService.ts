@@ -2,6 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { CacheClearResponse } from '../models/CacheClearResponse';
+import type { CacheStatsResponse } from '../models/CacheStatsResponse';
 import type { ExecutionCreateRequest } from '../models/ExecutionCreateRequest';
 import type { ExecutionPlanRequest } from '../models/ExecutionPlanRequest';
 import type { ExecutionPlanResponse } from '../models/ExecutionPlanResponse';
@@ -48,6 +50,30 @@ export class ExecutionService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Get Cache Stats
+     * Get cache statistics.
+     * @returns CacheStatsResponse Successful Response
+     * @throws ApiError
+     */
+    public static getCacheStatsApiCacheStatsGet(): CancelablePromise<CacheStatsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/cache/stats',
+        });
+    }
+    /**
+     * Clear Cache
+     * Clear all cache entries.
+     * @returns CacheClearResponse Successful Response
+     * @throws ApiError
+     */
+    public static clearCacheApiCacheDelete(): CancelablePromise<CacheClearResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/cache',
         });
     }
 }

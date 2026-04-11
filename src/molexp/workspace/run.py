@@ -44,12 +44,15 @@ class RunContext:
 
     Entered via ``with run.start() as ctx:`` — manages lifecycle,
     result binding, checkpointing, artifact storage, and asset access.
+    Execution mode such as ``dry_run`` is bound by the workflow runtime.
     """
 
     def __init__(self, run: Run) -> None:
         self.run = run
         self.work_dir = run.run_dir
         self.artifacts_dir = self.work_dir / "artifacts"
+        self._execution_dry_run = False
+        self._entered = False
         self._context = Context(
             run_id=run.id,
             experiment_id=run.experiment.id,
@@ -67,8 +70,10 @@ class RunContext:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(exist_ok=True)
         self._load_existing_results()
+        self._apply_execution_mode_metadata()
         self.run._set_status(RunStatus.RUNNING)
         self._start_time = datetime.now()
+        self._entered = True
         self._save_context()
         return self
 
@@ -94,9 +99,55 @@ class RunContext:
             )
             self._save_error_details(exc_type, exc_val, exc_tb)
         self._save_context()
+        self._entered = False
         return False
 
     # ── Public API ──────────────────────────────────────────────────────
+
+    @property
+    def params(self) -> dict[str, Any]:
+        """Shortcut for ``self.run.parameters``."""
+        return self.run.parameters
+
+    @property
+    def dry_run(self) -> bool:
+        """Whether this execution is running in dry-run mode."""
+        return self._execution_dry_run
+
+    def get_data_dir(
+        self,
+        asset_name: str,
+        *,
+        fallback: str | Path | None = None,
+    ) -> Path:
+        """Resolve a data directory path.
+
+        Searches the asset hierarchy first. If no asset is found and
+        *fallback* is given, creates ``workspace_root / fallback`` and
+        returns it.  All return values are :class:`~pathlib.Path`.
+
+        Args:
+            asset_name: Name of the asset to look up.
+            fallback: Relative path under workspace root to create when the
+                asset is not found.
+
+        Returns:
+            Resolved data directory path.
+
+        Raises:
+            FileNotFoundError: If no asset found and no fallback specified.
+        """
+        asset = self.find_asset(asset_name)
+        if asset is not None:
+            return Path(asset.path)
+        if fallback is not None:
+            fallback = Path(fallback)
+            data_dir = self.run.experiment.project.workspace.root / fallback
+            data_dir.mkdir(parents=True, exist_ok=True)
+            return data_dir
+        raise FileNotFoundError(
+            f"Asset {asset_name!r} not found and no fallback specified."
+        )
 
     def set_result(self, key: str, value: Any) -> None:
         self._context.results[key] = value
@@ -232,6 +283,12 @@ class RunContext:
     def _register_channel(self, name: str, queue: Any) -> None:
         self._channels[name] = queue
 
+    def _bind_execution_mode(self, *, dry_run: bool) -> bool:
+        previous = self._execution_dry_run
+        self._execution_dry_run = dry_run
+        self._apply_execution_mode_metadata(save_context=self._entered)
+        return previous
+
     # ── Internal ────────────────────────────────────────────────────────
 
     @property
@@ -253,6 +310,20 @@ class RunContext:
             **self.run.metadata.model_dump(mode="json"),
             "context": self._context.model_dump(mode="json"),
         })
+
+    def _apply_execution_mode_metadata(self, *, save_context: bool = False) -> None:
+        labels = dict(self.run.metadata.labels)
+        if self._execution_dry_run:
+            labels["mode"] = "dry-run"
+            updates = {"dry_run": True, "labels": labels}
+        else:
+            if labels.get("mode") == "dry-run":
+                labels.pop("mode")
+            updates = {"dry_run": False, "labels": labels}
+
+        self.run._update_metadata(**updates)
+        if save_context:
+            self._save_context()
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
@@ -330,46 +401,6 @@ class Run:
     def start(self) -> RunContext:
         """Return a context manager for this run's execution lifecycle."""
         return RunContext(self)
-        """Reconstruct a RunContext from an existing run directory.
-
-        Traverses the directory tree upward to reconstruct the full
-        Workspace → Project → Experiment → Run hierarchy.
-
-        Args:
-            run_dir: Path to the run directory (contains ``run.json``).
-
-        Returns:
-            ``RunContext`` wrapping the reconstructed run.
-
-        Raises:
-            FileNotFoundError: If the workspace or run metadata is missing.
-        """
-        from .workspace import Workspace
-        from .base import _load_metadata
-
-        run_dir = Path(run_dir).resolve()
-        # Expected layout:
-        #   workspace_root / projects / proj_id / experiments / exp_id / runs / run_id
-        workspace_root = run_dir.parents[5]
-        project_id = run_dir.parents[3].name
-        experiment_id = run_dir.parents[1].name
-
-        workspace = Workspace.load(workspace_root)
-        project = workspace.get_project(project_id)
-        if project is None:
-            raise FileNotFoundError(f"Project '{project_id}' not found in {workspace_root}")
-
-        experiment = project.get_experiment(experiment_id)
-        if experiment is None:
-            raise FileNotFoundError(
-                f"Experiment '{experiment_id}' not found in project '{project_id}'"
-            )
-
-        run = experiment.get_run(run_dir.name)
-        if run is None:
-            raise FileNotFoundError(f"Run '{run_dir.name}' not found in {run_dir.parent}")
-
-        return RunContext(run)
 
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 

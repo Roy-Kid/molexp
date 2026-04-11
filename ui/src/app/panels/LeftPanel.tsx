@@ -1,7 +1,9 @@
 import {
   Archive,
   Blocks,
+  Bot,
   ChevronRight,
+  Clock,
   FileText,
   FilePlus,
   FlaskConical,
@@ -10,14 +12,17 @@ import {
   FolderPlus,
   FolderTree,
   PlayCircle,
+  Plus,
   RefreshCw,
   Workflow,
   Settings,
+  Sparkles,
 } from "lucide-react";
 import { useEffect, useState, useRef, useMemo } from "react";
 
 import type { ComponentType, SVGProps } from "react";
 import type {
+  AgentSessionSummary,
   AssetSummary,
   FileKind,
   LeftPanelView,
@@ -58,9 +63,10 @@ const viewOptions: ViewOption[] = [
   { id: "workspace", label: "Workspace", icon: FolderTree },
   { id: "project", label: "Project", icon: Blocks },
   { id: "experiment", label: "Experiment", icon: FlaskConical },
-  { id: "run", label: "Run", icon: PlayCircle }, // Fixed duplicate
+  { id: "run", label: "Run", icon: PlayCircle },
   { id: "asset", label: "Asset", icon: Archive },
   { id: "workflow", label: "Workflow", icon: Workflow },
+  { id: "agent", label: "Agent", icon: Bot },
 ];
 
 const statusStyles: Record<SemanticStatus, string> = {
@@ -101,6 +107,7 @@ const buildListHeader = (view: LeftPanelView): string => {
     run: "Runs",
     asset: "Assets",
     workflow: "Workflows",
+    agent: "Agent Sessions",
   };
 
   return labelByView[view];
@@ -547,6 +554,69 @@ const ExperimentTree = ({
   );
 };
 
+const sessionStatusStyles: Record<string, string> = {
+  running:   "bg-blue-100 text-blue-900",
+  pending:   "bg-slate-100 text-slate-600",
+  completed: "bg-emerald-100 text-emerald-900",
+  failed:    "bg-rose-100 text-rose-900",
+  cancelled: "bg-slate-200 text-slate-500",
+};
+
+const AgentSessionList = ({
+  sessions,
+  onSelect,
+  activeId,
+}: {
+  sessions: AgentSessionSummary[];
+  onSelect: (selection: Selection) => void;
+  activeId?: string;
+}): JSX.Element => {
+  if (sessions.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-8 text-center">
+        <Sparkles className="h-8 w-8 text-muted-foreground/30" />
+        <p className="text-xs text-muted-foreground">No sessions yet. Start a new goal.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {sessions.map(session => (
+        <button
+          key={session.id}
+          type="button"
+          className={`w-full rounded-md border text-left transition-colors overflow-hidden ${
+            activeId === session.id
+              ? "border-primary/50 bg-primary/5"
+              : "border-border/60 bg-background hover:bg-muted/40"
+          } px-3 py-2`}
+          onClick={() => onSelect({ objectType: "agent", objectId: session.id })}
+        >
+          <div className="flex items-start gap-2">
+            <Bot className="mt-0.5 h-3.5 w-3.5 flex-none text-violet-500" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium" title={session.goalDescription}>
+                {session.goalDescription}
+              </p>
+              <div className="mt-0.5 flex items-center gap-2">
+                <span className={`rounded px-1 py-0.5 text-[10px] ${sessionStatusStyles[session.status] ?? sessionStatusStyles.pending}`}>
+                  {session.status}
+                </span>
+                <span className="flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                  <Clock className="h-2.5 w-2.5" />
+                  {new Date(session.createdAt).toLocaleDateString()}
+                </span>
+                <span className="text-[10px] text-muted-foreground">{session.eventCount} events</span>
+              </div>
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+};
+
 export const LeftPanel = ({
   view,
   selection,
@@ -650,6 +720,26 @@ export const LeftPanel = ({
         objectType="workflow"
         activeId={activeId}
       />
+    ),
+    agent: (
+      <div className="space-y-3">
+        <div className="flex justify-end px-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1"
+            onClick={() => onSelect({ objectType: "agent", objectId: "new" })}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            New Goal
+          </Button>
+        </div>
+        <AgentSessionList
+          sessions={snapshot.agentSessions}
+          onSelect={onSelect}
+          activeId={activeId}
+        />
+      </div>
     ),
   };
 

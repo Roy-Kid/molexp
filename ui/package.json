@@ -8,7 +8,9 @@
     "dev": "rsbuild dev",
     "dev:mock": "MOLEXP_USE_MOCK=true rsbuild dev",
     "preview": "rsbuild preview",
-    "generate:api": "npx openapi-typescript-codegen --input ../openapi.json --output src/api/generated --client fetch"
+    "generate:api": "npx openapi-typescript-codegen --input ../openapi.json --output src/api/generated --client fetch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -56,7 +58,8 @@
     "openapi-typescript-codegen": "^0.30.0",
     "tailwindcss": "^4.1.17",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
   },
   "msw": {
     "workerDirectory": [

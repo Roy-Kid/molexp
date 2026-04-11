@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import type { RendererProps, SemanticStatus } from "@/app/types";
 import { buildMetadataFields } from "@/app/renderers/metadata";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
 
 const MetricStat = ({ label, value, icon: Icon, colorClass }: { label: string, value: number | string, icon: any, colorClass?: string }) => (
   <div className="flex flex-col gap-1">
@@ -117,11 +118,17 @@ export const RunViewer = ({ selection, snapshot }: RendererProps): JSX.Element =
                         >
                             Logs
                         </TabsTrigger>
-                         <TabsTrigger 
-                            value="artifacts" 
+                         <TabsTrigger
+                            value="artifacts"
                             className="px-4 py-2 rounded-md font-medium text-sm"
                         >
                             Artifacts
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="snapshot"
+                            className="px-4 py-2 rounded-md font-medium text-sm"
+                        >
+                            Snapshot
                         </TabsTrigger>
                     </TabsList>
                 </div>
@@ -175,6 +182,10 @@ export const RunViewer = ({ selection, snapshot }: RendererProps): JSX.Element =
                         <Box className="h-12 w-12 mb-4 opacity-20" />
                         <div>No artifacts generated.</div>
                      </div>
+                </TabsContent>
+
+                <TabsContent value="snapshot" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">
+                    <RunSnapshotPanel runId={run.id} />
                 </TabsContent>
             </Tabs>
         </div>

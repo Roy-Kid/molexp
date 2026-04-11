@@ -7,6 +7,8 @@ import signal
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Iterator
 
@@ -321,9 +323,6 @@ class ServerManager:
 
     def _wait_for_health(self, host: str, port: int, max_retries: int = 30) -> bool:
         """Wait for server to be healthy."""
-        import urllib.error
-        import urllib.request
-
         url = f"http://{host}:{port}/health"
 
         for _ in range(max_retries):

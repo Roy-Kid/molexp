@@ -6,11 +6,13 @@ whether to resume from a checkpoint or start fresh.
 
 from __future__ import annotations
 
-from typing import Protocol, TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
+
+from .run import RunStatus
 
 if TYPE_CHECKING:
     from .checkpoint import CheckpointState
-    from .run import Run, RunStatus
+    from .run import Run
 
 
 class ResumePolicy(Protocol):
@@ -83,8 +85,6 @@ class StatusBasedPolicy:
         checkpoint: CheckpointState
     ) -> bool:
         """Resume if run status is FAILED or CANCELLED."""
-        from .run import RunStatus
-        
         return run.status in [RunStatus.FAILED, RunStatus.CANCELLED]
 
 

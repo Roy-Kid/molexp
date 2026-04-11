@@ -7,7 +7,8 @@ and child listing for Workspace, Project, Experiment, and Run.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+import os
+import tempfile
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -16,15 +17,43 @@ from pydantic import BaseModel
 T = TypeVar("T")
 
 
+def _atomic_write_json(path: Path, data: Any) -> None:
+    """Write JSON data to a file atomically via write-to-temp + rename.
+
+    On POSIX systems, os.replace is atomic — if the process crashes mid-write,
+    the original file remains intact. This prevents data corruption for
+    critical files like run.json and metadata files.
+
+    Args:
+        path: Destination file path.
+        data: JSON-serializable data to write.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Write to a temp file in the same directory (same filesystem for atomic rename)
+    fd, tmp_path = tempfile.mkstemp(
+        dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_"
+    )
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2, default=str)
+        os.replace(tmp_path, path)
+    except BaseException:
+        # Clean up temp file on any failure (including KeyboardInterrupt)
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 def _save_metadata(metadata: BaseModel, path: Path) -> None:
-    """Write a Pydantic metadata model to a JSON file.
+    """Write a Pydantic metadata model to a JSON file atomically.
 
     Args:
         metadata: Pydantic model to serialize.
         path: Destination file path.
     """
-    with open(path, "w") as f:
-        json.dump(metadata.model_dump(mode="json"), f, indent=2, default=str)
+    _atomic_write_json(path, metadata.model_dump(mode="json"))
 
 
 def _load_metadata(metadata_cls: type[T], path: Path) -> T:

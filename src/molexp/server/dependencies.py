@@ -13,28 +13,35 @@ Using dependency injection instead of global variables improves:
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from molcfg import Config, ConfigLoader, DictSource
 from pydantic import BaseModel
 
 from molexp.workspace import Workspace
 
+_SERVER_DEFAULTS: dict[str, Any] = {
+    "workspace_path": "",
+    "debug": False,
+}
+
 
 class Settings(BaseModel):
-    """Application settings loaded from environment."""
+    """Application settings loaded via molcfg."""
 
     workspace_path: str = ""
     debug: bool = False
 
     @classmethod
-    def from_env(cls) -> "Settings":
-        """Create settings from environment variables."""
+    def from_config(cls, config: Config | None = None) -> Settings:
+        """Create settings from a molcfg Config."""
+        if config is None:
+            config = _load_server_config()
         return cls(
-            workspace_path=os.environ.get("MOLEXP_WORKSPACE", ""),
-            debug=os.environ.get("MOLEXP_DEBUG", "").lower() in ("true", "1", "yes"),
+            workspace_path=str(config.get("workspace_path", "")),
+            debug=bool(config.get("debug", False)),
         )
 
     def get_workspace_path(self) -> Path:
@@ -44,25 +51,47 @@ class Settings(BaseModel):
         return Path.cwd()
 
 
+def _load_server_config() -> Config:
+    """Load server configuration from defaults + optional molexp.toml."""
+    sources = [DictSource(_SERVER_DEFAULTS)]
+    config_file = Path.cwd() / "molexp.toml"
+    if config_file.exists():
+        from molcfg import TomlFileSource
+
+        sources.append(TomlFileSource(str(config_file)))
+    return ConfigLoader(sources).load()
+
+
 @lru_cache
 def get_settings() -> Settings:
     """Get cached application settings."""
-    return Settings.from_env()
+    return Settings.from_config()
 
 
-# Import Workspace lazily to avoid circular imports
+_workspace_cache: dict[str, Workspace] = {}
+
+
 def get_workspace():
-    """FastAPI dependency to get Workspace instance.
+    """FastAPI dependency to get a cached Workspace instance.
+
+    The workspace is cached by resolved path so that repeated requests
+    do not recreate the object or re-read metadata from disk.
 
     Usage:
         @app.get("/api/projects")
         def list_projects(workspace: Workspace = Depends(get_workspace)):
             ...
     """
-    from molexp.workspace import Workspace
-
     workspace_path = get_workspace_path()
-    return Workspace.from_path(workspace_path)
+    cache_key = str(workspace_path.resolve())
+    if cache_key not in _workspace_cache:
+        _workspace_cache[cache_key] = Workspace.from_path(workspace_path)
+    return _workspace_cache[cache_key]
+
+
+def reset_workspace_cache() -> None:
+    """Clear the workspace cache (for testing or workspace switching)."""
+    _workspace_cache.clear()
 
 
 # ============================================================================
@@ -143,9 +172,14 @@ def reset_workspace_folder_store() -> None:
 
 
 def set_workspace_path_override(path: Path | None) -> None:
-    """Override workspace path at runtime."""
+    """Override workspace path at runtime.
+
+    Also clears the workspace cache so the next get_workspace() call
+    picks up the new path.
+    """
     global _workspace_path_override
     _workspace_path_override = path
+    reset_workspace_cache()
 
 
 def get_workspace_path() -> Path:

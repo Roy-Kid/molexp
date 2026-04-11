@@ -2,21 +2,32 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import mimetypes
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from molexp.workspace import Workspace
 from ..dependencies import get_workspace, set_workspace_path_override
+from pydantic import BaseModel, Field
+
 from ..schemas import (
-    DirectoryCreateRequest,
-    FileContentUpdateRequest,
     FileContentResponse,
     WorkspaceInfoResponse,
     WorkspaceOpenRequest,
 )
+
+
+class DirectoryCreateRequest(BaseModel):
+    folder_id: str = Field(..., description="Workspace folder ID or 'workspace'")
+    path: str = Field(..., description="Relative path for new directory")
+
+
+class FileContentUpdateRequest(BaseModel):
+    folder_id: str = Field(..., description="Workspace folder ID or 'workspace'")
+    path: str = Field(..., description="Relative path within the folder")
+    content: str = Field(..., description="New file content")
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -126,8 +137,6 @@ def open_workspace(
         path.mkdir(parents=True, exist_ok=True)
 
     set_workspace_path_override(path)
-    from molexp.workspace import Workspace
-
     workspace = Workspace.from_path(path)
     return WorkspaceInfoResponse(
         root=str(workspace.root),

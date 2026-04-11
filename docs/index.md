@@ -1,97 +1,119 @@
 # MolExp Documentation
 
-Welcome to MolExp! A tiny yet fully-typed task-graph framework built on top of Pydantic, designed for scientific computing workflows. MolExp provides a pure functional task abstraction, a static compiler that produces deterministic graph orders, a runtime engine, and a tiny DSL for common data-flow patterns.
+Welcome to MolExp — a workflow-and-agent platform for research experiment management. MolExp provides a typed task-graph framework, a three-tier workspace hierarchy (Project → Experiment → Run), content-addressed asset storage, and a FastAPI server with React UI.
 
 ## Why MolExp?
 
-MolExp's design philosophy is "minimal yet complete". We believe a good framework should make every component's role clear and visible, without hidden magic. Therefore, MolExp's codebase stays lean, with each layer having explicit responsibilities, allowing you to fully understand how workflows are compiled and executed.
+MolExp's design philosophy is "minimal yet complete". Every layer has explicit responsibilities with no hidden magic:
 
-MolExp is particularly suited for scientific computing scenarios that require reproducibility, traceability, and extensibility. Whether it's molecular dynamics simulations, machine learning training, or data analysis pipelines, MolExp helps you organize code, manage dependencies, and track results.
+- **Workflow layer**: DAG-based task graphs compiled from Python with automatic parallelization
+- **Agent layer**: Goal-driven autonomous execution on top of PydanticAI
+- **Workspace layer**: File-system-backed experiment management with full reproducibility
+- **Server + UI**: FastAPI backend and React frontend for browsing experiments and results
 
-MolExp exposes a protocol interface for in-process compatibility, but persisted workflows require `Task` classes with Pydantic configurations and explicit registration. This keeps workflows deterministic and replayable.
+MolExp is particularly suited for scientific computing scenarios that require reproducibility, traceability, and extensibility — molecular dynamics, ML training, data analysis pipelines, and more.
 
-## Core Architecture
+## Architecture
 
-MolExp's architecture consists of three core layers:
-
-<div class="grid cards" markdown>
-
--   :material-code-tags: **Task Abstraction**
-
-    ---
-
-    **Pure Functional Task Definition**
-    
-    Each task is an independent computation unit with type-safe configuration via Pydantic models. Persisted workflows use explicit registration and deterministic task IDs.
-    
-    [:octicons-arrow-right-24: Learn about Tasks](core/task.md)
-
--   :material-compile: **Compiler Layer**
-
-    ---
-
-    **Static Graph Compilation**
-    
-    The compiler statically analyzes task graphs, generates deterministic execution orders, and detects circular dependencies.
-    
-    [:octicons-arrow-right-24: Developer Docs](developer/ir-and-compiler.md)
-
--   :material-play: **Execution Engine**
-
-    ---
-
-    **Parallel Execution & Failure Propagation**
-    
-    The engine supports parallel execution of independent tasks, automatic failure propagation, and execution hooks for monitoring.
-    
-    [:octicons-arrow-right-24: Learn about Engine](core/engine.md)
-
-</div>
-
-## Workspace Architecture
-
-MolExp provides a complete Project-Experiment-Run three-tier architecture to help you organize and manage scientific computing workflows:
+```
+WorkflowSpec → Runtime → Workspace → FastAPI → React UI
+                             ↑
+                      AgentService (PydanticAI)
+```
 
 <div class="grid cards" markdown>
 
--   :material-folder: **Project**
+-   :material-graph: **Workflow Layer**
 
     ---
 
-    **Top-level container for research areas**
-    
-    A project represents a research domain or topic, containing multiple experiments.
-    
-    [:octicons-arrow-right-24: Learn about Workspace](workspace/architecture.md)
+    **DAG-based task graphs**
 
--   :material-flask: **Experiment**
+    Define tasks with the functional DSL (`@wf.task`) or OOP builder. The runtime automatically parallelizes independent tasks.
 
-    ---
+    [:octicons-arrow-right-24: Quick Start](get-started/quick-start.md)
 
-    **Repeatable workflow definitions**
-    
-    Experiments define repeatable workflow templates with parameter space definitions.
-    
-    [:octicons-arrow-right-24: Learn about Workspace](workspace/architecture.md)
-
--   :material-play-circle: **Run**
+-   :material-robot: **Agent Layer**
 
     ---
 
-    **Single execution instance**
-    
-    A run is a concrete execution of an experiment, containing complete reproducibility information.
-    
-    [:octicons-arrow-right-24: Learn about Workspace](workspace/architecture.md)
+    **Goal-driven autonomous execution**
+
+    `AgentService` wraps PydanticAI to provide tool approval, streaming events, and workspace-aware session management.
+
+-   :material-folder-multiple: **Workspace Layer**
+
+    ---
+
+    **Project → Experiment → Run hierarchy**
+
+    Each level owns an `AssetLibrary` for scoped, content-addressed artifact storage. All metadata writes are atomic.
+
+    [:octicons-arrow-right-24: Workspace Docs](workspace/)
+
+-   :material-server: **Server + UI**
+
+    ---
+
+    **FastAPI + React**
+
+    All routes under `/api`. The React UI provides a three-panel experiment browser. TypeScript client is auto-generated from `openapi.json`.
 
 </div>
+
+## Core Concepts
+
+### Tasks and Actors
+
+| Type | Base class | Method | Use for |
+|------|-----------|--------|---------|
+| Batch | `Task` | `async execute(ctx)` | single-pass computation |
+| Streaming | `Actor` | `async run(ctx)` (generator) | continuous / event-driven |
+
+### Workflow Definition
+
+Two equivalent styles:
+
+```python
+# Functional DSL
+wf = workflow(name="pipeline")
+
+@wf.task
+async def fetch(ctx: TaskContext) -> list[float]: ...
+
+@wf.task(depends_on=["fetch"])
+async def process(ctx: TaskContext) -> float: ...
+
+spec = wf.build()
+```
+
+```python
+# OOP builder
+spec = (
+    WorkflowBuilder(name="pipeline")
+    .add(FetchTask())
+    .add(ProcessTask(), depends_on=["fetch"])
+    .build()
+)
+```
+
+### Workspace Hierarchy
+
+```python
+workspace = Workspace.from_path("./lab")
+project    = workspace.create_project(name="MD Simulations")
+experiment = project.create_experiment(name="Temperature Sweep")
+run        = experiment.create_run(parameters={"T": 300})
+
+result = await spec.execute(run=run)
+```
 
 ## Quick Start
 
-If you're new to MolExp, we recommend starting with the quick start guide, which will walk you through creating and executing your first workflow.
+New to MolExp? Start here:
 
-[:octicons-arrow-right-24: Get Started](get-started/quick-start.md)
+[:octicons-arrow-right-24: Quick Start Guide](get-started/quick-start.md)
 
 ## License
 
-MIT License - see [LICENSE](https://github.com/molcrafts/molexp/blob/main/LICENSE) for details.
+BSD 3-Clause License — see [LICENSE](https://github.com/molcrafts/molexp/blob/main/LICENSE) for details.

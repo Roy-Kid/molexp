@@ -1,5 +1,9 @@
 import type {
+  AgentSessionSummary,
+  ApiAgentSession,
   ApiAssetResponse,
+  ApiCacheClear,
+  ApiCacheStats,
   ApiExperimentResponse,
   ApiProjectResponse,
   ApiRunResponse,
@@ -21,6 +25,7 @@ import { ExperimentsService } from "@/api/generated/services/ExperimentsService"
 import { RunsService } from "@/api/generated/services/RunsService";
 import { AssetsService } from "@/api/generated/services/AssetsService";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
+import { ExecutionService } from "@/api/generated/services/ExecutionService";
 
 // Local types not yet in OpenAPI
 interface WorkspaceFileNode {
@@ -98,6 +103,12 @@ export const workspaceApi = {
     const response = await WorkspaceService.readWorkspaceFileApiWorkspaceFileGet(path);
     return response.content;
   },
+  getCacheStats: async (): Promise<ApiCacheStats> => {
+    return ExecutionService.getCacheStatsApiCacheStatsGet();
+  },
+  clearCache: async (): Promise<ApiCacheClear> => {
+    return ExecutionService.clearCacheApiCacheDelete();
+  },
   getWorkspaceFileBlob: async (path: string): Promise<Blob> => {
     // The generated client currently returns 'any' (JSON) for blob endpoint if not configured for binary.
     // For now we might need to fallback to manual fetch for Blob if strictly required,
@@ -120,6 +131,7 @@ export const buildEmptySnapshot = (): WorkspaceSnapshot => {
     runs: [],
     assets: [],
     workflows: [],
+    agentSessions: [],
     workspaceRoot: null,
     consoleEntries: [],
   };
@@ -248,4 +260,52 @@ export const mapWorkspaceTree = (
     sizeBytes: 0,
     updatedAt: "",
   };
+};
+
+export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSummary[] => {
+  return sessions.map(s => ({
+    id: s.sessionId,
+    goalDescription: s.goalDescription,
+    status: s.status as AgentSessionSummary["status"],
+    createdAt: s.createdAt,
+    eventCount: s.events.length,
+  }));
+};
+
+export const agentApi = {
+  listSessions: async (): Promise<ApiAgentSession[]> => {
+    const response = await fetch("/api/agent/sessions");
+    if (!response.ok) throw new Error(`Failed to fetch sessions: ${response.statusText}`);
+    const data = await response.json();
+    return data.sessions ?? [];
+  },
+
+  createSession: async (description: string, successCriteria: string[] = []): Promise<ApiAgentSession> => {
+    const response = await fetch("/api/agent/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description, success_criteria: successCriteria }),
+    });
+    if (!response.ok) throw new Error(`Failed to create session: ${response.statusText}`);
+    return response.json();
+  },
+
+  getSession: async (sessionId: string): Promise<ApiAgentSession> => {
+    const response = await fetch(`/api/agent/sessions/${sessionId}`);
+    if (!response.ok) throw new Error(`Failed to fetch session: ${response.statusText}`);
+    return response.json();
+  },
+
+  streamEvents: (sessionId: string): EventSource => {
+    return new EventSource(`/api/agent/sessions/${sessionId}/events`);
+  },
+
+  respondApproval: async (sessionId: string, requestId: string, approved: boolean): Promise<void> => {
+    const response = await fetch(`/api/agent/sessions/${sessionId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ request_id: requestId, approved }),
+    });
+    if (!response.ok) throw new Error(`Failed to respond approval: ${response.statusText}`);
+  },
 };

@@ -1,32 +1,49 @@
-"""Workspace module exports."""
+"""Workspace module — file-system-backed experiment management.
 
-from .workspace import Workspace
-from .project import Project
-from .experiment import Experiment
-from .run import Run, RunStatus, RunContext
-from .context import Context
+Hierarchy: Workspace -> Project -> Experiment -> Run
+Each level owns an AssetLibrary for scoped artifact storage.
+"""
+
 from .asset import Asset, AssetLibrary, AssetWorkflow
-from .metadata import (
-    WorkspaceMetadata,
-    ProjectMetadata,
+from .context import Context
+from .experiment import Experiment
+from .models import (
+    ErrorInfo,
     ExperimentMetadata,
+    ProjectMetadata,
     RunMetadata,
+    WorkflowSnapshotRef,
+    WorkspaceMetadata,
 )
-
+from .param import GridSpace, ParamSpace, Params, UniformSpace
+from .project import Project
+from .run import Run, RunContext, RunStatus
+from .workspace import Workspace
 
 __all__ = [
+    # Entities
     "Workspace",
     "Project",
     "Experiment",
     "Run",
-    "RunStatus",
     "RunContext",
-    "Context",
-    "Asset",
-    "AssetLibrary",
-    "AssetWorkflow",
+    "RunStatus",
+    # Metadata models
     "WorkspaceMetadata",
     "ProjectMetadata",
     "ExperimentMetadata",
     "RunMetadata",
+    "ErrorInfo",
+    "WorkflowSnapshotRef",
+    # Assets
+    "Asset",
+    "AssetLibrary",
+    "AssetWorkflow",
+    # Parameters
+    "ParamSpace",
+    "Params",
+    "GridSpace",
+    "UniformSpace",
+    # Context
+    "Context",
 ]

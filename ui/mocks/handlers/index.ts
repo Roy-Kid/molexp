@@ -2,23 +2,25 @@
  * Central export for all MSW mock handlers
  */
 
-import { projectHandlers } from "./projects";
-import { experimentHandlers } from "./experiments";
-import { runHandlers } from "./runs";
+import { agentHandlers } from "./agent";
 import { assetHandlers } from "./assets";
-import { workspaceHandlers } from "./workspace";
 import { executionHandlers } from "./execution";
+import { experimentHandlers } from "./experiments";
+import { projectHandlers } from "./projects";
 import { registryHandlers } from "./registry";
+import { runHandlers } from "./runs";
+import { workspaceHandlers } from "./workspace";
 
 /**
  * All mock handlers combined
  */
 export const handlers = [
-    ...projectHandlers,
-    ...experimentHandlers,
-    ...runHandlers,
+    ...agentHandlers,
     ...assetHandlers,
-    ...workspaceHandlers,
     ...executionHandlers,
+    ...experimentHandlers,
+    ...projectHandlers,
     ...registryHandlers,
+    ...runHandlers,
+    ...workspaceHandlers,
 ];

@@ -1,8 +1,10 @@
 """JSON Schema utilities for Molexp documents."""
 
-from pathlib import Path
 import json
+from pathlib import Path
 from typing import Any
+
+from .validator import SchemaValidator, ValidationError
 
 SCHEMA_DIR = Path(__file__).parent
 
@@ -39,5 +41,3 @@ def list_schemas() -> list[str]:
 
 
 __all__ = ["get_schema", "list_schemas", "SCHEMA_DIR", "SchemaValidator", "ValidationError"]
-
-from .validator import SchemaValidator, ValidationError

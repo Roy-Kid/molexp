@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
-from molexp.workflow import Workflow
-from molexp.workflow.compiler import WorkflowCompiler
-
+from molexp.workflow.cache import Caching
 from ..dependencies import get_workspace
 from ..exceptions import ExperimentNotFoundError, ProjectNotFoundError
-from ..schemas import (ExecutionCreateRequest, ExecutionPlanRequest,
-                       ExecutionPlanResponse, RunResponse)
+from ..schemas import (ExecutionCreateRequest,
+                       RunResponse, CacheStatsResponse, CacheClearResponse)
 
 router = APIRouter(prefix="", tags=["execution"])
 
@@ -32,24 +30,47 @@ def create_execution(
     if not experiment:
         raise ExperimentNotFoundError(request.project_id, request.experiment_id)
 
-    # Create run
     new_run = experiment.create_run(parameters=request.parameters)
-
-    # TODO: Persist workflow_json if supported by Run model
-    # workflow_snapshot = request.workflow_json
-
     return RunResponse.from_model(new_run)
 
 
-@router.post("/plan", response_model=ExecutionPlanResponse)
-def get_execution_plan(request: ExecutionPlanRequest) -> ExecutionPlanResponse:
-    """Get execution plan for a workflow definition."""
-    workflow = Workflow.model_validate_json(request.workflow_json)
-    compiler = WorkflowCompiler()
-    compiled_workflow = compiler.compile(workflow)
-    plan = compiled_workflow.get_execution_plan(targets=request.targets)
-
-    return ExecutionPlanResponse(
-        plan=plan,
-        nodeCount=len(plan),
+@router.post("/plan")
+def get_execution_plan() -> JSONResponse:
+    """Get execution plan for a workflow (not yet implemented)."""
+    return JSONResponse(
+        status_code=501,
+        content={"error": "not_implemented", "message": "Execution planning not yet implemented."},
     )
+
+
+# ============================================================================
+# Cache Routes
+# ============================================================================
+
+# Process-local cache — NOT shared across workers.  Use --workers 1.
+_cache_instance = None
+
+
+def _get_cache():
+    global _cache_instance
+    if _cache_instance is None:
+        store_dir = Path.home() / ".molexp" / "cache"
+        _cache_instance = Caching(store_dir=store_dir)
+        _cache_instance.initialize()
+    return _cache_instance
+
+
+@router.get("/cache/stats", response_model=CacheStatsResponse)
+def get_cache_stats() -> CacheStatsResponse:
+    cache = _get_cache()
+    entry_count = 0
+    if cache._store_dir.exists():
+        entry_count = len(list(cache._store_dir.glob("*.json")))
+    return CacheStatsResponse(storeDir=str(cache._store_dir), entryCount=entry_count)
+
+
+@router.delete("/cache", response_model=CacheClearResponse)
+def clear_cache() -> CacheClearResponse:
+    cache = _get_cache()
+    removed = cache.clear()
+    return CacheClearResponse(removedCount=removed)

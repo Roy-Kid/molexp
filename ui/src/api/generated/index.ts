@@ -7,7 +7,12 @@ export { CancelablePromise, CancelError } from './core/CancelablePromise';
 export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
+export type { AgentSessionResponse } from './models/AgentSessionResponse';
+export type { SessionEventResponse } from './models/SessionEventResponse';
 export type { AssetFileResponse } from './models/AssetFileResponse';
+export type { CacheClearResponse } from './models/CacheClearResponse';
+export type { CacheStatsResponse } from './models/CacheStatsResponse';
+export type { TaskSnapshotResponse } from './models/TaskSnapshotResponse';
 export type { AssetRefResponse } from './models/AssetRefResponse';
 export type { AssetRefsResponse } from './models/AssetRefsResponse';
 export type { AssetResponse } from './models/AssetResponse';

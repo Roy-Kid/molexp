@@ -1,5 +1,3 @@
-
-
 import { Clock, FlaskConical, Play, Trash2, Activity, CheckCircle2, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +7,7 @@ import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { workspaceApi } from "@/app/state/api";
 import { useUrlState } from "@/app/state/useUrlState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { SnapshotDiffPanel } from "@/app/renderers/SnapshotViewer";
 
 const MetricStat = ({ label, value, icon: Icon, colorClass }: { label: string, value: number | string, icon: any, colorClass?: string }) => (
   <div className="flex flex-col gap-1">
@@ -199,11 +198,17 @@ export const ExperimentViewer = ({
                         >
                             Runs
                         </TabsTrigger>
-                        <TabsTrigger 
-                            value="details" 
+                        <TabsTrigger
+                            value="details"
                             className="px-4 py-2 rounded-md font-medium text-sm"
                         >
                             Details
+                        </TabsTrigger>
+                        <TabsTrigger
+                            value="diff"
+                            className="px-4 py-2 rounded-md font-medium text-sm"
+                        >
+                            Diff
                         </TabsTrigger>
                     </TabsList>
                 </div>
@@ -263,6 +268,10 @@ export const ExperimentViewer = ({
                     <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-auto font-mono">
                         {JSON.stringify(experiment, null, 2)}
                     </pre>
+                </TabsContent>
+
+                <TabsContent value="diff" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">
+                    <SnapshotDiffPanel experimentRunIds={runs.map(r => r.id)} />
                 </TabsContent>
             </Tabs>
         </div>

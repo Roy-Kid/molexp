@@ -1,4 +1,4 @@
-export type LeftPanelView = "workspace" | "project" | "experiment" | "run" | "asset" | "workflow";
+export type LeftPanelView = "workspace" | "project" | "experiment" | "run" | "asset" | "workflow" | "agent";
 
 export type SemanticObjectType =
   | "project"
@@ -6,7 +6,8 @@ export type SemanticObjectType =
   | "run"
   | "asset"
   | "workflow"
-  | "workspace-file";
+  | "workspace-file"
+  | "agent";
 
 export type BaseObjectType = "project" | "experiment" | "run" | "asset";
 
@@ -55,6 +56,11 @@ import type { ContextSnapshotResponse } from "../api/generated/models/ContextSna
 import type { AssetRefResponse } from "../api/generated/models/AssetRefResponse";
 import type { AssetRefsResponse } from "../api/generated/models/AssetRefsResponse";
 import type { RunSummary as ApiRunSummaryModel } from "../api/generated/models/RunSummary";
+import type { TaskSnapshotResponse } from "../api/generated/models/TaskSnapshotResponse";
+import type { CacheStatsResponse } from "../api/generated/models/CacheStatsResponse";
+import type { CacheClearResponse } from "../api/generated/models/CacheClearResponse";
+import type { AgentSessionResponse } from "../api/generated/models/AgentSessionResponse";
+import type { SessionEventResponse } from "../api/generated/models/SessionEventResponse";
 
 // Re-export as Api*Response for compatibility
 export type ApiProjectResponse = ProjectResponse;
@@ -67,6 +73,11 @@ export type ApiContextSnapshot = ContextSnapshotResponse;
 export type ApiAssetRef = AssetRefResponse;
 export type ApiAssetRefs = AssetRefsResponse;
 export type ApiRunSummary = ApiRunSummaryModel;
+export type ApiTaskSnapshot = TaskSnapshotResponse;
+export type ApiCacheStats = CacheStatsResponse;
+export type ApiCacheClear = CacheClearResponse;
+export type ApiAgentSession = AgentSessionResponse;
+export type ApiSessionEvent = SessionEventResponse;
 
 export interface ProjectSummary {
   id: string;
@@ -115,6 +126,14 @@ export interface WorkflowSummary {
   projectId: string;
   experimentId: string;
   graph?: WorkflowGraph;
+}
+
+export interface AgentSessionSummary {
+  id: string;
+  goalDescription: string;
+  status: SemanticStatus;
+  createdAt: string;
+  eventCount: number;
 }
 
 export interface WorkflowNodeMetadata {
@@ -166,6 +185,7 @@ export interface WorkspaceSnapshot {
   runs: RunSummary[];
   assets: AssetSummary[];
   workflows: WorkflowSummary[];
+  agentSessions: AgentSessionSummary[];
   workspaceRoot: WorkspaceTreeNode | null;
   consoleEntries: ConsoleEntry[];
 }
@@ -188,7 +208,12 @@ export interface WorkspaceFileSelection {
   objectId: string;
 }
 
-export type Selection = ObjectSelection | WorkflowSelection | WorkspaceFileSelection;
+export interface AgentSelection {
+  objectType: "agent";
+  objectId: string; // session_id, or "new" for the goal-input state
+}
+
+export type Selection = ObjectSelection | WorkflowSelection | WorkspaceFileSelection | AgentSelection;
 
 export type InspectorTarget =
   | {

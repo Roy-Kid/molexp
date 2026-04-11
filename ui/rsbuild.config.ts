@@ -25,7 +25,7 @@ export default defineConfig(({ command }) => {
     server: {
       proxy: {
         '/api': {
-          target: 'http://localhost:8080',
+          target: 'http://localhost:8000',
           changeOrigin: true,
         },
       },

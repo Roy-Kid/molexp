@@ -1,13 +1,14 @@
 import { registerRenderer } from "@/app/registry";
-import { MetadataViewer } from "@/app/renderers/MetadataViewer";
-import { MetadataInspector } from "@/app/renderers/MetadataInspector";
-import { TextEditor } from "@/app/renderers/TextEditor";
-import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
-import { ImageViewer } from "@/app/renderers/ImageViewer";
-import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
-import { ProjectViewer } from "@/app/renderers/ProjectViewer";
+import { AgentViewer } from "@/app/renderers/AgentViewer";
 import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
+import { ImageViewer } from "@/app/renderers/ImageViewer";
+import { MetadataInspector } from "@/app/renderers/MetadataInspector";
+import { MetadataViewer } from "@/app/renderers/MetadataViewer";
+import { ProjectViewer } from "@/app/renderers/ProjectViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
+import { TextEditor } from "@/app/renderers/TextEditor";
+import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
+import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
 import { WorkflowViewer } from "@/app/renderers/WorkflowViewer";
 
 export const registerDefaultRenderers = (): void => {
@@ -183,5 +184,29 @@ export const registerDefaultRenderers = (): void => {
       panelSlot: "right",
       Component: MetadataInspector,
     });
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "agent",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Agent Session",
+    panelSlot: "center",
+    Component: AgentViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "agent",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Agent Inspector",
+    panelSlot: "right",
+    Component: MetadataInspector,
   });
 };

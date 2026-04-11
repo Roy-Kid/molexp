@@ -35,7 +35,7 @@ const WorkflowOverview = ({
           </div>
         </div>
       </div>
-      
+
       <div className="flex-1 p-8 space-y-6">
         <div className="space-y-2">
              <h3 className="text-lg font-semibold">Summary</h3>
@@ -45,7 +45,7 @@ const WorkflowOverview = ({
                 </p>
              </div>
         </div>
-        
+
         <div className="space-y-2">
             <h3 className="text-lg font-semibold">Metadata</h3>
              <div className="grid grid-cols-2 gap-4">

@@ -10,8 +10,7 @@ from molexp.workspace import RunStatus
 
 from ..dependencies import get_workspace
 from ..exceptions import InvalidStatusError, RunNotFoundError
-from ..schemas import (RunCreateRequest, RunResponse,
-                       RunStatusResponse)
+from ..schemas import RunCreateRequest, RunResponse, RunStatusResponse
 
 router = APIRouter(
     prefix="/projects/{project_id}/experiments/{experiment_id}/runs",
@@ -32,13 +31,10 @@ def list_runs(
     experiment_id: str,
     workspace=Depends(get_workspace),
 ) -> list[RunResponse]:
-    """List runs in an experiment."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, "")
-        
-    runs = experiment.list_runs()
-    return [RunResponse.from_model(r) for r in runs]
+    return [RunResponse.from_model(r) for r in experiment.list_runs()]
 
 
 @router.get("/{run_id}", response_model=RunResponse)
@@ -48,15 +44,12 @@ def get_run(
     run_id: str,
     workspace=Depends(get_workspace),
 ) -> RunResponse:
-    """Get run details."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-        
     run = experiment.get_run(run_id)
     if not run:
-         raise RunNotFoundError(project_id, experiment_id, run_id)
-
+        raise RunNotFoundError(project_id, experiment_id, run_id)
     return RunResponse.from_model(run)
 
 
@@ -67,13 +60,11 @@ def create_run(
     run_req: RunCreateRequest,
     workspace=Depends(get_workspace),
 ) -> RunResponse:
-    """Create a new run."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, "")
-
-    new_run = experiment.create_run(parameters=run_req.parameters)
-    return RunResponse.from_model(new_run)
+    run = experiment.create_run(parameters=run_req.parameters)
+    return RunResponse.from_model(run)
 
 
 @router.patch("/{run_id}/status", response_model=RunStatusResponse)
@@ -84,11 +75,9 @@ def update_run_status(
     status: dict[str, str],
     workspace=Depends(get_workspace),
 ) -> RunStatusResponse:
-    """Update run status."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-        
     run = experiment.get_run(run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
@@ -99,42 +88,14 @@ def update_run_status(
     except ValueError:
         raise InvalidStatusError(run.status, new_status_str)
 
-    run.status = new_status
-    if new_status_str in ["succeeded", "failed", "cancelled"]:
-        run.finished_at = datetime.now()
+    updates: dict = {"status": new_status.value}
+    if new_status_str in ("succeeded", "failed", "cancelled"):
+        updates["finished_at"] = datetime.now()
 
-    run.save()
+    run._update_metadata(**updates)
 
     return RunStatusResponse(
         id=run.id,
         status=run.status,
-        finished=run.metadata.updated_at.isoformat(),
-    )
-
-
-@router.post("/{run_id}/start", response_model=RunStatusResponse)
-def start_run(
-    project_id: str,
-    experiment_id: str,
-    run_id: str,
-    workspace=Depends(get_workspace),
-) -> RunStatusResponse:
-    """Start run execution."""
-    experiment = _get_experiment(workspace, project_id, experiment_id)
-    if not experiment:
-        raise RunNotFoundError(project_id, experiment_id, run_id)
-        
-    run = experiment.get_run(run_id)
-    if not run:
-        raise RunNotFoundError(project_id, experiment_id, run_id)
-
-    # Minimal start logic for now
-    with run.context() as ctx:
-        # Mock execution or async dispatch
-        pass
-        
-    return RunStatusResponse(
-        id=run.id,
-        status=run.status,
-        finished=None,
+        finished=run.metadata.finished_at.isoformat() if run.metadata.finished_at else None,
     )

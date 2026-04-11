@@ -1,44 +1,64 @@
 # molexp
 
-molexp is a tiny yet fully-typed task-graph framework built on top of Pydantic. It contains a
-pure functional task abstraction, a static compiler that produces deterministic graph orders, a
-runtime engine, and a tiny DSL for common data-flow patterns. This repository is intentionally
-minimal to highlight how each layer works without hidden magic.
+molexp is a workflow-and-agent platform for research experiment management. It provides a typed task-graph framework, a Project-Experiment-Run workspace hierarchy, content-addressed asset storage, and a FastAPI server with React UI.
 
 ```
-+-----------+       +-----------+       +---------+
-|   Task    |  -->  | Compiler  |  -->  | Engine  |
-+-----------+       +-----------+       +---------+
-        ^                  |                  |
-        |                  v                  v
-        +----------- DSL abstractions --------+
+WorkflowSpec → Runtime → Workspace → FastAPI → React UI
+                             ↑
+                      AgentService (PydanticAI)
 ```
 
 ## Features
 
-- **Task Graph Framework**: Pure functional task abstraction with deterministic compilation
+- **Workflow Layer**: DAG-based task graphs with automatic parallelization
 - **Project-Experiment-Run Architecture**: Scientific workflow organization with full reproducibility
 - **Asset Management**: Content-addressable storage with automatic deduplication
-- **CLI Tools**: Command-line interface for workspace and workflow management
-- **Type Safety**: Full Pydantic v2 integration for data validation
+- **Agent Layer**: Goal-driven autonomous execution built on PydanticAI
+- **CLI + Web UI**: Command-line interface and React-based experiment browser
 
-## Quick Example: Task Graph
+## Quick Example: Workflow
+
+**Functional DSL (decorator-based):**
 
 ```python
-from molexp.task_base import Task, EmptyConfig
-from molexp.engine import TaskEngine
+from molexp.workflow import workflow, TaskContext
 
-class MultiplyTask(Task[EmptyConfig, int]):
-    cfg_model = EmptyConfig
-    out_model = None
+wf = workflow(name="data-pipeline")
 
-    def forward(self, value: int, cfg: EmptyConfig) -> int:
-        return value * 2
+@wf.task
+async def fetch(ctx: TaskContext) -> list[float]:
+    return [1.0, 2.0, 3.0]
 
-mult = MultiplyTask(name="multiply")
-engine = TaskEngine()
-result = engine.run(mult)
-print(result)
+@wf.task(depends_on=["fetch"])
+async def process(ctx: TaskContext) -> float:
+    if ctx.dry_run:
+        return 0.0
+    return sum(ctx.inputs)
+
+spec = wf.build()
+result = await spec.execute()
+```
+
+**OOP builder (subclass-based):**
+
+```python
+from molexp.workflow import Task, WorkflowBuilder, TaskContext
+
+class FetchTask(Task):
+    async def execute(self, ctx: TaskContext) -> list[float]:
+        return [1.0, 2.0, 3.0]
+
+class ProcessTask(Task):
+    async def execute(self, ctx: TaskContext) -> float:
+        return sum(ctx.inputs)
+
+spec = (
+    WorkflowBuilder(name="data-pipeline")
+    .add(FetchTask())
+    .add(ProcessTask(), depends_on=["fetch"])
+    .build()
+)
+result = await spec.execute()
 ```
 
 ## Project-Experiment-Run Architecture
@@ -50,65 +70,36 @@ molexp provides a complete organization system for scientific workflows:
 - **Run**: Single execution instance with full reproducibility
 - **Asset**: Reusable data artifacts with content-based deduplication
 
-### CLI Usage
-
-```bash
-# Initialize workspace
-molexp init
-
-# Create project
-molexp project create my-project --name "My Research Project"
-
-# Create experiment
-molexp experiment create my-project exp-1 \
-  --name "Parameter Sweep" \
-  --workflow workflow.py
-
-# List runs
-molexp run list my-project exp-1
-
-# View assets
-molexp asset list
-```
-
 ### Python API
 
 ```python
 from molexp.workspace import Workspace
 
-# Create workspace
-workspace = Workspace.from_env()
+workspace = Workspace.from_path("./lab")
 
-# Create project (ID auto-generated from name)
-project = workspace.create_project(
-    name="My Project",
-    description="Research project description"
-)
+# Hierarchical API: workspace → project → experiment → run
+project = workspace.create_project(name="My Project")
+experiment = project.create_experiment(name="Param Sweep")
+run = experiment.create_run(parameters={"lr": 0.01})
 
-# Create experiment through project (hierarchical API)
-experiment = project.create_experiment(
-    name="Experiment 1",
-    workflow_source="workflow.py"
-)
-
-# Create run through experiment (hierarchical API)
-run = experiment.create_run(
-    parameters={"param": 1.0},
-    workflow_file="workflow.py"
-)
-
-# Use hierarchical asset libraries
-# Workspace-level assets (global)
+# Scoped asset libraries at every level
 workspace.assets.create_asset("bert_model", "/models/bert.pt")
-
-# Project-level assets (shared within project)
 project.assets.create_asset("dataset", "/data/qm9.tar.bz2")
-
-# Experiment-level assets (shared within experiment)
 experiment.assets.create_asset("features", "/data/features.h5")
-
-# Run-level assets (specific to this run)
 run.assets.create_asset("output", "/outputs/results.txt")
+```
+
+### CLI Usage
+
+```bash
+# Start server (hot-reload dev mode)
+molexp serve --dev
+
+# Execute a workflow in dry-run mode
+molexp run train.py --dry-run
+
+# Initialize a workspace
+molexp init [path]
 ```
 
 ## Installation
@@ -117,9 +108,19 @@ run.assets.create_asset("output", "/outputs/results.txt")
 pip install -e .
 ```
 
+Optional extras:
+
+```bash
+pip install -e ".[workflow]"   # pydantic-graph execution backend
+pip install -e ".[agent]"      # PydanticAI agent layer
+pip install -e ".[remote]"     # Remote/HPC execution
+pip install -e ".[dev]"        # Development tools
+```
+
 ## Documentation
 
-See the [docs](./docs/README.md) for an in-depth tour of the architecture, compiler, engine, and DSL
-usage.
+See the [docs](./docs/index.md) for an in-depth tour of the architecture, workflow layer, workspace, and agent integration.
 
-See [examples/project_experiment_run_example.py](./examples/project_experiment_run_example.py) for a complete example of the Project-Experiment-Run workflow.
+## License
+
+BSD 3-Clause License — see [LICENSE](./LICENSE) for details.

@@ -1,52 +1,62 @@
-"""Unified workflow system for molexp.
+"""Molexp workflow layer — public API.
 
-This module provides the core abstractions for building and executing workflows:
-- Task: Base abstraction for executable units
-- Control flow: Built-in tasks for workflow logic
-- Compiler: Workflow compilation and validation
-- Engine: Workflow execution
+Three ways to define tasks:
+
+1. **Functional** (decorator)::
+
+       wf = workflow(name="pipeline")
+
+       @wf.task
+       async def fetch(ctx: TaskContext) -> FetchResult: ...
+
+       result = await wf.build().execute(run=run)
+
+2. **OOP** (subclass ``Task``)::
+
+       class FetchTask(Task):
+           async def execute(self, ctx: TaskContext) -> FetchResult: ...
+
+       wf = WorkflowBuilder(name="pipeline").add(FetchTask()).build()
+
+3. **Protocol** (any object with ``async execute(ctx)``)::
+
+       # Third-party code — no molexp import required
+       class ExternalProcessor:
+           async def execute(self, ctx) -> dict: ...
+
+       wf = WorkflowBuilder(name="pipeline").add(ExternalProcessor()).build()
 """
 
-# Core workflow abstractions
-from .protocol import TaskProtocol
-from .task import Task, TaskConfig
-
-# Compiler
-from .compiler import WorkflowCompiler
-
-# Engine
-from .engine import WorkflowEngine
-
-# Models and Registry
-from .link import Link
-from .workflow import Workflow, WorkflowMetadata
-from .registry import (
-    TaskRegistry,
-    get_task_registry,
-    register_task,
-    get_task_class,
-    get_task_id,
-    list_registered_tasks,
-)
+from .cache import Caching
+from .context import ActorContext, TaskContext
+from .protocols import Runnable, Streamable
+from .runtime import WorkflowRuntime
+from .snapshot import TaskSnapshot
+from .spec import WorkflowBuilder, WorkflowSpec, join, parallel_map, workflow
+from .task import Actor, Task
+from .types import WorkflowExecution, WorkflowResult
 
 __all__ = [
-    # Core abstractions
-    "TaskProtocol",
+    # Protocols (for third-party integration)
+    "Runnable",
+    "Streamable",
+    # Convenience base classes
     "Task",
-    "TaskConfig",
-    # Compiler
-    "WorkflowCompiler",
-    # Engine
-    "WorkflowEngine",
-    # Models
-    "Workflow",
-    "WorkflowMetadata",
-    "Link",
-    # Registry
-    "TaskRegistry",
-    "get_task_registry",
-    "register_task",
-    "get_task_class",
-    "get_task_id",
-    "list_registered_tasks",
+    "Actor",
+    # Contexts
+    "TaskContext",
+    "ActorContext",
+    # Workflow building
+    "WorkflowSpec",
+    "WorkflowBuilder",
+    "workflow",
+    "parallel_map",
+    "join",
+    # Execution
+    "WorkflowRuntime",
+    "WorkflowResult",
+    "WorkflowExecution",
+    # Utilities
+    "Caching",
+    "TaskSnapshot",
 ]
