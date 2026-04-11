@@ -20,9 +20,8 @@ def _execute(script: Path, run_dir: Path) -> None:
     from molexp.workspace.run import RunContext
     from molexp.workspace.utils import slugify
 
-    projects = load_projects(script)
-
     with RunContext.open(run_dir) as ctx:
+        projects = load_projects(script)
         ws_project_id = ctx.run.experiment.project.id
         workflow = None
         for proj in projects:

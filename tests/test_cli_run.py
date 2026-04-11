@@ -187,9 +187,16 @@ class TestRunCommand:
         # Remote backends appear when molq is installed
         # (may or may not be present in test env)
 
-    def test_run_local_help_has_no_resource_options(self):
-        result = runner.invoke(app, ["run", "local", "--help"])
+    def test_run_help_has_grouped_options(self):
+        result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
-        assert "--partition" not in result.output
-        assert "--gpus" not in result.output
-        assert "--mem" not in result.output
+        # Backend flags present
+        assert "--local" in result.output
+        assert "--slurm" in result.output
+        assert "--pbs" in result.output
+        assert "--lsf" in result.output
+        # HPC options in their own panel
+        assert "HPC Options" in result.output
+        assert "--partition" in result.output
+        assert "--gpus" in result.output
+        assert "--mem" in result.output

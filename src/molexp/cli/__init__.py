@@ -9,7 +9,6 @@ from typing import Annotated, Any, Callable, Optional
 
 import typer
 import uvicorn
-from typer.core import TyperGroup
 from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
@@ -57,25 +56,7 @@ def _deterministic_run_id(params: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-# ============ Run Sub-App ============
-
-
-class _DefaultLocalGroup(TyperGroup):
-    """Typer Group that defaults to ``local`` when the first arg isn't a
-    known sub-command name."""
-
-    def resolve_command(self, ctx: typer.Context, args: list[str]) -> tuple:  # type: ignore[override]
-        if args and args[0] not in self.commands:
-            args.insert(0, "local")
-        return super().resolve_command(ctx, args)
-
-
-run_cmd = typer.Typer(
-    cls=_DefaultLocalGroup,
-    help="Run or schedule a parameter sweep defined in a Python script.",
-    no_args_is_help=True,
-)
-app.add_typer(run_cmd, name="run")
+# ============ Run Command ============
 
 
 # ── Shared sweep logic ───────────────────────────────────────────────────────
@@ -228,30 +209,47 @@ def _execute_sweep(
             rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
 
 
-# ── Built-in local sub-command ───────────────────────────────────────────────
+_SCRIPT_ARG = Annotated[
+    Path,
+    typer.Argument(
+        help="Python script with me.entry(project) call.",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        readable=True,
+        resolve_path=True,
+    ),
+]
 
 
-@run_cmd.command(name="local", help="Execute runs locally (sequential).")
-def run_local(
-    script: Annotated[
-        Path,
-        typer.Argument(
-            help="Python script with me.entry(project) call.",
-            exists=True,
-            file_okay=True,
-            dir_okay=False,
-            readable=True,
-            resolve_path=True,
-        ),
-    ],
+@app.command()
+def run(
+    script: _SCRIPT_ARG,
+    # ── Execution backend ──────────────────────────────────────────────────
+    local: Annotated[
+        bool,
+        typer.Option("--local", help="Run locally, sequentially (default).", rich_help_panel="Execution Backend"),
+    ] = False,
+    slurm: Annotated[
+        bool,
+        typer.Option("--slurm", help="Submit to a SLURM cluster via molq.", rich_help_panel="Execution Backend"),
+    ] = False,
+    pbs: Annotated[
+        bool,
+        typer.Option("--pbs", help="Submit to a PBS/Torque cluster via molq.", rich_help_panel="Execution Backend"),
+    ] = False,
+    lsf: Annotated[
+        bool,
+        typer.Option("--lsf", help="Submit to an LSF cluster via molq.", rich_help_panel="Execution Backend"),
+    ] = False,
+    # ── Common options ─────────────────────────────────────────────────────
     dry_run: Annotated[
         bool,
         typer.Option(
             "--dry-run",
             help=(
-                "Execute workflows in dry-run mode. Tasks still run and can "
-                "branch on ctx.dry_run; runs appear in the UI with a "
-                "[dry-run] badge."
+                "Execute in dry-run mode (local only). Tasks still run and can "
+                "branch on ctx.dry_run; runs appear in the UI with a [dry-run] badge."
             ),
         ),
     ] = False,
@@ -259,47 +257,141 @@ def run_local(
         bool,
         typer.Option(
             "--resume",
-            help=(
-                "Resume existing dry-run runs for real execution. "
-                "Only runs with status 'dry_run' are executed; "
-                "no new runs are created."
-            ),
+            help="Resume existing dry-run runs. Only 'dry_run' status runs are executed.",
         ),
     ] = False,
     bg: Annotated[
         bool,
-        typer.Option(
-            "--bg",
-            help="Run in background. Logs to <workspace>/molexp_bg_<pid>.log.",
-        ),
+        typer.Option("--bg", help="Run in background (local only). Logs to <workspace>/molexp_bg.log."),
     ] = False,
     workspace: Annotated[
         Optional[Path],
         typer.Option("--workspace", "-w", help="Workspace root (overrides project config)."),
     ] = None,
+    # ── HPC options (slurm / pbs / lsf) ───────────────────────────────────
+    cpus: Annotated[
+        Optional[int],
+        typer.Option("--cpus", help="CPU cores per job.", rich_help_panel="HPC Options"),
+    ] = None,
+    mem: Annotated[
+        Optional[str],
+        typer.Option("--mem", help="Memory per job (e.g. 8G, 512M).", rich_help_panel="HPC Options"),
+    ] = None,
+    time: Annotated[
+        Optional[str],
+        typer.Option("--time", "-t", help="Wall-clock time limit (e.g. 12:00:00, 2h30m).", rich_help_panel="HPC Options"),
+    ] = None,
+    gpus: Annotated[
+        Optional[int],
+        typer.Option("--gpus", help="GPUs per job.", rich_help_panel="HPC Options"),
+    ] = None,
+    gpu_type: Annotated[
+        Optional[str],
+        typer.Option("--gpu-type", help="GPU type constraint (e.g. a100).", rich_help_panel="HPC Options"),
+    ] = None,
+    account: Annotated[
+        Optional[str],
+        typer.Option("--account", "-A", help="Account / project name.", rich_help_panel="HPC Options"),
+    ] = None,
+    cluster: Annotated[
+        Optional[str],
+        typer.Option("--cluster", help="molq cluster name.", rich_help_panel="HPC Options"),
+    ] = None,
+    # ── SLURM-specific ─────────────────────────────────────────────────────
+    partition: Annotated[
+        Optional[str],
+        typer.Option("--partition", "-p", help="SLURM partition.", rich_help_panel="SLURM Options"),
+    ] = None,
+    qos: Annotated[
+        Optional[str],
+        typer.Option("--qos", help="SLURM QOS.", rich_help_panel="SLURM Options"),
+    ] = None,
+    # ── PBS / LSF-specific ─────────────────────────────────────────────────
+    queue: Annotated[
+        Optional[str],
+        typer.Option("--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"),
+    ] = None,
 ) -> None:
-    """Execute runs locally (sequential)."""
-    if bg:
-        _launch_bg(script=script, dry_run=dry_run, resume=resume, workspace=workspace)
+    """Run or schedule a parameter sweep defined in a Python script."""
+    # ── Validate backend flags ─────────────────────────────────────────────
+    if sum([local, slurm, pbs, lsf]) > 1:
+        rprint("[red]Error:[/red] Specify at most one backend flag (--local, --slurm, --pbs, --lsf).")
+        raise typer.Exit(1)
+
+    is_local = not slurm and not pbs and not lsf
+
+    if bg and not is_local:
+        rprint("[red]Error:[/red] --bg is only valid with --local.")
+        raise typer.Exit(1)
+    if dry_run and not is_local:
+        rprint("[red]Error:[/red] --dry-run is only valid with --local.")
+        raise typer.Exit(1)
+
+    # ── Local execution ────────────────────────────────────────────────────
+    if is_local:
+        if bg:
+            _launch_bg(script=script, dry_run=dry_run, resume=resume, workspace=workspace)
+            return
+
+        label = "[yellow]dry-run[/yellow]" if dry_run else "[green]local[/green]"
+
+        def _local_handler(
+            script_: Path, mol_run: Any, exp_spec: Any, _project_spec: Any,
+        ) -> None:
+            asyncio.run(exp_spec.workflow.execute(run=mol_run, dry_run=dry_run))
+
+        _execute_sweep(
+            script=script,
+            dry_run=dry_run,
+            resume=resume,
+            workspace=workspace,
+            run_handler=_local_handler,
+            mode_label=label,
+        )
         return
 
-    if dry_run:
-        label = "[yellow]dry-run[/yellow]"
-    else:
-        label = "[green]local[/green]"
+    # ── Cluster backends ───────────────────────────────────────────────────
+    try:
+        from molexp.plugins.submit_molq.submit import make_submit_handler
+    except ImportError:
+        rprint(
+            "[red]Error:[/red] molq is not installed. "
+            "Install it to use cluster backends: [bold]pip install molq[/bold]"
+        )
+        raise typer.Exit(1)
 
-    def _local_handler(
-        script_: Path, mol_run: Any, exp_spec: Any, _project_spec: Any,
-    ) -> None:
-        asyncio.run(exp_spec.workflow.execute(run=mol_run, dry_run=dry_run))
+    if slurm:
+        handler = make_submit_handler(
+            scheduler="slurm",
+            cluster=cluster,
+            resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
+            scheduling={"queue": partition, "account": account, "qos": qos},
+        )
+        mode_label = "[magenta]slurm[/magenta]"
+    elif pbs:
+        handler = make_submit_handler(
+            scheduler="pbs",
+            cluster=cluster,
+            resources={"cpus": cpus, "mem": mem, "gpus": gpus, "time": time},
+            scheduling={"queue": queue, "account": account},
+        )
+        mode_label = "[magenta]pbs[/magenta]"
+    else:  # lsf
+        handler = make_submit_handler(
+            scheduler="lsf",
+            cluster=cluster,
+            resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
+            scheduling={"queue": queue, "account": account},
+        )
+        mode_label = "[magenta]lsf[/magenta]"
 
     _execute_sweep(
         script=script,
-        dry_run=dry_run,
+        dry_run=False,
         resume=resume,
         workspace=workspace,
-        run_handler=_local_handler,
-        mode_label=label,
+        run_handler=handler,
+        mode_label=mode_label,
     )
 
 
@@ -314,7 +406,7 @@ def _launch_bg(
     import subprocess
     import sys
 
-    cmd = [sys.executable, "-m", "molexp.cli", "run", "local", str(script)]
+    cmd = [sys.executable, "-m", "molexp.cli", "run", str(script), "--local"]
     if dry_run:
         cmd.append("--dry-run")
     if resume:
@@ -327,21 +419,12 @@ def _launch_bg(
 
     proc = subprocess.Popen(
         cmd,
-        stdout=open(ws_root / f"molexp_bg.log", "a"),
+        stdout=open(ws_root / "molexp_bg.log", "a"),
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
     rprint(f"[green]OK[/green] Background PID {proc.pid}")
     rprint(f"  Log: {ws_root / 'molexp_bg.log'}")
-
-
-# ── Auto-discover submit plugins ─────────────────────────────────────────────
-
-try:
-    from molexp.plugins.submit_molq import register_commands as _register_molq
-    _register_molq(run_cmd)
-except ImportError:
-    pass  # molq not installed — only the local backend is available
 
 
 # ============ Server Command ============
