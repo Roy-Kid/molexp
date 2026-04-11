@@ -1,5 +1,6 @@
-import { useState } from "react";
 import { Play } from "lucide-react";
+import { useState } from "react";
+import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { workspaceApi } from "@/app/state/api";
 
 interface CreateRunDialogProps {
   projectId: string;
@@ -68,9 +68,7 @@ export function CreateRunDialog({
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Launch Run</DialogTitle>
-          <DialogDescription>
-            Execute workflow for experiment {experimentId}.
-          </DialogDescription>
+          <DialogDescription>Execute workflow for experiment {experimentId}.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
@@ -97,7 +95,7 @@ export function CreateRunDialog({
                 rows={6}
               />
             </div>
-             <div className="grid grid-cols-4 items-center gap-4">
+            <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="git-commit" className="text-right">
                 Commit
               </Label>
@@ -109,11 +107,7 @@ export function CreateRunDialog({
                 className="col-span-3"
               />
             </div>
-            {error && (
-              <div className="text-sm text-red-500 col-span-4 text-center">
-                {error}
-              </div>
-            )}
+            {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isLoading}>

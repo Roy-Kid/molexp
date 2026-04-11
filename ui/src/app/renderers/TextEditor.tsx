@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
 import Editor from "@monaco-editor/react";
 import { Save } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { workspaceApi } from "@/app/state/api";
+import type { RendererProps } from "@/app/types";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
-import type { RendererProps } from "@/app/types";
-import { workspaceApi } from "@/app/state/api";
 
 export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
   const [value, setValue] = useState<string>("");
@@ -52,13 +52,15 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
           setStatus("error");
         }
       });
-      
-    return () => { isMounted = false; };
+
+    return () => {
+      isMounted = false;
+    };
   }, [selection]); // Re-fetch when selection changes
 
   const handleSave = async () => {
     if (selection.objectType !== "workspace-file") return;
-    
+
     setStatus("saving");
     try {
       await workspaceApi.writeFile(selection.objectId, value);
@@ -73,15 +75,13 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
     <Card className="flex h-full flex-col border-border/60 bg-background">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="space-y-1">
-           <CardTitle className="text-lg font-semibold">Text Editor</CardTitle>
-           <p className="text-sm text-muted-foreground break-all">
-             {selection.objectId}
-           </p>
+          <CardTitle className="text-lg font-semibold">Text Editor</CardTitle>
+          <p className="text-sm text-muted-foreground break-all">{selection.objectId}</p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={handleSave} 
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleSave}
           disabled={status === "loading" || status === "saving"}
           className="gap-2"
         >
@@ -90,7 +90,7 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
         </Button>
       </CardHeader>
       <Separator />
-      <CardContent className="flex-1 pt-4 p-0 min-h-0"> 
+      <CardContent className="flex-1 pt-4 p-0 min-h-0">
         {/* Adjusted padding/overflow for editor */}
         {status === "error" ? (
           <div className="p-4 text-sm text-destructive">{error}</div>

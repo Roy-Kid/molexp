@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
 import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
-import { ReactFlow, Background, Controls, Handle, Position, MarkerType } from "@xyflow/react";
+import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
+import { useEffect, useMemo, useState } from "react";
 import "@xyflow/react/dist/style.css";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import type {
   RendererProps,
   SemanticStatus,
   WorkflowGraph,
   WorkflowNodeMetadata,
 } from "@/app/types";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 
 interface WorkflowNodeData extends Record<string, unknown> {
   label: string;
@@ -103,7 +103,9 @@ const WorkflowNode = ({ data }: NodeProps<WorkflowFlowNode>): JSX.Element => {
   const colorClass = getStatusColor(data.status);
 
   return (
-    <div className={`rounded-md border-2 bg-background px-3 py-2 shadow-sm min-w-[150px] ${colorClass}`}>
+    <div
+      className={`rounded-md border-2 bg-background px-3 py-2 shadow-sm min-w-[150px] ${colorClass}`}
+    >
       <Handle type="target" position={Position.Top} className="h-3 w-3 bg-muted-foreground" />
       <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{data.nodeType}</p>
       <p className="text-sm font-bold">{data.label}</p>
@@ -115,7 +117,7 @@ const WorkflowNode = ({ data }: NodeProps<WorkflowFlowNode>): JSX.Element => {
 
 const normalizeGraph = (graph: WorkflowGraph): DisplayWorkflowGraph => {
   return {
-    nodes: graph.nodes.map(node => ({
+    nodes: graph.nodes.map((node) => ({
       nodeId: node.nodeId,
       label: node.label,
       nodeType: node.nodeType,
@@ -123,7 +125,7 @@ const normalizeGraph = (graph: WorkflowGraph): DisplayWorkflowGraph => {
       description: node.description,
       position: node.position,
     })),
-    edges: graph.edges.map(edge => ({
+    edges: graph.edges.map((edge) => ({
       id: edge.id,
       source: edge.source,
       target: edge.target,
@@ -145,7 +147,7 @@ const normalizeGraphFromUnknown = (value: unknown): DisplayWorkflowGraph | null 
   }
 
   const nodes: WorkflowNodeMetadata[] = rawNodes
-    .map(item => {
+    .map((item) => {
       const node = asRecord(item);
       if (!node) {
         return null;
@@ -197,7 +199,9 @@ const normalizeGraphFromUnknown = (value: unknown): DisplayWorkflowGraph | null 
   return { nodes, edges };
 };
 
-const graphFromTaskConfigPayload = (value: Record<string, unknown>): DisplayWorkflowGraph | null => {
+const graphFromTaskConfigPayload = (
+  value: Record<string, unknown>,
+): DisplayWorkflowGraph | null => {
   const tasks = Array.isArray(value.task_configs) ? value.task_configs : null;
   const links = Array.isArray(value.links) ? value.links : null;
   if (!tasks || !links) {
@@ -287,13 +291,62 @@ const extractWorkflowFromFile = async (filePath: string): Promise<FileWorkflowDa
 
 const parallelGraph: DisplayWorkflowGraph = {
   nodes: [
-    { nodeId: "start", label: "Input Data", nodeType: "input", status: "succeeded", position: { x: 250, y: 0 }, description: "Raw sequence" },
-    { nodeId: "preprocess", label: "MSA Search", nodeType: "task", status: "succeeded", position: { x: 250, y: 100 }, description: "Multiple Sequence Alignment" },
-    { nodeId: "model_1", label: "Model 1", nodeType: "task", status: "succeeded", position: { x: 50, y: 250 }, description: "Prediction Model 1" },
-    { nodeId: "model_2", label: "Model 2", nodeType: "task", status: "failed", position: { x: 250, y: 250 }, description: "Prediction Model 2 (Failed)" },
-    { nodeId: "model_3", label: "Model 3", nodeType: "task", status: "skipped", position: { x: 450, y: 250 }, description: "Prediction Model 3 (Skipped)" },
-    { nodeId: "consensus", label: "Consensus", nodeType: "task", status: "running", position: { x: 250, y: 400 }, description: "Ensemble voting" },
-    { nodeId: "output", label: "PDB Structure", nodeType: "output", status: "pending", position: { x: 250, y: 500 }, description: "Final structure" },
+    {
+      nodeId: "start",
+      label: "Input Data",
+      nodeType: "input",
+      status: "succeeded",
+      position: { x: 250, y: 0 },
+      description: "Raw sequence",
+    },
+    {
+      nodeId: "preprocess",
+      label: "MSA Search",
+      nodeType: "task",
+      status: "succeeded",
+      position: { x: 250, y: 100 },
+      description: "Multiple Sequence Alignment",
+    },
+    {
+      nodeId: "model_1",
+      label: "Model 1",
+      nodeType: "task",
+      status: "succeeded",
+      position: { x: 50, y: 250 },
+      description: "Prediction Model 1",
+    },
+    {
+      nodeId: "model_2",
+      label: "Model 2",
+      nodeType: "task",
+      status: "failed",
+      position: { x: 250, y: 250 },
+      description: "Prediction Model 2 (Failed)",
+    },
+    {
+      nodeId: "model_3",
+      label: "Model 3",
+      nodeType: "task",
+      status: "skipped",
+      position: { x: 450, y: 250 },
+      description: "Prediction Model 3 (Skipped)",
+    },
+    {
+      nodeId: "consensus",
+      label: "Consensus",
+      nodeType: "task",
+      status: "running",
+      position: { x: 250, y: 400 },
+      description: "Ensemble voting",
+    },
+    {
+      nodeId: "output",
+      label: "PDB Structure",
+      nodeType: "output",
+      status: "pending",
+      position: { x: 250, y: 500 },
+      description: "Final structure",
+    },
   ],
   edges: [
     { id: "e1", source: "start", target: "preprocess", label: "seq", status: "succeeded" },
@@ -309,12 +362,54 @@ const parallelGraph: DisplayWorkflowGraph = {
 
 const loopGraph: DisplayWorkflowGraph = {
   nodes: [
-    { nodeId: "init", label: "Init Params", nodeType: "input", status: "succeeded", position: { x: 200, y: 0 }, description: "Initial configuration" },
-    { nodeId: "sim", label: "Simulation", nodeType: "task", status: "succeeded", position: { x: 200, y: 150 }, description: "Run dynamics" },
-    { nodeId: "eval", label: "Evaluate Energy", nodeType: "task", status: "succeeded", position: { x: 200, y: 300 }, description: "Check stability" },
-    { nodeId: "check", label: "Converged?", nodeType: "task", status: "running", position: { x: 200, y: 450 }, description: "Decision gate" },
-    { nodeId: "refine", label: "Refine", nodeType: "task", status: "pending", position: { x: 450, y: 225 }, description: "Adjust parameters" },
-    { nodeId: "final", label: "Report", nodeType: "output", status: "pending", position: { x: 200, y: 600 }, description: "Analysis report" },
+    {
+      nodeId: "init",
+      label: "Init Params",
+      nodeType: "input",
+      status: "succeeded",
+      position: { x: 200, y: 0 },
+      description: "Initial configuration",
+    },
+    {
+      nodeId: "sim",
+      label: "Simulation",
+      nodeType: "task",
+      status: "succeeded",
+      position: { x: 200, y: 150 },
+      description: "Run dynamics",
+    },
+    {
+      nodeId: "eval",
+      label: "Evaluate Energy",
+      nodeType: "task",
+      status: "succeeded",
+      position: { x: 200, y: 300 },
+      description: "Check stability",
+    },
+    {
+      nodeId: "check",
+      label: "Converged?",
+      nodeType: "task",
+      status: "running",
+      position: { x: 200, y: 450 },
+      description: "Decision gate",
+    },
+    {
+      nodeId: "refine",
+      label: "Refine",
+      nodeType: "task",
+      status: "pending",
+      position: { x: 450, y: 225 },
+      description: "Adjust parameters",
+    },
+    {
+      nodeId: "final",
+      label: "Report",
+      nodeType: "output",
+      status: "pending",
+      position: { x: 200, y: 600 },
+      description: "Analysis report",
+    },
   ],
   edges: [
     { id: "e1", source: "init", target: "sim", label: "start", status: "succeeded" },
@@ -322,22 +417,71 @@ const loopGraph: DisplayWorkflowGraph = {
     { id: "e3", source: "eval", target: "check", label: "score", status: "succeeded" },
     { id: "e4", source: "check", target: "final", label: "yes", status: "pending" },
     { id: "e5", source: "check", target: "refine", label: "no", status: "running", animated: true },
-    { id: "e6", source: "refine", target: "sim", label: "retry", status: "pending", animated: true },
+    {
+      id: "e6",
+      source: "refine",
+      target: "sim",
+      label: "retry",
+      status: "pending",
+      animated: true,
+    },
   ],
 };
 
 const asyncGraph: DisplayWorkflowGraph = {
   nodes: [
-    { nodeId: "trigger", label: "Job Submission", nodeType: "input", status: "succeeded", position: { x: 100, y: 100 }, description: "Submit to cluster" },
-    { nodeId: "remote", label: "Remote Cluster", nodeType: "task", status: "running", position: { x: 350, y: 100 }, description: "External computation" },
-    { nodeId: "monitor", label: "Status Poller", nodeType: "task", status: "running", position: { x: 350, y: 250 }, description: "Check status" },
-    { nodeId: "notify", label: "Notification", nodeType: "task", status: "skipped", position: { x: 100, y: 250 }, description: "Slack alert (Skipped)" },
-    { nodeId: "download", label: "Fetch Results", nodeType: "task", status: "pending", position: { x: 600, y: 100 }, description: "Download artifacts" },
+    {
+      nodeId: "trigger",
+      label: "Job Submission",
+      nodeType: "input",
+      status: "succeeded",
+      position: { x: 100, y: 100 },
+      description: "Submit to cluster",
+    },
+    {
+      nodeId: "remote",
+      label: "Remote Cluster",
+      nodeType: "task",
+      status: "running",
+      position: { x: 350, y: 100 },
+      description: "External computation",
+    },
+    {
+      nodeId: "monitor",
+      label: "Status Poller",
+      nodeType: "task",
+      status: "running",
+      position: { x: 350, y: 250 },
+      description: "Check status",
+    },
+    {
+      nodeId: "notify",
+      label: "Notification",
+      nodeType: "task",
+      status: "skipped",
+      position: { x: 100, y: 250 },
+      description: "Slack alert (Skipped)",
+    },
+    {
+      nodeId: "download",
+      label: "Fetch Results",
+      nodeType: "task",
+      status: "pending",
+      position: { x: 600, y: 100 },
+      description: "Download artifacts",
+    },
   ],
   edges: [
     { id: "e1", source: "trigger", target: "remote", label: "submit", status: "succeeded" },
     { id: "e2", source: "trigger", target: "notify", label: "started", status: "skipped" },
-    { id: "e3", source: "remote", target: "monitor", label: "heartbeat", status: "running", animated: true },
+    {
+      id: "e3",
+      source: "remote",
+      target: "monitor",
+      label: "heartbeat",
+      status: "running",
+      animated: true,
+    },
     { id: "e4", source: "remote", target: "download", label: "done", status: "pending" },
   ],
 };
@@ -353,7 +497,8 @@ const getDemoGraph = (workflowId: string): DisplayWorkflowGraph => {
 };
 
 export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
-  const snapshotWorkflow = snapshot.workflows.find(item => item.id === selection.objectId) ?? null;
+  const snapshotWorkflow =
+    snapshot.workflows.find((item) => item.id === selection.objectId) ?? null;
   const [fileWorkflow, setFileWorkflow] = useState<FileWorkflowData | null>(null);
   const [isLoadingFile, setIsLoadingFile] = useState(false);
 
@@ -368,7 +513,7 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
 
     setIsLoadingFile(true);
     extractWorkflowFromFile(selection.objectId)
-      .then(extracted => {
+      .then((extracted) => {
         if (!cancelled) {
           setFileWorkflow(extracted);
         }
@@ -404,7 +549,7 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
     if (!graph) {
       return [];
     }
-    return graph.nodes.map(node => ({
+    return graph.nodes.map((node) => ({
       id: node.nodeId,
       type: "workflowNode",
       position: node.position,
@@ -421,7 +566,7 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
     if (!graph) {
       return [];
     }
-    return graph.edges.map(edge => ({
+    return graph.edges.map((edge) => ({
       id: edge.id,
       source: edge.source,
       target: edge.target,

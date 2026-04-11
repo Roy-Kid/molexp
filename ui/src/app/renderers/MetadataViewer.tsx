@@ -1,7 +1,7 @@
+import { buildMetadataFields } from "@/app/renderers/metadata";
+import type { RendererProps } from "@/app/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { RendererProps } from "@/app/types";
-import { buildMetadataFields } from "@/app/renderers/metadata";
 
 export const MetadataViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const fields = buildMetadataFields(selection, snapshot);
@@ -16,7 +16,7 @@ export const MetadataViewer = ({ selection, snapshot }: RendererProps): JSX.Elem
       </CardHeader>
       <Separator />
       <CardContent className="space-y-4 pt-4">
-        {fields.map(field => (
+        {fields.map((field) => (
           <div key={field.label} className="space-y-1">
             <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {field.label}

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useState } from "react";
-import type { WorkspaceSnapshot } from "@/app/types";
 import {
   agentApi,
   buildEmptySnapshot,
@@ -13,6 +12,7 @@ import {
   mapWorkspaceTree,
   workspaceApi,
 } from "@/app/state/api";
+import type { WorkspaceSnapshot } from "@/app/types";
 
 export type WorkspaceStatus = "idle" | "loading" | "ready" | "error";
 
@@ -60,7 +60,6 @@ const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
     mapRuns(item.projectId, item.experimentId, item.runs),
   );
 
-
   const projectAssets = await Promise.all(
     projectsResponse.map(async (project) => {
       try {
@@ -73,12 +72,9 @@ const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
     }),
   );
 
-  const allAssets = [
-    ...mapAssets(await workspaceApi.getAssets()),
-    ...projectAssets.flat(),
-  ];
+  const allAssets = [...mapAssets(await workspaceApi.getAssets()), ...projectAssets.flat()];
 
-  const assetSummaries = Array.from(new Map(allAssets.map(item => [item.id, item])).values());
+  const assetSummaries = Array.from(new Map(allAssets.map((item) => [item.id, item])).values());
   const rawExperiments = experimentsByProject.flatMap((item) => item.experiments);
   const workflowSummaries = mapWorkflows(experimentSummaries, rawExperiments);
 

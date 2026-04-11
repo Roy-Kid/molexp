@@ -186,3 +186,6 @@ thumb
 sketch
 
 openapi.json
+
+# Compiled frontend bundle (built into wheel, not tracked in git)
+src/molexp/_webapp/

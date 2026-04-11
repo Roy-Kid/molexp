@@ -1,14 +1,11 @@
-import { Badge } from "@/components/ui/badge";
 import { Workflow } from "lucide-react";
-import type { RendererProps } from "@/app/types";
 import { TabbedViewer } from "@/app/renderers/TabbedViewer";
 import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
 import { WorkflowSourceViewer } from "@/app/renderers/WorkflowSourceViewer";
+import type { RendererProps } from "@/app/types";
+import { Badge } from "@/components/ui/badge";
 
-const WorkflowOverview = ({
-  selection,
-  snapshot,
-}: RendererProps): JSX.Element => {
+const WorkflowOverview = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const workflowId = selection.objectId;
   const workflow = snapshot.workflows.find((w) => w.id === workflowId);
 
@@ -38,34 +35,32 @@ const WorkflowOverview = ({
 
       <div className="flex-1 p-8 space-y-6">
         <div className="space-y-2">
-             <h3 className="text-lg font-semibold">Summary</h3>
-             <div className="rounded-md border p-4 bg-muted/20">
-                <p className="text-sm">
-                    {workflow.summary || "No summary available."}
-                </p>
-             </div>
+          <h3 className="text-lg font-semibold">Summary</h3>
+          <div className="rounded-md border p-4 bg-muted/20">
+            <p className="text-sm">{workflow.summary || "No summary available."}</p>
+          </div>
         </div>
 
         <div className="space-y-2">
-            <h3 className="text-lg font-semibold">Metadata</h3>
-             <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 rounded-md border bg-card">
-                    <p className="text-xs text-muted-foreground uppercase">Project ID</p>
-                    <p className="font-mono text-sm">{workflow.projectId}</p>
-                </div>
-                <div className="p-4 rounded-md border bg-card">
-                    <p className="text-xs text-muted-foreground uppercase">Experiment ID</p>
-                    <p className="font-mono text-sm">{workflow.experimentId}</p>
-                </div>
-                <div className="p-4 rounded-md border bg-card">
-                    <p className="text-xs text-muted-foreground uppercase">Last Updated</p>
-                    <p className="text-sm">{new Date(workflow.updatedAt).toLocaleString()}</p>
-                </div>
-                <div className="p-4 rounded-md border bg-card">
-                    <p className="text-xs text-muted-foreground uppercase">Status</p>
-                    <p className="text-sm capitalize">{workflow.status}</p>
-                </div>
-             </div>
+          <h3 className="text-lg font-semibold">Metadata</h3>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 rounded-md border bg-card">
+              <p className="text-xs text-muted-foreground uppercase">Project ID</p>
+              <p className="font-mono text-sm">{workflow.projectId}</p>
+            </div>
+            <div className="p-4 rounded-md border bg-card">
+              <p className="text-xs text-muted-foreground uppercase">Experiment ID</p>
+              <p className="font-mono text-sm">{workflow.experimentId}</p>
+            </div>
+            <div className="p-4 rounded-md border bg-card">
+              <p className="text-xs text-muted-foreground uppercase">Last Updated</p>
+              <p className="text-sm">{new Date(workflow.updatedAt).toLocaleString()}</p>
+            </div>
+            <div className="p-4 rounded-md border bg-card">
+              <p className="text-xs text-muted-foreground uppercase">Status</p>
+              <p className="text-sm capitalize">{workflow.status}</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>

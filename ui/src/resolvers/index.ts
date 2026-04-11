@@ -2,8 +2,8 @@
  * Resolver exports
  */
 
-export * from './types';
-export * from './DocumentResolver';
-export * from './BaseResolver';
-export * from './WorkflowResolver';
-export * from './ContextResolver';
+export * from "./BaseResolver";
+export * from "./ContextResolver";
+export * from "./DocumentResolver";
+export * from "./types";
+export * from "./WorkflowResolver";

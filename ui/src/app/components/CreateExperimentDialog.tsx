@@ -1,5 +1,6 @@
-import { useState } from "react";
 import { Plus } from "lucide-react";
+import { useState } from "react";
+import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -13,7 +14,6 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { workspaceApi } from "@/app/state/api";
 
 interface CreateExperimentDialogProps {
   projectId: string;
@@ -118,11 +118,7 @@ export function CreateExperimentDialog({
                 rows={4}
               />
             </div>
-            {error && (
-              <div className="text-sm text-red-500 col-span-4 text-center">
-                {error}
-              </div>
-            )}
+            {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isLoading}>

@@ -1,6 +1,10 @@
-import { Card } from "@/components/ui/card";
-import { buildRendererKeyFromSelection, renderPlanByObjectType, resolveRenderer } from "@/app/registry";
+import {
+  buildRendererKeyFromSelection,
+  renderPlanByObjectType,
+  resolveRenderer,
+} from "@/app/registry";
 import type { InspectorTarget, Selection, WorkspaceSnapshot } from "@/app/types";
+import { Card } from "@/components/ui/card";
 
 interface RightPanelProps {
   selection: Selection | null;
@@ -26,14 +30,14 @@ export const RightPanel = ({
   }
 
   const plan = renderPlanByObjectType[selection.objectType];
-  const renderers = plan.right.map(target => {
+  const renderers = plan.right.map((target) => {
     const key = buildRendererKeyFromSelection(selection, target);
     return resolveRenderer(key);
   });
 
   return (
     <div className="flex h-full flex-col gap-4">
-      {renderers.map(renderer => (
+      {renderers.map((renderer) => (
         <renderer.Component
           key={`${renderer.title}-${renderer.panelSlot}`}
           selection={selection}

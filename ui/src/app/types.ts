@@ -1,4 +1,11 @@
-export type LeftPanelView = "workspace" | "project" | "experiment" | "run" | "asset" | "workflow" | "agent";
+export type LeftPanelView =
+  | "workspace"
+  | "project"
+  | "experiment"
+  | "run"
+  | "asset"
+  | "workflow"
+  | "agent";
 
 export type SemanticObjectType =
   | "project"
@@ -15,13 +22,7 @@ export type PanelKind = "editor" | "viewer" | "inspector";
 
 export type FileKind = "yaml" | "json" | "python" | "markdown" | "text" | "image" | "unknown";
 
-export type ContentType =
-  | "workflow-graph"
-  | "metadata"
-  | "log"
-  | "text"
-  | "metrics"
-  | "image";
+export type ContentType = "workflow-graph" | "metadata" | "log" | "text" | "metrics" | "image";
 
 export type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
 
@@ -40,27 +41,27 @@ export type SemanticStatus =
   | "cancelled"
   | "skipped";
 
-import type { ProjectCreateRequest } from "../api/generated/models/ProjectCreateRequest";
 import type { ExperimentCreateRequest } from "../api/generated/models/ExperimentCreateRequest";
+import type { ProjectCreateRequest } from "../api/generated/models/ProjectCreateRequest";
 import type { RunCreateRequest } from "../api/generated/models/RunCreateRequest";
 
-export type { ProjectCreateRequest, ExperimentCreateRequest, RunCreateRequest };
+export type { ExperimentCreateRequest, ProjectCreateRequest, RunCreateRequest };
 
-import type { ProjectResponse } from "../api/generated/models/ProjectResponse";
-import type { ExperimentResponse } from "../api/generated/models/ExperimentResponse";
-import type { RunResponse } from "../api/generated/models/RunResponse";
-import type { AssetResponse } from "../api/generated/models/AssetResponse";
+import type { AgentSessionResponse } from "../api/generated/models/AgentSessionResponse";
 import type { AssetFileResponse } from "../api/generated/models/AssetFileResponse";
-import type { WorkflowSnapshotResponse } from "../api/generated/models/WorkflowSnapshotResponse";
-import type { ContextSnapshotResponse } from "../api/generated/models/ContextSnapshotResponse";
 import type { AssetRefResponse } from "../api/generated/models/AssetRefResponse";
 import type { AssetRefsResponse } from "../api/generated/models/AssetRefsResponse";
-import type { RunSummary as ApiRunSummaryModel } from "../api/generated/models/RunSummary";
-import type { TaskSnapshotResponse } from "../api/generated/models/TaskSnapshotResponse";
-import type { CacheStatsResponse } from "../api/generated/models/CacheStatsResponse";
+import type { AssetResponse } from "../api/generated/models/AssetResponse";
 import type { CacheClearResponse } from "../api/generated/models/CacheClearResponse";
-import type { AgentSessionResponse } from "../api/generated/models/AgentSessionResponse";
+import type { CacheStatsResponse } from "../api/generated/models/CacheStatsResponse";
+import type { ContextSnapshotResponse } from "../api/generated/models/ContextSnapshotResponse";
+import type { ExperimentResponse } from "../api/generated/models/ExperimentResponse";
+import type { ProjectResponse } from "../api/generated/models/ProjectResponse";
+import type { RunResponse } from "../api/generated/models/RunResponse";
+import type { RunSummary as ApiRunSummaryModel } from "../api/generated/models/RunSummary";
 import type { SessionEventResponse } from "../api/generated/models/SessionEventResponse";
+import type { TaskSnapshotResponse } from "../api/generated/models/TaskSnapshotResponse";
+import type { WorkflowSnapshotResponse } from "../api/generated/models/WorkflowSnapshotResponse";
 
 // Re-export as Api*Response for compatibility
 export type ApiProjectResponse = ProjectResponse;
@@ -213,19 +214,23 @@ export interface AgentSelection {
   objectId: string; // session_id, or "new" for the goal-input state
 }
 
-export type Selection = ObjectSelection | WorkflowSelection | WorkspaceFileSelection | AgentSelection;
+export type Selection =
+  | ObjectSelection
+  | WorkflowSelection
+  | WorkspaceFileSelection
+  | AgentSelection;
 
 export type InspectorTarget =
   | {
-    kind: "object";
-    objectType: SemanticObjectType;
-    objectId: string;
-  }
+      kind: "object";
+      objectType: SemanticObjectType;
+      objectId: string;
+    }
   | {
-    kind: "workflow-node";
-    workflowId: string;
-    nodeId: string;
-  };
+      kind: "workflow-node";
+      workflowId: string;
+      nodeId: string;
+    };
 
 export interface RendererKey {
   objectType: SemanticObjectType;

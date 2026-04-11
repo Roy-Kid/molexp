@@ -72,9 +72,17 @@ export const registerDefaultRenderers = (): void => {
     Component: WorkflowViewer,
   });
 
-  const workspaceFileKinds = ["yaml", "json", "python", "markdown", "text", "unknown", "image"] as const;
+  const workspaceFileKinds = [
+    "yaml",
+    "json",
+    "python",
+    "markdown",
+    "text",
+    "unknown",
+    "image",
+  ] as const;
   const editorFileKinds = ["yaml", "json", "python", "markdown", "text", "unknown"] as const;
-  editorFileKinds.forEach(fileKind => {
+  editorFileKinds.forEach((fileKind) => {
     registerRenderer({
       key: {
         objectType: "workspace-file",
@@ -172,7 +180,7 @@ export const registerDefaultRenderers = (): void => {
     Component: WorkflowInspector,
   });
 
-  workspaceFileKinds.forEach(fileKind => {
+  workspaceFileKinds.forEach((fileKind) => {
     registerRenderer({
       key: {
         objectType: "workspace-file",

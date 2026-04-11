@@ -34,6 +34,7 @@ class RunStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
+    DRY_RUN = "dry_run"
 
 
 # ── RunContext ──────────────────────────────────────────────────────────────
@@ -88,11 +89,12 @@ class RunContext:
         now = datetime.now()
         if exc_type is None:
             workflow_status = self._context.status.get("run")
-            final = (
-                RunStatus.FAILED
-                if workflow_status == RunStatus.FAILED
-                else RunStatus.SUCCEEDED
-            )
+            if workflow_status == RunStatus.FAILED:
+                final = RunStatus.FAILED
+            elif self.dry_run:
+                final = RunStatus.DRY_RUN
+            else:
+                final = RunStatus.SUCCEEDED
             self.run._update_metadata(status=final, finished_at=now)
         else:
             self.run._update_metadata(

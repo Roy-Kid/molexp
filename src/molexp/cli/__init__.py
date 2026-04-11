@@ -86,6 +86,17 @@ def run(
             ),
         ),
     ] = False,
+    resume: Annotated[
+        bool,
+        typer.Option(
+            "--resume",
+            help=(
+                "Resume existing dry-run runs for real execution. "
+                "Only runs with status 'dry_run' are executed; "
+                "no new runs are created."
+            ),
+        ),
+    ] = False,
     slurm: Annotated[
         bool,
         typer.Option(
@@ -162,6 +173,9 @@ def run(
     if dry_run and slurm:
         rprint("[red]Error:[/red] --dry-run and --slurm are mutually exclusive.")
         raise typer.Exit(1)
+    if resume and dry_run:
+        rprint("[red]Error:[/red] --resume and --dry-run are mutually exclusive.")
+        raise typer.Exit(1)
 
     # ── Load the script (triggers me.entry() calls) ─────────────────────
     try:
@@ -207,11 +221,14 @@ def run(
                 param_iter = [{}]
 
             total = len(param_iter) * exp_spec.n_replicas
-            mode_label = (
-                "[yellow]dry-run[/yellow]"
-                if dry_run
-                else ("[magenta]slurm[/magenta]" if slurm else "[green]local[/green]")
-            )
+            if resume:
+                mode_label = "[cyan]resume[/cyan]" + (" + [magenta]slurm[/magenta]" if slurm else "")
+            elif dry_run:
+                mode_label = "[yellow]dry-run[/yellow]"
+            elif slurm:
+                mode_label = "[magenta]slurm[/magenta]"
+            else:
+                mode_label = "[green]local[/green]"
             rprint(
                 f"\n[bold]Experiment:[/bold] {exp_spec.name}"
                 f"\n  Script:    {script}"
@@ -244,11 +261,20 @@ def run(
                     run_params = {**params, "seed": seed, "replica": replica_idx}
                     run_id = _deterministic_run_id(run_params)
 
-                    # Idempotent: skip runs that already exist
                     existing = ws_exp.get_run(run_id)
-                    if existing is not None:
+                    if resume:
+                        # --resume: only execute existing dry_run runs
+                        if existing is None:
+                            rprint(f"  [dim]- {exp_id}  seed={seed} (no existing run, skipped)[/dim]")
+                            continue
                         status = existing.status
-                        if status in ("succeeded", "running"):
+                        if status != "dry_run":
+                            rprint(f"  [dim]- {exp_id}  seed={seed} ({status}, skipped)[/dim]")
+                            continue
+                        mol_run = existing
+                    elif existing is not None:
+                        status = existing.status
+                        if status in ("succeeded", "running", "dry_run"):
                             rprint(f"  [dim]- {exp_id}  seed={seed} ({status}, skipped)[/dim]")
                             continue
                         # Re-run failed/pending/cancelled
@@ -259,7 +285,12 @@ def run(
                         )
 
                     created_runs.append((mol_run, params, seed))
-                    icon = "[yellow]~[/yellow]" if dry_run else "[dim]o[/dim]"
+                    if resume:
+                        icon = "[cyan]>[/cyan]"
+                    elif dry_run:
+                        icon = "[yellow]~[/yellow]"
+                    else:
+                        icon = "[dim]o[/dim]"
                     rprint(f"  {icon} {exp_id}  seed={seed}")
 
             # ── Execute or submit ───────────────────────────────────────
@@ -286,13 +317,25 @@ def run(
                     )
                     rprint(f"  [magenta]>>[/magenta] queued  {exp_id}  seed={seed}")
                 else:
-                    verb = "dry-running" if dry_run else "running"
+                    if resume:
+                        verb = "resuming"
+                    elif dry_run:
+                        verb = "dry-running"
+                    else:
+                        verb = "running"
                     rprint(f"  [cyan]>[/cyan] {verb} {exp_id}  seed={seed}")
                     asyncio.run(workflow.execute(run=mol_run, dry_run=dry_run))
 
-            verb = "submitted" if slurm else (
-                "completed in dry-run mode" if dry_run else "completed"
-            )
+            if slurm and resume:
+                verb = "submitted (resumed)"
+            elif slurm:
+                verb = "submitted"
+            elif resume:
+                verb = "resumed"
+            elif dry_run:
+                verb = "completed in dry-run mode"
+            else:
+                verb = "completed"
             rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
 
 
@@ -354,7 +397,7 @@ def serve(
         typer.Option("--dev", help="Development mode (API only, reload enabled)"),
     ] = False,
 ) -> None:
-    """Start the MolExp Backend Server."""
+    """Start the MolExp server (API + bundled web UI)."""
     import os
 
     # Auto-discover workspace: if cwd has no workspace.json, check ./workspace
@@ -373,10 +416,11 @@ def serve(
     os.chdir(resolved)
 
     rprint(f"[bold]Serving Workspace:[/bold] {workdir}")
-    rprint(f"[cyan]->[/cyan] API Server at http://{host}:{port}")
 
     if dev:
-        rprint("[yellow]Development Mode:[/yellow] Reload active. Serving API only.")
+        rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api")
+        rprint("[yellow]Dev mode:[/yellow] API with reload. Run the frontend separately:")
+        rprint(f"[dim]  cd ui && npm run dev  ->  http://localhost:5173[/dim]")
         uvicorn.run(
             "molexp.server.app:app",
             host=host,
@@ -385,7 +429,17 @@ def serve(
             log_level="info",
         )
     else:
-        from molexp.server.app import create_app
+        from molexp.server.app import _find_bundled_webapp, create_app
+
+        webapp = _find_bundled_webapp()
+        if webapp is None:
+            rprint(f"[cyan]->[/cyan] API at http://{host}:{port}/api  (no bundled UI)")
+            rprint(
+                "[dim]  Build a wheel to include the frontend, "
+                "or use --dev for development.[/dim]"
+            )
+        else:
+            rprint(f"[cyan]->[/cyan] http://{host}:{port}")
 
         application = create_app()
         uvicorn.run(application, host=host, port=port, log_level="info")
@@ -430,6 +484,7 @@ def info(
         "succeeded": 0,
         "failed": 0,
         "cancelled": 0,
+        "dry_run": 0,
     }
 
     for project in projects:
@@ -461,6 +516,7 @@ def info(
                     "running": "yellow",
                     "pending": "blue",
                     "cancelled": "gray",
+                    "dry_run": "cyan",
                 }.get(status, "white")
                 rprint(f"  [{color}]{status.capitalize()}[/{color}]: {count}")
 
@@ -721,6 +777,7 @@ def run_list(
             "running": "yellow",
             "pending": "blue",
             "cancelled": "gray",
+            "dry_run": "cyan",
         }.get(status, "white")
 
         table.add_row(

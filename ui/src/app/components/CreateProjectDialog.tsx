@@ -1,5 +1,6 @@
-import { useState } from "react";
 import { Plus } from "lucide-react";
+import { useState } from "react";
+import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,7 +13,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { workspaceApi } from "@/app/state/api";
 
 interface CreateProjectDialogProps {
   onProjectCreated: () => void;
@@ -62,9 +62,7 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle>Create Project</DialogTitle>
-          <DialogDescription>
-            Create a new project to organize your experiments.
-          </DialogDescription>
+          <DialogDescription>Create a new project to organize your experiments.</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
@@ -92,11 +90,7 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
                 className="col-span-3"
               />
             </div>
-            {error && (
-              <div className="text-sm text-red-500 col-span-4 text-center">
-                {error}
-              </div>
-            )}
+            {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isLoading}>

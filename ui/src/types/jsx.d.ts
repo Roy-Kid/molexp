@@ -9,5 +9,3 @@ declare global {
     interface LibraryManagedAttributes<C, P> extends React.JSX.LibraryManagedAttributes<C, P> {}
   }
 }
-
-export {};

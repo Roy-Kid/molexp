@@ -111,9 +111,14 @@ class GraphWorkflowRuntime(WorkflowRuntime):
 
         from molexp.workspace.run import RunStatus
 
-        run_context.context.status["run"] = (
-            RunStatus.FAILED if failed else RunStatus.SUCCEEDED
-        )
+        if failed:
+            status = RunStatus.FAILED
+        elif getattr(run_context, "dry_run", False):
+            status = RunStatus.DRY_RUN
+        else:
+            status = RunStatus.SUCCEEDED
+
+        run_context.context.status["run"] = status
         if persist and hasattr(run_context, "_save_context"):
             run_context._save_context()
 

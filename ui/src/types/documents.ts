@@ -1,11 +1,8 @@
 export type JsonPrimitive = string | number | boolean | null;
 
-export type JsonValue =
-  | JsonPrimitive
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export type TaskStatus = 'pending' | 'running' | 'succeeded' | 'failed' | 'cancelled';
+export type TaskStatus = "pending" | "running" | "succeeded" | "failed" | "cancelled";
 
 export interface TaskConfig {
   task_id: string;

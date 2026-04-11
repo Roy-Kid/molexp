@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Backend (Python)
 
 ```bash
-# Install in editable mode
-pip install -e .
+# Install in editable mode (no frontend, dev only)
+MOLEXP_SKIP_UI_BUILD=1 pip install -e .
 
 # Run all tests
 pytest tests/
@@ -22,11 +22,14 @@ pytest tests/workspace/test_workspace.py::test_workspace_creation
 # Start API server (dev mode, hot-reload, API only)
 molexp serve --dev
 
-# Start with specific workdir and port
+# Start with bundled UI (requires wheel build, see Packaging section)
 molexp serve --workdir /path/to/workspace --port 8000
 
 # Initialize a workspace
 molexp init [path]
+
+# Build wheel with frontend assets included
+python -m build --wheel
 ```
 
 ### Frontend (TypeScript/React)
@@ -166,6 +169,22 @@ Key patterns:
 - `api/generated/` — **Never edit manually**; regenerate with `npm run generate:api`
 - `mocks/handlers/` — MSW handlers for `dev:mock` mode; keep in sync with API changes
 - `resolvers/` — Entity resolution for rendering dispatch
+
+### Packaging & Frontend Serving
+
+The React frontend is **compiled at wheel build time** and bundled inside the Python package. It is **not** committed to git and **not** built at `pip install` time.
+
+```
+ui/src/  →  (npm run build)  →  ui/dist/  →  (setup.py)  →  src/molexp/_webapp/  →  wheel
+```
+
+- **`setup.py`** overrides `build_py` to run `npm ci && npm run build` in `ui/`, then copies `ui/dist/` into `src/molexp/_webapp/`
+- **`pyproject.toml`** declares `[tool.setuptools.package-data] "molexp" = ["_webapp/**"]` so setuptools includes the assets in the wheel
+- **`src/molexp/_webapp/`** is gitignored — it only exists transiently during wheel builds
+- **`MOLEXP_SKIP_UI_BUILD=1`** skips frontend compilation (for editable installs during dev, or CI that only tests Python)
+- **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "_webapp"` to locate the bundled assets. If not found, the server runs API-only.
+- **Dev mode** (`molexp serve --dev`): API with uvicorn reload; frontend dev server runs separately (`cd ui && npm run dev`)
+- **Production** (`molexp serve`): serves API + bundled SPA from the installed package
 
 ### Key Patterns
 

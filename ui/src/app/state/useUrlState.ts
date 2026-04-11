@@ -2,12 +2,12 @@ import { useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
   AgentSelection,
+  FileKind,
   LeftPanelView,
   Selection,
   SemanticObjectType,
-  WorkspaceFileSelection,
   WorkflowSelection,
-  FileKind,
+  WorkspaceFileSelection,
 } from "@/app/types";
 
 const DEFAULT_VIEW: LeftPanelView = "project";

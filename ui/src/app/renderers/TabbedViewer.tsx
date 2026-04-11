@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RendererProps } from "@/app/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface ViewTab {
   id: string;
@@ -52,11 +52,7 @@ export const TabbedViewer = ({
         </CardHeader>
       )}
       <CardContent className="flex-1 flex flex-col p-0">
-        <Tabs
-          value={activeTab}
-          onValueChange={setActiveTab}
-          className="flex-1 flex flex-col"
-        >
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col">
           <TabsList className="mx-4 mt-4 w-fit">
             {tabs.map((tab) => (
               <TabsTrigger key={tab.id} value={tab.id}>

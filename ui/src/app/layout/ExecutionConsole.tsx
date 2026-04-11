@@ -35,14 +35,12 @@ export const ExecutionConsole = ({ snapshot }: ExecutionConsoleProps): JSX.Eleme
           {snapshot.consoleEntries.length === 0 && (
             <p className="text-xs text-muted-foreground">No execution logs available.</p>
           )}
-          {snapshot.consoleEntries.map(entry => (
+          {snapshot.consoleEntries.map((entry) => (
             <div
               key={entry.id}
               className="flex items-start gap-3 rounded-md border border-border/60 bg-background px-3 py-2"
             >
-              <div className="mt-0.5 text-muted-foreground">
-                {levelIcons[entry.level]}
-              </div>
+              <div className="mt-0.5 text-muted-foreground">{levelIcons[entry.level]}</div>
               <div className="flex-1 space-y-1">
                 <div className="flex items-center gap-2">
                   <Badge className={`${levelStyles[entry.level]} text-xs uppercase`}>

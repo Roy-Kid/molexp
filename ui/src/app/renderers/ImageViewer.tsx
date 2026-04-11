@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
+import { workspaceApi } from "@/app/state/api";
+import type { RendererProps } from "@/app/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
-import type { RendererProps } from "@/app/types";
-import { workspaceApi } from "@/app/state/api";
 
 export const ImageViewer = ({ selection }: RendererProps): JSX.Element => {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -18,7 +18,7 @@ export const ImageViewer = ({ selection }: RendererProps): JSX.Element => {
 
     workspaceApi
       .getWorkspaceFileBlob(selection.objectId)
-      .then(blob => {
+      .then((blob) => {
         if (revoked) {
           return;
         }
@@ -26,7 +26,7 @@ export const ImageViewer = ({ selection }: RendererProps): JSX.Element => {
         setImageUrl(currentUrl);
         setError(null);
       })
-      .catch(err => {
+      .catch((err) => {
         setError(err instanceof Error ? err.message : "Failed to load image");
         setImageUrl(null);
       });

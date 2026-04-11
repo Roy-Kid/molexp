@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-
-import type { InspectorTarget, Selection } from "@/app/types";
 import { AppShell } from "@/app/layout/AppShell";
 import { ErrorBoundary } from "@/app/layout/ErrorBoundary";
 import { registerDefaultRenderers } from "@/app/renderers/registerRenderers";
+import { workspaceApi } from "@/app/state/api";
 import { useUrlState } from "@/app/state/useUrlState";
 import { useWorkspaceState } from "@/app/state/useWorkspaceState";
-import { workspaceApi } from "@/app/state/api";
+import type { InspectorTarget, Selection } from "@/app/types";
 
 registerDefaultRenderers();
 

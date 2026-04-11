@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import type { InspectorTarget, Selection, WorkspaceSnapshot } from "@/app/types";
 import { TopBar } from "@/app/layout/TopBar";
-import { LeftPanel } from "@/app/panels/LeftPanel";
 import { CenterPanel } from "@/app/panels/CenterPanel";
-import type { LeftPanelView } from "@/app/types";
+import { LeftPanel } from "@/app/panels/LeftPanel";
+import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 
 interface AppShellProps {
   leftPanelView: LeftPanelView;

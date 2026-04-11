@@ -113,7 +113,7 @@ class TestFunctionalExecution:
 
         assert result.status == "completed"
         assert result.outputs["inspect"] == "ok"
-        assert run.status == "succeeded"
+        assert run.status == "dry_run"
         assert run.metadata.dry_run is True
         assert run.metadata.labels["mode"] == "dry-run"
 

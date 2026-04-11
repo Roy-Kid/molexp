@@ -1,3 +1,9 @@
+import { AssetsService } from "@/api/generated/services/AssetsService";
+import { ExecutionService } from "@/api/generated/services/ExecutionService";
+import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
+import { ProjectsService } from "@/api/generated/services/ProjectsService";
+import { RunsService } from "@/api/generated/services/RunsService";
+import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
 import type {
   AgentSessionSummary,
   ApiAgentSession,
@@ -9,23 +15,16 @@ import type {
   ApiRunResponse,
   AssetSummary,
   ConsoleEntry,
+  ExperimentCreateRequest,
   ExperimentSummary,
+  ProjectCreateRequest,
   ProjectSummary,
+  RunCreateRequest,
   RunSummary,
   WorkflowSummary,
   WorkspaceSnapshot,
   WorkspaceTreeNode,
-  ProjectCreateRequest,
-  ExperimentCreateRequest,
-  RunCreateRequest,
 } from "@/app/types";
-
-import { ProjectsService } from "@/api/generated/services/ProjectsService";
-import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
-import { RunsService } from "@/api/generated/services/RunsService";
-import { AssetsService } from "@/api/generated/services/AssetsService";
-import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
-import { ExecutionService } from "@/api/generated/services/ExecutionService";
 
 // Local types not yet in OpenAPI
 interface WorkspaceFileNode {
@@ -63,17 +62,27 @@ export const workspaceApi = {
     return ExperimentsService.createExperimentApiProjectsProjectIdExperimentsPost(projectId, data);
   },
   deleteExperiment: async (projectId: string, experimentId: string): Promise<void> => {
-    await ExperimentsService.deleteExperimentApiProjectsProjectIdExperimentsExperimentIdDelete(projectId, experimentId);
+    await ExperimentsService.deleteExperimentApiProjectsProjectIdExperimentsExperimentIdDelete(
+      projectId,
+      experimentId,
+    );
   },
   getRuns: async (projectId: string, experimentId: string): Promise<ApiRunResponse[]> => {
-    return RunsService.listRunsApiProjectsProjectIdExperimentsExperimentIdRunsGet(projectId, experimentId);
+    return RunsService.listRunsApiProjectsProjectIdExperimentsExperimentIdRunsGet(
+      projectId,
+      experimentId,
+    );
   },
   createRun: async (
     projectId: string,
     experimentId: string,
     data: RunCreateRequest,
   ): Promise<ApiRunResponse> => {
-    return RunsService.createRunApiProjectsProjectIdExperimentsExperimentIdRunsPost(projectId, experimentId, data);
+    return RunsService.createRunApiProjectsProjectIdExperimentsExperimentIdRunsPost(
+      projectId,
+      experimentId,
+      data,
+    );
   },
   getAssets: async (): Promise<ApiAssetResponse[]> => {
     return AssetsService.listAssetsApiAssetsGet();
@@ -91,10 +100,16 @@ export const workspaceApi = {
     return response as unknown as WorkspaceFilesResponse;
   },
   openWorkspace: async (path: string, createIfMissing = false): Promise<void> => {
-    await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({ path, create_if_missing: createIfMissing });
+    await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({
+      path,
+      create_if_missing: createIfMissing,
+    });
   },
   createDirectory: async (path: string): Promise<void> => {
-    await WorkspaceService.createDirectoryApiWorkspaceDirectoriesPost({ folder_id: "workspace", path });
+    await WorkspaceService.createDirectoryApiWorkspaceDirectoriesPost({
+      folder_id: "workspace",
+      path,
+    });
   },
   writeFile: async (path: string, content = ""): Promise<void> => {
     await WorkspaceService.writeFileApiWorkspaceFilesPut({ folder_id: "workspace", path, content });
@@ -138,7 +153,7 @@ export const buildEmptySnapshot = (): WorkspaceSnapshot => {
 };
 
 export const mapProjects = (projects: ApiProjectResponse[]): ProjectSummary[] => {
-  return projects.map(project => ({
+  return projects.map((project) => ({
     id: project.id,
     name: project.name,
     status: "active",
@@ -151,7 +166,7 @@ export const mapExperiments = (
   projectId: string,
   experiments: ApiExperimentResponse[],
 ): ExperimentSummary[] => {
-  return experiments.map(experiment => ({
+  return experiments.map((experiment) => ({
     id: experiment.id,
     name: experiment.name,
     status: "active",
@@ -183,7 +198,7 @@ export const mapRuns = (
     return "pending";
   };
 
-  return runs.map(run => ({
+  return runs.map((run) => ({
     id: run.id,
     name: run.runId,
     status: mapStatus(run.status),
@@ -195,7 +210,7 @@ export const mapRuns = (
 };
 
 export const mapAssets = (assets: ApiAssetResponse[], projectId?: string): AssetSummary[] => {
-  return assets.map(asset => ({
+  return assets.map((asset) => ({
     id: asset.id,
     name: asset.assetId,
     status: "active",
@@ -210,8 +225,8 @@ export const mapWorkflows = (
   experiments: ExperimentSummary[],
   rawExperiments: ApiExperimentResponse[],
 ): WorkflowSummary[] => {
-  const experimentById = new Map(rawExperiments.map(experiment => [experiment.id, experiment]));
-  return experiments.map(experiment => {
+  const experimentById = new Map(rawExperiments.map((experiment) => [experiment.id, experiment]));
+  return experiments.map((experiment) => {
     const raw = experimentById.get(experiment.id);
     const workflowPath = raw ? raw.workflow : "workflow";
     return {
@@ -228,14 +243,12 @@ export const mapWorkflows = (
 
 export const emptyConsoleEntries = (): ConsoleEntry[] => [];
 
-
-
 const mapWorkspaceNode = (node: WorkspaceFileNode): WorkspaceTreeNode => {
   const isFile = node.type === "file";
   const updatedAt =
     typeof node.modified === "number"
       ? new Date(node.modified * 1000).toISOString()
-      : node.modified ?? "";
+      : (node.modified ?? "");
   return {
     id: node.id ?? node.path,
     name: node.name,
@@ -263,7 +276,7 @@ export const mapWorkspaceTree = (
 };
 
 export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSummary[] => {
-  return sessions.map(s => ({
+  return sessions.map((s) => ({
     id: s.sessionId,
     goalDescription: s.goalDescription,
     status: s.status as AgentSessionSummary["status"],
@@ -280,7 +293,10 @@ export const agentApi = {
     return data.sessions ?? [];
   },
 
-  createSession: async (description: string, successCriteria: string[] = []): Promise<ApiAgentSession> => {
+  createSession: async (
+    description: string,
+    successCriteria: string[] = [],
+  ): Promise<ApiAgentSession> => {
     const response = await fetch("/api/agent/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -300,7 +316,11 @@ export const agentApi = {
     return new EventSource(`/api/agent/sessions/${sessionId}/events`);
   },
 
-  respondApproval: async (sessionId: string, requestId: string, approved: boolean): Promise<void> => {
+  respondApproval: async (
+    sessionId: string,
+    requestId: string,
+    approved: boolean,
+  ): Promise<void> => {
     const response = await fetch(`/api/agent/sessions/${sessionId}/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

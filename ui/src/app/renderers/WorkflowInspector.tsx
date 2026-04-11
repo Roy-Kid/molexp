@@ -1,10 +1,10 @@
 import { useMemo } from "react";
+import { buildMetadataFields, type MetadataField } from "@/app/renderers/metadata";
+import type { RendererProps, WorkflowNodeMetadata } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import { buildMetadataFields, type MetadataField } from "@/app/renderers/metadata";
-import type { RendererProps, WorkflowNodeMetadata } from "@/app/types";
 
 const buildNodeFields = (node: WorkflowNodeMetadata | null): MetadataField[] => {
   if (!node) {
@@ -26,7 +26,7 @@ export const WorkflowInspector = ({
   inspectorTarget,
 }: RendererProps): JSX.Element => {
   const isLoading = false;
-  const workflow = snapshot.workflows.find(item => item.id === selection.objectId) ?? null;
+  const workflow = snapshot.workflows.find((item) => item.id === selection.objectId) ?? null;
 
   const workflowFields = useMemo<MetadataField[]>(() => {
     return buildMetadataFields(selection, snapshot);
@@ -37,7 +37,7 @@ export const WorkflowInspector = ({
       return [];
     }
     const node =
-      workflow.graph.nodes.find(item => item.nodeId === inspectorTarget.nodeId) ?? null;
+      workflow.graph.nodes.find((item) => item.nodeId === inspectorTarget.nodeId) ?? null;
     return buildNodeFields(node);
   }, [inspectorTarget, workflow]);
 
@@ -68,7 +68,7 @@ export const WorkflowInspector = ({
         {!isLoading && (
           <div className="space-y-4">
             <div className="space-y-2">
-              {workflowFields.map(field => (
+              {workflowFields.map((field) => (
                 <div key={field.label} className="space-y-1">
                   <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {field.label}
@@ -79,7 +79,7 @@ export const WorkflowInspector = ({
             </div>
             {showingNode && nodeFields.length > 0 && (
               <div className="space-y-2 border-t border-border/60 pt-4">
-                {nodeFields.map(field => (
+                {nodeFields.map((field) => (
                   <div key={field.label} className="space-y-1">
                     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       {field.label}
