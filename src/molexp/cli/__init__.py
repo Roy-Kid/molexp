@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Annotated, Any, Callable, Optional
+from typing import Annotated, Any, Callable, List, Optional
 
 import typer
 import uvicorn
@@ -73,7 +73,8 @@ def _execute_sweep(
     workspace: Path | None,
     run_handler: RunHandler,
     mode_label: str,
-) -> None:
+    suppress_ok: bool = False,
+) -> int:
     """Iterate a parameter sweep and call *run_handler* for each run.
 
     This contains the shared project/experiment/run iteration logic used
@@ -101,6 +102,7 @@ def _execute_sweep(
         raise typer.Exit(1)
 
     # ── Process each registered project ─────────────────────────────────
+    total_dispatched = 0
     for project_spec in projects:
         ws_root = Path(workspace).resolve() if workspace else project_spec.workspace_root.resolve()
         ws = Workspace.from_path(ws_root)
@@ -200,13 +202,17 @@ def _execute_sweep(
                 run_handler(script, mol_run, exp_spec, project_spec)
                 rprint(f"  [cyan]>[/cyan] dispatched {exp_id}  seed={seed}")
 
-            if resume:
-                verb = "resumed"
-            elif dry_run:
-                verb = "completed in dry-run mode"
-            else:
-                verb = "completed"
-            rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
+            total_dispatched += len(created_runs)
+            if not suppress_ok:
+                if resume:
+                    verb = "resumed"
+                elif dry_run:
+                    verb = "completed in dry-run mode"
+                else:
+                    verb = "completed"
+                rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
+
+    return total_dispatched
 
 
 _SCRIPT_ARG = Annotated[
@@ -311,6 +317,19 @@ def run(
         Optional[str],
         typer.Option("--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"),
     ] = None,
+    # ── Job monitoring ─────────────────────────────────────────────────────
+    block: Annotated[
+        bool,
+        typer.Option(
+            "--block",
+            help=(
+                "Block until all submitted jobs finish (cluster backends only). "
+                "The master process monitors job status via molq and exits only "
+                "when every job reaches a terminal state."
+            ),
+            rich_help_panel="HPC Options",
+        ),
+    ] = False,
 ) -> None:
     """Run or schedule a parameter sweep defined in a Python script."""
     # ── Validate backend flags ─────────────────────────────────────────────
@@ -325,6 +344,9 @@ def run(
         raise typer.Exit(1)
     if dry_run and not is_local:
         rprint("[red]Error:[/red] --dry-run is only valid with --local.")
+        raise typer.Exit(1)
+    if block and is_local:
+        rprint("[red]Error:[/red] --block is only valid with a cluster backend (--slurm, --pbs, --lsf).")
         raise typer.Exit(1)
 
     # ── Local execution ────────────────────────────────────────────────────
@@ -366,6 +388,7 @@ def run(
             cluster=cluster,
             resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
             scheduling={"queue": partition, "account": account, "qos": qos},
+            block=block,
         )
         mode_label = "[magenta]slurm[/magenta]"
     elif pbs:
@@ -374,6 +397,7 @@ def run(
             cluster=cluster,
             resources={"cpus": cpus, "mem": mem, "gpus": gpus, "time": time},
             scheduling={"queue": queue, "account": account},
+            block=block,
         )
         mode_label = "[magenta]pbs[/magenta]"
     else:  # lsf
@@ -382,17 +406,24 @@ def run(
             cluster=cluster,
             resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
             scheduling={"queue": queue, "account": account},
+            block=block,
         )
         mode_label = "[magenta]lsf[/magenta]"
 
-    _execute_sweep(
+    n = _execute_sweep(
         script=script,
         dry_run=False,
         resume=resume,
         workspace=workspace,
         run_handler=handler,
         mode_label=mode_label,
+        suppress_ok=block,
     )
+
+    if block:
+        handler.wait()
+        verb = "resumed" if resume else "completed"
+        rprint(f"\n[green]OK[/green] {n} runs {verb}.")
 
 
 def _launch_bg(
@@ -833,6 +864,210 @@ def run_list(
         )
 
     console.print(table)
+
+
+# Terminal statuses — runs in these states are not cancellable
+_TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "dry_run"})
+
+
+@run_app.command("cancel")
+def run_cancel(
+    run_ids: Annotated[
+        Optional[List[str]],
+        typer.Argument(
+            help="Run IDs to cancel. Omit to use --project/--experiment with --all or --status."
+        ),
+    ] = None,
+    project_id: Annotated[
+        Optional[str],
+        typer.Option("--project", "-p", help="Project ID (required in experiment-scope mode)."),
+    ] = None,
+    experiment_id: Annotated[
+        Optional[str],
+        typer.Option("--experiment", "-e", help="Experiment ID (required in experiment-scope mode)."),
+    ] = None,
+    all_runs: Annotated[
+        bool,
+        typer.Option("--all", help="Cancel all non-terminal runs in the experiment."),
+    ] = False,
+    status_filter: Annotated[
+        Optional[str],
+        typer.Option("--status", help="Comma-separated statuses to filter (e.g. 'pending,running')."),
+    ] = None,
+    scheduler: Annotated[
+        str,
+        typer.Option("--scheduler", help="Scheduler backend: slurm, pbs, lsf, or local."),
+    ] = "slurm",
+    cluster: Annotated[
+        Optional[str],
+        typer.Option("--cluster", help="molq cluster name (default: 'default')."),
+    ] = None,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompt."),
+    ] = False,
+    path: Annotated[
+        Optional[Path],
+        typer.Option("--path", help="Workspace path."),
+    ] = None,
+) -> None:
+    """Cancel one or more scheduled runs.
+
+    Two modes:
+
+    \b
+    # Cancel specific runs by ID
+    molexp runs cancel <run_id1> <run_id2> --yes
+
+    \b
+    # Cancel all non-terminal runs in an experiment
+    molexp runs cancel --project proj1 --experiment exp1 --all
+
+    \b
+    # Cancel only running jobs, with confirmation
+    molexp runs cancel --project proj1 --experiment exp1 --status running
+    """
+    from molexp.workspace.run import RunStatus
+
+    ws = _get_workspace(path)
+
+    # ── Resolve target runs ──────────────────────────────────────────────────
+    target_runs = []
+
+    if run_ids:
+        # Direct run-ID mode: scan workspace to locate each run.
+        for rid in run_ids:
+            found = None
+            for proj in ws.list_projects():
+                for exp in proj.list_experiments():
+                    r = exp.get_run(rid)
+                    if r is not None:
+                        found = r
+                        break
+                if found:
+                    break
+            if found is None:
+                rprint(f"[yellow]Warning:[/yellow] Run {rid!r} not found — skipping.")
+            else:
+                target_runs.append(found)
+    else:
+        # Experiment-scope mode: --project and --experiment are required.
+        if not project_id or not experiment_id:
+            rprint(
+                "[red]Error:[/red] Provide run IDs as arguments, or both "
+                "--project and --experiment options."
+            )
+            raise typer.Exit(1)
+
+        project = ws.get_project(project_id)
+        if not project:
+            rprint(f"[red]Error:[/red] Project not found: {project_id}")
+            raise typer.Exit(1)
+
+        experiment = project.get_experiment(experiment_id)
+        if not experiment:
+            rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
+            raise typer.Exit(1)
+
+        candidates = experiment.list_runs()
+
+        if all_runs:
+            target_runs = [r for r in candidates if r.status not in _TERMINAL_STATUSES]
+        elif status_filter:
+            allowed = {s.strip().lower() for s in status_filter.split(",")}
+            target_runs = [r for r in candidates if r.status in allowed]
+        else:
+            rprint(
+                "[red]Error:[/red] Specify --all or --status when using "
+                "--project/--experiment mode."
+            )
+            raise typer.Exit(1)
+
+    if not target_runs:
+        rprint("[yellow]No runs matched the criteria — nothing to cancel.[/yellow]")
+        raise typer.Exit(0)
+
+    # ── Skip already-terminal runs (only relevant in direct-ID mode) ─────────
+    already_terminal = [r for r in target_runs if r.status in _TERMINAL_STATUSES]
+    target_runs = [r for r in target_runs if r.status not in _TERMINAL_STATUSES]
+
+    for r in already_terminal:
+        rprint(f"[yellow]Skipping[/yellow] {r.id} — already terminal: {r.status}")
+
+    if not target_runs:
+        rprint("[yellow]All matched runs are already in a terminal state.[/yellow]")
+        raise typer.Exit(0)
+
+    # ── Confirmation table ───────────────────────────────────────────────────
+    table = Table(title=f"Runs to cancel ({len(target_runs)})")
+    table.add_column("Run ID", style="cyan")
+    table.add_column("Status", style="yellow")
+    table.add_column("molq_job_id", style="dim")
+    table.add_column("slurm_job_id", style="dim")
+
+    for r in target_runs:
+        table.add_row(
+            r.id,
+            r.status,
+            r.metadata.molq_job_id or "—",
+            r.metadata.slurm_job_id or "—",
+        )
+
+    console.print(table)
+
+    if not yes:
+        confirm = typer.prompt(f"\nCancel {len(target_runs)} job(s)? [y/N]", default="N")
+        if confirm.strip().lower() not in ("y", "yes"):
+            rprint("[dim]Aborted.[/dim]")
+            raise typer.Exit(0)
+
+    # ── Lazy-load molq Submitor ──────────────────────────────────────────────
+    submitor = None
+    if scheduler != "local":
+        try:
+            from molq import Submitor  # type: ignore[import]
+
+            submitor = Submitor(cluster_name=cluster or "default", scheduler=scheduler)
+        except ImportError:
+            rprint(
+                "[yellow]Warning:[/yellow] molq is not installed — will only update "
+                "workspace state without calling the scheduler.\n"
+                "  Install with: [bold]pip install molq[/bold]"
+            )
+
+    # ── Cancel each run ──────────────────────────────────────────────────────
+    cancelled = 0
+    errors = 0
+
+    for r in target_runs:
+        molq_id = r.metadata.molq_job_id
+
+        if submitor is not None:
+            if molq_id:
+                try:
+                    submitor.cancel(molq_id)
+                except Exception as exc:
+                    rprint(
+                        f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
+                        f"{r.id} (molq_job_id={molq_id}): {exc}"
+                    )
+                    errors += 1
+            else:
+                rprint(
+                    f"  [yellow]Warning:[/yellow] {r.id} has no molq_job_id — "
+                    "updating workspace state only."
+                )
+
+        r.cancel()
+        rprint(f"  [green]OK[/green] Cancelled {r.id}")
+        cancelled += 1
+
+    # ── Summary ──────────────────────────────────────────────────────────────
+    rprint(f"\n[green]Done.[/green] {cancelled} run(s) cancelled", end="")
+    if errors:
+        rprint(f", [yellow]{errors} scheduler error(s)[/yellow] (workspace state updated).")
+    else:
+        rprint(".")
 
 
 @run_app.command("info")
