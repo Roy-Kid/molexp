@@ -56,6 +56,68 @@ def _deterministic_run_id(params: dict[str, Any]) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
+def _pid_alive(pid: int) -> bool:
+    """Return ``True`` if a process with *pid* is running on this host.
+
+    Uses ``os.kill(pid, 0)`` which only checks existence; it does not
+    actually deliver a signal.  Returns ``False`` for ``pid <= 0`` and
+    for processes we do not own (PermissionError is treated as "alive"
+    — the process exists, we just can't signal it).
+    """
+    import os
+
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _reap_zombie_run(run: Any) -> bool:
+    """Mark a stale ``RUNNING`` run as ``FAILED`` if no live owner remains.
+
+    Returns ``True`` when the run was reaped (i.e. its status was flipped
+    from ``"running"`` to ``"failed"``), ``False`` when the run appears to
+    still be owned by a live process.
+    """
+    import platform
+    from datetime import datetime
+
+    from molexp.workspace.models import ErrorInfo
+    from molexp.workspace.run import RunStatus
+
+    labels = dict(run.metadata.labels)
+    pid_str = labels.get("pid")
+    host = labels.get("host")
+    same_host = host == platform.node()
+
+    if same_host and pid_str and pid_str.isdigit() and _pid_alive(int(pid_str)):
+        return False
+
+    now = datetime.now()
+    for key in ("pid", "host", "heartbeat"):
+        labels.pop(key, None)
+    run._update_metadata(
+        status=RunStatus.FAILED,
+        finished_at=now,
+        labels=labels,
+        error=ErrorInfo(
+            type="ZombieRun",
+            message=(
+                f"Run was left in 'running' state by a prior invocation "
+                f"(pid={pid_str or '?'} host={host or '?'}) that did not "
+                "finish cleanly.  Automatically marked FAILED."
+            ),
+            timestamp=now,
+        ),
+    )
+    return True
+
+
 # ============ Run Command ============
 
 
@@ -74,11 +136,15 @@ def _execute_sweep(
     run_handler: RunHandler,
     mode_label: str,
     suppress_ok: bool = False,
-) -> int:
+) -> tuple[int, list[Any]]:
     """Iterate a parameter sweep and call *run_handler* for each run.
 
     This contains the shared project/experiment/run iteration logic used
     by both the built-in ``local`` sub-command and plugin-provided backends.
+
+    Returns:
+        ``(total_dispatched, dispatched_runs)`` — count and list of Run objects
+        that were passed to *run_handler*.
     """
     from molexp.entry import load_projects
 
@@ -103,6 +169,7 @@ def _execute_sweep(
 
     # ── Process each registered project ─────────────────────────────────
     total_dispatched = 0
+    dispatched_runs: list[Any] = []
     for project_spec in projects:
         ws_root = Path(workspace).resolve() if workspace else project_spec.workspace_root.resolve()
         ws = Workspace.from_path(ws_root)
@@ -167,6 +234,12 @@ def _execute_sweep(
                     run_id = _deterministic_run_id(run_params)
 
                     existing = ws_exp.get_run(run_id)
+                    if existing is not None and existing.status == "running":
+                        if _reap_zombie_run(existing):
+                            rprint(
+                                f"  [yellow]![/yellow] {exp_id}  seed={seed} "
+                                "(stale 'running' run reaped → failed)"
+                            )
                     if resume:
                         if existing is None:
                             rprint(f"  [dim]- {exp_id}  seed={seed} (no existing run, skipped)[/dim]")
@@ -200,6 +273,7 @@ def _execute_sweep(
             for mol_run, params, seed in created_runs:
                 exp_id = _params_to_id(params) if params else exp_spec.name
                 run_handler(script, mol_run, exp_spec, project_spec)
+                dispatched_runs.append(mol_run)
                 rprint(f"  [cyan]>[/cyan] dispatched {exp_id}  seed={seed}")
 
             total_dispatched += len(created_runs)
@@ -212,7 +286,7 @@ def _execute_sweep(
                     verb = "completed"
                 rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
 
-    return total_dispatched
+    return total_dispatched, dispatched_runs
 
 
 _SCRIPT_ARG = Annotated[
@@ -317,16 +391,12 @@ def run(
         Optional[str],
         typer.Option("--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"),
     ] = None,
-    # ── Job monitoring ─────────────────────────────────────────────────────
-    block: Annotated[
+    # ── Monitor ────────────────────────────────────────────────────────────
+    no_watch: Annotated[
         bool,
         typer.Option(
-            "--block",
-            help=(
-                "Block until all submitted jobs finish (cluster backends only). "
-                "The master process monitors job status via molq and exits only "
-                "when every job reaches a terminal state."
-            ),
+            "--no-watch",
+            help="Skip the interactive monitor after cluster submission (useful for CI/scripts).",
             rich_help_panel="HPC Options",
         ),
     ] = False,
@@ -344,9 +414,6 @@ def run(
         raise typer.Exit(1)
     if dry_run and not is_local:
         rprint("[red]Error:[/red] --dry-run is only valid with --local.")
-        raise typer.Exit(1)
-    if block and is_local:
-        rprint("[red]Error:[/red] --block is only valid with a cluster backend (--slurm, --pbs, --lsf).")
         raise typer.Exit(1)
 
     # ── Local execution ────────────────────────────────────────────────────
@@ -372,6 +439,7 @@ def run(
         )
         return
 
+
     # ── Cluster backends ───────────────────────────────────────────────────
     try:
         from molexp.plugins.submit_molq.submit import make_submit_handler
@@ -388,7 +456,6 @@ def run(
             cluster=cluster,
             resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
             scheduling={"queue": partition, "account": account, "qos": qos},
-            block=block,
         )
         mode_label = "[magenta]slurm[/magenta]"
     elif pbs:
@@ -397,7 +464,6 @@ def run(
             cluster=cluster,
             resources={"cpus": cpus, "mem": mem, "gpus": gpus, "time": time},
             scheduling={"queue": queue, "account": account},
-            block=block,
         )
         mode_label = "[magenta]pbs[/magenta]"
     else:  # lsf
@@ -406,23 +472,32 @@ def run(
             cluster=cluster,
             resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
             scheduling={"queue": queue, "account": account},
-            block=block,
         )
         mode_label = "[magenta]lsf[/magenta]"
 
-    n = _execute_sweep(
+    n, submitted = _execute_sweep(
         script=script,
         dry_run=False,
         resume=resume,
         workspace=workspace,
         run_handler=handler,
         mode_label=mode_label,
-        suppress_ok=block,
+        suppress_ok=True,
     )
 
-    if block:
-        handler.wait()
-        verb = "resumed" if resume else "completed"
+    if n == 0:
+        verb = "resumed" if resume else "submitted"
+        rprint(f"\n[dim]No runs {verb}.[/dim]")
+        return
+
+    if not no_watch and submitted:
+        from molexp.monitor import RunMonitor
+        rprint(f"\n[dim]Submitted {n} runs. Opening monitor… (press q to close)[/dim]")
+        RunMonitor(title=f"{script.stem}  [{mode_label}]").watch(submitted)
+        rprint(f"\n[dim]Monitor closed. {n} runs are still executing.[/dim]")
+        rprint(f"[dim]Reopen with:  molexp watch --workspace {workspace or '.'} [/dim]")
+    else:
+        verb = "resumed" if resume else "submitted"
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
 
 
@@ -596,6 +671,70 @@ def info(
                     "dry_run": "cyan",
                 }.get(status, "white")
                 rprint(f"  [{color}]{status.capitalize()}[/{color}]: {count}")
+
+
+# ============ Watch Command ============
+
+
+@app.command()
+def watch(
+    workspace: Annotated[
+        Optional[Path],
+        typer.Option("--workspace", "-w", help="Workspace root (default: current directory)."),
+    ] = None,
+    project: Annotated[
+        Optional[str],
+        typer.Option("--project", "-p", help="Filter by project name or ID."),
+    ] = None,
+    experiment: Annotated[
+        Optional[str],
+        typer.Option("--experiment", "-e", help="Filter by experiment name or ID."),
+    ] = None,
+    refresh: Annotated[
+        float,
+        typer.Option("--refresh", "-r", help="Refresh interval in seconds."),
+    ] = 2.0,
+) -> None:
+    """Reopen the full-screen run monitor for an existing workspace."""
+    ws_root = Path(workspace).resolve() if workspace else Path.cwd()
+
+    try:
+        from molexp.workspace import Workspace as _Workspace
+        ws = _Workspace.load(ws_root)
+    except FileNotFoundError:
+        rprint(f"[red]Error:[/red] No workspace found at {ws_root}")
+        rprint("  Run [bold]molexp init[/bold] to create one, or pass [bold]--workspace[/bold].")
+        raise typer.Exit(1)
+
+    # Collect matching runs
+    runs: list[Any] = []
+    for proj in ws.list_projects():
+        if project and proj.id != project and proj.name != project:
+            continue
+        for exp in proj.list_experiments():
+            if experiment and exp.id != experiment and exp.name != experiment:
+                continue
+            runs.extend(exp.list_runs())
+
+    if not runs:
+        rprint("[yellow]No runs found[/yellow] — check --project / --experiment filters.")
+        raise typer.Exit(0)
+
+    try:
+        from molexp.monitor import RunMonitor
+    except ImportError:
+        rprint("[red]Error:[/red] molq is not installed. Install it to use the monitor.")
+        raise typer.Exit(1)
+
+    title = ws.name
+    if experiment:
+        title = f"{ws.name} / {experiment}"
+    elif project:
+        title = f"{ws.name} / {project}"
+
+    rprint(f"[dim]Watching {len(runs)} runs. Press q to close.[/dim]")
+    RunMonitor(title=title, refresh_interval=refresh).watch(runs)
+    rprint(f"\n[dim]Monitor closed. Runs are still executing (if any).[/dim]")
 
 
 # ============ Project Commands ============
@@ -1039,28 +1178,32 @@ def run_cancel(
     cancelled = 0
     errors = 0
 
-    for r in target_runs:
-        molq_id = r.metadata.molq_job_id
+    try:
+        for r in target_runs:
+            molq_id = r.metadata.molq_job_id
 
-        if submitor is not None:
-            if molq_id:
-                try:
-                    submitor.cancel(molq_id)
-                except Exception as exc:
+            if submitor is not None:
+                if molq_id:
+                    try:
+                        submitor.cancel(molq_id)
+                    except Exception as exc:
+                        rprint(
+                            f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
+                            f"{r.id} (molq_job_id={molq_id}): {exc}"
+                        )
+                        errors += 1
+                else:
                     rprint(
-                        f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
-                        f"{r.id} (molq_job_id={molq_id}): {exc}"
+                        f"  [yellow]Warning:[/yellow] {r.id} has no molq_job_id — "
+                        "updating workspace state only."
                     )
-                    errors += 1
-            else:
-                rprint(
-                    f"  [yellow]Warning:[/yellow] {r.id} has no molq_job_id — "
-                    "updating workspace state only."
-                )
 
-        r.cancel()
-        rprint(f"  [green]OK[/green] Cancelled {r.id}")
-        cancelled += 1
+            r.cancel()
+            rprint(f"  [green]OK[/green] Cancelled {r.id}")
+            cancelled += 1
+    finally:
+        if submitor is not None:
+            submitor.close()
 
     # ── Summary ──────────────────────────────────────────────────────────────
     rprint(f"\n[green]Done.[/green] {cancelled} run(s) cancelled", end="")
