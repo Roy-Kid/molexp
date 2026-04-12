@@ -1,12 +1,11 @@
-"""RunStorePersistence: pydantic-graph BaseStatePersistence backed by Run files.
+"""RunStorePersistence: pydantic-graph BaseStatePersistence backed by a single workflow.json.
 
-Wraps pydantic-graph's in-memory snapshot model and persists JSON side-cars
-atomically to:
-    <run_dir>/execution/<execution_id>/<snapshot_id>.json
+All workflow execution state (steps + end) is consolidated into one file:
+    <run_dir>/execution/<execution_id>/workflow.json
 
-In-memory snapshots support the required BaseStatePersistence protocol.
-On-disk records enable post-run inspection (not used for cross-process resume
-in Phase 3 — that is planned for Phase 4).
+This replaces the previous per-snapshot file layout
+(``WorkflowStep:{uuid}.json``, ``__end__.json``), making it easy to inspect
+progress with a single ``cat workflow.json``.
 """
 
 from __future__ import annotations
@@ -31,15 +30,38 @@ logger = get_logger(__name__)
 class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
     """Persist workflow graph snapshots inside a molexp Run directory.
 
+    All snapshots are written atomically to a single ``workflow.json``:
+
+    .. code-block:: json
+
+        {
+          "execution_id": "exec-abc12345",
+          "status": "running",
+          "steps": [
+            {"index": 1, "status": "success", "step_outputs": {...}},
+            {"index": 2, "status": "running", "step_outputs": {...}}
+          ],
+          "end": null
+        }
+
     Args:
-        run_dir: Path to the run's directory (run.run_dir or equivalent)
-        execution_id: Unique string for this execution (stored as sub-directory)
+        run_dir: Path to the run's directory (``run.run_dir`` or equivalent).
+        execution_id: Unique string for this execution (stored as sub-directory).
     """
 
     def __init__(self, run_dir: Path, execution_id: str) -> None:
         self._exec_dir = run_dir / "execution" / execution_id
         self._exec_dir.mkdir(parents=True, exist_ok=True)
         self._last_snapshot: NodeSnapshot | EndSnapshot | None = None
+        self._workflow_file = self._exec_dir / "workflow.json"
+        # In-memory state; written atomically on every mutation.
+        self._state: dict[str, Any] = {
+            "execution_id": execution_id,
+            "status": "running",
+            "steps": [],
+            "end": None,
+        }
+        self._write_workflow()
 
     # ── BaseStatePersistence protocol ────────────────────────────────────────
 
@@ -47,7 +69,18 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         self, state: WorkflowState, next_node: BaseNode
     ) -> None:
         self._last_snapshot = NodeSnapshot(state=state, node=next_node)
-        self._write_snapshot_file(self._last_snapshot)
+        if type(next_node).__name__ == "WorkflowStep":
+            level_index = getattr(next_node, "level_index", len(self._state["steps"]))
+            self._state["steps"].append({
+                "_snapshot_id": self._last_snapshot.id,
+                "index": level_index + 1,  # 1-indexed for human display
+                "status": "pending",
+                "step_outputs": {
+                    k: _safe_serialize(v)
+                    for k, v in state.step_outputs.items()
+                },
+            })
+            self._write_workflow()
 
     async def snapshot_node_if_new(
         self,
@@ -61,7 +94,14 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
 
     async def snapshot_end(self, state: WorkflowState, end: End[WorkflowState]) -> None:
         self._last_snapshot = EndSnapshot(state=state, result=end)
-        self._write_end_file(state, end)
+        self._state["status"] = "completed"
+        self._state["end"] = {
+            "step_outputs": {
+                k: _safe_serialize(v)
+                for k, v in state.step_outputs.items()
+            },
+        }
+        self._write_workflow()
 
     @asynccontextmanager
     async def record_run(self, snapshot_id: str) -> AsyncIterator[None]:
@@ -73,6 +113,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         )
         exceptions.GraphNodeStatusError.check(self._last_snapshot.status)
         self._last_snapshot.status = "running"
+        self._update_snapshot_status(snapshot_id, "running")
 
         start = perf_counter()
         try:
@@ -88,7 +129,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
             self._update_snapshot_status(snapshot_id, "success")
 
     async def load_all(self) -> list:
-        """Return all stored snapshots (in-memory only for Phase 3)."""
+        """Return all stored snapshots (in-memory only)."""
         if self._last_snapshot is not None:
             return [self._last_snapshot]
         return []
@@ -104,47 +145,27 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
-    def _write_snapshot_file(self, snapshot: NodeSnapshot) -> None:
-        data = {
-            "snapshot_id": snapshot.id,
-            "status": snapshot.status,
-            "kind": "node",
-            "step_outputs": {
-                k: _safe_serialize(v)
-                for k, v in snapshot.state.step_outputs.items()
-            },
-            "node_type": type(snapshot.node).__name__,
-            "node_data": _safe_serialize(snapshot.node),
-        }
-        self._write_atomic(snapshot.id, data)
-
-    def _write_end_file(self, state: WorkflowState, end: Any) -> None:
-        data = {
-            "snapshot_id": "__end__",
-            "status": "success",
-            "kind": "end",
-            "step_outputs": {
-                k: _safe_serialize(v) for k, v in state.step_outputs.items()
-            },
-        }
-        self._write_atomic("__end__", data)
-
     def _update_snapshot_status(self, snapshot_id: str, status: str) -> None:
-        path = self._exec_dir / f"{snapshot_id}.json"
-        if not path.exists():
-            return
-        try:
-            data = json.loads(path.read_text())
-            data["status"] = status
-            self._write_atomic(snapshot_id, data)
-        except Exception:
-            logger.exception(f"Failed to update snapshot status for {snapshot_id}")
+        for step in self._state["steps"]:
+            if step.get("_snapshot_id") == snapshot_id:
+                step["status"] = status
+                self._write_workflow()
+                return
 
-    def _write_atomic(self, snapshot_id: str, data: dict) -> None:
-        target = self._exec_dir / f"{snapshot_id}.json"
-        tmp = target.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, indent=2, default=str))
-        os.replace(tmp, target)
+    def _write_workflow(self) -> None:
+        """Atomically write workflow.json (tmp → rename)."""
+        clean = {
+            "execution_id": self._state["execution_id"],
+            "status": self._state["status"],
+            "steps": [
+                {k: v for k, v in step.items() if k != "_snapshot_id"}
+                for step in self._state["steps"]
+            ],
+            "end": self._state["end"],
+        }
+        tmp = self._workflow_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(clean, indent=2, default=str))
+        os.replace(tmp, self._workflow_file)
 
 
 def _safe_serialize(obj: Any) -> Any:

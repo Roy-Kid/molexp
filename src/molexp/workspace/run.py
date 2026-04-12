@@ -8,6 +8,7 @@ checkpoints, and asset access during execution.
 from __future__ import annotations
 
 import json
+import time
 from mollog import get_logger
 import traceback
 from datetime import datetime
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 if TYPE_CHECKING:
     from .experiment import Experiment
 
-from .base import _atomic_write_json, _save_metadata
+from .base import _atomic_write_json, _load_metadata, _reconstruct, _save_metadata
 from .context import Context
 from .models import ErrorInfo, ExecutionConfig, RunMetadata, WorkflowSnapshotRef
 from .utils import generate_id
@@ -59,6 +60,7 @@ class RunContext:
         self.run = run
         self.work_dir = run.run_dir
         self.artifacts_dir = self.work_dir / "artifacts"
+        self.logs_dir = self.work_dir / "logs"
         self._execution_config = execution_config if execution_config is not None else ExecutionConfig()
         self._entered = False
         self._context = Context(
@@ -67,6 +69,7 @@ class RunContext:
             project_id=run.experiment.project.id,
             work_dir=self.work_dir,
             artifacts_dir=self.artifacts_dir,
+            logs_dir=self.logs_dir,
         )
         self._start_time: datetime | None = None
         # Actor message-passing infrastructure
@@ -77,6 +80,7 @@ class RunContext:
     def __enter__(self) -> RunContext:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
         self._load_existing_results()
         self._apply_execution_mode_metadata()
         self.run._set_status(RunStatus.RUNNING)
@@ -268,7 +272,7 @@ class RunContext:
         from .workspace import Workspace
 
         run_dir = Path(run_dir).resolve()
-        # Layout: workspace_root/projects/proj_id/experiments/exp_id/runs/run_id
+        # Layout: workspace_root/projects/proj_id/experiments/exp_id/runs/run-{id}
         workspace_root = run_dir.parents[5]
         project_id = run_dir.parents[3].name
         experiment_id = run_dir.parents[1].name
@@ -284,9 +288,27 @@ class RunContext:
             raise FileNotFoundError(
                 f"Experiment '{experiment_id}' not found in project '{project_id}'"
             )
-        run = experiment.get_run(run_dir.name)
-        if run is None:
-            raise FileNotFoundError(f"Run '{run_dir.name}' not found at {run_dir}")
+        # Load run metadata directly from run_dir/run.json.
+        # Avoid experiment.get_run() which calls run_dir.exists() — on Lustre/NFS
+        # filesystems that call can return False for newly-created directories due
+        # to metadata cache staleness on compute nodes, even when the directory and
+        # file are physically present.
+        run_json = run_dir / "run.json"
+        meta = None
+        last_exc: Exception | None = None
+        for _attempt in range(3):
+            try:
+                meta = _load_metadata(RunMetadata, run_json)
+                break
+            except FileNotFoundError as exc:
+                last_exc = exc
+                time.sleep(1)
+
+        if meta is None:
+            raise FileNotFoundError(
+                f"Run metadata not found at {run_json}"
+            ) from last_exc
+        run = _reconstruct(Run, {"experiment": experiment, "metadata": meta})
         exec_config = ExecutionConfig(dry_run=run.metadata.dry_run)
         return cls(run, execution_config=exec_config)
 
@@ -328,18 +350,12 @@ class RunContext:
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
-        error_txt = self.artifacts_dir / "error.txt"
+        error_txt = self.logs_dir / "error.txt"
         with open(error_txt, "w") as f:
             f.write(f"Error: {datetime.now().isoformat()}\n")
             f.write(f"Type: {exc_type.__name__}\n")
             f.write(f"Message: {exc_val}\n\n")
             f.write("".join(tb_lines))
-        _atomic_write_json(self.artifacts_dir / "error.json", {
-            "timestamp": datetime.now().isoformat(),
-            "type": exc_type.__name__,
-            "message": str(exc_val),
-            "traceback": tb_lines,
-        })
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -386,7 +402,7 @@ class Run:
 
     @property
     def run_dir(self) -> Path:
-        return self.experiment.experiment_dir / "runs" / self.id
+        return self.experiment.experiment_dir / "runs" / f"run-{self.id}"
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -403,7 +419,36 @@ class Run:
         """Return a context manager for normal-mode (non-dry-run) execution."""
         return RunContext(self, execution_config=ExecutionConfig(dry_run=False))
 
-    # ── Internal (frozen-metadata mutation helpers) ──────────────────────
+    def update_job_ids(
+        self,
+        *,
+        slurm_job_id: str | None = None,
+        molq_job_id: str | None = None,
+    ) -> None:
+        """Persist scheduler job IDs into run.json for cross-reference.
+
+        Enables ``grep -r '"slurm_job_id": "..."' runs/*/run.json`` to locate
+        a run from a SLURM job ID shown in ``squeue`` / ``sacct``.
+        """
+        updates: dict[str, Any] = {}
+        if slurm_job_id is not None:
+            updates["slurm_job_id"] = slurm_job_id
+        if molq_job_id is not None:
+            updates["molq_job_id"] = molq_job_id
+        if updates:
+            self._update_metadata(**updates)
+
+    def cancel(self) -> None:
+        """Mark this run as cancelled in the workspace.
+
+        Updates ``run.json`` with ``status = "cancelled"``.  This is the
+        workspace-side half of cancellation; call
+        ``molq.Submitor(...).cancel(self.metadata.molq_job_id)`` first if
+        the run was submitted to a scheduler.
+        """
+        self._set_status(RunStatus.CANCELLED)
+
+    # ── Internal ─────────────────────────────────────────────────────────
 
     def _set_status(self, status: RunStatus) -> None:
         self.metadata = self.metadata.model_copy(update={"status": status.value})

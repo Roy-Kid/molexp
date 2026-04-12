@@ -1352,12 +1352,33 @@ wheels = [
 ]
 
 [[package]]
+name = "molcrafts-molcfg"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/94/897866457e6df7d47af0af87419d061f49073bf89c3906cd8495f479c91b/molcrafts_molcfg-1.0.0.tar.gz", hash = "sha256:fc55d89979102a4e5e0b7130aee91e0c4f231c2f34336795080b3d207b03a555", size = 25626, upload-time = "2026-04-11T22:15:19.479Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/6b/5d/9331e83978dfefbf9dc23d94bef2c3d195de19560c46bd91783b1352ee50/molcrafts_molcfg-1.0.0-py3-none-any.whl", hash = "sha256:096959909fff3d433906e3a15a7bbc22b08382b0e817c149323dd8c78aa1d017", size = 15660, upload-time = "2026-04-11T22:15:18.073Z" },
+]
+
+[[package]]
+name = "molcrafts-mollog"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/7f/f1d779d1bae794944bfd3926b841605595c6ae3e0c759557cacd72ecdb23/molcrafts_mollog-1.0.0.tar.gz", hash = "sha256:f434bea996dd37e58123342a68c3f9ac9e5170f8f25c990bc4fa4b8f81f7008b", size = 26368, upload-time = "2026-04-11T22:14:54.909Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a8/b5/62304f457549c417df0a97017980ada61fedc22eeefd85166ef8efedfb3e/molcrafts_mollog-1.0.0-py3-none-any.whl", hash = "sha256:4bf8d3aafef0bbf3df1b67f0fb8a243aa9ce51926f4fd4c080f86c03ab24973e", size = 15832, upload-time = "2026-04-11T22:14:53.522Z" },
+]
+
+[[package]]
 name = "molexp"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "molcrafts-molcfg" },
+    { name = "molcrafts-mollog" },
     { name = "pydantic" },
+    { name = "pydantic-graph" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "typer" },
@@ -1370,30 +1391,27 @@ agent = [
 ]
 all = [
     { name = "pydantic-ai" },
-    { name = "pydantic-graph" },
 ]
 dev = [
     { name = "httpx" },
     { name = "psutil" },
     { name = "pydantic-ai" },
-    { name = "pydantic-graph" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
-]
-workflow = [
-    { name = "pydantic-graph" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.100.0" },
     { name = "httpx", marker = "extra == 'dev'", specifier = ">=0.24" },
+    { name = "molcrafts-molcfg", specifier = ">=1.0.0" },
+    { name = "molcrafts-mollog", specifier = ">=1.0.0" },
+    { name = "molexp", extras = ["agent", "remote"], marker = "extra == 'all'" },
     { name = "molexp", extras = ["all"], marker = "extra == 'dev'" },
-    { name = "molexp", extras = ["workflow", "agent", "remote"], marker = "extra == 'all'" },
     { name = "psutil", marker = "extra == 'dev'", specifier = ">=5.9.0" },
-    { name = "pydantic", specifier = ">=2.5" },
-    { name = "pydantic-ai", marker = "extra == 'agent'", specifier = ">=0.0.20" },
-    { name = "pydantic-graph", marker = "extra == 'workflow'", specifier = ">=0.0.20" },
+    { name = "pydantic", specifier = ">=2.10" },
+    { name = "pydantic-ai", marker = "extra == 'agent'", specifier = ">=1.0" },
+    { name = "pydantic-graph", specifier = ">=1.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1401,7 +1419,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.9.0" },
     { name = "uvicorn", specifier = ">=0.23.0" },
 ]
-provides-extras = ["workflow", "agent", "remote", "all", "dev"]
+provides-extras = ["agent", "remote", "all", "dev"]
 
 [[package]]
 name = "more-itertools"

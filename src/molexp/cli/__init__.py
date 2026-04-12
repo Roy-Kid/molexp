@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 from pathlib import Path
 from typing import Annotated, Any, Callable, List, Optional
 
@@ -92,6 +93,7 @@ def _execute_sweep(
         projects = load_projects(script)
     except Exception as exc:
         rprint(f"[red]Error importing {script.name}:[/red] {exc}")
+        rprint(traceback.format_exc(), end="")
         raise typer.Exit(1)
 
     if not projects:

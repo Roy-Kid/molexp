@@ -1,8 +1,5 @@
 """Domain models for workspace entities.
 
-All metadata models are frozen (immutable). To update, use
-``model_copy(update={...})`` and persist the new instance.
-
 This module is the single source of truth for workspace entity schemas.
 The server, CLI, and Python API all derive from these models.
 """
@@ -101,8 +98,8 @@ class ExperimentMetadata(BaseModel, frozen=True):
     git_commit: str | None = None
 
 
-class RunMetadata(BaseModel, frozen=True):
-    """Single execution instance and its frozen snapshot."""
+class RunMetadata(BaseModel):
+    """Single execution instance metadata."""
 
     id: str
     status: str = "pending"
@@ -113,3 +110,5 @@ class RunMetadata(BaseModel, frozen=True):
     workflow_snapshot: WorkflowSnapshotRef | None = None
     dry_run: bool = False
     labels: dict[str, str] = Field(default_factory=dict)
+    slurm_job_id: str | None = None
+    molq_job_id: str | None = None

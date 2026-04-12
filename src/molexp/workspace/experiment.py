@@ -152,7 +152,7 @@ class Experiment:
 
     def get_run(self, run_id: str) -> Run | None:
         """Get run by ID."""
-        run_dir = self.experiment_dir / "runs" / run_id
+        run_dir = self.experiment_dir / "runs" / f"run-{run_id}"
         if not run_dir.exists():
             return None
         return self._load_run_from_dir(run_dir)

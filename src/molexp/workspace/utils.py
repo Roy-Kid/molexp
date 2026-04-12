@@ -9,12 +9,12 @@ from uuid import uuid4
 
 
 def generate_id() -> str:
-    """Generate a unique run ID using UUID.
-    
+    """Generate a unique 8-character hex run ID.
+
     Returns:
-        UUID string, e.g., 'a3f2e8d9-4b1c-4e5f-9a2b-1c3d4e5f6a7b'
+        8-character hex string, e.g., 'a3f2e8d9'
     """
-    return str(uuid4())
+    return uuid4().hex[:8]
 
 
 def generate_asset_id() -> str:

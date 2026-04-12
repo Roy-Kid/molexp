@@ -46,6 +46,31 @@ def _get_run_id(run: Any) -> str | None:
     return getattr(run, "id", getattr(run, "run_id", None))
 
 
+def _make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
+    """Build an execution ID derived from run_id.
+
+    First execution: ``exec-{run_id}``
+    Retries:         ``exec-{run_id}-2``, ``exec-{run_id}-3``, …
+
+    Falls back to a random ID when *run_id* is not available.
+    """
+    if run_id is None:
+        return f"exec-{uuid.uuid4().hex[:8]}"
+
+    base = f"exec-{run_id}"
+    if run_dir is None:
+        return base
+
+    exec_root = run_dir / "execution"
+    if not exec_root.exists():
+        return base
+
+    existing = [p for p in exec_root.iterdir() if p.name.startswith(base)]
+    if not existing:
+        return base
+    return f"{base}-{len(existing) + 1}"
+
+
 class GraphWorkflowRuntime(WorkflowRuntime):
     """Workflow runtime powered by pydantic-graph.
 
@@ -177,7 +202,14 @@ class GraphWorkflowRuntime(WorkflowRuntime):
             )
 
         compiled = self._get_compiled(spec)
-        execution_id = f"exec-{uuid.uuid4().hex[:12]}"
+        # Derive execution_id from run_id so all layers share the same base ID.
+        _early_run = run_context.run if run_context is not None else run
+        _early_run_id = _get_run_id(_early_run)
+        _early_run_dir = (
+            Path(run_context.work_dir) if run_context is not None
+            else _get_run_dir(_early_run)
+        )
+        execution_id = _make_execution_id(_early_run_id, _early_run_dir)
         owner_supplied_context = run_context
 
         try:
@@ -286,7 +318,6 @@ class GraphWorkflowRuntime(WorkflowRuntime):
             )
 
         compiled = self._get_compiled(spec)
-        execution_id = f"exec-{uuid.uuid4().hex[:12]}"
         owner_supplied_context = run_context
         effective_run = (
             run_context.run
@@ -294,6 +325,11 @@ class GraphWorkflowRuntime(WorkflowRuntime):
             else run
         )
         run_id = _get_run_id(effective_run)
+        _early_run_dir = (
+            Path(run_context.work_dir) if run_context is not None
+            else _get_run_dir(effective_run)
+        )
+        execution_id = _make_execution_id(run_id, _early_run_dir)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,

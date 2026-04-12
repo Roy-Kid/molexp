@@ -39,6 +39,7 @@ class TestRunContextLifecycle:
         with run.start() as ctx:
             assert ctx.work_dir.exists()
             assert ctx.artifacts_dir.exists()
+            assert ctx.logs_dir.exists()
 
 
 class TestRunContextResults:
@@ -121,14 +122,17 @@ class TestRunContextGetDataDir:
 
 
 class TestRunContextErrorDetails:
-    def test_error_files_created(self, experiment):
+    def test_error_log_created(self, experiment):
         run = experiment.create_run()
         try:
             with run.start() as ctx:
                 raise RuntimeError("detailed error")
         except RuntimeError:
             pass
-        assert (ctx.artifacts_dir / "error.txt").exists()
-        assert (ctx.artifacts_dir / "error.json").exists()
-        err = json.loads((ctx.artifacts_dir / "error.json").read_text())
-        assert err["type"] == "RuntimeError"
+        error_txt = ctx.logs_dir / "error.txt"
+        assert error_txt.exists()
+        content = error_txt.read_text()
+        assert "RuntimeError" in content
+        assert "detailed error" in content
+        assert not (ctx.artifacts_dir / "error.txt").exists()
+        assert not (ctx.artifacts_dir / "error.json").exists()
