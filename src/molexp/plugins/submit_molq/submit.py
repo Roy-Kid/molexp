@@ -192,6 +192,7 @@ def make_submit_handler(
     cluster: str | None,
     resources: dict[str, Any],
     scheduling: dict[str, Any],
+<<<<<<< HEAD
     block: bool = False,
 ) -> SubmitHandler:
     """Return a :class:`SubmitHandler` configured for the given scheduler.
@@ -204,11 +205,32 @@ def make_submit_handler(
     All ``None`` values in *resources* and *scheduling* are stripped so that
     molq passes them through as unset, letting each scheduler use its own
     defaults.
+=======
+) -> SubmitHandler:
+    """Return a :class:`SubmitHandler` configured for the given scheduler.
+
+    The handler is callable with the standard ``(script, mol_run, exp_spec,
+    project_spec)`` signature used by :func:`~molexp.cli._execute_sweep`.
+    After the sweep, :attr:`SubmitHandler.submitted_runs` contains every run
+    that was successfully submitted.
+
+    Args:
+        scheduler: Scheduler backend: ``"slurm"``, ``"pbs"``, or ``"lsf"``.
+        cluster: molq cluster name; ``None`` defaults to ``"default"``.
+        resources: Resource options dict (``None`` values are stripped).
+        scheduling: Scheduling options dict (``None`` values are stripped).
+
+    Returns:
+        Configured :class:`SubmitHandler` instance.
+>>>>>>> 0826146fa100cff8f2c688347f73526dc1d5aa8b
     """
     return SubmitHandler(
         scheduler=scheduler,
         cluster=cluster,
         resources=resources,
         scheduling=scheduling,
+<<<<<<< HEAD
         block=block,
+=======
+>>>>>>> 0826146fa100cff8f2c688347f73526dc1d5aa8b
     )

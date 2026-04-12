@@ -83,6 +83,7 @@ class RunContext:
         self.logs_dir.mkdir(exist_ok=True)
         self._load_existing_results()
         self._apply_execution_mode_metadata()
+        self._claim_ownership()
         self.run._set_status(RunStatus.RUNNING)
         self._start_time = datetime.now()
         self._entered = True
@@ -91,6 +92,7 @@ class RunContext:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         now = datetime.now()
+        labels = self._labels_without_ownership()
         if exc_type is None:
             workflow_status = self._context.status.get("run")
             if workflow_status == RunStatus.FAILED:
@@ -99,11 +101,14 @@ class RunContext:
                 final = RunStatus.DRY_RUN
             else:
                 final = RunStatus.SUCCEEDED
-            self.run._update_metadata(status=final, finished_at=now)
+            self.run._update_metadata(
+                status=final, finished_at=now, labels=labels
+            )
         else:
             self.run._update_metadata(
                 status=RunStatus.FAILED,
                 finished_at=now,
+                labels=labels,
                 error=ErrorInfo(
                     type=exc_type.__name__,
                     message=str(exc_val),
@@ -347,6 +352,26 @@ class RunContext:
                 labels.pop("mode")
             updates = {"dry_run": False, "labels": labels}
         self.run._update_metadata(**updates)
+
+    def _claim_ownership(self) -> None:
+        """Stamp the run with the current process identity.
+
+        Stored in ``labels`` as ``pid`` / ``host`` / ``heartbeat``.  A later
+        ``molexp run`` invocation can consult these to tell a live run from a
+        zombie left behind by a crashed process.
+        """
+        labels = dict(self.run.metadata.labels)
+        labels["pid"] = str(os.getpid())
+        labels["host"] = platform.node()
+        labels["heartbeat"] = datetime.now().isoformat()
+        self.run._update_metadata(labels=labels)
+
+    def _labels_without_ownership(self) -> dict[str, str]:
+        """Return labels with the ownership stamp removed."""
+        labels = dict(self.run.metadata.labels)
+        for key in ("pid", "host", "heartbeat"):
+            labels.pop(key, None)
+        return labels
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
