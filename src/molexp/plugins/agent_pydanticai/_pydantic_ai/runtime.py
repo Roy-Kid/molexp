@@ -10,7 +10,7 @@ Wraps pydantic-ai Agent with:
 from __future__ import annotations
 
 import json
-import logging
+from mollog import get_logger
 import uuid
 from pathlib import Path
 from typing import Any
@@ -29,7 +29,7 @@ from .catalog import MolexpToolCatalog
 from .deps import MolexpDeps
 from .session import PydanticAISession
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _SYSTEM_PROMPT = """\
 You are a research experiment assistant integrated with the molexp workspace.
@@ -137,7 +137,7 @@ class PydanticAIRuntime(AgentRuntime):
         # Launch agent run as background task
         session._launch(agent=agent, prompt=prompt, deps=deps)
 
-        logger.info("Started agent session %s", session_id)
+        logger.info(f"Started agent session {session_id}")
         return session
 
     async def resume_session(
@@ -189,7 +189,7 @@ class PydanticAIRuntime(AgentRuntime):
         self._active_sessions[session_id] = session
         session._launch(agent=agent, prompt=prompt, deps=deps)
 
-        logger.info("Resumed agent session %s", session_id)
+        logger.info(f"Resumed agent session {session_id}")
         return session
 
     async def get_session_history(self, session_id: str) -> Any:
@@ -234,4 +234,4 @@ class PydanticAIRuntime(AgentRuntime):
             )
             tmp_path.rename(history_path)
         except Exception:
-            logger.exception("Failed to save session history for %s", session.session_id)
+            logger.exception(f"Failed to save session history for {session.session_id}")

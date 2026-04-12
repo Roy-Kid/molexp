@@ -14,7 +14,7 @@ where each node executes all steps in its level in parallel.
 from __future__ import annotations
 
 import asyncio
-import logging
+from mollog import get_logger
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,7 +22,7 @@ from pydantic_graph import BaseNode, End, GraphRunContext
 
 from .state import WorkflowDeps, WorkflowState
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -76,13 +76,13 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
             run_context=ctx.deps.run_context,
         )
 
-        logger.debug("Executing step %r", entry.name)
+        logger.debug(f"Executing step {entry.name!r}")
 
         try:
             output = await _call_task(entry, step_ctx, deps=ctx.deps)
             return ctx.state.record(entry.name, output)
         except Exception as exc:
-            logger.exception("Step %r failed", entry.name)
+            logger.exception(f"Step {entry.name!r} failed")
             return ctx.state.fail(entry.name, exc)
 
     async def _execute_parallel(
@@ -105,13 +105,12 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
                 output = await _call_task(entry, step_ctx, deps=ctx.deps)
                 return (entry.name, output, None)
             except Exception as exc:
-                logger.exception("Step %r failed", entry.name)
+                logger.exception(f"Step {entry.name!r} failed")
                 return (entry.name, None, exc)
 
         logger.debug(
-            "Executing level %d in parallel: %s",
-            self.level_index,
-            [e.name for e in entries],
+            f"Executing level {self.level_index} in parallel: "
+            f"{[e.name for e in entries]}"
         )
 
         results = await asyncio.gather(*[_run_one(e) for e in entries])

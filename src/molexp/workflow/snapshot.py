@@ -17,14 +17,14 @@ import ast
 import hashlib
 import inspect
 import json
-import logging
+from mollog import get_logger
 import textwrap
 from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _normalize_ast(source: str) -> str:
@@ -107,10 +107,8 @@ class TaskSnapshot(BaseModel):
             pass
 
         logger.warning(
-            "Cannot compute reliable code hash for task %s (%s). "
-            "Falling back to class identity.",
-            task.task_id,
-            type(task).__qualname__,
+            f"Cannot compute reliable code hash for task {task.task_id} "
+            f"({type(task).__qualname__}). Falling back to class identity."
         )
         identity = f"{type(task).__module__}.{type(task).__qualname__}"
         return hashlib.sha256(identity.encode()).hexdigest()[:32]

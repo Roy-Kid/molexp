@@ -8,7 +8,7 @@ checkpoints, and asset access during execution.
 from __future__ import annotations
 
 import json
-import logging
+from mollog import get_logger
 import traceback
 from datetime import datetime
 from enum import Enum
@@ -25,7 +25,7 @@ from .context import Context
 from .models import ErrorInfo, ExecutionConfig, RunMetadata, WorkflowSnapshotRef
 from .utils import generate_id
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RunStatus(str, Enum):
@@ -243,7 +243,7 @@ class RunContext:
 
     async def emit(self, channel: str, message: Any) -> None:
         if channel not in self._channels:
-            logger.warning("emit() to non-existent channel %r — dropped", channel)
+            logger.warning(f"emit() to non-existent channel {channel!r} — dropped")
             return
         await self._channels[channel].put(message)
 

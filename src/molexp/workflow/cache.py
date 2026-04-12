@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
+from mollog import get_logger
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -34,7 +34,7 @@ from pydantic import BaseModel
 
 from .snapshot import TaskSnapshot
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 # Bump this when CacheEntry schema changes in a backwards-incompatible way.
 CACHE_FORMAT_VERSION = 1
@@ -123,14 +123,14 @@ class Caching:
         try:
             entry = CacheEntry.model_validate_json(path.read_text())
         except Exception:
-            logger.warning("Corrupted cache entry %s, removing", path.name)
+            logger.warning(f"Corrupted cache entry {path.name}, removing")
             path.unlink(missing_ok=True)
             return None
 
         if entry.version != CACHE_FORMAT_VERSION:
             logger.debug(
-                "Cache version mismatch for %s: entry=%d, current=%d",
-                cache_key, entry.version, CACHE_FORMAT_VERSION,
+                f"Cache version mismatch for {cache_key}: "
+                f"entry={entry.version}, current={CACHE_FORMAT_VERSION}"
             )
             path.unlink(missing_ok=True)
             return None
@@ -191,7 +191,7 @@ class Caching:
         to_remove = len(entries) - self._max_entries
         for path in entries[:to_remove]:
             path.unlink(missing_ok=True)
-            logger.debug("Evicted cache entry: %s", path.name)
+            logger.debug(f"Evicted cache entry: {path.name}")
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:

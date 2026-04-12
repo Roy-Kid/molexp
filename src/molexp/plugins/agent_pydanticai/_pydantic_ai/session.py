@@ -10,7 +10,7 @@ Design:
 from __future__ import annotations
 
 import asyncio
-import logging
+from mollog import get_logger
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from pydantic_ai import Agent
@@ -27,7 +27,7 @@ from .events import map_stream_event
 if TYPE_CHECKING:
     from .deps import MolexpDeps
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _DONE = object()  # Sentinel to signal stream_events() to stop
 
@@ -99,7 +99,7 @@ class PydanticAISession(AgentSession):
             await event_queue.put(completed_event)
 
         except Exception as exc:
-            logger.exception("Agent session %s failed", self.session_id)
+            logger.exception(f"Agent session {self.session_id} failed")
             self.status = "failed"
             await event_queue.put(
                 SessionCompletedEvent(summary=f"Session failed: {exc}")
@@ -126,9 +126,7 @@ class PydanticAISession(AgentSession):
         if future is not None and not future.done():
             future.set_result(approved)
         else:
-            logger.warning(
-                "No pending approval request for id=%s", request_id
-            )
+            logger.warning(f"No pending approval request for id={request_id}")
 
     def get_message_history(self) -> list[Any]:
         """Return the accumulated message history for persistence/resumption."""

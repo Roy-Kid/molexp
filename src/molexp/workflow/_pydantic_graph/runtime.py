@@ -10,7 +10,7 @@ Implements the WorkflowRuntime interface for all three modes:
 from __future__ import annotations
 
 import asyncio
-import logging
+from mollog import get_logger
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -23,7 +23,7 @@ from .node import WorkflowStep
 from .persistence import RunStorePersistence
 from .state import WorkflowDeps, WorkflowState
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 _compiler = WorkflowGraphCompiler()
 
@@ -252,7 +252,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 failed=True,
                 persist=owner_supplied_context is not None,
             )
-            logger.exception("Workflow '%s' execution failed", spec.name)
+            logger.exception(f"Workflow {spec.name!r} execution failed")
             return WorkflowResult(
                 status="failed",
                 outputs={},
@@ -348,7 +348,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )
-                logger.exception("Background workflow '%s' failed", spec.name)
+                logger.exception(f"Background workflow {spec.name!r} failed")
             finally:
                 handle._done_event.set()
 
@@ -405,7 +405,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )
-                logger.exception("Resume of workflow '%s' failed", spec.name)
+                logger.exception(f"Resume of workflow {spec.name!r} failed")
             finally:
                 handle._done_event.set()
 

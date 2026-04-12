@@ -8,25 +8,27 @@ It strictly adheres to the standard pattern:
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from mollog import get_logger
 
 from .handlers import register_exception_handlers
 from .routes import create_api_router
 from .schemas import HealthResponse
 
+logger = get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     """Application lifespan: startup and shutdown events."""
-    logging.info("MolExp server starting up")
+    logger.info("MolExp server starting up")
     yield
-    logging.info("MolExp server shutting down")
+    logger.info("MolExp server shutting down")
 
 
 # ---------------------------------------------------------------------------

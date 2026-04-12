@@ -12,7 +12,7 @@ in Phase 3 — that is planned for Phase 4).
 from __future__ import annotations
 
 import json
-import logging
+from mollog import get_logger
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -25,7 +25,7 @@ from pydantic_graph.persistence import BaseStatePersistence, EndSnapshot, NodeSn
 
 from .state import WorkflowState
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
@@ -138,7 +138,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
             data["status"] = status
             self._write_atomic(snapshot_id, data)
         except Exception:
-            logger.exception("Failed to update snapshot status for %s", snapshot_id)
+            logger.exception(f"Failed to update snapshot status for {snapshot_id}")
 
     def _write_atomic(self, snapshot_id: str, data: dict) -> None:
         target = self._exec_dir / f"{snapshot_id}.json"
