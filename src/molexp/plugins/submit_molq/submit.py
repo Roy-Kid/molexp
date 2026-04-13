@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .metadata import build_executor_info
+
 
 def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
     """Return a copy with ``None`` values removed."""
@@ -20,7 +22,7 @@ class SubmitHandler:
     sweep completes.
 
     Args:
-        scheduler: Scheduler type: ``"slurm"``, ``"pbs"``, or ``"lsf"``.
+        scheduler: molq scheduler backend name.
         cluster: molq cluster name (``None`` → ``"default"``).
         resources: Sparse dict of resource overrides (``None`` values stripped).
         scheduling: Sparse dict of scheduling overrides (``None`` values stripped).
@@ -65,7 +67,7 @@ class SubmitHandler:
             cluster_name=self._cluster,
             scheduler=self._scheduler,
         ) as submitor:
-            submitor.submit(
+            job, _ = submitor.submit(
                 argv=[
                     sys.executable,
                     "-m",
@@ -95,6 +97,14 @@ class SubmitHandler:
                 },
             )
 
+        mol_run._update_metadata(
+            executor_info=build_executor_info(
+                scheduler=self._scheduler,
+                cluster_name=self._cluster,
+                job_id=job.job_id,
+                scheduler_job_id=job.scheduler_job_id,
+            )
+        )
         self.submitted_runs.append(mol_run)
 
 
@@ -113,7 +123,7 @@ def make_submit_handler(
     that was successfully submitted.
 
     Args:
-        scheduler: Scheduler backend: ``"slurm"``, ``"pbs"``, or ``"lsf"``.
+        scheduler: molq scheduler backend name.
         cluster: molq cluster name; ``None`` defaults to ``"default"``.
         resources: Resource options dict (``None`` values are stripped).
         scheduling: Scheduling options dict (``None`` values are stripped).

@@ -430,6 +430,17 @@ class Run:
         """Return a context manager for normal-mode (non-dry-run) execution."""
         return RunContext(self, execution_config=ExecutionConfig(dry_run=False))
 
+    def cancel(self) -> None:
+        """Mark the run as cancelled in workspace metadata."""
+        labels = dict(self.metadata.labels)
+        for key in ("pid", "host", "heartbeat"):
+            labels.pop(key, None)
+        self._update_metadata(
+            status=RunStatus.CANCELLED,
+            finished_at=datetime.now(),
+            labels=labels,
+        )
+
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 
     def _set_status(self, status: RunStatus) -> None:

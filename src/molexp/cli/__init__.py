@@ -13,6 +13,7 @@ from rich import print as rprint
 from rich.console import Console
 from rich.table import Table
 
+from molexp.plugins.submit_molq.metadata import normalize_executor_info
 from molexp.workspace import Workspace
 
 app = typer.Typer(
@@ -116,6 +117,11 @@ def _reap_zombie_run(run: Any) -> bool:
         ),
     )
     return True
+
+
+def _run_executor_info(run: Any) -> dict[str, str]:
+    """Return normalized executor metadata for a workspace run."""
+    return normalize_executor_info(run.metadata.executor_info, run.metadata.labels)
 
 
 # ============ Run Command ============
@@ -322,6 +328,14 @@ def run(
         bool,
         typer.Option("--lsf", help="Submit to an LSF cluster via molq.", rich_help_panel="Execution Backend"),
     ] = False,
+    scheduler: Annotated[
+        Optional[str],
+        typer.Option(
+            "--scheduler",
+            help="Submit via a molq scheduler backend (e.g. local, slurm, pbs, lsf).",
+            rich_help_panel="Execution Backend",
+        ),
+    ] = None,
     # ── Common options ─────────────────────────────────────────────────────
     dry_run: Annotated[
         bool,
@@ -396,18 +410,38 @@ def run(
         bool,
         typer.Option(
             "--no-watch",
-            help="Skip the interactive monitor after cluster submission (useful for CI/scripts).",
+            help="Skip the interactive monitor after molq submission (useful for CI/scripts).",
             rich_help_panel="HPC Options",
         ),
     ] = False,
 ) -> None:
     """Run or schedule a parameter sweep defined in a Python script."""
     # ── Validate backend flags ─────────────────────────────────────────────
-    if sum([local, slurm, pbs, lsf]) > 1:
-        rprint("[red]Error:[/red] Specify at most one backend flag (--local, --slurm, --pbs, --lsf).")
+    legacy_schedulers = [
+        name for name, enabled in (("slurm", slurm), ("pbs", pbs), ("lsf", lsf))
+        if enabled
+    ]
+    if len(legacy_schedulers) > 1:
+        rprint(
+            "[red]Error:[/red] Specify at most one backend flag "
+            "(--local, --scheduler, --slurm, --pbs, --lsf)."
+        )
+        raise typer.Exit(1)
+    if scheduler and legacy_schedulers:
+        rprint(
+            "[red]Error:[/red] Use either --scheduler or one legacy backend flag "
+            "(--slurm/--pbs/--lsf), not both."
+        )
+        raise typer.Exit(1)
+    selected_scheduler = scheduler or (legacy_schedulers[0] if legacy_schedulers else None)
+    if local and selected_scheduler is not None:
+        rprint(
+            "[red]Error:[/red] Specify at most one backend flag "
+            "(--local, --scheduler, --slurm, --pbs, --lsf)."
+        )
         raise typer.Exit(1)
 
-    is_local = not slurm and not pbs and not lsf
+    is_local = selected_scheduler is None
 
     if bg and not is_local:
         rprint("[red]Error:[/red] --bg is only valid with --local.")
@@ -442,6 +476,7 @@ def run(
 
     # ── Cluster backends ───────────────────────────────────────────────────
     try:
+        from molexp.plugins.submit_molq.metadata import supported_schedulers
         from molexp.plugins.submit_molq.submit import make_submit_handler
     except ImportError:
         rprint(
@@ -450,30 +485,29 @@ def run(
         )
         raise typer.Exit(1)
 
-    if slurm:
-        handler = make_submit_handler(
-            scheduler="slurm",
-            cluster=cluster,
-            resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
-            scheduling={"queue": partition, "account": account, "qos": qos},
+    available_schedulers = supported_schedulers()
+    if not available_schedulers:
+        rprint(
+            "[red]Error:[/red] molq is not installed. "
+            "Install it to use cluster backends: [bold]pip install molq[/bold]"
         )
-        mode_label = "[magenta]slurm[/magenta]"
-    elif pbs:
-        handler = make_submit_handler(
-            scheduler="pbs",
-            cluster=cluster,
-            resources={"cpus": cpus, "mem": mem, "gpus": gpus, "time": time},
-            scheduling={"queue": queue, "account": account},
+        raise typer.Exit(1)
+    if available_schedulers and selected_scheduler not in available_schedulers:
+        supported_text = ", ".join(available_schedulers)
+        rprint(
+            f"[red]Error:[/red] Unsupported molq scheduler: {selected_scheduler!r}. "
+            f"Available: {supported_text}"
         )
-        mode_label = "[magenta]pbs[/magenta]"
-    else:  # lsf
-        handler = make_submit_handler(
-            scheduler="lsf",
-            cluster=cluster,
-            resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
-            scheduling={"queue": queue, "account": account},
-        )
-        mode_label = "[magenta]lsf[/magenta]"
+        raise typer.Exit(1)
+
+    selected_queue = partition if partition is not None else queue
+    handler = make_submit_handler(
+        scheduler=selected_scheduler,
+        cluster=cluster,
+        resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
+        scheduling={"queue": selected_queue, "account": account, "qos": qos},
+    )
+    mode_label = f"[magenta]{selected_scheduler}[/magenta]"
 
     n, submitted = _execute_sweep(
         script=script,
@@ -1035,7 +1069,10 @@ def run_cancel(
     ] = None,
     scheduler: Annotated[
         str,
-        typer.Option("--scheduler", help="Scheduler backend: slurm, pbs, lsf, or local."),
+        typer.Option(
+            "--scheduler",
+            help="Fallback molq scheduler backend when run metadata lacks executor info.",
+        ),
     ] = "slurm",
     cluster: Annotated[
         Optional[str],
@@ -1141,15 +1178,18 @@ def run_cancel(
     table = Table(title=f"Runs to cancel ({len(target_runs)})")
     table.add_column("Run ID", style="cyan")
     table.add_column("Status", style="yellow")
+    table.add_column("Scheduler", style="magenta")
     table.add_column("molq_job_id", style="dim")
-    table.add_column("slurm_job_id", style="dim")
+    table.add_column("scheduler_job_id", style="dim")
 
     for r in target_runs:
+        executor_info = _run_executor_info(r)
         table.add_row(
             r.id,
             r.status,
-            r.metadata.molq_job_id or "—",
-            r.metadata.slurm_job_id or "—",
+            executor_info.get("scheduler") or scheduler,
+            executor_info.get("job_id") or "—",
+            executor_info.get("scheduler_job_id") or "—",
         )
 
     console.print(table)
@@ -1161,18 +1201,18 @@ def run_cancel(
             raise typer.Exit(0)
 
     # ── Lazy-load molq Submitor ──────────────────────────────────────────────
-    submitor = None
-    if scheduler != "local":
-        try:
-            from molq import Submitor  # type: ignore[import]
-
-            submitor = Submitor(cluster_name=cluster or "default", scheduler=scheduler)
-        except ImportError:
-            rprint(
-                "[yellow]Warning:[/yellow] molq is not installed — will only update "
-                "workspace state without calling the scheduler.\n"
-                "  Install with: [bold]pip install molq[/bold]"
-            )
+    submitor_cache: dict[tuple[str, str], Any] = {}
+    molq_available = True
+    Submitor = None
+    try:
+        from molq import Submitor  # type: ignore[import]
+    except ImportError:
+        molq_available = False
+        rprint(
+            "[yellow]Warning:[/yellow] molq is not installed — will only update "
+            "workspace state without calling the scheduler.\n"
+            "  Install with: [bold]pip install molq[/bold]"
+        )
 
     # ── Cancel each run ──────────────────────────────────────────────────────
     cancelled = 0
@@ -1180,21 +1220,44 @@ def run_cancel(
 
     try:
         for r in target_runs:
-            molq_id = r.metadata.molq_job_id
+            executor_info = _run_executor_info(r)
+            molq_id = executor_info.get("job_id")
+            scheduler_job_id = executor_info.get("scheduler_job_id")
+            run_scheduler = executor_info.get("scheduler") or scheduler
+            run_cluster = executor_info.get("cluster_name") or cluster or "default"
 
-            if submitor is not None:
-                if molq_id:
+            if Submitor is not None and molq_available:
+                if molq_id and run_scheduler:
+                    cache_key = (run_scheduler, run_cluster)
+                    submitor = submitor_cache.get(cache_key)
+                    if submitor is None:
+                        submitor = Submitor(cluster_name=run_cluster, scheduler=run_scheduler)
+                        submitor_cache[cache_key] = submitor
                     try:
                         submitor.cancel(molq_id)
                     except Exception as exc:
                         rprint(
                             f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
-                            f"{r.id} (molq_job_id={molq_id}): {exc}"
+                            f"{r.id} (molq_job_id={molq_id}, scheduler={run_scheduler}): {exc}"
+                        )
+                        errors += 1
+                elif scheduler_job_id and run_scheduler:
+                    cache_key = (run_scheduler, run_cluster)
+                    submitor = submitor_cache.get(cache_key)
+                    if submitor is None:
+                        submitor = Submitor(cluster_name=run_cluster, scheduler=run_scheduler)
+                        submitor_cache[cache_key] = submitor
+                    try:
+                        submitor._scheduler_impl.cancel(scheduler_job_id)
+                    except Exception as exc:
+                        rprint(
+                            f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
+                            f"{r.id} (scheduler_job_id={scheduler_job_id}, scheduler={run_scheduler}): {exc}"
                         )
                         errors += 1
                 else:
                     rprint(
-                        f"  [yellow]Warning:[/yellow] {r.id} has no molq_job_id — "
+                        f"  [yellow]Warning:[/yellow] {r.id} has no molq job metadata — "
                         "updating workspace state only."
                     )
 
@@ -1202,7 +1265,7 @@ def run_cancel(
             rprint(f"  [green]OK[/green] Cancelled {r.id}")
             cancelled += 1
     finally:
-        if submitor is not None:
+        for submitor in submitor_cache.values():
             submitor.close()
 
     # ── Summary ──────────────────────────────────────────────────────────────

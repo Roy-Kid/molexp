@@ -113,3 +113,4 @@ class RunMetadata(BaseModel, frozen=True):
     workflow_snapshot: WorkflowSnapshotRef | None = None
     dry_run: bool = False
     labels: dict[str, str] = Field(default_factory=dict)
+    executor_info: dict[str, Any] = Field(default_factory=dict)

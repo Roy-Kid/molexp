@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from molexp.plugins.submit_molq.metadata import normalize_executor_info
+
 if TYPE_CHECKING:
     from molexp.workspace.run import Run
 
@@ -128,11 +130,11 @@ class RunMonitor:
                     data.get("finished_at"),
                 )
 
-                # scheduler_job_id may be written to labels by the worker
-                sched_id: str | None = (
-                    data.get("labels", {}).get("scheduler_job_id")
-                    or data.get("metadata", {}).get("scheduler_job_id")
+                executor_info = normalize_executor_info(
+                    data.get("executor_info"),
+                    data.get("labels"),
                 )
+                sched_id = executor_info.get("scheduler_job_id")
 
                 error_msg: str | None = None
                 if isinstance(data.get("error"), dict):

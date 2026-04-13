@@ -180,7 +180,13 @@ export function seed(): void {
                 gitCommit: "a1b2c3d",
                 serializedGraph: null,
             },
-            executorInfo: { backend: "local" },
+            executorInfo: {
+                backend: "molq",
+                scheduler: "slurm",
+                cluster_name: "default",
+                job_id: "molq-101",
+                scheduler_job_id: "421337",
+            },
             workingDir: "/tmp/molexp/run-001",
             logsDir: "/tmp/molexp/run-001/logs",
             assetRefs: {

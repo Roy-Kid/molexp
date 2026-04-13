@@ -2,6 +2,7 @@ import { useState } from "react";
 import { TopBar } from "@/app/layout/TopBar";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
+import { RightPanel } from "@/app/panels/RightPanel";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 
@@ -21,7 +22,8 @@ interface AppShellProps {
 
 const PANEL_DEFAULTS = {
   left: 20,
-  center: 80,
+  center: 56,
+  right: 24,
 };
 
 export const AppShell = ({
@@ -62,6 +64,18 @@ export const AppShell = ({
           <ResizablePanel defaultSize={PANEL_DEFAULTS.center}>
             <div className="h-full overflow-hidden">
               <CenterPanel
+                selection={selection}
+                snapshot={snapshot}
+                inspectorTarget={inspectorTarget}
+                onInspectorTargetChange={onInspectorTargetChange}
+                onRefresh={onWorkspaceRefresh}
+              />
+            </div>
+          </ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={PANEL_DEFAULTS.right} minSize={18} maxSize={34}>
+            <div className="h-full overflow-hidden">
+              <RightPanel
                 selection={selection}
                 snapshot={snapshot}
                 inspectorTarget={inspectorTarget}

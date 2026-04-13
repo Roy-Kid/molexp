@@ -122,6 +122,7 @@ class RunResponse(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict)
     workflow: WorkflowSnapshotResponse | None = None
     error: dict[str, str] | None = None
+    executorInfo: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_model(cls, run: Run) -> RunResponse:
@@ -150,6 +151,7 @@ class RunResponse(BaseModel):
             parameters=run.parameters,
             workflow=wf_snap,
             error=error,
+            executorInfo=run.metadata.executor_info,
         )
 
 
@@ -246,6 +248,34 @@ class AgentSessionResponse(BaseModel):
 
 class AgentSessionListResponse(BaseModel):
     sessions: list[AgentSessionResponse]
+    total: int
+
+
+# ── Plugin Registry ─────────────────────────────────────────────────────────
+
+
+class UiPluginResponse(BaseModel):
+    id: str
+    title: str
+    description: str = ""
+    uiModule: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @classmethod
+    def from_descriptor(cls, descriptor) -> "UiPluginResponse":
+        return cls(
+            id=descriptor.id,
+            title=descriptor.title,
+            description=descriptor.description,
+            uiModule=descriptor.ui_module,
+            capabilities=list(descriptor.capabilities),
+            metadata=descriptor.metadata,
+        )
+
+
+class UiPluginListResponse(BaseModel):
+    plugins: list[UiPluginResponse]
     total: int
 
 

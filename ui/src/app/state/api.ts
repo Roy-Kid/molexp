@@ -199,8 +199,11 @@ export const mapRuns = (
   };
 
   return runs.map((run) => ({
+    executorInfo: Object.fromEntries(
+      Object.entries(run.executorInfo ?? {}).map(([key, value]) => [key, String(value)]),
+    ),
     id: run.id,
-    name: run.runId,
+    name: "runId" in run && typeof run.runId === "string" ? run.runId : run.id,
     status: mapStatus(run.status),
     summary: `Status: ${run.status}`,
     updatedAt: run.finished ?? run.created,

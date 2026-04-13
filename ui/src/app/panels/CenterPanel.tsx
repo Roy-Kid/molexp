@@ -35,7 +35,7 @@ export const CenterPanel = ({
   const plan = renderPlanByObjectType[selection.objectType];
   const renderers = plan.center.map((target) => {
     const key = buildRendererKeyFromSelection(selection, target);
-    return resolveRenderer(key);
+    return resolveRenderer(key, { selection, snapshot, target });
   });
 
   return (

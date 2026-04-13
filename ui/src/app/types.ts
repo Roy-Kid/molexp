@@ -106,6 +106,7 @@ export interface RunSummary {
   updatedAt: string;
   projectId: string;
   experimentId: string;
+  executorInfo: Record<string, string>;
 }
 
 export interface AssetSummary {
