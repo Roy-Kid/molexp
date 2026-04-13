@@ -41,7 +41,7 @@ def create_project(
     project: ProjectCreateRequest,
     workspace=Depends(get_workspace),
 ) -> ProjectResponse:
-    new_project = workspace.create_project(name=project.name)
+    new_project = workspace.project(project.name)
     return ProjectResponse.from_model(new_project)
 
 

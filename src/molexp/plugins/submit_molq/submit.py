@@ -15,7 +15,7 @@ def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
 class SubmitHandler:
     """Stateful run handler that submits jobs via molq.
 
-    Callable with signature ``(script, mol_run, exp_spec, project_spec)``.
+    Callable with signature ``(script, mol_run, experiment, project)``.
     Accumulates :class:`~molq.JobHandle` objects so that :meth:`wait` can
     block until every submitted job reaches a terminal state.
     """
@@ -44,8 +44,8 @@ class SubmitHandler:
         self,
         script: Path,
         mol_run: Any,
-        exp_spec: Any,
-        project_spec: Any,
+        experiment: Any,
+        project: Any,
     ) -> None:
         from molq import (
             Duration,
@@ -66,7 +66,7 @@ class SubmitHandler:
         sched = self._sched
         run_dir = Path(mol_run.run_dir)
         # run_id is now 8 chars; no truncation needed.
-        job_name = f"{project_spec.name[:20]}-{mol_run.id}"
+        job_name = f"{project.name[:20]}-{mol_run.id}"
 
         handle = self._submitor.submit(
             argv=[
@@ -110,6 +110,15 @@ class SubmitHandler:
                 slurm_job_id=str(slurm_id) if slurm_id is not None else None,
                 molq_job_id=str(molq_id) if molq_id is not None else None,
             )
+
+        # Record cluster name in labels so the monitor can display it.
+        cluster_name = self._cluster or "default"
+        if hasattr(mol_run, "metadata") and hasattr(mol_run, "save"):
+            labels = dict(getattr(mol_run.metadata, "labels", {}) or {})
+            if labels.get("cluster") != cluster_name:
+                labels["cluster"] = cluster_name
+                mol_run.metadata = mol_run.metadata.model_copy(update={"labels": labels})
+                mol_run.save()
 
     # ------------------------------------------------------------------
     # Blocking / monitoring
@@ -192,27 +201,15 @@ def make_submit_handler(
     cluster: str | None,
     resources: dict[str, Any],
     scheduling: dict[str, Any],
-<<<<<<< HEAD
-    block: bool = False,
 ) -> SubmitHandler:
     """Return a :class:`SubmitHandler` configured for the given scheduler.
 
-    The handler is callable with signature
-    ``(script, mol_run, exp_spec, project_spec)`` and accumulates submitted
-    job handles.  Call :meth:`SubmitHandler.wait` after dispatching all runs
-    to block until every job finishes (only when *block* is ``True``).
+    The handler is callable with the standard ``(script, mol_run, experiment,
+    project)`` signature used by :func:`~molexp.cli._execute_sweep`.
 
     All ``None`` values in *resources* and *scheduling* are stripped so that
     molq passes them through as unset, letting each scheduler use its own
     defaults.
-=======
-) -> SubmitHandler:
-    """Return a :class:`SubmitHandler` configured for the given scheduler.
-
-    The handler is callable with the standard ``(script, mol_run, exp_spec,
-    project_spec)`` signature used by :func:`~molexp.cli._execute_sweep`.
-    After the sweep, :attr:`SubmitHandler.submitted_runs` contains every run
-    that was successfully submitted.
 
     Args:
         scheduler: Scheduler backend: ``"slurm"``, ``"pbs"``, or ``"lsf"``.
@@ -222,15 +219,10 @@ def make_submit_handler(
 
     Returns:
         Configured :class:`SubmitHandler` instance.
->>>>>>> 0826146fa100cff8f2c688347f73526dc1d5aa8b
     """
     return SubmitHandler(
         scheduler=scheduler,
         cluster=cluster,
         resources=resources,
         scheduling=scheduling,
-<<<<<<< HEAD
-        block=block,
-=======
->>>>>>> 0826146fa100cff8f2c688347f73526dc1d5aa8b
     )

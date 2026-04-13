@@ -8,18 +8,20 @@ Core packages:
 
 __version__ = "0.3.0"
 
-# User-facing spec API
 from molexp.entry import entry
-from molexp.experiment import Experiment
-from molexp.project import Project
 
-# Workspace types used in user scripts
+# User-facing hierarchy (all from workspace — single source of truth)
+from molexp.workspace.experiment import Experiment
 from molexp.workspace.param import GridSpace, ParamSpace, UniformSpace
-from molexp.workspace.run import RunContext
+from molexp.workspace.project import Project
+from molexp.workspace.run import Run, RunContext
+from molexp.workspace.workspace import Workspace
 
 __all__ = [
+    "Workspace",
     "Project",
     "Experiment",
+    "Run",
     "RunContext",
     "GridSpace",
     "UniformSpace",

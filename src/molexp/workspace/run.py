@@ -8,14 +8,16 @@ checkpoints, and asset access during execution.
 from __future__ import annotations
 
 import json
+import os
+import platform
 import time
-from mollog import get_logger
 import traceback
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mollog import get_logger
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -391,7 +393,7 @@ class Run:
 
     Example::
 
-        run = experiment.create_run(parameters={"lr": 0.001})
+        run = experiment.run(parameters={"lr": 0.001})
         with run.start() as ctx:
             result = my_workflow(ctx)
             ctx.set_result("output", result)

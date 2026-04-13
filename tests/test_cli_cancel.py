@@ -16,10 +16,9 @@ def _make_workspace(tmp_path, status="pending", molq_job_id=None, slurm_job_id=N
     """Create a minimal workspace/project/experiment/run for testing."""
     ws_path = tmp_path / "workspace"
     ws = Workspace(root=ws_path, name="test-ws")
-    ws.materialize()
-    project = ws.create_project(name="proj1")
-    exp = project.create_experiment(name="exp1")
-    run = exp.create_run(parameters={"lr": 0.001})
+    project = ws.project("proj1")
+    exp = project.experiment("exp1")
+    run = exp.run(parameters={"lr": 0.001})
     if status != "pending":
         run._set_status(RunStatus(status))
     if molq_job_id or slurm_job_id:

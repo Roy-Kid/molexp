@@ -28,23 +28,6 @@ console = Console()
 # ── Internal helpers ──────────────────────────────────────────────────────────
 
 
-def _params_to_id(params: dict[str, Any]) -> str:
-    """Compact, filesystem-safe experiment ID from a parameter dict."""
-    parts = []
-    for k, v in sorted(params.items()):
-        if isinstance(v, float):
-            formatted = f"{v:.0e}".replace("+", "")
-            parts.append(f"{k}-{formatted}")
-        else:
-            parts.append(f"{k}-{v}")
-    return "_".join(parts)
-
-
-def _params_to_label(params: dict[str, Any]) -> str:
-    """Human-readable experiment label."""
-    return ", ".join(f"{k}={v}" for k, v in sorted(params.items()))
-
-
 def _deterministic_run_id(params: dict[str, Any]) -> str:
     """Generate a deterministic run ID from parameters.
 
@@ -124,7 +107,7 @@ def _reap_zombie_run(run: Any) -> bool:
 
 # ── Shared sweep logic ───────────────────────────────────────────────────────
 
-# run_handler signature: (script, mol_run, exp_spec, project_spec) -> None
+# run_handler signature: (script, run, experiment, project) -> None
 RunHandler = Callable[[Path, Any, Any, Any], None]
 
 
@@ -138,155 +121,114 @@ def _execute_sweep(
     mode_label: str,
     suppress_ok: bool = False,
 ) -> tuple[int, list[Any]]:
-    """Iterate a parameter sweep and call *run_handler* for each run.
+    """Iterate each registered workspace's experiments and dispatch runs.
 
-    This contains the shared project/experiment/run iteration logic used
-    by both the built-in ``local`` sub-command and plugin-provided backends.
+    The user script has already built the Workspace → Project → Experiment
+    tree via idempotent factory calls (``ws.project().experiment()``).  Our
+    job is to walk that tree, expand each experiment's ``n_replicas`` into
+    concrete Runs, and hand each Run to *run_handler*.
 
     Returns:
-        ``(total_dispatched, dispatched_runs)`` — count and list of Run objects
-        that were passed to *run_handler*.
+        ``(total_dispatched, dispatched_runs)``.
     """
-    from molexp.entry import load_projects
+    from molexp.entry import load_workspaces
 
-    # ── Validate flag combinations ──────────────────────────────────────
     if resume and dry_run:
         rprint("[red]Error:[/red] --resume and --dry-run are mutually exclusive.")
         raise typer.Exit(1)
 
-    # ── Load the script (triggers me.entry() calls) ─────────────────────
     try:
-        projects = load_projects(script)
+        workspaces = load_workspaces(script)
     except Exception as exc:
         rprint(f"[red]Error importing {script.name}:[/red] {exc}")
         rprint(traceback.format_exc(), end="")
         raise typer.Exit(1)
 
-    if not projects:
+    if not workspaces:
         rprint(
             "[red]Error:[/red] No me.entry() call found in script. "
-            "Add [bold]me.entry(project)[/bold] at module level."
+            "Add [bold]me.entry(workspace)[/bold] at module level."
         )
         raise typer.Exit(1)
 
-    # ── Process each registered project ─────────────────────────────────
     total_dispatched = 0
     dispatched_runs: list[Any] = []
-    for project_spec in projects:
-        ws_root = Path(workspace).resolve() if workspace else project_spec.workspace_root.resolve()
-        ws = Workspace.from_path(ws_root)
 
-        ws_project = ws.get_project(project_spec.name)
-        if ws_project is None:
-            ws_project = ws.create_project(name=project_spec.name)
-            rprint(f"[green]OK[/green] Created project: {project_spec.name}")
-
-        for exp_spec in project_spec.experiments:
-            if exp_spec.workflow is None:
+    for ws in workspaces:
+        if workspace is not None:
+            # CLI --workspace override: rebase projects under the requested root
+            # by rebuilding a Workspace at that path and re-projecting.  For
+            # simplicity we just ignore the override when it matches.
+            override = Path(workspace).resolve()
+            if override != ws.root:
                 rprint(
-                    f"[red]Error:[/red] Experiment {exp_spec.name!r} has no workflow. "
-                    "Call experiment.set_workflow(fn) before me.entry()."
+                    f"[yellow]Warning:[/yellow] --workspace {override} differs from "
+                    f"script's Workspace root {ws.root}; using the script's workspace."
                 )
-                raise typer.Exit(1)
 
-            workflow = exp_spec.workflow
-            seeds = exp_spec.get_seeds()
-
-            param_iter: list[dict[str, Any]]
-            if exp_spec.params is not None:
-                param_iter = list(exp_spec.params)
-            else:
-                param_iter = [{}]
-
-            total = len(param_iter) * exp_spec.n_replicas
-            if resume:
-                label = f"[cyan]resume[/cyan] + {mode_label}"
-            else:
-                label = mode_label
-            rprint(
-                f"\n[bold]Experiment:[/bold] {exp_spec.name}"
-                f"\n  Script:    {script}"
-                f"\n  Workspace: {ws.root}"
-                f"\n  Project:   {project_spec.name}"
-                f"\n  Runs:      {len(param_iter)} combos x {exp_spec.n_replicas} replicas = {total}"
-                f"\n  Mode:      {label}"
-            )
-
-            created_runs: list[tuple[Any, dict[str, Any], int]] = []
-
-            for params in param_iter:
-                if params:
-                    exp_id = _params_to_id(params)
-                    exp_label = _params_to_label(params)
-                else:
-                    exp_id = exp_spec.name
-                    exp_label = exp_spec.name
-
-                ws_exp = ws_project.get_experiment(exp_id)
-                if ws_exp is None:
-                    ws_exp = ws_project.create_experiment(
-                        name=exp_label,
-                        id=exp_id,
-                        workflow_source=str(script),
-                        parameter_space=dict(params) if params else {},
+        for project in ws.list_projects():
+            for exp in project.list_experiments():
+                if exp.workflow is None:
+                    rprint(
+                        f"[red]Error:[/red] Experiment {exp.name!r} has no workflow. "
+                        "Call experiment.set_workflow(fn) before me.entry()."
                     )
+                    raise typer.Exit(1)
+
+                seeds = exp.get_seeds()
+                total = exp.n_replicas
+                label = f"[cyan]resume[/cyan] + {mode_label}" if resume else mode_label
+                rprint(
+                    f"\n[bold]Experiment:[/bold] {exp.name}"
+                    f"\n  Script:    {script}"
+                    f"\n  Workspace: {ws.root}"
+                    f"\n  Project:   {project.name}"
+                    f"\n  Runs:      {total} replicas"
+                    f"\n  Mode:      {label}"
+                )
+
+                created_runs: list[tuple[Any, int]] = []
 
                 for replica_idx, seed in enumerate(seeds):
-                    run_params = {**params, "seed": seed, "replica": replica_idx}
+                    run_params = {**exp.params, "seed": seed, "replica": replica_idx}
                     run_id = _deterministic_run_id(run_params)
 
-                    existing = ws_exp.get_run(run_id)
+                    existing = exp.get_run(run_id)
                     if existing is not None and existing.status == "running":
                         if _reap_zombie_run(existing):
                             rprint(
-                                f"  [yellow]![/yellow] {exp_id}  seed={seed} "
+                                f"  [yellow]![/yellow] {exp.id}  seed={seed} "
                                 "(stale 'running' run reaped → failed)"
                             )
                     if resume:
                         if existing is None:
-                            rprint(f"  [dim]- {exp_id}  seed={seed} (no existing run, skipped)[/dim]")
+                            rprint(f"  [dim]- {exp.id}  seed={seed} (no existing run, skipped)[/dim]")
                             continue
-                        status = existing.status
-                        if status != "dry_run":
-                            rprint(f"  [dim]- {exp_id}  seed={seed} ({status}, skipped)[/dim]")
+                        if existing.status != "dry_run":
+                            rprint(f"  [dim]- {exp.id}  seed={seed} ({existing.status}, skipped)[/dim]")
                             continue
                         mol_run = existing
                     elif existing is not None:
-                        status = existing.status
-                        if status in ("succeeded", "running", "dry_run"):
-                            rprint(f"  [dim]- {exp_id}  seed={seed} ({status}, skipped)[/dim]")
+                        if existing.status in ("succeeded", "running", "dry_run"):
+                            rprint(f"  [dim]- {exp.id}  seed={seed} ({existing.status}, skipped)[/dim]")
                             continue
                         mol_run = existing
                     else:
-                        mol_run = ws_exp.create_run(
-                            parameters=run_params, id=run_id,
-                        )
+                        mol_run = exp.run(parameters=run_params, id=run_id)
 
-                    created_runs.append((mol_run, params, seed))
-                    if resume:
-                        icon = "[cyan]>[/cyan]"
-                    elif dry_run:
-                        icon = "[yellow]~[/yellow]"
-                    else:
-                        icon = "[dim]o[/dim]"
-                    rprint(f"  {icon} {exp_id}  seed={seed}")
+                    created_runs.append((mol_run, seed))
+                    icon = "[cyan]>[/cyan]" if resume else ("[yellow]~[/yellow]" if dry_run else "[dim]o[/dim]")
+                    rprint(f"  {icon} {exp.id}  seed={seed}")
 
-            # ── Execute or submit ───────────────────────────────────────
-            for mol_run, params, seed in created_runs:
-                exp_id = _params_to_id(params) if params else exp_spec.name
-                run_handler(script, mol_run, exp_spec, project_spec)
-                dispatched_runs.append(mol_run)
-                rprint(f"  [cyan]>[/cyan] dispatched {exp_id}  seed={seed}")
+                for mol_run, seed in created_runs:
+                    run_handler(script, mol_run, exp, project)
+                    dispatched_runs.append(mol_run)
+                    rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  seed={seed}")
 
-            total_dispatched += len(created_runs)
-            if not suppress_ok:
-                if resume:
-                    verb = "resumed"
-                elif dry_run:
-                    verb = "completed in dry-run mode"
-                else:
-                    verb = "completed"
-                rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
+                total_dispatched += len(created_runs)
+                if not suppress_ok:
+                    verb = "resumed" if resume else ("completed in dry-run mode" if dry_run else "completed")
+                    rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
 
     return total_dispatched, dispatched_runs
 
@@ -394,11 +336,11 @@ def run(
         typer.Option("--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"),
     ] = None,
     # ── Monitor ────────────────────────────────────────────────────────────
-    no_watch: Annotated[
+    block: Annotated[
         bool,
         typer.Option(
-            "--no-watch",
-            help="Skip the interactive monitor after cluster submission (useful for CI/scripts).",
+            "--block",
+            help="Block after cluster submission and open the interactive run monitor until all jobs finish (press q to close).",
             rich_help_panel="HPC Options",
         ),
     ] = False,
@@ -427,9 +369,9 @@ def run(
         label = "[yellow]dry-run[/yellow]" if dry_run else "[green]local[/green]"
 
         def _local_handler(
-            script_: Path, mol_run: Any, exp_spec: Any, _project_spec: Any,
+            script_: Path, mol_run: Any, experiment: Any, _project: Any,
         ) -> None:
-            asyncio.run(exp_spec.workflow.execute(run=mol_run, dry_run=dry_run))
+            asyncio.run(experiment.workflow.execute(run=mol_run, dry_run=dry_run))
 
         _execute_sweep(
             script=script,
@@ -492,15 +434,17 @@ def run(
         rprint(f"\n[dim]No runs {verb}.[/dim]")
         return
 
-    if not no_watch and submitted:
+    if block and submitted:
         from molexp.monitor import RunMonitor
         rprint(f"\n[dim]Submitted {n} runs. Opening monitor… (press q to close)[/dim]")
         RunMonitor(title=f"{script.stem}  [{mode_label}]").watch(submitted)
-        rprint(f"\n[dim]Monitor closed. {n} runs are still executing.[/dim]")
+        rprint(f"\n[dim]Monitor closed. {n} runs are still executing (if any).[/dim]")
         rprint(f"[dim]Reopen with:  molexp watch --workspace {workspace or '.'} [/dim]")
     else:
         verb = "resumed" if resume else "submitted"
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
+        if submitted:
+            rprint(f"[dim]Open the monitor with:  molexp watch --workspace {workspace or '.'} [/dim]")
 
 
 def _launch_bg(
@@ -756,7 +700,7 @@ def project_create(
     ws = _get_workspace(path)
 
     try:
-        project = ws.create_project(name=name)
+        project = ws.project(name)
         rprint(f"[green]OK[/green] Created project: {project.id}")
         rprint(f"  Name: {project.name}")
     except Exception as e:
@@ -846,7 +790,7 @@ def experiment_create(
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
             raise typer.Exit(1)
 
-        experiment = project.create_experiment(name=name)
+        experiment = project.experiment(name)
         rprint(f"[green]OK[/green] Created experiment: {experiment.id}")
         rprint(f"  Name: {experiment.name}")
         rprint(f"  Project: {project_id}")
@@ -938,7 +882,7 @@ def run_create(
             rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
             raise typer.Exit(1)
 
-        r = experiment.create_run(parameters=parameters)
+        r = experiment.run(parameters=parameters)
         rprint(f"[green]OK[/green] Created run: {r.id}")
         rprint(f"  Project: {project_id}")
         rprint(f"  Experiment: {experiment_id}")
@@ -1290,20 +1234,8 @@ def asset_list(
 
 
 def _get_workspace(path: Path | None = None) -> Workspace:
-    """Get workspace from path or default config."""
-    if path:
-        return Workspace.from_path(path)
-    # Default: try loading from cwd
-    from molcfg import ConfigLoader, DictSource
-
-    sources = [DictSource({"workspace_root": str(Path.cwd())})]
-    config_file = Path.cwd() / "molexp.toml"
-    if config_file.exists():
-        from molcfg import TomlFileSource
-
-        sources.append(TomlFileSource(str(config_file)))
-    config = ConfigLoader(sources).load()
-    return Workspace.from_config(config)
+    """Get workspace from path (default: current directory)."""
+    return Workspace(path or Path.cwd())
 
 
 if __name__ == "__main__":

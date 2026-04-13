@@ -93,10 +93,9 @@ class TestFunctionalExecution:
 
     async def test_run_is_managed_by_runtime(self, tmp_path):
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        workspace.materialize()
-        project = workspace.create_project(name="demo")
-        experiment = project.create_experiment(name="runtime")
-        run = experiment.create_run(parameters={"seed": 42})
+        project = workspace.project("demo")
+        experiment = project.experiment("runtime")
+        run = experiment.run(parameters={"seed": 42})
 
         wf = workflow(name="managed-run")
 
@@ -122,10 +121,9 @@ class TestFunctionalExecution:
 
     async def test_normal_run_clears_stale_dry_run_badge(self, tmp_path):
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        workspace.materialize()
-        project = workspace.create_project(name="demo")
-        experiment = project.create_experiment(name="runtime")
-        run = experiment.create_run(parameters={"seed": 42})
+        project = workspace.project("demo")
+        experiment = project.experiment("runtime")
+        run = experiment.run(parameters={"seed": 42})
 
         wf = workflow(name="badge-clear")
 
@@ -144,10 +142,9 @@ class TestFunctionalExecution:
 
     async def test_run_and_run_context_are_mutually_exclusive(self, tmp_path):
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        workspace.materialize()
-        project = workspace.create_project(name="demo")
-        experiment = project.create_experiment(name="runtime")
-        run = experiment.create_run(parameters={})
+        project = workspace.project("demo")
+        experiment = project.experiment("runtime")
+        run = experiment.run(parameters={})
 
         wf = workflow(name="exclusive")
 

@@ -128,11 +128,17 @@ class RunMonitor:
                     data.get("finished_at"),
                 )
 
-                # scheduler_job_id may be written to labels by the worker
+                # Scheduler job IDs are persisted at the top level of run.json
+                # by ``Run.update_job_ids`` after molq submission.  Prefer the
+                # native scheduler ID (e.g. SLURM) since that's what users see
+                # in ``squeue``/``sacct``; fall back to the molq ID otherwise.
+                labels = data.get("labels") or {}
                 sched_id: str | None = (
-                    data.get("labels", {}).get("scheduler_job_id")
-                    or data.get("metadata", {}).get("scheduler_job_id")
+                    data.get("slurm_job_id")
+                    or data.get("molq_job_id")
+                    or labels.get("scheduler_job_id")
                 )
+                cluster: str | None = labels.get("cluster")
 
                 error_msg: str | None = None
                 if isinstance(data.get("error"), dict):
@@ -141,6 +147,7 @@ class RunMonitor:
                 rows.append(JobRow(
                     state=status,
                     run_id=run_id,
+                    cluster=cluster,
                     scheduler_id=sched_id,
                     elapsed=elapsed,
                     message=error_msg,

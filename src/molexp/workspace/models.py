@@ -83,7 +83,14 @@ class ProjectMetadata(BaseModel, frozen=True):
 
 
 class ExperimentMetadata(BaseModel, frozen=True):
-    """Repeatable experiment definition bound to a workflow."""
+    """Repeatable experiment definition bound to a workflow.
+
+    An Experiment carries a concrete parameter dict (`parameter_space`)
+    plus replica configuration (`n_replicas`, `seeds`).  Parameter sweeps
+    are expanded by the user at script level (e.g. via ``for p in GridSpace(...)``);
+    each combination becomes a distinct Experiment.  Replicas under a
+    single Experiment share parameters but differ in random seed.
+    """
 
     id: str
     name: str
@@ -96,6 +103,10 @@ class ExperimentMetadata(BaseModel, frozen=True):
     workflow_type: str | None = None
     parameter_space: dict[str, Any] = Field(default_factory=dict)
     git_commit: str | None = None
+
+    # Replica configuration
+    n_replicas: int = 1
+    seeds: list[int] | None = None
 
 
 class RunMetadata(BaseModel):

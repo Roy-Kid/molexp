@@ -72,7 +72,7 @@ def create_run(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, "")
-    run = experiment.create_run(parameters=run_req.parameters)
+    run = experiment.run(parameters=run_req.parameters)
     return RunResponse.from_model(run)
 
 

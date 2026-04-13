@@ -19,7 +19,7 @@ class TestRunContextLifecycle:
         assert run.status == RunStatus.SUCCEEDED
 
     def test_exit_failure(self, experiment):
-        run = experiment.create_run()
+        run = experiment.run()
         try:
             with run.start():
                 raise ValueError("boom")
@@ -91,7 +91,7 @@ class TestRunContextCheckpoint:
 
 class TestRunContextParams:
     def test_params_shortcut(self, experiment):
-        run = experiment.create_run(parameters={"lr": 1e-4, "batch": 32})
+        run = experiment.run(parameters={"lr": 1e-4, "batch": 32})
         with run.start() as ctx:
             assert ctx.params == {"lr": 1e-4, "batch": 32}
             assert ctx.params is ctx.run.parameters
@@ -123,7 +123,7 @@ class TestRunContextGetDataDir:
 
 class TestRunContextErrorDetails:
     def test_error_log_created(self, experiment):
-        run = experiment.create_run()
+        run = experiment.run()
         try:
             with run.start() as ctx:
                 raise RuntimeError("detailed error")

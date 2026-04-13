@@ -12,29 +12,35 @@ from molexp.workspace import Workspace
 runner = CliRunner()
 
 
+def _write_script(path, workspace_root, body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')"):
+    path.write_text(
+        "\n".join(
+            [
+                "import molexp as me",
+                "",
+                f"ws = me.Workspace({str(workspace_root)!r})",
+                "project = ws.project('demo')",
+                "exp = project.experiment('train')",
+                "",
+                "def train(ctx: me.RunContext) -> None:",
+                f"    {body}",
+                "",
+                "exp.set_workflow(train)",
+                "me.entry(ws)",
+                "",
+            ]
+        )
+    )
+
+
 class TestRunCommand:
     def test_dry_run_executes_workflow(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import molexp as me",
-                    "",
-                    f"project = me.Project('demo', config={{'workspace_root': {str(workspace_root)!r}}})",
-                    "exp = project.experiment('train')",
-                    "",
-                    "def train(ctx: me.RunContext) -> None:",
-                    "    if ctx.dry_run:",
-                    "        ctx.set_result('mode', 'dry')",
-                    "        return",
-                    "    ctx.set_result('mode', 'wet')",
-                    "",
-                    "exp.set_workflow(train)",
-                    "me.entry(project)",
-                    "",
-                ]
-            )
+        _write_script(
+            script,
+            workspace_root,
+            body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
         )
 
         result = runner.invoke(app, ["run", str(script), "--dry-run"])
@@ -62,45 +68,26 @@ class TestRunCommand:
     def test_resume_executes_dry_run_runs(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import molexp as me",
-                    "",
-                    f"project = me.Project('demo', config={{'workspace_root': {str(workspace_root)!r}}})",
-                    "exp = project.experiment('train')",
-                    "",
-                    "def train(ctx: me.RunContext) -> None:",
-                    "    if ctx.dry_run:",
-                    "        ctx.set_result('mode', 'dry')",
-                    "        return",
-                    "    ctx.set_result('mode', 'wet')",
-                    "",
-                    "exp.set_workflow(train)",
-                    "me.entry(project)",
-                    "",
-                ]
-            )
+        _write_script(
+            script,
+            workspace_root,
+            body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
         )
 
-        # Step 1: dry-run
         result = runner.invoke(app, ["run", str(script), "--dry-run"])
         assert result.exit_code == 0, result.output
 
         workspace = Workspace.load(workspace_root)
-        project = workspace.get_project("demo")
-        experiment = project.get_experiment("train")
+        experiment = workspace.get_project("demo").get_experiment("train")
         runs = experiment.list_runs()
         assert len(runs) == 1
         assert runs[0].status == "dry_run"
 
-        # Step 2: resume
         result = runner.invoke(app, ["run", str(script), "--resume"])
         assert result.exit_code == 0, result.output
 
         workspace = Workspace.load(workspace_root)
-        project = workspace.get_project("demo")
-        experiment = project.get_experiment("train")
+        experiment = workspace.get_project("demo").get_experiment("train")
         runs = experiment.list_runs()
         assert len(runs) == 1
 
@@ -114,29 +101,11 @@ class TestRunCommand:
     def test_resume_skips_non_dry_run_runs(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import molexp as me",
-                    "",
-                    f"project = me.Project('demo', config={{'workspace_root': {str(workspace_root)!r}}})",
-                    "exp = project.experiment('train')",
-                    "",
-                    "def train(ctx: me.RunContext) -> None:",
-                    "    ctx.set_result('mode', 'wet')",
-                    "",
-                    "exp.set_workflow(train)",
-                    "me.entry(project)",
-                    "",
-                ]
-            )
-        )
+        _write_script(script, workspace_root, body="ctx.set_result('mode', 'wet')")
 
-        # Normal run first
         result = runner.invoke(app, ["run", str(script)])
         assert result.exit_code == 0, result.output
 
-        # Resume should skip succeeded runs
         result = runner.invoke(app, ["run", str(script), "--resume"])
         assert result.exit_code == 0, result.output
         assert "skipped" in result.output
@@ -144,29 +113,15 @@ class TestRunCommand:
     def test_normal_run_skips_dry_run_status(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        script.write_text(
-            "\n".join(
-                [
-                    "import molexp as me",
-                    "",
-                    f"project = me.Project('demo', config={{'workspace_root': {str(workspace_root)!r}}})",
-                    "exp = project.experiment('train')",
-                    "",
-                    "def train(ctx: me.RunContext) -> None:",
-                    "    ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
-                    "",
-                    "exp.set_workflow(train)",
-                    "me.entry(project)",
-                    "",
-                ]
-            )
+        _write_script(
+            script,
+            workspace_root,
+            body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
         )
 
-        # Dry-run first
         result = runner.invoke(app, ["run", str(script), "--dry-run"])
         assert result.exit_code == 0, result.output
 
-        # Normal run should skip dry_run runs
         result = runner.invoke(app, ["run", str(script)])
         assert result.exit_code == 0, result.output
         assert "dry_run, skipped" in result.output
@@ -184,18 +139,14 @@ class TestRunCommand:
         result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
         assert "local" in result.output
-        # Remote backends appear when molq is installed
-        # (may or may not be present in test env)
 
     def test_run_help_has_grouped_options(self):
         result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
-        # Backend flags present
         assert "--local" in result.output
         assert "--slurm" in result.output
         assert "--pbs" in result.output
         assert "--lsf" in result.output
-        # HPC options in their own panel
         assert "HPC Options" in result.output
         assert "--partition" in result.output
         assert "--gpus" in result.output

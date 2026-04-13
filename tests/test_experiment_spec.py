@@ -1,49 +1,47 @@
-"""Tests for user-facing Experiment spec."""
+"""Tests for Experiment workflow binding (previously the user-facing spec)."""
 
 import json
 
 import pytest
 
-from molexp.experiment import Experiment, _promote_to_workflow
-from molexp.project import Project
 from molexp.workflow.spec import WorkflowBuilder, WorkflowSpec
 from molexp.workspace import Workspace
-from molexp.workspace.param import GridSpace
+from molexp.workspace.experiment import _promote_to_workflow
 
 
 @pytest.fixture
-def project():
-    return Project("test-project")
+def workspace(tmp_path):
+    return Workspace(root=tmp_path / "lab", name="Test")
+
+
+@pytest.fixture
+def project(workspace):
+    return workspace.project("test-project")
 
 
 @pytest.fixture
 def experiment(project):
     return project.experiment(
         "test-experiment",
-        params=GridSpace({"lr": [1e-4, 1e-3]}),
+        params={"lr": 1e-3},
         n_replicas=2,
     )
 
 
 class TestExperimentConstruction:
     def test_stores_fields(self, project):
-        exp = Experiment(
+        exp = project.experiment(
             "sweep",
-            project=project,
-            params=GridSpace({"x": [1]}),
+            params={"x": 1},
             n_replicas=3,
-            description="desc",
-            tags=["t1"],
         )
         assert exp.name == "sweep"
         assert exp.project is project
         assert exp.n_replicas == 3
-        assert exp.description == "desc"
-        assert exp.tags == ["t1"]
 
     def test_default_values(self, project):
-        exp = Experiment("minimal", project=project)
-        assert exp.params is None
+        exp = project.experiment("minimal")
+        assert exp.params == {}
         assert exp.n_replicas == 1
         assert exp.description == ""
         assert exp.tags == []
@@ -71,7 +69,6 @@ class TestSetWorkflow:
             pass
 
         experiment.set_workflow(train)
-        # Internal type is always WorkflowSpec, never Callable
         assert type(experiment.workflow) is WorkflowSpec
 
     def test_non_callable_raises_type_error(self, experiment):
@@ -86,21 +83,21 @@ class TestSetWorkflow:
 
 class TestGetSeeds:
     def test_default_seeds(self, project):
-        exp = project.experiment("test", n_replicas=3)
+        exp = project.experiment("t1", n_replicas=3)
         seeds = exp.get_seeds()
         assert len(seeds) == 3
         assert seeds[0] == 42
 
     def test_explicit_seeds(self, project):
-        exp = project.experiment("test", n_replicas=2, seeds=[100, 200, 300])
+        exp = project.experiment("t2", n_replicas=2, seeds=[100, 200, 300])
         seeds = exp.get_seeds()
         assert seeds == [100, 200]
 
     def test_seeds_extended_when_short(self, project):
-        exp = project.experiment("test", n_replicas=8)
+        exp = project.experiment("t3", n_replicas=8)
         seeds = exp.get_seeds()
         assert len(seeds) == 8
-        assert len(set(seeds)) == 8  # all unique
+        assert len(set(seeds)) == 8
 
 
 class TestPromoteToWorkflow:
@@ -120,11 +117,10 @@ class TestPromoteToWorkflow:
 
         spec = _promote_to_workflow(train, "test")
 
-        workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        workspace.materialize()
-        project = workspace.create_project(name="demo")
-        experiment = project.create_experiment(name="runtime")
-        run = experiment.create_run(parameters={})
+        ws = Workspace(root=tmp_path / "lab", name="Test Lab")
+        project = ws.project("demo")
+        experiment = project.experiment("runtime")
+        run = experiment.run(parameters={})
 
         result = await spec.execute(run=run, dry_run=True)
 

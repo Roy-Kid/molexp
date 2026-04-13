@@ -1,7 +1,8 @@
 """Project entity with experiment management.
 
-Construction is side-effect free; call ``materialize()`` to write to disk.
-Children are discovered by scanning the filesystem.
+Construction is side-effect free; ``workspace.project(...)`` materializes
+on disk at call-time (idempotent: existing projects are loaded, missing
+ones are created).
 """
 
 from __future__ import annotations
@@ -24,15 +25,16 @@ class Project:
 
     Example::
 
-        project = Project(name="QM9 Energy Prediction", workspace=workspace)
-        project.materialize()
-        exp = project.create_experiment(name="baseline", workflow_source="train.py")
+        ws = Workspace("./lab")
+        project = ws.project("QM9")
+        exp = project.experiment("baseline", params={"lr": 1e-3})
     """
 
     def __init__(self, name: str, workspace: Workspace) -> None:
         self.workspace = workspace
         self.metadata = ProjectMetadata(id=slugify(name), name=name)
         self._assets_lib: AssetLibrary | None = None
+        self._experiments_cache: dict[str, Experiment] = {}
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -77,7 +79,7 @@ class Project:
     # ── Persistence ─────────────────────────────────────────────────────
 
     def materialize(self) -> None:
-        """Create filesystem structure and persist metadata."""
+        """Create filesystem structure and persist metadata (non-recursive)."""
         self.project_dir.mkdir(parents=True, exist_ok=True)
         _save_metadata(self.metadata, self.project_dir / "project.json")
 
@@ -97,58 +99,61 @@ class Project:
 
     # ── Experiment operations ───────────────────────────────────────────
 
-    def create_experiment(
+    def experiment(
         self,
         name: str,
         *,
         id: str | None = None,
+        params: dict[str, Any] | None = None,
+        n_replicas: int = 1,
+        seeds: list[int] | None = None,
         workflow_source: str | None = None,
         workflow_type: str | None = None,
-        parameter_space: dict[str, Any] | None = None,
         git_commit: str | None = None,
-        exist_ok: bool = False,
     ) -> Experiment:
-        """Create an experiment (materialized immediately).
+        """Get-or-create an experiment (idempotent, materialized immediately).
 
-        Args:
-            name: Human-readable experiment name.
-            id: Optional custom ID (UUID generated if omitted).
-            workflow_source: Path to the workflow definition file.
-            workflow_type: ``"python"`` | ``"yaml"`` | …
-            parameter_space: Parameter search space definition.
-            git_commit: Git commit hash for reproducibility.
-            exist_ok: Return existing experiment instead of raising.
-
-        Raises:
-            ValueError: If experiment already exists and *exist_ok* is False.
+        If an experiment with the same ID (or slug from *name*) exists on
+        disk, it is loaded and returned.  Otherwise a new experiment is
+        constructed and materialized.
         """
-        experiment = Experiment(
-            name=name,
-            project=self,
-            id=id,
-            workflow_source=workflow_source,
-            workflow_type=workflow_type,
-            parameter_space=parameter_space,
-            git_commit=git_commit,
-        )
-        exp_dir = self.project_dir / "experiments" / experiment.id
+        exp_id = id if id is not None else slugify(name)
+        if exp_id in self._experiments_cache:
+            return self._experiments_cache[exp_id]
+        exp_dir = self.project_dir / "experiments" / exp_id
         if exp_dir.exists():
-            if exist_ok:
-                return self._load_experiment_from_dir(exp_dir)
-            raise ValueError(f"Experiment '{experiment.id}' already exists")
-        experiment.materialize()
-        return experiment
+            exp = self._load_experiment_from_dir(exp_dir)
+        else:
+            exp = Experiment(
+                name=name,
+                project=self,
+                id=exp_id,
+                params=params,
+                n_replicas=n_replicas,
+                seeds=seeds,
+                workflow_source=workflow_source,
+                workflow_type=workflow_type,
+                git_commit=git_commit,
+            )
+            exp.materialize()
+        self._experiments_cache[exp.id] = exp
+        return exp
 
     def get_experiment(self, experiment_id: str) -> Experiment | None:
         """Get experiment by ID."""
+        if experiment_id in self._experiments_cache:
+            return self._experiments_cache[experiment_id]
         exp_dir = self.project_dir / "experiments" / experiment_id
         if not exp_dir.exists():
             return None
-        return self._load_experiment_from_dir(exp_dir)
+        exp = self._load_experiment_from_dir(exp_dir)
+        self._experiments_cache[exp.id] = exp
+        return exp
 
     def list_experiments(self) -> list[Experiment]:
-        """List all experiments by scanning the ``experiments/`` directory."""
-        return _list_children(
+        """List all experiments (disk scan merged with in-memory cache)."""
+        seen: dict[str, Experiment] = dict(self._experiments_cache)
+        scanned = _list_children(
             children_dir=self.project_dir / "experiments",
             metadata_filename="experiment.json",
             metadata_cls=ExperimentMetadata,
@@ -157,8 +162,12 @@ class Project:
                 "project": self,
                 "metadata": m,
                 "_assets_lib": None,
+                "_workflow": None,
             },
         )
+        for e in scanned:
+            seen.setdefault(e.id, e)
+        return list(seen.values())
 
     # ── Internal ────────────────────────────────────────────────────────
 
@@ -166,5 +175,10 @@ class Project:
         meta = _load_metadata(ExperimentMetadata, exp_dir / "experiment.json")
         return _reconstruct(
             Experiment,
-            {"project": self, "metadata": meta, "_assets_lib": None},
+            {
+                "project": self,
+                "metadata": meta,
+                "_assets_lib": None,
+                "_workflow": None,
+            },
         )
