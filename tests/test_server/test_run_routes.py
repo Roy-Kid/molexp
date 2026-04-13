@@ -34,9 +34,11 @@ class TestRunRoutes:
         assert len(resp.json()) == 2
 
     def test_get(self, client, project, experiment, run):
+        run._update_metadata(executor_info={"backend": "molq", "scheduler": "slurm"})
         resp = client.get(f"{self._prefix(project, experiment)}/{run.id}")
         assert resp.status_code == 200
         assert resp.json()["id"] == run.id
+        assert resp.json()["executorInfo"] == {"backend": "molq", "scheduler": "slurm"}
 
     def test_update_status(self, client, project, experiment, run):
         resp = client.patch(

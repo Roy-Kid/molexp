@@ -121,5 +121,4 @@ class RunMetadata(BaseModel):
     workflow_snapshot: WorkflowSnapshotRef | None = None
     dry_run: bool = False
     labels: dict[str, str] = Field(default_factory=dict)
-    slurm_job_id: str | None = None
-    molq_job_id: str | None = None
+    executor_info: dict[str, Any] = Field(default_factory=dict)

@@ -4,19 +4,21 @@
  * Per project convention:
  * - describe('functionName') wraps each exported function
  * - it('...') covers one behaviour per case
- * - registry is module-level state; use distinct key combinations per test
+ * - registry is module-level state; clear it between tests
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { RendererEntry } from "@/app/registry";
 import {
   buildRegistryKey,
   buildRendererKeyFromSelection,
   registerRenderer,
+  registerRendererContribution,
   renderPlanByObjectType,
   resolveRenderer,
 } from "@/app/registry";
-import type { RendererKey } from "@/app/types";
+import { resetUiPluginsForTests } from "@/plugins/runtime";
+import type { RendererKey, WorkspaceSnapshot } from "@/app/types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,6 +34,10 @@ function makeEntry(key: RendererKey, title = "Test"): RendererEntry {
 }
 
 // ---------------------------------------------------------------------------
+
+beforeEach(() => {
+  resetUiPluginsForTests();
+});
 
 describe("buildRegistryKey", () => {
   it("joins all four parts with '::'", () => {
@@ -110,6 +116,58 @@ describe("resolveRenderer", () => {
       panelKind: "inspector",
     };
     expect(() => resolveRenderer(key)).toThrow(/No renderer registered/);
+  });
+
+  it("prefers higher-priority contribution when runtime context matches", () => {
+    const key: RendererKey = {
+      objectType: "run",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    };
+    registerRenderer(makeEntry(key, "Default"));
+    registerRendererContribution({
+      id: "molq:test-viewer",
+      key,
+      title: "Molq",
+      panelSlot: "center",
+      priority: 100,
+      matches: ({ selection, snapshot }) => {
+        const run = snapshot.runs.find((item) => item.id === selection.objectId);
+        return run?.executorInfo.backend === "molq";
+      },
+      Component: (() => null) as unknown as RendererEntry["Component"],
+    });
+
+    const snapshot = {
+      projects: [],
+      experiments: [],
+      runs: [
+        {
+          id: "run-1",
+          name: "run-1",
+          status: "running",
+          summary: "Status: running",
+          updatedAt: "2026-01-01T00:00:00Z",
+          projectId: "proj-1",
+          experimentId: "exp-1",
+          executorInfo: { backend: "molq" },
+        },
+      ],
+      assets: [],
+      workflows: [],
+      agentSessions: [],
+      workspaceRoot: null,
+      consoleEntries: [],
+    } satisfies WorkspaceSnapshot;
+
+    expect(
+      resolveRenderer(key, {
+        selection: { objectType: "run", objectId: "run-1" },
+        snapshot,
+        target: { panelKind: "viewer", contentType: "metadata", fileKind: "json" },
+      }).title,
+    ).toBe("Molq");
   });
 });
 

@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .metadata import build_executor_info
+
 
 def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
     """Return a copy with ``None`` values removed."""
@@ -15,9 +17,15 @@ def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
 class SubmitHandler:
     """Stateful run handler that submits jobs via molq.
 
-    Callable with signature ``(script, mol_run, experiment, project)``.
-    Accumulates :class:`~molq.JobHandle` objects so that :meth:`wait` can
-    block until every submitted job reaches a terminal state.
+    Accumulates all submitted :class:`~molexp.workspace.run.Run` objects in
+    :attr:`submitted_runs` so the caller can pass them to a monitor after the
+    sweep completes.
+
+    Args:
+        scheduler: molq scheduler backend name.
+        cluster: molq cluster name (``None`` → ``"default"``).
+        resources: Sparse dict of resource overrides (``None`` values stripped).
+        scheduling: Sparse dict of scheduling overrides (``None`` values stripped).
     """
 
     def __init__(
@@ -56,143 +64,54 @@ class SubmitHandler:
             Submitor,
         )
 
-        if self._submitor is None:
-            self._submitor = Submitor(
-                cluster_name=self._cluster or "default",
+        res   = self._resources
+        sched = self._scheduling
+
+        job_name = f"{project_spec.name[:20]}-{mol_run.id[:8]}"
+
+        with Submitor(
+            cluster_name=self._cluster,
+            scheduler=self._scheduler,
+        ) as submitor:
+            job, _ = submitor.submit(
+                argv=[
+                    sys.executable,
+                    "-m",
+                    "molexp.plugins.submit_molq.worker",
+                    str(script.resolve()),
+                    str(mol_run.run_dir),
+                ],
+                resources=JobResources(
+                    cpu_count=res.get("cpus"),
+                    memory=Memory.parse(res["mem"]) if res.get("mem") else None,
+                    gpu_count=res.get("gpus"),
+                    gpu_type=res.get("gpu_type"),
+                    time_limit=Duration.parse(res["time"]) if res.get("time") else None,
+                ),
+                scheduling=JobScheduling(
+                    queue=sched.get("queue"),
+                    account=sched.get("account"),
+                    qos=sched.get("qos"),
+                ),
+                execution=JobExecution(
+                    job_name=job_name,
+                    cwd=str(mol_run.run_dir),
+                ),
+                metadata={
+                    "run_id":  mol_run.id,
+                    "run_dir": str(mol_run.run_dir),
+                },
+            )
+
+        mol_run._update_metadata(
+            executor_info=build_executor_info(
                 scheduler=self._scheduler,
+                cluster_name=self._cluster,
+                job_id=job.job_id,
+                scheduler_job_id=job.scheduler_job_id,
             )
-
-        res = self._res
-        sched = self._sched
-        run_dir = Path(mol_run.run_dir)
-        # run_id is now 8 chars; no truncation needed.
-        job_name = f"{project.name[:20]}-{mol_run.id}"
-
-        handle = self._submitor.submit(
-            argv=[
-                sys.executable,
-                "-m",
-                "molexp.plugins.submit_molq.worker",
-                str(script.resolve()),
-                str(run_dir),
-            ],
-            resources=JobResources(
-                cpu_count=res.get("cpus"),
-                memory=Memory.parse(res["mem"]) if res.get("mem") else None,
-                gpu_count=res.get("gpus"),
-                gpu_type=res.get("gpu_type"),
-                time_limit=Duration.parse(res["time"]) if res.get("time") else None,
-            ),
-            scheduling=JobScheduling(
-                queue=sched.get("queue"),
-                account=sched.get("account"),
-                qos=sched.get("qos"),
-            ),
-            execution=JobExecution(
-                job_name=job_name,
-                cwd=str(run_dir),
-                output_file=str(run_dir / "job.out"),
-                error_file=str(run_dir / "job.err"),
-            ),
-            metadata={
-                "run_id": mol_run.id,
-                "run_dir": str(run_dir),
-            },
         )
-        self._handles.append(handle)
-
-        # Write scheduler job IDs back into run.json for cross-reference.
-        # Enables: grep -r '"slurm_job_id": "..."' runs/*/run.json
-        if hasattr(mol_run, "update_job_ids"):
-            slurm_id = getattr(handle, "scheduler_job_id", None)
-            molq_id = getattr(handle, "job_id", None)
-            mol_run.update_job_ids(
-                slurm_job_id=str(slurm_id) if slurm_id is not None else None,
-                molq_job_id=str(molq_id) if molq_id is not None else None,
-            )
-
-        # Record cluster name in labels so the monitor can display it.
-        cluster_name = self._cluster or "default"
-        if hasattr(mol_run, "metadata") and hasattr(mol_run, "save"):
-            labels = dict(getattr(mol_run.metadata, "labels", {}) or {})
-            if labels.get("cluster") != cluster_name:
-                labels["cluster"] = cluster_name
-                mol_run.metadata = mol_run.metadata.model_copy(update={"labels": labels})
-                mol_run.save()
-
-    # ------------------------------------------------------------------
-    # Blocking / monitoring
-
-    def wait(self) -> None:
-        """Block until all submitted jobs reach a terminal state.
-
-        Displays a live Rich table that refreshes as job states change.
-        No-op when no jobs have been submitted or *block* was not requested.
-        """
-        if not self._block or not self._handles or self._submitor is None:
-            return
-
-        import time
-
-        from rich.console import Console
-        from rich.live import Live
-        from rich.table import Table
-
-        _TERMINAL = frozenset({"succeeded", "failed", "cancelled", "timed_out", "lost"})
-        _STATE_COLOR: dict[str, str] = {
-            "succeeded": "green",
-            "failed": "red",
-            "cancelled": "yellow",
-            "timed_out": "yellow",
-            "lost": "red",
-            "running": "green",
-            "queued": "blue",
-            "submitted": "cyan",
-            "created": "dim",
-        }
-
-        job_ids = [h.job_id for h in self._handles]
-
-        def _build_table(records: dict[str, Any]) -> Table:
-            done = sum(
-                1 for jid in job_ids
-                if records.get(jid) is not None
-                and records[jid].state.value in _TERMINAL
-            )
-            tbl = Table(title=f"Jobs — {done}/{len(job_ids)} done")
-            tbl.add_column("Run", style="cyan", no_wrap=True)
-            tbl.add_column("State", no_wrap=True)
-            tbl.add_column("Scheduler ID", style="dim", no_wrap=True)
-            for jid in job_ids:
-                rec = records.get(jid)
-                if rec is None:
-                    tbl.add_row("—", "[dim]unknown[/dim]", "—")
-                    continue
-                state = rec.state.value
-                color = _STATE_COLOR.get(state, "white")
-                run_id = rec.metadata.get("run_id", jid[:8])
-                sched_id = rec.scheduler_job_id or "—"
-                tbl.add_row(run_id, f"[{color}]{state}[/{color}]", sched_id)
-            return tbl
-
-        console = Console()
-        with Live(console=console, refresh_per_second=2) as live:
-            while True:
-                self._submitor.refresh()
-                records: dict[str, Any] = {}
-                for jid in job_ids:
-                    try:
-                        records[jid] = self._submitor.get(jid)
-                    except Exception:
-                        pass
-                live.update(_build_table(records))
-                if all(
-                    records.get(jid) is not None
-                    and records[jid].state.value in _TERMINAL
-                    for jid in job_ids
-                ):
-                    break
-                time.sleep(2)
+        self.submitted_runs.append(mol_run)
 
 
 def make_submit_handler(
@@ -212,7 +131,7 @@ def make_submit_handler(
     defaults.
 
     Args:
-        scheduler: Scheduler backend: ``"slurm"``, ``"pbs"``, or ``"lsf"``.
+        scheduler: molq scheduler backend name.
         cluster: molq cluster name; ``None`` defaults to ``"default"``.
         resources: Resource options dict (``None`` values are stripped).
         scheduling: Scheduling options dict (``None`` values are stripped).

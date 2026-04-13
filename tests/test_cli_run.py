@@ -144,6 +144,7 @@ class TestRunCommand:
         result = runner.invoke(app, ["run", "--help"])
         assert result.exit_code == 0
         assert "--local" in result.output
+        assert "--scheduler" in result.output
         assert "--slurm" in result.output
         assert "--pbs" in result.output
         assert "--lsf" in result.output

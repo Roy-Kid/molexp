@@ -82,7 +82,7 @@ export const buildMetadataFields = (
       if (!run) {
         return emptyFields("run", selection.objectId);
       }
-      return [
+      const fields: MetadataField[] = [
         { label: "Run", value: run.name },
         { label: "Project", value: run.projectId },
         { label: "Experiment", value: run.experimentId },
@@ -90,6 +90,16 @@ export const buildMetadataFields = (
         { label: "Summary", value: run.summary },
         { label: "Updated", value: run.updatedAt },
       ];
+      if (run.executorInfo.backend) {
+        fields.push({ label: "Backend", value: run.executorInfo.backend });
+      }
+      if (run.executorInfo.scheduler) {
+        fields.push({ label: "Scheduler", value: run.executorInfo.scheduler });
+      }
+      if (run.executorInfo.job_id) {
+        fields.push({ label: "Job ID", value: run.executorInfo.job_id });
+      }
+      return fields;
     },
     asset: () => {
       const asset = findAsset(snapshot, selection.objectId);

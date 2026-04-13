@@ -1,6 +1,6 @@
-"""Remote worker entry point for execution backends.
+"""Worker entry point for molq scheduler jobs.
 
-Called by scheduler jobs (SLURM, PBS, LSF) as::
+Called by scheduler jobs as::
 
     python -m molexp.plugins.submit_molq.worker <script> <run_dir>
 

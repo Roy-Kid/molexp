@@ -1353,11 +1353,11 @@ wheels = [
 
 [[package]]
 name = "molcrafts-molcfg"
-version = "1.0.0"
+version = "1.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/34/94/897866457e6df7d47af0af87419d061f49073bf89c3906cd8495f479c91b/molcrafts_molcfg-1.0.0.tar.gz", hash = "sha256:fc55d89979102a4e5e0b7130aee91e0c4f231c2f34336795080b3d207b03a555", size = 25626, upload-time = "2026-04-11T22:15:19.479Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/e7/1b8e976193f9c039dc8377d807c7d46febed90ece1ac7e66defe444f6ab5/molcrafts_molcfg-1.1.0.tar.gz", hash = "sha256:ecdfe5c7885fd34b798bd2ae1e2d719256e86d1f249ee60f38f9cadf4e16d369", size = 28109, upload-time = "2026-04-12T22:39:36.139Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6b/5d/9331e83978dfefbf9dc23d94bef2c3d195de19560c46bd91783b1352ee50/molcrafts_molcfg-1.0.0-py3-none-any.whl", hash = "sha256:096959909fff3d433906e3a15a7bbc22b08382b0e817c149323dd8c78aa1d017", size = 15660, upload-time = "2026-04-11T22:15:18.073Z" },
+    { url = "https://files.pythonhosted.org/packages/07/5e/4a6301b218000cf4015fa1d5547626959c8ab84dc5b4a832404476999f91/molcrafts_molcfg-1.1.0-py3-none-any.whl", hash = "sha256:f9cf35873a2985ae405e59ff6eb061025e6cb36769cfa0541ef984f011562b9f", size = 15614, upload-time = "2026-04-12T22:39:34.636Z" },
 ]
 
 [[package]]

@@ -1,55 +1,48 @@
+import type { RendererKey, Selection, SemanticObjectType } from "@/app/types";
+import {
+  registerRendererContribution as addRendererContribution,
+  resolveRendererContribution,
+} from "@/plugins/contribution-runtime";
 import type {
-  ContentType,
-  FileKind,
-  PanelKind,
-  RendererKey,
-  RendererProps,
-  Selection,
-  SemanticObjectType,
-} from "@/app/types";
+  RendererContribution,
+  RendererEntry,
+  RendererResolutionContext,
+  RenderTarget,
+} from "@/plugins/types";
+import { buildRendererRegistryKey } from "@/plugins/types";
 
-export type PanelSlot = "center" | "right";
-
-export interface RendererEntry {
-  key: RendererKey;
-  title: string;
-  panelSlot: PanelSlot;
-  Component: (props: RendererProps) => JSX.Element | null;
-}
-
-const registry = new Map<string, RendererEntry>();
-
-export const buildRegistryKey = (key: RendererKey): string => {
-  return `${key.objectType}::${key.fileKind}::${key.contentType}::${key.panelKind}`;
-};
-
-export const registerRenderer = (entry: RendererEntry): void => {
-  const key = buildRegistryKey(entry.key);
-  if (registry.has(key)) {
-    throw new Error(`Renderer already registered for ${key}`);
-  }
-  registry.set(key, entry);
-};
-
-export const resolveRenderer = (key: RendererKey): RendererEntry => {
-  const registryKey = buildRegistryKey(key);
-  const entry = registry.get(registryKey);
-  if (!entry) {
-    throw new Error(`No renderer registered for ${registryKey}`);
-  }
-  return entry;
-};
-
-export interface RenderTarget {
-  panelKind: PanelKind;
-  contentType: ContentType;
-  fileKind: FileKind;
-}
+export type { PanelSlot, RendererContribution, RendererEntry, RenderTarget } from "@/plugins/types";
 
 export interface RenderPlan {
   center: RenderTarget[];
   right: RenderTarget[];
 }
+
+export const buildRegistryKey = buildRendererRegistryKey;
+
+export const registerRenderer = (entry: RendererEntry): void => {
+  const key = buildRegistryKey(entry.key);
+  addRendererContribution({
+    id: `exact:${key}`,
+    ...entry,
+  });
+};
+
+export const registerRendererContribution = (entry: RendererContribution): void => {
+  addRendererContribution(entry);
+};
+
+export const resolveRenderer = (
+  key: RendererKey,
+  context?: Omit<RendererResolutionContext, "key">,
+): RendererEntry => {
+  const registryKey = buildRegistryKey(key);
+  const entry = resolveRendererContribution(key, context);
+  if (!entry) {
+    throw new Error(`No renderer registered for ${registryKey}`);
+  }
+  return entry;
+};
 
 export const renderPlanByObjectType: Record<SemanticObjectType, RenderPlan> = {
   project: {

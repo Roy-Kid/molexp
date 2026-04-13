@@ -6,7 +6,7 @@ registry so that ``import molexp`` never fails due to a missing package.
 
 Plugin naming convention: ``{category}_{implementation}``
 
-- ``submit_molq``  — Job submission via molq (SLURM, PBS, LSF)
+- ``submit_molq``  — Job submission via molq schedulers
 - ``agent_pydanticai`` — AI agent via PydanticAI
 
 Usage::
@@ -19,8 +19,11 @@ Usage::
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from molexp.plugins.submit_molq.metadata import supported_schedulers
 
 
 class Capability(str, Enum):
@@ -38,6 +41,18 @@ class CapabilityNotAvailable(RuntimeError):
             msg += f" {hint}"
         super().__init__(msg)
         self.capability = cap
+
+
+@dataclass(frozen=True)
+class UiPluginDescriptor:
+    """Descriptor for frontend-facing plugin manifests."""
+
+    id: str
+    title: str
+    description: str = ""
+    ui_module: str | None = None
+    capabilities: tuple[str, ...] = ()
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ── Lazy loaders ────────────────────────────────────────────────────────────
@@ -103,3 +118,41 @@ class PluginRegistry:
 
 
 registry = PluginRegistry()
+
+
+def discover_ui_plugins() -> list[UiPluginDescriptor]:
+    """Return frontend plugin manifests for all available UI integrations."""
+    plugins = [
+        UiPluginDescriptor(
+            id="core",
+            title="Core Workspace UI",
+            description="Built-in Molexp workspace renderers and previews.",
+            ui_module="core",
+            capabilities=("workspace", "renderers", "file_previews"),
+        )
+    ]
+
+    schedulers = supported_schedulers()
+    if schedulers:
+        plugins.append(
+            UiPluginDescriptor(
+                id="molq",
+                title="Molq",
+                description="Scheduler-aware run viewers and monitor surfaces for molq-backed runs.",
+                ui_module="molq",
+                capabilities=("submit", "monitor", "scheduler_inspector"),
+                metadata={"schedulers": list(schedulers)},
+            )
+        )
+
+    return plugins
+
+
+__all__ = [
+    "Capability",
+    "CapabilityNotAvailable",
+    "PluginRegistry",
+    "UiPluginDescriptor",
+    "discover_ui_plugins",
+    "registry",
+]

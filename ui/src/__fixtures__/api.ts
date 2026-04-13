@@ -117,4 +117,5 @@ export const fixtureRunSummary: RunSummary = {
   updatedAt: "2026-03-01T12:00:00Z",
   projectId: "proj-alpha",
   experimentId: "exp-001",
+  executorInfo: { backend: "local" },
 };

@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from molexp.plugins.submit_molq.metadata import normalize_executor_info
+
 if TYPE_CHECKING:
     from molexp.workspace.run import Run
 
@@ -128,17 +130,11 @@ class RunMonitor:
                     data.get("finished_at"),
                 )
 
-                # Scheduler job IDs are persisted at the top level of run.json
-                # by ``Run.update_job_ids`` after molq submission.  Prefer the
-                # native scheduler ID (e.g. SLURM) since that's what users see
-                # in ``squeue``/``sacct``; fall back to the molq ID otherwise.
-                labels = data.get("labels") or {}
-                sched_id: str | None = (
-                    data.get("slurm_job_id")
-                    or data.get("molq_job_id")
-                    or labels.get("scheduler_job_id")
+                executor_info = normalize_executor_info(
+                    data.get("executor_info"),
+                    data.get("labels"),
                 )
-                cluster: str | None = labels.get("cluster")
+                sched_id = executor_info.get("scheduler_job_id")
 
                 error_msg: str | None = None
                 if isinstance(data.get("error"), dict):

@@ -32,7 +32,7 @@ export const RightPanel = ({
   const plan = renderPlanByObjectType[selection.objectType];
   const renderers = plan.right.map((target) => {
     const key = buildRendererKeyFromSelection(selection, target);
-    return resolveRenderer(key);
+    return resolveRenderer(key, { selection, snapshot, target });
   });
 
   return (

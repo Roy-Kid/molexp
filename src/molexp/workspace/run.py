@@ -446,36 +446,18 @@ class Run:
         """Return a context manager for normal-mode (non-dry-run) execution."""
         return RunContext(self, execution_config=ExecutionConfig(dry_run=False))
 
-    def update_job_ids(
-        self,
-        *,
-        slurm_job_id: str | None = None,
-        molq_job_id: str | None = None,
-    ) -> None:
-        """Persist scheduler job IDs into run.json for cross-reference.
-
-        Enables ``grep -r '"slurm_job_id": "..."' runs/*/run.json`` to locate
-        a run from a SLURM job ID shown in ``squeue`` / ``sacct``.
-        """
-        updates: dict[str, Any] = {}
-        if slurm_job_id is not None:
-            updates["slurm_job_id"] = slurm_job_id
-        if molq_job_id is not None:
-            updates["molq_job_id"] = molq_job_id
-        if updates:
-            self._update_metadata(**updates)
-
     def cancel(self) -> None:
-        """Mark this run as cancelled in the workspace.
+        """Mark the run as cancelled in workspace metadata."""
+        labels = dict(self.metadata.labels)
+        for key in ("pid", "host", "heartbeat"):
+            labels.pop(key, None)
+        self._update_metadata(
+            status=RunStatus.CANCELLED,
+            finished_at=datetime.now(),
+            labels=labels,
+        )
 
-        Updates ``run.json`` with ``status = "cancelled"``.  This is the
-        workspace-side half of cancellation; call
-        ``molq.Submitor(...).cancel(self.metadata.molq_job_id)`` first if
-        the run was submitted to a scheduler.
-        """
-        self._set_status(RunStatus.CANCELLED)
-
-    # ── Internal ─────────────────────────────────────────────────────────
+    # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 
     def _set_status(self, status: RunStatus) -> None:
         self.metadata = self.metadata.model_copy(update={"status": status.value})
