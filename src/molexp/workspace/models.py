@@ -6,28 +6,10 @@ The server, CLI, and Python API all derive from these models.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-# ── Execution configuration ─────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class ExecutionConfig:
-    """Immutable execution configuration set once before a workflow starts.
-
-    Must be supplied at ``RunContext`` construction time.
-    Late-binding (setting after construction) is not permitted.
-
-    Attributes:
-        dry_run: When ``True`` the execution is in dry-run mode.
-            Tasks can inspect ``ctx.dry_run`` to skip side-effects.
-    """
-
-    dry_run: bool = False
 
 # ── Shared value objects ────────────────────────────────────────────────────
 
@@ -110,7 +92,16 @@ class ExperimentMetadata(BaseModel, frozen=True):
 
 
 class RunMetadata(BaseModel):
-    """Single execution instance metadata."""
+    """Single execution instance metadata.
+
+    ``profile`` is the activated molcfg profile name (normalized,
+    ``-`` → ``_``) or ``None`` when no profile was selected.  ``config``
+    is the frozen merged configuration dict that the run executed
+    against; ``config_hash`` is its sha256 digest, duplicated for fast
+    queryability.  The framework treats profile contents as opaque
+    user data — it persists them for reproducibility but never
+    interprets them.
+    """
 
     id: str
     status: str = "pending"
@@ -119,6 +110,8 @@ class RunMetadata(BaseModel):
     finished_at: datetime | None = None
     error: ErrorInfo | None = None
     workflow_snapshot: WorkflowSnapshotRef | None = None
-    dry_run: bool = False
+    profile: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    config_hash: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     executor_info: dict[str, Any] = Field(default_factory=dict)

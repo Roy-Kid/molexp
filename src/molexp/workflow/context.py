@@ -13,6 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Generic
 
+from molexp.config import ProfileConfig
+
 from .types import DepsT, InputT, StateT
 
 
@@ -23,7 +25,7 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
         - ``state``   — shared mutable workflow state
         - ``deps``    — injected dependencies
         - ``inputs``  — typed output from the upstream task
-        - ``dry_run`` — execution mode flag injected by the runtime
+        - ``config``  — active :class:`~molexp.config.ProfileConfig`
 
     Workspace-side (available when ``run`` is provided):
         - ``save_artifact()``
@@ -38,13 +40,13 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
         state: StateT,
         deps: DepsT,
         inputs: InputT,
-        dry_run: bool = False,
+        config: ProfileConfig | None = None,
         run_context: Any | None = None,
     ) -> None:
         self._state = state
         self._deps = deps
         self._inputs = inputs
-        self._dry_run = dry_run
+        self._config = config if config is not None else ProfileConfig({}, name=None)
         self._run_ctx = run_context  # workspace.run.RunContext or None
 
     # ── Workflow-side properties ─────────────────────────────────────────
@@ -70,9 +72,9 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
         return self._run_ctx
 
     @property
-    def dry_run(self) -> bool:
-        """Whether this task is executing in dry-run mode."""
-        return self._dry_run
+    def config(self) -> ProfileConfig:
+        """Active molcfg profile configuration (read-only mapping)."""
+        return self._config
 
     # ── Workspace-side helpers ───────────────────────────────────────────
     # These return None / no-op when running without a workspace Run.

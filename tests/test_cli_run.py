@@ -1,4 +1,4 @@
-"""CLI tests for `molexp run` dry-run behavior."""
+"""CLI tests for `molexp run` --config / --profile behavior."""
 
 from __future__ import annotations
 
@@ -12,7 +12,11 @@ from molexp.workspace import Workspace
 runner = CliRunner()
 
 
-def _write_script(path, workspace_root, body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')"):
+def _write_script(
+    path,
+    workspace_root,
+    body="ctx.set_result('epochs', ctx.config.get('epochs', 'default'))",
+):
     path.write_text(
         "\n".join(
             [
@@ -33,107 +37,168 @@ def _write_script(path, workspace_root, body="ctx.set_result('mode', 'dry' if ct
     )
 
 
+def _write_molcfg(path):
+    path.write_text(
+        "defaults:\n"
+        "  epochs: 100\n"
+        "  dataset: md17\n"
+        "profiles:\n"
+        "  dry-run:\n"
+        "    epochs: 1\n"
+        "    skip_heavy: true\n"
+        "  smoke:\n"
+        "    epochs: 5\n"
+    )
+
+
 class TestRunCommand:
-    def test_dry_run_executes_workflow(self, tmp_path):
+    def test_profile_executes_workflow_and_persists_metadata(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        _write_script(
-            script,
-            workspace_root,
-            body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, workspace_root)
+
+        result = runner.invoke(
+            app,
+            ["run", str(script), "--config", str(molcfg), "--profile", "dry-run"],
         )
-
-        result = runner.invoke(app, ["run", str(script), "--dry-run"])
-
         assert result.exit_code == 0, result.output
 
-        workspace = Workspace.load(workspace_root)
-        project = workspace.get_project("demo")
-        assert project is not None
-
-        experiment = project.get_experiment("train")
-        assert experiment is not None
-
-        runs = experiment.list_runs()
+        ws = Workspace.load(workspace_root)
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
         assert len(runs) == 1
 
         run = runs[0]
-        run_json = json.loads((run.run_dir / "run.json").read_text())
-
-        assert run.metadata.dry_run is True
-        assert run.metadata.labels["mode"] == "dry-run"
-        assert run.status == "dry_run"
-        assert run_json["context"]["results"]["mode"] == "dry"
-
-    def test_resume_executes_dry_run_runs(self, tmp_path):
-        workspace_root = tmp_path / "workspace"
-        script = tmp_path / "train.py"
-        _write_script(
-            script,
-            workspace_root,
-            body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
-        )
-
-        result = runner.invoke(app, ["run", str(script), "--dry-run"])
-        assert result.exit_code == 0, result.output
-
-        workspace = Workspace.load(workspace_root)
-        experiment = workspace.get_project("demo").get_experiment("train")
-        runs = experiment.list_runs()
-        assert len(runs) == 1
-        assert runs[0].status == "dry_run"
-
-        result = runner.invoke(app, ["run", str(script), "--resume"])
-        assert result.exit_code == 0, result.output
-
-        workspace = Workspace.load(workspace_root)
-        experiment = workspace.get_project("demo").get_experiment("train")
-        runs = experiment.list_runs()
-        assert len(runs) == 1
-
-        run = runs[0]
-        run_json = json.loads((run.run_dir / "run.json").read_text())
-
+        # profile name normalized
+        assert run.metadata.profile == "dry_run"
+        # defaults were merged into config
+        assert run.metadata.config["epochs"] == 1
+        assert run.metadata.config["dataset"] == "md17"
+        # content hash present
+        assert run.metadata.config_hash is not None
+        # run succeeded (profile is orthogonal to status)
         assert run.status == "succeeded"
-        assert run.metadata.dry_run is False
-        assert run_json["context"]["results"]["mode"] == "wet"
 
-    def test_resume_skips_non_dry_run_runs(self, tmp_path):
+        run_json = json.loads((run.run_dir / "run.json").read_text())
+        assert run_json["context"]["results"]["epochs"] == 1
+
+    def test_resume_replays_non_succeeded_runs_of_same_profile(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(
+            script,
+            workspace_root,
+            body=(
+                "import pathlib, os\n"
+                "    marker = pathlib.Path(ctx.run.run_dir) / 'fail_once'\n"
+                "    if not marker.exists():\n"
+                "        marker.touch()\n"
+                "        raise RuntimeError('boom')\n"
+                "    ctx.set_result('epochs', ctx.config['epochs'])"
+            ),
+        )
+
+        # First run: fails
+        result = runner.invoke(
+            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+        )
+        ws = Workspace.load(workspace_root)
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
+        assert len(runs) == 1
+        assert runs[0].status == "failed"
+        assert runs[0].metadata.profile == "smoke"
+
+        # Resume: re-executes the failed run because profile matches
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "smoke",
+                "--resume",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        ws = Workspace.load(workspace_root)
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
+        assert len(runs) == 1
+        assert runs[0].status == "succeeded"
+
+    def test_succeeded_runs_are_skipped_by_default(self, tmp_path):
+        workspace_root = tmp_path / "workspace"
+        script = tmp_path / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
         _write_script(script, workspace_root, body="ctx.set_result('mode', 'wet')")
 
-        result = runner.invoke(app, ["run", str(script)])
+        # First run succeeds
+        result = runner.invoke(
+            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+        )
         assert result.exit_code == 0, result.output
 
-        result = runner.invoke(app, ["run", str(script), "--resume"])
+        # Second run: same profile — skipped because already succeeded
+        result = runner.invoke(
+            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+        )
         assert result.exit_code == 0, result.output
         assert "skipped" in result.output
 
-    def test_normal_run_skips_dry_run_status(self, tmp_path):
+    def test_different_profiles_produce_different_runs(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        _write_script(
-            script,
-            workspace_root,
-            body="ctx.set_result('mode', 'dry' if ctx.dry_run else 'wet')",
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, workspace_root)
+
+        result = runner.invoke(
+            app, ["run", str(script), "--config", str(molcfg), "--profile", "dry-run"]
         )
-
-        result = runner.invoke(app, ["run", str(script), "--dry-run"])
         assert result.exit_code == 0, result.output
 
-        result = runner.invoke(app, ["run", str(script)])
+        result = runner.invoke(
+            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+        )
         assert result.exit_code == 0, result.output
-        assert "dry_run, skipped" in result.output
 
-    def test_resume_and_dry_run_are_mutually_exclusive(self, tmp_path):
+        ws = Workspace.load(workspace_root)
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
+        # Two distinct runs, one per profile
+        assert len(runs) == 2
+        profiles = {r.metadata.profile for r in runs}
+        assert profiles == {"dry_run", "smoke"}
+
+    def test_unknown_profile_reports_error(self, tmp_path):
+        workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
-        script.write_text("x = 1\n")
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, workspace_root)
 
-        result = runner.invoke(app, ["run", str(script), "--resume", "--dry-run"])
-
+        result = runner.invoke(
+            app, ["run", str(script), "--config", str(molcfg), "--profile", "missing"]
+        )
         assert result.exit_code == 1
-        assert "--resume and --dry-run are mutually exclusive" in result.output
+        assert "Unknown profile" in result.output
+
+    def test_profile_without_config_aborts(self, tmp_path):
+        workspace_root = tmp_path / "workspace"
+        script = tmp_path / "train.py"
+        _write_script(script, workspace_root)
+
+        # No molcfg.yaml in CWD and no --config
+        result = runner.invoke(
+            app, ["run", str(script), "--profile", "dry-run"]
+        )
+        assert result.exit_code == 1
+        assert "no config file" in result.output.lower()
 
     def test_run_help_shows_backends(self):
         result = runner.invoke(app, ["run", "--help"])
@@ -146,9 +211,6 @@ class TestRunCommand:
         assert "--local" in result.output
         assert "--scheduler" in result.output
         assert "--slurm" in result.output
-        assert "--pbs" in result.output
-        assert "--lsf" in result.output
+        assert "--profile" in result.output
+        assert "--config" in result.output
         assert "HPC Options" in result.output
-        assert "--partition" in result.output
-        assert "--gpus" in result.output
-        assert "--mem" in result.output

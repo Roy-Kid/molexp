@@ -1,5 +1,6 @@
 """Tests for TaskContext — workflow/workspace bridge."""
 
+from molexp.config import ProfileConfig
 from molexp.workflow.context import ActorContext, TaskContext
 
 
@@ -27,16 +28,21 @@ class TestTaskContextRunContext:
     def test_run_context_none_without_run(self):
         ctx = TaskContext(state=None, deps=None, inputs=None)
         assert ctx.run_context is None
-        assert ctx.dry_run is False
+        # ctx.config always returns a ProfileConfig, defaults-only when unset
+        assert ctx.config.name is None
+        assert len(ctx.config) == 0
 
     def test_run_context_returns_attached(self):
         sentinel = object()
         ctx = TaskContext(state=None, deps=None, inputs=None, run_context=sentinel)
         assert ctx.run_context is sentinel
 
-    def test_dry_run_is_explicit_execution_flag(self):
-        ctx = TaskContext(state=None, deps=None, inputs=None, dry_run=True)
-        assert ctx.dry_run is True
+    def test_profile_config_exposes_user_data(self):
+        cfg = ProfileConfig({"epochs": 5, "dataset": "md17"}, name="smoke")
+        ctx = TaskContext(state=None, deps=None, inputs=None, config=cfg)
+        assert ctx.config.name == "smoke"
+        assert ctx.config["epochs"] == 5
+        assert ctx.config["dataset"] == "md17"
 
 
 class TestActorContext:

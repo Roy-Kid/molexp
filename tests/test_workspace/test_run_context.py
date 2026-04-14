@@ -96,10 +96,10 @@ class TestRunContextParams:
             assert ctx.params == {"lr": 1e-4, "batch": 32}
             assert ctx.params is ctx.run.parameters
 
-    def test_dry_run_defaults_false(self, run):
+    def test_profile_defaults_none(self, run):
         with run.start() as ctx:
-            assert ctx.dry_run is False
-            assert run.metadata.dry_run is False
+            assert ctx.config.name is None
+            assert run.metadata.profile is None
 
 
 class TestRunContextGetDataDir:

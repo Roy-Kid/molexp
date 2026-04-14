@@ -57,11 +57,11 @@ class WorkflowDeps:
 
     run: The molexp Run associated with this execution (may be None).
     run_context: The active RunContext associated with this execution (may be None).
-    dry_run: Whether this execution is running in dry-run mode.
+    config: The active :class:`~molexp.config.ProfileConfig` (may be None).
     user_deps: Application-level deps forwarded from the caller.
     """
 
     run: Any = None
     run_context: Any = None
-    dry_run: bool = False
+    config: Any = None  # molexp.config.ProfileConfig | None
     user_deps: Any = None

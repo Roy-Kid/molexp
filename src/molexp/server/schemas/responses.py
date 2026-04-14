@@ -123,6 +123,9 @@ class RunResponse(BaseModel):
     workflow: WorkflowSnapshotResponse | None = None
     error: dict[str, str] | None = None
     executorInfo: dict[str, Any] = Field(default_factory=dict)
+    profile: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    configHash: str | None = None
 
     @classmethod
     def from_model(cls, run: Run) -> RunResponse:
@@ -152,6 +155,9 @@ class RunResponse(BaseModel):
             workflow=wf_snap,
             error=error,
             executorInfo=run.metadata.executor_info,
+            profile=run.metadata.profile,
+            config=run.metadata.config,
+            configHash=run.metadata.config_hash,
         )
 
 

@@ -44,6 +44,7 @@ class SubmitHandler:
         self._block = block
         self._handles: list[Any] = []
         self._submitor: Any = None
+        self.submitted_runs: list[Any] = []
 
     # ------------------------------------------------------------------
     # Callable protocol
@@ -64,10 +65,10 @@ class SubmitHandler:
             Submitor,
         )
 
-        res   = self._resources
-        sched = self._scheduling
+        res   = self._res
+        sched = self._sched
 
-        job_name = f"{project_spec.name[:20]}-{mol_run.id[:8]}"
+        job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
 
         with Submitor(
             cluster_name=self._cluster,

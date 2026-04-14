@@ -45,7 +45,7 @@ class CompiledWorkflow:
         self,
         run: Any = None,
         run_context: Any = None,
-        dry_run: bool = False,
+        config: Any = None,
         user_deps: Any = None,
         remote_executor: Any = None,
         run_dir: Any = None,
@@ -58,7 +58,7 @@ class CompiledWorkflow:
         deps = _DepsWithStepList(
             run=run,
             run_context=run_context,
-            dry_run=dry_run,
+            config=config,
             user_deps=user_deps,
         )
         deps.step_list = self._sorted_steps  # type: ignore[attr-defined]

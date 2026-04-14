@@ -15,7 +15,7 @@ dependencies = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "molcrafts-mollog>=1.0.0",
-    "molcrafts-molcfg>=1.0.0",
+    "molcrafts-molcfg>=1.2.0",
 ]
 
 [project.optional-dependencies]

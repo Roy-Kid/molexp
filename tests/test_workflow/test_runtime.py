@@ -46,42 +46,46 @@ class TestFunctionalExecution:
         assert result.status == "failed"
 
     async def test_run_context_is_forwarded_to_tasks(self, tmp_path):
+        from molexp.config import ProfileConfig
+
         wf = workflow(name="with-run-context")
 
         class RunContextStub:
-            """Minimal stub — dry_run fixed at construction, no late-bind."""
+            """Minimal stub — profile fixed at construction, no late-bind."""
 
-            def __init__(self, *, dry_run: bool = False):
+            def __init__(self, *, config: ProfileConfig | None = None):
                 self.run = None
                 self.work_dir = tmp_path / "run"
-                self.dry_run = dry_run
+                self.config = config or ProfileConfig({}, name=None)
                 self.context = type("ContextStub", (), {"status": {}})()
 
             def _save_context(self) -> None:
                 return None
 
-        run_ctx = RunContextStub(dry_run=True)
+        run_ctx = RunContextStub(config=ProfileConfig({"epochs": 1}, name="smoke"))
 
         @wf.task
         async def inspect(ctx: TaskContext) -> bool:
             assert ctx.run_context is run_ctx
-            assert ctx.dry_run is True
+            assert ctx.config.name == "smoke"
+            assert ctx.config["epochs"] == 1
             return True
 
         result = await wf.build().execute(run_context=run_ctx)
         assert result.status == "completed"
         assert result.outputs["inspect"] is True
-        assert run_ctx.dry_run is True
 
-    async def test_run_context_with_dry_run_raises(self, tmp_path):
-        """Passing run_context and dry_run=True is a hard error — no late-bind."""
+    async def test_run_context_with_profile_config_raises(self, tmp_path):
+        """Passing run_context and profile_config is a hard error — no late-bind."""
+        from molexp.config import ProfileConfig
+
         wf = workflow(name="no-late-bind")
 
         class RunContextStub:
             def __init__(self):
                 self.run = None
                 self.work_dir = tmp_path / "run"
-                self.dry_run = False
+                self.config = ProfileConfig({}, name=None)
                 self.context = type("ContextStub", (), {"status": {}})()
 
         @wf.task
@@ -89,9 +93,14 @@ class TestFunctionalExecution:
             return None
 
         with pytest.raises(ValueError, match="Cannot combine run_context"):
-            await wf.build().execute(run_context=RunContextStub(), dry_run=True)
+            await wf.build().execute(
+                run_context=RunContextStub(),
+                profile_config=ProfileConfig({"x": 1}, name="smoke"),
+            )
 
     async def test_run_is_managed_by_runtime(self, tmp_path):
+        from molexp.config import ProfileConfig
+
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
         project = workspace.project("demo")
         experiment = project.experiment("runtime")
@@ -103,42 +112,41 @@ class TestFunctionalExecution:
         async def inspect(ctx: TaskContext) -> str:
             assert ctx.run_context is not None
             assert ctx.run_context.run is run
-            assert ctx.run_context.dry_run is True
-            assert ctx.dry_run is True
-            ctx.set_result("mode", "dry")
+            assert ctx.run_context.config.name == "smoke"
+            assert ctx.config["epochs"] == 1
+            ctx.set_result("epochs", ctx.config["epochs"])
             return "ok"
 
-        result = await wf.build().execute(run=run, dry_run=True)
+        profile_cfg = ProfileConfig({"epochs": 1}, name="smoke")
+        result = await wf.build().execute(run=run, profile_config=profile_cfg)
 
         assert result.status == "completed"
         assert result.outputs["inspect"] == "ok"
-        assert run.status == "dry_run"
-        assert run.metadata.dry_run is True
-        assert run.metadata.labels["mode"] == "dry-run"
+        # Profile is orthogonal to status — run succeeded.
+        assert run.status == "succeeded"
+        assert run.metadata.profile == "smoke"
+        assert run.metadata.config["epochs"] == 1
 
         run_json = json.loads((run.run_dir / "run.json").read_text())
-        assert run_json["context"]["results"]["mode"] == "dry"
+        assert run_json["context"]["results"]["epochs"] == 1
 
-    async def test_normal_run_clears_stale_dry_run_badge(self, tmp_path):
+    async def test_default_profile_is_empty_config(self, tmp_path):
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
         project = workspace.project("demo")
         experiment = project.experiment("runtime")
         run = experiment.run(parameters={"seed": 42})
 
-        wf = workflow(name="badge-clear")
+        wf = workflow(name="no-profile")
 
         @wf.task
         async def inspect(ctx: TaskContext) -> str:
-            return "dry" if ctx.dry_run else "wet"
+            assert ctx.config.name is None
+            assert len(ctx.config) == 0
+            return "ok"
 
-        spec = wf.build()
-        first = await spec.execute(run=run, dry_run=True)
-        second = await spec.execute(run=run, dry_run=False)
-
-        assert first.status == "completed"
-        assert second.status == "completed"
-        assert run.metadata.dry_run is False
-        assert "mode" not in run.metadata.labels
+        result = await wf.build().execute(run=run)
+        assert result.status == "completed"
+        assert run.metadata.profile is None
 
     async def test_run_and_run_context_are_mutually_exclusive(self, tmp_path):
         workspace = Workspace(root=tmp_path / "lab", name="Test Lab")

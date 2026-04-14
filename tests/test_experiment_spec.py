@@ -110,10 +110,13 @@ class TestPromoteToWorkflow:
         assert spec.name == "test"
 
     @pytest.mark.asyncio
-    async def test_promoted_run_context_function_receives_dry_run(self, tmp_path):
+    async def test_promoted_run_context_function_receives_profile_config(self, tmp_path):
+        from molexp.config import ProfileConfig
+
         def train(ctx):
-            assert ctx.dry_run is True
-            ctx.set_result("mode", "dry")
+            assert ctx.config.name == "dry_run"
+            assert ctx.config["skip_heavy"] is True
+            ctx.set_result("profile", ctx.config.name)
 
         spec = _promote_to_workflow(train, "test")
 
@@ -122,8 +125,9 @@ class TestPromoteToWorkflow:
         experiment = project.experiment("runtime")
         run = experiment.run(parameters={})
 
-        result = await spec.execute(run=run, dry_run=True)
+        profile_cfg = ProfileConfig({"skip_heavy": True}, name="dry-run")
+        result = await spec.execute(run=run, profile_config=profile_cfg)
 
         assert result.status == "completed"
         run_json = json.loads((run.run_dir / "run.json").read_text())
-        assert run_json["context"]["results"]["mode"] == "dry"
+        assert run_json["context"]["results"]["profile"] == "dry_run"

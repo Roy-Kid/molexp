@@ -174,7 +174,7 @@ def update_run_status(
         raise InvalidStatusError(run.status, new_status_str)
 
     updates: dict = {"status": new_status.value}
-    if new_status_str in ("succeeded", "failed", "cancelled", "dry_run"):
+    if new_status_str in ("succeeded", "failed", "cancelled"):
         updates["finished_at"] = datetime.now()
 
     run._update_metadata(**updates)
