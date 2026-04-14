@@ -1,8 +1,6 @@
 export type LeftPanelView =
   | "workspace"
-  | "project"
-  | "experiment"
-  | "run"
+  | "projects"
   | "asset"
   | "workflow"
   | "agent";
@@ -247,4 +245,9 @@ export interface RendererProps {
 
   onInspectorTargetChange: (target: InspectorTarget) => void;
   onRefresh: () => void;
+}
+
+export interface BreadcrumbItem {
+  label: string;
+  to?: string;
 }

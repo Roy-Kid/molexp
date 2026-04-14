@@ -1,9 +1,9 @@
 import { registerRenderer } from "@/app/registry";
 import { AgentViewer } from "@/app/renderers/AgentViewer";
+import { AssetViewer } from "@/app/renderers/AssetViewer";
 import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
 import { ImageViewer } from "@/app/renderers/ImageViewer";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
-import { MetadataViewer } from "@/app/renderers/MetadataViewer";
 import { ProjectViewer } from "@/app/renderers/ProjectViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
 import { TextEditor } from "@/app/renderers/TextEditor";
@@ -57,7 +57,7 @@ export const registerDefaultRenderers = (): void => {
     },
     title: "Asset Overview",
     panelSlot: "center",
-    Component: MetadataViewer,
+    Component: AssetViewer,
   });
 
   registerRenderer({

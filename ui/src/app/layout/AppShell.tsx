@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { TopBar } from "@/app/layout/TopBar";
+import { ContextBar } from "@/app/layout/ContextBar";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
 import { RightPanel } from "@/app/panels/RightPanel";
@@ -21,9 +21,9 @@ interface AppShellProps {
 }
 
 const PANEL_DEFAULTS = {
-  left: 20,
-  center: 56,
-  right: 24,
+  left: 22,
+  center: 78,
+  right: 20,
 };
 
 export const AppShell = ({
@@ -40,10 +40,17 @@ export const AppShell = ({
   onWorkspaceRefresh,
 }: AppShellProps): JSX.Element => {
   const [searchQuery, setSearchQuery] = useState("");
+  const [inspectorOpen, setInspectorOpen] = useState(false);
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <TopBar searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+      <ContextBar
+        inspectorOpen={inspectorOpen}
+        searchQuery={searchQuery}
+        selectionActive={Boolean(selection)}
+        onSearchChange={setSearchQuery}
+        onToggleInspector={() => setInspectorOpen((current) => !current)}
+      />
       <main className="flex flex-1 flex-col overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="flex-1">
           <ResizablePanel defaultSize={PANEL_DEFAULTS.left} minSize={16} maxSize={30}>
@@ -72,18 +79,22 @@ export const AppShell = ({
               />
             </div>
           </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={PANEL_DEFAULTS.right} minSize={18} maxSize={34}>
-            <div className="h-full overflow-hidden">
-              <RightPanel
-                selection={selection}
-                snapshot={snapshot}
-                inspectorTarget={inspectorTarget}
-                onInspectorTargetChange={onInspectorTargetChange}
-                onRefresh={onWorkspaceRefresh}
-              />
-            </div>
-          </ResizablePanel>
+          {inspectorOpen && selection && (
+            <>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={PANEL_DEFAULTS.right} minSize={16} maxSize={28}>
+                <div className="h-full overflow-hidden border-l border-border/70 bg-muted/10">
+                  <RightPanel
+                    selection={selection}
+                    snapshot={snapshot}
+                    inspectorTarget={inspectorTarget}
+                    onInspectorTargetChange={onInspectorTargetChange}
+                    onRefresh={onWorkspaceRefresh}
+                  />
+                </div>
+              </ResizablePanel>
+            </>
+          )}
         </ResizablePanelGroup>
       </main>
     </div>

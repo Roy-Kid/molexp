@@ -1,52 +1,22 @@
-import { Activity, CheckCircle2, Clock, FlaskConical, Play, Trash2, XCircle } from "lucide-react";
-import { type ComponentType, useMemo, useState } from "react";
+import { FlaskConical, Play, Trash2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
+import type { DataTableColumn } from "@/app/components/entity";
+import {
+  DataTable,
+  EMPTY_COPY,
+  EmptyState,
+  EntityHeader,
+  EntityMetric,
+  KeyValueGrid,
+  StatusBadge,
+} from "@/app/components/entity";
 import { SnapshotDiffPanel } from "@/app/renderers/SnapshotViewer";
 import { workspaceApi } from "@/app/state/api";
-import { useUrlState } from "@/app/state/useUrlState";
-import type { RendererProps, SemanticStatus } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
+import { useNavigationState } from "@/app/state/useNavigationState";
+import type { RendererProps, RunSummary } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-const MetricStat = ({
-  label,
-  value,
-  icon: Icon,
-  colorClass,
-}: {
-  label: string;
-  value: number | string;
-  icon: ComponentType<{ className?: string }>;
-  colorClass?: string;
-}) => (
-  <div className="flex flex-col gap-1">
-    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-      <Icon className={`h-4 w-4 ${colorClass || "text-muted-foreground"}`} />
-      <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
-    </div>
-    <span className="text-3xl font-light tracking-tight text-foreground">{value}</span>
-  </div>
-);
-
-const StatusCell = ({ status }: { status: SemanticStatus }) => {
-  const styles = {
-    succeeded: "bg-green-500/10 text-green-700 hover:bg-green-500/20",
-    failed: "bg-red-500/10 text-red-700 hover:bg-red-500/20",
-    running: "bg-blue-500/10 text-blue-700 hover:bg-blue-500/20 animate-pulse",
-    pending: "bg-muted text-muted-foreground",
-    cancelled: "bg-muted text-muted-foreground strike-through",
-    skipped: "bg-amber-500/10 text-amber-700",
-    active: "bg-muted",
-    archived: "bg-muted",
-    draft: "bg-amber-500/10 text-amber-700",
-  };
-  return (
-    <Badge variant="secondary" className={`font-normal ${styles[status] || styles.pending}`}>
-      {status}
-    </Badge>
-  );
-};
 
 export const ExperimentViewer = ({
   selection,
@@ -54,7 +24,7 @@ export const ExperimentViewer = ({
   onRefresh,
 }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
-  const { setSelection } = useUrlState();
+  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
 
   // Find the experiment in snapshot
   const experimentId = selection.objectId;
@@ -104,58 +74,78 @@ export const ExperimentViewer = ({
     return <div className="p-8 text-muted-foreground">Experiment not found.</div>;
   }
 
+  const project = snapshot.projects.find((item) => item.id === projectId);
+  const workflow = snapshot.workflows.find(
+    (item) => item.name === experiment.workflowFile || item.id === experiment.workflowFile,
+  );
+
+  const runColumns: DataTableColumn<RunSummary>[] = [
+    {
+      key: "id",
+      header: "Run ID",
+      width: "w-[120px]",
+      cell: (run) => (
+        <span className="font-mono text-xs text-muted-foreground">{run.id.substring(0, 8)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "w-[140px]",
+      cell: (run) => <StatusBadge status={run.status} />,
+    },
+    {
+      key: "summary",
+      header: "Summary",
+      cell: (run) => (
+        <span className="block max-w-[200px] truncate text-muted-foreground" title={run.summary}>
+          {run.summary || "-"}
+        </span>
+      ),
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      width: "w-[180px]",
+      cell: (run) => (
+        <span className="text-xs text-muted-foreground">
+          {new Date(run.updatedAt).toLocaleString()}
+        </span>
+      ),
+    },
+    {
+      key: "action",
+      header: "Act",
+      width: "w-[60px]",
+      align: "right",
+      cell: () => (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+        >
+          <Play className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Header Hero */}
-      <div className="flex flex-col gap-6 px-8 py-8 border-b bg-background">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-purple-500/10 rounded-lg">
-                <FlaskConical className="h-6 w-6 text-purple-600" />
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">
-                {experiment.name}
-              </h1>
-            </div>
-            <div className="flex items-center gap-2 pl-[3.25rem]">
-              <Badge variant="outline" className="font-mono text-xs text-muted-foreground">
-                {experimentId.substring(0, 8)}
-              </Badge>
-              <span className="text-muted-foreground">•</span>
-              <button
-                type="button"
-                className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono text-foreground hover:bg-muted/80 transition-colors cursor-pointer"
-                onClick={() => {
-                  // Assuming the workflow ID matches the name or we can derive it.
-                  // For now using the filename as the ID or finding it from snapshot if possible.
-                  // In the mock data, workflow ID usually matches or is referenced.
-                  // But here we only have the filename string.
-                  // Let's try to find a workflow with this name/file in snapshot
-                  // or just navigate to a workflow object with this ID.
-                  const workflow = snapshot.workflows.find(
-                    (w) => w.name === experiment.workflowFile || w.id === experiment.workflowFile,
-                  );
-                  if (workflow) {
-                    setSelection({
-                      objectType: "workflow",
-                      objectId: workflow.id,
-                      workflowId: workflow.id,
-                    });
-                  } else {
-                    alert(`Workflow "${experiment.workflowFile}" not found in workspace.`);
-                  }
-                }}
-              >
-                {experiment.workflowFile || "workflow.json"}
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+      <EntityHeader
+        breadcrumbs={breadcrumbs}
+        canNavigateUp={canNavigateUp}
+        onNavigateUp={navigateUp}
+        icon={FlaskConical}
+        title={experiment.name}
+        status={experiment.status}
+        subtitle={experiment.summary || undefined}
+        actions={
+          <>
             <CreateRunDialog
               projectId={projectId}
               experimentId={experimentId}
-              workflowFile={experiment?.workflowFile || ""}
+              workflowFile={experiment.workflowFile || ""}
               onRunCreated={onRefresh}
             />
             <Button
@@ -163,56 +153,32 @@ export const ExperimentViewer = ({
               size="icon"
               onClick={handleDelete}
               disabled={isDeleting}
-              className="text-muted-foreground hover:text-destructive transition-colors"
+              className="text-muted-foreground hover:text-destructive"
               title="Delete Experiment"
             >
               <Trash2 className="h-5 w-5" />
             </Button>
-          </div>
-        </div>
+          </>
+        }
+        metrics={
+          <>
+            <EntityMetric label="Runs" value={stats.total} />
+            <EntityMetric label="Succeeded" value={stats.succeeded} />
+            <EntityMetric label="Failed" value={stats.failed} />
+            <EntityMetric label="Running" value={stats.running} />
+          </>
+        }
+      />
 
-        {/* Metrics Row */}
-        <div className="flex items-center gap-10 pl-[3.25rem] py-2">
-          <MetricStat
-            label="Runs"
-            value={stats.total}
-            icon={Activity}
-            colorClass="text-foreground"
-          />
-          <div className="h-10 w-px bg-border/50" />
-          <MetricStat
-            label="Succeeded"
-            value={stats.succeeded}
-            icon={CheckCircle2}
-            colorClass="text-green-500"
-          />
-          <div className="h-10 w-px bg-border/50" />
-          <MetricStat
-            label="Failed"
-            value={stats.failed}
-            icon={XCircle}
-            colorClass="text-red-500"
-          />
-          <div className="h-10 w-px bg-border/50" />
-          <MetricStat
-            label="Running"
-            value={stats.running}
-            icon={Clock}
-            colorClass="text-blue-500"
-          />
-        </div>
-      </div>
-
-      {/* Content Tabs */}
       <div className="flex-1 overflow-hidden flex flex-col">
         <Tabs defaultValue="runs" className="flex-1 flex flex-col">
-          <div className="px-8 py-3 border-b bg-background">
-            <TabsList className="h-auto w-fit justify-start bg-muted/20 p-1 rounded-lg">
+          <div className="border-b border-border/70 bg-muted/10 px-6 py-2 md:px-8">
+            <TabsList className="h-auto w-fit justify-start rounded-md bg-transparent p-0">
               <TabsTrigger value="runs" className="px-4 py-2 rounded-md font-medium text-sm">
                 Runs
               </TabsTrigger>
-              <TabsTrigger value="details" className="px-4 py-2 rounded-md font-medium text-sm">
-                Details
+              <TabsTrigger value="config" className="px-4 py-2 rounded-md font-medium text-sm">
+                Config
               </TabsTrigger>
               <TabsTrigger value="diff" className="px-4 py-2 rounded-md font-medium text-sm">
                 Diff
@@ -220,68 +186,78 @@ export const ExperimentViewer = ({
             </TabsList>
           </div>
 
-          <TabsContent value="runs" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">
-            <div className="flex-1 overflow-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/20 text-muted-foreground font-medium sticky top-0 backdrop-blur-md">
-                  <tr>
-                    <th className="py-3 px-6 w-[120px]">Run ID</th>
-                    <th className="py-3 px-6 w-[140px]">Status</th>
-                    <th className="py-3 px-6 w-auto">Summary</th>
-                    <th className="py-3 px-6 w-[180px]">Updated</th>
-                    <th className="py-3 px-6 w-[60px] text-right">Act</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {runs.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-12 text-center text-muted-foreground">
-                        No runs yet. Click "Start Run" to begin.
-                      </td>
-                    </tr>
-                  ) : (
-                    runs.map((run) => (
-                      <tr
-                        key={run.id}
-                        className="group hover:bg-muted/40 transition-colors cursor-pointer"
-                        onClick={() => navigateToRun(run.id)}
-                      >
-                        <td className="py-3 px-6 font-mono text-xs text-muted-foreground">
-                          {run.id.substring(0, 8)}
-                        </td>
-                        <td className="py-3 px-6">
-                          <StatusCell status={run.status} />
-                        </td>
-                        <td
-                          className="py-3 px-6 text-muted-foreground truncate max-w-[200px]"
-                          title={run.summary}
-                        >
-                          {run.summary || "-"}
-                        </td>
-                        <td className="py-3 px-6 text-muted-foreground text-xs">
-                          {new Date(run.updatedAt).toLocaleString()}
-                        </td>
-                        <td className="py-3 px-6 text-right">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Play className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <TabsContent value="runs" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
+            <DataTable
+              columns={runColumns}
+              data={runs}
+              getRowKey={(run) => run.id}
+              onRowClick={(run) => navigateToRun(run.id)}
+              empty={
+                <EmptyState
+                  title={EMPTY_COPY.runs.title}
+                  description={EMPTY_COPY.runs.description}
+                />
+              }
+            />
           </TabsContent>
 
-          <TabsContent value="details" className="flex-1 p-6 overflow-auto">
-            <pre className="text-xs bg-muted/50 p-4 rounded-md overflow-auto font-mono">
-              {JSON.stringify(experiment, null, 2)}
-            </pre>
+          <TabsContent value="config" className="flex-1 overflow-auto p-6 md:p-8">
+            <div className="max-w-3xl space-y-6">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Relationships
+                </h3>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelection({ objectType: "project", objectId: projectId })}
+                  >
+                    Project: {project?.name || projectId}
+                  </Button>
+                  {workflow && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setSelection({
+                          objectType: "workflow",
+                          objectId: workflow.id,
+                          workflowId: workflow.id,
+                        })
+                      }
+                    >
+                      Workflow: {workflow.name}
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Summary
+                </h3>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground">
+                  {experiment.summary || "No summary provided."}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Metadata
+                </h3>
+                <div className="mt-4">
+                  <KeyValueGrid
+                    items={[
+                      { label: "Experiment ID", value: experiment.id },
+                      { label: "Project ID", value: projectId },
+                      { label: "Workflow File", value: experiment.workflowFile || "-" },
+                      { label: "Updated", value: new Date(experiment.updatedAt).toLocaleString() },
+                    ]}
+                  />
+                </div>
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="diff" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">

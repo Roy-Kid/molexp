@@ -36,7 +36,7 @@ export const RightPanel = ({
   });
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full flex-col overflow-auto">
       {renderers.map((renderer) => (
         <renderer.Component
           key={`${renderer.title}-${renderer.panelSlot}`}

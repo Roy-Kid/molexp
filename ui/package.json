@@ -13,8 +13,8 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "rstest run",
+    "test:watch": "rstest watch"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -59,12 +59,12 @@
     "@tailwindcss/postcss": "^4.1.17",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
+    "@rstest/core": "^0.7.0",
     "msw": "^2.12.3",
     "openapi-typescript-codegen": "^0.30.0",
     "tailwindcss": "^4.1.17",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3",
-    "vitest": "^3.2.4"
+    "typescript": "^5.9.3"
   },
   "msw": {
     "workerDirectory": [

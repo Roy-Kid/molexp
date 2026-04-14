@@ -3,7 +3,15 @@
  */
 
 import { http, HttpResponse } from "msw";
-import { getFileTree, getFile, writeFile, createDirectory, getAllProjects, getAllAssets } from "../db";
+import {
+    createDirectory,
+    deleteFile,
+    getAllAssets,
+    getAllProjects,
+    getFile,
+    getFileTree,
+    writeFile,
+} from "../db";
 import type { FileNode } from "../db";
 
 const API_BASE = "/api";
@@ -77,6 +85,30 @@ export const workspaceHandlers = [
         });
     }),
 
+    // GET /api/files - Compatibility endpoint used by document resolvers
+    http.get(`${API_BASE}/files`, ({ request }) => {
+        const url = new URL(request.url);
+        const path = url.searchParams.get("path") || "";
+        const file = getFile(path);
+
+        if (!file || file.type !== "file") {
+            return HttpResponse.json({ message: "File not found" }, { status: 404 });
+        }
+
+        const content = file.content || "";
+        const trimmed = content.trim();
+
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            try {
+                return HttpResponse.json(JSON.parse(content));
+            } catch {
+                return HttpResponse.json({ content });
+            }
+        }
+
+        return HttpResponse.json({ content });
+    }),
+
     // GET /api/workspace/file/blob - Read file content (binary)
     http.get(`${API_BASE}/workspace/file/blob`, ({ request }) => {
         const url = new URL(request.url);
@@ -90,11 +122,13 @@ export const workspaceHandlers = [
             );
         }
 
-        // For mock purposes, return empty blob
-        // In a real implementation, this would return actual binary data
-        return new HttpResponse(new Blob([]), {
+        const lowerPath = path.toLowerCase();
+        const isImage =
+            lowerPath.endsWith(".png") || lowerPath.endsWith(".jpg") || lowerPath.endsWith(".jpeg");
+
+        return new HttpResponse(new Blob([file.content || ""]), {
             headers: {
-                "Content-Type": "application/octet-stream",
+                "Content-Type": isImage ? "image/png" : "application/octet-stream",
             },
         });
     }),
@@ -138,5 +172,18 @@ export const workspaceHandlers = [
         return HttpResponse.json({
             path: body.path,
         });
+    }),
+
+    // DELETE /api/workspace/files - Optional file deletion used by explorer actions
+    http.delete(`${API_BASE}/workspace/files`, ({ request }) => {
+        const url = new URL(request.url);
+        const path = url.searchParams.get("path") || "";
+        const deleted = deleteFile(path);
+
+        if (!deleted) {
+            return HttpResponse.json({ message: "File not found" }, { status: 404 });
+        }
+
+        return HttpResponse.json({ path });
     }),
 ];

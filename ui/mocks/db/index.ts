@@ -789,10 +789,34 @@ export function getAllAssets(): ApiAssetResponse[] {
 }
 
 /**
+ * Get assets scoped to a project.
+ */
+export function getAssetsByProject(projectId: string): ApiAssetResponse[] {
+    if (projectId === "protein-folding") {
+        return Array.from(db.assets.values()).filter((asset) =>
+            asset.id === "asset-001" || asset.id === "asset-003"
+        );
+    }
+
+    if (projectId === "catalyst-search") {
+        return Array.from(db.assets.values()).filter((asset) => asset.id === "asset-002");
+    }
+
+    return [];
+}
+
+/**
  * Get asset by ID
  */
 export function getAsset(id: string): ApiAssetResponse | undefined {
     return db.assets.get(id);
+}
+
+/**
+ * Add or update an asset.
+ */
+export function setAsset(asset: ApiAssetResponse): void {
+    db.assets.set(asset.id, asset);
 }
 
 /**
@@ -810,6 +834,31 @@ export function getFileTree(): FileNode[] {
  */
 export function getFile(path: string): FileNode | undefined {
     return db.files.get(path);
+}
+
+/**
+ * Delete a file or folder by path.
+ */
+export function deleteFile(path: string): boolean {
+    const existing = db.files.get(path);
+    if (!existing) {
+        return false;
+    }
+
+    const prefix = path.endsWith("/") ? path : `${path}/`;
+    for (const candidatePath of Array.from(db.files.keys())) {
+        if (candidatePath === path || candidatePath.startsWith(prefix)) {
+            db.files.delete(candidatePath);
+        }
+    }
+
+    const parentPath = path.split("/").slice(0, -1).join("/") || "/";
+    const parent = db.files.get(parentPath);
+    if (parent?.children) {
+        parent.children = parent.children.filter((child) => child.path !== path);
+    }
+
+    return true;
 }
 
 /**
@@ -844,28 +893,6 @@ export function writeFile(path: string, content: string): void {
             parent.children.push(newFile);
         }
     }
-}
-
-/**
- * Delete a file
- */
-export function deleteFile(path: string): boolean {
-    const file = db.files.get(path);
-    if (!file) return false;
-
-    db.files.delete(path);
-
-    // Remove from parent's children
-    const parts = path.split("/").filter(Boolean);
-    if (parts.length > 1) {
-        const parentPath = "/" + parts.slice(0, -1).join("/");
-        const parent = db.files.get(parentPath);
-        if (parent && parent.children) {
-            parent.children = parent.children.filter((c) => c.path !== path);
-        }
-    }
-
-    return true;
 }
 
 /**

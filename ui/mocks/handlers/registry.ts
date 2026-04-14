@@ -43,4 +43,14 @@ export const registryHandlers = [
       { status: 501 },
     );
   }),
+
+  http.get(`${API_BASE}/tasks/:nodeId`, ({ params }) => {
+    return HttpResponse.json(
+      {
+        error: "not_implemented",
+        message: `Task registry is being re-implemented in Phase 3. Task '${params.nodeId}' not found.`,
+      },
+      { status: 501 },
+    );
+  }),
 ];

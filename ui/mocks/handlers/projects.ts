@@ -3,7 +3,7 @@
  */
 
 import { http, HttpResponse } from "msw";
-import { getAllProjects, getProject, setProject, deleteProject, getAllAssets } from "../db";
+import { getAllProjects, getProject, setProject, deleteProject, getAssetsByProject } from "../db";
 import type { ApiProjectResponse } from "../../src/app/types";
 import type { ProjectCreateRequest } from "../../src/api/generated/models/ProjectCreateRequest";
 
@@ -32,8 +32,8 @@ export const projectHandlers = [
     }),
 
     // GET /api/projects/:id/assets - Get project assets
-    http.get(`${API_BASE}/projects/:id/assets`, () => {
-        const assets = getAllAssets();
+    http.get(`${API_BASE}/projects/:id/assets`, ({ params }) => {
+        const assets = getAssetsByProject(params.id as string);
         return HttpResponse.json(assets);
     }),
 

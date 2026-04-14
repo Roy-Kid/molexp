@@ -7,7 +7,7 @@
  * - shared mock data lives in src/__fixtures__/api.ts
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@rstest/core";
 import {
   fixtureAsset,
   fixtureExperiment,

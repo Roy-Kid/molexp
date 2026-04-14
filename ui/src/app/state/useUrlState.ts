@@ -10,13 +10,11 @@ import type {
   WorkspaceFileSelection,
 } from "@/app/types";
 
-const DEFAULT_VIEW: LeftPanelView = "project";
+const DEFAULT_VIEW: LeftPanelView = "projects";
 
 const viewParamValues: LeftPanelView[] = [
   "workspace",
-  "project",
-  "experiment",
-  "run",
+  "projects",
   "asset",
   "workflow",
   "agent",

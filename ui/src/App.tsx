@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/app/layout/AppShell";
 import { ErrorBoundary } from "@/app/layout/ErrorBoundary";
 import { workspaceApi } from "@/app/state/api";
-import { useUrlState } from "@/app/state/useUrlState";
+import { useNavigationState } from "@/app/state/useNavigationState";
 import { useWorkspaceState } from "@/app/state/useWorkspaceState";
 import type { InspectorTarget, Selection } from "@/app/types";
 import { initializeUiPlugins } from "@/plugins/runtime";
@@ -21,7 +21,7 @@ const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarg
 
 const App = (): JSX.Element => {
   const { snapshot, status, error, refresh } = useWorkspaceState();
-  const { leftPanelView, selection, setLeftPanelView, setSelection } = useUrlState();
+  const { leftPanelView, selection, setLeftPanelView, setSelection } = useNavigationState(snapshot);
   const [pluginsReady, setPluginsReady] = useState(false);
   const [inspectorTarget, setInspectorTarget] = useState<InspectorTarget>(
     buildDefaultInspectorTarget(selection),

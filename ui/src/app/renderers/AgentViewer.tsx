@@ -3,7 +3,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock,
   Loader2,
   Play,
   RotateCcw,
@@ -15,8 +14,15 @@ import {
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { EmptyState, EntityHeader, EntityMetric, StatusBadge } from "@/app/components/entity";
 import { agentApi } from "@/app/state/api";
-import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
+import { useNavigationState } from "@/app/state/useNavigationState";
+import type {
+  ApiAgentSession,
+  ApiSessionEvent,
+  RendererProps,
+  WorkspaceSnapshot,
+} from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -265,39 +271,34 @@ const GoalInput = ({
 // Session header
 // ---------------------------------------------------------------------------
 
-const statusBadgeClass: Record<string, string> = {
-  running: "bg-blue-500/10 text-blue-700 animate-pulse",
-  pending: "bg-slate-100 text-slate-600",
-  completed: "bg-emerald-500/10 text-emerald-700",
-  failed: "bg-red-500/10 text-red-700",
-  cancelled: "bg-slate-200 text-slate-500",
+const SessionHeader = ({
+  session,
+  eventCount,
+  snapshot,
+}: {
+  session: ApiAgentSession;
+  eventCount: number;
+  snapshot: WorkspaceSnapshot;
+}): JSX.Element => {
+  const toolCallCount = session.events.filter((event) => event.type === "ToolCallEvent").length;
+  const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  return (
+    <EntityHeader
+      breadcrumbs={breadcrumbs}
+      canNavigateUp={canNavigateUp}
+      onNavigateUp={navigateUp}
+      icon={Bot}
+      title={session.goalDescription}
+      status={session.status}
+      metrics={
+        <>
+          <EntityMetric label="Events" value={eventCount} />
+          <EntityMetric label="Tool Calls" value={toolCallCount} />
+        </>
+      }
+    />
+  );
 };
-
-const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => (
-  <div className="space-y-1 rounded-xl border border-border bg-card p-4">
-    <div className="flex items-start gap-3">
-      <Bot className="mt-0.5 h-5 w-5 flex-none text-violet-500" />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold leading-snug">{session.goalDescription}</p>
-        <div className="mt-1 flex items-center gap-2">
-          <Badge
-            variant="secondary"
-            className={`text-[10px] h-4 px-1.5 ${statusBadgeClass[session.status] ?? statusBadgeClass.pending}`}
-          >
-            {session.status}
-          </Badge>
-          <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-            <Clock className="h-3 w-3" />
-            {formatTs(session.createdAt)}
-          </span>
-          <span className="text-[10px] text-muted-foreground font-mono">
-            {session.sessionId.slice(0, 8)}
-          </span>
-        </div>
-      </div>
-    </div>
-  </div>
-);
 
 // ---------------------------------------------------------------------------
 // Main AgentViewer
@@ -413,7 +414,7 @@ export const AgentViewer = ({
         )}
         {snapshot.agentSessions.length > 0 && (
           <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground px-1">
+            <p className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Recent sessions
             </p>
             {snapshot.agentSessions.slice(0, 5).map((s) => (
@@ -423,12 +424,7 @@ export const AgentViewer = ({
               >
                 <Bot className="h-4 w-4 flex-none text-violet-400" />
                 <p className="flex-1 truncate text-sm">{s.goalDescription}</p>
-                <Badge
-                  variant="secondary"
-                  className={`text-[10px] h-4 px-1 ${statusBadgeClass[s.status] ?? ""}`}
-                >
-                  {s.status}
-                </Badge>
+                <StatusBadge status={s.status} size="sm" />
               </div>
             ))}
           </div>
@@ -460,11 +456,11 @@ export const AgentViewer = ({
   if (!session) return null;
 
   return (
-    <div className="flex h-full flex-col gap-4 p-4">
-      <SessionHeader session={session} />
+    <div className="flex h-full flex-col bg-background">
+      <SessionHeader session={session} eventCount={events.length} snapshot={snapshot} />
 
-      <div className="flex items-center gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground flex-1">
+      <div className="flex items-center gap-2 border-b border-border/70 bg-muted/10 px-6 py-2 md:px-8">
+        <p className="flex-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
           Event stream
         </p>
         {session.status === "running" && (
@@ -473,18 +469,13 @@ export const AgentViewer = ({
             Live
           </span>
         )}
-        <span className="text-xs text-muted-foreground">{events.length} events</span>
       </div>
-      <Separator />
 
       <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
         {events.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
-            <Play className="h-8 w-8 text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">Waiting for events…</p>
-          </div>
+          <EmptyState title="Waiting for events…" icon={<Play className="h-8 w-8" />} />
         ) : (
-          <div className="space-y-1 pr-2">
+          <div className="space-y-1 px-6 pb-4 pr-6 md:px-8">
             {events.map((event, eventIdx) => (
               <div key={`event-${event.type}-${event.ts}`}>
                 <EventRow
@@ -500,7 +491,9 @@ export const AgentViewer = ({
       </ScrollArea>
 
       {session.status === "completed" && (
-        <GoalInput onSubmit={handleGoalSubmit} disabled={submitting} />
+        <div className="border-t border-border/70 p-4">
+          <GoalInput onSubmit={handleGoalSubmit} disabled={submitting} />
+        </div>
       )}
     </div>
   );

@@ -3,7 +3,7 @@
  */
 
 import { http, HttpResponse } from "msw";
-import { getRunsByExperiment, setRun, deleteRun } from "../db";
+import { getRun, getRunsByExperiment, setRun, deleteRun } from "../db";
 import type { ApiRunResponse } from "../../src/app/types";
 import type { RunCreateRequest } from "../../src/api/generated/models/RunCreateRequest";
 
@@ -25,10 +25,11 @@ export const runHandlers = [
         async ({ request, params }) => {
             const { projectId, experimentId } = params;
             const body = (await request.json()) as RunCreateRequest;
+            const runId = body.git_commit ? `run-${body.git_commit.substring(0, 7)}` : `run-${Date.now()}`;
 
             const newRun: ApiRunResponse = {
-                id: body.git_commit ? `run-${body.git_commit.substring(0, 7)}` : `run-${Date.now()}`,
-                runId: body.git_commit ? `run-${body.git_commit.substring(0, 7)}` : `run-${Date.now()}`,
+                id: runId,
+                runId,
                 projectId: projectId as string,
                 experimentId: experimentId as string,
                 status: "pending",
@@ -51,6 +52,68 @@ export const runHandlers = [
             return HttpResponse.json(newRun, { status: 201 });
         }
     ),
+
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId - Run detail
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+
+            return HttpResponse.json(run);
+        }
+    ),
+
+    // PATCH /api/projects/:projectId/experiments/:experimentId/runs/:runId/status - Update status
+    http.patch(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/status`,
+        async ({ params, request }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+
+            const body = (await request.json()) as { status?: string };
+            const nextStatus = body.status ?? run.status;
+            const updated: ApiRunResponse = {
+                ...run,
+                status: nextStatus,
+                finished:
+                    nextStatus === "succeeded" || nextStatus === "failed" || nextStatus === "cancelled"
+                        ? new Date().toISOString()
+                        : run.finished ?? null,
+            };
+
+            setRun(updated);
+
+            return HttpResponse.json({
+                id: updated.id,
+                status: updated.status,
+                finished: updated.finished,
+            });
+        }
+    ),
+
+    // POST /api/projects/:projectId/experiments/:experimentId/runs/:runId/start - Start run
+    http.post(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/start`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+
+            const updated: ApiRunResponse = {
+                ...run,
+                status: "running",
+            };
+            setRun(updated);
+            return HttpResponse.json(updated);
+        }
+    ),
+
     // DELETE /api/projects/:projectId/experiments/:experimentId/runs/:runId
     http.delete(
         `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId`,

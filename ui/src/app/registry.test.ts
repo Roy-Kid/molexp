@@ -7,7 +7,7 @@
  * - registry is module-level state; clear it between tests
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "@rstest/core";
 import type { RendererEntry } from "@/app/registry";
 import {
   buildRegistryKey,

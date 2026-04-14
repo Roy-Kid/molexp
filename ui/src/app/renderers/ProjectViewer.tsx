@@ -1,43 +1,29 @@
-import { Activity, Archive, FlaskConical, Folder, Play, Trash2 } from "lucide-react";
-import { type ComponentType, useEffect, useMemo, useState } from "react";
+import { Archive, FlaskConical, FolderKanban, Play, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
+import type { DataTableColumn } from "@/app/components/entity";
+import {
+  DataTable,
+  EMPTY_COPY,
+  EmptyState,
+  EntityHeader,
+  EntityMetric,
+  StatusBadge,
+} from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
-import { useUrlState } from "@/app/state/useUrlState";
-import type { ApiAssetResponse, RendererProps } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
+import { useNavigationState } from "@/app/state/useNavigationState";
+import type { ApiAssetResponse, ExperimentSummary, RendererProps, RunSummary } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-const MetricStat = ({
-  label,
-  value,
-  icon: Icon,
-  colorClass,
-}: {
-  label: string;
-  value: number | string;
-  icon: ComponentType<{ className?: string }>;
-  colorClass?: string;
-}) => (
-  <div className="flex flex-col gap-1">
-    <div className="flex items-center gap-2 text-muted-foreground mb-1">
-      <Icon className={`h-4 w-4 ${colorClass || "text-muted-foreground"}`} />
-      <span className="text-xs font-medium uppercase tracking-wider">{label}</span>
-    </div>
-    <span className="text-3xl font-light tracking-tight text-foreground">{value}</span>
-  </div>
-);
 
 export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [projectAssets, setProjectAssets] = useState<ApiAssetResponse[]>([]);
-  const { setSelection } = useUrlState();
+  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
 
-  // Extract project name/id from selection
   const projectId = selection.objectId;
   const project = snapshot.projects.find((p) => p.id === projectId);
 
-  // Fetch project assets
   useEffect(() => {
     if (projectId) {
       workspaceApi
@@ -47,7 +33,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     }
   }, [projectId]);
 
-  // Filter experiments and runs
   const projectExperiments = useMemo(
     () => snapshot.experiments.filter((e) => e.projectId === projectId),
     [snapshot.experiments, projectId],
@@ -83,198 +68,245 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
 
   if (!project) return <div className="p-8 text-muted-foreground">Project not found.</div>;
 
+  const experimentColumns: DataTableColumn<ExperimentSummary>[] = [
+    {
+      key: "name",
+      header: "Experiment Name",
+      cell: (exp) => (
+        <div className="flex items-center gap-3">
+          <div className="rounded-md bg-purple-500/10 p-1.5 text-purple-600 transition-colors group-hover:bg-purple-500/20">
+            <FlaskConical className="h-4 w-4" />
+          </div>
+          <span className="font-medium text-foreground">{exp.name}</span>
+        </div>
+      ),
+    },
+    {
+      key: "id",
+      header: "ID",
+      width: "w-[120px]",
+      cell: (exp) => (
+        <span className="font-mono text-xs text-muted-foreground">{exp.id.substring(0, 8)}</span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "w-[160px]",
+      cell: (exp) => <StatusBadge status={exp.status} />,
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      width: "w-[180px]",
+      cell: (exp) => (
+        <span className="text-muted-foreground">
+          {new Date(exp.updatedAt).toLocaleDateString()}
+        </span>
+      ),
+    },
+    {
+      key: "action",
+      header: "Action",
+      width: "w-[60px]",
+      align: "right",
+      cell: () => (
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+        >
+          <Play className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+        </Button>
+      ),
+    },
+  ];
+
+  const runColumns: DataTableColumn<RunSummary>[] = [
+    {
+      key: "run",
+      header: "Run",
+      cell: (run) => (
+        <>
+          <div className="font-medium text-foreground">{run.name || run.id}</div>
+          <div className="font-mono text-xs text-muted-foreground">{run.id}</div>
+        </>
+      ),
+    },
+    {
+      key: "experiment",
+      header: "Experiment",
+      width: "w-[220px]",
+      cell: (run) => {
+        const experiment = snapshot.experiments.find((item) => item.id === run.experimentId);
+        return (
+          <span className="text-muted-foreground">{experiment?.name || run.experimentId}</span>
+        );
+      },
+    },
+    {
+      key: "status",
+      header: "Status",
+      width: "w-[140px]",
+      cell: (run) => <StatusBadge status={run.status} />,
+    },
+    {
+      key: "updated",
+      header: "Updated",
+      width: "w-[180px]",
+      cell: (run) => (
+        <span className="text-muted-foreground">{new Date(run.updatedAt).toLocaleString()}</span>
+      ),
+    },
+  ];
+
+  const assetColumns: DataTableColumn<ApiAssetResponse>[] = [
+    {
+      key: "name",
+      header: "Asset Name",
+      cell: (asset) => (
+        <div className="flex items-center gap-2 font-medium">
+          <Archive className="h-4 w-4 text-amber-500" />
+          {asset.assetId}
+        </div>
+      ),
+    },
+    {
+      key: "type",
+      header: "Type",
+      width: "w-[150px]",
+      cell: (asset) => <span className="text-muted-foreground">{asset.format}</span>,
+    },
+    {
+      key: "size",
+      header: "Size",
+      width: "w-[120px]",
+      cell: (asset) => <span className="font-mono text-xs">{asset.size} B</span>,
+    },
+    {
+      key: "created",
+      header: "Created",
+      width: "w-[180px]",
+      cell: (asset) => (
+        <span className="text-muted-foreground">
+          {new Date(asset.created).toLocaleDateString()}
+        </span>
+      ),
+    },
+  ];
+
   return (
     <div className="flex h-full flex-col bg-background">
-      {/* Header Hero */}
-      <div className="flex flex-col gap-6 px-8 py-8 border-b bg-background">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-blue-500/10 rounded-lg">
-                <Folder className="h-6 w-6 text-blue-600" />
-              </div>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">{project.name}</h1>
-              <Badge variant="outline" className="ml-2 font-mono text-xs text-muted-foreground">
-                {projectId.substring(0, 8)}
-              </Badge>
-            </div>
-            <p className="text-muted-foreground max-w-2xl pl-[3.25rem]">
-              {project.summary || "No description provided."}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
+      <EntityHeader
+        breadcrumbs={breadcrumbs}
+        canNavigateUp={canNavigateUp}
+        onNavigateUp={navigateUp}
+        icon={FolderKanban}
+        title={project.name}
+        status={project.status}
+        subtitle={project.summary || undefined}
+        actions={
+          <>
             <CreateExperimentDialog projectId={projectId} onExperimentCreated={onRefresh} />
             <Button
               variant="ghost"
               size="icon"
               onClick={handleDelete}
               disabled={isDeleting}
-              className="text-muted-foreground hover:text-destructive transition-colors"
+              className="text-muted-foreground hover:text-destructive"
               title="Delete Project"
             >
               <Trash2 className="h-5 w-5" />
             </Button>
-          </div>
-        </div>
+          </>
+        }
+        metrics={
+          <>
+            <EntityMetric label="Experiments" value={projectExperiments.length} />
+            <EntityMetric label="Runs" value={projectRuns.length} />
+            <EntityMetric label="Assets" value={projectAssets.length} />
+          </>
+        }
+      />
 
-        {/* Metrics Row */}
-        <div className="flex items-center gap-12 pl-[3.25rem] py-2">
-          <MetricStat
-            label="Experiments"
-            value={projectExperiments.length}
-            icon={FlaskConical}
-            colorClass="text-purple-500"
-          />
-          <div className="h-12 w-px bg-border/50" />
-          <MetricStat
-            label="Total Runs"
-            value={projectRuns.length}
-            icon={Activity}
-            colorClass="text-emerald-500"
-          />
-          <div className="h-12 w-px bg-border/50" />
-          <MetricStat
-            label="Project Assets"
-            value={projectAssets.length}
-            icon={Archive}
-            colorClass="text-amber-500"
-          />
-        </div>
-      </div>
-
-      {/* Content Tabs */}
-      <div className="flex-1 overflow-hidden flex flex-col">
+      <div className="flex-1 flex flex-col overflow-hidden">
         <Tabs defaultValue="experiments" className="flex-1 flex flex-col">
-          <div className="px-8 py-3 border-b bg-background">
-            <TabsList className="h-auto w-fit justify-start bg-muted/20 p-1 rounded-lg">
-              <TabsTrigger value="experiments" className="px-4 py-2 rounded-md font-medium text-sm">
+          <div className="border-b border-border/70 bg-muted/10 px-6 py-2 md:px-8">
+            <TabsList className="h-auto w-fit justify-start rounded-md bg-transparent p-0">
+              <TabsTrigger value="experiments" className="rounded-md px-4 py-2 text-sm font-medium">
                 Experiments
               </TabsTrigger>
-              <TabsTrigger value="assets" className="px-4 py-2 rounded-md font-medium text-sm">
+              <TabsTrigger value="runs" className="rounded-md px-4 py-2 text-sm font-medium">
+                Runs
+              </TabsTrigger>
+              <TabsTrigger value="assets" className="rounded-md px-4 py-2 text-sm font-medium">
                 Assets
               </TabsTrigger>
-              <TabsTrigger value="settings" className="px-4 py-2 rounded-md font-medium text-sm">
+              <TabsTrigger value="settings" className="rounded-md px-4 py-2 text-sm font-medium">
                 Settings
               </TabsTrigger>
             </TabsList>
           </div>
 
-          <TabsContent value="experiments" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">
-            <div className="flex-1 overflow-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/20 text-muted-foreground font-medium sticky top-0 backdrop-blur-md">
-                  <tr>
-                    <th className="py-3 px-6 w-auto">Experiment Name</th>
-                    <th className="py-3 px-6 w-[120px]">ID</th>
-                    <th className="py-3 px-6 w-[160px]">Status</th>
-                    <th className="py-3 px-6 w-[180px]">Updated</th>
-                    <th className="py-3 px-6 w-[60px] text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {projectExperiments.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-12 text-center text-muted-foreground">
-                        No experiments yet. Click "Create Experiment" to start.
-                      </td>
-                    </tr>
-                  ) : (
-                    projectExperiments.map((exp) => (
-                      <tr
-                        key={exp.id}
-                        className="group hover:bg-muted/40 transition-colors cursor-pointer"
-                        onClick={() => navigateToExperiment(exp.id)}
-                      >
-                        <td className="py-3 px-6">
-                          <div className="flex items-center gap-3">
-                            <div className="p-1.5 rounded-md bg-purple-500/10 text-purple-600 group-hover:bg-purple-500/20 transition-colors">
-                              <FlaskConical className="h-4 w-4" />
-                            </div>
-                            <span className="font-medium text-foreground">{exp.name}</span>
-                          </div>
-                        </td>
-                        <td className="py-3 px-6 font-mono text-xs text-muted-foreground">
-                          {exp.id.substring(0, 8)}
-                        </td>
-                        <td className="py-3 px-6">
-                          <Badge variant="secondary" className="font-normal">
-                            Active
-                          </Badge>
-                        </td>
-                        <td className="py-3 px-6 text-muted-foreground">
-                          {new Date(exp.updatedAt).toLocaleDateString()}
-                        </td>
-                        <td className="py-3 px-6 text-right">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Play className="h-4 w-4 text-muted-foreground hover:text-foreground" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <TabsContent value="experiments" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
+            <DataTable
+              columns={experimentColumns}
+              data={projectExperiments}
+              getRowKey={(exp) => exp.id}
+              onRowClick={(exp) => navigateToExperiment(exp.id)}
+              empty={
+                <EmptyState
+                  title={EMPTY_COPY.experiments.title}
+                  description={EMPTY_COPY.experiments.description}
+                />
+              }
+            />
           </TabsContent>
 
-          <TabsContent value="assets" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">
-            <div className="flex-1 overflow-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-muted/20 text-muted-foreground font-medium sticky top-0 backdrop-blur-md">
-                  <tr>
-                    <th className="py-3 px-6 w-auto">Asset Name</th>
-                    <th className="py-3 px-6 w-[150px]">Type</th>
-                    <th className="py-3 px-6 w-[120px]">Size</th>
-                    <th className="py-3 px-6 w-[180px]">Created</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border/50">
-                  {projectAssets.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="py-12 text-center text-muted-foreground">
-                        No assets found in this project.
-                      </td>
-                    </tr>
-                  ) : (
-                    projectAssets.map((asset) => (
-                      <tr key={asset.id} className="hover:bg-muted/40 transition-colors">
-                        <td className="py-3 px-6 font-medium">
-                          <div className="flex items-center gap-3">
-                            <div className="p-1.5 rounded-md bg-amber-500/10 text-amber-600">
-                              <Archive className="h-4 w-4" />
-                            </div>
-                            {asset.assetId}
-                          </div>
-                        </td>
-                        <td className="py-3 px-6 text-muted-foreground">{asset.format}</td>
-                        <td className="py-3 px-6 font-mono text-xs">{asset.size} B</td>
-                        <td className="py-3 px-6 text-muted-foreground">
-                          {new Date(asset.created).toLocaleDateString()}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <TabsContent value="runs" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
+            <DataTable
+              columns={runColumns}
+              data={projectRuns}
+              getRowKey={(run) => run.id}
+              onRowClick={(run) => setSelection({ objectType: "run", objectId: run.id })}
+              empty={
+                <EmptyState
+                  title={EMPTY_COPY.projectRuns.title}
+                  description={EMPTY_COPY.projectRuns.description}
+                />
+              }
+            />
+          </TabsContent>
+
+          <TabsContent value="assets" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
+            <DataTable
+              columns={assetColumns}
+              data={projectAssets}
+              getRowKey={(asset) => asset.id}
+              empty={
+                <EmptyState
+                  title={EMPTY_COPY.assets.title}
+                  description={EMPTY_COPY.assets.description}
+                />
+              }
+            />
           </TabsContent>
 
           <TabsContent value="settings" className="flex-1 p-6">
-            <div className="max-w-xl space-y-4">
-              <div className="p-4 rounded-lg border bg-card text-card-foreground shadow-sm">
-                <h3 className="text-lg font-medium mb-2">Project Settings</h3>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Manage project-level configurations and danger zones.
+            <div className="max-w-2xl space-y-5">
+              <div className="border-b border-border/70 pb-4">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                  Danger Zone
+                </h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Deleting a project removes access to its experiment and run hierarchy from this
+                  workspace view.
                 </p>
-                <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Project
-                </Button>
               </div>
+              <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Project
+              </Button>
             </div>
           </TabsContent>
         </Tabs>

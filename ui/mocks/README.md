@@ -63,10 +63,10 @@ Run the dev server without `--mock` to connect to the real backend.
 
 ### Basic Test Setup
 
-Tests automatically use MSW via `ui/setupTests.ts`:
+Tests can use MSW through a shared setup file wired into `Rstest`:
 
 ```typescript
-import { beforeAll, afterEach, afterAll } from 'vitest';
+import { beforeAll, afterEach, afterAll } from '@rstest/core';
 import { server } from './mocks/node';
 import { resetDatabase } from './mocks/db';
 
@@ -153,8 +153,10 @@ The mock layer covers all API endpoints used by the frontend:
 - `POST /api/execute` - Trigger run execution
 - `GET /api/runs/:id/status` - Poll run status
 
-### Registry (Placeholder)
-- `GET /api/registry/tasks` - List available task types
+### Plugins / Registry
+- `GET /api/plugins` - List available UI plugins
+- `GET /api/tasks` - Task registry placeholder
+- `GET /api/tasks/:id` - Task detail placeholder
 
 ## Maintenance
 
