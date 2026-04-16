@@ -20,10 +20,68 @@ from ._common import (
     rprint,
 )
 
-RunHandler = Callable[[Path, Any, Any, Any], None]
+RunHandler = Callable[[Any, Any, Any], None]
 
 
 # ── Config / profile resolution ─────────────────────────────────────────────
+
+
+def _coerce_value(raw: str) -> Any:
+    """Coerce a string CLI value to int, float, bool, or str."""
+    if raw.lower() == "true":
+        return True
+    if raw.lower() == "false":
+        return False
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    return raw
+
+
+def _set_nested(d: dict[str, Any], key_path: str, value: Any) -> None:
+    """Set a nested dict value using dot-notation key path (mutates *d*)."""
+    parts = key_path.split(".")
+    node = d
+    for part in parts[:-1]:
+        if part not in node or not isinstance(node[part], dict):
+            node[part] = {}
+        node = node[part]
+    node[parts[-1]] = value
+
+
+def _apply_overrides(
+    profile_cfg: ProfileConfig,
+    overrides: list[str],
+) -> ProfileConfig:
+    """Return a new :class:`ProfileConfig` with *overrides* applied on top.
+
+    Each entry in *overrides* must be a ``KEY=VALUE`` string.  Dot notation
+    is supported for nested keys (e.g. ``model.n_layers=3``).  Values are
+    coerced to ``bool``, ``int``, ``float``, or ``str`` in that priority.
+
+    Raises :class:`typer.Exit` with an error message on malformed entries.
+    """
+    if not overrides:
+        return profile_cfg
+    data = profile_cfg.to_dict()
+    for item in overrides:
+        if "=" not in item:
+            rprint(
+                f"[red]Error:[/red] --set value {item!r} is not in KEY=VALUE format."
+            )
+            raise typer.Exit(1)
+        key, _, raw = item.partition("=")
+        key = key.strip()
+        if not key:
+            rprint(f"[red]Error:[/red] --set value {item!r} has an empty key.")
+            raise typer.Exit(1)
+        _set_nested(data, key, _coerce_value(raw))
+    return ProfileConfig(data, name=profile_cfg.name)
 
 
 def _resolve_profile(
@@ -187,7 +245,20 @@ def _execute_sweep(
                     rprint(f"  {icon} {exp.id}  seed={seed}")
 
                 for mol_run, seed in created_runs:
-                    run_handler(script, mol_run, exp, project)
+                    # Persist script path and profile config into run.json before
+                    # any handler so the worker can reconstruct everything from
+                    # run_dir alone (via ``molexp execute <run_dir>``).
+                    mol_run._update_metadata(
+                        script=str(script.resolve()),
+                        profile=profile_cfg.name,
+                        config=profile_cfg.to_dict(),
+                        config_hash=(
+                            profile_cfg.content_hash()
+                            if len(profile_cfg) > 0 or profile_cfg.name
+                            else None
+                        ),
+                    )
+                    run_handler(mol_run, exp, project)
                     dispatched_runs.append(mol_run)
                     rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  seed={seed}")
 
@@ -207,6 +278,7 @@ def _launch_bg(
     script: Path,
     config_path: Path | None,
     profile: str | None,
+    overrides: list[str],
     resume: bool,
     workspace: Path | None,
 ) -> None:
@@ -219,6 +291,8 @@ def _launch_bg(
         cmd.extend(["--config", str(config_path)])
     if profile is not None:
         cmd.extend(["--profile", profile])
+    for override in overrides:
+        cmd.extend(["--override", override])
     if resume:
         cmd.append("--resume")
     if workspace is not None:
@@ -310,6 +384,18 @@ def run(
             help=(
                 "Named molcfg profile to activate (e.g. 'dry-run', 'smoke'). "
                 "Profile names with '-' are normalized to '_'."
+            ),
+        ),
+    ] = None,
+    overrides: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--override",
+            help=(
+                "Override a config key after profile resolution. "
+                "Format: KEY=VALUE (repeatable). "
+                "Dot notation supported for nested keys: model.n_layers=3. "
+                "Values are auto-coerced to bool/int/float/str."
             ),
         ),
     ] = None,
@@ -413,6 +499,7 @@ def run(
         raise typer.Exit(1)
 
     profile_cfg = _resolve_profile(config, profile)
+    profile_cfg = _apply_overrides(profile_cfg, overrides or [])
 
     # ── Local execution ────────────────────────────────────────────────────
     if is_local:
@@ -421,6 +508,7 @@ def run(
                 script=script,
                 config_path=config,
                 profile=profile,
+                overrides=overrides or [],
                 resume=resume,
                 workspace=workspace,
             )
@@ -429,9 +517,7 @@ def run(
         profile_label = f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
         label = f"[green]local[/green] profile={profile_label}"
 
-        def _local_handler(
-            script_: Path, mol_run: Any, experiment: Any, _project: Any,
-        ) -> None:
+        def _local_handler(mol_run: Any, experiment: Any, _project: Any) -> None:
             asyncio.run(
                 experiment.workflow.execute(run=mol_run, profile_config=profile_cfg)
             )
@@ -508,6 +594,63 @@ def run(
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
         if submitted:
             rprint(f"[dim]Open the monitor with:  molexp watch --workspace {workspace or '.'} [/dim]")
+
+
+@app.command()
+def execute(
+    run_dir: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to the run directory (contains run.json).",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Execute a run from its run directory.
+
+    This is the worker entry point used by cluster backends.  The run
+    directory must contain a ``run.json`` with a ``script`` field written
+    by ``molexp run`` at submission time.
+    """
+    import asyncio
+
+    from molexp.config import ProfileConfig
+    from molexp.entry import find_workflow_for_run, load_workspaces
+    from molexp.workspace.run import RunContext
+
+    ctx = RunContext.open(run_dir)
+    run = ctx.run
+
+    script = run.metadata.script
+    if script is None:
+        rprint(
+            "[red]Error:[/red] run.json has no 'script' field. "
+            "This run was not created with a recent version of molexp."
+        )
+        raise typer.Exit(1)
+
+    try:
+        workspaces = load_workspaces(Path(script))
+    except Exception as exc:
+        rprint(f"[red]Error importing {script}:[/red] {exc}")
+        rprint(traceback.format_exc(), end="")
+        raise typer.Exit(1)
+
+    workflow = find_workflow_for_run(workspaces, run)
+    if workflow is None:
+        rprint(
+            f"[red]Error:[/red] No workflow found for experiment "
+            f"'{run.experiment.id}' in project '{run.experiment.project.id}' "
+            f"in {script}."
+        )
+        raise typer.Exit(1)
+
+    profile_config = ProfileConfig(run.metadata.config, name=run.metadata.profile)
+    asyncio.run(workflow.execute(run=run, profile_config=profile_config))
 
 
 # Silence unused-import lint (console is re-exported for other modules).

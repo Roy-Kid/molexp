@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from molexp.workspace.workspace import Workspace
@@ -63,6 +63,35 @@ def load_workspaces(script: Path) -> list["Workspace"]:
     _registry.clear()
     _import_script(script)
     return list(_registry)
+
+
+def find_workflow_for_run(workspaces: list["Workspace"], run: Any) -> Any | None:
+    """Return the workflow object matching *run*'s project and experiment IDs.
+
+    Searches all registered workspaces returned by :func:`load_workspaces` for
+    an experiment whose ``(project.id, experiment.id)`` pair matches that of
+    *run*.  Returns ``None`` if no match is found.
+
+    Args:
+        workspaces: List of :class:`~molexp.Workspace` instances (from
+            :func:`load_workspaces`).
+        run: A workspace ``Run`` whose ``experiment.project.id`` and
+            ``experiment.id`` are used as lookup keys.
+
+    Returns:
+        The matching :class:`~molexp.workflow.WorkflowSpec`, or ``None``.
+    """
+    target_project_id = run.experiment.project.id
+    target_exp_id = run.experiment.id
+
+    for ws in workspaces:
+        for proj in ws.list_projects():
+            if proj.id != target_project_id:
+                continue
+            for exp in proj.list_experiments():
+                if exp.id == target_exp_id and exp.workflow is not None:
+                    return exp.workflow
+    return None
 
 
 def clear_registry() -> None:

@@ -51,7 +51,6 @@ class SubmitHandler:
 
     def __call__(
         self,
-        script: Path,
         mol_run: Any,
         experiment: Any,
         project: Any,
@@ -69,18 +68,25 @@ class SubmitHandler:
         sched = self._sched
 
         job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
+        run_dir = Path(mol_run.run_dir)
+
+        # molq stores its own manifest under execution/; the actual execution
+        # sub-directories are created by RunContext when the job starts.
+        exec_root = run_dir / "execution"
+        exec_root.mkdir(parents=True, exist_ok=True)
 
         with Submitor(
             cluster_name=self._cluster,
             scheduler=self._scheduler,
+            jobs_dir=str(exec_root),
         ) as submitor:
-            job, _ = submitor.submit(
+            job = submitor.submit(
                 argv=[
                     sys.executable,
                     "-m",
-                    "molexp.plugins.submit_molq.worker",
-                    str(script.resolve()),
-                    str(mol_run.run_dir),
+                    "molexp.cli",
+                    "execute",
+                    str(run_dir),
                 ],
                 resources=JobResources(
                     cpu_count=res.get("cpus"),
@@ -96,11 +102,13 @@ class SubmitHandler:
                 ),
                 execution=JobExecution(
                     job_name=job_name,
-                    cwd=str(mol_run.run_dir),
+                    cwd=str(run_dir),
+                    output_file=str(run_dir / "stdout.log"),
+                    error_file=str(run_dir / "stderr.log"),
                 ),
                 metadata={
                     "run_id":  mol_run.id,
-                    "run_dir": str(mol_run.run_dir),
+                    "run_dir": str(run_dir),
                 },
             )
 
