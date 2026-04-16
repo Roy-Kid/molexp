@@ -148,7 +148,7 @@ class RunMonitor:
                 rows.append(JobRow(
                     state=status,
                     run_id=run_id,
-                    cluster=cluster,
+                    cluster=executor_info.get("cluster_name"),
                     scheduler_id=sched_id,
                     elapsed=elapsed,
                     message=error_msg,

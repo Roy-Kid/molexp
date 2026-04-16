@@ -129,8 +129,9 @@ class TestRunContextErrorDetails:
                 raise RuntimeError("detailed error")
         except RuntimeError:
             pass
-        error_txt = ctx.logs_dir / "error.txt"
-        assert error_txt.exists()
+        # error.txt now lives in the per-execution subdir alongside workflow.json
+        error_txt = ctx.work_dir / "execution" / ctx._execution_id / "error.txt"
+        assert error_txt.exists(), f"error.txt not found at {error_txt}"
         content = error_txt.read_text()
         assert "RuntimeError" in content
         assert "detailed error" in content
