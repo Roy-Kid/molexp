@@ -16,26 +16,31 @@ from pathlib import Path
 
 
 def _execute(script: Path, run_dir: Path) -> None:
-    from molexp.entry import load_projects
+    from molexp.entry import load_workspaces
     from molexp.workspace.run import RunContext
-    from molexp.workspace.utils import slugify
 
     with RunContext.open(run_dir) as ctx:
-        projects = load_projects(script)
-        ws_project_id = ctx.run.experiment.project.id
+        workspaces = load_workspaces(script)
+        target_project_id = ctx.run.experiment.project.id
+        target_exp_id = ctx.run.experiment.id
         workflow = None
-        for proj in projects:
-            if slugify(proj.name) == ws_project_id:
-                for exp in proj.experiments:
-                    if exp.workflow is not None:
+        for ws in workspaces:
+            for proj in ws.list_projects():
+                if proj.id != target_project_id:
+                    continue
+                for exp in proj.list_experiments():
+                    if exp.id == target_exp_id and exp.workflow is not None:
                         workflow = exp.workflow
                         break
                 if workflow is not None:
                     break
+            if workflow is not None:
+                break
 
         if workflow is None:
             raise RuntimeError(
-                f"No workflow found for project '{ws_project_id}' in {script}"
+                f"No workflow found for experiment '{target_exp_id}' in project "
+                f"'{target_project_id}' in {script}"
             )
 
         asyncio.run(workflow.execute(run_context=ctx))

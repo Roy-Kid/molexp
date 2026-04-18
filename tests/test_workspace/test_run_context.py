@@ -19,7 +19,7 @@ class TestRunContextLifecycle:
         assert run.status == RunStatus.SUCCEEDED
 
     def test_exit_failure(self, experiment):
-        run = experiment.create_run()
+        run = experiment.run()
         try:
             with run.start():
                 raise ValueError("boom")
@@ -39,6 +39,7 @@ class TestRunContextLifecycle:
         with run.start() as ctx:
             assert ctx.work_dir.exists()
             assert ctx.artifacts_dir.exists()
+            assert ctx.logs_dir.exists()
 
 
 class TestRunContextResults:
@@ -90,15 +91,15 @@ class TestRunContextCheckpoint:
 
 class TestRunContextParams:
     def test_params_shortcut(self, experiment):
-        run = experiment.create_run(parameters={"lr": 1e-4, "batch": 32})
+        run = experiment.run(parameters={"lr": 1e-4, "batch": 32})
         with run.start() as ctx:
             assert ctx.params == {"lr": 1e-4, "batch": 32}
             assert ctx.params is ctx.run.parameters
 
-    def test_dry_run_defaults_false(self, run):
+    def test_profile_defaults_none(self, run):
         with run.start() as ctx:
-            assert ctx.dry_run is False
-            assert run.metadata.dry_run is False
+            assert ctx.config.name is None
+            assert run.metadata.profile is None
 
 
 class TestRunContextGetDataDir:
@@ -121,14 +122,17 @@ class TestRunContextGetDataDir:
 
 
 class TestRunContextErrorDetails:
-    def test_error_files_created(self, experiment):
-        run = experiment.create_run()
+    def test_error_log_created(self, experiment):
+        run = experiment.run()
         try:
             with run.start() as ctx:
                 raise RuntimeError("detailed error")
         except RuntimeError:
             pass
-        assert (ctx.artifacts_dir / "error.txt").exists()
-        assert (ctx.artifacts_dir / "error.json").exists()
-        err = json.loads((ctx.artifacts_dir / "error.json").read_text())
-        assert err["type"] == "RuntimeError"
+        error_txt = ctx.logs_dir / "error.txt"
+        assert error_txt.exists()
+        content = error_txt.read_text()
+        assert "RuntimeError" in content
+        assert "detailed error" in content
+        assert not (ctx.artifacts_dir / "error.txt").exists()
+        assert not (ctx.artifacts_dir / "error.json").exists()

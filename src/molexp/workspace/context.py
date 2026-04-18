@@ -19,7 +19,8 @@ class Context(BaseModel):
         experiment_id: Experiment identifier
         project_id: Project identifier
         work_dir: Working directory path
-        artifacts_dir: Artifacts directory path
+        artifacts_dir: User-saved outputs (model files, predictions, metrics, etc.)
+        logs_dir: Runtime-generated logs (error traces, TensorBoard events, etc.)
         tasks: Task execution statuses
         results: Execution results
         status: Overall execution status
@@ -27,12 +28,13 @@ class Context(BaseModel):
         workflow: Serialized workflow data
         execution: Submission metadata and job tracking
     """
-    
+
     run_id: str
     experiment_id: str
     project_id: str
     work_dir: Path
     artifacts_dir: Path
+    logs_dir: Path
     tasks: dict[str, str] = Field(default_factory=dict)
     results: dict[str, Any] = Field(default_factory=dict)
     status: dict = Field(default_factory=dict)

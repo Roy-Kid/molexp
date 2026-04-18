@@ -1,36 +1,15 @@
 """Domain models for workspace entities.
 
-All metadata models are frozen (immutable). To update, use
-``model_copy(update={...})`` and persist the new instance.
-
 This module is the single source of truth for workspace entity schemas.
 The server, CLI, and Python API all derive from these models.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
-
-# ── Execution configuration ─────────────────────────────────────────────────
-
-
-@dataclass(frozen=True)
-class ExecutionConfig:
-    """Immutable execution configuration set once before a workflow starts.
-
-    Must be supplied at ``RunContext`` construction time.
-    Late-binding (setting after construction) is not permitted.
-
-    Attributes:
-        dry_run: When ``True`` the execution is in dry-run mode.
-            Tasks can inspect ``ctx.dry_run`` to skip side-effects.
-    """
-
-    dry_run: bool = False
 
 # ── Shared value objects ────────────────────────────────────────────────────
 
@@ -86,7 +65,14 @@ class ProjectMetadata(BaseModel, frozen=True):
 
 
 class ExperimentMetadata(BaseModel, frozen=True):
-    """Repeatable experiment definition bound to a workflow."""
+    """Repeatable experiment definition bound to a workflow.
+
+    An Experiment carries a concrete parameter dict (`parameter_space`)
+    plus replica configuration (`n_replicas`, `seeds`).  Parameter sweeps
+    are expanded by the user at script level (e.g. via ``for p in GridSpace(...)``);
+    each combination becomes a distinct Experiment.  Replicas under a
+    single Experiment share parameters but differ in random seed.
+    """
 
     id: str
     name: str
@@ -100,9 +86,22 @@ class ExperimentMetadata(BaseModel, frozen=True):
     parameter_space: dict[str, Any] = Field(default_factory=dict)
     git_commit: str | None = None
 
+    # Replica configuration
+    n_replicas: int = 1
+    seeds: list[int] | None = None
 
-class RunMetadata(BaseModel, frozen=True):
-    """Single execution instance and its frozen snapshot."""
+
+class RunMetadata(BaseModel):
+    """Single execution instance metadata.
+
+    ``profile`` is the activated molcfg profile name (normalized,
+    ``-`` → ``_``) or ``None`` when no profile was selected.  ``config``
+    is the frozen merged configuration dict that the run executed
+    against; ``config_hash`` is its sha256 digest, duplicated for fast
+    queryability.  The framework treats profile contents as opaque
+    user data — it persists them for reproducibility but never
+    interprets them.
+    """
 
     id: str
     status: str = "pending"
@@ -111,6 +110,8 @@ class RunMetadata(BaseModel, frozen=True):
     finished_at: datetime | None = None
     error: ErrorInfo | None = None
     workflow_snapshot: WorkflowSnapshotRef | None = None
-    dry_run: bool = False
+    profile: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    config_hash: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     executor_info: dict[str, Any] = Field(default_factory=dict)

@@ -1,6 +1,6 @@
 ---
 name: molexp-review
-description: Comprehensive code review aggregating architecture, performance, documentation, and async safety checks. Use after writing code or during PR review.
+description: Comprehensive code review aggregating architecture, performance, documentation, async safety, and UI design checks. Use after writing code or during PR review.
 argument-hint: "[path or module]"
 user-invocable: true
 ---
@@ -34,6 +34,11 @@ If no path given, review all files modified in `git diff --name-only HEAD`.
    - No mutation of input objects
    - Pydantic models use model_copy() not direct assignment
    - New dicts/lists for transformed data
+7. **UI Design** (only if `ui/` files changed) → delegate to `molexp-designer` agent:
+   - Information density, hierarchy, token discipline
+   - Loading / empty / error states
+   - Accessibility, keyboard order, contrast
+   - Consistency with other renderers
 
 **Severity levels**:
 - CRITICAL — must fix (architecture violations, async safety)
@@ -50,5 +55,6 @@ DOCUMENTATION: ✅/⚠️ per check
 ASYNC & SYSTEM SAFETY: ✅/❌ per check
 CODE QUALITY: ✅/⚠️ per check
 IMMUTABILITY: ✅/❌ per check
+UI DESIGN: ✅/⚠️ per check (only if ui/ touched)
 SUMMARY: N CRITICAL, N HIGH, N MEDIUM, N LOW
 ```

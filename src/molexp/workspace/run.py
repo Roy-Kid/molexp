@@ -10,21 +10,24 @@ from __future__ import annotations
 import json
 import os
 import platform
-from mollog import get_logger
+import time
 import traceback
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mollog import get_logger
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from .experiment import Experiment
 
-from .base import _atomic_write_json, _save_metadata
+from molexp.config import ProfileConfig
+
+from .base import _atomic_write_json, _load_metadata, _reconstruct, _save_metadata
 from .context import Context
-from .models import ErrorInfo, ExecutionConfig, RunMetadata, WorkflowSnapshotRef
+from .models import ErrorInfo, RunMetadata, WorkflowSnapshotRef
 from .utils import generate_id
 
 logger = get_logger(__name__)
@@ -36,7 +39,6 @@ class RunStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
-    DRY_RUN = "dry_run"
 
 
 # ── RunContext ──────────────────────────────────────────────────────────────
@@ -48,20 +50,24 @@ class RunContext:
     Entered via ``with run.start() as ctx:`` — manages lifecycle,
     result binding, checkpointing, artifact storage, and asset access.
 
-    Execution mode (e.g. ``dry_run``) is fixed at construction time via
-    ``execution_config``.  Late-binding after construction is not permitted.
+    The active :class:`~molexp.config.ProfileConfig` is fixed at
+    construction time via ``profile_config``.  Late-binding after
+    construction is not permitted.
     """
 
     def __init__(
         self,
         run: Run,
         *,
-        execution_config: ExecutionConfig | None = None,
+        profile_config: ProfileConfig | None = None,
     ) -> None:
         self.run = run
         self.work_dir = run.run_dir
         self.artifacts_dir = self.work_dir / "artifacts"
-        self._execution_config = execution_config if execution_config is not None else ExecutionConfig()
+        self.logs_dir = self.work_dir / "logs"
+        self._profile_config = (
+            profile_config if profile_config is not None else ProfileConfig({}, name=None)
+        )
         self._entered = False
         self._context = Context(
             run_id=run.id,
@@ -69,6 +75,7 @@ class RunContext:
             project_id=run.experiment.project.id,
             work_dir=self.work_dir,
             artifacts_dir=self.artifacts_dir,
+            logs_dir=self.logs_dir,
         )
         self._start_time: datetime | None = None
         # Actor message-passing infrastructure
@@ -79,8 +86,9 @@ class RunContext:
     def __enter__(self) -> RunContext:
         self.work_dir.mkdir(parents=True, exist_ok=True)
         self.artifacts_dir.mkdir(exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
         self._load_existing_results()
-        self._apply_execution_mode_metadata()
+        self._apply_profile_metadata()
         self._claim_ownership()
         self.run._set_status(RunStatus.RUNNING)
         self._start_time = datetime.now()
@@ -95,8 +103,6 @@ class RunContext:
             workflow_status = self._context.status.get("run")
             if workflow_status == RunStatus.FAILED:
                 final = RunStatus.FAILED
-            elif self.dry_run:
-                final = RunStatus.DRY_RUN
             else:
                 final = RunStatus.SUCCEEDED
             self.run._update_metadata(
@@ -126,9 +132,9 @@ class RunContext:
         return self.run.parameters
 
     @property
-    def dry_run(self) -> bool:
-        """Whether this execution is running in dry-run mode."""
-        return self._execution_config.dry_run
+    def config(self) -> ProfileConfig:
+        """Active profile configuration (read-only mapping)."""
+        return self._profile_config
 
     def get_data_dir(
         self,
@@ -275,7 +281,7 @@ class RunContext:
         from .workspace import Workspace
 
         run_dir = Path(run_dir).resolve()
-        # Layout: workspace_root/projects/proj_id/experiments/exp_id/runs/run_id
+        # Layout: workspace_root/projects/proj_id/experiments/exp_id/runs/run-{id}
         workspace_root = run_dir.parents[5]
         project_id = run_dir.parents[3].name
         experiment_id = run_dir.parents[1].name
@@ -291,11 +297,29 @@ class RunContext:
             raise FileNotFoundError(
                 f"Experiment '{experiment_id}' not found in project '{project_id}'"
             )
-        run = experiment.get_run(run_dir.name)
-        if run is None:
-            raise FileNotFoundError(f"Run '{run_dir.name}' not found at {run_dir}")
-        exec_config = ExecutionConfig(dry_run=run.metadata.dry_run)
-        return cls(run, execution_config=exec_config)
+        # Load run metadata directly from run_dir/run.json.
+        # Avoid experiment.get_run() which calls run_dir.exists() — on Lustre/NFS
+        # filesystems that call can return False for newly-created directories due
+        # to metadata cache staleness on compute nodes, even when the directory and
+        # file are physically present.
+        run_json = run_dir / "run.json"
+        meta = None
+        last_exc: Exception | None = None
+        for _attempt in range(3):
+            try:
+                meta = _load_metadata(RunMetadata, run_json)
+                break
+            except FileNotFoundError as exc:
+                last_exc = exc
+                time.sleep(1)
+
+        if meta is None:
+            raise FileNotFoundError(
+                f"Run metadata not found at {run_json}"
+            ) from last_exc
+        run = _reconstruct(Run, {"experiment": experiment, "metadata": meta})
+        profile_cfg = ProfileConfig(run.metadata.config, name=run.metadata.profile)
+        return cls(run, profile_config=profile_cfg)
 
     def _register_channel(self, name: str, queue: Any) -> None:
         self._channels[name] = queue
@@ -322,15 +346,17 @@ class RunContext:
             "context": self._context.model_dump(mode="json"),
         })
 
-    def _apply_execution_mode_metadata(self) -> None:
+    def _apply_profile_metadata(self) -> None:
+        """Persist the active profile name / data / hash into RunMetadata."""
         labels = dict(self.run.metadata.labels)
-        if self._execution_config.dry_run:
-            labels["mode"] = "dry-run"
-            updates: dict[str, Any] = {"dry_run": True, "labels": labels}
-        else:
-            if labels.get("mode") == "dry-run":
-                labels.pop("mode")
-            updates = {"dry_run": False, "labels": labels}
+        labels.pop("mode", None)  # legacy key, no longer used
+        cfg = self._profile_config
+        updates: dict[str, Any] = {
+            "profile": cfg.name,
+            "config": cfg.to_dict(),
+            "config_hash": cfg.content_hash() if len(cfg) > 0 or cfg.name else None,
+            "labels": labels,
+        }
         self.run._update_metadata(**updates)
 
     def _claim_ownership(self) -> None:
@@ -355,18 +381,12 @@ class RunContext:
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
-        error_txt = self.artifacts_dir / "error.txt"
+        error_txt = self.logs_dir / "error.txt"
         with open(error_txt, "w") as f:
             f.write(f"Error: {datetime.now().isoformat()}\n")
             f.write(f"Type: {exc_type.__name__}\n")
             f.write(f"Message: {exc_val}\n\n")
             f.write("".join(tb_lines))
-        _atomic_write_json(self.artifacts_dir / "error.json", {
-            "timestamp": datetime.now().isoformat(),
-            "type": exc_type.__name__,
-            "message": str(exc_val),
-            "traceback": tb_lines,
-        })
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -377,7 +397,7 @@ class Run:
 
     Example::
 
-        run = experiment.create_run(parameters={"lr": 0.001})
+        run = experiment.run(parameters={"lr": 0.001})
         with run.start() as ctx:
             result = my_workflow(ctx)
             ctx.set_result("output", result)
@@ -413,7 +433,7 @@ class Run:
 
     @property
     def run_dir(self) -> Path:
-        return self.experiment.experiment_dir / "runs" / self.id
+        return self.experiment.experiment_dir / "runs" / f"run-{self.id}"
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -426,9 +446,13 @@ class Run:
 
     # ── Execution ───────────────────────────────────────────────────────
 
-    def start(self) -> RunContext:
-        """Return a context manager for normal-mode (non-dry-run) execution."""
-        return RunContext(self, execution_config=ExecutionConfig(dry_run=False))
+    def start(self, profile_config: ProfileConfig | None = None) -> RunContext:
+        """Return a context manager for executing this run.
+
+        *profile_config* selects the active molcfg profile; when omitted
+        the run executes with an empty (defaults-only) :class:`ProfileConfig`.
+        """
+        return RunContext(self, profile_config=profile_config)
 
     def cancel(self) -> None:
         """Mark the run as cancelled in workspace metadata."""

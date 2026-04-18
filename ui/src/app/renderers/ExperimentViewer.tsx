@@ -1,4 +1,4 @@
-import { FlaskConical, Play, Trash2 } from "lucide-react";
+import { FileQuestion, FlaskConical, Play, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn } from "@/app/components/entity";
@@ -71,7 +71,15 @@ export const ExperimentViewer = ({
   };
 
   if (!experiment || !projectId) {
-    return <div className="p-8 text-muted-foreground">Experiment not found.</div>;
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <EmptyState
+          icon={<FileQuestion className="h-6 w-6" />}
+          title="Experiment not found"
+          description="It may have been deleted or not yet synced."
+        />
+      </div>
+    );
   }
 
   const project = snapshot.projects.find((item) => item.id === projectId);
@@ -115,16 +123,17 @@ export const ExperimentViewer = ({
     },
     {
       key: "action",
-      header: "Act",
-      width: "w-[60px]",
+      header: "",
+      width: "w-[40px]",
       align: "right",
       cell: () => (
         <Button
           size="icon"
           variant="ghost"
-          className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+          aria-label="Run again"
+          className="h-6 w-6 text-muted-foreground opacity-60 transition-opacity group-hover:opacity-100 hover:text-foreground"
         >
-          <Play className="h-4 w-4 text-muted-foreground hover:text-foreground" />
+          <Play className="h-3.5 w-3.5" />
         </Button>
       ),
     },
@@ -153,10 +162,11 @@ export const ExperimentViewer = ({
               size="icon"
               onClick={handleDelete}
               disabled={isDeleting}
-              className="text-muted-foreground hover:text-destructive"
-              title="Delete Experiment"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
+              aria-label="Delete experiment"
+              title="Delete experiment"
             >
-              <Trash2 className="h-5 w-5" />
+              <Trash2 className="h-4 w-4" />
             </Button>
           </>
         }
@@ -171,16 +181,16 @@ export const ExperimentViewer = ({
       />
 
       <div className="flex-1 overflow-hidden flex flex-col">
-        <Tabs defaultValue="runs" className="flex-1 flex flex-col">
-          <div className="border-b border-border/70 bg-muted/10 px-6 py-2 md:px-8">
-            <TabsList className="h-auto w-fit justify-start rounded-md bg-transparent p-0">
-              <TabsTrigger value="runs" className="px-4 py-2 rounded-md font-medium text-sm">
+        <Tabs defaultValue="runs" className="flex flex-1 flex-col">
+          <div className="border-b border-border/70 bg-muted/20 px-4">
+            <TabsList className="h-auto w-fit justify-start gap-0 rounded-none bg-transparent p-0">
+              <TabsTrigger value="runs" className="rounded-none px-3 py-1.5 text-xs">
                 Runs
               </TabsTrigger>
-              <TabsTrigger value="config" className="px-4 py-2 rounded-md font-medium text-sm">
+              <TabsTrigger value="config" className="rounded-none px-3 py-1.5 text-xs">
                 Config
               </TabsTrigger>
-              <TabsTrigger value="diff" className="px-4 py-2 rounded-md font-medium text-sm">
+              <TabsTrigger value="diff" className="rounded-none px-3 py-1.5 text-xs">
                 Diff
               </TabsTrigger>
             </TabsList>
@@ -201,63 +211,65 @@ export const ExperimentViewer = ({
             />
           </TabsContent>
 
-          <TabsContent value="config" className="flex-1 overflow-auto p-6 md:p-8">
-            <div className="max-w-3xl space-y-6">
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Relationships
-                </h3>
-                <div className="mt-3 flex flex-wrap gap-2">
+          <TabsContent value="config" className="flex-1 space-y-4 overflow-auto p-4">
+            <section>
+              <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Relationships
+              </h3>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setSelection({ objectType: "project", objectId: projectId })}
+                >
+                  Project: {project?.name || projectId}
+                </Button>
+                {workflow && (
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setSelection({ objectType: "project", objectId: projectId })}
+                    className="h-7 px-2 text-xs"
+                    onClick={() =>
+                      setSelection({
+                        objectType: "workflow",
+                        objectId: workflow.id,
+                        workflowId: workflow.id,
+                      })
+                    }
                   >
-                    Project: {project?.name || projectId}
+                    Workflow: {workflow.name}
                   </Button>
-                  {workflow && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() =>
-                        setSelection({
-                          objectType: "workflow",
-                          objectId: workflow.id,
-                          workflowId: workflow.id,
-                        })
-                      }
-                    >
-                      Workflow: {workflow.name}
-                    </Button>
-                  )}
-                </div>
+                )}
               </div>
+            </section>
 
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Summary
-                </h3>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground">
-                  {experiment.summary || "No summary provided."}
-                </p>
-              </div>
+            <section>
+              <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Summary
+              </h3>
+              <p className="mt-1.5 text-sm leading-5 text-foreground">
+                {experiment.summary || (
+                  <span className="text-muted-foreground">No summary provided.</span>
+                )}
+              </p>
+            </section>
 
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Metadata
-                </h3>
-                <div className="mt-4">
-                  <KeyValueGrid
-                    items={[
-                      { label: "Experiment ID", value: experiment.id },
-                      { label: "Project ID", value: projectId },
-                      { label: "Workflow File", value: experiment.workflowFile || "-" },
-                      { label: "Updated", value: new Date(experiment.updatedAt).toLocaleString() },
-                    ]}
-                  />
-                </div>
+            <section>
+              <h3 className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Metadata
+              </h3>
+              <div className="mt-2">
+                <KeyValueGrid
+                  items={[
+                    { label: "Experiment ID", value: experiment.id },
+                    { label: "Project ID", value: projectId },
+                    { label: "Workflow File", value: experiment.workflowFile || "-" },
+                    { label: "Updated", value: new Date(experiment.updatedAt).toLocaleString() },
+                  ]}
+                />
               </div>
-            </div>
+            </section>
           </TabsContent>
 
           <TabsContent value="diff" className="flex-1 p-0 m-0 overflow-hidden flex flex-col">

@@ -232,8 +232,19 @@ Each test directory has `conftest.py` for shared fixtures. Use `conftest.py` at 
 | `/molexp-impl` | User | Full feature implementation (plan → TDD → cross-layer wiring → verify) |
 | `/molexp-spec` | User | Natural language → structured technical spec |
 | `/molexp-api` | User | API endpoint (route + schema + client regen + MSW mock) |
-| `/molexp-ui` | User | Frontend (renderer + state + mock + test) |
+| `/molexp-ui` | User | Frontend mechanics (renderer + state + mock + test) — invokes `molexp-designer` for post-impl polish |
+| `/molexp-design` | User | Frontend visual/UX polish: info density, design-system tokens, a11y, empty/error states |
 | `/molexp-step` | User | Workflow Step/Actor development |
 | `/molexp-test` | User | TDD testing with coverage analysis |
-| `/molexp-review` | Auto/User | Architecture + performance review (layer compliance, async safety, caching, I/O, concurrency) |
+| `/molexp-review` | Auto/User | Architecture + performance + UI design review (layer compliance, async safety, caching, I/O, concurrency, design system) |
 | `/molexp-agent-tool` | User | PydanticAI agent tool development |
+
+### Agents (delegated, not user-invoked)
+
+| Agent | Axis |
+|---|---|
+| `molexp-architect` | 5-layer compliance, module boundaries |
+| `molexp-optimizer` | Async, I/O, serialization, React perf |
+| `molexp-tester` | Test authoring (RED/GREEN/REFACTOR) |
+| `molexp-documenter` | Google-style docstrings, JSDoc, OpenAPI descriptions |
+| `molexp-designer` | UI visual quality, info density, tokens, a11y |

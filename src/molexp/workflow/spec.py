@@ -31,6 +31,8 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from molexp.config import ProfileConfig
+
 from .types import WorkflowExecution, WorkflowResult
 
 
@@ -88,7 +90,7 @@ class WorkflowSpec:
         run: Any = None,
         run_context: Any = None,
         *,
-        dry_run: bool = False,
+        profile_config: ProfileConfig | None = None,
         **kwargs: Any,
     ) -> WorkflowResult:
         """Run the workflow to completion and return the result.
@@ -97,13 +99,15 @@ class WorkflowSpec:
             run: A workspace ``Run`` object (runtime creates RunContext).
             run_context: An existing ``RunContext`` (used directly).
                 Mutually exclusive with *run*.
-            dry_run: Execute the workflow in dry-run mode.
+            profile_config: Active :class:`~molexp.config.ProfileConfig`
+                for this execution.  When *run_context* is passed, the
+                context's own config takes precedence.
         """
         return await self._get_runtime().execute(
             self,
             run=run,
             run_context=run_context,
-            dry_run=dry_run,
+            profile_config=profile_config,
             **kwargs,
         )
 
@@ -112,7 +116,7 @@ class WorkflowSpec:
         run: Any = None,
         run_context: Any = None,
         *,
-        dry_run: bool = False,
+        profile_config: ProfileConfig | None = None,
         **kwargs: Any,
     ) -> WorkflowExecution:
         """Start the workflow asynchronously and return a handle."""
@@ -120,7 +124,7 @@ class WorkflowSpec:
             self,
             run=run,
             run_context=run_context,
-            dry_run=dry_run,
+            profile_config=profile_config,
             **kwargs,
         )
 

@@ -17,11 +17,11 @@ const STATUS_TONE: Record<string, StatusTone> = {
 };
 
 const TONE_SOFT: Record<StatusTone, string> = {
-  success: "border-emerald-200 bg-emerald-50 text-emerald-800",
-  error: "border-rose-200 bg-rose-50 text-rose-800",
-  running: "border-blue-200 bg-blue-50 text-blue-800",
-  neutral: "border-slate-200 bg-slate-100 text-slate-700",
-  warning: "border-amber-200 bg-amber-50 text-amber-800",
+  success: "border-success/25 bg-success-soft text-success-foreground",
+  error: "border-destructive/25 bg-destructive/10 text-destructive",
+  running: "border-info/25 bg-info-soft text-info-foreground",
+  neutral: "border-border bg-muted text-muted-foreground",
+  warning: "border-warning/25 bg-warning-soft text-warning-foreground",
 };
 
 const SIZE_CLASS: Record<StatusBadgeSize, string> = {

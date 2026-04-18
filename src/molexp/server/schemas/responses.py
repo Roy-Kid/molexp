@@ -123,6 +123,9 @@ class RunResponse(BaseModel):
     workflow: WorkflowSnapshotResponse | None = None
     error: dict[str, str] | None = None
     executorInfo: dict[str, Any] = Field(default_factory=dict)
+    profile: str | None = None
+    config: dict[str, Any] = Field(default_factory=dict)
+    configHash: str | None = None
 
     @classmethod
     def from_model(cls, run: Run) -> RunResponse:
@@ -152,6 +155,9 @@ class RunResponse(BaseModel):
             workflow=wf_snap,
             error=error,
             executorInfo=run.metadata.executor_info,
+            profile=run.metadata.profile,
+            config=run.metadata.config,
+            configHash=run.metadata.config_hash,
         )
 
 
@@ -290,3 +296,30 @@ class HealthResponse(BaseModel):
     status: str
     workspace_available: bool
     capabilities: dict[str, bool] = Field(default_factory=dict)
+
+
+# ── Run logs / execution ─────────────────────────────────────────────────────
+
+
+class RunLogsResponse(BaseModel):
+    """Contents of job.out and job.err for a run."""
+
+    stdout: str | None = None
+    stderr: str | None = None
+
+
+class WorkflowStepInfo(BaseModel):
+    """Human-readable summary of one workflow execution step."""
+
+    index: int
+    status: str  # pending | running | success | error
+    step_outputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class RunExecutionResponse(BaseModel):
+    """Workflow execution state read from workflow.json."""
+
+    execution_id: str | None = None
+    status: str = "not_started"  # running | completed | failed | not_started
+    steps: list[WorkflowStepInfo] = Field(default_factory=list)
+    end: dict[str, Any] | None = None

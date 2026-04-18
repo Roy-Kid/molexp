@@ -10,29 +10,27 @@ from molexp.workspace.checkpoint import CheckpointState
 
 @pytest.fixture
 def workspace(tmp_path):
-    ws = Workspace(root=tmp_path, name="Test Lab")
-    ws.materialize()
-    return ws
+    return Workspace(root=tmp_path, name="Test Lab")
 
 
 @pytest.fixture
 def project(workspace):
-    return workspace.create_project(name="test-project")
+    return workspace.project("test-project")
 
 
 @pytest.fixture
 def experiment(project):
-    return project.create_experiment(
-        name="test-experiment",
+    return project.experiment(
+        "test-experiment",
         workflow_source="train.py",
-        parameter_space={"lr": [1e-4, 1e-3]},
+        params={"lr": 1e-4},
         git_commit="abc123",
     )
 
 
 @pytest.fixture
 def run(experiment):
-    return experiment.create_run(parameters={"lr": 1e-4})
+    return experiment.run(parameters={"lr": 1e-4})
 
 
 @pytest.fixture

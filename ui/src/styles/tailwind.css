@@ -28,6 +28,16 @@
     --color-card: hsl(var(--card));
     --color-card-foreground: hsl(var(--card-foreground));
 
+    --color-success: hsl(var(--success));
+    --color-success-foreground: hsl(var(--success-foreground));
+    --color-success-soft: hsl(var(--success-soft));
+    --color-warning: hsl(var(--warning));
+    --color-warning-foreground: hsl(var(--warning-foreground));
+    --color-warning-soft: hsl(var(--warning-soft));
+    --color-info: hsl(var(--info));
+    --color-info-foreground: hsl(var(--info-foreground));
+    --color-info-soft: hsl(var(--info-soft));
+
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
     --radius-sm: calc(var(--radius) - 4px);
@@ -79,6 +89,16 @@
         --input: 240 5.9% 90%;
         --ring: 240 5.9% 10%;
         --radius: 0.5rem;
+
+        --success: 142 72% 29%;
+        --success-foreground: 142 72% 20%;
+        --success-soft: 142 72% 94%;
+        --warning: 38 92% 50%;
+        --warning-foreground: 30 90% 28%;
+        --warning-soft: 38 92% 94%;
+        --info: 217 91% 48%;
+        --info-foreground: 217 91% 30%;
+        --info-soft: 217 91% 95%;
     }
 
     .dark {
@@ -101,6 +121,16 @@
         --border: 240 3.7% 15.9%;
         --input: 240 3.7% 15.9%;
         --ring: 240 4.9% 83.9%;
+
+        --success: 142 60% 45%;
+        --success-foreground: 142 70% 85%;
+        --success-soft: 142 45% 16%;
+        --warning: 38 85% 55%;
+        --warning-foreground: 38 90% 85%;
+        --warning-soft: 38 50% 18%;
+        --info: 217 80% 60%;
+        --info-foreground: 217 80% 88%;
+        --info-soft: 217 60% 18%;
     }
 }
 

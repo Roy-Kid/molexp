@@ -171,7 +171,7 @@ async def create_run(
     experiment = project.get_experiment(experiment_id)
     if experiment is None:
         return {"error": f"Experiment '{experiment_id}' not found"}
-    run = experiment.create_run(parameters=parameters)
+    run = experiment.run(parameters=parameters)
     return {
         "run_id": run.id,
         "status": str(run.status),

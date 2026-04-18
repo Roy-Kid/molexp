@@ -30,7 +30,7 @@ def create_execution(
     if not experiment:
         raise ExperimentNotFoundError(request.project_id, request.experiment_id)
 
-    new_run = experiment.create_run(parameters=request.parameters)
+    new_run = experiment.run(parameters=request.parameters)
     return RunResponse.from_model(new_run)
 
 

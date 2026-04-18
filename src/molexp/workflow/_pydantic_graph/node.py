@@ -72,7 +72,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
             state=ctx.state,
             deps=ctx.deps.user_deps,
             inputs=inputs,
-            dry_run=ctx.deps.dry_run,
+            config=ctx.deps.config,
             run_context=ctx.deps.run_context,
         )
 
@@ -98,7 +98,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
                 state=ctx.state,
                 deps=ctx.deps.user_deps,
                 inputs=inputs,
-                dry_run=ctx.deps.dry_run,
+                config=ctx.deps.config,
                 run_context=ctx.deps.run_context,
             )
             try:

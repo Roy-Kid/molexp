@@ -9,7 +9,6 @@ from .context import Context
 from .experiment import Experiment
 from .models import (
     ErrorInfo,
-    ExecutionConfig,
     ExperimentMetadata,
     ProjectMetadata,
     RunMetadata,
@@ -29,8 +28,6 @@ __all__ = [
     "Run",
     "RunContext",
     "RunStatus",
-    # Execution configuration
-    "ExecutionConfig",
     # Metadata models
     "WorkspaceMetadata",
     "ProjectMetadata",

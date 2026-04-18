@@ -50,10 +50,10 @@ def create_experiment(
     project = workspace.get_project(project_id)
     if not project:
         raise ProjectNotFoundError(project_id)
-    exp = project.create_experiment(
+    exp = project.experiment(
         name=req.name,
         workflow_source=req.workflow_source,
-        parameter_space=req.parameter_space,
+        params=req.parameter_space,
     )
     return ExperimentResponse.from_model(exp)
 

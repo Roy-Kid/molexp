@@ -1,6 +1,6 @@
 ---
 name: molexp-tester
-description: TDD workflow agent for molexp. Designs tests for workflows, agents, workspace operations, and API endpoints.
+description: Delegated test-author agent for molexp. Designs and writes tests for workflows, agents, workspace operations, and API endpoints when invoked from /molexp-impl, /molexp-test, or other skills. Not a user entry point — use /molexp-test to kick off a testing task.
 tools: Read, Grep, Glob, Bash, Write, Edit
 model: inherit
 ---

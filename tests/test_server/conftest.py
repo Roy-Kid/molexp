@@ -10,28 +10,26 @@ from molexp.workspace import Workspace
 
 @pytest.fixture
 def workspace(tmp_path):
-    ws = Workspace(root=tmp_path, name="Test")
-    ws.materialize()
-    return ws
+    return Workspace(root=tmp_path, name="Test")
 
 
 @pytest.fixture
 def project(workspace):
-    return workspace.create_project("test-project")
+    return workspace.project("test-project")
 
 
 @pytest.fixture
 def experiment(project):
-    return project.create_experiment(
+    return project.experiment(
         "test-exp",
         workflow_source="train.py",
-        parameter_space={"lr": [1e-4]},
+        params={"lr": 1e-4},
     )
 
 
 @pytest.fixture
 def run(experiment):
-    return experiment.create_run(parameters={"lr": 1e-4})
+    return experiment.run(parameters={"lr": 1e-4})
 
 
 @pytest.fixture

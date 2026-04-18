@@ -140,12 +140,19 @@ class RunMonitor:
                 if isinstance(data.get("error"), dict):
                     error_msg = data["error"].get("message")
 
+                profile_name = data.get("profile")
+                extras: tuple[tuple[str, str], ...] = (
+                    (("profile", profile_name),) if profile_name else ()
+                )
+
                 rows.append(JobRow(
                     state=status,
                     run_id=run_id,
+                    cluster=cluster,
                     scheduler_id=sched_id,
                     elapsed=elapsed,
                     message=error_msg,
+                    extras=extras,
                 ))
 
                 s = status.lower()
@@ -153,7 +160,7 @@ class RunMonitor:
                     running += 1
                 elif s == "pending":
                     pending += 1
-                elif s in ("succeeded", "done", "dry_run"):
+                elif s in ("succeeded", "done"):
                     done += 1
                 elif s in ("failed", "cancelled"):
                     failed += 1

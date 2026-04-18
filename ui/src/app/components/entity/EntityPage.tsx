@@ -103,8 +103,8 @@ export const EntityHeader = ({
   metrics,
 }: EntityHeaderProps): JSX.Element => {
   return (
-    <section className="bg-background">
-      <div className="px-6 pt-4 md:px-8">
+    <section className="border-b border-border/70 bg-background">
+      <div className="px-4 pt-2">
         {breadcrumbs && breadcrumbs.length > 0 && (
           <HeaderBreadcrumb
             items={breadcrumbs}
@@ -113,32 +113,33 @@ export const EntityHeader = ({
           />
         )}
 
-        <div className="mt-3 flex items-start justify-between gap-8 pb-6">
-          <div className="flex min-w-0 flex-1 items-start gap-3">
-            <div className="flex h-10 w-10 flex-none items-center justify-center rounded-md bg-muted/60">
-              <Icon className="h-5 w-5 text-foreground" />
+        <div className="mt-1.5 flex items-center justify-between gap-4 pb-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-muted">
+              <Icon className="h-4 w-4 text-foreground" />
             </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <h2 className="truncate text-2xl font-semibold tracking-tight text-foreground">
-                  {title}
-                </h2>
-                {status && <StatusBadge status={status} />}
-              </div>
+            <div className="flex min-w-0 flex-1 items-center gap-2">
+              <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
+              {status && <StatusBadge status={status} />}
               {subtitle && (
-                <p className="mt-1 max-w-2xl truncate text-sm text-muted-foreground">{subtitle}</p>
+                <span
+                  className="hidden min-w-0 truncate text-xs text-muted-foreground md:inline"
+                  title={subtitle}
+                >
+                  · {subtitle}
+                </span>
               )}
             </div>
           </div>
 
           {(actions || metrics) && (
-            <div className="flex flex-none flex-col items-end gap-3">
-              {actions && <div className="flex items-center gap-2">{actions}</div>}
+            <div className="flex flex-none items-center gap-4">
               {metrics && (
-                <div className="flex flex-wrap items-baseline justify-end gap-x-5 gap-y-1">
+                <div className="flex flex-wrap items-baseline justify-end gap-x-3 gap-y-0.5">
                   {metrics}
                 </div>
               )}
+              {actions && <div className="flex items-center gap-1">{actions}</div>}
             </div>
           )}
         </div>
@@ -158,15 +159,15 @@ interface KeyValueGridProps {
 
 export const KeyValueGrid = ({ items }: KeyValueGridProps): JSX.Element => {
   return (
-    <div className="grid gap-x-8 gap-y-4 md:grid-cols-2">
+    <dl className="grid gap-x-6 gap-y-2 md:grid-cols-2">
       {items.map((item) => (
-        <div key={item.label} className="border-b border-border/60 pb-3">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+        <div key={item.label} className="flex min-w-0 flex-col">
+          <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
             {item.label}
-          </div>
-          <div className="mt-1 text-sm text-foreground">{item.value}</div>
+          </dt>
+          <dd className="mt-0.5 min-w-0 truncate text-sm text-foreground">{item.value}</dd>
         </div>
       ))}
-    </div>
+    </dl>
   );
 };

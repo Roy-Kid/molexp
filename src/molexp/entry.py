@@ -1,8 +1,8 @@
 """Entry point registry for CLI discovery.
 
-User scripts call ``me.entry(project)`` at module level to register
-a project for CLI execution.  The CLI calls ``load_projects(script)``
-to import the script and retrieve all registered projects.
+User scripts call ``me.entry(workspace)`` at module level to register
+a workspace for CLI execution.  The CLI calls ``load_workspaces(script)``
+to import the script and retrieve all registered workspaces.
 
 No source scanning, no magic attribute discovery — explicit registration.
 
@@ -10,14 +10,16 @@ Example (user script)::
 
     import molexp as me
 
-    project = me.Project("my-project")
-    # ... define experiments, bind workflows ...
-    me.entry(project)
+    ws = me.Workspace("./lab")
+    project = ws.project("my-project")
+    exp = project.experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
+    exp.set_workflow(train)
+    me.entry(ws)
 
 Example (CLI internal)::
 
-    from molexp.entry import load_projects
-    projects = load_projects(Path("train.py"))
+    from molexp.entry import load_workspaces
+    workspaces = load_workspaces(Path("train.py"))
 """
 
 from __future__ import annotations
@@ -27,13 +29,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.project import Project
+    from molexp.workspace.workspace import Workspace
 
-_registry: list[Project] = []
+_registry: list["Workspace"] = []
 
 
-def entry(project: Project) -> None:
-    """Register a project as a CLI entry point.
+def entry(workspace: "Workspace") -> None:
+    """Register a workspace as a CLI entry point.
 
     When a script is imported by ``molexp run``, this call populates
     the global registry.  When the script is run directly
@@ -41,22 +43,19 @@ def entry(project: Project) -> None:
     effectively a no-op.
 
     Args:
-        project: A :class:`~molexp.Project` spec to register.
+        workspace: A :class:`~molexp.Workspace` to register.
     """
-    _registry.append(project)
+    _registry.append(workspace)
 
 
-def load_projects(script: Path) -> list[Project]:
-    """Import a user script and return all registered projects.
-
-    This is the **only** function the CLI calls.  It encapsulates
-    clear → import → read in a single call.
+def load_workspaces(script: Path) -> list["Workspace"]:
+    """Import a user script and return all registered workspaces.
 
     Args:
         script: Path to the Python script containing ``me.entry()`` calls.
 
     Returns:
-        List of registered :class:`~molexp.Project` specs.
+        List of registered :class:`~molexp.Workspace` instances.
 
     Raises:
         RuntimeError: If the script cannot be loaded.

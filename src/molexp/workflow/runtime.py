@@ -11,6 +11,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from molexp.config import ProfileConfig
+
 from .types import WorkflowExecution, WorkflowResult
 
 
@@ -24,7 +26,7 @@ class WorkflowRuntime(ABC):
         run: Any = None,
         run_context: Any = None,
         *,
-        dry_run: bool = False,
+        profile_config: ProfileConfig | None = None,
         **kwargs: Any,
     ) -> WorkflowResult:
         """Run the workflow to completion."""
@@ -37,7 +39,7 @@ class WorkflowRuntime(ABC):
         run: Any = None,
         run_context: Any = None,
         *,
-        dry_run: bool = False,
+        profile_config: ProfileConfig | None = None,
         **kwargs: Any,
     ) -> WorkflowExecution:
         """Launch the workflow in the background."""

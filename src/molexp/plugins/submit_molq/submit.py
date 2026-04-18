@@ -15,7 +15,7 @@ def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
 
 
 class SubmitHandler:
-    """Callable run handler that submits each run via molq.
+    """Stateful run handler that submits jobs via molq.
 
     Accumulates all submitted :class:`~molexp.workspace.run.Run` objects in
     :attr:`submitted_runs` so the caller can pass them to a monitor after the
@@ -35,19 +35,26 @@ class SubmitHandler:
         cluster: str | None,
         resources: dict[str, Any],
         scheduling: dict[str, Any],
+        block: bool = False,
     ) -> None:
-        self._scheduler  = scheduler
-        self._cluster    = cluster or "default"
-        self._resources  = _strip_none(resources)
-        self._scheduling = _strip_none(scheduling)
+        self._scheduler = scheduler
+        self._cluster = cluster or "default"
+        self._res = _strip_none(resources)
+        self._sched = _strip_none(scheduling)
+        self._block = block
+        self._handles: list[Any] = []
+        self._submitor: Any = None
         self.submitted_runs: list[Any] = []
+
+    # ------------------------------------------------------------------
+    # Callable protocol
 
     def __call__(
         self,
         script: Path,
         mol_run: Any,
-        exp_spec: Any,
-        project_spec: Any,
+        experiment: Any,
+        project: Any,
     ) -> None:
         from molq import (
             Duration,
@@ -58,10 +65,10 @@ class SubmitHandler:
             Submitor,
         )
 
-        res   = self._resources
-        sched = self._scheduling
+        res   = self._res
+        sched = self._sched
 
-        job_name = f"{project_spec.name[:20]}-{mol_run.id[:8]}"
+        job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
 
         with Submitor(
             cluster_name=self._cluster,
@@ -117,10 +124,12 @@ def make_submit_handler(
 ) -> SubmitHandler:
     """Return a :class:`SubmitHandler` configured for the given scheduler.
 
-    The handler is callable with the standard ``(script, mol_run, exp_spec,
-    project_spec)`` signature used by :func:`~molexp.cli._execute_sweep`.
-    After the sweep, :attr:`SubmitHandler.submitted_runs` contains every run
-    that was successfully submitted.
+    The handler is callable with the standard ``(script, mol_run, experiment,
+    project)`` signature used by :func:`~molexp.cli._execute_sweep`.
+
+    All ``None`` values in *resources* and *scheduling* are stripped so that
+    molq passes them through as unset, letting each scheduler use its own
+    defaults.
 
     Args:
         scheduler: molq scheduler backend name.

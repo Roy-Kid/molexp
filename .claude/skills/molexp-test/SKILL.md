@@ -1,6 +1,6 @@
 ---
 name: molexp-test
-description: Write or improve tests for molexp modules — TDD workflow with coverage analysis.
+description: User-invoked TDD workflow to write or improve tests for molexp modules with coverage analysis. Orchestrates the process; delegates test authoring to the molexp-tester agent when useful.
 disable-model-invocation: true
 allowed-tools: Read, Edit, Write, Bash, Grep, Glob
 argument-hint: <module or feature to test>

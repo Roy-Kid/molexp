@@ -1,8 +1,8 @@
 ---
 name: molexp-ui
-description: Develop a frontend component, renderer, or UI feature for molexp's React UI.
+description: Develop a frontend component, renderer, or UI feature for molexp's React UI — focuses on mechanics (state wiring, registration, mocks). For visual polish or design audits use /molexp-design.
 disable-model-invocation: true
-allowed-tools: Read, Edit, Write, Bash, Grep, Glob
+allowed-tools: Read, Edit, Write, Bash, Grep, Glob, Agent
 argument-hint: <component or feature description>
 ---
 
@@ -33,6 +33,8 @@ Develop UI feature: $ARGUMENTS
    ```bash
    cd ui && npx tsc --noEmit && npm test && npm run dev:mock
    ```
+
+7. **Design pass**: invoke the `molexp-designer` agent on the changed renderer/files. Apply CRITICAL and HIGH fixes it reports (token violations, missing states, density regressions). For deeper polish, use `/molexp-design`.
 
 ## Stack
 

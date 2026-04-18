@@ -16,10 +16,9 @@ runner = CliRunner()
 
 def _make_workspace(tmp_path):
     workspace = Workspace(root=tmp_path / "workspace", name="Test")
-    workspace.materialize()
-    project = workspace.create_project("demo")
-    experiment = project.create_experiment("train", workflow_source="train.py")
-    run = experiment.create_run(parameters={"seed": 0})
+    project = workspace.project("demo")
+    experiment = project.experiment("train")
+    run = experiment.run(parameters={"seed": 0})
     return workspace, experiment, run
 
 
@@ -31,14 +30,15 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
             [
                 "import molexp as me",
                 "",
-                f"project = me.Project('demo', config={{'workspace_root': {str(workspace_root)!r}}})",
+                f"ws = me.Workspace({str(workspace_root)!r})",
+                "project = ws.project('demo')",
                 "exp = project.experiment('train')",
                 "",
                 "def train(ctx: me.RunContext) -> None:",
                 "    ctx.set_result('ok', True)",
                 "",
                 "exp.set_workflow(train)",
-                "me.entry(project)",
+                "me.entry(ws)",
                 "",
             ]
         )
@@ -67,7 +67,7 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(metadata_mod, "supported_schedulers", lambda: ("local", "slurm"))
     monkeypatch.setattr(submit_mod, "make_submit_handler", fake_make_submit_handler)
 
-    result = runner.invoke(app, ["run", str(script), "--scheduler", "local", "--no-watch"])
+    result = runner.invoke(app, ["run", str(script), "--scheduler", "local"])
 
     assert result.exit_code == 0, result.output
     assert captured["scheduler"] == "local"
