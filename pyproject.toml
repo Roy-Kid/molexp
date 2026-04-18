@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "molexp"
 version = "0.2.0"
@@ -41,12 +45,18 @@ target-version = "py312"
 select = ["E", "F", "I"]
 ignore = ["E501"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.hatch.build]
+# Ship the built frontend bundle inside the wheel — populated by
+# `npm run build:ui` before `python -m build --wheel`.
+artifacts = [
+    "src/molexp/_webapp/**",
+]
 
-[tool.setuptools.package-data]
-"molexp" = ["_webapp/**"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/molexp"]
 
-[build-system]
-requires = ["setuptools>=64", "wheel"]
-build-backend = "setuptools.build_meta"
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/README.md",
+]

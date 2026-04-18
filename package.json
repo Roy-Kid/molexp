@@ -1,4 +1,20 @@
 {
+  "name": "molexp",
+  "version": "0.2.0",
+  "description": "Workflow and agent platform for research experiment management",
+  "private": true,
+  "workspaces": ["ui"],
+  "scripts": {
+    "dev": "npm run dev -w molexp-ui",
+    "dev:mock": "npm run dev:mock -w molexp-ui",
+    "build": "npm run build -w molexp-ui",
+    "build:ui": "npm run build -w molexp-ui && rm -rf src/molexp/_webapp && mkdir -p src/molexp/_webapp && cp -r ui/dist/. src/molexp/_webapp/",
+    "build:python": "npm run build:ui",
+    "typecheck": "npm run typecheck -w molexp-ui",
+    "test:ui": "npm run test -w molexp-ui",
+    "lint": "npm run lint -w molexp-ui",
+    "generate:api": "npm run generate:api -w molexp-ui"
+  },
   "devDependencies": {
     "shadcn": "^3.6.3"
   }

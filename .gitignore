@@ -187,5 +187,6 @@ sketch
 
 openapi.json
 
-# Compiled frontend bundle (built into wheel, not tracked in git)
-src/molexp/_webapp/
+# Compiled frontend bundle (populated by `npm run build:ui`)
+src/molexp/_webapp/*
+!src/molexp/_webapp/.gitkeep

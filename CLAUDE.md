@@ -7,8 +7,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Backend (Python)
 
 ```bash
-# Install in editable mode (no frontend, dev only)
-MOLEXP_SKIP_UI_BUILD=1 pip install -e .
+# Install in editable mode (no frontend build — Python-only dev loop)
+pip install -e .
 
 # Run all tests
 pytest tests/
@@ -19,13 +19,14 @@ pytest tests/workspace/test_workspace.py
 # Run single test
 pytest tests/workspace/test_workspace.py::test_workspace_creation
 
-# Start server (serves bundled UI if available, otherwise API-only)
+# Start server (serves bundled UI if src/molexp/_webapp/ is populated, otherwise API-only)
 molexp serve --workspace /path/to/workspace --port 8000
 
 # Initialize a workspace
 molexp init [path]
 
-# Build wheel with frontend assets included
+# Release: build frontend into src/molexp/_webapp/, then build the wheel
+npm run build:ui
 python -m build --wheel
 ```
 
@@ -169,18 +170,18 @@ Key patterns:
 
 ### Packaging & Frontend Serving
 
-The React frontend is **compiled at wheel build time** and bundled inside the Python package. It is **not** committed to git and **not** built at `pip install` time.
+The React frontend is **compiled ahead of time by npm** and bundled inside the Python package — matching the `molvis` release workflow. `pip install` / `python -m build` **never** invokes npm.
 
 ```
-ui/src/  →  (npm run build)  →  ui/dist/  →  (setup.py)  →  src/molexp/_webapp/  →  wheel
+ui/src/  →  (npm run build:ui)  →  src/molexp/_webapp/  →  (hatchling)  →  wheel
 ```
 
-- **`setup.py`** overrides `build_py` to run `npm ci && npm run build` in `ui/`, then copies `ui/dist/` into `src/molexp/_webapp/`
-- **`pyproject.toml`** declares `[tool.setuptools.package-data] "molexp" = ["_webapp/**"]` so setuptools includes the assets in the wheel
-- **`src/molexp/_webapp/`** is gitignored — it only exists transiently during wheel builds
-- **`MOLEXP_SKIP_UI_BUILD=1`** skips frontend compilation (for editable installs during dev, or CI that only tests Python)
-- **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "_webapp"` to locate the bundled assets. If not found, the server runs API-only.
-- **Dev mode**: Run backend (`molexp serve --port 8000`) and frontend (`cd ui && npm run dev -- --api-port=8000`) separately
+- **Root `package.json`** exposes `npm run build:ui`, which builds the `molexp-ui` workspace and copies `ui/dist/.` into `src/molexp/_webapp/`
+- **`pyproject.toml`** uses `hatchling` and declares `[tool.hatch.build] artifacts = ["src/molexp/_webapp/**"]` so the wheel ships the bundle
+- **`src/molexp/_webapp/`** is gitignored (except `.gitkeep`); it is populated on demand by `npm run build:ui`
+- **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "_webapp"` to locate the bundled assets. If empty, the server runs API-only.
+- **Release**: `npm run build:ui && python -m build --wheel`
+- **Dev mode**: Run backend (`molexp serve --port 8000`) and frontend (`npm run dev` from repo root, or `cd ui && npm run dev`) separately
 - **Production** (`molexp serve`): serves API + bundled SPA from the installed package
 
 ### Key Patterns
