@@ -27,7 +27,7 @@ from molexp.config import ProfileConfig
 
 from .base import _atomic_write_json, _load_metadata, _reconstruct, _save_metadata
 from .context import Context
-from .models import ErrorInfo, RunMetadata, WorkflowSnapshotRef
+from .models import ErrorInfo, ExecutionRecord, RunMetadata, WorkflowSnapshotRef
 from .utils import generate_id
 
 logger = get_logger(__name__)
@@ -78,6 +78,7 @@ class RunContext:
             logs_dir=self.logs_dir,
         )
         self._start_time: datetime | None = None
+        self._execution_id: str | None = None
         # Actor message-passing infrastructure
         self._channels: dict[str, Any] = {}
 
@@ -93,6 +94,20 @@ class RunContext:
         self.run._set_status(RunStatus.RUNNING)
         self._start_time = datetime.now()
         self._entered = True
+
+        # Determine which execution attempt this is and record it.
+        self._execution_id = self._next_execution_id()
+        new_record = ExecutionRecord(
+            execution_id=self._execution_id,
+            started_at=self._start_time,
+        )
+        self.run._update_metadata(
+            execution_history=[*self.run.metadata.execution_history, new_record]
+        )
+        self._append_run_log(
+            f"execution started  exec_id={self._execution_id}"
+        )
+
         self._save_context()
         return self
 
@@ -101,16 +116,15 @@ class RunContext:
         labels = self._labels_without_ownership()
         if exc_type is None:
             workflow_status = self._context.status.get("run")
-            if workflow_status == RunStatus.FAILED:
-                final = RunStatus.FAILED
-            else:
-                final = RunStatus.SUCCEEDED
+            final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
             self.run._update_metadata(
-                status=final, finished_at=now, labels=labels
+                status=final, finished_at=now, labels=labels,
+                execution_history=self._close_execution_record(final.value, now),
             )
         else:
+            final = RunStatus.FAILED
             self.run._update_metadata(
-                status=RunStatus.FAILED,
+                status=final,
                 finished_at=now,
                 labels=labels,
                 error=ErrorInfo(
@@ -118,8 +132,12 @@ class RunContext:
                     message=str(exc_val),
                     timestamp=now,
                 ),
+                execution_history=self._close_execution_record(final.value, now),
             )
             self._save_error_details(exc_type, exc_val, exc_tb)
+        self._append_run_log(
+            f"execution finished exec_id={self._execution_id}  status={final.value}"
+        )
         self._save_context()
         self._entered = False
         return False
@@ -346,6 +364,42 @@ class RunContext:
             "context": self._context.model_dump(mode="json"),
         })
 
+    def _next_execution_id(self) -> str:
+        """Return the execution_id for this attempt.
+
+        Mirrors the logic in the workflow runtime so that the directory
+        created by RunStorePersistence and the execution_history entry
+        share the same identifier.
+        """
+        run_id = self.run.id
+        base = f"exec-{run_id}"
+        exec_root = self.work_dir / "execution"
+        if not exec_root.exists():
+            return base
+        existing = [p for p in exec_root.iterdir() if p.name.startswith(base)]
+        if not existing:
+            return base
+        return f"{base}-{len(existing) + 1}"
+
+    def _close_execution_record(
+        self, status: str, finished_at: datetime
+    ) -> list[ExecutionRecord]:
+        """Return execution_history with the current record closed."""
+        history = list(self.run.metadata.execution_history)
+        for i, entry in enumerate(history):
+            if entry.execution_id == self._execution_id:
+                history[i] = entry.model_copy(
+                    update={"finished_at": finished_at, "status": status}
+                )
+                return history
+        return history
+
+    def _append_run_log(self, message: str) -> None:
+        """Append a single timestamped line to logs/run.log."""
+        ts = datetime.now().isoformat(timespec="seconds")
+        with open(self.logs_dir / "run.log", "a") as fh:
+            fh.write(f"{ts}  {message}\n")
+
     def _apply_profile_metadata(self) -> None:
         """Persist the active profile name / data / hash into RunMetadata."""
         labels = dict(self.run.metadata.labels)
@@ -381,8 +435,14 @@ class RunContext:
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
-        error_txt = self.logs_dir / "error.txt"
-        with open(error_txt, "w") as f:
+        # Write per-execution error alongside workflow.json in execution/{exec_id}/
+        if self._execution_id is not None:
+            exec_dir = self.work_dir / "execution" / self._execution_id
+            exec_dir.mkdir(parents=True, exist_ok=True)
+            error_dest = exec_dir / "error.txt"
+        else:
+            error_dest = self.logs_dir / "error.txt"
+        with open(error_dest, "w") as f:
             f.write(f"Error: {datetime.now().isoformat()}\n")
             f.write(f"Type: {exc_type.__name__}\n")
             f.write(f"Message: {exc_val}\n\n")

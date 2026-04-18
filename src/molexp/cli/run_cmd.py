@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Any, Callable, Optional
 
@@ -12,7 +11,6 @@ import typer
 
 from molexp.config import MolCfg, ProfileConfig, load_molcfg
 from molexp.config.loader import find_default_config
-from molexp.sweep import SweepReplica, run_sweep
 
 from . import app
 from ._common import (
@@ -22,27 +20,72 @@ from ._common import (
     rprint,
 )
 
-RunHandler = Callable[[Path, Any, Any, Any], None]
-
-
-@dataclass
-class _DispatchItem:
-    """Prepared replica awaiting dispatch: one row in the discovered sweep."""
-
-    script: Path
-    mol_run: Any
-    experiment: Any
-    project: Any
-    seed: int
+RunHandler = Callable[[Any, Any, Any], None]
 
 
 # ── Config / profile resolution ─────────────────────────────────────────────
 
 
+def _coerce_value(raw: str) -> Any:
+    """Coerce a string CLI value to int, float, bool, or str."""
+    if raw.lower() == "true":
+        return True
+    if raw.lower() == "false":
+        return False
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    return raw
+
+
+def _set_nested(d: dict[str, Any], key_path: str, value: Any) -> None:
+    """Set a nested dict value using dot-notation key path (mutates *d*)."""
+    parts = key_path.split(".")
+    node = d
+    for part in parts[:-1]:
+        if part not in node or not isinstance(node[part], dict):
+            node[part] = {}
+        node = node[part]
+    node[parts[-1]] = value
+
+
+def _apply_overrides(
+    profile_cfg: ProfileConfig,
+    overrides: list[str],
+) -> ProfileConfig:
+    """Return a new :class:`ProfileConfig` with *overrides* applied on top.
+
+    Each entry in *overrides* must be a ``KEY=VALUE`` string.  Dot notation
+    is supported for nested keys (e.g. ``model.n_layers=3``).  Values are
+    coerced to ``bool``, ``int``, ``float``, or ``str`` in that priority.
+
+    Raises :class:`typer.Exit` with an error message on malformed entries.
+    """
+    if not overrides:
+        return profile_cfg
+    data = profile_cfg.to_dict()
+    for item in overrides:
+        if "=" not in item:
+            rprint(
+                f"[red]Error:[/red] --set value {item!r} is not in KEY=VALUE format."
+            )
+            raise typer.Exit(1)
+        key, _, raw = item.partition("=")
+        key = key.strip()
+        if not key:
+            rprint(f"[red]Error:[/red] --set value {item!r} has an empty key.")
+            raise typer.Exit(1)
+        _set_nested(data, key, _coerce_value(raw))
+    return ProfileConfig(data, name=profile_cfg.name)
+
+
 def _resolve_profile(
-    config_path: Path | None,
-    profile: str | None,
-    overrides: dict[str, Any] | None = None,
+    config_path: Path | None, profile: str | None
 ) -> ProfileConfig:
     """Load molcfg and resolve the requested profile.
 
@@ -52,8 +95,6 @@ def _resolve_profile(
     - If no file is found and no *profile* is requested, return an
       empty :class:`ProfileConfig` (defaults-only, name=None).
     - If no file is found but *profile* is requested, abort.
-    - *overrides* (if provided) shallow-merge on top of the resolved
-      profile data so CLI flags can override any profile key.
     """
     resolved_path: Path | None
     if config_path is not None:
@@ -68,7 +109,7 @@ def _resolve_profile(
                 "no config file was found (searched for ./molcfg.yaml / .yml / .json)."
             )
             raise typer.Exit(1)
-        return _apply_overrides(ProfileConfig({}, name=None), overrides)
+        return ProfileConfig({}, name=None)
 
     try:
         cfg: MolCfg = load_molcfg(resolved_path)
@@ -77,63 +118,32 @@ def _resolve_profile(
         raise typer.Exit(1)
 
     try:
-        resolved = cfg.resolve(profile)
+        return cfg.resolve(profile)
     except KeyError as exc:
         rprint(f"[red]Error:[/red] {exc}")
         raise typer.Exit(1)
-
-    return _apply_overrides(resolved, overrides)
-
-
-def _apply_overrides(
-    base: ProfileConfig, overrides: dict[str, Any] | None
-) -> ProfileConfig:
-    """Return *base* with *overrides* merged on top (shallow)."""
-    if not overrides:
-        return base
-    merged = base.to_dict()
-    merged.update(overrides)
-    return ProfileConfig(merged, name=base.name)
-
-
-def _resolve_jobs(cli_jobs: int | None, profile_cfg: ProfileConfig) -> int:
-    """Resolve effective sweep-level concurrency: CLI > profile > 1.
-
-    The profile value must be an ``int``; any other type is silently
-    ignored (profiles are schemaless, cf. docs/spec/molcfg-profiles.md §2).
-    """
-    if cli_jobs is not None:
-        return max(1, cli_jobs)
-    value = profile_cfg.get("jobs")
-    if isinstance(value, int) and value >= 1:
-        return value
-    return 1
 
 
 # ── Sweep driver ────────────────────────────────────────────────────────────
 
 
-def _discover_runs(
+def _execute_sweep(
     *,
     script: Path,
     profile_cfg: ProfileConfig,
     resume: bool,
     workspace: Path | None,
+    run_handler: RunHandler,
     mode_label: str,
-) -> list[_DispatchItem]:
-    """Walk each workspace's experiments and prepare one :class:`_DispatchItem`
-    per replica that should run.
+    suppress_ok: bool = False,
+) -> tuple[int, list[Any]]:
+    """Walk each workspace's experiments and dispatch one run per replica.
 
     Idempotent: re-running with the same script produces deterministic
     run IDs (derived from parameters + active profile) so repeated
     invocations skip already-executed replicas unless ``--resume`` is
     set, in which case non-succeeded runs of the matching profile are
     replayed.
-
-    Side-effects: prints per-experiment and per-replica breadcrumbs
-    (including skip reasons) to the console.  Dispatch itself is
-    performed by the caller — see :func:`_dispatch_local` and
-    :func:`_dispatch_cluster`.
     """
     from molexp.entry import load_workspaces
 
@@ -151,7 +161,8 @@ def _discover_runs(
         )
         raise typer.Exit(1)
 
-    items: list[_DispatchItem] = []
+    total_dispatched = 0
+    dispatched_runs: list[Any] = []
 
     for ws in workspaces:
         if workspace is not None:
@@ -184,6 +195,8 @@ def _discover_runs(
                     f"\n  Runs:      {total} replicas"
                     f"\n  Mode:      {label}"
                 )
+
+                created_runs: list[tuple[Any, int]] = []
 
                 for replica_idx, seed in enumerate(seeds):
                     run_params = {**exp.params, "seed": seed, "replica": replica_idx}
@@ -227,119 +240,34 @@ def _discover_runs(
                     else:
                         mol_run = exp.run(parameters=run_params, id=run_id)
 
-                    items.append(
-                        _DispatchItem(
-                            script=script,
-                            mol_run=mol_run,
-                            experiment=exp,
-                            project=project,
-                            seed=seed,
-                        )
-                    )
+                    created_runs.append((mol_run, seed))
                     icon = "[cyan]>[/cyan]" if resume else "[dim]o[/dim]"
                     rprint(f"  {icon} {exp.id}  seed={seed}")
 
-    return items
+                for mol_run, seed in created_runs:
+                    # Persist script path and profile config into run.json before
+                    # any handler so the worker can reconstruct everything from
+                    # run_dir alone (via ``molexp execute <run_dir>``).
+                    mol_run._update_metadata(
+                        script=str(script.resolve()),
+                        profile=profile_cfg.name,
+                        config=profile_cfg.to_dict(),
+                        config_hash=(
+                            profile_cfg.content_hash()
+                            if len(profile_cfg) > 0 or profile_cfg.name
+                            else None
+                        ),
+                    )
+                    run_handler(mol_run, exp, project)
+                    dispatched_runs.append(mol_run)
+                    rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  seed={seed}")
 
+                total_dispatched += len(created_runs)
+                if not suppress_ok:
+                    verb = "resumed" if resume else "completed"
+                    rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
 
-def _dispatch_cluster(
-    items: list[_DispatchItem],
-    *,
-    run_handler: RunHandler,
-) -> list[Any]:
-    """Legacy per-run dispatch via a :data:`RunHandler`.  Used for cluster
-    backends (SLURM/PBS/LSF) — the handler submits each run to the
-    scheduler and returns immediately (fire-and-forget)."""
-    dispatched: list[Any] = []
-    for item in items:
-        run_handler(item.script, item.mol_run, item.experiment, item.project)
-        dispatched.append(item.mol_run)
-        rprint(f"  [cyan]>[/cyan] dispatched {item.experiment.id}  seed={item.seed}")
-    return dispatched
-
-
-def _dispatch_local(
-    items: list[_DispatchItem],
-    *,
-    profile_cfg: ProfileConfig,
-    jobs: int,
-) -> list[Any]:
-    """Pydantic-graph dispatch with sweep-level concurrency.
-
-    Runs every replica's workflow in the current process via
-    :func:`molexp.sweep.run_sweep`, bounded by ``jobs``.  Failures are
-    reported without halting the sweep — individual replica exceptions
-    are already persisted to the run's own status by
-    :class:`~molexp.workflow._pydantic_graph.runtime.GraphWorkflowRuntime`.
-    """
-    if not items:
-        return []
-
-    rprint(
-        f"\n[dim]Running sweep locally: {len(items)} replicas, jobs={jobs}[/dim]"
-    )
-    replicas = [
-        SweepReplica(mol_run=it.mol_run, experiment=it.experiment) for it in items
-    ]
-    state = asyncio.run(
-        run_sweep(replicas, profile_config=profile_cfg, jobs=jobs)
-    )
-    for rid, msg in state.failures.items():
-        rprint(f"  [red]FAIL[/red] {rid}: {msg}")
-    return [it.mol_run for it in items]
-
-
-def _execute_sweep(
-    *,
-    script: Path,
-    profile_cfg: ProfileConfig,
-    resume: bool,
-    workspace: Path | None,
-    run_handler: RunHandler,
-    mode_label: str,
-    suppress_ok: bool = False,
-) -> tuple[int, list[Any]]:
-    """Discover runs and dispatch them via *run_handler* (legacy / cluster).
-
-    Kept for cluster backends; local execution uses
-    :func:`_execute_sweep_local`.
-    """
-    items = _discover_runs(
-        script=script,
-        profile_cfg=profile_cfg,
-        resume=resume,
-        workspace=workspace,
-        mode_label=mode_label,
-    )
-    dispatched = _dispatch_cluster(items, run_handler=run_handler)
-    if not suppress_ok and items:
-        verb = "resumed" if resume else "completed"
-        rprint(f"\n[green]OK[/green] {len(items)} runs {verb}.")
-    return len(items), dispatched
-
-
-def _execute_sweep_local(
-    *,
-    script: Path,
-    profile_cfg: ProfileConfig,
-    resume: bool,
-    workspace: Path | None,
-    jobs: int,
-    mode_label: str,
-) -> tuple[int, list[Any]]:
-    """Discover runs and dispatch them through the sweep pydantic-graph."""
-    items = _discover_runs(
-        script=script,
-        profile_cfg=profile_cfg,
-        resume=resume,
-        workspace=workspace,
-        mode_label=mode_label,
-    )
-    dispatched = _dispatch_local(items, profile_cfg=profile_cfg, jobs=jobs)
-    if items:
-        verb = "resumed" if resume else "completed"
-        rprint(f"\n[green]OK[/green] {len(items)} runs {verb}.")
-    return len(items), dispatched
+    return total_dispatched, dispatched_runs
 
 
 # ── Background launcher ─────────────────────────────────────────────────────
@@ -350,9 +278,9 @@ def _launch_bg(
     script: Path,
     config_path: Path | None,
     profile: str | None,
+    overrides: list[str],
     resume: bool,
     workspace: Path | None,
-    smoke: bool = False,
 ) -> None:
     """Fork a detached subprocess that re-runs the sweep without ``--bg``."""
     import subprocess
@@ -363,8 +291,8 @@ def _launch_bg(
         cmd.extend(["--config", str(config_path)])
     if profile is not None:
         cmd.extend(["--profile", profile])
-    if smoke:
-        cmd.append("--smoke")
+    for override in overrides:
+        cmd.extend(["--override", override])
     if resume:
         cmd.append("--resume")
     if workspace is not None:
@@ -459,17 +387,18 @@ def run(
             ),
         ),
     ] = None,
-    smoke: Annotated[
-        bool,
+    overrides: Annotated[
+        Optional[list[str]],
         typer.Option(
-            "--smoke",
+            "--override",
             help=(
-                "Shortcut that injects ``smoke=True`` into the resolved "
-                "profile, overriding any value defined in the config file. "
-                "User scripts read ``ctx.config['smoke']`` to shorten runs."
+                "Override a config key after profile resolution. "
+                "Format: KEY=VALUE (repeatable). "
+                "Dot notation supported for nested keys: model.n_layers=3. "
+                "Values are auto-coerced to bool/int/float/str."
             ),
         ),
-    ] = False,
+    ] = None,
     # ── Common options ─────────────────────────────────────────────────────
     resume: Annotated[
         bool,
@@ -481,18 +410,6 @@ def run(
             ),
         ),
     ] = False,
-    jobs: Annotated[
-        Optional[int],
-        typer.Option(
-            "--jobs",
-            "-j",
-            help=(
-                "Maximum number of experiments to run concurrently. "
-                "Only effective with --local (Phase 1). "
-                "Overrides the profile's 'jobs' key. Default: 1 (sequential)."
-            ),
-        ),
-    ] = None,
     bg: Annotated[
         bool,
         typer.Option("--bg", help="Run in background (local only). Logs to <workspace>/molexp_bg.log."),
@@ -581,10 +498,8 @@ def run(
         rprint("[red]Error:[/red] --bg is only valid with --local.")
         raise typer.Exit(1)
 
-    overrides: dict[str, Any] = {}
-    if smoke:
-        overrides["smoke"] = True
-    profile_cfg = _resolve_profile(config, profile, overrides=overrides)
+    profile_cfg = _resolve_profile(config, profile)
+    profile_cfg = _apply_overrides(profile_cfg, overrides or [])
 
     # ── Local execution ────────────────────────────────────────────────────
     if is_local:
@@ -593,33 +508,29 @@ def run(
                 script=script,
                 config_path=config,
                 profile=profile,
+                overrides=overrides or [],
                 resume=resume,
                 workspace=workspace,
-                smoke=smoke,
             )
             return
 
-        effective_jobs = _resolve_jobs(jobs, profile_cfg)
         profile_label = f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
-        jobs_label = f"j={effective_jobs}" if effective_jobs > 1 else "serial"
-        label = f"[green]local[/green] {jobs_label} profile={profile_label}"
+        label = f"[green]local[/green] profile={profile_label}"
 
-        _execute_sweep_local(
+        def _local_handler(mol_run: Any, experiment: Any, _project: Any) -> None:
+            asyncio.run(
+                experiment.workflow.execute(run=mol_run, profile_config=profile_cfg)
+            )
+
+        _execute_sweep(
             script=script,
             profile_cfg=profile_cfg,
             resume=resume,
             workspace=workspace,
-            jobs=effective_jobs,
+            run_handler=_local_handler,
             mode_label=label,
         )
         return
-
-    if jobs is not None:
-        rprint(
-            "[yellow]Note:[/yellow] -j/--jobs is only effective with --local "
-            "(Phase 1).  Cluster backends submit through the scheduler, which "
-            "handles concurrency."
-        )
 
     # ── Cluster backends ───────────────────────────────────────────────────
     try:
@@ -683,6 +594,63 @@ def run(
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
         if submitted:
             rprint(f"[dim]Open the monitor with:  molexp watch --workspace {workspace or '.'} [/dim]")
+
+
+@app.command()
+def execute(
+    run_dir: Annotated[
+        Path,
+        typer.Argument(
+            help="Path to the run directory (contains run.json).",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            readable=True,
+            resolve_path=True,
+        ),
+    ],
+) -> None:
+    """Execute a run from its run directory.
+
+    This is the worker entry point used by cluster backends.  The run
+    directory must contain a ``run.json`` with a ``script`` field written
+    by ``molexp run`` at submission time.
+    """
+    import asyncio
+
+    from molexp.config import ProfileConfig
+    from molexp.entry import find_workflow_for_run, load_workspaces
+    from molexp.workspace.run import RunContext
+
+    ctx = RunContext.open(run_dir)
+    run = ctx.run
+
+    script = run.metadata.script
+    if script is None:
+        rprint(
+            "[red]Error:[/red] run.json has no 'script' field. "
+            "This run was not created with a recent version of molexp."
+        )
+        raise typer.Exit(1)
+
+    try:
+        workspaces = load_workspaces(Path(script))
+    except Exception as exc:
+        rprint(f"[red]Error importing {script}:[/red] {exc}")
+        rprint(traceback.format_exc(), end="")
+        raise typer.Exit(1)
+
+    workflow = find_workflow_for_run(workspaces, run)
+    if workflow is None:
+        rprint(
+            f"[red]Error:[/red] No workflow found for experiment "
+            f"'{run.experiment.id}' in project '{run.experiment.project.id}' "
+            f"in {script}."
+        )
+        raise typer.Exit(1)
+
+    profile_config = ProfileConfig(run.metadata.config, name=run.metadata.profile)
+    asyncio.run(workflow.execute(run=run, profile_config=profile_config))
 
 
 # Silence unused-import lint (console is re-exported for other modules).

@@ -91,6 +91,22 @@ class ExperimentMetadata(BaseModel, frozen=True):
     seeds: list[int] | None = None
 
 
+class ExecutionRecord(BaseModel, frozen=True):
+    """One attempt to execute a Run.
+
+    A Run may be executed multiple times (e.g. retries after failure).
+    Each attempt is recorded here so the full execution history is
+    queryable from run.json without scanning execution sub-directories.
+    """
+
+    execution_id: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str = "running"
+    molq_job_id: str | None = None
+    scheduler_job_id: str | None = None
+
+
 class RunMetadata(BaseModel):
     """Single execution instance metadata.
 
@@ -101,6 +117,10 @@ class RunMetadata(BaseModel):
     queryability.  The framework treats profile contents as opaque
     user data — it persists them for reproducibility but never
     interprets them.
+
+    ``execution_history`` indexes every attempt to execute this run,
+    newest last.  Each entry points to the corresponding sub-directory
+    under ``run_dir/execution/``.
     """
 
     id: str
@@ -110,8 +130,10 @@ class RunMetadata(BaseModel):
     finished_at: datetime | None = None
     error: ErrorInfo | None = None
     workflow_snapshot: WorkflowSnapshotRef | None = None
+    script: str | None = None
     profile: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     config_hash: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
     executor_info: dict[str, Any] = Field(default_factory=dict)
+    execution_history: list[ExecutionRecord] = Field(default_factory=list)
