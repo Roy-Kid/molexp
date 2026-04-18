@@ -15,17 +15,16 @@ from ._common import rprint
 
 @app.command()
 def serve(
-    workdir: Annotated[
+    workspace: Annotated[
         Path,
         typer.Option(
-            "--workdir",
+            "--workspace",
             "-w",
-            help="Workspace directory path",
+            help="Workspace root (default: current directory).",
             exists=True,
             file_okay=False,
             dir_okay=True,
             writable=True,
-            resolve_path=True,
         ),
     ] = Path.cwd(),
     port: Annotated[
@@ -38,7 +37,7 @@ def serve(
     ] = "localhost",
 ) -> None:
     """Start the MolExp server (API + bundled web UI)."""
-    resolved = Path(workdir).resolve()
+    resolved = Path(workspace).resolve()
     if not (resolved / "workspace.json").exists():
         candidate = resolved / "workspace"
         if (candidate / "workspace.json").exists():
@@ -47,11 +46,11 @@ def serve(
         else:
             rprint(
                 f"[yellow]Warning:[/yellow] No workspace.json found in {resolved}. "
-                "Run [bold]molexp init[/bold] or use [bold]--workdir[/bold]."
+                "Run [bold]molexp init[/bold] or use [bold]--workspace[/bold]."
             )
 
     os.chdir(resolved)
-    rprint(f"[bold]Serving Workspace:[/bold] {workdir}")
+    rprint(f"[bold]Serving Workspace:[/bold] {workspace}")
 
     from molexp.server.app import _find_bundled_webapp, create_app
 

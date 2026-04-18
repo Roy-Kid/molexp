@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -9,6 +10,14 @@ import typer
 
 from . import app
 from ._common import rprint
+
+
+def _logical_cwd() -> Path:
+    """Return cwd preserving symlinks (uses $PWD if it points to cwd)."""
+    pwd = os.environ.get("PWD")
+    if pwd and os.path.samefile(pwd, os.getcwd()):
+        return Path(pwd)
+    return Path(os.getcwd())
 
 
 @app.command()
@@ -31,7 +40,12 @@ def watch(
     ] = 2.0,
 ) -> None:
     """Reopen the full-screen run monitor for an existing workspace."""
-    ws_root = Path(workspace).resolve() if workspace else Path.cwd()
+    if workspace is None:
+        ws_root = _logical_cwd()
+    elif workspace.is_absolute():
+        ws_root = workspace
+    else:
+        ws_root = _logical_cwd() / workspace
 
     try:
         from molexp.workspace import Workspace as _Workspace
