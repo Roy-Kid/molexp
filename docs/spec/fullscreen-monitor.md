@@ -2,19 +2,19 @@
 
 ## Goal
 
-为 `molexp` 设计一个全屏终端 monitor，用于观察本地或远程任务的运行状态。
+Design a full-screen terminal monitor for `molexp` that observes the status of local and remote runs.
 
-该 monitor 的体验目标类似 `htop` / `btop`：不是简单打印一张表，而是一个**占满终端的 dashboard**，包含顶部 overview、进度展示、底部任务列表，以及基本的交互关闭/重开能力。
+The UX target is `htop` / `btop`-like: not a plain printed table, but a **full-terminal dashboard** with a top-level overview, progress visualization, a bottom-section job list, and basic open / close interactivity.
 
-该设计明确以下边界：
+This design explicitly scopes:
 
-- 界面如何组织
-- `molq` 插件负责什么
-- `molexp` 负责什么
-- 两者如何协作
-- 哪些是必须满足的交互需求
+- How the interface is organized
+- What the `molq` plugin is responsible for
+- What `molexp` is responsible for
+- How the two cooperate
+- Which interaction requirements are mandatory
 
-本 spec 只定义**产品与架构需求**，不规定具体代码结构、类名或实现方式。
+This spec defines **product and architectural requirements only**. It does not prescribe specific code structures, class names, or implementation details.
 
 ---
 
@@ -22,30 +22,30 @@
 
 ### 1. Full-screen monitor, not inline table
 
-当前的小 panel + 单个表格形式不可接受。monitor 必须是一个完整终端视图，视觉和交互都应接近系统监控工具，而不是 CLI 的一次性文本输出。
+The current small-panel + single-table form is not acceptable. The monitor must be a complete terminal view; its visuals and interactions should feel like a system monitor, not a one-shot CLI dump.
 
 ### 2. Overview-first, list-second
 
-最重要的信息不是单行任务表，而是整体状态。界面必须优先展示：
+The most important information is not a single-line job table but the overall state. The interface must prioritize:
 
-- 当前是否在运行
-- 总体进度
-- running / pending / done / failed 的总体数量
-- 当前 workflow / run 的整体状态
+- Is something running right now?
+- Overall progress
+- Running / pending / done / failed totals
+- Current workflow / run overall status
 
-任务列表作为下半部分内容，而不是整个界面的核心。
+The job list is a bottom-half element, not the focal point of the interface.
 
-### 3. Single-job and multi-job must both look natural
+### 3. Single-job and multi-job both look natural
 
-即使只有 1 个 job，也不应退化成一张尴尬的小表。同一套 full-screen monitor 应同时适用于单任务、多任务 sweep、本地运行、远程调度运行。
+Even with just one job, the layout must not degrade into an awkward one-row table. The same full-screen monitor must gracefully handle single jobs, multi-job sweeps, local runs, and remote scheduler-backed runs.
 
 ### 4. Status-first, table-second
 
-状态必须是界面中的第一视觉锚点。用户应一眼看到 running / pending / done / failed，而不是先看 run id 或 scheduler id。
+Status must be the primary visual anchor. Users should see running / pending / done / failed at a glance before they notice run ID or scheduler ID.
 
 ### 5. Monitor is a viewer, not the run itself
 
-关闭 monitor 不应终止运行。monitor 是观察界面，不是任务本体。
+Closing the monitor must not terminate the run. The monitor is an observation surface, not the job's lifeline.
 
 ---
 
@@ -53,7 +53,7 @@
 
 ### Overall Layout
 
-monitor 占用整个 terminal，包含以下三个区域：
+The monitor occupies the whole terminal and contains the following regions:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -74,39 +74,39 @@ monitor 占用整个 terminal，包含以下三个区域：
 
 ### A. Header / Title Area
 
-展示 monitor 的身份信息和当前整体状态。至少包含：
+Identity and overall state of the monitor. Minimum contents:
 
-- 当前 workflow / run / experiment 的标识
-- 当前整体状态（running / finished / failed / mixed）
-- 最近更新时间或刷新时间
+- Identifier of the current workflow / run / experiment
+- Current overall status (running / finished / failed / mixed)
+- Last update / refresh time
 
 ### B. Overview Area
 
-界面的核心，位于上半部分。至少展示：
+The interface's core, top half. Minimum contents:
 
-- 总任务数
-- running / pending / done / failed 数量
-- 整体进度（必须有明确可读的 progress visualization，例如进度条）
+- Total job count
+- Running / pending / done / failed counts
+- Overall progress (must include an explicit progress visualization, e.g. a progress bar)
 
-进度不能只是 `0/1 done` 这种弱表达，必须有更强的 overview 感知。
+Progress cannot be weakly expressed as "0/1 done"; an overview-level visual is required.
 
 ### C. Job List Area
 
-位于下半部分，展示每个 job / run 的状态。每条目至少包含：
+Bottom half, showing each job / run's status. Each entry must include at least:
 
 - state
 - run identity
-- scheduler id（如有）
-- 其他次要元信息（elapsed、node、message 等由 agent 自行判断）
+- scheduler id (if applicable)
+- additional secondary metadata (elapsed, node, message, …) at the agent's discretion
 
-列表服务于"快速扫状态"，而不是做数据库式大表格。
+The list is for rapid status scanning, not a database-style wide table.
 
 ### D. Footer / Hint Area
 
-界面底部保留简洁的交互提示区域。至少提示：
+A concise interaction-hint region at the bottom. Minimum hints:
 
-- `q` 关闭 monitor
-- 其他交互提示由 agent 自行设计
+- `q` to close the monitor
+- Additional interaction hints at the agent's discretion
 
 ---
 
@@ -114,19 +114,19 @@ monitor 占用整个 terminal，包含以下三个区域：
 
 ### 1. Avoid heavy boxed table aesthetics
 
-不接受"一个 panel 里套一张 box-heavy 表格"的风格。减少无意义边框，强调分区、状态和进度。
+"A panel wrapping a box-heavy table" is not acceptable. Minimize decorative borders; emphasize regions, status, and progress.
 
 ### 2. Strong visual status hierarchy
 
-状态必须有明显视觉区分。颜色、图标、位置和文本都应服务于快速识别。
+Status must be visually distinctive. Color, icons, position, and text must all support rapid recognition.
 
 ### 3. Scheduler ID is secondary
 
-`scheduler id` 不是第一重要信息，不应压过状态和 run identity。
+`scheduler id` is not top-priority information; it must not outweigh status or run identity.
 
 ### 4. Progress must be visually central
 
-overview 中必须有明确的 progress visualization。这不是可选增强，而是 monitor 的核心组成。
+The overview must contain an explicit progress visualization. This is not an optional enhancement — it is part of the monitor's core.
 
 ---
 
@@ -134,22 +134,22 @@ overview 中必须有明确的 progress visualization。这不是可选增强，
 
 ### 1. `q` closes the monitor
 
-用户按 `q` 时，关闭 full-screen monitor，返回普通 CLI。
+Pressing `q` closes the full-screen monitor and returns the user to the normal CLI.
 
 ### 2. Closing the monitor must not cancel jobs
 
-`q` 的语义只能是 close viewer / quit monitor / return to normal CLI。绝不能终止远程任务、本地 workflow 或 scheduler jobs。
+`q` only closes the viewer / quits the monitor / returns to the normal CLI. It must never terminate remote jobs, local workflows, or scheduler jobs.
 
 ### 3. Monitor must be reopenable
 
-关闭后，用户必须能通过显式命令再次打开 monitor。命名不强制，但 monitor 不是一次性的，必须可重复进入。
+After closing, the user must be able to reopen the monitor via an explicit command. The command name is not mandated, but the monitor is not single-use; re-entry must be supported.
 
-### 4. Run command and watch command should cooperate naturally
+### 4. Run and watch commands should cooperate naturally
 
-如果 `run` 命令在提交后自动进入 monitor，退出 monitor 后应能回到普通 CLI，并给出明确提示：
+If `run` enters the monitor automatically after submission, exiting the monitor should return to the normal CLI and clearly note:
 
-- 任务仍在继续
-- 用户可以再次打开 monitor
+- Jobs are still running
+- The user can reopen the monitor
 
 ---
 
@@ -157,101 +157,101 @@ overview 中必须有明确的 progress visualization。这不是可选增强，
 
 ### Molexp responsibilities
 
-`molexp` 是 workflow / run orchestration 层，负责：
+`molexp` owns workflow / run orchestration and is responsible for:
 
-- 决定何时进入 monitor，何时退出 monitor
-- 管理 monitor 的打开 / 关闭 / 重新打开
-- 管理 run / workflow / experiment 的生命周期
-- 收集和整理运行状态数据
-- 将运行状态转换成 monitor 所需的通用状态输入
-- 在 CLI 流程中决定 monitor 与普通输出之间如何切换
+- Deciding when to enter and leave the monitor
+- Opening / closing / reopening the monitor
+- Managing run / workflow / experiment lifecycle
+- Collecting and normalizing status data
+- Translating run state into the generic status input the monitor consumes
+- Deciding how the CLI flow switches between monitor and normal output
 
-**`molexp` 拥有 monitor 的生命周期控制权。**
+**`molexp` owns the monitor's lifecycle.**
 
 ### Molq responsibilities
 
-`molq` 插件负责 monitor 的**界面能力**，而不是 workflow 生命周期。它负责：
+The `molq` plugin is responsible for the monitor's **UI capability**, not the workflow lifecycle:
 
-- 提供 full-screen panel / dashboard 能力
-- 提供 overview 区域和 job list 区域的界面表达
-- 提供 monitor 的交互语义解释
-- 提供可复用的 terminal viewer 体验
+- Providing full-screen panel / dashboard capability
+- Providing the overview and job-list regions
+- Providing interaction semantics of the monitor
+- Offering a reusable terminal-viewer experience
 
-`molq` 不主导任务生命周期，不决定 run 是否结束、是否继续提交等 workflow 语义。
+`molq` does not drive the job lifecycle, does not decide whether a run finishes or continues submitting, and does not own workflow semantics.
 
 ### Interaction contract between Molexp and Molq
 
-| 职责 | 归属 |
-|------|------|
-| monitor 何时创建、关闭、重新进入 | molexp |
-| monitor 如何呈现、基本交互 UI 语义 | molq |
-| workflow 是否结束、是否继续提交 | molexp |
-| Rich 布局细节、panel 组件 | molq |
-| UI 交互结果转化为 CLI/生命周期动作 | molexp |
+| Responsibility | Owner |
+|----------------|-------|
+| When the monitor is created, closed, re-entered | molexp |
+| How the monitor is rendered; basic interaction UI semantics | molq |
+| Whether a workflow finishes / keeps submitting | molexp |
+| Rich layout details, panel components | molq |
+| Translating UI actions into CLI / lifecycle operations | molexp |
 
-规则：
+Rules:
 
-1. **Molexp owns control flow** — `molexp` 控制 monitor 生命周期
-2. **Molq owns presentation semantics** — `molq` 提供 monitor 如何呈现
-3. **Molq must not own workflow lifecycle** — `molq` 不自己决定"停止任务""终止 workflow"
-4. **Molexp must not reimplement panel logic** — `molexp` 不应自己硬写所有 Rich 布局，否则 `molq` 作为 panel/plugin 层失去意义
-5. **UI actions must be interpretable by Molexp** — monitor 中的交互结果应能被 `molexp` 接住并转化为 CLI/生命周期动作
+1. **Molexp owns control flow.** `molexp` drives the monitor's lifecycle.
+2. **Molq owns presentation semantics.** `molq` dictates how the monitor is presented.
+3. **Molq must not own workflow lifecycle.** `molq` does not decide "stop the job" or "terminate the workflow" on its own.
+4. **Molexp must not reimplement panel logic.** `molexp` must not hand-roll every Rich layout, or `molq` loses its point as a panel/plugin layer.
+5. **UI actions must be interpretable by Molexp.** Interaction results inside the monitor must bubble back to `molexp` for CLI / lifecycle action.
 
 ---
 
 ## Architectural Constraints
 
-1. **No giant monolithic CLI table renderer** — 不接受把所有逻辑直接写成单个 CLI 输出函数
-2. **No inversion of control from Molq into Molexp lifecycle** — `molq` 不能反过来控制 `molexp` 的主流程
-3. **No scheduler-specific UI hardcoding** — UI 不应被 slurm/pbs/lsf 某一种调度器结构绑死；monitor 应围绕 run/job 状态设计
-4. **UI design should scale from local to remote** — 同一套 monitor 应同时服务于 local、remote、scheduler-backed runs
+1. **No giant monolithic CLI table renderer** — do not fold every concern into a single CLI-output function.
+2. **No inversion of control from Molq into Molexp lifecycle** — `molq` must not drive `molexp`'s main loop.
+3. **No scheduler-specific UI hardcoding** — the UI must not be locked to slurm/pbs/lsf specifics; design around run/job state.
+4. **UI design should scale from local to remote** — one monitor must serve local, remote, and scheduler-backed runs alike.
 
 ---
 
 ## Agent Tasks
 
-agent 需要基于当前 codebase 设计并实现：
+The agent must, based on the current codebase, design and implement:
 
-1. 一套 full-screen terminal monitor 的信息架构
-2. 单任务和多任务都自然的界面组织方式
-3. `molexp` 与 `molq` 之间的职责边界与接口契约
-4. monitor 打开、关闭、重新打开的交互流程
-5. 能够支撑 future remote backends 的状态模型
+1. A full-screen terminal monitor's information architecture
+2. A layout that works naturally for both single-job and multi-job cases
+3. The responsibility boundary and interface contract between `molexp` and `molq`
+4. The open / close / reopen interaction flow
+5. A state model that can support future remote backends
 
-agent 自行决定：
+At the agent's discretion:
 
-- 具体布局组件
-- 具体 Rich 组织方式（layout / panel / live / screen 等）
-- 具体交互键位集合
-- 具体 state object / panel object / plugin object 设计
+- Specific layout components
+- Specific Rich usage (layout / panel / live / screen, …)
+- Specific keybindings
+- Specific state-object / panel-object / plugin-object designs
 
 ---
 
 ## Acceptance Criteria
 
-| 要求 | 类别 |
-|------|------|
-| monitor 是 full-screen dashboard，而不是小 panel | UI |
-| 上半部分有清晰 overview 和进度展示 | UI |
-| 下半部分有 job list | UI |
-| 状态比表格列更重要，视觉上优先 | Visual |
-| 单任务场景也自然，不退化 | UI |
-| `q` 只关闭 monitor，不取消运行 | Interaction |
-| monitor 可重新打开 | Interaction |
-| `molq` 负责 panel/view 能力 | Architecture |
-| `molexp` 负责 monitor 生命周期与 CLI 切换 | Architecture |
-| 两者职责清晰，不互相吞没 | Architecture |
+| Requirement | Category |
+|-------------|----------|
+| Monitor is a full-screen dashboard, not a small panel | UI |
+| Top half has a clear overview and progress visualization | UI |
+| Bottom half has a job list | UI |
+| Status outweighs table columns; visually prioritized | Visual |
+| Single-job case still looks natural; no degradation | UI |
+| `q` only closes the monitor; does not cancel runs | Interaction |
+| Monitor is reopenable | Interaction |
+| `molq` owns panel/view capability | Architecture |
+| `molexp` owns monitor lifecycle and CLI switching | Architecture |
+| Responsibilities are clear; neither side swallows the other | Architecture |
 
 ---
 
 ## Non-goals
 
-本 spec 不要求：
+This spec does **not** require:
 
-- 具体类设计或函数签名
-- 具体键盘事件实现方式
-- 具体 scheduler adapter 代码
-- 具体 Rich API 写法
-- 完整 TUI 框架抽象
+- Specific class designs or function signatures
+- Specific keyboard-event implementation
+- Specific scheduler adapter code
+- Specific Rich API usage
+- A full TUI framework abstraction
 
-这些由 agent 根据 codebase 自行判断和设计。
+Those are for the agent to decide based on the codebase.

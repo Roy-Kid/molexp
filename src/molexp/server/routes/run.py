@@ -121,19 +121,14 @@ def get_run_execution(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    exec_root: Path = run.run_dir / "execution"
-    if not exec_root.exists():
+    history = run.metadata.execution_history
+    if not history:
         return RunExecutionResponse()
 
-    exec_dirs = sorted(p for p in exec_root.iterdir() if p.is_dir())
-    if not exec_dirs:
-        return RunExecutionResponse()
-
-    # Latest execution is the last one alphabetically (exec-id, exec-id-2, exec-id-3…)
-    latest = exec_dirs[-1]
-    wf_file = latest / "workflow.json"
+    latest_id = history[-1].execution_id
+    wf_file: Path = run.run_dir / "execution" / latest_id / "workflow.json"
     if not wf_file.exists():
-        return RunExecutionResponse(execution_id=latest.name)
+        return RunExecutionResponse(execution_id=latest_id)
 
     data = json.loads(wf_file.read_text())
     steps = [

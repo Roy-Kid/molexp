@@ -70,15 +70,15 @@ class SubmitHandler:
         job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
         run_dir = Path(mol_run.run_dir)
 
-        # molq stores its own manifest under execution/; the actual execution
-        # sub-directories are created by RunContext when the job starts.
-        exec_root = run_dir / "execution"
-        exec_root.mkdir(parents=True, exist_ok=True)
+        # molq manifests live under jobs/; execution/ is reserved for
+        # molexp's own per-attempt workflow state (see RunStorePersistence).
+        jobs_dir = run_dir / "jobs"
+        jobs_dir.mkdir(parents=True, exist_ok=True)
 
         with Submitor(
             cluster_name=self._cluster,
             scheduler=self._scheduler,
-            jobs_dir=str(exec_root),
+            jobs_dir=str(jobs_dir),
         ) as submitor:
             job = submitor.submit(
                 argv=[

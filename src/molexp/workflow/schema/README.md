@@ -155,4 +155,4 @@ Future versions may add optional fields while maintaining backward compatibility
 ## References
 
 - [JSON Schema Specification](https://json-schema.org/)
-- [Workflow Serialization Guide](../../../docs/workflow_serialization.md)
+- [Workflow Serialization Guide](../../../docs/guide/workflow-persistence.md)

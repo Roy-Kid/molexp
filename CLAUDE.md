@@ -77,11 +77,11 @@ Two equivalent APIs for defining task graphs:
 ```python
 wf = workflow(name="pipeline")
 
-@wf.step
-async def fetch(ctx: StepContext[State, Deps, None]) -> FetchResult: ...
+@wf.task
+async def fetch(ctx: TaskContext[State, Deps, None]) -> FetchResult: ...
 
-@wf.step(depends_on=["fetch"])
-async def process(ctx: StepContext[State, Deps, FetchResult]) -> ProcessResult: ...
+@wf.task(depends_on=["fetch"])
+async def process(ctx: TaskContext[State, Deps, FetchResult]) -> ProcessResult: ...
 
 spec = wf.build()
 result = await spec.execute(run=run)
@@ -89,26 +89,28 @@ result = await spec.execute(run=run)
 
 **OOP DSL** (builder-based):
 ```python
-wf = WorkflowBuilder(name="pipeline").add(FetchStep()).add(ProcessStep(), depends_on=["fetch"]).build()
+wf = WorkflowBuilder(name="pipeline").add(FetchTask()).add(ProcessTask(), depends_on=["fetch"]).build()
 result = await wf.execute(run=run)
 ```
 
 Key abstractions:
-- `Step` — Batch execution (`async def execute(ctx) -> OutputT`)
-- `Actor` — Streaming execution (`async def run(ctx) -> AsyncIterator[OutputT]`)
-- `StepContext` / `ActorContext` — Typed context with state, deps, inputs
+- `Task` — Batch execution (`async def execute(ctx) -> OutputT`); implements the `Runnable` protocol
+- `Actor` — Streaming execution (`async def run(ctx) -> AsyncIterator[OutputT]`); implements the `Streamable` protocol
+- `TaskContext` / `ActorContext` — Typed context with `state`, `deps`, `inputs`, `config`, optional workspace `run_context`
 - `WorkflowSpec` — Compiled spec with deterministic `workflow_id` (topology hash)
-- `WorkflowRuntime` — Abstract runtime; `GraphWorkflowRuntime` backed by pydantic-graph
+- `WorkflowRuntime` — Abstract runtime; `GraphWorkflowRuntime` (in `workflow/_pydantic_graph/`) is the default, created lazily by `WorkflowSpec`
 
 Internal `_pydantic_graph/` compiles specs into pydantic-graph IR with topological levels for automatic parallelization. Never import from `_pydantic_graph/` directly.
 
-Supporting modules: `cache.py` (LRU content-addressed), `persistence.py` (run store adapter), `snapshot.py` (AST-normalized code hashing).
+Supporting modules: `cache.py` (LRU content-addressed), `snapshot.py` (AST-normalized code hashing), `protocols.py` (structural `Runnable` / `Streamable` protocols for zero-import third-party integration).
 
-#### 2. Agent Layer (`src/molexp/agent/`)
+#### 2. Agent Layer (`src/molexp/plugins/agent_pydanticai/`)
 
-Goal-driven autonomous execution built on PydanticAI. Public API:
+Goal-driven autonomous execution built on PydanticAI, exposed as an **optional plugin** (loaded lazily via `molexp.plugins.registry`). Install with `pip install molexp[agent]`. Public API:
 
 ```python
+from molexp.plugins.agent_pydanticai import AgentService, Goal
+
 service = AgentService.from_workspace("./lab")
 session = await service.run(Goal(description="...", constraints=[...]))
 ```
@@ -126,11 +128,11 @@ Internal `_pydantic_ai/` handles PydanticAI integration. Never import directly.
 File-system-backed hierarchical state: `Workspace → Project → Experiment → Run`
 
 - Each level owns an `AssetLibrary` (content-addressed, deduplication)
-- `RunContext` manages execution lifecycle (enter → execute → exit with status)
-- `ParamSpace` (`GridSpace`, `UniformSpace`) for parameter sweeps
+- `RunContext` (context manager) owns execution lifecycle: claim ownership → append `ExecutionRecord` → execute → exit with `RunStatus`
+- `ParamSpace` (`GridSpace`, `UniformSpace`) for parameter sweeps (expanded at script level; one combination = one `Experiment`)
 - `ResumePolicy` protocol for resumable execution
 - All metadata writes are atomic (temp-file + `os.rename`)
-- Constructors are side-effect-free; call `materialize()` to create dirs/files
+- Constructors are side-effect-free, but child factories (`ws.project(...)`, `project.experiment(...)`, `exp.run(...)`) materialize immediately and are idempotent (get-or-create by slug/ID)
 
 #### 4. Server Layer (`src/molexp/server/`)
 
@@ -186,17 +188,18 @@ ui/src/  →  (npm run build:ui)  →  src/molexp/_webapp/  →  (hatchling)  �
 
 ### Key Patterns
 
-- **Topology-driven parallelism**: Steps grouped into levels by dependency graph; same-level steps run in parallel automatically
-- **Content-addressed caching**: `TaskSnapshot` uses AST-normalized code hash + config hash; whitespace/comment changes don't invalidate cache
-- **Atomic persistence**: All JSON writes use temp-file + `os.rename` for crash safety
-- **Internal convention**: Prefixed `_pydantic_graph/` and `_pydantic_ai/` are private implementation details; public API is the parent package's `__init__.py`
+- **Topology-driven parallelism**: Tasks are grouped into levels by the dependency graph; same-level tasks run in parallel automatically.
+- **Sweep-level fan-out**: `molexp.sweep.run_sweep` owns the outer `(experiment × Run)` loop via a single-node pydantic-graph with a bounded `jobs` semaphore.
+- **Content-addressed caching**: `TaskSnapshot` uses AST-normalized code hash + config hash; whitespace/comment changes don't invalidate cache.
+- **Atomic persistence**: All JSON writes use temp-file + `os.rename` for crash safety.
+- **Internal convention**: Prefixed `_pydantic_graph/` (in `workflow/`) and `_pydantic_ai/` (in `plugins/agent_pydanticai/`) are private implementation details; the public API is the parent package's `__init__.py`.
 
-### Adding a New Workflow Step
+### Adding a New Workflow Task
 
-1. Subclass `Step` (batch) or `Actor` (streaming) in appropriate module
-2. Implement `execute()` / `run()` with typed return annotation
-3. Add to workflow via functional DSL (`@wf.step`) or OOP builder (`.add()`)
-4. Compiler auto-detects execution type from return annotation
+1. Subclass `Task` (batch) or `Actor` (streaming) — or use any third-party object whose method signature matches the `Runnable` / `Streamable` protocol (no molexp import required).
+2. Implement `execute()` / `run()` with a typed return annotation.
+3. Add to the workflow via functional DSL (`@wf.task` / `@wf.actor`) or OOP builder (`.add()`).
+4. The compiler auto-detects batch vs streaming from the return annotation / `Streamable` runtime check.
 
 ### Adding a New API Route
 
@@ -235,7 +238,7 @@ Each test directory has `conftest.py` for shared fixtures. Use `conftest.py` at 
 | `/molexp-api` | User | API endpoint (route + schema + client regen + MSW mock) |
 | `/molexp-ui` | User | Frontend mechanics (renderer + state + mock + test) — invokes `molexp-designer` for post-impl polish |
 | `/molexp-design` | User | Frontend visual/UX polish: info density, design-system tokens, a11y, empty/error states |
-| `/molexp-step` | User | Workflow Step/Actor development |
+| `/molexp-step` | User | Workflow Task/Actor development |
 | `/molexp-test` | User | TDD testing with coverage analysis |
 | `/molexp-review` | Auto/User | Architecture + performance + UI design review (layer compliance, async safety, caching, I/O, concurrency, design system) |
 | `/molexp-agent-tool` | User | PydanticAI agent tool development |

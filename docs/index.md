@@ -1,119 +1,85 @@
 # MolExp Documentation
 
-Welcome to MolExp — a workflow-and-agent platform for research experiment management. MolExp provides a typed task-graph framework, a three-tier workspace hierarchy (Project → Experiment → Run), content-addressed asset storage, and a FastAPI server with React UI.
+MolExp's docs are organized into a small number of stable sections so readers can move from orientation to execution to internals without bouncing across many unrelated top-level folders.
 
-## Why MolExp?
-
-MolExp's design philosophy is "minimal yet complete". Every layer has explicit responsibilities with no hidden magic:
-
-- **Workflow layer**: DAG-based task graphs compiled from Python with automatic parallelization
-- **Agent layer**: Goal-driven autonomous execution on top of PydanticAI
-- **Workspace layer**: File-system-backed experiment management with full reproducibility
-- **Server + UI**: FastAPI backend and React frontend for browsing experiments and results
-
-MolExp is particularly suited for scientific computing scenarios that require reproducibility, traceability, and extensibility — molecular dynamics, ML training, data analysis pipelines, and more.
-
-## Architecture
+## Documentation Structure
 
 ```
-WorkflowSpec → Runtime → Workspace → FastAPI → React UI
-                             ↑
-                      AgentService (PydanticAI)
+docs/
+├── getting-started/   # concepts and orientation
+├── tutorial/          # end-to-end hands-on walkthroughs
+├── guide/             # focused user and operator guides
+├── development/       # contributor-facing internals
+└── spec/              # active design notes and implementation plans
 ```
+
+## Start Here
 
 <div class="grid cards" markdown>
 
--   :material-graph: **Workflow Layer**
+-   :material-compass-outline: **Getting Started**
 
     ---
 
-    **DAG-based task graphs**
+    Start with the conceptual model: workflow, workspace, profiles, and optional plugins.
 
-    Define tasks with the functional DSL (`@wf.task`) or OOP builder. The runtime automatically parallelizes independent tasks.
+    [:octicons-arrow-right-24: Open Overview](getting-started/overview.md)
 
-    [:octicons-arrow-right-24: Quick Start](get-started/quick-start.md)
-
--   :material-robot: **Agent Layer**
+-   :material-rocket-launch: **Tutorial**
 
     ---
 
-    **Goal-driven autonomous execution**
+    Follow one complete workflow from authoring through tracked execution.
 
-    `AgentService` wraps PydanticAI to provide tool approval, streaming events, and workspace-aware session management.
+    [:octicons-arrow-right-24: Open Quick Start](tutorial/quick-start.md)
 
--   :material-folder-multiple: **Workspace Layer**
-
-    ---
-
-    **Project → Experiment → Run hierarchy**
-
-    Each level owns an `AssetLibrary` for scoped, content-addressed artifact storage. All metadata writes are atomic.
-
-    [:octicons-arrow-right-24: Workspace Docs](workspace/)
-
--   :material-server: **Server + UI**
+-   :material-book-open-page-variant: **Guides**
 
     ---
 
-    **FastAPI + React**
+    Use focused guides for runtime behavior, workspace persistence, server operations, and scheduler submission.
 
-    All routes under `/api`. The React UI provides a three-panel experiment browser. TypeScript client is auto-generated from `openapi.json`.
+    [:octicons-arrow-right-24: Open Guide Index](guide/index.md)
+
+-   :material-tools: **Development**
+
+    ---
+
+    Read the contributor-facing internals when you need compiler, IR, or protocol details.
+
+    [:octicons-arrow-right-24: Open Development Index](development/index.md)
 
 </div>
 
-## Core Concepts
+## Sections
 
-### Tasks and Actors
+- **Getting started**
+  - [Overview](getting-started/overview.md)
+- **Tutorial**
+  - [Quick Start](tutorial/quick-start.md)
+- **Guide**
+  - [Guide index](guide/index.md)
+  - [Run Profiles and Reproducible CLI Execution](guide/run-profiles.md)
+  - [Workspace Architecture](guide/workspace-architecture.md)
+  - [Workspace API](guide/workspace-api.md)
+  - [Task and Actor](guide/task-and-actor.md)
+  - [TaskContext](guide/task-context.md)
+  - [Workflow Runtime](guide/workflow-runtime.md)
+  - [Control Flow](guide/control-flow.md)
+  - [Assets](guide/assets.md)
+  - [Workflow Persistence](guide/workflow-persistence.md)
+  - [Server Lifecycle](guide/server-lifecycle.md)
+  - [Molq Plugin and Cluster Submission](guide/molq.md)
+- **Development**
+  - [Development index](development/index.md)
+  - [Compiler](development/compiler.md)
+  - [IR and Compiler Notes](development/ir-and-compiler.md)
+  - [Task Protocols](development/task-protocols.md)
+- **Spec**
+  - [molcfg profiles](spec/molcfg-profiles.md)
+  - [Unified pydantic-graph dispatch](spec/unified-pydantic-graph-dispatch.md)
+  - [Fullscreen monitor](spec/fullscreen-monitor.md)
 
-| Type | Base class | Method | Use for |
-|------|-----------|--------|---------|
-| Batch | `Task` | `async execute(ctx)` | single-pass computation |
-| Streaming | `Actor` | `async run(ctx)` (generator) | continuous / event-driven |
+## Suggested Reading Order
 
-### Workflow Definition
-
-Two equivalent styles:
-
-```python
-# Functional DSL
-wf = workflow(name="pipeline")
-
-@wf.task
-async def fetch(ctx: TaskContext) -> list[float]: ...
-
-@wf.task(depends_on=["fetch"])
-async def process(ctx: TaskContext) -> float: ...
-
-spec = wf.build()
-```
-
-```python
-# OOP builder
-spec = (
-    WorkflowBuilder(name="pipeline")
-    .add(FetchTask())
-    .add(ProcessTask(), depends_on=["fetch"])
-    .build()
-)
-```
-
-### Workspace Hierarchy
-
-```python
-workspace = Workspace.from_path("./lab")
-project    = workspace.create_project(name="MD Simulations")
-experiment = project.create_experiment(name="Temperature Sweep")
-run        = experiment.create_run(parameters={"T": 300})
-
-result = await spec.execute(run=run)
-```
-
-## Quick Start
-
-New to MolExp? Start here:
-
-[:octicons-arrow-right-24: Quick Start Guide](get-started/quick-start.md)
-
-## License
-
-BSD 3-Clause License — see [LICENSE](https://github.com/molcrafts/molexp/blob/main/LICENSE) for details.
+If you are new to the project, start with [Overview](getting-started/overview.md), then do the [Quick Start](tutorial/quick-start.md), then read the [Run Profiles guide](guide/run-profiles.md). If you are implementing workflows, continue into the guide section. If you are changing compiler behavior or internal contracts, move into [Development](development/index.md). `spec/` is intentionally separate because it holds active design work rather than stable user documentation.

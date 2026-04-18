@@ -22,6 +22,9 @@ from ._common import (
 run_app = typer.Typer(help="Run management commands")
 app.add_typer(run_app, name="runs")
 
+from . import prune as _prune  # noqa: E402
+_prune.register(run_app)
+
 
 @run_app.command("create")
 def run_create(

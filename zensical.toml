@@ -1,6 +1,6 @@
 [project]
 site_name = "MolExp Documentation"
-site_description = "Minimal Task Graph Framework with Compiler and Engine"
+site_description = "Workflow and agent platform for research experiment management"
 
 # Navigation
 nav = [
@@ -10,30 +10,45 @@ nav = [
         { "Quick Start" = "get-started/quick-start.md" }
     ]},
     { "Core Concepts" = [
-        { "Task Abstraction" = "core/task.md" },
-        { "SubWorkflow" = "core/subworkflow.md" },
-        { "Execution Engine" = "core/engine.md" },
-        { "Context Management" = "core/context.md" }
-    ]},
-    { "Developer" = [
-        { "IR and Compiler" = "developer/ir-and-compiler.md" }
+        { "Task and Actor" = "core/task.md" },
+        { "TaskContext" = "core/context.md" },
+        { "Workflow Runtime" = "core/engine.md" },
+        { "Compilation and Identity" = "core/compiler.md" },
+        { "Workflow Composition" = "core/subworkflow.md" }
     ]},
     { "Workspace" = [
-        { "Project-Experiment-Run" = "workspace/architecture.md" },
-        { "Workspace API" = "workspace/api.md" }
+        { "Architecture" = "workspace/architecture.md" },
+        { "API Reference" = "workspace/api.md" }
+    ]},
+    { "Actors" = [
+        { "Overview" = "actors/overview.md" }
     ]},
     { "Control Flow" = [
-        { "Overview" = "control-flow/index.md" },
-        { "Map and Reduce" = "control-flow/map-reduce.md" },
-        { "Conditional" = "control-flow/conditional.md" },
-        { "Loops" = "control-flow/loops.md" },
-        { "Parallel Execution" = "control-flow/parallel.md" }
+        { "Overview" = "control-flow/index.md" }
     ]},
     { "Assets" = [
         { "Asset Management" = "assets/management.md" }
+    ]},
+    { "Protocols & Persistence" = [
+        { "Task Protocols" = "task-protocol.md" },
+        { "Workflow Persistence" = "workflow_serialization.md" }
+    ]},
+    { "Server" = [
+        { "Lifecycle (EN)" = "server-lifecycle.md" },
+        { "Lifecycle (中文)" = "server-lifecycle-zh.md" }
+    ]},
+    { "Active Specs" = [
+        { "molcfg + Profiles" = "spec/molcfg-profiles.md" },
+        { "Unified Sweep Dispatch" = "spec/unified-pydantic-graph-dispatch.md" },
+        { "Full-screen Monitor" = "spec/fullscreen-monitor.md" }
+    ]},
+    { "Developer" = [
+        { "Compiler Internals" = "developer/ir-and-compiler.md" },
+        { "Architecture Convergence (history)" = "developer/architecture-convergence-spec-zh.md" },
+        { "Convergence Work Breakdown (history)" = "developer/architecture-convergence-work-breakdown-zh.md" },
+        { "PydanticAI + pydantic-graph Proposal (history)" = "developer/pydanticai-graph-integration-proposal-zh.md" }
     ]}
 ]
 
 [project.theme]
 name = "material"
-
