@@ -4,8 +4,8 @@ Matches ``docs/guide/task-and-actor.md``.
 
 Demonstrates:
 
-1. Functional DSL — ``@wf.task`` decorates async functions.
-2. OOP builder — subclass ``Task`` and add via ``WorkflowBuilder``.
+1. Decorator style — ``@wf.task`` decorates async functions.
+2. OOP style — subclass ``Task`` and add via ``Workflow.add``.
 3. Protocol form — any object with ``async def execute(self, ctx)``.
 
 ``Actor`` (streaming) is discussed in the guide but is only useful under a
@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, WorkflowBuilder, workflow
+from molexp.workflow import Task, TaskContext, Workflow
 
 
-# ── 1. Functional DSL ──────────────────────────────────────────────────────
+# ── 1. Decorator style ─────────────────────────────────────────────────────
 async def functional_demo() -> None:
-    wf = workflow(name="functional")
+    wf = Workflow(name="functional")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:
@@ -41,7 +41,7 @@ async def functional_demo() -> None:
     print(f"functional: {result.outputs}")
 
 
-# ── 2. OOP builder ─────────────────────────────────────────────────────────
+# ── 2. OOP style ───────────────────────────────────────────────────────────
 class Load(Task):
     async def execute(self, ctx: TaskContext) -> list[int]:
         return [10, 20, 30]
@@ -54,7 +54,7 @@ class Sum(Task):
 
 async def oop_demo() -> None:
     spec = (
-        WorkflowBuilder(name="oop")
+        Workflow(name="oop")
         .add(Load())
         .add(Sum(), depends_on=["load"])
         .build()
@@ -73,7 +73,7 @@ class ExternalDoubler:
 
 async def protocol_demo() -> None:
     spec = (
-        WorkflowBuilder(name="external")
+        Workflow(name="external")
         .add(Load())
         .add(ExternalDoubler(), name="double", depends_on=["load"])
         .build()

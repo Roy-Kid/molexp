@@ -1,30 +1,30 @@
-"""Molexp workflow layer — public API.
+"""Molexp workflow layer — public OOP API.
 
-Three ways to define tasks:
+Define a workflow as an instance of :class:`Workflow` and register tasks
+via its methods. Three equivalent styles share the same class:
 
-1. **Functional** (decorator)::
+1. **Decorator** (functions as tasks)::
 
-       wf = workflow(name="pipeline")
+       wf = Workflow(name="pipeline")
 
        @wf.task
        async def fetch(ctx: TaskContext) -> FetchResult: ...
 
        result = await wf.build().execute(run=run)
 
-2. **OOP** (subclass ``Task``)::
+2. **OOP** (subclass ``Task`` and ``.add()``)::
 
        class FetchTask(Task):
            async def execute(self, ctx: TaskContext) -> FetchResult: ...
 
-       wf = WorkflowBuilder(name="pipeline").add(FetchTask()).build()
+       wf = Workflow(name="pipeline").add(FetchTask())
 
 3. **Protocol** (any object with ``async execute(ctx)``)::
 
-       # Third-party code — no molexp import required
        class ExternalProcessor:
            async def execute(self, ctx) -> dict: ...
 
-       wf = WorkflowBuilder(name="pipeline").add(ExternalProcessor()).build()
+       wf = Workflow(name="pipeline").add(ExternalProcessor())
 """
 
 from .cache import Caching
@@ -32,7 +32,7 @@ from .context import ActorContext, TaskContext
 from .protocols import Runnable, Streamable
 from .runtime import WorkflowRuntime
 from .snapshot import TaskSnapshot
-from .spec import WorkflowBuilder, WorkflowSpec, join, parallel_map, workflow
+from .spec import Workflow, WorkflowSpec
 from .task import Actor, Task
 from .types import WorkflowExecution, WorkflowResult
 
@@ -46,12 +46,9 @@ __all__ = [
     # Contexts
     "TaskContext",
     "ActorContext",
-    # Workflow building
+    # Workflow building (unified OOP API)
+    "Workflow",
     "WorkflowSpec",
-    "WorkflowBuilder",
-    "workflow",
-    "parallel_map",
-    "join",
     # Execution
     "WorkflowRuntime",
     "WorkflowResult",

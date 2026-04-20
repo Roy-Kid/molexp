@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 from molexp.workflow.context import TaskContext
-from molexp.workflow.spec import WorkflowBuilder, WorkflowSpec
+from molexp.workflow.spec import Workflow, WorkflowSpec
 from molexp.workflow.task import Task
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
@@ -62,7 +62,7 @@ class _EntryTask(Task):
 
 def _promote_to_workflow(fn: Callable, name: str) -> WorkflowSpec:
     """Promote a bare ``fn(RunContext)`` to a single-Task WorkflowSpec."""
-    return WorkflowBuilder(name=name).add(_EntryTask(fn), name=fn.__name__).build()
+    return Workflow(name=name).add(_EntryTask(fn), name=fn.__name__).build()
 
 
 class Experiment:

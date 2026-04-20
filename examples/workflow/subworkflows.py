@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, WorkflowBuilder, WorkflowSpec, workflow
+from molexp.workflow import Task, TaskContext, Workflow, WorkflowSpec
 
 
 def build_preprocess() -> WorkflowSpec:
     """The inner pipeline — could live in its own module."""
-    wf = workflow(name="preprocess")
+    wf = Workflow(name="preprocess")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[float]:
@@ -55,7 +55,7 @@ async def main() -> None:
     inner = build_preprocess()
 
     outer = (
-        WorkflowBuilder(name="train")
+        Workflow(name="train")
         .add(Preprocess(inner), name="preprocess")
         .add(Train(), depends_on=["preprocess"])
         .build()

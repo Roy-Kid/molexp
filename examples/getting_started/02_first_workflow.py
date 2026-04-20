@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, workflow
+from molexp.workflow import TaskContext, Workflow
 
 
 async def main() -> None:
-    wf = workflow(name="first-workflow")
+    wf = Workflow(name="first-workflow")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:

@@ -71,11 +71,11 @@ WorkflowSpec → pydantic-graph Compiler → Runtime → Workspace → FastAPI �
 
 #### 1. Workflow Layer (`src/molexp/workflow/`)
 
-Two equivalent APIs for defining task graphs:
+Single OOP entry point — `Workflow` — supports both decorator and builder styles on the same class:
 
-**Functional DSL** (decorator-based):
+**Decorator style** (function-as-task):
 ```python
-wf = workflow(name="pipeline")
+wf = Workflow(name="pipeline")
 
 @wf.task
 async def fetch(ctx: TaskContext[State, Deps, None]) -> FetchResult: ...
@@ -87,11 +87,13 @@ spec = wf.build()
 result = await spec.execute(run=run)
 ```
 
-**OOP DSL** (builder-based):
+**OOP style** (add `Task` instances):
 ```python
-wf = WorkflowBuilder(name="pipeline").add(FetchTask()).add(ProcessTask(), depends_on=["fetch"]).build()
+wf = Workflow(name="pipeline").add(FetchTask()).add(ProcessTask(), depends_on=["fetch"]).build()
 result = await wf.execute(run=run)
 ```
+
+Both styles can be mixed on the same `Workflow` instance. Control-flow helpers are methods, not free functions: `@wf.parallel_map(...)` and `@wf.join(...)`.
 
 Key abstractions:
 - `Task` — Batch execution (`async def execute(ctx) -> OutputT`); implements the `Runnable` protocol
@@ -198,7 +200,7 @@ ui/src/  →  (npm run build:ui)  →  src/molexp/_webapp/  →  (hatchling)  �
 
 1. Subclass `Task` (batch) or `Actor` (streaming) — or use any third-party object whose method signature matches the `Runnable` / `Streamable` protocol (no molexp import required).
 2. Implement `execute()` / `run()` with a typed return annotation.
-3. Add to the workflow via functional DSL (`@wf.task` / `@wf.actor`) or OOP builder (`.add()`).
+3. Add to the workflow via the `Workflow` decorators (`@wf.task` / `@wf.actor`) or `.add()` for Task/Actor instances.
 4. The compiler auto-detects batch vs streaming from the return annotation / `Streamable` runtime check.
 
 ### Adding a New API Route

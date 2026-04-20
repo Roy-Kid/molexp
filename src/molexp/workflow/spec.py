@@ -1,10 +1,9 @@
-"""Workflow specification: functional DSL and OOP builder.
+"""Workflow specification — unified OOP API.
 
-Two equivalent ways to define a workflow:
+Define a workflow by instantiating :class:`Workflow` and registering tasks
+through its methods. Decorator and builder styles share the same class::
 
-Functional style::
-
-    wf = workflow(name="pipeline")
+    wf = Workflow(name="pipeline")
 
     @wf.task
     async def fetch(ctx: TaskContext) -> FetchResult: ...
@@ -12,16 +11,18 @@ Functional style::
     @wf.task(depends_on=["fetch"])
     async def validate(ctx: TaskContext) -> ValidateResult: ...
 
-    result = await wf.build().execute(run=run)
+    # OOP style — add Task / Actor instances
+    wf.add(ProcessTask(), depends_on=["validate"])
 
-OOP builder style::
+    # Control flow
+    @wf.parallel_map(fan_out_over="items", depends_on=["fetch"])
+    async def process_item(ctx): ...
 
-    wf = (
-        WorkflowBuilder(name="pipeline")
-        .add(FetchTask())
-        .add(ValidateTask(), depends_on=["fetch"])
-        .build()
-    )
+    @wf.join(reducer="sum", depends_on=["process_item"])
+    async def collect(ctx): ...
+
+    spec = wf.build()
+    result = await spec.execute(run=run)
 """
 
 from __future__ import annotations
@@ -62,7 +63,7 @@ class TaskRegistration:
 class WorkflowSpec:
     """Compiled, executable workflow specification.
 
-    Produced by ``WorkflowBuilder.build()`` or ``WorkflowDSL.build()``.
+    Produced by :meth:`Workflow.build`.
     """
 
     def __init__(
@@ -129,20 +130,47 @@ class WorkflowSpec:
         )
 
 
-# ── Functional DSL ──────────────────────────────────────────────────────────
+# ── Workflow (unified OOP API) ──────────────────────────────────────────────
 
 
-class WorkflowDSL:
-    """Builder returned by :func:`workflow`.
+class Workflow:
+    """OOP workflow definition. Supports decorator and builder styles.
 
-    Provides ``@wf.task`` and ``@wf.actor`` decorators.
-    Call ``.build()`` to produce a :class:`WorkflowSpec`.
+    Instantiate once, then register tasks via the decorators
+    (:meth:`task`, :meth:`actor`, :meth:`parallel_map`, :meth:`join`)
+    or the OOP method :meth:`add`. Call :meth:`build` to produce a
+    :class:`WorkflowSpec`.
+
+    Example (decorator)::
+
+        wf = Workflow(name="pipeline")
+
+        @wf.task
+        async def fetch(ctx: TaskContext) -> dict: ...
+
+    Example (OOP)::
+
+        wf = Workflow(name="pipeline")
+        wf.add(FetchTask())
+        wf.add(ProcessTask(), depends_on=["fetch"])
     """
 
     def __init__(self, name: str, mode: str = "batch") -> None:
         self._name = name
         self._mode = mode
         self._tasks: list[TaskRegistration] = []
+
+    # ── Properties ──────────────────────────────────────────────────────
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    @property
+    def mode(self) -> str:
+        return self._mode
+
+    # ── Decorator: function-as-task ─────────────────────────────────────
 
     def task(
         self,
@@ -152,7 +180,7 @@ class WorkflowDSL:
         name: str | None = None,
         remote: Any = None,
     ) -> Callable:
-        """Register a function as a workflow task.
+        """Register a function as a batch workflow task.
 
         Usage::
 
@@ -205,52 +233,7 @@ class WorkflowDSL:
             return decorator(fn)
         return decorator
 
-    def build(self) -> WorkflowSpec:
-        """Compile registered tasks into a :class:`WorkflowSpec`."""
-        tasks = list(self._tasks)
-        return WorkflowSpec(
-            name=self._name,
-            workflow_id=_stable_workflow_id(self._name, tasks),
-            tasks=tasks,
-            mode=self._mode,
-        )
-
-
-def workflow(name: str, mode: str = "batch") -> WorkflowDSL:
-    """Create a workflow DSL builder.
-
-    Example::
-
-        wf = workflow(name="data-pipeline")
-
-        @wf.task
-        async def fetch(ctx: TaskContext) -> FetchResult: ...
-
-        result = await wf.build().execute(run=run)
-    """
-    return WorkflowDSL(name=name, mode=mode)
-
-
-# ── OOP builder ─────────────────────────────────────────────────────────────
-
-
-class WorkflowBuilder:
-    """OOP-style builder for composing Task / Actor instances.
-
-    Example::
-
-        wf = (
-            WorkflowBuilder(name="data-pipeline")
-            .add(FetchTask())
-            .add(ValidateTask(), depends_on=["fetch"])
-            .build()
-        )
-    """
-
-    def __init__(self, name: str, mode: str = "batch") -> None:
-        self._name = name
-        self._mode = mode
-        self._tasks: list[TaskRegistration] = []
+    # ── OOP: register a Task/Actor instance or any Runnable/Streamable ──
 
     def add(
         self,
@@ -259,13 +242,16 @@ class WorkflowBuilder:
         depends_on: list[str] | None = None,
         name: str | None = None,
         remote: Any = None,
-    ) -> WorkflowBuilder:
-        """Add a task or actor instance.
+    ) -> Workflow:
+        """Register a Task / Actor instance (or any Runnable/Streamable).
 
         Accepts:
-        - A :class:`~Task` / :class:`~Actor` subclass instance
-        - Any object matching the :class:`~Runnable` or :class:`~Streamable` protocol
+        - A :class:`~molexp.workflow.task.Task` / :class:`~molexp.workflow.task.Actor` instance
+        - Any object matching the :class:`~molexp.workflow.protocols.Runnable`
+          or :class:`~molexp.workflow.protocols.Streamable` protocol
         - A bare callable (treated as a batch task)
+
+        Returns ``self`` to support chaining.
         """
         from .protocols import Streamable
 
@@ -286,8 +272,60 @@ class WorkflowBuilder:
         )
         return self
 
+    # ── Control-flow decorators ─────────────────────────────────────────
+
+    def parallel_map(
+        self,
+        *,
+        fan_out_over: str,
+        depends_on: list[str] | None = None,
+        name: str | None = None,
+    ) -> Callable:
+        """Decorator for fan-out parallel tasks."""
+
+        def decorator(fn: Callable) -> Callable:
+            task_name = name or fn.__name__
+            self._tasks.append(
+                TaskRegistration(
+                    name=task_name,
+                    fn_or_class=fn,
+                    depends_on=depends_on or [],
+                    is_actor=False,
+                )
+            )
+            fn._parallel_map_config = {"fan_out_over": fan_out_over}  # type: ignore[attr-defined]
+            return fn
+
+        return decorator
+
+    def join(
+        self,
+        *,
+        reducer: str | Callable | None = None,
+        depends_on: list[str] | None = None,
+        name: str | None = None,
+    ) -> Callable:
+        """Decorator for collecting and reducing parallel outputs."""
+
+        def decorator(fn: Callable) -> Callable:
+            task_name = name or fn.__name__
+            self._tasks.append(
+                TaskRegistration(
+                    name=task_name,
+                    fn_or_class=fn,
+                    depends_on=depends_on or [],
+                    is_actor=False,
+                )
+            )
+            fn._join_config = {"reducer": reducer}  # type: ignore[attr-defined]
+            return fn
+
+        return decorator
+
+    # ── Compile ─────────────────────────────────────────────────────────
+
     def build(self) -> WorkflowSpec:
-        """Build the final :class:`WorkflowSpec`."""
+        """Compile the registered tasks into a :class:`WorkflowSpec`."""
         tasks = list(self._tasks)
         return WorkflowSpec(
             name=self._name,
@@ -295,59 +333,6 @@ class WorkflowBuilder:
             tasks=tasks,
             mode=self._mode,
         )
-
-
-# ── Control-flow helpers ────────────────────────────────────────────────────
-
-
-def parallel_map(
-    wf: WorkflowDSL,
-    *,
-    fan_out_over: str,
-    depends_on: list[str] | None = None,
-    name: str | None = None,
-) -> Callable:
-    """Decorator for fan-out parallel tasks."""
-
-    def decorator(fn: Callable) -> Callable:
-        task_name = name or fn.__name__
-        wf._tasks.append(
-            TaskRegistration(
-                name=task_name,
-                fn_or_class=fn,
-                depends_on=depends_on or [],
-                is_actor=False,
-            )
-        )
-        fn._parallel_map_config = {"fan_out_over": fan_out_over}  # type: ignore[attr-defined]
-        return fn
-
-    return decorator
-
-
-def join(
-    wf: WorkflowDSL,
-    *,
-    reducer: str | Callable | None = None,
-    depends_on: list[str] | None = None,
-    name: str | None = None,
-) -> Callable:
-    """Decorator for collecting and reducing parallel outputs."""
-
-    def decorator(fn: Callable) -> Callable:
-        task_name = name or fn.__name__
-        wf._tasks.append(
-            TaskRegistration(
-                name=task_name,
-                fn_or_class=fn,
-                depends_on=depends_on or [],
-                is_actor=False,
-            )
-        )
-        fn._join_config = {"reducer": reducer}  # type: ignore[attr-defined]
-        return fn
-
-    return decorator
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

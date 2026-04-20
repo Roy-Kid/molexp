@@ -24,7 +24,7 @@ from pathlib import Path
 
 import molexp as me
 from molexp.config import ProfileConfig
-from molexp.workflow import Task, TaskContext, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, Workflow
 
 
 @dataclass
@@ -63,7 +63,7 @@ async def main() -> None:
     exp = project.experiment("counter")
 
     spec = (
-        WorkflowBuilder(name="counter")
+        Workflow(name="counter")
         .add(Seed())
         .add(Record(), depends_on=["seed"])
         .build()

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from molexp.workflow.spec import WorkflowBuilder, WorkflowSpec
+from molexp.workflow.spec import Workflow, WorkflowSpec
 from molexp.workspace import Workspace
 from molexp.workspace.experiment import _promote_to_workflow
 
@@ -60,7 +60,7 @@ class TestSetWorkflow:
         assert isinstance(experiment.workflow, WorkflowSpec)
 
     def test_workflow_spec_stored_directly(self, experiment):
-        spec = WorkflowBuilder(name="test").build()
+        spec = Workflow(name="test").build()
         experiment.set_workflow(spec)
         assert experiment.workflow is spec
 

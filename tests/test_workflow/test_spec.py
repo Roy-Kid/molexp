@@ -1,17 +1,12 @@
-"""Tests for WorkflowSpec / WorkflowBuilder / DSL."""
+"""Tests for Workflow / WorkflowSpec."""
 
-from molexp.workflow import (
-    Task,
-    TaskContext,
-    WorkflowBuilder,
-    workflow,
-)
+from molexp.workflow import Task, TaskContext, Workflow
 from molexp.workflow.spec import TaskRegistration, _stable_workflow_id
 
 
-class TestWorkflowDSL:
+class TestWorkflowDecorators:
     def test_single_task(self):
-        wf = workflow(name="simple")
+        wf = Workflow(name="simple")
 
         @wf.task
         async def fetch(ctx):
@@ -23,7 +18,7 @@ class TestWorkflowDSL:
         assert spec._tasks[0].name == "fetch"
 
     def test_dependencies(self):
-        wf = workflow(name="chain")
+        wf = Workflow(name="chain")
 
         @wf.task
         async def a(ctx):
@@ -37,7 +32,7 @@ class TestWorkflowDSL:
         assert spec._tasks[1].depends_on == ["a"]
 
     def test_custom_name(self):
-        wf = workflow(name="named")
+        wf = Workflow(name="named")
 
         @wf.task(name="custom_name")
         async def fn(ctx):
@@ -47,7 +42,7 @@ class TestWorkflowDSL:
         assert spec._tasks[0].name == "custom_name"
 
     def test_actor_decorator(self):
-        wf = workflow(name="stream")
+        wf = Workflow(name="stream")
 
         @wf.actor
         async def streamer(ctx):
@@ -57,13 +52,13 @@ class TestWorkflowDSL:
         assert spec._tasks[0].is_actor is True
 
 
-class TestWorkflowBuilder:
+class TestWorkflowAdd:
     def test_add_task(self):
         class DoubleTask(Task):
             async def execute(self, ctx: TaskContext) -> int:
                 return 2
 
-        spec = WorkflowBuilder(name="oop").add(DoubleTask()).build()
+        spec = Workflow(name="oop").add(DoubleTask()).build()
         assert len(spec._tasks) == 1
         assert spec._tasks[0].name == "double"
 
@@ -72,7 +67,7 @@ class TestWorkflowBuilder:
             async def execute(self, ctx) -> int:
                 return 42
 
-        spec = WorkflowBuilder(name="ext").add(External(), name="ext").build()
+        spec = Workflow(name="ext").add(External(), name="ext").build()
         assert spec._tasks[0].name == "ext"
 
     def test_chaining(self):
@@ -84,7 +79,7 @@ class TestWorkflowBuilder:
             async def execute(self, ctx):
                 return 2
 
-        spec = WorkflowBuilder(name="chain").add(A()).add(B(), depends_on=["a"]).build()
+        spec = Workflow(name="chain").add(A()).add(B(), depends_on=["a"]).build()
         assert len(spec._tasks) == 2
 
     def test_strip_task_suffix(self):
@@ -92,8 +87,23 @@ class TestWorkflowBuilder:
             async def execute(self, ctx):
                 return 1
 
-        spec = WorkflowBuilder(name="strip").add(FetchTask()).build()
+        spec = Workflow(name="strip").add(FetchTask()).build()
         assert spec._tasks[0].name == "fetch"
+
+    def test_mix_decorator_and_add(self):
+        class PostTask(Task):
+            async def execute(self, ctx):
+                return "post"
+
+        wf = Workflow(name="mixed")
+
+        @wf.task
+        async def pre(ctx):
+            return "pre"
+
+        wf.add(PostTask(), depends_on=["pre"])
+        spec = wf.build()
+        assert [t.name for t in spec._tasks] == ["pre", "post"]
 
 
 class TestStableWorkflowId:

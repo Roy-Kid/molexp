@@ -20,7 +20,7 @@ Typed (full generics)::
 
 Third-party (no molexp import)::
 
-    # This also works in a WorkflowBuilder because it satisfies Runnable
+    # Works in any ``Workflow.add(...)`` because it satisfies Runnable
     class ExternalProcessor:
         async def execute(self, ctx) -> dict: ...
 """

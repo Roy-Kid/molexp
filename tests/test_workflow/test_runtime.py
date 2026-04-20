@@ -4,14 +4,14 @@ import json
 
 import pytest
 
-from molexp.workflow import Task, TaskContext, WorkflowBuilder, workflow
+from molexp.workflow import Task, TaskContext, Workflow
 from molexp.workspace import Workspace
 
 
 @pytest.mark.asyncio
 class TestFunctionalExecution:
     async def test_single_task(self):
-        wf = workflow(name="single")
+        wf = Workflow(name="single")
 
         @wf.task
         async def double(ctx: TaskContext) -> int:
@@ -22,7 +22,7 @@ class TestFunctionalExecution:
         assert result.outputs["double"] == 10
 
     async def test_chain(self):
-        wf = workflow(name="chain")
+        wf = Workflow(name="chain")
 
         @wf.task
         async def step_a(ctx: TaskContext) -> int:
@@ -36,7 +36,7 @@ class TestFunctionalExecution:
         assert result.outputs == {"step_a": 10, "step_b": 15}
 
     async def test_failure_propagates(self):
-        wf = workflow(name="fail")
+        wf = Workflow(name="fail")
 
         @wf.task
         async def boom(ctx):
@@ -48,7 +48,7 @@ class TestFunctionalExecution:
     async def test_run_context_is_forwarded_to_tasks(self, tmp_path):
         from molexp.config import ProfileConfig
 
-        wf = workflow(name="with-run-context")
+        wf = Workflow(name="with-run-context")
 
         class RunContextStub:
             """Minimal stub — profile fixed at construction, no late-bind."""
@@ -79,7 +79,7 @@ class TestFunctionalExecution:
         """Passing run_context and profile_config is a hard error — no late-bind."""
         from molexp.config import ProfileConfig
 
-        wf = workflow(name="no-late-bind")
+        wf = Workflow(name="no-late-bind")
 
         class RunContextStub:
             def __init__(self):
@@ -106,7 +106,7 @@ class TestFunctionalExecution:
         experiment = project.experiment("runtime")
         run = experiment.run(parameters={"seed": 42})
 
-        wf = workflow(name="managed-run")
+        wf = Workflow(name="managed-run")
 
         @wf.task
         async def inspect(ctx: TaskContext) -> str:
@@ -136,7 +136,7 @@ class TestFunctionalExecution:
         experiment = project.experiment("runtime")
         run = experiment.run(parameters={"seed": 42})
 
-        wf = workflow(name="no-profile")
+        wf = Workflow(name="no-profile")
 
         @wf.task
         async def inspect(ctx: TaskContext) -> str:
@@ -154,7 +154,7 @@ class TestFunctionalExecution:
         experiment = project.experiment("runtime")
         run = experiment.run(parameters={})
 
-        wf = workflow(name="exclusive")
+        wf = Workflow(name="exclusive")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
@@ -172,7 +172,7 @@ class TestOOPExecution:
             async def execute(self, ctx: TaskContext) -> int:
                 return (ctx.inputs or 0) + 10
 
-        spec = WorkflowBuilder(name="oop").add(AddTen()).build()
+        spec = Workflow(name="oop").add(AddTen()).build()
         result = await spec.execute()
         assert result.outputs["add_ten"] == 10
 
@@ -184,7 +184,7 @@ class TestProtocolExecution:
             async def execute(self, ctx) -> int:
                 return 99
 
-        spec = WorkflowBuilder(name="ext").add(External(), name="ext").build()
+        spec = Workflow(name="ext").add(External(), name="ext").build()
         result = await spec.execute()
         assert result.outputs["ext"] == 99
 
@@ -198,7 +198,7 @@ class TestProtocolExecution:
                 return ctx.inputs + 90
 
         spec = (
-            WorkflowBuilder(name="mixed")
+            Workflow(name="mixed")
             .add(OOP(), name="oop")
             .add(External(), name="ext", depends_on=["oop"])
             .build()
@@ -210,7 +210,7 @@ class TestProtocolExecution:
 @pytest.mark.asyncio
 class TestParallelExecution:
     async def test_independent_tasks_parallel(self):
-        wf = workflow(name="parallel")
+        wf = Workflow(name="parallel")
 
         @wf.task
         async def a(ctx):
@@ -224,7 +224,7 @@ class TestParallelExecution:
         assert result.outputs == {"a": "a", "b": "b"}
 
     async def test_diamond_dependency(self):
-        wf = workflow(name="diamond")
+        wf = Workflow(name="diamond")
 
         @wf.task
         async def root(ctx):

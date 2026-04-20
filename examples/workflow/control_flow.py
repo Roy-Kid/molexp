@@ -20,12 +20,12 @@ from __future__ import annotations
 import asyncio
 
 from molexp.config import ProfileConfig
-from molexp.workflow import TaskContext, workflow
+from molexp.workflow import TaskContext, Workflow
 
 
 # ── 1. Diamond fan-out ─────────────────────────────────────────────────────
 async def diamond_demo() -> None:
-    wf = workflow(name="diamond")
+    wf = Workflow(name="diamond")
 
     @wf.task
     async def fetch(ctx: TaskContext) -> dict:
@@ -50,7 +50,7 @@ async def diamond_demo() -> None:
 
 # ── 2. Conditional branch inside a task ────────────────────────────────────
 async def conditional_demo(skip: bool) -> None:
-    wf = workflow(name="conditional")
+    wf = Workflow(name="conditional")
 
     @wf.task
     async def fetch(ctx: TaskContext) -> list[int]:
@@ -72,10 +72,10 @@ async def conditional_demo(skip: bool) -> None:
 # When the fan-out count is known at authoring time, the idiomatic pattern
 # is N tasks with identical ``depends_on``. They run on the same level and
 # pydantic-graph dispatches them concurrently. For runtime-sized fan-out
-# the library exposes ``parallel_map`` / ``join`` decorators — see the
+# the library exposes ``wf.parallel_map`` / ``wf.join`` decorators — see the
 # guide for their current status.
 async def fanout_demo() -> None:
-    wf = workflow(name="fanout")
+    wf = Workflow(name="fanout")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:

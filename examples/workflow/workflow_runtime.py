@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, workflow
+from molexp.workflow import TaskContext, Workflow
 
 
 def build_slow_workflow() -> "object":
-    wf = workflow(name="slow")
+    wf = Workflow(name="slow")
 
     @wf.task
     async def step_one(ctx: TaskContext) -> int:

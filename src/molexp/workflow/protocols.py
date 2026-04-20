@@ -6,7 +6,9 @@ with third-party libraries.
 
 Three ways to define a task — all equivalent at runtime:
 
-1. Function decorated with ``@wf.task``::
+1. Function registered via :meth:`Workflow.task` decorator::
+
+       wf = Workflow(name="pipeline")
 
        @wf.task
        async def fetch(ctx): ...
