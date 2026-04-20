@@ -20,7 +20,7 @@ pytest tests/workspace/test_workspace.py
 pytest tests/workspace/test_workspace.py::test_workspace_creation
 
 # Start server (serves bundled UI if src/molexp/_webapp/ is populated, otherwise API-only)
-molexp serve --workspace /path/to/workspace --port 8000
+molexp serve /path/to/workspace --port 8000
 
 # Initialize a workspace
 molexp init [path]

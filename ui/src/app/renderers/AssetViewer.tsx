@@ -1,8 +1,17 @@
-import { Archive, Download, FileText, Image as ImageIcon, Package } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import type { DataTableColumn } from "@/app/components/entity";
 import {
-  DataTable,
+  Archive,
+  Download,
+  FileJson,
+  FileText,
+  GitCommitHorizontal,
+  Image as ImageIcon,
+  Layers,
+  Package,
+  ScrollText,
+  ShieldAlert,
+} from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
   EMPTY_COPY,
   EmptyState,
   EntityHeader,
@@ -11,36 +20,76 @@ import {
 } from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
-import type { ApiAssetFile, ApiAssetResponse, RendererProps } from "@/app/types";
+import type {
+  ApiAssetResponse,
+  AssetKind,
+  RendererProps,
+} from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-const formatBytes = (bytes: number): string => {
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+const formatBytes = (bytes: number | null | undefined): string => {
+  if (bytes == null) return "—";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-const isTextual = (mime: string | undefined, format: string): boolean => {
+const KIND_META: Record<
+  string,
+  { label: string; icon: typeof Archive; accent: string }
+> = {
+  data: { label: "Data", icon: Package, accent: "text-amber-500" },
+  artifact: { label: "Artifact", icon: Archive, accent: "text-sky-500" },
+  log: { label: "Log", icon: ScrollText, accent: "text-emerald-500" },
+  checkpoint: {
+    label: "Checkpoint",
+    icon: GitCommitHorizontal,
+    accent: "text-purple-500",
+  },
+  error_trace: { label: "Error Trace", icon: ShieldAlert, accent: "text-red-500" },
+  execution_state: {
+    label: "Execution State",
+    icon: Layers,
+    accent: "text-indigo-500",
+  },
+  output: { label: "Output", icon: FileJson, accent: "text-teal-500" },
+};
+
+const kindMeta = (kind: string) =>
+  KIND_META[kind] ?? { label: kind, icon: Archive, accent: "text-muted-foreground" };
+
+const extraValue = <T,>(asset: ApiAssetResponse, key: string): T | undefined =>
+  (asset.extra as Record<string, unknown> | undefined)?.[key] as T | undefined;
+
+const isTextual = (mime: string | undefined, path: string | undefined): boolean => {
   if (mime?.startsWith("text/")) return true;
-  return ["json", "yaml", "yml", "txt", "md", "markdown", "py", "csv"].includes(
-    format.toLowerCase(),
-  );
+  if (mime === "application/json") return true;
+  const ext = path?.split(".").pop()?.toLowerCase() ?? "";
+  return ["json", "yaml", "yml", "txt", "md", "py", "csv", "log"].includes(ext);
 };
 
-const isImage = (mime: string | undefined, format: string): boolean => {
+const isImage = (mime: string | undefined, path: string | undefined): boolean => {
   if (mime?.startsWith("image/")) return true;
-  return ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(format.toLowerCase());
+  const ext = path?.split(".").pop()?.toLowerCase() ?? "";
+  return ["png", "jpg", "jpeg", "gif", "webp", "svg"].includes(ext);
 };
 
-const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
+// ── Per-kind content panels ───────────────────────────────────────────────
+
+const BinaryPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
   const [textContent, setTextContent] = useState<string | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const textual = isTextual(asset.mimeType, asset.format);
-  const image = isImage(asset.mimeType, asset.format);
+  const mime = extraValue<string>(asset, "mime");
+  const size = extraValue<number>(asset, "size") ?? null;
+  const textual = isTextual(mime, asset.path);
+  const image = isImage(mime, asset.path);
 
   useEffect(() => {
     if (!textual && !image) return;
@@ -48,7 +97,7 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
     let cancelled = false;
     let objectUrl: string | null = null;
 
-    fetch(`/api/assets/${encodeURIComponent(asset.assetId)}/download`)
+    fetch(`/api/assets/${encodeURIComponent(asset.id)}/content`)
       .then((response) => {
         if (!response.ok) {
           throw new Error(`Failed to load asset: ${response.statusText}`);
@@ -60,10 +109,9 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
         if (image) {
           objectUrl = URL.createObjectURL(blob);
           setImageUrl(objectUrl);
-        } else if (textual) {
+        } else {
           return blob.text().then((text) => {
-            if (cancelled) return;
-            setTextContent(text);
+            if (!cancelled) setTextContent(text);
           });
         }
       })
@@ -77,9 +125,9 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [asset.assetId, textual, image]);
+  }, [asset.id, textual, image]);
 
-  const downloadUrl = `/api/assets/${encodeURIComponent(asset.assetId)}/download`;
+  const downloadUrl = `/api/assets/${encodeURIComponent(asset.id)}/content`;
 
   if (error) {
     return (
@@ -95,7 +143,7 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
         {imageUrl ? (
           <img
             src={imageUrl}
-            alt={asset.assetId}
+            alt={asset.name}
             className="max-h-full max-w-full rounded-md border border-border/60"
           />
         ) : (
@@ -106,8 +154,9 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
   }
 
   if (textual) {
+    const ext = asset.path?.split(".").pop()?.toLowerCase() ?? "";
     let displayed = textContent ?? "";
-    if (textContent && asset.format.toLowerCase() === "json") {
+    if (textContent && ext === "json") {
       try {
         displayed = JSON.stringify(JSON.parse(textContent), null, 2);
       } catch {
@@ -127,10 +176,10 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
     <div className="flex h-full items-center justify-center">
       <EmptyState
         title="Binary content"
-        description={`${formatBytes(asset.size)} · ${asset.format}`}
+        description={`${formatBytes(size)} · ${mime ?? "unknown"}`}
         icon={<Package className="h-8 w-8" />}
         action={
-          <a href={downloadUrl} download={`${asset.assetId}.${asset.format}`}>
+          <a href={downloadUrl} download={asset.name}>
             <Button size="sm" variant="outline">
               <Download className="mr-2 h-4 w-4" />
               Download
@@ -141,6 +190,130 @@ const ContentPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
     </div>
   );
 };
+
+const LogTail = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
+  const [lines, setLines] = useState<string>("Loading…");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/assets/${encodeURIComponent(asset.id)}/tail?n=500`)
+      .then((response) => {
+        if (!response.ok) throw new Error(response.statusText);
+        return response.text();
+      })
+      .then((text) => {
+        if (!cancelled) setLines(text);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load log tail");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [asset.id]);
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <EmptyState title="Failed to load log" description={error} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto bg-black/90 px-4 py-3 font-mono text-xs text-emerald-100">
+      <pre className="whitespace-pre-wrap break-words">{lines}</pre>
+    </div>
+  );
+};
+
+const JsonPreview = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
+  const [text, setText] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/assets/${encodeURIComponent(asset.id)}/content`)
+      .then((r) => (r.ok ? r.text() : Promise.reject(new Error(r.statusText))))
+      .then((t) => {
+        if (cancelled) return;
+        try {
+          setText(JSON.stringify(JSON.parse(t), null, 2));
+        } catch {
+          setText(t);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [asset.id]);
+
+  if (error) {
+    return (
+      <div className="p-6">
+        <EmptyState title="Failed to load content" description={error} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto">
+      <pre className="whitespace-pre-wrap break-words px-6 py-4 font-mono text-xs text-foreground">
+        {text ?? "Loading…"}
+      </pre>
+    </div>
+  );
+};
+
+const ErrorTraceView = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
+  const exceptionType = extraValue<string>(asset, "exception_type");
+  const message = extraValue<string>(asset, "message");
+  const executionId = extraValue<string>(asset, "execution_id");
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="border-b border-red-500/20 bg-red-500/5 px-6 py-4">
+        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-red-500">
+          {exceptionType ?? "Unknown exception"}
+        </div>
+        <div className="mt-1 text-sm text-foreground">{message ?? "(no message)"}</div>
+        {executionId && (
+          <div className="mt-1 font-mono text-xs text-muted-foreground">
+            execution_id = {executionId}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 overflow-hidden">
+        <BinaryPreview asset={asset} />
+      </div>
+    </div>
+  );
+};
+
+const ContentPanel = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
+  switch (asset.kind) {
+    case "log":
+      return <LogTail asset={asset} />;
+    case "checkpoint":
+    case "execution_state":
+      return <JsonPreview asset={asset} />;
+    case "error_trace":
+      return <ErrorTraceView asset={asset} />;
+    case "data":
+    case "artifact":
+    case "output":
+    default:
+      return <BinaryPreview asset={asset} />;
+  }
+};
+
+// ── Main viewer ────────────────────────────────────────────────────────────
 
 export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const [asset, setAsset] = useState<ApiAssetResponse | null>(null);
@@ -155,7 +328,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
       .getAssets()
       .then((all) => {
         if (cancelled) return;
-        const match = all.find((a) => a.id === assetId || a.assetId === assetId);
+        const match = all.find((a) => a.id === assetId);
         if (!match) {
           setNotFound(true);
         } else {
@@ -164,7 +337,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
         }
       })
       .catch((err) => {
-        console.error("Failed to load asset", err);
+        if (typeof console !== "undefined") console.error("Failed to load asset", err);
         setNotFound(true);
       });
     return () => {
@@ -185,42 +358,23 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
     return <div className="p-8 text-muted-foreground">Loading asset…</div>;
   }
 
-  const fileColumns: DataTableColumn<ApiAssetFile>[] = [
-    {
-      key: "path",
-      header: "Path",
-      cell: (file) => (
-        <div className="flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          <span className="font-mono text-xs text-foreground">{file.path}</span>
-        </div>
-      ),
-    },
-    {
-      key: "size",
-      header: "Size",
-      width: "w-[120px]",
-      cell: (file) => <span className="font-mono text-xs">{formatBytes(file.size)}</span>,
-    },
-    {
-      key: "hash",
-      header: "Hash",
-      cell: (file) => (
-        <span
-          className="block max-w-[360px] truncate font-mono text-xs text-muted-foreground"
-          title={file.hash}
-        >
-          {file.hash}
-        </span>
-      ),
-    },
-  ];
+  const meta = kindMeta(asset.kind);
+  const size = extraValue<number>(asset, "size") ?? null;
+  const mime = extraValue<string>(asset, "mime");
+  const downloadUrl = `/api/assets/${encodeURIComponent(asset.id)}/content`;
 
-  const downloadUrl = `/api/assets/${encodeURIComponent(asset.assetId)}/download`;
-
-  const producerRun = asset.producerRunId
-    ? snapshot.runs.find((r) => r.id === asset.producerRunId)
+  const producerRunId = asset.producer?.run_id as string | undefined;
+  const producerTaskId = asset.producer?.task_id as string | undefined;
+  const producerExecId = asset.producer?.execution_id as string | undefined;
+  const producerRun = producerRunId
+    ? snapshot.runs.find((r) => r.id === producerRunId)
     : null;
+
+  const scopeLabel = asset.scope_kind === "workspace"
+    ? "workspace"
+    : `${asset.scope_kind}: ${asset.scope_ids.join(" / ")}`;
+
+  const tagEntries = Object.entries(asset.tags ?? {});
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -228,12 +382,12 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
         breadcrumbs={breadcrumbs}
         canNavigateUp={canNavigateUp}
         onNavigateUp={navigateUp}
-        icon={Archive}
-        title={asset.assetId}
+        icon={meta.icon}
+        title={asset.name}
         status={assetSummary?.status}
-        subtitle={assetSummary?.summary || undefined}
+        subtitle={`${meta.label} · ${scopeLabel}`}
         actions={
-          <a href={downloadUrl} download={`${asset.assetId}.${asset.format}`}>
+          <a href={downloadUrl} download={asset.name}>
             <Button variant="outline" size="sm">
               <Download className="mr-2 h-4 w-4" />
               Download
@@ -242,8 +396,9 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
         }
         metrics={
           <>
-            <EntityMetric label="Files" value={asset.files?.length ?? 0} />
-            <EntityMetric label="Size" value={formatBytes(asset.size)} />
+            <EntityMetric label="Kind" value={meta.label} />
+            <EntityMetric label="Scope" value={asset.scope_kind} />
+            <EntityMetric label="Size" value={formatBytes(size)} />
           </>
         }
       />
@@ -257,9 +412,6 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
               </TabsTrigger>
               <TabsTrigger value="content" className="rounded-md px-4 py-2 text-sm font-medium">
                 Content
-              </TabsTrigger>
-              <TabsTrigger value="files" className="rounded-md px-4 py-2 text-sm font-medium">
-                Files
               </TabsTrigger>
             </TabsList>
           </div>
@@ -308,44 +460,116 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
 
               <div>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Metadata
+                  Identity
                 </h3>
                 <div className="mt-4">
                   <KeyValueGrid
                     items={[
                       {
                         label: "Asset ID",
-                        value: <span className="font-mono text-xs">{asset.assetId}</span>,
-                      },
-                      {
-                        label: "Internal ID",
                         value: <span className="font-mono text-xs">{asset.id}</span>,
                       },
-                      { label: "Type", value: asset.type },
-                      { label: "Format", value: asset.format },
-                      { label: "MIME Type", value: asset.mimeType || "-" },
-                      { label: "Size", value: formatBytes(asset.size) },
+                      { label: "Name", value: asset.name },
+                      { label: "Kind", value: meta.label },
                       {
-                        label: "Content Hash",
+                        label: "Scope",
                         value: (
-                          <span className="break-all font-mono text-xs">{asset.contentHash}</span>
+                          <span className="font-mono text-xs">{scopeLabel}</span>
                         ),
                       },
-                      { label: "Created", value: new Date(asset.created).toLocaleString() },
+                      {
+                        label: "Path",
+                        value: (
+                          <span className="break-all font-mono text-xs">{asset.path}</span>
+                        ),
+                      },
+                      {
+                        label: "Created",
+                        value: new Date(asset.created_at).toLocaleString(),
+                      },
+                      {
+                        label: "Updated",
+                        value: new Date(asset.updated_at).toLocaleString(),
+                      },
                     ]}
                   />
                 </div>
               </div>
 
-              {asset.tags && asset.tags.length > 0 && (
+              {(producerRunId || producerTaskId || producerExecId) && (
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Producer
+                  </h3>
+                  <div className="mt-4">
+                    <KeyValueGrid
+                      items={[
+                        {
+                          label: "Run",
+                          value: (
+                            <span className="font-mono text-xs">
+                              {producerRunId ?? "—"}
+                            </span>
+                          ),
+                        },
+                        {
+                          label: "Execution",
+                          value: (
+                            <span className="font-mono text-xs">
+                              {producerExecId ?? "—"}
+                            </span>
+                          ),
+                        },
+                        {
+                          label: "Task",
+                          value: (
+                            <span className="font-mono text-xs">
+                              {producerTaskId ?? "—"}
+                            </span>
+                          ),
+                        },
+                      ]}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {(size != null || mime) && (
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Payload
+                  </h3>
+                  <div className="mt-4">
+                    <KeyValueGrid
+                      items={[
+                        { label: "MIME", value: mime ?? "—" },
+                        { label: "Size", value: formatBytes(size) },
+                      ]}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {asset.extra && Object.keys(asset.extra).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                    Kind-specific details
+                  </h3>
+                  <pre className="mt-3 overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 font-mono text-xs">
+                    {JSON.stringify(asset.extra, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {tagEntries.length > 0 && (
                 <div>
                   <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                     Tags
                   </h3>
                   <div className="mt-3 flex flex-wrap gap-1.5">
-                    {asset.tags.map((tag) => (
-                      <Badge key={tag} variant="secondary" className="text-xs">
-                        {tag}
+                    {tagEntries.map(([key, value]) => (
+                      <Badge key={key} variant="secondary" className="text-xs">
+                        {key}: {value}
                       </Badge>
                     ))}
                   </div>
@@ -355,24 +579,15 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
           </TabsContent>
 
           <TabsContent value="content" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
-            <ContentPreview asset={asset} />
-          </TabsContent>
-
-          <TabsContent value="files" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
-            <DataTable
-              columns={fileColumns}
-              data={asset.files ?? []}
-              getRowKey={(file) => file.path}
-              empty={
-                <EmptyState
-                  title={EMPTY_COPY.assets.title}
-                  description="This asset has no file manifest."
-                />
-              }
-            />
+            <ContentPanel asset={asset} />
           </TabsContent>
         </Tabs>
       </div>
     </div>
   );
 };
+
+// Suppress unused-import warning (kept for future virtualised log tail)
+void FileText;
+void EMPTY_COPY;
+export type { AssetKind };

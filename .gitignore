@@ -4,6 +4,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Scratch workspaces materialised by CLI examples
+examples/**/_workspace/
+
 # C extensions
 *.so
 

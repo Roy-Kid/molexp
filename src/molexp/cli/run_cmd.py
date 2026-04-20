@@ -20,7 +20,7 @@ from ._common import (
     rprint,
 )
 
-RunHandler = Callable[[Any, Any, Any], None]
+RunHandler = Callable[[Any, Any, Any, Any], None]
 
 
 # ── Config / profile resolution ─────────────────────────────────────────────
@@ -71,9 +71,7 @@ def _apply_overrides(
     data = profile_cfg.to_dict()
     for item in overrides:
         if "=" not in item:
-            rprint(
-                f"[red]Error:[/red] --set value {item!r} is not in KEY=VALUE format."
-            )
+            rprint(f"[red]Error:[/red] --set value {item!r} is not in KEY=VALUE format.")
             raise typer.Exit(1)
         key, _, raw = item.partition("=")
         key = key.strip()
@@ -84,9 +82,7 @@ def _apply_overrides(
     return ProfileConfig(data, name=profile_cfg.name)
 
 
-def _resolve_profile(
-    config_path: Path | None, profile: str | None
-) -> ProfileConfig:
+def _resolve_profile(config_path: Path | None, profile: str | None) -> ProfileConfig:
     """Load molcfg and resolve the requested profile.
 
     - If *config_path* is given it must exist.
@@ -127,15 +123,33 @@ def _resolve_profile(
 # ── Sweep driver ────────────────────────────────────────────────────────────
 
 
+def _resolve_jobs(cli_jobs: int | None, profile_cfg: ProfileConfig) -> int:
+    """Resolve effective sweep concurrency.
+
+    CLI ``-j`` wins when provided; otherwise fall back to the profile's
+    ``jobs:`` field; default to ``1`` (serial, backwards compatible).
+    Values ``<= 0`` are clamped to ``1`` (``Semaphore(0)`` would deadlock).
+    """
+    if cli_jobs is not None:
+        return max(1, cli_jobs)
+    raw = profile_cfg.get("jobs", 1) if hasattr(profile_cfg, "get") else 1
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 1
+
+
 def _execute_sweep(
     *,
     script: Path,
     profile_cfg: ProfileConfig,
     resume: bool,
     workspace: Path | None,
-    run_handler: RunHandler,
+    run_handler: RunHandler | None,
     mode_label: str,
     suppress_ok: bool = False,
+    jobs: int = 1,
+    use_sweep_graph: bool = False,
 ) -> tuple[int, list[Any]]:
     """Walk each workspace's experiments and dispatch one run per replica.
 
@@ -163,6 +177,7 @@ def _execute_sweep(
 
     total_dispatched = 0
     dispatched_runs: list[Any] = []
+    all_replicas: list[tuple[Any, Any, Any]] = []
 
     for ws in workspaces:
         if workspace is not None:
@@ -219,11 +234,15 @@ def _execute_sweep(
 
                     if resume:
                         if existing is None:
-                            rprint(f"  [dim]- {exp.id}  seed={seed} (no existing run, skipped)[/dim]")
+                            rprint(
+                                f"  [dim]- {exp.id}  seed={seed} (no existing run, skipped)[/dim]"
+                            )
                             continue
                         # Resume all non-succeeded runs that match this profile.
                         if existing.status == "succeeded":
-                            rprint(f"  [dim]- {exp.id}  seed={seed} (already succeeded, skipped)[/dim]")
+                            rprint(
+                                f"  [dim]- {exp.id}  seed={seed} (already succeeded, skipped)[/dim]"
+                            )
                             continue
                         if existing.metadata.profile != profile_cfg.name:
                             rprint(
@@ -234,7 +253,9 @@ def _execute_sweep(
                         mol_run = existing
                     elif existing is not None:
                         if existing.status in ("succeeded", "running"):
-                            rprint(f"  [dim]- {exp.id}  seed={seed} ({existing.status}, skipped)[/dim]")
+                            rprint(
+                                f"  [dim]- {exp.id}  seed={seed} ({existing.status}, skipped)[/dim]"
+                            )
                             continue
                         mol_run = existing
                     else:
@@ -244,7 +265,7 @@ def _execute_sweep(
                     icon = "[cyan]>[/cyan]" if resume else "[dim]o[/dim]"
                     rprint(f"  {icon} {exp.id}  seed={seed}")
 
-                for mol_run, seed in created_runs:
+                for mol_run, _seed in created_runs:
                     # Persist script path and profile config into run.json before
                     # any handler so the worker can reconstruct everything from
                     # run_dir alone (via ``molexp execute <run_dir>``).
@@ -258,14 +279,32 @@ def _execute_sweep(
                             else None
                         ),
                     )
-                    run_handler(mol_run, exp, project)
-                    dispatched_runs.append(mol_run)
-                    rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  seed={seed}")
+                    all_replicas.append((mol_run, exp, project))
 
                 total_dispatched += len(created_runs)
-                if not suppress_ok:
-                    verb = "resumed" if resume else "completed"
-                    rprint(f"\n[green]OK[/green] {len(created_runs)} runs {verb}.")
+
+    if use_sweep_graph:
+        from molexp.sweep import SweepReplica, run_sweep
+
+        replicas = [
+            SweepReplica(mol_run=mol_run, experiment=exp) for mol_run, exp, _project in all_replicas
+        ]
+        if replicas:
+            asyncio.run(run_sweep(replicas, profile_config=profile_cfg, jobs=jobs))
+        dispatched_runs.extend(mol_run for mol_run, _, _ in all_replicas)
+        if not suppress_ok:
+            verb = "resumed" if resume else "completed"
+            rprint(f"\n[green]OK[/green] {total_dispatched} runs {verb}.")
+    else:
+        if run_handler is None:
+            raise RuntimeError("run_handler must be provided when use_sweep_graph=False")
+        for mol_run, exp, project in all_replicas:
+            run_handler(script, mol_run, exp, project)
+            dispatched_runs.append(mol_run)
+            rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  run={mol_run.id}")
+        if not suppress_ok:
+            verb = "resumed" if resume else "completed"
+            rprint(f"\n[green]OK[/green] {total_dispatched} runs {verb}.")
 
     return total_dispatched, dispatched_runs
 
@@ -338,19 +377,11 @@ def run(
     # ── Execution backend ──────────────────────────────────────────────────
     local: Annotated[
         bool,
-        typer.Option("--local", help="Run locally, sequentially (default).", rich_help_panel="Execution Backend"),
-    ] = False,
-    slurm: Annotated[
-        bool,
-        typer.Option("--slurm", help="Submit to a SLURM cluster via molq.", rich_help_panel="Execution Backend"),
-    ] = False,
-    pbs: Annotated[
-        bool,
-        typer.Option("--pbs", help="Submit to a PBS/Torque cluster via molq.", rich_help_panel="Execution Backend"),
-    ] = False,
-    lsf: Annotated[
-        bool,
-        typer.Option("--lsf", help="Submit to an LSF cluster via molq.", rich_help_panel="Execution Backend"),
+        typer.Option(
+            "--local",
+            help="Run locally, sequentially (default).",
+            rich_help_panel="Execution Backend",
+        ),
     ] = False,
     scheduler: Annotated[
         Optional[str],
@@ -400,19 +431,32 @@ def run(
         ),
     ] = None,
     # ── Common options ─────────────────────────────────────────────────────
+    jobs: Annotated[
+        Optional[int],
+        typer.Option(
+            "--jobs",
+            "-j",
+            help=(
+                "Maximum number of replicas to run concurrently (local backend "
+                "only). If omitted, falls back to the active profile's "
+                "``jobs:`` field, or ``1`` (serial) when unset."
+            ),
+        ),
+    ] = None,
     resume: Annotated[
         bool,
         typer.Option(
             "--resume",
             help=(
-                "Re-execute non-succeeded runs whose profile matches the "
-                "one selected by --profile."
+                "Re-execute non-succeeded runs whose profile matches the one selected by --profile."
             ),
         ),
     ] = False,
     bg: Annotated[
         bool,
-        typer.Option("--bg", help="Run in background (local only). Logs to <workspace>/molexp_bg.log."),
+        typer.Option(
+            "--bg", help="Run in background (local only). Logs to <workspace>/molexp_bg.log."
+        ),
     ] = False,
     workspace: Annotated[
         Optional[Path],
@@ -425,11 +469,18 @@ def run(
     ] = None,
     mem: Annotated[
         Optional[str],
-        typer.Option("--mem", help="Memory per job (e.g. 8G, 512M).", rich_help_panel="HPC Options"),
+        typer.Option(
+            "--mem", help="Memory per job (e.g. 8G, 512M).", rich_help_panel="HPC Options"
+        ),
     ] = None,
     time: Annotated[
         Optional[str],
-        typer.Option("--time", "-t", help="Wall-clock time limit (e.g. 12:00:00, 2h30m).", rich_help_panel="HPC Options"),
+        typer.Option(
+            "--time",
+            "-t",
+            help="Wall-clock time limit (e.g. 12:00:00, 2h30m).",
+            rich_help_panel="HPC Options",
+        ),
     ] = None,
     gpus: Annotated[
         Optional[int],
@@ -437,11 +488,15 @@ def run(
     ] = None,
     gpu_type: Annotated[
         Optional[str],
-        typer.Option("--gpu-type", help="GPU type constraint (e.g. a100).", rich_help_panel="HPC Options"),
+        typer.Option(
+            "--gpu-type", help="GPU type constraint (e.g. a100).", rich_help_panel="HPC Options"
+        ),
     ] = None,
     account: Annotated[
         Optional[str],
-        typer.Option("--account", "-A", help="Account / project name.", rich_help_panel="HPC Options"),
+        typer.Option(
+            "--account", "-A", help="Account / project name.", rich_help_panel="HPC Options"
+        ),
     ] = None,
     cluster: Annotated[
         Optional[str],
@@ -459,7 +514,9 @@ def run(
     # ── PBS / LSF-specific ─────────────────────────────────────────────────
     queue: Annotated[
         Optional[str],
-        typer.Option("--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"),
+        typer.Option(
+            "--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"
+        ),
     ] = None,
     # ── Monitor ────────────────────────────────────────────────────────────
     block: Annotated[
@@ -476,22 +533,11 @@ def run(
 ) -> None:
     """Execute the workflow(s) defined by *script*."""
     # ── Backend selection ──────────────────────────────────────────────────
-    legacy_schedulers = [n for n, flag in (("slurm", slurm), ("pbs", pbs), ("lsf", lsf)) if flag]
-    if len(legacy_schedulers) > 1:
-        rprint(
-            f"[red]Error:[/red] Specify at most one of "
-            f"{', '.join('--' + n for n in legacy_schedulers)}."
-        )
+    if local and scheduler is not None:
+        rprint("[red]Error:[/red] Specify at most one backend flag (--local, --scheduler).")
         raise typer.Exit(1)
 
-    selected_scheduler = scheduler or (legacy_schedulers[0] if legacy_schedulers else None)
-    if local and selected_scheduler is not None:
-        rprint(
-            "[red]Error:[/red] Specify at most one backend flag "
-            "(--local, --scheduler, --slurm, --pbs, --lsf)."
-        )
-        raise typer.Exit(1)
-
+    selected_scheduler = scheduler
     is_local = selected_scheduler is None
 
     if bg and not is_local:
@@ -514,21 +560,21 @@ def run(
             )
             return
 
-        profile_label = f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
+        profile_label = (
+            f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
+        )
         label = f"[green]local[/green] profile={profile_label}"
 
-        def _local_handler(mol_run: Any, experiment: Any, _project: Any) -> None:
-            asyncio.run(
-                experiment.workflow.execute(run=mol_run, profile_config=profile_cfg)
-            )
-
+        effective_jobs = _resolve_jobs(jobs, profile_cfg)
         _execute_sweep(
             script=script,
             profile_cfg=profile_cfg,
             resume=resume,
             workspace=workspace,
-            run_handler=_local_handler,
+            run_handler=None,
             mode_label=label,
+            jobs=effective_jobs,
+            use_sweep_graph=True,
         )
         return
 
@@ -565,7 +611,9 @@ def run(
         resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
         scheduling={"queue": selected_queue, "account": account, "qos": qos},
     )
-    profile_label = f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
+    profile_label = (
+        f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
+    )
     mode_label = f"[magenta]{selected_scheduler}[/magenta] profile={profile_label}"
 
     n, submitted = _execute_sweep(
@@ -585,15 +633,16 @@ def run(
 
     if block and submitted:
         from molexp.monitor import RunMonitor
+
         rprint(f"\n[dim]Submitted {n} runs. Opening monitor… (press q to close)[/dim]")
         RunMonitor(title=f"{script.stem}  [{mode_label}]").watch(submitted)
         rprint(f"\n[dim]Monitor closed. {n} runs are still executing (if any).[/dim]")
-        rprint(f"[dim]Reopen with:  molexp watch --workspace {workspace or '.'} [/dim]")
+        rprint(f"[dim]Reopen with:  molexp watch {workspace or '.'}[/dim]")
     else:
         verb = "resumed" if resume else "submitted"
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
         if submitted:
-            rprint(f"[dim]Open the monitor with:  molexp watch --workspace {workspace or '.'} [/dim]")
+            rprint(f"[dim]Open the monitor with:  molexp watch {workspace or '.'}[/dim]")
 
 
 @app.command()

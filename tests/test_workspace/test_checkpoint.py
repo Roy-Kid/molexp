@@ -1,6 +1,5 @@
 """Tests for checkpoint system."""
 
-
 from molexp.workspace.checkpoint import Checkpoint, generate_checkpoint_id
 
 

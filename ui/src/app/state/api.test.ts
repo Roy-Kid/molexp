@@ -174,19 +174,29 @@ describe("mapAssets", () => {
     expect(result.id).toBe("asset-001");
   });
 
-  it("maps name from assetId", () => {
+  it("maps name directly from asset.name", () => {
     const [result] = mapAssets([fixtureAsset]);
-    expect(result.name).toBe("asset-001");
+    expect(result.name).toBe("checkpoint.pt");
   });
 
-  it("builds summary from type and format", () => {
+  it("builds summary from kind and scope_kind", () => {
     const [result] = mapAssets([fixtureAsset]);
-    expect(result.summary).toBe("model • pickle");
+    expect(result.summary).toBe("artifact · run scope");
   });
 
-  it("maps sizeBytes", () => {
+  it("reads sizeBytes from extra.size", () => {
     const [result] = mapAssets([fixtureAsset]);
     expect(result.sizeBytes).toBe(1024);
+  });
+
+  it("returns null sizeBytes when extra.size is absent", () => {
+    const [result] = mapAssets([{ ...fixtureAsset, extra: {} }]);
+    expect(result.sizeBytes).toBeNull();
+  });
+
+  it("uses updated_at for updatedAt", () => {
+    const [result] = mapAssets([fixtureAsset]);
+    expect(result.updatedAt).toBe("2026-03-01T16:00:00Z");
   });
 
   it("forwards optional projectId", () => {

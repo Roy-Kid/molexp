@@ -103,7 +103,6 @@ class ExecutionRecord(BaseModel, frozen=True):
     started_at: datetime
     finished_at: datetime | None = None
     status: str = "running"
-    molq_job_id: str | None = None
     scheduler_job_id: str | None = None
 
 

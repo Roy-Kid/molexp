@@ -107,19 +107,14 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         """
         user_deps = kwargs.get("deps")
         submitors = kwargs.get("submitors")
-        run_dir = (
-            Path(run_context.work_dir)
-            if run_context is not None
-            else _get_run_dir(run)
-        )
+        run_dir = Path(run_context.work_dir) if run_context is not None else _get_run_dir(run)
 
-        effective_config = (
-            run_context.config if run_context is not None else profile_config
-        )
+        effective_config = run_context.config if run_context is not None else profile_config
 
         remote_executor = None
         if submitors:
             from ..remote import RemoteStepExecutor
+
             remote_executor = RemoteStepExecutor(submitors)
 
         deps = compiled.make_deps(
@@ -168,6 +163,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
 
         if run is not None:
             from molexp.workspace.run import RunContext as WorkspaceRunContext
+
             managed_ctx = WorkspaceRunContext(run, profile_config=profile_config)
             with managed_ctx:
                 yield managed_ctx
@@ -200,8 +196,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         _early_run = run_context.run if run_context is not None else run
         _early_run_id = _get_run_id(_early_run)
         _early_run_dir = (
-            Path(run_context.work_dir) if run_context is not None
-            else _get_run_dir(_early_run)
+            Path(run_context.work_dir) if run_context is not None else _get_run_dir(_early_run)
         )
         execution_id = _make_execution_id(_early_run_id, _early_run_dir)
         owner_supplied_context = run_context
@@ -212,11 +207,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 run_context=run_context,
                 profile_config=profile_config,
             ) as active_run_context:
-                effective_run = (
-                    active_run_context.run
-                    if active_run_context is not None
-                    else run
-                )
+                effective_run = active_run_context.run if active_run_context is not None else run
                 deps, run_dir = self._build_deps(
                     compiled,
                     run=effective_run,
@@ -283,9 +274,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 status="failed",
                 outputs={},
                 run_id=_get_run_id(
-                    owner_supplied_context.run
-                    if owner_supplied_context is not None
-                    else run
+                    owner_supplied_context.run if owner_supplied_context is not None else run
                 ),
                 execution_id=execution_id,
             )
@@ -312,15 +301,10 @@ class GraphWorkflowRuntime(WorkflowRuntime):
 
         compiled = self._get_compiled(spec)
         owner_supplied_context = run_context
-        effective_run = (
-            run_context.run
-            if run_context is not None
-            else run
-        )
+        effective_run = run_context.run if run_context is not None else run
         run_id = _get_run_id(effective_run)
         _early_run_dir = (
-            Path(run_context.work_dir) if run_context is not None
-            else _get_run_dir(effective_run)
+            Path(run_context.work_dir) if run_context is not None else _get_run_dir(effective_run)
         )
         execution_id = _make_execution_id(run_id, _early_run_dir)
 
@@ -338,9 +322,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     profile_config=profile_config,
                 ) as active_run_context:
                     effective_run = (
-                        active_run_context.run
-                        if active_run_context is not None
-                        else run
+                        active_run_context.run if active_run_context is not None else run
                     )
                     deps, _ = self._build_deps(
                         compiled,
@@ -350,9 +332,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                         kwargs=kwargs,
                     )
                     state = WorkflowState()
-                    run_result = await compiled.graph.run(
-                        WorkflowStep(0), state=state, deps=deps
-                    )
+                    run_result = await compiled.graph.run(WorkflowStep(0), state=state, deps=deps)
                     result_state = run_result.output
                     self._set_run_status(
                         active_run_context,
@@ -427,7 +407,11 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 ) as run_ctx:
                     async for _node in run_ctx:
                         pass
-                    result_state = run_ctx.result.output if run_ctx.result else WorkflowState(failed=True, error="No result")
+                    result_state = (
+                        run_ctx.result.output
+                        if run_ctx.result
+                        else WorkflowState(failed=True, error="No result")
+                    )
 
                 handle._result = WorkflowResult(
                     status="failed" if result_state.failed else "completed",
@@ -458,11 +442,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
             raise ValueError("Pass either run or run_context, not both")
 
         compiled = self._get_compiled(spec)
-        effective_run = (
-            effective_run_context.run
-            if effective_run_context is not None
-            else run
-        )
+        effective_run = effective_run_context.run if effective_run_context is not None else run
         deps, _ = self._build_deps(
             compiled,
             run=effective_run,

@@ -13,7 +13,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from .asset import AssetLibrary
+from .assets import AssetCatalog, AssetScope, AssetsView, DataAssetLibrary
 from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
 from .models import ProjectMetadata, WorkspaceMetadata
 from .project import Project
@@ -39,7 +39,8 @@ class Workspace:
             if name is None:
                 name = self.root.name
             self.metadata = WorkspaceMetadata(id=slugify(name), name=name)
-        self._assets_lib: AssetLibrary | None = None
+        self._data_assets: DataAssetLibrary | None = None
+        self._catalog: AssetCatalog | None = None
         self._projects_cache: dict[str, Project] = {}
 
     def _ensure_materialized(self) -> None:
@@ -61,10 +62,30 @@ class Workspace:
         return self.metadata.created_at
 
     @property
-    def assets(self) -> AssetLibrary:
-        if self._assets_lib is None:
-            self._assets_lib = AssetLibrary(self.root / "assets")
-        return self._assets_lib
+    def scope(self) -> AssetScope:
+        return AssetScope(kind="workspace", ids=())
+
+    @property
+    def assets(self) -> AssetsView:
+        """Scope-filtered catalog view (read-only queries)."""
+        return AssetsView(self.catalog, self.scope)
+
+    @property
+    def data_assets(self) -> DataAssetLibrary:
+        """Library for importing ``DataAsset`` inputs."""
+        if self._data_assets is None:
+            self._data_assets = DataAssetLibrary(self.root, self.scope, self.catalog)
+        return self._data_assets
+
+    @property
+    def catalog(self) -> AssetCatalog:
+        """Workspace-wide JSON asset + entity catalog.
+
+        Lazily constructed.  The catalog directory is created on first write.
+        """
+        if self._catalog is None:
+            self._catalog = AssetCatalog(self.root)
+        return self._catalog
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -72,10 +93,23 @@ class Workspace:
         """Create filesystem structure and persist metadata (non-recursive)."""
         self.root.mkdir(parents=True, exist_ok=True)
         _save_metadata(self.metadata, self.root / "workspace.json")
+        self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
         _save_metadata(self.metadata, self.root / "workspace.json")
+        self._catalog_upsert()
+
+    def _catalog_upsert(self) -> None:
+        self.catalog.upsert_workspace(
+            {
+                "workspace_id": self.metadata.id,
+                "root_path": str(self.root),
+                "name": self.metadata.name,
+                "created_at": self.metadata.created_at.isoformat(),
+                "updated_at": self.metadata.created_at.isoformat(),
+            }
+        )
 
     # ── Alternative constructors (kept for callers that still use them) ──
 
@@ -85,24 +119,18 @@ class Workspace:
         root = Path(root).resolve()
         metadata_file = root / "workspace.json"
         if not metadata_file.exists():
-            raise FileNotFoundError(
-                f"Workspace metadata not found at {metadata_file}"
-            )
+            raise FileNotFoundError(f"Workspace metadata not found at {metadata_file}")
         meta = _load_metadata(WorkspaceMetadata, metadata_file)
         return _reconstruct(
             cls,
             {
                 "root": root,
                 "metadata": meta,
-                "_assets_lib": None,
+                "_data_assets": None,
+                "_catalog": None,
                 "_projects_cache": {},
             },
         )
-
-    @classmethod
-    def from_path(cls, root: Path | str) -> Workspace:
-        """Compatibility alias for ``Workspace(root)``."""
-        return cls(root)
 
     # ── Project operations ──────────────────────────────────────────────
 
@@ -149,7 +177,7 @@ class Workspace:
             attrs_factory=lambda m: {
                 "workspace": self,
                 "metadata": m,
-                "_assets_lib": None,
+                "_data_assets": None,
                 "_experiments_cache": {},
             },
         )
@@ -178,7 +206,7 @@ class Workspace:
             {
                 "workspace": self,
                 "metadata": meta,
-                "_assets_lib": None,
+                "_data_assets": None,
                 "_experiments_cache": {},
             },
         )

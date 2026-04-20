@@ -21,17 +21,17 @@ export const experimentHandlers = [
         const { projectId } = params;
         const body = (await request.json()) as ExperimentCreateRequest;
 
+        const experimentId =
+            body.name?.toLowerCase().replace(/\s+/g, "-") || `exp-${Date.now()}`;
         const newExperiment: ApiExperimentResponse = {
-            id: body.id || `exp-${Date.now()}`,
-            experimentId: body.id || `exp-${Date.now()}`,
+            id: experimentId,
             projectId: projectId as string,
             name: body.name,
             description: body.description || "",
-            workflow: body.workflow_source,
+            workflow: body.workflow_source ?? null,
             workflowType: "yaml",
             gitCommit: null,
             parameterSpace: body.parameter_space || {},
-            defaultInputs: [],
             runCount: 0,
             runs: [],
             created: new Date().toISOString(),

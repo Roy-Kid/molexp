@@ -163,33 +163,51 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
   const assetColumns: DataTableColumn<ApiAssetResponse>[] = [
     {
       key: "name",
-      header: "Asset Name",
+      header: "Name",
       cell: (asset) => (
         <div className="flex items-center gap-2 font-medium">
           <Archive className="h-4 w-4 text-amber-500" />
-          {asset.assetId}
+          {asset.name}
         </div>
       ),
     },
     {
-      key: "type",
-      header: "Type",
-      width: "w-[150px]",
-      cell: (asset) => <span className="text-muted-foreground">{asset.format}</span>,
+      key: "kind",
+      header: "Kind",
+      width: "w-[140px]",
+      cell: (asset) => <span className="text-muted-foreground">{asset.kind}</span>,
+    },
+    {
+      key: "scope",
+      header: "Scope",
+      width: "w-[160px]",
+      cell: (asset) => (
+        <span className="font-mono text-xs text-muted-foreground">
+          {asset.scope_kind}
+          {asset.scope_ids.length > 0 ? ` · ${asset.scope_ids.join("/")}` : ""}
+        </span>
+      ),
     },
     {
       key: "size",
       header: "Size",
       width: "w-[120px]",
-      cell: (asset) => <span className="font-mono text-xs">{asset.size} B</span>,
+      cell: (asset) => {
+        const size = (asset.extra as Record<string, unknown> | undefined)?.size;
+        return (
+          <span className="font-mono text-xs">
+            {typeof size === "number" ? `${size} B` : "—"}
+          </span>
+        );
+      },
     },
     {
-      key: "created",
-      header: "Created",
+      key: "updated",
+      header: "Updated",
       width: "w-[180px]",
       cell: (asset) => (
         <span className="text-muted-foreground">
-          {new Date(asset.created).toLocaleDateString()}
+          {new Date(asset.updated_at).toLocaleDateString()}
         </span>
       ),
     },

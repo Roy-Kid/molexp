@@ -17,9 +17,7 @@ app.add_typer(asset_app, name="asset")
 
 @asset_app.command("list")
 def asset_list(
-    path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path")
-    ] = None,
+    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Limit results")] = 50,
 ) -> None:
     """List workspace-level assets."""

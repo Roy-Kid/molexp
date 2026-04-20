@@ -10,11 +10,11 @@ Wraps pydantic-ai Agent with:
 from __future__ import annotations
 
 import json
-from mollog import get_logger
 import uuid
 from pathlib import Path
 from typing import Any
 
+from mollog import get_logger
 from pydantic_ai import Agent
 
 from ..policy import ApprovalPolicy
@@ -172,6 +172,7 @@ class PydanticAIRuntime(AgentRuntime):
         history_path = session_dir / "history.json"
         if history_path.exists():
             from pydantic_ai.messages import ModelMessagesTypeAdapter
+
             with history_path.open("rb") as f:
                 history = ModelMessagesTypeAdapter.validate_json(f.read())
             session.restore_message_history(history)
@@ -221,6 +222,7 @@ class PydanticAIRuntime(AgentRuntime):
         """Persist message history for resumption (call after session completes)."""
         try:
             from pydantic_ai.messages import ModelMessagesTypeAdapter
+
             history = session.get_message_history()
             if not history:
                 return
@@ -229,9 +231,7 @@ class PydanticAIRuntime(AgentRuntime):
             session_dir.mkdir(parents=True, exist_ok=True)
             history_path = session_dir / "history.json"
             tmp_path = history_path.with_suffix(".tmp")
-            tmp_path.write_bytes(
-                ModelMessagesTypeAdapter.dump_json(history, indent=2)
-            )
+            tmp_path.write_bytes(ModelMessagesTypeAdapter.dump_json(history, indent=2))
             tmp_path.rename(history_path)
         except Exception:
             logger.exception(f"Failed to save session history for {session.session_id}")

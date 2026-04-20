@@ -194,9 +194,7 @@ class TestRunCommand:
         _write_script(script, workspace_root)
 
         # No molcfg.yaml in CWD and no --config
-        result = runner.invoke(
-            app, ["run", str(script), "--profile", "dry-run"]
-        )
+        result = runner.invoke(app, ["run", str(script), "--profile", "dry-run"])
         assert result.exit_code == 1
         assert "no config file" in result.output.lower()
 
@@ -210,7 +208,6 @@ class TestRunCommand:
         assert result.exit_code == 0
         assert "--local" in result.output
         assert "--scheduler" in result.output
-        assert "--slurm" in result.output
         assert "--profile" in result.output
         assert "--config" in result.output
         assert "HPC Options" in result.output

@@ -121,11 +121,15 @@ Profiles become more valuable when the same script moves across environments. A 
 molexp run train.py --profile smoke
 
 # Production-like cluster submission
-molexp run train.py --profile production --slurm --partition gpu --gpus 1 --cpus 8
+molexp run train.py --profile production --scheduler slurm --partition gpu --gpus 1 --cpus 8
 ```
 
 The workflow remains one source file, the profile remains one named config slice, and the scheduler flags remain a separate concern. That separation keeps the authoring model stable even as the execution target changes.
 
 ## The Next Layer of Detail
 
-If you want the end-to-end authoring path, continue with the [Quick Start](../tutorial/quick-start.md). If you need the persistence details behind `profile`, `config`, and `config_hash`, see [Workflow Persistence](workflow-persistence.md). For the design rationale and the original replacement of `dry-run` with profiles, see [molcfg profiles](../spec/molcfg-profiles.md).
+If you want the end-to-end authoring path, continue with the [Quick Start](../getting-started/quick-start.md). If you need the persistence details behind `profile`, `config`, and `config_hash`, see [Workflow Persistence](workflow-persistence.md). For the design rationale and the original replacement of `dry-run` with profiles, see [molcfg profiles](../development/specs/molcfg-profiles.md).
+
+## Runnable Example
+
+`examples/operations/run_profiles/` ships a `train.py` and a matching `molcfg.yaml` defining `smoke`, `dry-run`, and `large-batch`. Invoke it through the CLI, e.g. `molexp run examples/operations/run_profiles/train.py --profile smoke`.

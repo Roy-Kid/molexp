@@ -1,4 +1,5 @@
 """Smoke tests for bundled frontend static asset serving."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from molexp.server.app import _find_bundled_webapp, create_app
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -19,9 +19,7 @@ def mock_webapp(tmp_path: Path) -> Path:
     """Minimal directory that mimics the rsbuild build output."""
     root = tmp_path / "webapp"
     root.mkdir()
-    (root / "index.html").write_text(
-        "<!DOCTYPE html><html><body>MolExp UI</body></html>"
-    )
+    (root / "index.html").write_text("<!DOCTYPE html><html><body>MolExp UI</body></html>")
     (root / "favicon.ico").write_bytes(b"\x00")  # dummy favicon
 
     static = root / "static" / "js"

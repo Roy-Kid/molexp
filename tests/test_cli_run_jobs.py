@@ -1,6 +1,6 @@
 """CLI tests for ``molexp run -j/--jobs N`` — local sweep-level parallelism.
 
-Phase-1 surface (see ``docs/spec/unified-pydantic-graph-dispatch.md``).
+Phase-1 surface (see ``docs/development/specs/unified-pydantic-graph-dispatch.md``).
 """
 
 from __future__ import annotations
@@ -69,9 +69,7 @@ class TestJobsFlag:
 
         ws = Workspace.load(workspace_root)
         all_runs = [
-            run
-            for exp in ws.get_project("demo").list_experiments()
-            for run in exp.list_runs()
+            run for exp in ws.get_project("demo").list_experiments() for run in exp.list_runs()
         ]
         assert len(all_runs) == n
         for run in all_runs:
@@ -121,12 +119,7 @@ class TestJobsFlag:
         script = tmp_path / "train.py"
         molcfg = tmp_path / "molcfg.yaml"
         _write_parallel_script(script, workspace_root, n_experiments=n, sleep_s=sleep_s)
-        molcfg.write_text(
-            "defaults: {}\n"
-            "profiles:\n"
-            "  fast:\n"
-            f"    jobs: {n}\n"
-        )
+        molcfg.write_text(f"defaults: {{}}\nprofiles:\n  fast:\n    jobs: {n}\n")
 
         t0 = time.perf_counter()
         result = runner.invoke(
@@ -148,22 +141,26 @@ class TestJobsFlag:
         script = tmp_path / "train.py"
         molcfg = tmp_path / "molcfg.yaml"
         _write_parallel_script(script, workspace_root, n_experiments=n, sleep_s=sleep_s)
-        molcfg.write_text(
-            "defaults: {}\n"
-            "profiles:\n"
-            "  loud:\n"
-            "    jobs: 4\n"
-        )
+        molcfg.write_text("defaults: {}\nprofiles:\n  loud:\n    jobs: 4\n")
 
         t0 = time.perf_counter()
         result = runner.invoke(
             app,
-            ["run", str(script), "--local", "-j", "1",
-             "--config", str(molcfg), "--profile", "loud"],
+            [
+                "run",
+                str(script),
+                "--local",
+                "-j",
+                "1",
+                "--config",
+                str(molcfg),
+                "--profile",
+                "loud",
+            ],
         )
         wall = time.perf_counter() - t0
 
         assert result.exit_code == 0, result.output
         assert wall >= n * sleep_s * 0.9, (
-            f"CLI -j 1 should override profile jobs=4; expected ~{n*sleep_s}s, got {wall:.2f}s"
+            f"CLI -j 1 should override profile jobs=4; expected ~{n * sleep_s}s, got {wall:.2f}s"
         )

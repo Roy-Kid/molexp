@@ -1,7 +1,6 @@
 """Tests for project API routes."""
 
 
-
 class TestProjectRoutes:
     def test_list_empty(self, client):
         resp = client.get("/api/projects")

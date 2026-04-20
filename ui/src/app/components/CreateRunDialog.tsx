@@ -30,7 +30,6 @@ export function CreateRunDialog({
 }: CreateRunDialogProps) {
   const [open, setOpen] = useState(false);
   const [parameters, setParameters] = useState("{}");
-  const [gitCommit, setGitCommit] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,14 +40,11 @@ export function CreateRunDialog({
 
     try {
       await workspaceApi.createRun(projectId, experimentId, {
-        workflow_file: workflowFile,
         parameters: JSON.parse(parameters),
-        git_commit: gitCommit || undefined,
       });
 
       setOpen(false);
       setParameters("{}");
-      setGitCommit("");
       onRunCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to launch run");
@@ -93,18 +89,6 @@ export function CreateRunDialog({
                 onChange={(e) => setParameters(e.target.value)}
                 className="col-span-3 font-mono text-xs"
                 rows={6}
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="git-commit" className="text-right">
-                Commit
-              </Label>
-              <Input
-                id="git-commit"
-                value={gitCommit}
-                onChange={(e) => setGitCommit(e.target.value)}
-                placeholder="Optional git commit hash"
-                className="col-span-3"
               />
             </div>
             {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}

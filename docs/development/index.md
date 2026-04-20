@@ -1,12 +1,16 @@
 # Development
 
-This section is for contributors working on `molexp` internals rather than day-to-day workflow authorship.
+Contributor-facing docs for working on `molexp` internals.
 
-## Compiler and Runtime Internals
+## Internals
 
-- [Compiler](compiler.md)
-- [IR and Compiler Notes](ir-and-compiler.md)
+- [Compiler](compiler.md) — DSL → `WorkflowSpec` → pydantic-graph trampoline, identity, caching
+- [Task Protocols](task-protocols.md) — `Runnable` / `Streamable` structural contracts
 
-## Integration Contracts
+## Active Specs
 
-- [Task Protocols](task-protocols.md)
+Design notes for in-flight or recently landed work. Status is tracked inside each document.
+
+- [molcfg + Profiles](specs/molcfg-profiles.md) — profile-based configuration replacing `--dry-run`
+- [Unified pydantic-graph Dispatch](specs/unified-pydantic-graph-dispatch.md) — merging sweep and backend into the outer graph
+- [Full-screen Monitor](specs/fullscreen-monitor.md) — terminal dashboard for local and remote runs

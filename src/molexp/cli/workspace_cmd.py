@@ -22,7 +22,7 @@ def init(
 ) -> None:
     """Initialize a new workspace."""
     workspace_path = path or Path.cwd()
-    ws = Workspace.from_path(workspace_path)
+    ws = Workspace(workspace_path)
 
     rprint(f"[green]OK[/green] Initialized workspace at: {ws.root}")
     rprint(f"  - Projects directory: {ws.root / 'projects'}")

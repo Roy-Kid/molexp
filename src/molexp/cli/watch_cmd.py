@@ -24,7 +24,7 @@ def _logical_cwd() -> Path:
 def watch(
     workspace: Annotated[
         Optional[Path],
-        typer.Option("--workspace", "-w", help="Workspace root (default: current directory)."),
+        typer.Argument(help="Workspace root (default: current directory)."),
     ] = None,
     project: Annotated[
         Optional[str],
@@ -49,10 +49,11 @@ def watch(
 
     try:
         from molexp.workspace import Workspace as _Workspace
+
         ws = _Workspace.load(ws_root)
     except FileNotFoundError:
         rprint(f"[red]Error:[/red] No workspace found at {ws_root}")
-        rprint("  Run [bold]molexp init[/bold] to create one, or pass [bold]--workspace[/bold].")
+        rprint("  Run [bold]molexp init[/bold] to create one, or pass a workspace path.")
         raise typer.Exit(1)
 
     runs: list[Any] = []

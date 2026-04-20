@@ -41,9 +41,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(FileNotFoundError)
-    async def file_not_found_handler(
-        request: Request, exc: FileNotFoundError
-    ) -> JSONResponse:
+    async def file_not_found_handler(request: Request, exc: FileNotFoundError) -> JSONResponse:
         """Handle Python FileNotFoundError."""
         return JSONResponse(
             status_code=404,

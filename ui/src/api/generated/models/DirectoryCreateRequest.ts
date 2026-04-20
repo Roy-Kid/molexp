@@ -2,9 +2,6 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Request to create a directory.
- */
 export type DirectoryCreateRequest = {
     /**
      * Workspace folder ID or 'workspace'

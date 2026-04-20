@@ -2,51 +2,50 @@
 site_name = "MolExp Documentation"
 site_description = "Workflow and agent platform for research experiment management"
 
-# Navigation
 nav = [
     { "Home" = "index.md" },
-    { "Get Started" = [
-        { "Overview" = "get-started/overview.md" },
-        { "Quick Start" = "get-started/quick-start.md" }
+    { "Getting Started" = [
+        { "Overview" = "getting-started/index.md" },
+        { "Quick Start" = "getting-started/quick-start.md" },
+        { "Your First Workflow" = "getting-started/first-workflow.md" },
+        { "Track a Run" = "getting-started/tracked-runs.md" },
+        { "CLI and Profiles" = "getting-started/cli-and-profiles.md" }
     ]},
-    { "Core Concepts" = [
-        { "Task and Actor" = "core/task.md" },
-        { "TaskContext" = "core/context.md" },
-        { "Workflow Runtime" = "core/engine.md" },
-        { "Compilation and Identity" = "core/compiler.md" },
-        { "Workflow Composition" = "core/subworkflow.md" }
+    { "Concepts" = [
+        { "Overview" = "concept/index.md" },
+        { "Workflow Model" = "concept/workflow.md" },
+        { "Workspace Model" = "concept/workspace.md" },
+        { "Assets and Reproducibility" = "concept/assets-and-reproducibility.md" },
+        { "Plugins" = "concept/plugins.md" }
     ]},
-    { "Workspace" = [
-        { "Architecture" = "workspace/architecture.md" },
-        { "API Reference" = "workspace/api.md" }
+    { "Guide" = [
+        { "Overview" = "guide/index.md" },
+        { "Workflow Authoring" = [
+            { "Task and Actor" = "guide/task-and-actor.md" },
+            { "TaskContext" = "guide/task-context.md" },
+            { "Workflow Runtime" = "guide/workflow-runtime.md" },
+            { "Control Flow" = "guide/control-flow.md" },
+            { "Sub-workflows" = "guide/subworkflows.md" }
+        ]},
+        { "Records and Assets" = [
+            { "Workspace API" = "guide/workspace-api.md" },
+            { "Workspace Architecture" = "guide/workspace-architecture.md" },
+            { "Assets" = "guide/assets.md" },
+            { "Workflow Persistence" = "guide/workflow-persistence.md" },
+            { "Run Profiles" = "guide/run-profiles.md" }
+        ]},
+        { "Operations" = [
+            { "Server Lifecycle" = "guide/server-lifecycle.md" },
+            { "Molq Plugin" = "guide/molq.md" }
+        ]}
     ]},
-    { "Actors" = [
-        { "Overview" = "actors/overview.md" }
-    ]},
-    { "Control Flow" = [
-        { "Overview" = "control-flow/index.md" }
-    ]},
-    { "Assets" = [
-        { "Asset Management" = "assets/management.md" }
-    ]},
-    { "Protocols & Persistence" = [
-        { "Task Protocols" = "task-protocol.md" },
-        { "Workflow Persistence" = "workflow_serialization.md" }
-    ]},
-    { "Server" = [
-        { "Lifecycle (EN)" = "server-lifecycle.md" },
-        { "Lifecycle (中文)" = "server-lifecycle-zh.md" }
-    ]},
-    { "Active Specs" = [
-        { "molcfg + Profiles" = "spec/molcfg-profiles.md" },
-        { "Unified Sweep Dispatch" = "spec/unified-pydantic-graph-dispatch.md" },
-        { "Full-screen Monitor" = "spec/fullscreen-monitor.md" }
-    ]},
-    { "Developer" = [
-        { "Compiler Internals" = "developer/ir-and-compiler.md" },
-        { "Architecture Convergence (history)" = "developer/architecture-convergence-spec-zh.md" },
-        { "Convergence Work Breakdown (history)" = "developer/architecture-convergence-work-breakdown-zh.md" },
-        { "PydanticAI + pydantic-graph Proposal (history)" = "developer/pydanticai-graph-integration-proposal-zh.md" }
+    { "Development" = [
+        { "Index" = "development/index.md" },
+        { "Compiler" = "development/compiler.md" },
+        { "Task Protocols" = "development/task-protocols.md" },
+        { "Spec: molcfg + Profiles" = "development/specs/molcfg-profiles.md" },
+        { "Spec: Unified Sweep Dispatch" = "development/specs/unified-pydantic-graph-dispatch.md" },
+        { "Spec: Full-screen Monitor" = "development/specs/fullscreen-monitor.md" }
     ]}
 ]
 

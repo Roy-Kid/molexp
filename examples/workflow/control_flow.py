@@ -1,0 +1,109 @@
+"""Fan-out, conditionals, and diamond shapes — all via the DAG.
+
+Matches ``docs/guide/control-flow.md``.
+
+MolExp has no ``IfTask`` / ``ForTask``; control flow is expressed by the
+shape of ``depends_on`` and by Python inside tasks. This example runs three
+patterns back to back:
+
+1. Diamond — ``parse`` and ``validate`` run in parallel after ``fetch``.
+2. Conditional — ``maybe_clean`` short-circuits based on a profile field.
+3. Build-time fan-out — two sibling tasks reduce into a third.
+
+Run directly::
+
+    python examples/workflow/control_flow.py
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+from molexp.config import ProfileConfig
+from molexp.workflow import TaskContext, workflow
+
+
+# ── 1. Diamond fan-out ─────────────────────────────────────────────────────
+async def diamond_demo() -> None:
+    wf = workflow(name="diamond")
+
+    @wf.task
+    async def fetch(ctx: TaskContext) -> dict:
+        return {"raw": [1, 2, 3]}
+
+    @wf.task(depends_on=["fetch"])
+    async def parse(ctx: TaskContext) -> list[int]:
+        return ctx.inputs["raw"]
+
+    @wf.task(depends_on=["fetch"])
+    async def validate(ctx: TaskContext) -> bool:
+        return bool(ctx.inputs["raw"])
+
+    @wf.task(depends_on=["parse", "validate"])
+    async def merge(ctx: TaskContext) -> dict:
+        # With multiple upstreams, ``inputs`` is a dict keyed by task name.
+        return {"parsed": ctx.inputs["parse"], "ok": ctx.inputs["validate"]}
+
+    result = await wf.build().execute()
+    print(f"diamond:     {result.outputs['merge']}")
+
+
+# ── 2. Conditional branch inside a task ────────────────────────────────────
+async def conditional_demo(skip: bool) -> None:
+    wf = workflow(name="conditional")
+
+    @wf.task
+    async def fetch(ctx: TaskContext) -> list[int]:
+        return [5, -3, 2, -1, 4]
+
+    @wf.task(depends_on=["fetch"])
+    async def maybe_clean(ctx: TaskContext) -> list[int]:
+        if ctx.config.get("skip_cleaning", False):
+            return ctx.inputs
+        return [x for x in ctx.inputs if x >= 0]
+
+    cfg = ProfileConfig({"skip_cleaning": skip}, name=None)
+    result = await wf.build().execute(profile_config=cfg)
+    tag = "raw    " if skip else "cleaned"
+    print(f"conditional {tag}: {result.outputs['maybe_clean']}")
+
+
+# ── 3. Build-time fan-out ──────────────────────────────────────────────────
+# When the fan-out count is known at authoring time, the idiomatic pattern
+# is N tasks with identical ``depends_on``. They run on the same level and
+# pydantic-graph dispatches them concurrently. For runtime-sized fan-out
+# the library exposes ``parallel_map`` / ``join`` decorators — see the
+# guide for their current status.
+async def fanout_demo() -> None:
+    wf = workflow(name="fanout")
+
+    @wf.task
+    async def load(ctx: TaskContext) -> list[int]:
+        return [1, 2, 3, 4]
+
+    @wf.task(depends_on=["load"], name="square_evens")
+    async def square_evens(ctx: TaskContext) -> int:
+        return sum(x * x for x in ctx.inputs if x % 2 == 0)
+
+    @wf.task(depends_on=["load"], name="square_odds")
+    async def square_odds(ctx: TaskContext) -> int:
+        return sum(x * x for x in ctx.inputs if x % 2 == 1)
+
+    @wf.task(depends_on=["square_evens", "square_odds"])
+    async def total(ctx: TaskContext) -> int:
+        return ctx.inputs["square_evens"] + ctx.inputs["square_odds"]
+
+    result = await wf.build().execute()
+    print(f"fan-out:     squares_evens={result.outputs['square_evens']}, "
+          f"squares_odds={result.outputs['square_odds']}, total={result.outputs['total']}")
+
+
+async def main() -> None:
+    await diamond_demo()
+    await conditional_demo(skip=False)
+    await conditional_demo(skip=True)
+    await fanout_demo()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

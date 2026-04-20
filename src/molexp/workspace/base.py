@@ -30,9 +30,7 @@ def _atomic_write_json(path: Path, data: Any) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     # Write to a temp file in the same directory (same filesystem for atomic rename)
-    fd, tmp_path = tempfile.mkstemp(
-        dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_"
-    )
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2, default=str)

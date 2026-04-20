@@ -40,9 +40,9 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
 
   const scheduler = getExecutorEntry(run.executorInfo, "scheduler") ?? "unknown";
   const cluster = getExecutorEntry(run.executorInfo, "cluster_name", "cluster") ?? "default";
-  const jobId = getExecutorEntry(run.executorInfo, "job_id", "molq_job_id") ?? "pending";
+  const jobId = getExecutorEntry(run.executorInfo, "job_id") ?? "pending";
   const schedulerJobId =
-    getExecutorEntry(run.executorInfo, "scheduler_job_id", "slurm_job_id") ?? "not assigned";
+    getExecutorEntry(run.executorInfo, "scheduler_job_id") ?? "not assigned";
 
   const details = Object.entries(run.executorInfo);
 

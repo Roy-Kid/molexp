@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .workspace import Workspace
 
-from .asset import AssetLibrary
+from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
 from .experiment import Experiment
 from .models import ExperimentMetadata, ProjectMetadata
@@ -33,7 +33,7 @@ class Project:
     def __init__(self, name: str, workspace: Workspace) -> None:
         self.workspace = workspace
         self.metadata = ProjectMetadata(id=slugify(name), name=name)
-        self._assets_lib: AssetLibrary | None = None
+        self._data_assets: DataAssetLibrary | None = None
         self._experiments_cache: dict[str, Experiment] = {}
 
     # ── Properties ──────────────────────────────────────────────────────
@@ -71,10 +71,21 @@ class Project:
         return self.workspace.root / "projects" / self.id
 
     @property
-    def assets(self) -> AssetLibrary:
-        if self._assets_lib is None:
-            self._assets_lib = AssetLibrary(self.project_dir / "assets")
-        return self._assets_lib
+    def scope(self) -> AssetScope:
+        return AssetScope(kind="project", ids=(self.id,))
+
+    @property
+    def assets(self) -> AssetsView:
+        """Scope-filtered catalog view (read-only queries)."""
+        return AssetsView(self.workspace.catalog, self.scope)
+
+    @property
+    def data_assets(self) -> DataAssetLibrary:
+        if self._data_assets is None:
+            self._data_assets = DataAssetLibrary(
+                self.project_dir, self.scope, self.workspace.catalog
+            )
+        return self._data_assets
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -82,10 +93,27 @@ class Project:
         """Create filesystem structure and persist metadata (non-recursive)."""
         self.project_dir.mkdir(parents=True, exist_ok=True)
         _save_metadata(self.metadata, self.project_dir / "project.json")
+        self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
         _save_metadata(self.metadata, self.project_dir / "project.json")
+        self._catalog_upsert()
+
+    def _catalog_upsert(self) -> None:
+        self.workspace.catalog.upsert_project(
+            {
+                "project_id": self.metadata.id,
+                "workspace_id": self.workspace.id,
+                "name": self.metadata.name,
+                "description": self.metadata.description,
+                "owner": self.metadata.owner,
+                "tags": list(self.metadata.tags),
+                "path": str(self.project_dir.relative_to(self.workspace.root)),
+                "created_at": self.metadata.created_at.isoformat(),
+                "updated_at": self.metadata.created_at.isoformat(),
+            }
+        )
 
     def import_asset(
         self,
@@ -94,8 +122,8 @@ class Project:
         action: str = "copy",
         meta: dict[str, Any] | None = None,
     ):
-        """Import an asset into the project library."""
-        return self.assets.import_asset(name, src, action, meta)
+        """Import a ``DataAsset`` into the project library."""
+        return self.data_assets.import_asset(name, src, action, meta)
 
     # ── Experiment operations ───────────────────────────────────────────
 
@@ -161,7 +189,7 @@ class Project:
             attrs_factory=lambda m: {
                 "project": self,
                 "metadata": m,
-                "_assets_lib": None,
+                "_data_assets": None,
                 "_workflow": None,
             },
         )
@@ -178,7 +206,7 @@ class Project:
             {
                 "project": self,
                 "metadata": meta,
-                "_assets_lib": None,
+                "_data_assets": None,
                 "_workflow": None,
             },
         )

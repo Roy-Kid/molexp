@@ -1,0 +1,13 @@
+version: 1
+
+defaults:
+  lr: 0.001
+  epochs: 10
+
+profiles:
+  smoke:
+    epochs: 1
+
+  prod:
+    lr: 0.0005
+    epochs: 100

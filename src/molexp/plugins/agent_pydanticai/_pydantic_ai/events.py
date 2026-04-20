@@ -41,6 +41,7 @@ def map_stream_event(event: AgentStreamEvent) -> SessionEvent | None:
         if isinstance(args, str):
             try:
                 import json
+
                 args = json.loads(args)
             except Exception:
                 args = {"raw": args}

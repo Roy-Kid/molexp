@@ -41,7 +41,9 @@ class _NotImplementedAgentRuntime(AgentRuntime):
         "See Phase 2 of the pydantic-graph integration proposal."
     )
 
-    async def start_session(self, goal: Goal, workspace: Any, extra_tools: list[Tool], approval_policy: ApprovalPolicy) -> AgentSession:
+    async def start_session(
+        self, goal: Goal, workspace: Any, extra_tools: list[Tool], approval_policy: ApprovalPolicy
+    ) -> AgentSession:
         raise NotImplementedError(self._MSG)
 
     async def resume_session(self, session_id: str, workspace: Any) -> AgentSession:

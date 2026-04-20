@@ -1,6 +1,6 @@
 """Tests for :mod:`molexp.sweep` — sweep-level parallelism.
 
-Phase 1 scope (see ``docs/spec/unified-pydantic-graph-dispatch.md`` §6):
+Phase 1 scope (see ``docs/development/specs/unified-pydantic-graph-dispatch.md`` §6):
 the sweep graph fans out over ``(mol_run, experiment)`` replicas and
 bounds concurrency with a ``jobs`` semaphore.  Backend selection is
 *not* part of Phase 1 — every replica executes in-process via
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -77,7 +77,7 @@ class TestRunSweep:
         wall = time.perf_counter() - t0
         assert len(state.outputs) == 3
         # 10% slack for scheduler jitter
-        assert wall >= 3 * delay * 0.9, f"expected sequential ~{3*delay}s, got {wall:.3f}s"
+        assert wall >= 3 * delay * 0.9, f"expected sequential ~{3 * delay}s, got {wall:.3f}s"
 
     async def test_jobs_N_is_parallel(self) -> None:
         """Three 0.2s replicas with ``jobs=3`` take ~0.2s (all concurrent)."""
@@ -97,8 +97,8 @@ class TestRunSweep:
         state = await run_sweep(reps, jobs=2)
         wall = time.perf_counter() - t0
         assert len(state.outputs) == 4
-        assert wall >= 2 * delay * 0.9, f"expected two waves ~{2*delay}s, got {wall:.3f}s"
-        assert wall < 3 * delay, f"expected < {3*delay}s, got {wall:.3f}s"
+        assert wall >= 2 * delay * 0.9, f"expected two waves ~{2 * delay}s, got {wall:.3f}s"
+        assert wall < 3 * delay, f"expected < {3 * delay}s, got {wall:.3f}s"
 
     async def test_failure_isolated_does_not_block_others(self) -> None:
         """One failing replica is recorded in ``failures`` without blocking others."""

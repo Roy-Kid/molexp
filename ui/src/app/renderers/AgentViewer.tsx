@@ -75,7 +75,8 @@ const EventRow = ({
     colorClass: "text-muted-foreground",
   };
   const Icon = meta.icon;
-  const hasDetail = Object.keys(event.payload).length > 0;
+  const payload: Record<string, unknown> = event.payload ?? {};
+  const hasDetail = Object.keys(payload).length > 0;
 
   return (
     <div className="group flex gap-3 py-2">
@@ -85,14 +86,14 @@ const EventRow = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{meta.label}</span>
-          {event.type === "ToolCallEvent" && event.payload.tool_name && (
+          {event.type === "ToolCallEvent" && Boolean(payload.tool_name) && (
             <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
-              {String(event.payload.tool_name)}
+              {String(payload.tool_name)}
             </Badge>
           )}
-          {event.type === "WorkflowStartedEvent" && event.payload.run_id && (
+          {event.type === "WorkflowStartedEvent" && Boolean(payload.run_id) && (
             <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
-              {String(event.payload.run_id)}
+              {String(payload.run_id)}
             </Badge>
           )}
           <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
@@ -115,9 +116,9 @@ const EventRow = ({
         </div>
 
         {/* Inline content for common event types */}
-        {event.type === "PlanCreatedEvent" && Array.isArray(event.payload.plan_steps) && (
+        {event.type === "PlanCreatedEvent" && Array.isArray(payload.plan_steps) && (
           <ol className="ml-2 space-y-0.5">
-            {(event.payload.plan_steps as string[]).map((step, stepNum) => (
+            {(payload.plan_steps as string[]).map((step, stepNum) => (
               <li
                 key={`plan-step-${step.slice(0, 40)}`}
                 className="flex gap-2 text-xs text-muted-foreground"
@@ -129,19 +130,19 @@ const EventRow = ({
           </ol>
         )}
 
-        {event.type === "ObservationEvent" && event.payload.content && (
-          <p className="text-xs text-muted-foreground">{String(event.payload.content)}</p>
+        {event.type === "ObservationEvent" && Boolean(payload.content) && (
+          <p className="text-xs text-muted-foreground">{String(payload.content)}</p>
         )}
 
         {event.type === "ReplanEvent" && (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
-            {event.payload.reason && (
+            {Boolean(payload.reason) && (
               <p className="text-xs text-amber-700 dark:text-amber-400">
-                {String(event.payload.reason)}
+                {String(payload.reason)}
               </p>
             )}
-            {Array.isArray(event.payload.new_plan) &&
-              (event.payload.new_plan as string[]).map((step, stepNum) => (
+            {Array.isArray(payload.new_plan) &&
+              (payload.new_plan as string[]).map((step, stepNum) => (
                 <p
                   key={`replan-step-${step.slice(0, 40)}`}
                   className="text-xs text-amber-700 dark:text-amber-400"
@@ -154,20 +155,20 @@ const EventRow = ({
 
         {event.type === "SessionCompletedEvent" && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
-            {event.payload.summary && (
+            {Boolean(payload.summary) && (
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                {String(event.payload.summary)}
+                {String(payload.summary)}
               </p>
             )}
           </div>
         )}
 
-        {event.type === "ApprovalRequestEvent" && event.payload.request_id && (
+        {event.type === "ApprovalRequestEvent" && Boolean(payload.request_id) && (
           <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30">
             <p className="flex-1 text-xs text-orange-700 dark:text-orange-400">
               Approve{" "}
               <span className="font-mono font-semibold">
-                {String(event.payload.tool_name ?? "action")}
+                {String(payload.tool_name ?? "action")}
               </span>
               ?
             </p>
@@ -175,14 +176,14 @@ const EventRow = ({
               size="sm"
               variant="outline"
               className="h-6 border-orange-400 text-orange-700 hover:bg-orange-100"
-              onClick={() => onApprovalRespond(String(event.payload.request_id), false)}
+              onClick={() => onApprovalRespond(String(payload.request_id), false)}
             >
               Deny
             </Button>
             <Button
               size="sm"
               className="h-6 bg-orange-500 text-white hover:bg-orange-600"
-              onClick={() => onApprovalRespond(String(event.payload.request_id), true)}
+              onClick={() => onApprovalRespond(String(payload.request_id), true)}
             >
               Approve
             </Button>
@@ -191,7 +192,7 @@ const EventRow = ({
 
         {expanded && hasDetail && (
           <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 text-[11px] font-mono text-muted-foreground">
-            {JSON.stringify(event.payload, null, 2)}
+            {JSON.stringify(payload, null, 2)}
           </pre>
         )}
       </div>
@@ -280,7 +281,9 @@ const SessionHeader = ({
   eventCount: number;
   snapshot: WorkspaceSnapshot;
 }): JSX.Element => {
-  const toolCallCount = session.events.filter((event) => event.type === "ToolCallEvent").length;
+  const toolCallCount = (session.events ?? []).filter(
+    (event) => event.type === "ToolCallEvent",
+  ).length;
   const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
   return (
     <EntityHeader
@@ -331,7 +334,7 @@ export const AgentViewer = ({
       .getSession(sessionId)
       .then((s) => {
         setSession(s);
-        setEvents(s.events);
+        setEvents(s.events ?? []);
       })
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
@@ -349,7 +352,7 @@ export const AgentViewer = ({
           es.close();
           agentApi.getSession(session.sessionId).then((s) => {
             setSession(s);
-            setEvents(s.events);
+            setEvents(s.events ?? []);
           });
           return;
         }
@@ -379,7 +382,7 @@ export const AgentViewer = ({
       try {
         const created = await agentApi.createSession(description, criteria);
         setSession(created);
-        setEvents(created.events);
+        setEvents(created.events ?? []);
         onRefresh();
       } catch (err) {
         setError(String(err));

@@ -54,8 +54,6 @@ class Actor(ABC, Generic[StateT, DepsT, InputT, OutputT]):
     """
 
     @abstractmethod
-    async def run(
-        self, ctx: ActorContext[StateT, DepsT, InputT]
-    ) -> AsyncIterator[OutputT]:
+    async def run(self, ctx: ActorContext[StateT, DepsT, InputT]) -> AsyncIterator[OutputT]:
         """Run continuously, yielding outputs."""
         ...

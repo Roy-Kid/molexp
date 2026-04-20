@@ -82,7 +82,7 @@ export const buildRendererKeyFromSelection = (
   const fileKind = selection.objectType === "workspace-file" ? selection.fileKind : target.fileKind;
 
   if (selection.objectType === "workspace-file" && target.panelKind === "editor") {
-    const filePath = selection.objectId.toLowerCase();
+    const filePath = (selection.objectId ?? "").toLowerCase();
     if (filePath.endsWith("workflow.json")) {
       return {
         objectType: "workspace-file",

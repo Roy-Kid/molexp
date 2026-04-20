@@ -2,9 +2,6 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * File content response.
- */
 export type FileContentResponse = {
     content: string;
 };

@@ -1,97 +1,52 @@
 # Workflow Runtime
 
-The workflow runtime is the execution backend for a `WorkflowSpec`. MolExp ships a single concrete implementation — `GraphWorkflowRuntime`, backed by `pydantic-graph` — which is created lazily the first time you call `spec.execute(...)` or `spec.start(...)`.
+The workflow runtime is the execution backend behind `WorkflowSpec`. In ordinary usage you do not instantiate it yourself. You call `spec.execute(...)` or `spec.start(...)`, and MolExp creates the default runtime lazily when it is needed.
 
 ```python
-await spec.execute(run=run)                      # block-and-return
-handle = await spec.start(run=run)               # async handle
+await spec.execute(run=run)
+handle = await spec.start(run=run)
 ```
 
-Users rarely interact with the runtime class directly; `WorkflowSpec` hides the abstraction.
+The concrete implementation currently shipped by MolExp is `GraphWorkflowRuntime`, backed by `pydantic-graph`, but most user code should treat that as an implementation detail rather than as a direct API surface.
 
-## Execution Model
+## What the Runtime Actually Does
 
-`GraphWorkflowRuntime` compiles the spec via `WorkflowGraphCompiler` and runs it through `pydantic-graph`:
+When execution begins, the runtime validates the compiled graph, groups tasks by dependency level, and then drives those levels in order. Tasks at the same level have no unresolved data dependency between them, so they can run concurrently through `asyncio.gather`. That is why most workflow parallelism in MolExp is implicit. You declare the dependency structure, and the runtime extracts the available concurrency from that structure.
 
-1. **Validate** — `graphlib.TopologicalSorter` rejects cycles and missing dependencies.
-2. **Level-group** — tasks are bucketed into topological levels; same-level tasks have no data dependencies and run concurrently.
-3. **Trampoline** — a single `WorkflowStep` pydantic-graph node walks the levels, fanning out each level via `asyncio.gather` and yielding control back between levels.
-4. **RunContext lifecycle** — if you pass `run=`, the runtime opens the `RunContext` at entry and closes it on completion / failure (appending an `ExecutionRecord`).
-5. **Persist** — pydantic-graph's persistence layer captures per-node snapshots so a killed workflow can be resumed.
+If a `Run` is attached, the runtime also owns the `RunContext` lifecycle. It opens the run context at entry, applies profile metadata, appends an `ExecutionRecord`, and closes the context on success, failure, or cancellation. The task code sees that lifecycle only indirectly through `TaskContext`, but the runtime is what actually ties the workflow execution to the persistent run record.
 
-The deterministic `workflow_id` (sha256 of the topology) is the key you can use to correlate runs of the same graph across machines.
+The runtime also relies on the compiled workflow identity rather than on ad hoc process state. `workflow_id` is derived deterministically from the workflow name and task topology, which is what makes it useful for correlating equivalent graphs across executions and machines.
 
-## Return Types
+## Blocking Execution and Background Execution
 
-```python
-@dataclass
-class WorkflowResult:
-    status: str             # "completed" | "failed" | "cancelled"
-    outputs: dict[str, Any] # task_name -> output
-    run_id: str | None
-    execution_id: str | None
-```
+`spec.execute(...)` is the block-and-return path. It runs the workflow to completion and returns a `WorkflowResult`. `spec.start(...)` launches the same execution through an async handle and returns a `WorkflowExecution`, which can later be awaited or cancelled. The two entry points differ in control style, not in workflow semantics.
 
-`WorkflowExecution` (returned by `spec.start`) exposes `await handle.wait()` and `await handle.cancel()`.
+## Attaching Persistent State
 
-## Passing Run / RunContext / Config
-
-You can drive execution in three modes:
+There are three practical execution modes. The first is pure in-memory execution with no workspace attached. The second is execution under a `Run`, where the runtime opens the run context for you. The third is execution under an already-opened `RunContext`, which is useful only when you need to manage that lifecycle manually.
 
 ```python
-# 1. Pure computation — no workspace
 await spec.execute()
-
-# 2. Attach a Run — the runtime opens a RunContext for you
 await spec.execute(run=run)
 
-# 3. Attach an already-opened RunContext (for hand-rolled lifecycle)
 with run.start(profile_config=cfg) as ctx:
     await spec.execute(run_context=ctx)
 ```
 
-Options 2 and 3 are mutually exclusive. When both `run_context` and `profile_config` are passed, the context's own config wins.
+The second and third forms should not be mixed. If you already have a live `RunContext`, that context owns the active config and the runtime should not be asked to open another one around it.
 
-## Parallelism
+## Cancellation and Failure
 
-Parallelism is **implicit**: same-level tasks run via `asyncio.gather`. You don't schedule workers, pick thread pools, or configure a queue — if you want the tasks to be concurrent, declare them at the same dependency level.
+When execution runs through the background handle returned by `spec.start(...)`, cancellation flows through that handle. A cancelled execution closes the run context and marks the run accordingly. A failed execution records structured error information and closes the same lifecycle. In other words, cancellation and failure are not special side channels; they are part of the same run history model as successful completion.
 
-For CPU-bound tasks that would otherwise block the loop, wrap them with `asyncio.to_thread` inside the task body.
+## Sweeps
 
-## Cancellation
+When the real problem is not one workflow run but a whole collection of `(experiment, run)` pairs, MolExp provides `molexp.sweep.run_sweep`. That utility owns the outer loop while still delegating each replica to the same underlying workflow execution path. One failed replica does not automatically cancel the others. Instead, sweep state collects outputs and failures separately so the caller can inspect the whole batch after execution finishes.
 
-Cancel via the execution handle or by cancelling the enclosing task group:
+## The Useful Boundary
 
-```python
-handle = await spec.start(run=run)
-try:
-    result = await handle.wait()
-except KeyboardInterrupt:
-    await handle.cancel()
-```
+The most useful way to think about the runtime is that it is responsible for turning a compiled workflow definition into one concrete execution, possibly under a persistent run record. It is not where you should model research structure, scheduler policy, or asset scoping. Those remain separate concerns, which is why the runtime can stay small even as the rest of the system grows around it.
 
-Cancellation marks the run as `"cancelled"` and closes the `RunContext`.
+## Runnable Example
 
-## Sweep-Level Fan-Out
-
-For sweeping a single workflow across many `(experiment, Run)` pairs, use `molexp.sweep.run_sweep`. It owns the outer loop via a single-node `pydantic-graph` with a bounded `jobs` semaphore:
-
-```python
-from molexp.sweep import SweepReplica, run_sweep
-
-replicas = [
-    SweepReplica(mol_run=run, experiment=exp)
-    for exp in project.list_experiments()
-    for run in exp.list_runs()
-]
-
-state = await run_sweep(replicas, profile_config=cfg, jobs=4)
-print(state.outputs)     # replica_id -> WorkflowResult
-print(state.failures)    # replica_id -> "<ExcType>: <message>"
-```
-
-One replica failure does **not** cancel the others — failures are captured and reported at the end. This is the entry point the CLI uses under `molexp run`.
-
-## Implementation Pointer
-
-The default runtime lives in `molexp.workflow._pydantic_graph.runtime.GraphWorkflowRuntime`. It is a private module — treat it as an implementation detail and interact with the runtime only through the `WorkflowSpec` / `WorkflowRuntime` abstraction.
+`examples/workflow/workflow_runtime.py` shows both entry points — `spec.execute()` blocking to completion and `spec.start()` returning a `WorkflowExecution` handle.

@@ -13,8 +13,8 @@ class TestTaskContext:
 
     def test_workspace_methods_return_none_without_run(self):
         ctx = TaskContext(state=None, deps=None, inputs=None)
-        assert ctx.save_artifact("test", {}) is None
-        assert ctx.get_artifact_path("test") is None
+        assert ctx.artifact is None
+        assert ctx.log("x") is None
         assert ctx.find_asset("missing") is None
         assert ctx.checkpoint() is None
         assert ctx.get_result("key") is None

@@ -9,7 +9,6 @@ import pytest
 from molexp.config import load_molcfg
 from molexp.config.loader import find_default_config
 
-
 YAML_SAMPLE = """\
 version: 1
 defaults:

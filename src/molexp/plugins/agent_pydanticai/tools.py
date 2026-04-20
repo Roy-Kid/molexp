@@ -74,6 +74,7 @@ def agent_tool(
         @agent_tool(level="product", requires_approval=True)
         async def run_training(ctx: ToolContext, ...) -> ...: ...
     """
+
     def decorator(f: Callable) -> Callable:
         tool_name = name or f.__name__
         tool_instance = FunctionTool(

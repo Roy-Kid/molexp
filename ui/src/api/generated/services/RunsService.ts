@@ -3,6 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { RunCreateRequest } from '../models/RunCreateRequest';
+import type { RunExecutionResponse } from '../models/RunExecutionResponse';
+import type { RunLogsResponse } from '../models/RunLogsResponse';
 import type { RunResponse } from '../models/RunResponse';
 import type { RunStatusResponse } from '../models/RunStatusResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -11,7 +13,6 @@ import { request as __request } from '../core/request';
 export class RunsService {
     /**
      * List Runs
-     * List runs in an experiment.
      * @param projectId
      * @param experimentId
      * @returns RunResponse Successful Response
@@ -35,7 +36,6 @@ export class RunsService {
     }
     /**
      * Create Run
-     * Create a new run.
      * @param projectId
      * @param experimentId
      * @param requestBody
@@ -63,7 +63,6 @@ export class RunsService {
     }
     /**
      * Get Run
-     * Get run details.
      * @param projectId
      * @param experimentId
      * @param runId
@@ -89,8 +88,61 @@ export class RunsService {
         });
     }
     /**
+     * Get Run Logs
+     * Return stdout (job.out) and stderr (job.err) for a run.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns RunLogsResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLogsGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<RunLogsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/logs',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Execution
+     * Return workflow execution state from workflow.json.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns RunExecutionResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<RunExecutionResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/execution',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Update Run Status
-     * Update run status.
      * @param projectId
      * @param experimentId
      * @param runId
@@ -114,33 +166,6 @@ export class RunsService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Start Run
-     * Start run execution.
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @returns RunStatusResponse Successful Response
-     * @throws ApiError
-     */
-    public static startRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdStartPost(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-    ): CancelablePromise<RunStatusResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/start',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
             errors: {
                 422: `Validation Error`,
             },

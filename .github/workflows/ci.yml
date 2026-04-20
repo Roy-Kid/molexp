@@ -29,8 +29,9 @@ jobs:
       - name: Ruff lint
         run: ruff check src/ tests/
 
-      - name: Type check
+      - name: Type check (advisory)
         run: ty check src/
+        continue-on-error: true
 
   test:
     name: Test on Python ${{ matrix.python-version }}

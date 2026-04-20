@@ -37,7 +37,6 @@ class WorkflowState:
             error=f"Step '{step_name}' failed: {exc}",
         )
 
-
     def _sync_from(self, other: "WorkflowState") -> None:
         """Update this state in-place from *other*.
 

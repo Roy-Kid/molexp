@@ -171,18 +171,54 @@ class RunStatusResponse(BaseModel):
 
 
 class AssetResponse(BaseModel):
+    """Serialized typed ``Asset``.
+
+    ``kind`` is the discriminator (``data`` / ``artifact`` / ``log`` / …).
+    ``extra`` carries subclass-specific fields so the frontend can render
+    per-kind details without a separate schema per kind.
+    """
+
     id: str
     name: str
-    created: str
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    kind: str
+    scope_kind: str
+    scope_ids: list[str]
+    path: str
+    created_at: str
+    updated_at: str
+    producer: dict[str, Any] | None = None
+    tags: dict[str, str] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
     @classmethod
     def from_model(cls, asset: Asset) -> AssetResponse:
+        from molexp.workspace.assets import ASSET_ADAPTER
+
+        dumped = ASSET_ADAPTER.dump_python(asset, mode="json")
+        common_fields = {
+            "asset_id",
+            "name",
+            "scope",
+            "path",
+            "created_at",
+            "updated_at",
+            "producer",
+            "tags",
+            "kind",
+        }
+        extra = {k: v for k, v in dumped.items() if k not in common_fields}
         return cls(
             id=asset.asset_id,
             name=asset.name,
-            created=asset.created_at.isoformat(),
-            metadata=asset.metadata,
+            kind=dumped["kind"],
+            scope_kind=asset.scope.kind,
+            scope_ids=list(asset.scope.ids),
+            path=str(asset.path),
+            created_at=asset.created_at.isoformat(),
+            updated_at=asset.updated_at.isoformat(),
+            producer=asset.producer.model_dump() if asset.producer else None,
+            tags=dict(asset.tags),
+            extra=extra,
         )
 
 

@@ -1,10 +1,10 @@
-"""Tests for RunContext lifecycle."""
+"""Tests for RunContext lifecycle and typed asset accessors."""
 
-import json
 from pathlib import Path
 
 import pytest
 
+from molexp.workspace.assets import ArtifactAsset, CheckpointAsset
 from molexp.workspace.run import RunStatus
 
 
@@ -35,11 +35,9 @@ class TestRunContextLifecycle:
             pass
         assert run.metadata.finished_at is not None
 
-    def test_creates_directories(self, run):
+    def test_creates_work_dir(self, run):
         with run.start() as ctx:
             assert ctx.work_dir.exists()
-            assert ctx.artifacts_dir.exists()
-            assert ctx.logs_dir.exists()
 
 
 class TestRunContextResults:
@@ -53,40 +51,89 @@ class TestRunContextResults:
             assert ctx.get_result("missing") is None
 
 
-class TestRunContextArtifacts:
-    def test_save_dict_as_json(self, run):
+class TestArtifactAccessor:
+    def test_save_dict_registers_asset(self, run):
         with run.start() as ctx:
-            path = ctx.save_artifact("data.json", {"key": "value"})
+            asset = ctx.artifact.save("data.json", {"key": "value"})
+            assert isinstance(asset, ArtifactAsset)
+            path = asset.absolute_path(ctx.work_dir)
             assert path.exists()
-            data = json.loads(path.read_text())
-            assert data["key"] == "value"
+            assert asset.read_json(ctx.work_dir) == {"key": "value"}
 
     def test_save_bytes(self, run):
         with run.start() as ctx:
-            path = ctx.save_artifact("binary.bin", b"\x00\x01\x02")
-            assert path.exists()
-            assert path.read_bytes() == b"\x00\x01\x02"
+            asset = ctx.artifact.save("binary.bin", b"\x00\x01\x02")
+            assert asset.read_bytes(ctx.work_dir) == b"\x00\x01\x02"
+            assert asset.size == 3
 
     def test_save_text(self, run):
         with run.start() as ctx:
-            path = ctx.save_artifact("log.txt", "hello world")
-            assert path.exists()
+            asset = ctx.artifact.save("log.txt", "hello world")
+            path = asset.absolute_path(ctx.work_dir)
             assert path.read_text() == "hello world"
 
-    def test_get_artifact_path(self, run):
+    def test_producer_captures_run_id(self, run):
         with run.start() as ctx:
-            expected = ctx.artifacts_dir / "file.txt"
-            assert ctx.get_artifact_path("file.txt") == expected
+            asset = ctx.artifact.save("m.json", {"a": 1})
+            assert asset.producer is not None
+            assert asset.producer.run_id == run.id
+            assert asset.producer.execution_id == ctx._execution_id
+
+    def test_asset_visible_in_catalog(self, run):
+        with run.start() as ctx:
+            ctx.artifact.save("m.json", {"a": 1})
+        catalog = run.experiment.project.workspace.catalog
+        artifacts = catalog.query_assets(kind="artifact", producer_run=run.id)
+        assert len(artifacts) == 1
+        assert artifacts[0].name == "m.json"
 
 
-class TestRunContextCheckpoint:
-    def test_checkpoint_creates_file(self, run):
+class TestLogAccessor:
+    def test_append_and_tail(self, run):
         with run.start() as ctx:
-            ckpt_id = ctx.checkpoint("mid-run")
-            assert ckpt_id.startswith("ckpt_")
-            ckpt_dir = ctx.work_dir / ".ckpt"
-            assert ckpt_dir.exists()
-            assert any(ckpt_dir.iterdir())
+            log = ctx.log("train")
+            log.append("epoch 1")
+            log.append("epoch 2")
+            assert log.tail() == ["epoch 1", "epoch 2"]
+
+    def test_returns_same_bound_log(self, run):
+        with run.start() as ctx:
+            assert ctx.log("x") is ctx.log("x")
+
+    def test_log_asset_registered(self, run):
+        with run.start() as ctx:
+            ctx.log("custom").append("msg")
+        catalog = run.experiment.project.workspace.catalog
+        logs = catalog.query_assets(kind="log", producer_run=run.id)
+        names = {a.name for a in logs}
+        # "run" log is created automatically by lifecycle; "custom" by user
+        assert "custom" in names
+        assert "run" in names
+
+    def test_run_log_contains_lifecycle_messages(self, run):
+        with run.start() as ctx:
+            run_log = ctx.log("run")
+            tail = run_log.tail()
+            assert any("execution started" in line for line in tail)
+
+
+class TestCheckpointAccessor:
+    def test_saves_and_registers(self, run):
+        with run.start() as ctx:
+            asset = ctx.checkpoint("mid-run", data={"step": 5})
+            assert isinstance(asset, CheckpointAsset)
+            assert asset.ckpt_id.startswith("ckpt_")
+            path = asset.absolute_path(ctx.work_dir)
+            assert path.exists()
+            payload = asset.load(ctx.work_dir)
+            assert payload["data"] == {"step": 5}
+
+    def test_parent_chain(self, run):
+        with run.start() as ctx:
+            first = ctx.checkpoint("a", data={"s": 1})
+            second = ctx.checkpoint("b", data={"s": 2})
+            assert first.parent_ckpt_id is None
+            assert second.parent_ckpt_id == first.ckpt_id
 
 
 class TestRunContextParams:
@@ -102,7 +149,7 @@ class TestRunContextParams:
             assert run.metadata.profile is None
 
 
-class TestRunContextGetDataDir:
+class TestGetDataDir:
     def test_fallback_creates_dir(self, run):
         with run.start() as ctx:
             data_dir = ctx.get_data_dir("nonexistent", fallback="data/qm9")
@@ -115,25 +162,25 @@ class TestRunContextGetDataDir:
             with pytest.raises(FileNotFoundError, match="not found"):
                 ctx.get_data_dir("nonexistent")
 
-    def test_returns_path_type(self, run):
-        with run.start() as ctx:
-            result = ctx.get_data_dir("missing", fallback="data/test")
-            assert isinstance(result, Path)
 
-
-class TestRunContextErrorDetails:
-    def test_error_log_created(self, experiment):
+class TestErrorTraceAsset:
+    def test_error_file_created_and_registered(self, experiment):
         run = experiment.run()
+        ctx_ref = {}
         try:
             with run.start() as ctx:
+                ctx_ref["ctx"] = ctx
                 raise RuntimeError("detailed error")
         except RuntimeError:
             pass
-        # error.txt now lives in the per-execution subdir alongside workflow.json
+        ctx = ctx_ref["ctx"]
+        # Physical file
         error_txt = ctx.work_dir / "execution" / ctx._execution_id / "error.txt"
-        assert error_txt.exists(), f"error.txt not found at {error_txt}"
-        content = error_txt.read_text()
-        assert "RuntimeError" in content
-        assert "detailed error" in content
-        assert not (ctx.artifacts_dir / "error.txt").exists()
-        assert not (ctx.artifacts_dir / "error.json").exists()
+        assert error_txt.exists()
+        assert "RuntimeError" in error_txt.read_text()
+
+        # Catalog entry
+        catalog = run.experiment.project.workspace.catalog
+        traces = catalog.query_assets(kind="error_trace", producer_run=run.id)
+        assert len(traces) == 1
+        assert traces[0].exception_type == "RuntimeError"

@@ -42,10 +42,7 @@ class WorkflowResult:
         self.execution_id = execution_id
 
     def __repr__(self) -> str:
-        return (
-            f"WorkflowResult(status={self.status!r}, "
-            f"tasks={list(self.outputs.keys())})"
-        )
+        return f"WorkflowResult(status={self.status!r}, tasks={list(self.outputs.keys())})"
 
 
 class WorkflowExecution:

@@ -10,9 +10,9 @@ Design:
 from __future__ import annotations
 
 import asyncio
-from mollog import get_logger
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
+from mollog import get_logger
 from pydantic_ai import Agent
 from pydantic_ai.messages import AgentStreamEvent
 
@@ -72,9 +72,7 @@ class PydanticAISession(AgentSession):
         try:
             event_queue = self._event_queue
 
-            async def handle_events(
-                ctx: Any, events: AsyncIterator[AgentStreamEvent]
-            ) -> None:
+            async def handle_events(ctx: Any, events: AsyncIterator[AgentStreamEvent]) -> None:
                 async for raw_event in events:
                     molexp_event = map_stream_event(raw_event)
                     if molexp_event is not None:
@@ -101,9 +99,7 @@ class PydanticAISession(AgentSession):
         except Exception as exc:
             logger.exception(f"Agent session {self.session_id} failed")
             self.status = "failed"
-            await event_queue.put(
-                SessionCompletedEvent(summary=f"Session failed: {exc}")
-            )
+            await event_queue.put(SessionCompletedEvent(summary=f"Session failed: {exc}"))
         finally:
             await self._event_queue.put(_DONE)
 

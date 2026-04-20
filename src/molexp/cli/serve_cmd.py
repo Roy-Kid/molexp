@@ -17,9 +17,7 @@ from ._common import rprint
 def serve(
     workspace: Annotated[
         Path,
-        typer.Option(
-            "--workspace",
-            "-w",
+        typer.Argument(
             help="Workspace root (default: current directory).",
             exists=True,
             file_okay=False,
@@ -46,11 +44,11 @@ def serve(
         else:
             rprint(
                 f"[yellow]Warning:[/yellow] No workspace.json found in {resolved}. "
-                "Run [bold]molexp init[/bold] or use [bold]--workspace[/bold]."
+                "Run [bold]molexp init[/bold] first, or pass a workspace path."
             )
 
     os.chdir(resolved)
-    rprint(f"[bold]Serving Workspace:[/bold] {workspace}")
+    rprint(f"[bold]Serving Workspace:[/bold] {resolved}")
 
     from molexp.server.app import _find_bundled_webapp, create_app
 

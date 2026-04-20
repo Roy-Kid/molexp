@@ -1,10 +1,30 @@
 """Workspace module — file-system-backed experiment management.
 
 Hierarchy: Workspace -> Project -> Experiment -> Run
-Each level owns an AssetLibrary for scoped artifact storage.
+
+Each scope exposes:
+
+- ``{scope}.assets``       — read-only catalog view (typed Asset queries)
+- ``{scope}.data_assets``  — ``DataAssetLibrary`` for importing user inputs
+- ``workspace.catalog``    — full workspace-level ``AssetCatalog``
 """
 
-from .asset import Asset, AssetLibrary, AssetWorkflow
+from .assets import (
+    ArtifactAsset,
+    Asset,
+    AssetCatalog,
+    AssetManifest,
+    AssetScope,
+    AssetsView,
+    CheckpointAsset,
+    DataAsset,
+    DataAssetLibrary,
+    ErrorTraceAsset,
+    ExecutionStateAsset,
+    LogAsset,
+    OutputAsset,
+    Producer,
+)
 from .context import Context
 from .experiment import Experiment
 from .models import (
@@ -39,8 +59,19 @@ __all__ = [
     "WorkflowSnapshotRef",
     # Assets
     "Asset",
-    "AssetLibrary",
-    "AssetWorkflow",
+    "ArtifactAsset",
+    "AssetCatalog",
+    "AssetManifest",
+    "AssetScope",
+    "AssetsView",
+    "CheckpointAsset",
+    "DataAsset",
+    "DataAssetLibrary",
+    "ErrorTraceAsset",
+    "ExecutionStateAsset",
+    "LogAsset",
+    "OutputAsset",
+    "Producer",
     # Parameters
     "ParamSpace",
     "Params",

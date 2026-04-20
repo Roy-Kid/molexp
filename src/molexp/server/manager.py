@@ -37,7 +37,7 @@ class ServerManager:
 
         self.server_log = self.log_dir / "server.log"
         self.ui_log = self.log_dir / "ui.log"
-        
+
         # Track background processes for cleanup
         self._background_pids: list[int] = []
 
@@ -69,9 +69,7 @@ class ServerManager:
             RuntimeError: If server is already running or fails to start
         """
         if self.is_running():
-            raise RuntimeError(
-                f"Server is already running (PID: {self._read_pid(self.pid_file)})"
-            )
+            raise RuntimeError(f"Server is already running (PID: {self._read_pid(self.pid_file)})")
 
         pids = {}
 
@@ -83,7 +81,7 @@ class ServerManager:
         api_pid = self._start_api_server(host, port, dev, background, kill_on_exit)
         pids["api"] = api_pid
         self._write_pid(self.pid_file, api_pid)
-        
+
         # Track for cleanup if needed
         if background and kill_on_exit:
             self._background_pids.append(api_pid)
@@ -98,11 +96,11 @@ class ServerManager:
             ui_pid = self._start_ui_server(background, kill_on_exit)
             pids["ui"] = ui_pid
             self._write_pid(self.ui_pid_file, ui_pid)
-            
+
             # Track for cleanup if needed
             if background and kill_on_exit:
                 self._background_pids.append(ui_pid)
-        
+
         # Register cleanup handler if kill_on_exit is True
         if background and kill_on_exit:
             self._register_cleanup_handler()
@@ -163,9 +161,7 @@ class ServerManager:
         pid = self._read_pid(self.pid_file)
         return pid is not None and self._is_process_running(pid)
 
-    def get_logs(
-        self, lines: int = 50, follow: bool = False, ui: bool = False
-    ) -> Iterator[str]:
+    def get_logs(self, lines: int = 50, follow: bool = False, ui: bool = False) -> Iterator[str]:
         """Get server logs.
 
         Args:
@@ -230,14 +226,14 @@ class ServerManager:
         self, host: str, port: int, dev: bool, background: bool, kill_on_exit: bool = False
     ) -> int:
         """Start API server process.
-        
+
         Args:
             host: Host address
             port: Port number
             dev: Development mode with auto-reload
             background: Run in background
             kill_on_exit: If True and background=True, process will be killed when parent exits
-        
+
         Returns:
             Process PID
         """
@@ -274,11 +270,11 @@ class ServerManager:
 
     def _start_ui_server(self, background: bool, kill_on_exit: bool = False) -> int:
         """Start UI dev server process.
-        
+
         Args:
             background: Run in background
             kill_on_exit: If True and background=True, process will be killed when parent exits
-        
+
         Returns:
             Process PID
         """
@@ -434,22 +430,22 @@ class ServerManager:
     def _write_pid(self, pid_file: Path, pid: int) -> None:
         """Write PID to file."""
         pid_file.write_text(str(pid))
-    
+
     def _register_cleanup_handler(self) -> None:
         """Register cleanup handler to kill background processes on exit."""
         import atexit
-        
+
         # Register cleanup function
         atexit.register(self._cleanup_background_processes)
-        
+
         # Also handle signals for graceful shutdown
         def signal_handler(signum, frame):
             self._cleanup_background_processes()
             sys.exit(0)
-        
+
         signal.signal(signal.SIGTERM, signal_handler)
         signal.signal(signal.SIGINT, signal_handler)
-    
+
     def _cleanup_background_processes(self) -> None:
         """Clean up tracked background processes."""
         for pid in self._background_pids:

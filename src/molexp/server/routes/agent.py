@@ -45,7 +45,9 @@ async def create_session(
     )
 
     if not registry.is_available(Capability.AGENT):
-        raise HTTPException(501, "Agent capability not available. Install: pip install molexp[agent]")
+        raise HTTPException(
+            501, "Agent capability not available. Install: pip install molexp[agent]"
+        )
 
     try:
         AgentService = registry.get(Capability.AGENT)

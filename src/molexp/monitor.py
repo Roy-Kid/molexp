@@ -34,8 +34,8 @@ def _elapsed(created_at: str | None, finished_at: str | None = None) -> str | No
         return None
     try:
         start = datetime.fromisoformat(created_at)
-        end   = datetime.fromisoformat(finished_at) if finished_at else datetime.now()
-        secs  = max(0, int((end - start).total_seconds()))
+        end = datetime.fromisoformat(finished_at) if finished_at else datetime.now()
+        secs = max(0, int((end - start).total_seconds()))
         if secs < 60:
             return f"{secs}s"
         m, s = divmod(secs, 60)
@@ -112,16 +112,14 @@ class RunMonitor:
         from molq.dashboard import DashboardState, JobRow, RunDashboard
 
         # Snapshot (id, run_dir) pairs once — paths are stable
-        run_entries: list[tuple[str, Path]] = [
-            (r.id, r.run_dir) for r in runs
-        ]
+        run_entries: list[tuple[str, Path]] = [(r.id, r.run_dir) for r in runs]
 
         def _build_state() -> DashboardState:
             rows: list[JobRow] = []
             running = pending = done = failed = 0
 
             for run_id, run_dir in run_entries:
-                data   = _read_run_json(run_dir)
+                data = _read_run_json(run_dir)
                 status = data.get("status", "pending")
 
                 elapsed = _elapsed(
@@ -145,15 +143,17 @@ class RunMonitor:
                     (("profile", profile_name),) if profile_name else ()
                 )
 
-                rows.append(JobRow(
-                    state=status,
-                    run_id=run_id,
-                    cluster=executor_info.get("cluster_name"),
-                    scheduler_id=sched_id,
-                    elapsed=elapsed,
-                    message=error_msg,
-                    extras=extras,
-                ))
+                rows.append(
+                    JobRow(
+                        state=status,
+                        run_id=run_id,
+                        cluster=executor_info.get("cluster_name"),
+                        scheduler_id=sched_id,
+                        elapsed=elapsed,
+                        message=error_msg,
+                        extras=extras,
+                    )
+                )
 
                 s = status.lower()
                 if s == "running":

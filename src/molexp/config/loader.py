@@ -29,8 +29,7 @@ def load_molcfg(path: str | Path) -> MolCfg:
         raw = JsonFileSource(p).load()
     else:
         raise ValueError(
-            f"Unsupported config suffix {suffix!r}; expected one of "
-            ".yaml, .yml, .json"
+            f"Unsupported config suffix {suffix!r}; expected one of .yaml, .yml, .json"
         )
 
     return MolCfg.model_validate(raw)

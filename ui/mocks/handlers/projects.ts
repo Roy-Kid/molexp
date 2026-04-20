@@ -41,9 +41,9 @@ export const projectHandlers = [
     http.post(`${API_BASE}/projects`, async ({ request }) => {
         const body = (await request.json()) as ProjectCreateRequest;
 
+        const id = body.name?.toLowerCase().replace(/\s+/g, "-") || `project-${Date.now()}`;
         const newProject: ApiProjectResponse = {
-            id: body.name?.toLowerCase().replace(/\s+/g, "-") || `project-${Date.now()}`,
-            projectId: body.name?.toLowerCase().replace(/\s+/g, "-") || `project-${Date.now()}`,
+            id,
             name: body.name || "New Project",
             description: body.description || "",
             owner: body.owner || "molexp",

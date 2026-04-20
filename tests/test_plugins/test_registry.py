@@ -16,6 +16,7 @@ class TestPluginRegistry:
         # Agent availability depends on pydantic-ai being installed
         try:
             import pydantic_ai  # noqa: F401
+
             assert reg.is_available(Capability.AGENT)
         except ImportError:
             assert not reg.is_available(Capability.AGENT)
@@ -33,6 +34,7 @@ class TestPluginRegistry:
         reg = PluginRegistry()
         try:
             import pydantic_ai  # noqa: F401
+
             assert reg.is_available(Capability.AGENT)
         except ImportError:
             assert not reg.is_available(Capability.AGENT)

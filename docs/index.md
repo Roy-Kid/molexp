@@ -1,85 +1,25 @@
-# MolExp Documentation
+# MolExp
 
-MolExp's docs are organized into a small number of stable sections so readers can move from orientation to execution to internals without bouncing across many unrelated top-level folders.
-
-## Documentation Structure
-
-```
-docs/
-├── getting-started/   # concepts and orientation
-├── tutorial/          # end-to-end hands-on walkthroughs
-├── guide/             # focused user and operator guides
-├── development/       # contributor-facing internals
-└── spec/              # active design notes and implementation plans
-```
+MolExp is a workflow system for research execution, persistent experiment records, and managed reusable assets. It is built around a simple separation of concerns. The workflow defines the computation. The workspace preserves the record of what was run. The asset layer keeps shared inputs and derived resources recoverable across runs.
 
 ## Start Here
 
-<div class="grid cards" markdown>
+If you want to see the system working before you learn the vocabulary, start in [Getting Started](getting-started/index.md). That section now follows the order most readers actually need. It begins with a runnable example, then slows down to explain how a workflow becomes a tracked run, and finally shows how CLI execution and `molcfg` profiles fit into the same model.
 
--   :material-compass-outline: **Getting Started**
+If you are evaluating the design rather than trying to run code immediately, begin with [Concepts](concept/index.md). Those pages explain the workflow model, the workspace model, the asset and reproducibility story, and the boundary between local execution and optional plugins.
 
-    ---
+## Documentation Structure
 
-    Start with the conceptual model: workflow, workspace, profiles, and optional plugins.
+[Getting Started](getting-started/index.md) is the onboarding path. It is where you should go when the immediate question is "how do I make this work?" rather than "what does every type mean?" The pages there are intentionally practical and ordered like a first project rather than like an API surface.
 
-    [:octicons-arrow-right-24: Open Overview](getting-started/overview.md)
+[Concepts](concept/index.md) is for the mental model. Those pages explain what remains stable across scripts, profiles, runs, and transport layers. They are meant to clarify the system boundary, not enumerate every method.
 
--   :material-rocket-launch: **Tutorial**
+[Guide](guide/index.md) is for deeper topics once the first-run path is already familiar. It is organized by theme: authoring workflows, working with persistent records and assets, and operating the server or scheduler bridge. [Development](development/index.md) remains the contributor-facing section for compiler internals, protocol design, and active specifications.
 
-    ---
+## Reading Path
 
-    Follow one complete workflow from authoring through tracked execution.
+The shortest practical route is [Quick Start](getting-started/quick-start.md), then [Track a Run](getting-started/tracked-runs.md), then [CLI and Profiles](getting-started/cli-and-profiles.md). Once that path makes sense, read [Workflow](concept/workflow.md) and [Assets and Reproducibility](concept/assets-and-reproducibility.md) to firm up the conceptual model behind the API you are already using.
 
-    [:octicons-arrow-right-24: Open Quick Start](tutorial/quick-start.md)
+## Runnable Examples
 
--   :material-book-open-page-variant: **Guides**
-
-    ---
-
-    Use focused guides for runtime behavior, workspace persistence, server operations, and scheduler submission.
-
-    [:octicons-arrow-right-24: Open Guide Index](guide/index.md)
-
--   :material-tools: **Development**
-
-    ---
-
-    Read the contributor-facing internals when you need compiler, IR, or protocol details.
-
-    [:octicons-arrow-right-24: Open Development Index](development/index.md)
-
-</div>
-
-## Sections
-
-- **Getting started**
-  - [Overview](getting-started/overview.md)
-- **Tutorial**
-  - [Quick Start](tutorial/quick-start.md)
-- **Guide**
-  - [Guide index](guide/index.md)
-  - [Run Profiles and Reproducible CLI Execution](guide/run-profiles.md)
-  - [Workspace Architecture](guide/workspace-architecture.md)
-  - [Workspace API](guide/workspace-api.md)
-  - [Task and Actor](guide/task-and-actor.md)
-  - [TaskContext](guide/task-context.md)
-  - [Workflow Runtime](guide/workflow-runtime.md)
-  - [Control Flow](guide/control-flow.md)
-  - [Assets](guide/assets.md)
-  - [Workflow Persistence](guide/workflow-persistence.md)
-  - [Server Lifecycle](guide/server-lifecycle.md)
-  - [Molq Plugin and Cluster Submission](guide/molq.md)
-- **Development**
-  - [Development index](development/index.md)
-  - [Compiler](development/compiler.md)
-  - [IR and Compiler Notes](development/ir-and-compiler.md)
-  - [Task Protocols](development/task-protocols.md)
-- **Spec**
-  - [molcfg profiles](spec/molcfg-profiles.md)
-  - [Unified pydantic-graph dispatch](spec/unified-pydantic-graph-dispatch.md)
-  - [Fullscreen monitor](spec/fullscreen-monitor.md)
-
-## Suggested Reading Order
-
-If you are new to the project, start with [Overview](getting-started/overview.md), then do the [Quick Start](tutorial/quick-start.md), then read the [Run Profiles guide](guide/run-profiles.md). If you are implementing workflows, continue into the guide section. If you are changing compiler behavior or internal contracts, move into [Development](development/index.md). `spec/` is intentionally separate because it holds active design work rather than stable user documentation.
+Every guide page has a matching stand-alone script under `examples/` — one per topic, cross-linked from the guide. Start at [`examples/README.md`](../examples/README.md) to see the full map.

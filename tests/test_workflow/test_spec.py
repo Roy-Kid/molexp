@@ -1,6 +1,5 @@
 """Tests for WorkflowSpec / WorkflowBuilder / DSL."""
 
-
 from molexp.workflow import (
     Task,
     TaskContext,
@@ -85,12 +84,7 @@ class TestWorkflowBuilder:
             async def execute(self, ctx):
                 return 2
 
-        spec = (
-            WorkflowBuilder(name="chain")
-            .add(A())
-            .add(B(), depends_on=["a"])
-            .build()
-        )
+        spec = WorkflowBuilder(name="chain").add(A()).add(B(), depends_on=["a"]).build()
         assert len(spec._tasks) == 2
 
     def test_strip_task_suffix(self):

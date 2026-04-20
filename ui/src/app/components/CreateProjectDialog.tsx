@@ -21,7 +21,6 @@ interface CreateProjectDialogProps {
 export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [id, setId] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,18 +30,13 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
     setError(null);
 
     try {
-      // Auto-generate ID if empty
-      const projectId = id || name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-
       await workspaceApi.createProject({
-        id: projectId,
         name,
         description: "",
       });
 
       setOpen(false);
       setName("");
-      setId("");
       onProjectCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create project");
@@ -75,18 +69,6 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
                 onChange={(e) => setName(e.target.value)}
                 className="col-span-3"
                 required
-              />
-            </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="id" className="text-right">
-                ID
-              </Label>
-              <Input
-                id="id"
-                value={id}
-                onChange={(e) => setId(e.target.value)}
-                placeholder="Optional (auto-generated)"
-                className="col-span-3"
               />
             </div>
             {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}

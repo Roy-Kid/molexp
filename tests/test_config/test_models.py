@@ -84,9 +84,7 @@ class TestMolCfgResolve:
 
     def test_yaml_dash_key_normalized_at_load(self):
         # Profile keys with dashes are normalized when the model is built
-        m = MolCfg.model_validate(
-            {"profiles": {"dry-run": {"epochs": 1}}}
-        )
+        m = MolCfg.model_validate({"profiles": {"dry-run": {"epochs": 1}}})
         assert "dry_run" in m.profiles
         assert m.resolve("dry-run")["epochs"] == 1
 
@@ -99,8 +97,8 @@ class TestMolCfgResolve:
             },
         )
         cfg = m.resolve("tiny_smoke")
-        assert cfg["epochs"] == 5       # from smoke
-        assert cfg["batch_size"] == 4   # overridden
+        assert cfg["epochs"] == 5  # from smoke
+        assert cfg["batch_size"] == 4  # overridden
         assert cfg["dataset"] == "md17"  # from defaults
 
     def test_unknown_profile_raises(self):

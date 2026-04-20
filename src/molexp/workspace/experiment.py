@@ -25,12 +25,11 @@ from molexp.workflow.context import TaskContext
 from molexp.workflow.spec import WorkflowBuilder, WorkflowSpec
 from molexp.workflow.task import Task
 
-from .asset import AssetLibrary
+from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
 from .models import ExperimentMetadata, RunMetadata, WorkflowSnapshotRef
 from .run import Run
 from .utils import generate_id
-
 
 # Default replica seeds — deterministic, well-separated
 _DEFAULT_SEEDS = [42, 123, 456, 789, 1234]
@@ -49,9 +48,16 @@ class _EntryTask(Task):
                 f"{self._fn.__name__}() requires a RunContext, but the "
                 "workflow was executed without a workspace run."
             )
-        result = self._fn(run_ctx)
-        if asyncio.iscoroutine(result) or inspect.isawaitable(result):
-            await result
+        if asyncio.iscoroutinefunction(self._fn):
+            await self._fn(run_ctx)
+        else:
+            # Run sync bodies in a worker thread so blocking I/O (e.g.
+            # ``time.sleep``) does not stall sibling replicas in the same
+            # event loop.  Preserve the original semantics where a sync
+            # callable that returns an awaitable is still awaited.
+            result = await asyncio.to_thread(self._fn, run_ctx)
+            if asyncio.iscoroutine(result) or inspect.isawaitable(result):
+                await result
 
 
 def _promote_to_workflow(fn: Callable, name: str) -> WorkflowSpec:
@@ -96,7 +102,7 @@ class Experiment:
             n_replicas=n_replicas,
             seeds=list(seeds) if seeds is not None else None,
         )
-        self._assets_lib: AssetLibrary | None = None
+        self._data_assets: DataAssetLibrary | None = None
         self._workflow: WorkflowSpec | None = None
 
     # ── Properties ──────────────────────────────────────────────────────
@@ -156,10 +162,21 @@ class Experiment:
         return self.project.project_dir / "experiments" / self.id
 
     @property
-    def assets(self) -> AssetLibrary:
-        if self._assets_lib is None:
-            self._assets_lib = AssetLibrary(self.experiment_dir / "assets")
-        return self._assets_lib
+    def scope(self) -> AssetScope:
+        return AssetScope(kind="experiment", ids=(self.project.id, self.id))
+
+    @property
+    def assets(self) -> AssetsView:
+        """Scope-filtered catalog view (read-only queries)."""
+        return AssetsView(self.project.workspace.catalog, self.scope)
+
+    @property
+    def data_assets(self) -> DataAssetLibrary:
+        if self._data_assets is None:
+            self._data_assets = DataAssetLibrary(
+                self.experiment_dir, self.scope, self.project.workspace.catalog
+            )
+        return self._data_assets
 
     # ── Workflow binding ────────────────────────────────────────────────
 
@@ -174,17 +191,13 @@ class Experiment:
             ValueError: If a workflow is already bound.
         """
         if self._workflow is not None:
-            raise ValueError(
-                f"Experiment {self.name!r} already has a workflow bound."
-            )
+            raise ValueError(f"Experiment {self.name!r} already has a workflow bound.")
         if isinstance(workflow, WorkflowSpec):
             self._workflow = workflow
         elif callable(workflow):
             self._workflow = _promote_to_workflow(workflow, self.name)
         else:
-            raise TypeError(
-                f"Expected WorkflowSpec or callable, got {type(workflow).__name__}"
-            )
+            raise TypeError(f"Expected WorkflowSpec or callable, got {type(workflow).__name__}")
 
     def get_seeds(self) -> list[int]:
         """Return replica seeds (length == ``n_replicas``)."""
@@ -202,10 +215,31 @@ class Experiment:
         """Create filesystem structure and persist metadata (non-recursive)."""
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
         _save_metadata(self.metadata, self.experiment_dir / "experiment.json")
+        self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
         _save_metadata(self.metadata, self.experiment_dir / "experiment.json")
+        self._catalog_upsert()
+
+    def _catalog_upsert(self) -> None:
+        ws = self.project.workspace
+        ws.catalog.upsert_experiment(
+            {
+                "experiment_id": self.metadata.id,
+                "project_id": self.project.id,
+                "name": self.metadata.name,
+                "description": self.metadata.description,
+                "tags": list(self.metadata.tags),
+                "parameter_space": dict(self.metadata.parameter_space),
+                "n_replicas": self.metadata.n_replicas,
+                "workflow_source": self.metadata.workflow_source,
+                "workflow_type": self.metadata.workflow_type,
+                "path": str(self.experiment_dir.relative_to(ws.root)),
+                "created_at": self.metadata.created_at.isoformat(),
+                "updated_at": self.metadata.created_at.isoformat(),
+            }
+        )
 
     # ── Run operations ──────────────────────────────────────────────────
 

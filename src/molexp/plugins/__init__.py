@@ -66,6 +66,7 @@ _INSTALL_HINTS: dict[Capability, str] = {
 
 def _load_agent() -> Any:
     from molexp.plugins.agent_pydanticai import get_agent_plugin  # type: ignore[import-not-found]
+
     return get_agent_plugin()
 
 
@@ -103,9 +104,7 @@ class PluginRegistry:
             return self._cache[cap]
         if self.is_available(cap):
             return self._cache[cap]
-        raise CapabilityNotAvailable(
-            cap, _INSTALL_HINTS.get(cap, "")
-        )
+        raise CapabilityNotAvailable(cap, _INSTALL_HINTS.get(cap, ""))
 
     def available_capabilities(self) -> list[Capability]:
         """Return all capabilities whose backing packages are installed."""

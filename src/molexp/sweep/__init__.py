@@ -5,7 +5,7 @@ Phase-1 scope: a single-node graph that fans out replicas
 Every replica currently executes *in-process* via
 ``experiment.workflow.execute(...)``.
 
-Future phases (see ``docs/spec/unified-pydantic-graph-dispatch.md``):
+Future phases (see ``docs/development/specs/unified-pydantic-graph-dispatch.md``):
 
 * **Phase 2** — replace the local-only body with backend-aware dispatch
   (``local`` / ``slurm`` / ``pbs`` / ``lsf``) routed through molq.

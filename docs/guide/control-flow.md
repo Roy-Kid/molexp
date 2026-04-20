@@ -80,7 +80,7 @@ async def reduce(ctx: TaskContext) -> int:
 
 The decorators set per-task metadata (`_parallel_map_config`, `_join_config`) the runtime reads during scheduling. Use them when the fan-out count is only known at runtime; prefer plain `depends_on` when it's known at authoring time.
 
-## What About …?
+## Pattern Selection
 
 | Want | Use |
 |------|-----|
@@ -89,6 +89,10 @@ The decorators set per-task metadata (`_parallel_map_config`, `_join_config`) th
 | Fixed-size fan-out | `N` tasks authored at build time with identical `depends_on` |
 | Runtime-sized fan-out | `@parallel_map(wf, fan_out_over=...)` + `@join(wf, reducer=...)` |
 | Sweep across `(experiment, Run)` pairs | `molexp.sweep.run_sweep` |
-| Long-running streaming processing | `Actor` (see [actors.md](actors.md)) |
+| Long-running streaming processing | `Actor` (see [task-and-actor.md](task-and-actor.md#actor--streaming-tasks)) |
 
 Explicit IR-level control-flow tasks (`IfTask`, `ForTask`, etc.) are **not part of the current API** and are not planned in the short term — the DAG shape + decorators cover the cases we've actually needed.
+
+## Runnable Example
+
+`examples/workflow/control_flow.py` runs a diamond, a conditional branch driven by `ctx.config`, and a `parallel_map` + `join` fan-out.

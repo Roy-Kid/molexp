@@ -23,13 +23,13 @@ from __future__ import annotations
 
 import hashlib
 import json
-from mollog import get_logger
 import os
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from mollog import get_logger
 from pydantic import BaseModel
 
 from .snapshot import TaskSnapshot
@@ -195,9 +195,7 @@ class Caching:
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:
-        fd, tmp_path = tempfile.mkstemp(
-            dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_"
-        )
+        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(content)

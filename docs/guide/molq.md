@@ -11,10 +11,9 @@ In code, the cluster bridge lives in `molexp.plugins.submit_molq`. It is not a s
 At runtime, `molexp run` loads this plugin only when you request a scheduler backend:
 
 ```bash
-molexp run train.py --slurm --partition gpu --gpus 1 --cpus 8
-molexp run train.py --pbs --queue batch
-molexp run train.py --lsf --queue short
-molexp run train.py --scheduler slurm --partition gpu
+molexp run train.py --scheduler slurm --partition gpu --gpus 1 --cpus 8
+molexp run train.py --scheduler pbs --queue batch
+molexp run train.py --scheduler lsf --queue short
 ```
 
 If `molq` is not installed, those commands fail fast with the install hint shown by the CLI:
@@ -117,7 +116,7 @@ When `molq` is installed, `molexp.plugins.discover_ui_plugins()` also exposes a 
 
 On the CLI side, `molexp run --block` can immediately open the run monitor after submission, and `molexp watch` can later reopen it. Both rely on the normalized executor metadata that the plugin writes into the run metadata.
 
-## When to Reach for It
+## Appropriate Use Cases
 
 Use `submit_molq` when:
 
@@ -126,3 +125,7 @@ Use `submit_molq` when:
 - and you need `molexp` to persist cluster job identity alongside run metadata.
 
 If you are still iterating on basic workflow semantics, local execution is usually the better place to start. Once the workflow shape is stable, the plugin lets you move that same shape onto a scheduler with minimal conceptual overhead.
+
+## Runnable Example
+
+`examples/operations/molq.py` composes the same `SubmitHandler` object the CLI would build for `--scheduler slurm` and prints the worker command plus the normalised `executor_info` payload — no cluster required.

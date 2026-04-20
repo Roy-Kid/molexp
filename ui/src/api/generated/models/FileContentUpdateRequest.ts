@@ -2,9 +2,6 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Request to update file content.
- */
 export type FileContentUpdateRequest = {
     /**
      * Workspace folder ID or 'workspace'

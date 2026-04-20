@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from molexp.workspace.run import RunStatus
 
 
@@ -37,9 +35,7 @@ class TestRunCancel:
         assert run.parameters == original_params
 
     def test_cancel_does_not_modify_job_ids(self, run):
-        run._update_metadata(
-            executor_info={"job_id": "uuid-123", "scheduler_job_id": "456"}
-        )
+        run._update_metadata(executor_info={"job_id": "uuid-123", "scheduler_job_id": "456"})
         run.cancel()
         assert run.metadata.executor_info["job_id"] == "uuid-123"
         assert run.metadata.executor_info["scheduler_job_id"] == "456"

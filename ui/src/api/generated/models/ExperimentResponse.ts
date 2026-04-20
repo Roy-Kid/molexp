@@ -3,27 +3,16 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { RunSummary } from './RunSummary';
-/**
- * Experiment response model.
- */
 export type ExperimentResponse = {
-    /**
-     * ISO 8601 creation timestamp
-     */
-    created: string;
     id: string;
-    experimentId: string;
     projectId: string;
     name: string;
     description?: string;
-    /**
-     * Workflow source path
-     */
-    workflow: string;
+    workflow?: (string | null);
     workflowType?: (string | null);
     gitCommit?: (string | null);
     parameterSpace?: Record<string, any>;
-    defaultInputs?: Array<Record<string, any>>;
+    created: string;
     runCount?: (number | null);
     runs?: Array<RunSummary>;
 };

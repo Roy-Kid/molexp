@@ -26,7 +26,6 @@ export function CreateExperimentDialog({
 }: CreateExperimentDialogProps) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [id, setId] = useState("");
   const [workflow, setWorkflow] = useState("");
   const [description, setDescription] = useState("");
   const [parameterSpace, setParameterSpace] = useState("{}");
@@ -39,11 +38,7 @@ export function CreateExperimentDialog({
     setError(null);
 
     try {
-      // Auto-generate ID if empty
-      const experimentId = id || name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
-
       await workspaceApi.createExperiment(projectId, {
-        id: experimentId,
         name,
         workflow_source: workflow,
         description,
@@ -52,7 +47,6 @@ export function CreateExperimentDialog({
 
       setOpen(false);
       setName("");
-      setId("");
       setWorkflow("");
       setDescription("");
       setParameterSpace("{}");

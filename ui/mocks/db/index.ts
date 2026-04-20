@@ -75,7 +75,6 @@ export function seed(): void {
     const projects: ApiProjectResponse[] = [
         {
             id: "protein-folding",
-            projectId: "protein-folding",
             name: "Protein Folding",
             description: "Benchmarking folding pipelines",
             owner: "molexp",
@@ -86,7 +85,6 @@ export function seed(): void {
         },
         {
             id: "catalyst-search",
-            projectId: "catalyst-search",
             name: "Catalyst Search",
             description: "Screening catalysts for CO2 reduction",
             owner: "molexp",
@@ -103,7 +101,6 @@ export function seed(): void {
     const experiments: ApiExperimentResponse[] = [
         {
             id: "exp-001",
-            experimentId: "exp-001",
             projectId: "protein-folding",
             name: "AlphaFold Baseline",
             description: "Initial baseline run with AF2",
@@ -111,7 +108,6 @@ export function seed(): void {
             workflowType: "yaml",
             gitCommit: "a1b2c3d",
             parameterSpace: { lr: [0.001, 0.0005] },
-            defaultInputs: [{ assetId: "asset-001", role: "dataset" }],
             runCount: 1,
             runs: [
                 {
@@ -125,7 +121,6 @@ export function seed(): void {
         },
         {
             id: "exp-002",
-            experimentId: "exp-002",
             projectId: "protein-folding",
             name: "Structure Sweep",
             description: "Parameter sweep on secondary structure",
@@ -133,14 +128,12 @@ export function seed(): void {
             workflowType: "yaml",
             gitCommit: "d4e5f6g",
             parameterSpace: { temperature: [0.8, 1.0, 1.2] },
-            defaultInputs: [],
             runCount: 0,
             runs: [],
             created: isoAt(-900),
         },
         {
             id: "exp-101",
-            experimentId: "exp-101",
             projectId: "catalyst-search",
             name: "Catalyst Sweep",
             description: "Screening ligand libraries",
@@ -148,7 +141,6 @@ export function seed(): void {
             workflowType: "yaml",
             gitCommit: "h7i8j9k",
             parameterSpace: { ligand: ["L1", "L2", "L3"] },
-            defaultInputs: [{ assetId: "asset-002", role: "catalog" }],
             runCount: 1,
             runs: [
                 {
@@ -168,7 +160,6 @@ export function seed(): void {
     const runs: ApiRunResponse[] = [
         {
             id: "run-001",
-            runId: "run-001",
             projectId: "protein-folding",
             experimentId: "exp-001",
             status: "succeeded",
@@ -176,9 +167,10 @@ export function seed(): void {
             parameters: { batch_size: 32 },
             created: isoAt(-120),
             workflow: {
-                file: "workflows/alphafold.yml",
+                source: "workflows/alphafold.yml",
                 gitCommit: "a1b2c3d",
-                serializedGraph: null,
+                codeHash: null,
+                configHash: null,
             },
             executorInfo: {
                 backend: "molq",
@@ -187,37 +179,9 @@ export function seed(): void {
                 job_id: "molq-101",
                 scheduler_job_id: "421337",
             },
-            workingDir: "/tmp/molexp/run-001",
-            logsDir: "/tmp/molexp/run-001/logs",
-            assetRefs: {
-                inputs: [
-                    {
-                        assetId: "asset-001",
-                        role: "dataset",
-                        producerRunId: null,
-                        accessedAt: isoAt(-110),
-                        producedAt: null,
-                    },
-                ],
-                outputs: [
-                    {
-                        assetId: "asset-003",
-                        role: "model",
-                        producerRunId: "run-001",
-                        accessedAt: null,
-                        producedAt: isoAt(-65),
-                    },
-                ],
-            },
-            context: {
-                environment: { python: "3.12" },
-                dependencies: { pydantic: "2.5" },
-                hardware: { gpu: "A100" },
-            },
         },
         {
             id: "run-101",
-            runId: "run-101",
             projectId: "catalyst-search",
             experimentId: "exp-101",
             status: "succeeded",
@@ -225,96 +189,114 @@ export function seed(): void {
             parameters: { batch_size: 16 },
             created: isoAt(-100),
             workflow: {
-                file: "workflows/catalyst.yml",
+                source: "workflows/catalyst.yml",
                 gitCommit: "h7i8j9k",
-                serializedGraph: null,
+                codeHash: null,
+                configHash: null,
             },
             executorInfo: { backend: "local" },
-            workingDir: "/tmp/molexp/run-101",
-            logsDir: "/tmp/molexp/run-101/logs",
-            assetRefs: {
-                inputs: [
-                    {
-                        assetId: "asset-002",
-                        role: "catalog",
-                        producerRunId: null,
-                        accessedAt: isoAt(-95),
-                        producedAt: null,
-                    },
-                ],
-                outputs: [],
-            },
-            context: {
-                environment: { python: "3.12" },
-                dependencies: { pydantic: "2.5" },
-                hardware: { gpu: "V100" },
-            },
         },
     ];
 
     runs.forEach((r) => db.runs.set(r.id, r));
 
-    // Assets
+    // Assets — unified typed asset model. `extra` carries kind-specific fields.
     const assets: ApiAssetResponse[] = [
         {
             id: "asset-001",
-            assetId: "asset-001",
-            type: "dataset",
-            format: "hdf5",
-            size: 104857600,
-            contentHash: "hash-001",
-            mimeType: "application/octet-stream",
-            producerRunId: null,
-            tags: ["training"],
-            metadata: { source: "s3://datasets/qm9" },
-            files: [
-                {
-                    path: "data/qm9.h5",
-                    size: 104857600,
-                    hash: "filehash-001",
-                },
-            ],
-            created: isoAt(-2000),
+            name: "qm9",
+            kind: "data",
+            scope_kind: "workspace",
+            scope_ids: [],
+            path: "data_assets/asset-001/payload",
+            created_at: isoAt(-2000),
+            updated_at: isoAt(-2000),
+            producer: null,
+            tags: { source: "s3://datasets/qm9", stage: "training" },
+            extra: {
+                mime: "application/octet-stream",
+                size: 104857600,
+                source_path: "s3://datasets/qm9",
+                import_action: "copy",
+            },
         },
         {
             id: "asset-002",
-            assetId: "asset-002",
-            type: "catalog",
-            format: "csv",
-            size: 5242880,
-            contentHash: "hash-002",
-            mimeType: "text/csv",
-            producerRunId: null,
-            tags: ["ligands"],
-            metadata: { source: "internal" },
-            files: [
-                {
-                    path: "data/ligands.csv",
-                    size: 5242880,
-                    hash: "filehash-002",
-                },
-            ],
-            created: isoAt(-1600),
+            name: "ligands",
+            kind: "data",
+            scope_kind: "project",
+            scope_ids: ["catalyst-search"],
+            path: "data_assets/asset-002/payload",
+            created_at: isoAt(-1600),
+            updated_at: isoAt(-1600),
+            producer: null,
+            tags: { source: "internal", stage: "screening" },
+            extra: {
+                mime: "text/csv",
+                size: 5242880,
+                source_path: "/data/ligands.csv",
+                import_action: "copy",
+            },
         },
         {
             id: "asset-003",
-            assetId: "asset-003",
-            type: "model",
-            format: "pt",
-            size: 20971520,
-            contentHash: "hash-003",
-            mimeType: "application/octet-stream",
-            producerRunId: "run-001",
-            tags: ["checkpoint"],
-            metadata: { epoch: 24 },
-            files: [
-                {
-                    path: "models/alphafold.pt",
-                    size: 20971520,
-                    hash: "filehash-003",
-                },
-            ],
-            created: isoAt(-100),
+            name: "alphafold.pt",
+            kind: "artifact",
+            scope_kind: "run",
+            scope_ids: ["protein-folding", "exp-001", "run-001"],
+            path: "artifacts/alphafold.pt",
+            created_at: isoAt(-100),
+            updated_at: isoAt(-100),
+            producer: {
+                run_id: "run-001",
+                execution_id: "exec-001",
+                task_id: "train",
+            },
+            tags: { role: "checkpoint", epoch: "24" },
+            extra: {
+                mime: "application/octet-stream",
+                size: 20971520,
+            },
+        },
+        {
+            id: "asset-004",
+            name: "run",
+            kind: "log",
+            scope_kind: "run",
+            scope_ids: ["protein-folding", "exp-001", "run-001"],
+            path: "logs/run.log",
+            created_at: isoAt(-120),
+            updated_at: isoAt(-60),
+            producer: {
+                run_id: "run-001",
+                execution_id: "exec-001",
+                task_id: null,
+            },
+            tags: {},
+            extra: {
+                line_count: 142,
+                last_tail: "[INFO] run completed successfully",
+            },
+        },
+        {
+            id: "asset-005",
+            name: "epoch1",
+            kind: "checkpoint",
+            scope_kind: "run",
+            scope_ids: ["protein-folding", "exp-001", "run-001"],
+            path: ".ckpt/ckpt_abc.json",
+            created_at: isoAt(-80),
+            updated_at: isoAt(-80),
+            producer: {
+                run_id: "run-001",
+                execution_id: "exec-001",
+                task_id: "train",
+            },
+            tags: {},
+            extra: {
+                ckpt_id: "ckpt_abc",
+                parent_ckpt_id: null,
+            },
         },
     ];
 
@@ -789,20 +771,24 @@ export function getAllAssets(): ApiAssetResponse[] {
 }
 
 /**
- * Get assets scoped to a project.
+ * Get assets attributable to a project.
+ *
+ * An asset belongs to a project when its scope starts at the project or
+ * when it was produced by a run inside that project.
  */
 export function getAssetsByProject(projectId: string): ApiAssetResponse[] {
-    if (projectId === "protein-folding") {
-        return Array.from(db.assets.values()).filter((asset) =>
-            asset.id === "asset-001" || asset.id === "asset-003"
-        );
-    }
-
-    if (projectId === "catalyst-search") {
-        return Array.from(db.assets.values()).filter((asset) => asset.id === "asset-002");
-    }
-
-    return [];
+    return Array.from(db.assets.values()).filter((asset) => {
+        if (asset.scope_kind === "project" && asset.scope_ids[0] === projectId) {
+            return true;
+        }
+        if (
+            (asset.scope_kind === "experiment" || asset.scope_kind === "run") &&
+            asset.scope_ids[0] === projectId
+        ) {
+            return true;
+        }
+        return false;
+    });
 }
 
 /**

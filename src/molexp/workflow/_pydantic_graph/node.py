@@ -14,10 +14,10 @@ where each node executes all steps in its level in parallel.
 from __future__ import annotations
 
 import asyncio
-from mollog import get_logger
 from dataclasses import dataclass
 from typing import Any
 
+from mollog import get_logger
 from pydantic_graph import BaseNode, End, GraphRunContext
 
 from .state import WorkflowDeps, WorkflowState
@@ -108,10 +108,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
                 logger.exception(f"Step {entry.name!r} failed")
                 return (entry.name, None, exc)
 
-        logger.debug(
-            f"Executing level {self.level_index} in parallel: "
-            f"{[e.name for e in entries]}"
-        )
+        logger.debug(f"Executing level {self.level_index} in parallel: {[e.name for e in entries]}")
 
         results = await asyncio.gather(*[_run_one(e) for e in entries])
 
@@ -138,15 +135,10 @@ def _gather_inputs(entry: _StepEntry, state: WorkflowState) -> Any:
     if len(entry.depends_on) == 1:
         return state.step_outputs.get(entry.depends_on[0])
 
-    return {
-        dep: state.step_outputs.get(dep)
-        for dep in entry.depends_on
-    }
+    return {dep: state.step_outputs.get(dep) for dep in entry.depends_on}
 
 
-async def _call_task(
-    entry: "_StepEntry", task_ctx: Any, deps: WorkflowDeps | None = None
-) -> Any:
+async def _call_task(entry: "_StepEntry", task_ctx: Any, deps: WorkflowDeps | None = None) -> Any:
     """Dispatch to local execution or remote submission.
 
     Resolution order:
@@ -176,8 +168,7 @@ async def _call_task(
         return await entry.fn_or_class(task_ctx)
 
     raise TypeError(
-        f"Task '{entry.name}' is neither Runnable nor callable: "
-        f"{type(entry.fn_or_class)}"
+        f"Task '{entry.name}' is neither Runnable nor callable: {type(entry.fn_or_class)}"
     )
 
 

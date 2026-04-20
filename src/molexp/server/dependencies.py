@@ -85,7 +85,7 @@ def get_workspace():
     workspace_path = get_workspace_path()
     cache_key = str(workspace_path.resolve())
     if cache_key not in _workspace_cache:
-        _workspace_cache[cache_key] = Workspace.from_path(workspace_path)
+        _workspace_cache[cache_key] = Workspace(workspace_path)
     return _workspace_cache[cache_key]
 
 

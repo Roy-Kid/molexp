@@ -25,6 +25,7 @@ from .deps import MolexpDeps
 
 # ── Level 1: Workspace read-only tools ────────────────────────────────────────
 
+
 async def list_projects(ctx: RunContext[MolexpDeps]) -> list[dict[str, Any]]:
     """List all projects in the workspace.
 
@@ -41,9 +42,7 @@ async def list_projects(ctx: RunContext[MolexpDeps]) -> list[dict[str, Any]]:
     ]
 
 
-async def list_experiments(
-    ctx: RunContext[MolexpDeps], project_id: str
-) -> list[dict[str, Any]]:
+async def list_experiments(ctx: RunContext[MolexpDeps], project_id: str) -> list[dict[str, Any]]:
     """List all experiments in a project.
 
     Args:
@@ -124,6 +123,7 @@ async def get_run_summary(
 
 # ── Level 2: Workflow tools (Phase 3) ────────────────────────────────────────
 
+
 async def workflow_execute(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -144,13 +144,13 @@ async def workflow_execute(
     return {
         "error": "not_implemented",
         "message": (
-            "Workflow execution will be available in Phase 3 "
-            "(pydantic-graph runtime integration)."
+            "Workflow execution will be available in Phase 3 (pydantic-graph runtime integration)."
         ),
     }
 
 
 # ── Level 3: Product write tools ──────────────────────────────────────────────
+
 
 async def create_run(
     ctx: RunContext[MolexpDeps],

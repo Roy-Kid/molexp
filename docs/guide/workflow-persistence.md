@@ -2,7 +2,7 @@
 
 MolExp **does not serialize workflow topology** to JSON. Workflows are authored in Python and re-imported on every execution. This page documents what *is* persisted — the reproducibility data needed to recreate a run — and how to use it.
 
-## What Is Persisted
+## Persistent Metadata
 
 Three pieces of data, all written atomically (temp file + `os.rename`):
 
@@ -50,7 +50,7 @@ The fully merged molcfg profile data the run executed against, plus a `sha256` d
 }
 ```
 
-## What Is *Not* Persisted
+## Deliberate Omissions
 
 - The workflow topology (DAG shape) — recomputed from `workflow_source` on replay.
 - Task code — implicit in `workflow_source` + `git_commit`.
@@ -97,8 +97,12 @@ Use these to group, compare, and replay runs.
             ├── artifacts/
             ├── logs/
             └── execution/<exec_id>/
-                ├── traceback.txt             ← on failure
+                ├── error.txt                 ← on failure
                 └── ...
 ```
 
 All JSON files use `json.dumps(..., default=str, indent=2)` with atomic writes; structure is discovered by scanning directories, so you can move, inspect, or archive experiments independently without rewriting parent metadata.
+
+## Runnable Example
+
+`examples/workspace/workflow_persistence.py` runs a deliberately flaky task twice and prints the `execution_history`, `profile`, `config`, and `config_hash` fields from `run.json`.

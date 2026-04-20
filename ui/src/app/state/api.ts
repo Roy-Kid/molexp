@@ -170,8 +170,8 @@ export const mapExperiments = (
     id: experiment.id,
     name: experiment.name,
     status: "active",
-    summary: experiment.description || experiment.workflow,
-    workflowFile: experiment.workflow,
+    summary: experiment.description || experiment.workflow || "No workflow",
+    workflowFile: experiment.workflow ?? "",
     updatedAt: experiment.created,
     projectId,
   }));
@@ -203,7 +203,7 @@ export const mapRuns = (
       Object.entries(run.executorInfo ?? {}).map(([key, value]) => [key, String(value)]),
     ),
     id: run.id,
-    name: "runId" in run && typeof run.runId === "string" ? run.runId : run.id,
+    name: run.id,
     status: mapStatus(run.status),
     summary: `Status: ${run.status}`,
     updatedAt: run.finished ?? run.created,
@@ -212,14 +212,25 @@ export const mapRuns = (
   }));
 };
 
+const assetSize = (asset: ApiAssetResponse): number | null => {
+  const extraSize = (asset.extra as Record<string, unknown> | undefined)?.size;
+  return typeof extraSize === "number" ? extraSize : null;
+};
+
+const assetSummary = (asset: ApiAssetResponse): string => {
+  const scope = asset.scope_kind ? `${asset.scope_kind} scope` : "unscoped";
+  return `${asset.kind} · ${scope}`;
+};
+
 export const mapAssets = (assets: ApiAssetResponse[], projectId?: string): AssetSummary[] => {
   return assets.map((asset) => ({
     id: asset.id,
-    name: asset.assetId,
+    name: asset.name,
+    kind: asset.kind,
     status: "active",
-    summary: `${asset.type} • ${asset.format}`,
-    updatedAt: asset.created,
-    sizeBytes: asset.size,
+    summary: assetSummary(asset),
+    updatedAt: asset.updated_at,
+    sizeBytes: assetSize(asset),
     projectId,
   }));
 };
@@ -231,7 +242,7 @@ export const mapWorkflows = (
   const experimentById = new Map(rawExperiments.map((experiment) => [experiment.id, experiment]));
   return experiments.map((experiment) => {
     const raw = experimentById.get(experiment.id);
-    const workflowPath = raw ? raw.workflow : "workflow";
+    const workflowPath = raw?.workflow ?? "workflow";
     return {
       id: `workflow:${experiment.id}`,
       name: `${experiment.name} workflow`,
@@ -284,7 +295,7 @@ export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSumma
     goalDescription: s.goalDescription,
     status: s.status as AgentSessionSummary["status"],
     createdAt: s.createdAt,
-    eventCount: s.events.length,
+    eventCount: s.events?.length ?? 0,
   }));
 };
 

@@ -229,7 +229,7 @@ For day-to-day development, the backend and frontend stay on separate loops:
 
 ```bash
 # Backend
-molexp serve --workspace ./lab --port 8000
+molexp serve ./lab --port 8000
 
 # Frontend dev server
 npm run dev
@@ -246,15 +246,11 @@ The wheel includes `src/molexp/_webapp/**`, and `create_app()` auto-detects that
 
 ## Documentation Map
 
-- **[Overview](docs/getting-started/overview.md)** introduces the main workflow, workspace, and execution concepts.
-- **[Quick Start](docs/tutorial/quick-start.md)** explains the end-to-end authoring path from task definition to tracked execution.
-- **[Guide Index](docs/guide/index.md)** groups the operational and concept guides under one section.
-- **[Run Profiles and Reproducible CLI Execution](docs/guide/run-profiles.md)** explains `molcfg`, `ctx.config`, `--override`, and `--resume`.
-- **[Documentation Index](docs/index.md)** is the architectural landing page.
-- **[Workspace Architecture](docs/guide/workspace-architecture.md)** and **[Workspace API](docs/guide/workspace-api.md)** cover the persistence model and public Python surface.
-- **[Molq Plugin and Cluster Submission](docs/guide/molq.md)** explains the optional scheduler bridge and how `molexp run` uses it.
-- **[Server Lifecycle](docs/guide/server-lifecycle.md)** covers `molexp serve` and `ServerManager`.
-- **[Design Specs](docs/spec/)** hold active design notes and implementation plans.
+- **[Documentation Index](docs/index.md)** — vision, scope, design principles.
+- **[Concepts](docs/concept/index.md)** — workflow / workspace / plugin mental model.
+- **[Quick Start](docs/getting-started/quick-start.md)** — end-to-end from task definition to tracked execution.
+- **[Guide](docs/guide/index.md)** — topical usage guides (task/actor, runtime, profiles, workspace, server, molq).
+- **[Development](docs/development/index.md)** — compiler internals, task protocols, active design specs.
 
 ## License
 

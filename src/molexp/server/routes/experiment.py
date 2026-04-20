@@ -10,9 +10,7 @@ from ..dependencies import get_workspace
 from ..exceptions import ExperimentNotFoundError, ProjectNotFoundError
 from ..schemas import ExperimentCreateRequest, ExperimentResponse, MessageResponse
 
-router = APIRouter(
-    prefix="/projects/{project_id}/experiments", tags=["experiments"]
-)
+router = APIRouter(prefix="/projects/{project_id}/experiments", tags=["experiments"])
 
 
 @router.get("", response_model=list[ExperimentResponse])

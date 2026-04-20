@@ -16,16 +16,15 @@ app = typer.Typer(
 
 # Order matters only for --help display. Import for side-effect registration.
 from molexp.cli import (  # noqa: E402,F401
-    run_cmd,
-    serve_cmd,
-    workspace_cmd,
-    watch_cmd,
-    project,
-    experiment,
-    runs,
     asset,
+    experiment,
+    project,
+    run_cmd,
+    runs,
+    serve_cmd,
+    watch_cmd,
+    workspace_cmd,
 )
-
 
 if __name__ == "__main__":
     app()

@@ -32,16 +32,18 @@ const SIZE_CLASS: Record<StatusBadgeSize, string> = {
 export type StatusBadgeSize = "sm" | "md";
 
 export interface StatusBadgeProps {
-  status: string;
+  status: string | null | undefined;
   size?: StatusBadgeSize;
   pulse?: boolean;
 }
 
-const resolveTone = (status: string): StatusTone => {
+const resolveTone = (status: string | null | undefined): StatusTone => {
+  if (!status) return "neutral";
   return STATUS_TONE[status.toLowerCase()] ?? "neutral";
 };
 
-export const StatusBadge = ({ status, size = "md", pulse }: StatusBadgeProps): JSX.Element => {
+export const StatusBadge = ({ status, size = "md", pulse }: StatusBadgeProps): JSX.Element | null => {
+  if (!status) return null;
   const tone = resolveTone(status);
   const shouldPulse = pulse ?? tone === "running";
   return (

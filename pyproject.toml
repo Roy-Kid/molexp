@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "molexp"
-version = "0.2.0"
+version = "0.0.1"
 description = "Workflow and agent platform for research experiment management"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}

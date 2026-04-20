@@ -54,9 +54,7 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
                 self.submitted_runs = []
 
             def __call__(self, _script, mol_run, _exp_spec, _project_spec):
-                mol_run._update_metadata(
-                    executor_info={"backend": "molq", "scheduler": scheduler}
-                )
+                mol_run._update_metadata(executor_info={"backend": "molq", "scheduler": scheduler})
                 self.submitted_runs.append(mol_run)
 
         return DummyHandler()
@@ -73,7 +71,7 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
     assert captured["scheduler"] == "local"
 
 
-def test_run_cancel_uses_molq_job_id(monkeypatch, tmp_path):
+def test_run_cancel_uses_molq_handle(monkeypatch, tmp_path):
     workspace, experiment, run = _make_workspace(tmp_path)
     run._update_metadata(
         status="pending",
@@ -145,7 +143,7 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
             self.kwargs = kwargs
 
     class DummySubmitor:
-        def __init__(self, cluster_name: str, scheduler: str) -> None:
+        def __init__(self, cluster_name: str, scheduler: str, **_kwargs) -> None:
             self.cluster_name = cluster_name
             self.scheduler = scheduler
 

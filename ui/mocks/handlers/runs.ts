@@ -25,27 +25,17 @@ export const runHandlers = [
         async ({ request, params }) => {
             const { projectId, experimentId } = params;
             const body = (await request.json()) as RunCreateRequest;
-            const runId = body.git_commit ? `run-${body.git_commit.substring(0, 7)}` : `run-${Date.now()}`;
+            const runId = `run-${Date.now()}`;
 
             const newRun: ApiRunResponse = {
                 id: runId,
-                runId,
                 projectId: projectId as string,
                 experimentId: experimentId as string,
                 status: "pending",
                 finished: null,
                 parameters: body.parameters || {},
                 created: new Date().toISOString(),
-                workflow: {
-                    file: body.workflow_file,
-                    gitCommit: body.git_commit || null,
-                    serializedGraph: null
-                },
                 executorInfo: {},
-                workingDir: null,
-                logsDir: null,
-                assetRefs: { inputs: [], outputs: [] },
-                context: null,
             };
 
             setRun(newRun);

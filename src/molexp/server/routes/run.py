@@ -140,7 +140,7 @@ def get_run_execution(
         for s in data.get("steps", [])
     ]
     return RunExecutionResponse(
-        execution_id=data.get("execution_id", latest.name),
+        execution_id=data.get("execution_id", latest_id),
         status=data.get("status", "running"),
         steps=steps,
         end=data.get("end"),

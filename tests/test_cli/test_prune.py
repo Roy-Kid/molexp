@@ -11,7 +11,6 @@ from molexp.cli import app
 from molexp.workspace import Workspace
 from molexp.workspace.models import ExecutionRecord
 
-
 runner = CliRunner()
 
 
@@ -61,6 +60,7 @@ def test_prune_deletes_failed_executions(seeded_workspace):
 
     # Reload metadata and check history.
     from molexp.workspace import Workspace as _WS
+
     reloaded = _WS.load(ws_path).get_project("proj-a").get_experiment("exp-x").get_run(run.id)
     assert [e.execution_id for e in reloaded.metadata.execution_history] == [f"exec-{run.id}"]
 

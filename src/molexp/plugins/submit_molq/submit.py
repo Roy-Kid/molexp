@@ -51,6 +51,7 @@ class SubmitHandler:
 
     def __call__(
         self,
+        _script: Any,
         mol_run: Any,
         experiment: Any,
         project: Any,
@@ -64,7 +65,7 @@ class SubmitHandler:
             Submitor,
         )
 
-        res   = self._res
+        res = self._res
         sched = self._sched
 
         job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
@@ -80,7 +81,7 @@ class SubmitHandler:
             scheduler=self._scheduler,
             jobs_dir=str(jobs_dir),
         ) as submitor:
-            job = submitor.submit(
+            job, _warnings = submitor.submit(
                 argv=[
                     sys.executable,
                     "-m",
@@ -107,7 +108,7 @@ class SubmitHandler:
                     error_file=str(run_dir / "stderr.log"),
                 ),
                 metadata={
-                    "run_id":  mol_run.id,
+                    "run_id": mol_run.id,
                     "run_dir": str(run_dir),
                 },
             )
@@ -133,7 +134,9 @@ def make_submit_handler(
     """Return a :class:`SubmitHandler` configured for the given scheduler.
 
     The handler is callable with the standard ``(script, mol_run, experiment,
-    project)`` signature used by :func:`~molexp.cli._execute_sweep`.
+    project)`` signature used by :func:`~molexp.cli._execute_sweep`.  The
+    leading ``script`` is accepted for uniformity with the local dispatcher
+    and intentionally ignored; the worker rebuilds the run from ``run_dir``.
 
     All ``None`` values in *resources* and *scheduling* are stripped so that
     molq passes them through as unset, letting each scheduler use its own

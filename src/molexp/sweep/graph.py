@@ -1,6 +1,6 @@
 """Sweep-level pydantic-graph: fan out replicas with bounded concurrency.
 
-Phase-1 design. See ``docs/spec/unified-pydantic-graph-dispatch.md``.
+Phase-1 design. See ``docs/development/specs/unified-pydantic-graph-dispatch.md``.
 
 A sweep is the outer loop of a ``molexp run`` invocation: one replica per
 ``(experiment, mol_run)`` pair.  Before this module existed, the sweep
@@ -102,9 +102,7 @@ class SweepRoot(BaseNode[SweepState, SweepDeps, SweepState]):
     and finer-grained observation.
     """
 
-    async def run(
-        self, ctx: GraphRunContext[SweepState, SweepDeps]
-    ) -> End[SweepState]:
+    async def run(self, ctx: GraphRunContext[SweepState, SweepDeps]) -> End[SweepState]:
         replicas = ctx.deps.replicas
         sem = ctx.deps.semaphore
         cfg = ctx.deps.profile_config

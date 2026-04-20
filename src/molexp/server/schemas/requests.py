@@ -51,9 +51,7 @@ class ExperimentCreateRequest(BaseModel):
 
 
 class RunCreateRequest(BaseModel):
-    parameters: dict[str, Any] = Field(
-        default_factory=dict, description="Run parameters"
-    )
+    parameters: dict[str, Any] = Field(default_factory=dict, description="Run parameters")
 
 
 class RunStatusUpdateRequest(BaseModel):

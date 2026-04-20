@@ -23,6 +23,7 @@ run_app = typer.Typer(help="Run management commands")
 app.add_typer(run_app, name="runs")
 
 from . import prune as _prune  # noqa: E402
+
 _prune.register(run_app)
 
 
@@ -84,9 +85,7 @@ def run_create(
 def run_list(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
-    path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path")
-    ] = None,
+    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """List all runs in an experiment."""
     ws = get_workspace(path)
@@ -142,7 +141,9 @@ def run_cancel(
     ] = None,
     experiment_id: Annotated[
         Optional[str],
-        typer.Option("--experiment", "-e", help="Experiment ID (required in experiment-scope mode)."),
+        typer.Option(
+            "--experiment", "-e", help="Experiment ID (required in experiment-scope mode)."
+        ),
     ] = None,
     all_runs: Annotated[
         bool,
@@ -150,7 +151,9 @@ def run_cancel(
     ] = False,
     status_filter: Annotated[
         Optional[str],
-        typer.Option("--status", help="Comma-separated statuses to filter (e.g. 'pending,running')."),
+        typer.Option(
+            "--status", help="Comma-separated statuses to filter (e.g. 'pending,running')."
+        ),
     ] = None,
     scheduler: Annotated[
         str,
@@ -242,7 +245,7 @@ def run_cancel(
     table.add_column("Run ID", style="cyan")
     table.add_column("Status", style="yellow")
     table.add_column("Scheduler", style="magenta")
-    table.add_column("molq_job_id", style="dim")
+    table.add_column("job_id", style="dim")
     table.add_column("scheduler_job_id", style="dim")
 
     for r in target_runs:
@@ -299,7 +302,7 @@ def run_cancel(
                     except Exception as exc:
                         rprint(
                             f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
-                            f"{r.id} (molq_job_id={molq_id}, scheduler={run_scheduler}): {exc}"
+                            f"{r.id} (job_id={molq_id}, scheduler={run_scheduler}): {exc}"
                         )
                         errors += 1
                 elif scheduler_job_id and run_scheduler:
@@ -341,9 +344,7 @@ def run_info(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
     run_id: Annotated[str, typer.Argument(help="Run ID")],
-    path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path")
-    ] = None,
+    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Show run information."""
     ws = get_workspace(path)

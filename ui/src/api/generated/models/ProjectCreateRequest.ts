@@ -2,14 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Request to create a project.
- */
 export type ProjectCreateRequest = {
-    /**
-     * Unique project identifier (slug)
-     */
-    id: string;
     /**
      * Human-readable project name
      */

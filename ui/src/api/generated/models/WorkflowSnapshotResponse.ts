@@ -2,12 +2,10 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Workflow snapshot details.
- */
 export type WorkflowSnapshotResponse = {
-    file: string;
+    source: string;
     gitCommit?: (string | null);
-    serializedGraph?: (string | null);
+    codeHash?: (string | null);
+    configHash?: (string | null);
 };
 

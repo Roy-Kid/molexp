@@ -10,7 +10,7 @@ Pick the foreground CLI unless you specifically need a daemonized process.
 ## `molexp serve` (foreground CLI)
 
 ```bash
-molexp serve --workspace ./lab --port 8000 --host localhost
+molexp serve ./lab --port 8000 --host localhost
 ```
 
 - Resolves the workspace directory (auto-detects a `./workspace/` subfolder if present, warns if no `workspace.json` is found).
@@ -108,3 +108,7 @@ This works for editable installs, wheels, and packaged releases. The bundle is p
 - **Port busy.** `ServerManager.start()` raises `RuntimeError: Server is already running` if `~/.molexp/server.pid` points at a live process. Call `manager.stop()` first or `rm` the stale pid file.
 - **API-only despite a build.** Check that `src/molexp/_webapp/index.html` exists in your active installation. Editable installs re-use the in-tree bundle; wheels ship a frozen copy.
 - **Background process won't die.** Confirm `kill_on_exit=True` — with `False`, the subprocess is intentionally detached (`start_new_session=True`) and must be stopped via `manager.stop()`.
+
+## Runnable Example
+
+`examples/operations/server_lifecycle.py` spawns the API server through `ServerManager`, polls `status()`, and stops it cleanly — the minimal programmatic lifecycle.

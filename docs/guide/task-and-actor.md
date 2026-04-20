@@ -2,7 +2,7 @@
 
 `Task` and `Actor` are the atomic units of a MolExp workflow. `Task` runs once and returns a value; `Actor` runs continuously and yields a stream of values. Both have a **protocol** form (zero-import third-party integration) and a **convenience base class** form (`molexp.workflow.Task` / `Actor`).
 
-## What a Task Is
+## Task Semantics
 
 A `Task` is a single async function (or class with `async def execute(self, ctx)`) that consumes the typed output of its upstream task and returns a typed output of its own. The compiler groups tasks into **levels** by the dependency graph — every task on the same level runs in parallel.
 
@@ -93,9 +93,23 @@ Plain `Task` (no generics) defaults to `Any` everywhere.
 
 ## Actor — Streaming Tasks
 
-`Actor` is the streaming variant. Its `run()` returns an async iterator; the compiler detects it structurally via the `Streamable` protocol.
+`Actor` is the streaming variant. Its `run()` returns an async iterator; the compiler detects it structurally via the `Streamable` protocol. Use actors for continuous sampling, stream transformation, and components that run at a different rate than their peers. If your computation is a single call returning one value, use `Task` — actors are more machinery than you need.
 
 ```python
+# Functional DSL
+from molexp.workflow import workflow, ActorContext
+
+wf = workflow(name="stream")
+
+@wf.actor
+async def monitor(ctx: ActorContext):
+    while True:
+        msg = await ctx.receive()
+        yield {"seen": msg}
+```
+
+```python
+# Subclass Actor
 from molexp.workflow import Actor, ActorContext
 
 class Monitor(Actor):
@@ -105,7 +119,35 @@ class Monitor(Actor):
             yield {"seen": msg}
 ```
 
-Message passing uses `ctx.receive()` / `ctx.send()` (which route through `RunContext.receive()` / `RunContext.emit()` internally). Channels are named; the workflow wires them when actors are connected.
+Any object with `async def run(self, ctx)` returning an async iterator satisfies the `Streamable` protocol and can be added via `WorkflowBuilder.add(obj)` — no molexp import required.
+
+### ActorContext
+
+`ActorContext` extends `TaskContext` (so `ctx.state`, `ctx.deps`, `ctx.inputs`, `ctx.config`, and workspace helpers are all still there) and adds two primitives:
+
+```python
+await ctx.receive()       # wait for the next message on the default "input" channel
+await ctx.send(output)    # emit to the default "output" channel
+```
+
+These route through `RunContext.receive("input")` / `RunContext.emit("output", output)`. Without a connected `RunContext` they raise `NotImplementedError` — actors only make sense under a `Run`.
+
+### Runtime Boundaries
+
+Supported today:
+
+- Structural detection of streaming tasks via `Streamable`.
+- `ctx.receive()` / `ctx.send()` plumbing when a `RunContext` is attached.
+- Interleaving actor coroutines through the normal pydantic-graph scheduler.
+
+Not implemented (open an issue if you need it — these are runtime extensions, not doc gaps):
+
+- Automatic channel lifecycle (you register channels on `RunContext._channels` yourself).
+- Backpressure / buffered-channel sizing / drop strategies beyond `asyncio.Queue` defaults.
+- Replay or resume for an actor mid-stream.
+- Hot reconfiguration of an actor's config while it runs.
+
+Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.ActorContext`, `molexp.workflow.protocols.Streamable`, `molexp.workspace.run.RunContext.receive` / `emit`.
 
 ## Task Name Resolution
 
@@ -142,7 +184,7 @@ async def reduce(ctx: TaskContext) -> int:
 
 These are additive shortcuts over the normal `@wf.task` registration — they set per-task metadata (`fan_out_over`, `reducer`) that the runtime interprets during scheduling.
 
-## When to Use Which
+## Selection Guide
 
 | Pattern | Use |
 |---------|-----|
@@ -152,4 +194,8 @@ These are additive shortcuts over the normal `@wf.task` registration — they se
 | Fan-out over a list produced by an upstream | `@parallel_map(wf, fan_out_over=...)` |
 | Fan-in reduction | `@join(wf, reducer=...)` |
 
-For a broader walk-through, see the [Quick Start](../tutorial/quick-start.md). For the exact TaskContext API see [task-context.md](task-context.md).
+For a broader walk-through, see the [Quick Start](../getting-started/quick-start.md). For the exact TaskContext API see [task-context.md](task-context.md).
+
+## Runnable Example
+
+`examples/workflow/task_and_actor.py` executes functional DSL, OOP builder, protocol form, and a streaming actor in one script.

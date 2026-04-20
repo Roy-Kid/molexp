@@ -2,10 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Cache statistics response.
- */
 export type CacheStatsResponse = {
     storeDir: string;
     entryCount: number;
 };
+

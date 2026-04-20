@@ -2,14 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Request to create an experiment.
- */
 export type ExperimentCreateRequest = {
-    /**
-     * Unique experiment identifier (slug)
-     */
-    id: string;
     /**
      * Human-readable experiment name
      */
@@ -17,7 +10,7 @@ export type ExperimentCreateRequest = {
     /**
      * Path to workflow file
      */
-    workflow_source: string;
+    workflow_source?: (string | null);
     /**
      * Experiment description
      */

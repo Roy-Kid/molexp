@@ -16,8 +16,8 @@ Any semantics (dataset choice, whether to skip heavy compute, etc.) are
 user-defined fields that the user's task code reads explicitly.
 """
 
-from molexp.config.models import MolCfg, ProfileConfig, normalize_profile_name
 from molexp.config.loader import DEFAULT_CONFIG_FILENAMES, load_molcfg
+from molexp.config.models import MolCfg, ProfileConfig, normalize_profile_name
 
 __all__ = [
     "MolCfg",

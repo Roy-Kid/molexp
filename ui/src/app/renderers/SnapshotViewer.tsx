@@ -20,8 +20,24 @@ import {
   Settings,
 } from "lucide-react";
 import { useMemo, useState } from "react";
-import type { TaskSnapshotResponse } from "@/api/generated/models/TaskSnapshotResponse";
 import { Badge } from "@/components/ui/badge";
+
+// Local shape used by the snapshot viewer — the backend no longer exposes a
+// dedicated TaskSnapshotResponse schema; snapshots are derived from the run's
+// workflow persistence state. The extra fields (codeSource / configData /
+// snapshotKey) are rendered from mock fixtures only.
+interface TaskSnapshotResponse {
+  taskId: string;
+  taskType: string;
+  codeHash: string;
+  configHash: string;
+  config?: Record<string, unknown>;
+  codeSource?: string;
+  configData?: Record<string, unknown>;
+  snapshotKey?: string;
+  createdAt?: string;
+  [key: string]: unknown;
+}
 import {
   Select,
   SelectContent,

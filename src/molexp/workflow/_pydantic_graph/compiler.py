@@ -86,31 +86,25 @@ class WorkflowGraphCompiler:
         """Validate and compile spec into a runnable graph."""
         sorted_steps = self._topological_sort(spec)
         levels = self._compute_levels(sorted_steps)
-        graph: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(
-            nodes=[WorkflowStep]
-        )
+        graph: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(nodes=[WorkflowStep])
         return CompiledWorkflow(
-            graph=graph, levels=levels, sorted_steps=sorted_steps,
+            graph=graph,
+            levels=levels,
+            sorted_steps=sorted_steps,
         )
 
     def _topological_sort(self, spec: WorkflowSpec) -> list[_StepEntry]:
         """Return tasks in valid execution order (respecting depends_on)."""
-        step_map: dict[str, TaskRegistration] = {
-            s.name: s for s in spec._tasks
-        }
+        step_map: dict[str, TaskRegistration] = {s.name: s for s in spec._tasks}
 
         # Validate all depends_on references exist
         for step in spec._tasks:
             for dep in step.depends_on:
                 if dep not in step_map:
-                    raise ValueError(
-                        f"Step '{step.name}' depends on unknown step '{dep}'"
-                    )
+                    raise ValueError(f"Step '{step.name}' depends on unknown step '{dep}'")
 
         # Build adjacency: node → set of predecessors
-        dependency_graph: dict[str, set[str]] = {
-            s.name: set(s.depends_on) for s in spec._tasks
-        }
+        dependency_graph: dict[str, set[str]] = {s.name: set(s.depends_on) for s in spec._tasks}
 
         try:
             sorter = graphlib.TopologicalSorter(dependency_graph)
@@ -147,9 +141,7 @@ class WorkflowGraphCompiler:
             if not step.depends_on:
                 level_of[step.name] = 0
             else:
-                level_of[step.name] = 1 + max(
-                    level_of[dep] for dep in step.depends_on
-                )
+                level_of[step.name] = 1 + max(level_of[dep] for dep in step.depends_on)
 
         buckets: dict[int, list[_StepEntry]] = defaultdict(list)
         for step in sorted_steps:

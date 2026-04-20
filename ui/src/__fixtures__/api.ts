@@ -11,7 +11,6 @@ import type { ExperimentSummary, ProjectSummary, RunSummary } from "@/app/types"
 
 export const fixtureProject: ProjectResponse = {
   id: "proj-alpha",
-  projectId: "proj-alpha",
   name: "Alpha Project",
   created: "2026-03-01T00:00:00Z",
   description: "First project",
@@ -19,14 +18,12 @@ export const fixtureProject: ProjectResponse = {
 
 export const fixtureProjectNoDescription: ProjectResponse = {
   id: "proj-beta",
-  projectId: "proj-beta",
   name: "Beta Project",
   created: "2026-03-02T00:00:00Z",
 };
 
 export const fixtureExperiment: ExperimentResponse = {
   id: "exp-001",
-  experimentId: "exp-001",
   projectId: "proj-alpha",
   name: "Baseline",
   created: "2026-03-01T10:00:00Z",
@@ -36,7 +33,6 @@ export const fixtureExperiment: ExperimentResponse = {
 
 export const fixtureExperimentNoDescription: ExperimentResponse = {
   id: "exp-002",
-  experimentId: "exp-002",
   projectId: "proj-alpha",
   name: "Variant",
   created: "2026-03-02T10:00:00Z",
@@ -45,7 +41,6 @@ export const fixtureExperimentNoDescription: ExperimentResponse = {
 
 export const fixtureRun: RunResponse = {
   id: "run-abc",
-  runId: "run-abc",
   projectId: "proj-alpha",
   experimentId: "exp-001",
   status: "succeeded",
@@ -56,7 +51,6 @@ export const fixtureRun: RunResponse = {
 
 export const fixtureRunPending: RunResponse = {
   id: "run-def",
-  runId: "run-def",
   projectId: "proj-alpha",
   experimentId: "exp-001",
   status: "pending",
@@ -65,7 +59,6 @@ export const fixtureRunPending: RunResponse = {
 
 export const fixtureRunFailed: RunResponse = {
   id: "run-ghi",
-  runId: "run-ghi",
   projectId: "proj-alpha",
   experimentId: "exp-001",
   status: "failed",
@@ -74,7 +67,6 @@ export const fixtureRunFailed: RunResponse = {
 
 export const fixtureRunCancelled: RunResponse = {
   id: "run-jkl",
-  runId: "run-jkl",
   projectId: "proj-alpha",
   experimentId: "exp-001",
   status: "cancelled",
@@ -83,12 +75,23 @@ export const fixtureRunCancelled: RunResponse = {
 
 export const fixtureAsset: AssetResponse = {
   id: "asset-001",
-  assetId: "asset-001",
-  type: "model",
-  format: "pickle",
-  created: "2026-03-01T16:00:00Z",
-  size: 1024,
-  contentHash: "abc123def456",
+  name: "checkpoint.pt",
+  kind: "artifact",
+  scope_kind: "run",
+  scope_ids: ["proj-alpha", "exp-001", "run-abc"],
+  path: "artifacts/checkpoint.pt",
+  created_at: "2026-03-01T16:00:00Z",
+  updated_at: "2026-03-01T16:00:00Z",
+  producer: {
+    run_id: "run-abc",
+    execution_id: "exec-001",
+    task_id: null,
+  },
+  tags: {},
+  extra: {
+    mime: "application/octet-stream",
+    size: 1024,
+  },
 };
 
 export const fixtureProjectSummary: ProjectSummary = {

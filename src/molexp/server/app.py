@@ -148,9 +148,7 @@ def create_app(
         return HealthResponse(
             status="healthy",
             workspace_available=True,
-            capabilities={
-                cap.value: registry.is_available(cap) for cap in Capability
-            },
+            capabilities={cap.value: registry.is_available(cap) for cap in Capability},
         )
 
     # 5. Static file serving (production) or root fallback (dev / no build)
@@ -161,13 +159,10 @@ def create_app(
         else:
             webapp_path = _find_bundled_webapp()
 
-    if (
-        webapp_path is not None
-        and webapp_path.is_dir()
-        and (webapp_path / "index.html").exists()
-    ):
+    if webapp_path is not None and webapp_path.is_dir() and (webapp_path / "index.html").exists():
         _mount_webapp(app, webapp_path)
     else:
+
         @app.get("/", tags=["system"])
         def root():
             return {

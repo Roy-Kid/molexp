@@ -46,9 +46,7 @@ class MolexpToolCatalog:
         Returns:
             AbstractToolset ready to pass to pydantic-ai Agent
         """
-        toolset: FunctionToolset[MolexpDeps] = FunctionToolset(
-            tools=get_all_builtin_tools()
-        )
+        toolset: FunctionToolset[MolexpDeps] = FunctionToolset(tools=get_all_builtin_tools())
 
         # Add user extra tools
         for tool in self._extra_tools:
@@ -69,9 +67,7 @@ class MolexpToolCatalog:
         if self._approval_policy.require_approval_for:
             policy = self._approval_policy
 
-            def approval_required_func(
-                ctx: Any, tool_def: Any, tool_args: dict[str, Any]
-            ) -> bool:
+            def approval_required_func(ctx: Any, tool_def: Any, tool_args: dict[str, Any]) -> bool:
                 return policy.needs_approval(tool_def.name)
 
             return toolset.approval_required(approval_required_func)
@@ -98,8 +94,9 @@ def _make_pydantic_ai_wrapper(registration: FunctionTool):
     params = list(sig.parameters.values())
 
     # Remove first param (ToolContext ctx)
-    _inner_params = [p for p in params if p.annotation is not ToolContext
-                     and p.name not in ("ctx", "context")]
+    _inner_params = [
+        p for p in params if p.annotation is not ToolContext and p.name not in ("ctx", "context")
+    ]
 
     async def wrapper(ctx: RunContext[MolexpDeps], **kwargs: Any) -> Any:
         tool_ctx = ToolContext(
@@ -114,7 +111,8 @@ def _make_pydantic_ai_wrapper(registration: FunctionTool):
 
     # Copy annotations (skip ToolContext ctx arg)
     annotations = {
-        k: v for k, v in getattr(original_fn, "__annotations__", {}).items()
+        k: v
+        for k, v in getattr(original_fn, "__annotations__", {}).items()
         if k not in ("ctx", "context", "return")
     }
     annotations["ctx"] = RunContext[MolexpDeps]

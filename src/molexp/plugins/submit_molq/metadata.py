@@ -42,7 +42,13 @@ def normalize_executor_info(
     raw: dict[str, Any] | None,
     labels: dict[str, str] | None = None,
 ) -> dict[str, str]:
-    """Normalize executor metadata with light backward compatibility."""
+    """Coerce executor metadata to ``dict[str, str]`` and fill from labels.
+
+    Unrecognized keys are preserved; ``None`` values are dropped.  Missing
+    ``scheduler`` / ``cluster_name`` / ``job_id`` / ``scheduler_job_id``
+    fall back to matching entries in *labels* when present.  Presence of
+    any scheduler-related field implies ``backend == "molq"``.
+    """
     info: dict[str, str] = {}
 
     if raw:
@@ -50,23 +56,10 @@ def normalize_executor_info(
             if value is not None:
                 info[str(key)] = str(value)
 
-    if "job_id" not in info:
-        legacy_job_id = info.get("molq_job_id")
-        if legacy_job_id:
-            info["job_id"] = legacy_job_id
-
-    if "scheduler_job_id" not in info:
-        legacy_scheduler_job_id = info.get("slurm_job_id")
-        if legacy_scheduler_job_id:
-            info["scheduler_job_id"] = legacy_scheduler_job_id
-
     label_map = labels or {}
-    for key in ("scheduler", "cluster_name", "scheduler_job_id"):
+    for key in ("scheduler", "cluster_name", "job_id", "scheduler_job_id"):
         if key not in info and label_map.get(key):
             info[key] = label_map[key]
-
-    if "job_id" not in info and label_map.get("molq_job_id"):
-        info["job_id"] = label_map["molq_job_id"]
 
     if "backend" not in info and (
         "job_id" in info or "scheduler_job_id" in info or "scheduler" in info

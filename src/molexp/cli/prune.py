@@ -79,9 +79,7 @@ def _select_many(
         table.add_row(str(idx), *row)
     console.print(table)
 
-    rprint(
-        "[dim]Formats: 1,3,5  |  2-4  |  all  |  failed,cancelled[/dim]"
-    )
+    rprint("[dim]Formats: 1,3,5  |  2-4  |  all  |  failed,cancelled[/dim]")
     raw = typer.prompt(
         "Select records to delete (empty to abort)",
         default="",
@@ -97,9 +95,7 @@ def _select_many(
     keyword_map = {"failed", "cancelled", "running", "succeeded", "pending"}
     tokens = [t.strip() for t in raw.split(",") if t.strip()]
     if status_values and tokens and all(t in keyword_map for t in tokens):
-        return [
-            i for i, sv in enumerate(status_values) if sv.lower() in tokens
-        ]
+        return [i for i, sv in enumerate(status_values) if sv.lower() in tokens]
 
     chosen: set[int] = set()
     for tok in tokens:
@@ -125,12 +121,14 @@ def _execution_rows(run: Run) -> list[tuple[str, ...]]:
         finished = rec.finished_at.strftime("%Y-%m-%d %H:%M") if rec.finished_at else "—"
         started = rec.started_at.strftime("%Y-%m-%d %H:%M")
         status = rec.status or "running"
-        rows.append((
-            rec.execution_id,
-            status,
-            started,
-            finished,
-        ))
+        rows.append(
+            (
+                rec.execution_id,
+                status,
+                started,
+                finished,
+            )
+        )
     return rows
 
 
@@ -156,10 +154,7 @@ def prune_runs(
     if not projects:
         rprint("[yellow]Workspace has no projects.[/yellow]")
         raise typer.Exit(0)
-    proj_rows = [
-        (p.id, p.metadata.name, f"{len(p.list_experiments())} exp")
-        for p in projects
-    ]
+    proj_rows = [(p.id, p.metadata.name, f"{len(p.list_experiments())} exp") for p in projects]
     i = _select_one("Projects", proj_rows, ("ID", "Name", "Exp count"))
     if i is None:
         rprint("[dim]Aborted.[/dim]")
@@ -171,10 +166,7 @@ def prune_runs(
     if not experiments:
         rprint(f"[yellow]Project {project.id!r} has no experiments.[/yellow]")
         raise typer.Exit(0)
-    exp_rows = [
-        (e.id, e.metadata.name, f"{len(e.list_runs())} runs")
-        for e in experiments
-    ]
+    exp_rows = [(e.id, e.metadata.name, f"{len(e.list_runs())} runs") for e in experiments]
     i = _select_one(
         f"Experiments in {project.id!r}",
         exp_rows,
@@ -195,12 +187,14 @@ def prune_runs(
     for r in runs:
         status = str(r.status).lower()
         n_exec = len(r.metadata.execution_history)
-        run_rows.append((
-            r.id,
-            status,
-            str(n_exec),
-            r.metadata.created_at.strftime("%Y-%m-%d %H:%M"),
-        ))
+        run_rows.append(
+            (
+                r.id,
+                status,
+                str(n_exec),
+                r.metadata.created_at.strftime("%Y-%m-%d %H:%M"),
+            )
+        )
     i = _select_one(
         f"Runs in {project.id}/{experiment.id}",
         run_rows,
@@ -236,16 +230,11 @@ def prune_runs(
         rprint("[dim]Nothing selected — aborted.[/dim]")
         raise typer.Exit(0)
 
-    targets: list[ExecutionRecord] = [
-        run.metadata.execution_history[i] for i in indices
-    ]
+    targets: list[ExecutionRecord] = [run.metadata.execution_history[i] for i in indices]
 
     # Refuse to delete a still-running entry unless the run itself is
     # already terminal (zombie cleanup).
-    live = [
-        t for t in targets
-        if t.status == "running" and str(run.status).lower() == "running"
-    ]
+    live = [t for t in targets if t.status == "running" and str(run.status).lower() == "running"]
     if live:
         rprint(
             f"[red]Refusing:[/red] {len(live)} selected record(s) look live "
@@ -276,8 +265,7 @@ def prune_runs(
             rprint(f"  [dim]skip[/dim]  {exec_id} (no directory)")
 
     new_history = [
-        rec for rec in run.metadata.execution_history
-        if rec.execution_id not in removed_ids
+        rec for rec in run.metadata.execution_history if rec.execution_id not in removed_ids
     ]
     run._update_metadata(execution_history=new_history)
     rprint(

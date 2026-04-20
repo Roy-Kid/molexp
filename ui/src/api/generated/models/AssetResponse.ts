@@ -2,25 +2,24 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { AssetFileResponse } from './AssetFileResponse';
 /**
- * Asset response model.
+ * Serialized typed ``Asset``.
+ *
+ * ``kind`` is the discriminator (``data`` / ``artifact`` / ``log`` / …).
+ * ``extra`` carries subclass-specific fields so the frontend can render
+ * per-kind details without a separate schema per kind.
  */
 export type AssetResponse = {
-    /**
-     * ISO 8601 creation timestamp
-     */
-    created: string;
     id: string;
-    assetId: string;
-    type: string;
-    format: string;
-    size: number;
-    contentHash: string;
-    mimeType?: string;
-    producerRunId?: (string | null);
-    tags?: Array<string>;
-    metadata?: Record<string, any>;
-    files?: Array<AssetFileResponse>;
+    name: string;
+    kind: string;
+    scope_kind: string;
+    scope_ids: Array<string>;
+    path: string;
+    created_at: string;
+    updated_at: string;
+    producer?: (Record<string, any> | null);
+    tags?: Record<string, string>;
+    extra?: Record<string, any>;
 };
 

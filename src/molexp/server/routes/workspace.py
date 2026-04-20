@@ -29,6 +29,7 @@ class FileContentUpdateRequest(BaseModel):
     path: str = Field(..., description="Relative path within the folder")
     content: str = Field(..., description="New file content")
 
+
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
 MAX_TEXT_BYTES = 2_000_000
@@ -50,8 +51,9 @@ def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoRespons
     return WorkspaceInfoResponse(
         root=str(workspace.root),
         projectCount=len(workspace.list_projects()),
-        assetCount=len(workspace.assets.list_assets()),
+        assetCount=len(workspace.assets.list()),
     )
+
 
 @router.get("/files")
 def list_workspace_files(
@@ -137,11 +139,11 @@ def open_workspace(
         path.mkdir(parents=True, exist_ok=True)
 
     set_workspace_path_override(path)
-    workspace = Workspace.from_path(path)
+    workspace = Workspace(path)
     return WorkspaceInfoResponse(
         root=str(workspace.root),
         projectCount=len(workspace.list_projects()),
-        assetCount=len(workspace.assets.list_assets()),
+        assetCount=len(workspace.assets.list()),
     )
 
 

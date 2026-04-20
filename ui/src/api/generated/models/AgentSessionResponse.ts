@@ -3,13 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { SessionEventResponse } from './SessionEventResponse';
-/**
- * Agent session response.
- */
 export type AgentSessionResponse = {
     sessionId: string;
     status: string;
     goalDescription: string;
     createdAt: string;
-    events: Array<SessionEventResponse>;
+    events?: Array<SessionEventResponse>;
 };
+

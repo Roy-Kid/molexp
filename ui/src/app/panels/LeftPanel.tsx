@@ -83,9 +83,11 @@ const fileKindByExtension: Record<string, FileKind> = {
   ".jpeg": "image",
 };
 
-const detectFileKind = (path: string): FileKind => {
+const detectFileKind = (path: string | undefined): FileKind => {
+  if (!path) return "unknown";
   const parts = path.split(".");
-  const extension = parts.length > 1 ? `.${parts[parts.length - 1].toLowerCase()}` : "";
+  const last = parts[parts.length - 1];
+  const extension = parts.length > 1 && last ? `.${last.toLowerCase()}` : "";
   return fileKindByExtension[extension] ?? "unknown";
 };
 

@@ -2,9 +2,6 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-/**
- * Generic message response.
- */
 export type MessageResponse = {
     message: string;
 };

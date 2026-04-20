@@ -1,7 +1,6 @@
 """Tests for experiment API routes."""
 
 
-
 class TestExperimentRoutes:
     def test_list_empty(self, client, project):
         resp = client.get(f"/api/projects/{project.id}/experiments")
@@ -24,9 +23,7 @@ class TestExperimentRoutes:
         assert data["parameterSpace"] == {"lr": [1e-4]}
 
     def test_get(self, client, project, experiment):
-        resp = client.get(
-            f"/api/projects/{project.id}/experiments/{experiment.id}"
-        )
+        resp = client.get(f"/api/projects/{project.id}/experiments/{experiment.id}")
         assert resp.status_code == 200
         data = resp.json()
         assert data["id"] == experiment.id
@@ -34,7 +31,5 @@ class TestExperimentRoutes:
         assert data["workflow"] == "train.py"
 
     def test_delete(self, client, project, experiment):
-        resp = client.delete(
-            f"/api/projects/{project.id}/experiments/{experiment.id}"
-        )
+        resp = client.delete(f"/api/projects/{project.id}/experiments/{experiment.id}")
         assert resp.status_code == 200

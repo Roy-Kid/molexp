@@ -3,25 +3,37 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AssetResponse } from '../models/AssetResponse';
-import type { Body_upload_asset_api_assets_upload_post } from '../models/Body_upload_asset_api_assets_upload_post';
+import type { Body_import_data_asset_api_assets_data_import_post } from '../models/Body_import_data_asset_api_assets_data_import_post';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class AssetsService {
     /**
      * List Assets
-     * List all assets.
+     * Query assets from the workspace catalog with optional filters.
+     * @param kind
+     * @param scopeKind
+     * @param runId
+     * @param taskId
      * @param limit
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
     public static listAssetsApiAssetsGet(
+        kind?: (string | null),
+        scopeKind?: (string | null),
+        runId?: (string | null),
+        taskId?: (string | null),
         limit: number = 100,
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets',
             query: {
+                'kind': kind,
+                'scope_kind': scopeKind,
+                'run_id': runId,
+                'task_id': taskId,
                 'limit': limit,
             },
             errors: {
@@ -31,7 +43,6 @@ export class AssetsService {
     }
     /**
      * Get Asset
-     * Get asset details.
      * @param assetId
      * @returns AssetResponse Successful Response
      * @throws ApiError
@@ -51,41 +62,67 @@ export class AssetsService {
         });
     }
     /**
-     * Upload Asset
-     * Upload a new asset.
-     * @param formData
-     * @returns AssetResponse Successful Response
+     * Asset Content
+     * Download the asset's file content.
+     * @param assetId
+     * @returns any Successful Response
      * @throws ApiError
      */
-    public static uploadAssetApiAssetsUploadPost(
-        formData: Body_upload_asset_api_assets_upload_post,
-    ): CancelablePromise<AssetResponse> {
+    public static assetContentApiAssetsAssetIdContentGet(
+        assetId: string,
+    ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/assets/upload',
-            formData: formData,
-            mediaType: 'multipart/form-data',
+            method: 'GET',
+            url: '/api/assets/{asset_id}/content',
+            path: {
+                'asset_id': assetId,
+            },
             errors: {
                 422: `Validation Error`,
             },
         });
     }
     /**
-     * Download Asset
-     * Download asset content.
+     * Asset Tail
+     * Return the last N lines (``LogAsset`` only).
      * @param assetId
-     * @returns any Successful Response
+     * @param n
+     * @returns string Successful Response
      * @throws ApiError
      */
-    public static downloadAssetApiAssetsAssetIdDownloadGet(
+    public static assetTailApiAssetsAssetIdTailGet(
         assetId: string,
-    ): CancelablePromise<any> {
+        n: number = 100,
+    ): CancelablePromise<string> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/assets/{asset_id}/download',
+            url: '/api/assets/{asset_id}/tail',
             path: {
                 'asset_id': assetId,
             },
+            query: {
+                'n': n,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Import Data Asset
+     * Upload a file and register it as a workspace-scoped ``DataAsset``.
+     * @param formData
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static importDataAssetApiAssetsDataImportPost(
+        formData: Body_import_data_asset_api_assets_data_import_post,
+    ): CancelablePromise<AssetResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/assets/data/import',
+            formData: formData,
+            mediaType: 'multipart/form-data',
             errors: {
                 422: `Validation Error`,
             },

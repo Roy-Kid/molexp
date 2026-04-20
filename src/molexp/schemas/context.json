@@ -21,10 +21,6 @@
             "type": "string",
             "description": "Working directory path"
         },
-        "artifacts_dir": {
-            "type": "string",
-            "description": "Artifacts directory path"
-        },
         "tasks": {
             "type": "object",
             "description": "Task execution statuses",
@@ -77,8 +73,7 @@
         "run_id",
         "experiment_id",
         "project_id",
-        "work_dir",
-        "artifacts_dir"
+        "work_dir"
     ],
     "additionalProperties": false
 }

@@ -5,8 +5,6 @@
 import type { CacheClearResponse } from '../models/CacheClearResponse';
 import type { CacheStatsResponse } from '../models/CacheStatsResponse';
 import type { ExecutionCreateRequest } from '../models/ExecutionCreateRequest';
-import type { ExecutionPlanRequest } from '../models/ExecutionPlanRequest';
-import type { ExecutionPlanResponse } from '../models/ExecutionPlanResponse';
 import type { RunResponse } from '../models/RunResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -34,27 +32,18 @@ export class ExecutionService {
     }
     /**
      * Get Execution Plan
-     * Get execution plan for a workflow definition.
-     * @param requestBody
-     * @returns ExecutionPlanResponse Successful Response
+     * Get execution plan for a workflow (not yet implemented).
+     * @returns any Successful Response
      * @throws ApiError
      */
-    public static getExecutionPlanApiPlanPost(
-        requestBody: ExecutionPlanRequest,
-    ): CancelablePromise<ExecutionPlanResponse> {
+    public static getExecutionPlanApiPlanPost(): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/plan',
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
-            },
         });
     }
     /**
      * Get Cache Stats
-     * Get cache statistics.
      * @returns CacheStatsResponse Successful Response
      * @throws ApiError
      */
@@ -66,7 +55,6 @@ export class ExecutionService {
     }
     /**
      * Clear Cache
-     * Clear all cache entries.
      * @returns CacheClearResponse Successful Response
      * @throws ApiError
      */

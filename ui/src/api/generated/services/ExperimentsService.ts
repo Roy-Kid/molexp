@@ -11,7 +11,6 @@ import { request as __request } from '../core/request';
 export class ExperimentsService {
     /**
      * List Experiments
-     * List experiments in a project.
      * @param projectId
      * @returns ExperimentResponse Successful Response
      * @throws ApiError
@@ -32,7 +31,6 @@ export class ExperimentsService {
     }
     /**
      * Create Experiment
-     * Create a new experiment.
      * @param projectId
      * @param requestBody
      * @returns ExperimentResponse Successful Response
@@ -57,7 +55,6 @@ export class ExperimentsService {
     }
     /**
      * Get Experiment
-     * Get experiment details.
      * @param projectId
      * @param experimentId
      * @returns ExperimentResponse Successful Response
@@ -81,7 +78,6 @@ export class ExperimentsService {
     }
     /**
      * Delete Experiment
-     * Delete an experiment.
      * @param projectId
      * @param experimentId
      * @returns MessageResponse Successful Response

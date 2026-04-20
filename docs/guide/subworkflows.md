@@ -84,7 +84,7 @@ eval_ = with_preprocessing(WorkflowBuilder(name="eval")).add(Evaluate(), depends
 
 This is the most lightweight way to reuse a DAG fragment; you stay inside the plain DSL and don't pay any wrapper overhead.
 
-## When You Might Want a True SubWorkflow Type
+## Cases That May Require a True Subworkflow Type
 
 If you find yourself:
 
@@ -92,3 +92,7 @@ If you find yourself:
 - needing to replay the inner graph independently from the outer one,
 
 open an issue describing the workload. The current runtime handles every practical case we have encountered through the three patterns above; a formal `SubWorkflow` type would be added only if there's a concrete caching / observability need it solves.
+
+## Runnable Example
+
+`examples/workflow/subworkflows.py` wraps an inner preprocess spec inside an outer training workflow — the "Pattern 1" shape above.

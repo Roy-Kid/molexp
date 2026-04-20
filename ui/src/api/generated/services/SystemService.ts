@@ -9,14 +9,13 @@ import { request as __request } from '../core/request';
 export class SystemService {
     /**
      * Health Check
-     * Health check endpoint.
      * @returns HealthResponse Successful Response
      * @throws ApiError
      */
-    public static healthCheckHealthGet(): CancelablePromise<HealthResponse> {
+    public static healthCheckApiHealthGet(): CancelablePromise<HealthResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/health',
+            url: '/api/health',
         });
     }
 }

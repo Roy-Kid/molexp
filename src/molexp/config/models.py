@@ -8,7 +8,6 @@ import json
 from collections.abc import Iterator, Mapping
 from typing import Any
 
-from molcfg import DictSource, ProfileLoader
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -123,14 +122,6 @@ class MolCfg(BaseModel):
         # Resolve extends chain into a list of profile dicts, from root
         # ancestor to target.  Detect cycles.
         chain = self._resolve_chain(norm)
-        profile_sources = {
-            pname: DictSource(self._strip_extends(self.profiles[pname]), name=pname)
-            for pname in chain
-        }
-        loader = ProfileLoader(
-            base_sources=[DictSource(self.defaults, name="defaults")],
-            profiles=profile_sources,
-        )
         # Apply profiles in order by successively merging; ProfileLoader
         # only applies one profile overlay per load, so we chain manually.
         merged: dict[str, Any] = dict(self.defaults)
@@ -149,9 +140,7 @@ class MolCfg(BaseModel):
         current: str | None = target
         while current is not None:
             if current in seen:
-                raise ValueError(
-                    f"Circular profile inheritance detected at {current!r}"
-                )
+                raise ValueError(f"Circular profile inheritance detected at {current!r}")
             if current not in self.profiles:
                 raise KeyError(f"Profile {current!r} referenced by extends not found")
             seen.add(current)

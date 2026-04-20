@@ -26,8 +26,8 @@ class TestWorkspace:
         assert loaded.id == workspace.id
         assert loaded.name == workspace.name
 
-    def test_from_path_creates_if_missing(self, tmp_path):
-        ws = Workspace.from_path(tmp_path / "auto")
+    def test_constructor_creates_if_missing(self, tmp_path):
+        ws = Workspace(tmp_path / "auto")
         ws.materialize()
         assert ws.root.exists()
         assert (ws.root / "workspace.json").exists()

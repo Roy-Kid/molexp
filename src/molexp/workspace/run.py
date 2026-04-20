@@ -25,10 +25,21 @@ if TYPE_CHECKING:
 
 from molexp.config import ProfileConfig
 
+from .assets import (
+    ArtifactAccessor,
+    AssetCatalog,
+    AssetManifest,
+    AssetScope,
+    CheckpointAccessor,
+    ErrorTraceAsset,
+    LogAccessor,
+    Producer,
+)
+from .assets.manifest import MANIFEST_FILENAME  # noqa: F401 (imported for side effects in tests)
 from .base import _atomic_write_json, _load_metadata, _reconstruct, _save_metadata
 from .context import Context
 from .models import ErrorInfo, ExecutionRecord, RunMetadata, WorkflowSnapshotRef
-from .utils import generate_id
+from .utils import generate_asset_id, generate_id
 
 logger = get_logger(__name__)
 
@@ -63,8 +74,6 @@ class RunContext:
     ) -> None:
         self.run = run
         self.work_dir = run.run_dir
-        self.artifacts_dir = self.work_dir / "artifacts"
-        self.logs_dir = self.work_dir / "logs"
         self._profile_config = (
             profile_config if profile_config is not None else ProfileConfig({}, name=None)
         )
@@ -74,20 +83,64 @@ class RunContext:
             experiment_id=run.experiment.id,
             project_id=run.experiment.project.id,
             work_dir=self.work_dir,
-            artifacts_dir=self.artifacts_dir,
-            logs_dir=self.logs_dir,
         )
         self._start_time: datetime | None = None
         self._execution_id: str | None = None
         # Actor message-passing infrastructure
         self._channels: dict[str, Any] = {}
+        # Active task id (set via set_active_task) used for Producer.task_id
+        self._active_task_id: str | None = None
+
+        # Asset plumbing
+        self._scope = AssetScope(
+            kind="run",
+            ids=(
+                run.experiment.project.id,
+                run.experiment.id,
+                run.id,
+            ),
+        )
+        self._manifest = AssetManifest(self.work_dir)
+        workspace_root = run.experiment.project.workspace.root
+        self._catalog: AssetCatalog = AssetCatalog(workspace_root)
+
+        self.artifact = ArtifactAccessor(
+            self.work_dir,
+            self._scope,
+            self._manifest,
+            self._catalog,
+            self._producer,
+        )
+        self.log = LogAccessor(
+            self.work_dir,
+            self._scope,
+            self._manifest,
+            self._catalog,
+            self._producer,
+        )
+        self.checkpoint = CheckpointAccessor(
+            self.work_dir,
+            self._scope,
+            self._manifest,
+            self._catalog,
+            self._producer,
+        )
+
+    def _producer(self) -> Producer:
+        return Producer(
+            run_id=self.run.id,
+            execution_id=self._execution_id,
+            task_id=self._active_task_id,
+        )
+
+    def set_active_task(self, task_id: str | None) -> None:
+        """Set the active task id so future accessor writes set ``Producer.task_id``."""
+        self._active_task_id = task_id
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     def __enter__(self) -> RunContext:
         self.work_dir.mkdir(parents=True, exist_ok=True)
-        self.artifacts_dir.mkdir(exist_ok=True)
-        self.logs_dir.mkdir(exist_ok=True)
         self._load_existing_results()
         self._apply_profile_metadata()
         self._claim_ownership()
@@ -104,9 +157,7 @@ class RunContext:
         self.run._update_metadata(
             execution_history=[*self.run.metadata.execution_history, new_record]
         )
-        self._append_run_log(
-            f"execution started  exec_id={self._execution_id}"
-        )
+        self._append_run_log(f"execution started  exec_id={self._execution_id}")
 
         self._save_context()
         return self
@@ -118,7 +169,9 @@ class RunContext:
             workflow_status = self._context.status.get("run")
             final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
             self.run._update_metadata(
-                status=final, finished_at=now, labels=labels,
+                status=final,
+                finished_at=now,
+                labels=labels,
                 execution_history=self._close_execution_record(final.value, now),
             )
         else:
@@ -185,9 +238,7 @@ class RunContext:
             data_dir = self.run.experiment.project.workspace.root / fallback
             data_dir.mkdir(parents=True, exist_ok=True)
             return data_dir
-        raise FileNotFoundError(
-            f"Asset {asset_name!r} not found and no fallback specified."
-        )
+        raise FileNotFoundError(f"Asset {asset_name!r} not found and no fallback specified.")
 
     def set_result(self, key: str, value: Any) -> None:
         self._context.results[key] = value
@@ -203,39 +254,6 @@ class RunContext:
         else:
             raise TypeError("workflow must be a Pydantic BaseModel or dict")
 
-    def checkpoint(self, name: str | None = None) -> str:
-        from .checkpoint import generate_checkpoint_id
-
-        ckpt_id = generate_checkpoint_id()
-        ckpt_dir = self.work_dir / ".ckpt"
-        ckpt_dir.mkdir(exist_ok=True)
-        _atomic_write_json(ckpt_dir / f"{ckpt_id}.json", {
-            "ckpt_id": ckpt_id,
-            "name": name,
-            "timestamp": datetime.now().isoformat(),
-            "context": self._context.model_dump(mode="json"),
-        })
-        return ckpt_id
-
-    def save_artifact(self, name: str, data: Any) -> Path:
-        artifact_path = self.artifacts_dir / name
-        if isinstance(data, dict):
-            with open(artifact_path, "w") as f:
-                json.dump(data, f, indent=2, default=str)
-        elif isinstance(data, (bytes, bytearray)):
-            with open(artifact_path, "wb") as f:
-                f.write(data)
-        elif isinstance(data, Path):
-            import shutil
-            shutil.copy2(data, artifact_path)
-        else:
-            with open(artifact_path, "w") as f:
-                f.write(str(data))
-        return artifact_path
-
-    def get_artifact_path(self, name: str) -> Path:
-        return self.artifacts_dir / name
-
     # ── Asset access ────────────────────────────────────────────────────
 
     def register_asset(
@@ -245,17 +263,18 @@ class RunContext:
         action: str = "copy",
         meta: dict | None = None,
     ):
-        return self.run.experiment.assets.import_asset(
+        """Import a ``DataAsset`` into this run's experiment scope."""
+        return self.run.experiment.data_assets.import_asset(
             name=name, src=src, action=action, meta=meta or {}
         )
 
     def get_asset(self, name: str, scope: str = "project"):
         if scope == "experiment":
-            return self.run.experiment.assets.get_asset(name)
+            return self.run.experiment.data_assets.get(name)
         elif scope == "project":
-            return self.run.experiment.project.assets.get_asset(name)
+            return self.run.experiment.project.data_assets.get(name)
         elif scope == "workspace":
-            return self.run.experiment.project.workspace.assets.get_asset(name)
+            return self.run.experiment.project.workspace.data_assets.get(name)
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def find_asset(self, name: str):
@@ -332,9 +351,7 @@ class RunContext:
                 time.sleep(1)
 
         if meta is None:
-            raise FileNotFoundError(
-                f"Run metadata not found at {run_json}"
-            ) from last_exc
+            raise FileNotFoundError(f"Run metadata not found at {run_json}") from last_exc
         run = _reconstruct(Run, {"experiment": experiment, "metadata": meta})
         profile_cfg = ProfileConfig(run.metadata.config, name=run.metadata.profile)
         return cls(run, profile_config=profile_cfg)
@@ -359,10 +376,13 @@ class RunContext:
                 self._context.results[key] = value
 
     def _save_context(self):
-        _atomic_write_json(self.work_dir / "run.json", {
-            **self.run.metadata.model_dump(mode="json"),
-            "context": self._context.model_dump(mode="json"),
-        })
+        _atomic_write_json(
+            self.work_dir / "run.json",
+            {
+                **self.run.metadata.model_dump(mode="json"),
+                "context": self._context.model_dump(mode="json"),
+            },
+        )
 
     def _next_execution_id(self) -> str:
         """Return the execution_id for this attempt.
@@ -381,35 +401,28 @@ class RunContext:
             return base
         return f"{base}-{len(existing) + 1}"
 
-    def _close_execution_record(
-        self, status: str, finished_at: datetime
-    ) -> list[ExecutionRecord]:
+    def _close_execution_record(self, status: str, finished_at: datetime) -> list[ExecutionRecord]:
         """Return execution_history with the current record closed."""
         history = list(self.run.metadata.execution_history)
         for i, entry in enumerate(history):
             if entry.execution_id == self._execution_id:
-                history[i] = entry.model_copy(
-                    update={"finished_at": finished_at, "status": status}
-                )
+                history[i] = entry.model_copy(update={"finished_at": finished_at, "status": status})
                 return history
         return history
 
     def _append_run_log(self, message: str) -> None:
-        """Append a single timestamped line to logs/run.log."""
+        """Append a single timestamped line to the ``run`` LogAsset."""
         ts = datetime.now().isoformat(timespec="seconds")
-        with open(self.logs_dir / "run.log", "a") as fh:
-            fh.write(f"{ts}  {message}\n")
+        self.log("run").append(f"{ts}  {message}")
 
     def _apply_profile_metadata(self) -> None:
         """Persist the active profile name / data / hash into RunMetadata."""
-        labels = dict(self.run.metadata.labels)
-        labels.pop("mode", None)  # legacy key, no longer used
         cfg = self._profile_config
         updates: dict[str, Any] = {
             "profile": cfg.name,
             "config": cfg.to_dict(),
             "config_hash": cfg.content_hash() if len(cfg) > 0 or cfg.name else None,
-            "labels": labels,
+            "labels": dict(self.run.metadata.labels),
         }
         self.run._update_metadata(**updates)
 
@@ -434,19 +447,33 @@ class RunContext:
         return labels
 
     def _save_error_details(self, exc_type, exc_val, exc_tb):
+        """Persist an ``ErrorTraceAsset`` for the current execution."""
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
-        # Write per-execution error alongside workflow.json in execution/{exec_id}/
-        if self._execution_id is not None:
-            exec_dir = self.work_dir / "execution" / self._execution_id
-            exec_dir.mkdir(parents=True, exist_ok=True)
-            error_dest = exec_dir / "error.txt"
-        else:
-            error_dest = self.logs_dir / "error.txt"
-        with open(error_dest, "w") as f:
-            f.write(f"Error: {datetime.now().isoformat()}\n")
-            f.write(f"Type: {exc_type.__name__}\n")
-            f.write(f"Message: {exc_val}\n\n")
-            f.write("".join(tb_lines))
+        exec_id = self._execution_id or "unbound"
+        rel_path = Path("execution") / exec_id / "error.txt"
+        target = self.work_dir / rel_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(
+            f"Error: {datetime.now().isoformat()}\n"
+            f"Type: {exc_type.__name__}\n"
+            f"Message: {exc_val}\n\n" + "".join(tb_lines)
+        )
+
+        now = datetime.now()
+        asset = ErrorTraceAsset(
+            asset_id=generate_asset_id(),
+            name=f"error_{exec_id}",
+            scope=self._scope,
+            path=rel_path,
+            created_at=now,
+            updated_at=now,
+            producer=self._producer(),
+            exception_type=exc_type.__name__,
+            message=str(exc_val),
+            execution_id=exec_id,
+        )
+        self._manifest.register(asset)
+        self._catalog.register(asset)
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -500,9 +527,46 @@ class Run:
     def materialize(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
         _save_metadata(self.metadata, self.run_dir / "run.json")
+        self._catalog_upsert()
 
     def save(self) -> None:
         _save_metadata(self.metadata, self.run_dir / "run.json")
+        self._catalog_upsert()
+
+    def _catalog_upsert(self) -> None:
+        ws = self.experiment.project.workspace
+        record = {
+            "run_id": self.metadata.id,
+            "experiment_id": self.experiment.id,
+            "status": self.metadata.status,
+            "parameters": dict(self.metadata.parameters),
+            "profile": self.metadata.profile,
+            "config_hash": self.metadata.config_hash,
+            "labels": dict(self.metadata.labels),
+            "path": str(self.run_dir.relative_to(ws.root)),
+            "created_at": self.metadata.created_at.isoformat(),
+            "finished_at": (
+                self.metadata.finished_at.isoformat() if self.metadata.finished_at else None
+            ),
+            "workflow_snapshot": (
+                self.metadata.workflow_snapshot.model_dump(mode="json")
+                if self.metadata.workflow_snapshot
+                else None
+            ),
+        }
+        ws.catalog.upsert_run(record)
+        # Upsert every execution record in history
+        for rec in self.metadata.execution_history:
+            ws.catalog.upsert_execution(
+                {
+                    "execution_id": rec.execution_id,
+                    "run_id": self.metadata.id,
+                    "status": rec.status,
+                    "started_at": rec.started_at.isoformat(),
+                    "finished_at": (rec.finished_at.isoformat() if rec.finished_at else None),
+                    "scheduler_job_id": rec.scheduler_job_id,
+                }
+            )
 
     # ── Execution ───────────────────────────────────────────────────────
 

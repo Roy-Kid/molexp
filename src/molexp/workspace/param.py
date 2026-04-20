@@ -91,9 +91,7 @@ class UniformSpace(ParamSpace):
             params: Params = {}
             for name, values in self.param_values.items():
                 if not isinstance(values, list):
-                    raise ValueError(
-                        f"Parameter '{name}' must be a list, got {type(values)}"
-                    )
+                    raise ValueError(f"Parameter '{name}' must be a list, got {type(values)}")
                 if len(values) == 0:
                     raise ValueError(f"Parameter '{name}' must have at least one value")
                 params[name] = rng.choice(values)

@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 @dataclass
 class Goal:
     """A user-specified objective for autonomous agent execution."""
+
     description: str
     constraints: dict[str, Any] = field(default_factory=dict)
     success_criteria: list[str] = field(default_factory=list)

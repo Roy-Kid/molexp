@@ -10,7 +10,6 @@ workspace methods gracefully return ``None`` instead of raising.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Generic
 
 from molexp.config import ProfileConfig
@@ -27,12 +26,12 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
         - ``inputs``  — typed output from the upstream task
         - ``config``  — active :class:`~molexp.config.ProfileConfig`
 
-    Workspace-side (available when ``run`` is provided):
-        - ``save_artifact()``
-        - ``get_artifact_path()``
-        - ``find_asset()``
-        - ``checkpoint()``
-        - ``set_result()`` / ``get_result()``
+    Workspace-side (available when a run is attached):
+        - ``artifact.save(name, data)``     — write an ``ArtifactAsset``
+        - ``log(name).append(line)``        — append to a ``LogAsset``
+        - ``checkpoint(name, data=...)``    — save a ``CheckpointAsset``
+        - ``find_asset(name)``              — look up a ``DataAsset``
+        - ``set_result(key, value)`` / ``get_result(key)``
     """
 
     def __init__(
@@ -79,23 +78,27 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
     # ── Workspace-side helpers ───────────────────────────────────────────
     # These return None / no-op when running without a workspace Run.
 
-    def save_artifact(self, name: str, data: Any) -> Path | None:
-        """Persist an artifact to the run's artifact directory.
+    @property
+    def artifact(self) -> Any:
+        """``ArtifactAccessor`` for writing artifact files.
 
-        Returns the written path, or ``None`` if no run is attached.
+        Returns ``None`` when no run is attached.
         """
         if self._run_ctx is None:
             return None
-        return self._run_ctx.save_artifact(name, data)
+        return self._run_ctx.artifact
 
-    def get_artifact_path(self, name: str) -> Path | None:
-        """Return the path to a previously saved artifact."""
+    def log(self, name: str) -> Any:
+        """Return a bound ``LogAsset`` handle for append/tail.
+
+        Returns ``None`` when no run is attached.
+        """
         if self._run_ctx is None:
             return None
-        return self._run_ctx.get_artifact_path(name)
+        return self._run_ctx.log(name)
 
     def find_asset(self, name: str) -> Any:
-        """Search for an asset up the scope hierarchy.
+        """Search for a ``DataAsset`` up the scope hierarchy.
 
         Order: experiment -> project -> workspace.
         Returns ``None`` if not found or no run is attached.
@@ -104,14 +107,14 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
             return None
         return self._run_ctx.find_asset(name)
 
-    def checkpoint(self, name: str | None = None) -> str | None:
-        """Create a checkpoint of current execution state.
+    def checkpoint(self, name: str | None = None, *, data: dict | None = None) -> Any:
+        """Save a ``CheckpointAsset``.
 
-        Returns the checkpoint ID, or ``None`` if no run is attached.
+        Returns the created asset, or ``None`` if no run is attached.
         """
         if self._run_ctx is None:
             return None
-        return self._run_ctx.checkpoint(name)
+        return self._run_ctx.checkpoint(name, data=data)
 
     def set_result(self, key: str, value: Any) -> None:
         """Store a named result in the run context."""

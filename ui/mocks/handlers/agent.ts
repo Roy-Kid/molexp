@@ -54,7 +54,7 @@ export const agentHandlers = [
                 ...session,
                 status: "completed",
                 events: [
-                    ...session.events,
+                    ...(session.events ?? []),
                     {
                         type: "ObservationEvent",
                         ts: new Date().toISOString(),
@@ -102,7 +102,7 @@ export const agentHandlers = [
                 }
 
                 // Send all existing events
-                for (const event of session.events) {
+                for (const event of session.events ?? []) {
                     controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
                 }
 

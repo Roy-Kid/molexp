@@ -1,0 +1,21 @@
+version: 1
+
+defaults:
+  dataset: qm9
+  epochs: 100
+  batch_size: 32
+  optimizer:
+    lr: 0.001
+
+profiles:
+  smoke:
+    epochs: 3
+    batch_size: 8
+
+  dry-run:
+    epochs: 1
+    skip_heavy_compute: true
+
+  large-batch:
+    extends: smoke
+    batch_size: 64

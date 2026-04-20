@@ -46,19 +46,14 @@ import type { RunCreateRequest } from "../api/generated/models/RunCreateRequest"
 export type { ExperimentCreateRequest, ProjectCreateRequest, RunCreateRequest };
 
 import type { AgentSessionResponse } from "../api/generated/models/AgentSessionResponse";
-import type { AssetFileResponse } from "../api/generated/models/AssetFileResponse";
-import type { AssetRefResponse } from "../api/generated/models/AssetRefResponse";
-import type { AssetRefsResponse } from "../api/generated/models/AssetRefsResponse";
 import type { AssetResponse } from "../api/generated/models/AssetResponse";
 import type { CacheClearResponse } from "../api/generated/models/CacheClearResponse";
 import type { CacheStatsResponse } from "../api/generated/models/CacheStatsResponse";
-import type { ContextSnapshotResponse } from "../api/generated/models/ContextSnapshotResponse";
 import type { ExperimentResponse } from "../api/generated/models/ExperimentResponse";
 import type { ProjectResponse } from "../api/generated/models/ProjectResponse";
 import type { RunResponse } from "../api/generated/models/RunResponse";
 import type { RunSummary as ApiRunSummaryModel } from "../api/generated/models/RunSummary";
 import type { SessionEventResponse } from "../api/generated/models/SessionEventResponse";
-import type { TaskSnapshotResponse } from "../api/generated/models/TaskSnapshotResponse";
 import type { WorkflowSnapshotResponse } from "../api/generated/models/WorkflowSnapshotResponse";
 
 // Re-export as Api*Response for compatibility
@@ -66,17 +61,26 @@ export type ApiProjectResponse = ProjectResponse;
 export type ApiExperimentResponse = ExperimentResponse;
 export type ApiRunResponse = RunResponse;
 export type ApiAssetResponse = AssetResponse;
-export type ApiAssetFile = AssetFileResponse;
 export type ApiWorkflowSnapshot = WorkflowSnapshotResponse;
-export type ApiContextSnapshot = ContextSnapshotResponse;
-export type ApiAssetRef = AssetRefResponse;
-export type ApiAssetRefs = AssetRefsResponse;
 export type ApiRunSummary = ApiRunSummaryModel;
-export type ApiTaskSnapshot = TaskSnapshotResponse;
 export type ApiCacheStats = CacheStatsResponse;
 export type ApiCacheClear = CacheClearResponse;
 export type ApiAgentSession = AgentSessionResponse;
 export type ApiSessionEvent = SessionEventResponse;
+
+/**
+ * Known asset kinds emitted by the unified catalog. The list is open — the
+ * backend may add new kinds — but these are the ones the UI renders with
+ * dedicated logic.
+ */
+export type AssetKind =
+  | "data"
+  | "artifact"
+  | "log"
+  | "checkpoint"
+  | "error_trace"
+  | "execution_state"
+  | "output";
 
 export interface ProjectSummary {
   id: string;
@@ -110,10 +114,11 @@ export interface RunSummary {
 export interface AssetSummary {
   id: string;
   name: string;
+  kind: AssetKind | string;
   status: SemanticStatus;
   summary: string;
   updatedAt: string;
-  sizeBytes: number;
+  sizeBytes: number | null;
   projectId?: string;
 }
 
