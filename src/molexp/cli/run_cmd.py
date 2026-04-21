@@ -139,6 +139,34 @@ def _resolve_jobs(cli_jobs: int | None, profile_cfg: ProfileConfig) -> int:
         return 1
 
 
+def _watch_path_for(workspace_arg: Path | None, submitted: list[Any]) -> str:
+    """Pick the argument to suggest for ``molexp explore`` reopen messages.
+
+    Prefers an explicit ``--workspace`` value; otherwise derives the
+    workspace root from the first submitted run. The returned string
+    is cwd-relative when possible (so it matches the ``workspace``
+    argument the user would type), else absolute.
+    """
+    root: Path | None = None
+    if workspace_arg is not None:
+        root = Path(workspace_arg)
+    elif submitted:
+        try:
+            root = submitted[0].experiment.project.workspace.root
+        except AttributeError:
+            root = None
+    if root is None:
+        return "."
+    root = root.resolve()
+    cwd = Path.cwd().resolve()
+    if root == cwd:
+        return "."
+    try:
+        return str(root.relative_to(cwd))
+    except ValueError:
+        return str(root)
+
+
 def _execute_sweep(
     *,
     script: Path,
@@ -160,13 +188,18 @@ def _execute_sweep(
     replayed.
     """
     from molexp.entry import load_workspaces
+    from molexp.workspace.workspace import set_cli_root_override
 
+    override_path = Path(workspace).resolve() if workspace is not None else None
+    set_cli_root_override(override_path)
     try:
         workspaces = load_workspaces(script)
     except Exception as exc:
         rprint(f"[red]Error importing {script.name}:[/red] {exc}")
         rprint(traceback.format_exc(), end="")
         raise typer.Exit(1)
+    finally:
+        set_cli_root_override(None)
 
     if not workspaces:
         rprint(
@@ -180,16 +213,11 @@ def _execute_sweep(
     all_replicas: list[tuple[Any, Any, Any]] = []
 
     for ws in workspaces:
-        if workspace is not None:
-            override = Path(workspace).resolve()
-            if override != ws.root:
-                rprint(
-                    f"[yellow]Warning:[/yellow] --workspace {override} differs from "
-                    f"script's Workspace root {ws.root}; using the script's workspace."
-                )
+        if override_path is not None and ws.root == override_path:
+            rprint(f"[dim]--workspace override active: {ws.root}[/dim]")
 
-        for project in ws.list_projects():
-            for exp in project.list_experiments():
+        for project in ws.registered_projects():
+            for exp in project.registered_experiments():
                 if exp.workflow is None:
                     rprint(
                         f"[red]Error:[/red] Experiment {exp.name!r} has no workflow. "
@@ -631,18 +659,20 @@ def run(
         rprint(f"\n[dim]No runs {verb}.[/dim]")
         return
 
+    watch_arg = _watch_path_for(workspace, submitted)
+
     if block and submitted:
         from molexp.monitor import RunMonitor
 
         rprint(f"\n[dim]Submitted {n} runs. Opening monitor… (press q to close)[/dim]")
         RunMonitor(title=f"{script.stem}  [{mode_label}]").watch(submitted)
         rprint(f"\n[dim]Monitor closed. {n} runs are still executing (if any).[/dim]")
-        rprint(f"[dim]Reopen with:  molexp watch {workspace or '.'}[/dim]")
+        rprint(f"[dim]Reopen with:  molexp explore {watch_arg}[/dim]")
     else:
         verb = "resumed" if resume else "submitted"
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
         if submitted:
-            rprint(f"[dim]Open the monitor with:  molexp watch {workspace or '.'}[/dim]")
+            rprint(f"[dim]Open the explorer with:  molexp explore {watch_arg}[/dim]")
 
 
 @app.command()

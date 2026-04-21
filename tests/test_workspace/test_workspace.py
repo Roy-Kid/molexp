@@ -60,6 +60,22 @@ class TestProject:
         workspace.project("b")
         assert len(workspace.list_projects()) == 2
 
+    def test_registered_projects_excludes_orphan_dirs(self, tmp_path):
+        # Orphan project dir left over from a prior script.
+        orphan = tmp_path / "projects" / "orphan"
+        orphan.mkdir(parents=True)
+        (orphan / "project.json").write_text(
+            '{"id":"orphan","name":"orphan","description":"","owner":"",'
+            '"tags":[],"config":{},"created_at":"2026-04-21T12:00:00"}'
+        )
+        ws = Workspace(tmp_path)
+        ws.project("registered")
+        # list_projects (Intent A / UI) sees both.
+        assert {p.id for p in ws.list_projects()} == {"orphan", "registered"}
+        # registered_projects (Intent B / run) sees only what the caller
+        # registered in this process.
+        assert [p.id for p in ws.registered_projects()] == ["registered"]
+
     def test_delete(self, workspace, project):
         workspace.delete_project(project.id)
         # clear cache after delete (otherwise in-memory stays)
@@ -97,6 +113,21 @@ class TestExperiment:
         project.experiment("a")
         project.experiment("b")
         assert len(project.list_experiments()) == 2
+
+    def test_registered_experiments_excludes_orphan_dirs(self, workspace):
+        project = workspace.project("p")
+        # Orphan experiment dir left by a prior script.
+        orphan = project.project_dir / "experiments" / "orphan"
+        orphan.mkdir(parents=True)
+        (orphan / "experiment.json").write_text(
+            '{"id":"orphan","name":"orphan","parameter_space":{},'
+            '"n_replicas":1,"seeds":[],"workflow_source":null,'
+            '"workflow_type":null,"git_commit":null,"description":"",'
+            '"tags":[],"created_at":"2026-04-21T12:00:00"}'
+        )
+        project.experiment("kept")
+        assert {e.id for e in project.list_experiments()} == {"orphan", "kept"}
+        assert [e.id for e in project.registered_experiments()] == ["kept"]
 
     def test_get_experiment(self, project, experiment):
         found = project.get_experiment(experiment.id)

@@ -90,11 +90,15 @@ class Experiment:
         workflow_source: str | None = None,
         workflow_type: str | None = None,
         git_commit: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
     ) -> None:
         self.project = project
         self.metadata = ExperimentMetadata(
             id=id if id is not None else generate_id(),
             name=name,
+            description=description,
+            tags=list(tags) if tags is not None else [],
             workflow_source=workflow_source,
             workflow_type=workflow_type,
             parameter_space=dict(params) if params else {},
@@ -289,6 +293,20 @@ class Experiment:
             child_cls=Run,
             attrs_factory=lambda m: {"experiment": self, "metadata": m},
         )
+
+    def delete_run(self, run_id: str) -> None:
+        """Delete a run directory and cascade-drop its catalog rows.
+
+        Raises:
+            KeyError: If the run is not found.
+        """
+        import shutil
+
+        run_dir = self.experiment_dir / "runs" / f"run-{run_id}"
+        if not run_dir.exists():
+            raise KeyError(f"Run '{run_id}' not found")
+        shutil.rmtree(run_dir)
+        self.project.workspace.catalog.remove_run(run_id)
 
     # ── Internal ────────────────────────────────────────────────────────
 

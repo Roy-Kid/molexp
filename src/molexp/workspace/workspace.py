@@ -20,6 +20,25 @@ from .project import Project
 from .utils import slugify
 
 
+# CLI-level root override: set by ``molexp run -w PATH`` before executing the
+# user script, so every ``me.Workspace(...)`` in that script resolves to the
+# overridden path instead of its hardcoded argument. ``None`` means no
+# override — ``Workspace(root)`` uses the caller-supplied root as-is.
+_cli_root_override: Path | None = None
+
+
+def set_cli_root_override(path: Path | str | None) -> None:
+    """Set (or clear) the CLI-level workspace root override.
+
+    When set, :class:`Workspace` constructors use this path instead of the
+    ``root`` argument they were called with. Intended solely for ``molexp
+    run -w PATH`` to make the CLI flag authoritative over script-hardcoded
+    workspace roots.
+    """
+    global _cli_root_override
+    _cli_root_override = Path(path).resolve() if path is not None else None
+
+
 class Workspace:
     """Top-level workspace with project management and global asset library.
 
@@ -31,7 +50,11 @@ class Workspace:
     """
 
     def __init__(self, root: Path | str, name: str | None = None) -> None:
-        self.root = Path(root).resolve()
+        # CLI --workspace wins over script-hardcoded roots.
+        if _cli_root_override is not None:
+            self.root = _cli_root_override
+        else:
+            self.root = Path(root).resolve()
         metadata_file = self.root / "workspace.json"
         if metadata_file.exists():
             self.metadata = _load_metadata(WorkspaceMetadata, metadata_file)
@@ -166,8 +189,24 @@ class Workspace:
                 return project
         return None
 
+    def registered_projects(self) -> list[Project]:
+        """Return only projects explicitly registered in the current process.
+
+        Unlike :meth:`list_projects`, this never scans the disk — it returns
+        exactly the ``Project`` instances that were constructed via
+        ``ws.project(...)`` in the running script. Use this when the caller's
+        source of truth is the script, not the workspace directory (e.g.
+        ``molexp run`` dispatching workflows). Orphan project dirs left by
+        unrelated scripts are excluded.
+        """
+        return list(self._projects_cache.values())
+
     def list_projects(self) -> list[Project]:
-        """List all projects (disk scan merged with in-memory cache)."""
+        """List all projects (disk scan merged with in-memory cache).
+
+        For UI/CRUD/discovery. If you want only the projects registered by
+        the current script, use :meth:`registered_projects` instead.
+        """
         seen: dict[str, Project] = dict(self._projects_cache)
         scanned = _list_children(
             children_dir=self.root / "projects",
@@ -186,7 +225,7 @@ class Workspace:
         return list(seen.values())
 
     def delete_project(self, project_id: str) -> None:
-        """Delete project directory.
+        """Delete project directory and cascade-drop its catalog rows.
 
         Raises:
             KeyError: If project not found.
@@ -196,6 +235,7 @@ class Workspace:
             raise KeyError(f"Project '{project_id}' not found")
         shutil.rmtree(project_dir)
         self._projects_cache.pop(project_id, None)
+        self.catalog.remove_project(project_id)
 
     # ── Internal ────────────────────────────────────────────────────────
 

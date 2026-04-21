@@ -85,10 +85,10 @@ def find_workflow_for_run(workspaces: list["Workspace"], run: Any) -> Any | None
     target_exp_id = run.experiment.id
 
     for ws in workspaces:
-        for proj in ws.list_projects():
+        for proj in ws.registered_projects():
             if proj.id != target_project_id:
                 continue
-            for exp in proj.list_experiments():
+            for exp in proj.registered_experiments():
                 if exp.id == target_exp_id and exp.workflow is not None:
                     return exp.workflow
     return None

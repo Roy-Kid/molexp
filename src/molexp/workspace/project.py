@@ -138,12 +138,17 @@ class Project:
         workflow_source: str | None = None,
         workflow_type: str | None = None,
         git_commit: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
     ) -> Experiment:
         """Get-or-create an experiment (idempotent, materialized immediately).
 
         If an experiment with the same ID (or slug from *name*) exists on
         disk, it is loaded and returned.  Otherwise a new experiment is
         constructed and materialized.
+
+        ``description`` and ``tags`` are only applied on first creation;
+        reloading an existing experiment does not overwrite them.
         """
         exp_id = id if id is not None else slugify(name)
         if exp_id in self._experiments_cache:
@@ -162,6 +167,8 @@ class Project:
                 workflow_source=workflow_source,
                 workflow_type=workflow_type,
                 git_commit=git_commit,
+                description=description,
+                tags=tags,
             )
             exp.materialize()
         self._experiments_cache[exp.id] = exp
@@ -178,8 +185,24 @@ class Project:
         self._experiments_cache[exp.id] = exp
         return exp
 
+    def registered_experiments(self) -> list[Experiment]:
+        """Return only experiments explicitly registered in the current process.
+
+        Unlike :meth:`list_experiments`, this never scans the disk — it
+        returns exactly the ``Experiment`` instances that were constructed
+        via ``project.experiment(...)`` in the running script. Use this
+        when the caller's source of truth is the script (e.g.
+        ``molexp run``); orphan experiment dirs left by prior runs or
+        unrelated scripts are excluded.
+        """
+        return list(self._experiments_cache.values())
+
     def list_experiments(self) -> list[Experiment]:
-        """List all experiments (disk scan merged with in-memory cache)."""
+        """List all experiments (disk scan merged with in-memory cache).
+
+        For UI/CRUD/discovery. If you want only the experiments registered
+        by the current script, use :meth:`registered_experiments` instead.
+        """
         seen: dict[str, Experiment] = dict(self._experiments_cache)
         scanned = _list_children(
             children_dir=self.project_dir / "experiments",
@@ -196,6 +219,21 @@ class Project:
         for e in scanned:
             seen.setdefault(e.id, e)
         return list(seen.values())
+
+    def delete_experiment(self, experiment_id: str) -> None:
+        """Delete an experiment directory and cascade-drop its catalog rows.
+
+        Raises:
+            KeyError: If the experiment is not found.
+        """
+        import shutil
+
+        exp_dir = self.project_dir / "experiments" / experiment_id
+        if not exp_dir.exists():
+            raise KeyError(f"Experiment '{experiment_id}' not found")
+        shutil.rmtree(exp_dir)
+        self._experiments_cache.pop(experiment_id, None)
+        self.workspace.catalog.remove_experiment(experiment_id)
 
     # ── Internal ────────────────────────────────────────────────────────
 

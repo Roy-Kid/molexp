@@ -589,6 +589,35 @@ class Run:
             labels=labels,
         )
 
+    def delete_execution(self, execution_id: str) -> None:
+        """Delete a single execution attempt from this run.
+
+        Removes ``execution/<execution_id>/`` on disk, pops the matching
+        entry from ``execution_history``, and drops the catalog row.  The
+        run itself is left intact.
+
+        Raises:
+            KeyError: If the execution id is not present under this run.
+        """
+        import shutil
+
+        exec_dir = self.run_dir / "execution" / execution_id
+        history = list(self.metadata.execution_history)
+        matched_idx = next(
+            (i for i, rec in enumerate(history) if rec.execution_id == execution_id),
+            None,
+        )
+        if matched_idx is None and not exec_dir.exists():
+            raise KeyError(
+                f"Execution '{execution_id}' not found under run '{self.id}'"
+            )
+        if exec_dir.exists():
+            shutil.rmtree(exec_dir)
+        if matched_idx is not None:
+            history.pop(matched_idx)
+            self._update_metadata(execution_history=history)
+        self.experiment.project.workspace.catalog.remove_execution(execution_id)
+
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 
     def _set_status(self, status: RunStatus) -> None:

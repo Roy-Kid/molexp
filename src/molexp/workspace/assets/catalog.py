@@ -150,6 +150,92 @@ class AssetCatalog:
             data[section][key] = record
             self._save(data)
 
+    # ── Scope removals (cascade) ─────────────────────────────────────────
+
+    def remove_project(self, project_id: str) -> None:
+        """Drop a project and everything scoped under it."""
+        with self._lock:
+            data = self._load()
+            data["projects"].pop(project_id, None)
+            exp_ids = {
+                eid
+                for eid, e in data["experiments"].items()
+                if e.get("project_id") == project_id
+            }
+            for eid in exp_ids:
+                data["experiments"].pop(eid, None)
+            run_ids = {
+                rid
+                for rid, r in data["runs"].items()
+                if r.get("experiment_id") in exp_ids
+            }
+            for rid in run_ids:
+                data["runs"].pop(rid, None)
+            data["executions"] = {
+                xid: x
+                for xid, x in data["executions"].items()
+                if x.get("run_id") not in run_ids
+            }
+            data["consumes"] = [
+                edge
+                for edge in data["consumes"]
+                if edge.get("execution_id") in data["executions"]
+            ]
+            self._save(data)
+
+    def remove_experiment(self, experiment_id: str) -> None:
+        """Drop an experiment and its runs / executions."""
+        with self._lock:
+            data = self._load()
+            data["experiments"].pop(experiment_id, None)
+            run_ids = {
+                rid
+                for rid, r in data["runs"].items()
+                if r.get("experiment_id") == experiment_id
+            }
+            for rid in run_ids:
+                data["runs"].pop(rid, None)
+            data["executions"] = {
+                xid: x
+                for xid, x in data["executions"].items()
+                if x.get("run_id") not in run_ids
+            }
+            data["consumes"] = [
+                edge
+                for edge in data["consumes"]
+                if edge.get("execution_id") in data["executions"]
+            ]
+            self._save(data)
+
+    def remove_run(self, run_id: str) -> None:
+        """Drop a run and its executions."""
+        with self._lock:
+            data = self._load()
+            data["runs"].pop(run_id, None)
+            data["executions"] = {
+                xid: x
+                for xid, x in data["executions"].items()
+                if x.get("run_id") != run_id
+            }
+            data["consumes"] = [
+                edge
+                for edge in data["consumes"]
+                if edge.get("execution_id") in data["executions"]
+            ]
+            self._save(data)
+
+    def remove_execution(self, execution_id: str) -> None:
+        """Drop a single execution row."""
+        with self._lock:
+            data = self._load()
+            data["executions"].pop(execution_id, None)
+            data["consumes"] = [
+                edge
+                for edge in data["consumes"]
+                if edge.get("execution_id") != execution_id
+            ]
+            self._save(data)
+
     # ── Scope queries ────────────────────────────────────────────────────
 
     def query_runs(

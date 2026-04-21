@@ -52,6 +52,40 @@ def _write_molcfg(path):
 
 
 class TestRunCommand:
+    def test_run_ignores_orphan_project_on_disk(self, tmp_path):
+        """`molexp run` must not fail when the workspace has project/experiment
+        dirs from prior scripts that the current script does not register.
+        """
+        workspace_root = tmp_path / "workspace"
+        workspace_root.mkdir()
+        # Seed an orphan project with an orphan experiment, both on disk only.
+        orphan_exp = (
+            workspace_root / "projects" / "orphan-proj" / "experiments" / "orphan-exp"
+        )
+        orphan_exp.mkdir(parents=True)
+        (orphan_exp.parent.parent / "project.json").write_text(
+            '{"id":"orphan-proj","name":"orphan","description":"","owner":"",'
+            '"tags":[],"config":{},"created_at":"2026-04-21T12:00:00"}'
+        )
+        (orphan_exp / "experiment.json").write_text(
+            '{"id":"orphan-exp","name":"orphan","parameter_space":{},'
+            '"n_replicas":1,"seeds":[],"workflow_source":null,'
+            '"workflow_type":null,"git_commit":null,"description":"",'
+            '"tags":[],"created_at":"2026-04-21T12:00:00"}'
+        )
+
+        script = tmp_path / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, workspace_root)
+
+        result = runner.invoke(
+            app,
+            ["run", str(script), "--config", str(molcfg), "--profile", "dry-run"],
+        )
+        assert result.exit_code == 0, result.output
+        assert "no workflow" not in result.output
+
     def test_profile_executes_workflow_and_persists_metadata(self, tmp_path):
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
