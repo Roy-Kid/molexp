@@ -81,7 +81,7 @@ class SubmitHandler:
             scheduler=self._scheduler,
             jobs_dir=str(jobs_dir),
         ) as submitor:
-            job, _warnings = submitor.submit(
+            job = submitor.submit(
                 argv=[
                     sys.executable,
                     "-m",
