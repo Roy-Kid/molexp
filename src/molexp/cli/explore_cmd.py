@@ -1,10 +1,10 @@
-"""``molexp watch`` — reopen the interactive run monitor."""
+"""``molexp explore`` — interactive workspace explorer (tree monitor)."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Optional
 
 import typer
 
@@ -21,7 +21,7 @@ def _logical_cwd() -> Path:
 
 
 @app.command()
-def watch(
+def explore(
     workspace: Annotated[
         Optional[Path],
         typer.Argument(help="Workspace root (default: current directory)."),
@@ -39,7 +39,12 @@ def watch(
         typer.Option("--refresh", "-r", help="Refresh interval in seconds."),
     ] = 2.0,
 ) -> None:
-    """Reopen the full-screen run monitor for an existing workspace."""
+    """Open the full-screen workspace explorer.
+
+    Navigate: arrows / Enter expand, Space select, a/A select all / clear,
+    d opens the delete confirmation dialog (running items show their cancel
+    plan; uncancellable ones are listed and skipped, never force-deleted).
+    """
     if workspace is None:
         ws_root = _logical_cwd()
     elif workspace.is_absolute():
@@ -56,31 +61,15 @@ def watch(
         rprint("  Run [bold]molexp init[/bold] to create one, or pass a workspace path.")
         raise typer.Exit(1)
 
-    runs: list[Any] = []
-    for proj in ws.list_projects():
-        if project and proj.id != project and proj.name != project:
-            continue
-        for exp in proj.list_experiments():
-            if experiment and exp.id != experiment and exp.name != experiment:
-                continue
-            runs.extend(exp.list_runs())
+    from molexp.tree_monitor import TreeMonitor
 
-    if not runs:
-        rprint("[yellow]No runs found[/yellow] — check --project / --experiment filters.")
-        raise typer.Exit(0)
+    monitor = TreeMonitor(
+        project_filter=project,
+        experiment_filter=experiment,
+        refresh_interval=refresh,
+    )
+    warnings = monitor.watch(ws)
 
-    try:
-        from molexp.monitor import RunMonitor
-    except ImportError:
-        rprint("[red]Error:[/red] molq is not installed. Install it to use the monitor.")
-        raise typer.Exit(1)
-
-    title = ws.name
-    if experiment:
-        title = f"{ws.name} / {experiment}"
-    elif project:
-        title = f"{ws.name} / {project}"
-
-    rprint(f"[dim]Watching {len(runs)} runs. Press q to close.[/dim]")
-    RunMonitor(title=title, refresh_interval=refresh).watch(runs)
-    rprint("\n[dim]Monitor closed. Runs are still executing (if any).[/dim]")
+    rprint("\n[dim]Explorer closed.[/dim]")
+    for msg in warnings:
+        rprint(f"[yellow]warning:[/yellow] {msg}")
