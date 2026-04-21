@@ -169,7 +169,7 @@ molexp execute RUN_DIR      # Worker entry used by cluster backends
 molexp serve                # API server + bundled SPA when available
 molexp init [PATH]          # Initialize a workspace
 molexp info                 # Show workspace status
-molexp watch                # Reopen the full-screen run monitor
+molexp explore              # Open the interactive workspace explorer
 
 molexp project   create|list|info
 molexp experiment create|list

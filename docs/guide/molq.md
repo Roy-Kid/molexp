@@ -114,7 +114,7 @@ Those responsibilities remain in the workflow layer, workspace layer, and CLI or
 
 When `molq` is installed, `molexp.plugins.discover_ui_plugins()` also exposes a frontend-facing `molq` UI plugin descriptor. That descriptor tells the UI layer that scheduler-aware run viewers and monitor surfaces are available.
 
-On the CLI side, `molexp run --block` can immediately open the run monitor after submission, and `molexp watch` can later reopen it. Both rely on the normalized executor metadata that the plugin writes into the run metadata.
+On the CLI side, `molexp run --block` can immediately open the run monitor after submission, and `molexp explore` can later reopen the workspace explorer. Both rely on the normalized executor metadata that the plugin writes into the run metadata.
 
 ## Appropriate Use Cases
 
