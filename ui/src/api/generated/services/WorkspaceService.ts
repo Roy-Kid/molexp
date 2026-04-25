@@ -26,14 +26,20 @@ export class WorkspaceService {
     /**
      * List Workspace Files
      * Return a nested file tree rooted at the requested path.
+     *
+     * With ``include=catalog``, file nodes that match a registered asset
+     * are enriched with ``assetId``, ``assetKind``, ``producerRunId`` and
+     * ``producerTaskId`` so the UI can render lineage chips inline.
      * @param path Workspace-relative path to list
      * @param maxDepth Maximum recursion depth
+     * @param include Comma-separated optional enrichments (e.g. 'catalog')
      * @returns any Successful Response
      * @throws ApiError
      */
     public static listWorkspaceFilesApiWorkspaceFilesGet(
         path: string = '',
         maxDepth: number = 4,
+        include?: (string | null),
     ): CancelablePromise<Record<string, any>> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -41,6 +47,7 @@ export class WorkspaceService {
             query: {
                 'path': path,
                 'max_depth': maxDepth,
+                'include': include,
             },
             errors: {
                 422: `Validation Error`,

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import json
+import zipfile
 from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.responses import StreamingResponse
 
 from molexp.plugins.metrics import read_run_metrics
 from molexp.workspace import RunStatus
@@ -14,10 +17,14 @@ from molexp.workspace import RunStatus
 from ..dependencies import get_workspace
 from ..exceptions import InvalidStatusError, RunNotFoundError
 from ..schemas import (
+    RunActionResponse,
     RunCreateRequest,
     RunExecutionResponse,
+    RunFileNode,
+    RunFilesResponse,
     RunLogsResponse,
     RunMetricsResponse,
+    RunRerunResponse,
     RunResponse,
     RunStatusResponse,
     WorkflowStepInfo,
@@ -180,6 +187,158 @@ def get_run_execution(
         status=data.get("status", "running"),
         steps=steps,
         end=data.get("end"),
+    )
+
+
+@router.get("/{run_id}/files", response_model=RunFilesResponse)
+def get_run_files(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    workspace=Depends(get_workspace),
+) -> RunFilesResponse:
+    """Return the on-disk file tree for a run, enriched with catalog metadata.
+
+    Files registered in the asset catalog (artifacts, logs, checkpoints,
+    error traces) carry ``assetId``, ``assetKind``, and ``taskId`` so the
+    UI can render lineage chips inline.
+    """
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    run_dir = run.run_dir
+    from molexp.workspace.assets import AssetScope
+
+    run_scope = AssetScope(kind="run", ids=(project_id, experiment_id, run_id))
+    catalog_assets = workspace.catalog.query_assets(scope=run_scope)
+    asset_index: dict[str, tuple[str, str, str | None]] = {}
+    for a in catalog_assets:
+        rel = str(a.path)
+        asset_index[rel] = (
+            a.asset_id,
+            a.kind,  # type: ignore[attr-defined]
+            a.producer.task_id if a.producer else None,
+        )
+
+    def build(node_path: Path) -> RunFileNode:
+        rel = node_path.relative_to(run_dir).as_posix() if node_path != run_dir else ""
+        is_file = node_path.is_file()
+        info = asset_index.get(rel)
+        node = RunFileNode(
+            name=node_path.name or run_dir.name,
+            relPath=rel,
+            type="file" if is_file else "folder",
+            size=node_path.stat().st_size if is_file else None,
+            modified=node_path.stat().st_mtime,
+            assetId=info[0] if info else None,
+            assetKind=info[1] if info else None,
+            taskId=info[2] if info else None,
+        )
+        if not is_file and node_path.exists():
+            children: list[RunFileNode] = []
+            for child in sorted(node_path.iterdir(), key=lambda p: (p.is_file(), p.name)):
+                children.append(build(child))
+            node.children = children
+        return node
+
+    nodes: list[RunFileNode] = []
+    if run_dir.exists():
+        for child in sorted(run_dir.iterdir(), key=lambda p: (p.is_file(), p.name)):
+            nodes.append(build(child))
+
+    return RunFilesResponse(
+        runId=run_id,
+        runDir=str(run_dir.relative_to(workspace.root)),
+        nodes=nodes,
+    )
+
+
+@router.post("/{run_id}/rerun", response_model=RunRerunResponse, status_code=201)
+def rerun_run(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    workspace=Depends(get_workspace),
+) -> RunRerunResponse:
+    """Clone an existing run's parameters into a fresh run within the same experiment."""
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    new_run = experiment.run(parameters=dict(run.parameters))
+    return RunRerunResponse(
+        sourceRunId=run.id,
+        newRunId=new_run.id,
+        projectId=project_id,
+        experimentId=experiment_id,
+        status=new_run.status,
+    )
+
+
+@router.post("/{run_id}/kill", response_model=RunActionResponse)
+def kill_run(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    workspace=Depends(get_workspace),
+) -> RunActionResponse:
+    """Best-effort kill: mark the run as cancelled in workspace metadata.
+
+    Note: this does not yet signal an external scheduler. It updates run
+    status and clears ownership labels; live process termination is the
+    scheduler's responsibility once such hooks are available.
+    """
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    run.cancel()
+    return RunActionResponse(
+        runId=run.id,
+        status=run.status,
+        message="Run marked as cancelled",
+    )
+
+
+@router.get("/{run_id}/export")
+def export_run(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    workspace=Depends(get_workspace),
+) -> StreamingResponse:
+    """Stream a zip archive of the run directory (artifacts, logs, metadata)."""
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    run_dir: Path = run.run_dir
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if run_dir.exists():
+            for path in sorted(run_dir.rglob("*")):
+                if path.is_file():
+                    zf.write(path, arcname=path.relative_to(run_dir).as_posix())
+    buffer.seek(0)
+
+    filename = f"run-{run.id}.zip"
+    return StreamingResponse(
+        buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

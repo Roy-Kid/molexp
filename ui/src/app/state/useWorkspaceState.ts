@@ -27,7 +27,11 @@ const buildSnapshot = async (): Promise<WorkspaceSnapshot> => {
   let workspaceRoot: WorkspaceSnapshot["workspaceRoot"] = null;
 
   try {
-    const workspaceTree = await workspaceApi.getWorkspaceTree("/");
+    const workspaceTree = await workspaceApi.getWorkspaceTree({
+      path: "/",
+      maxDepth: 8,
+      includeCatalog: true,
+    });
     workspaceRoot = mapWorkspaceTree("/", workspaceTree);
   } catch (err) {
     console.warn("Workspace tree unavailable:", err);

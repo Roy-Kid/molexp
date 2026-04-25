@@ -4,6 +4,7 @@
 
 import { agentHandlers } from "./agent";
 import { assetHandlers } from "./assets";
+import { catalogHandlers } from "./catalog";
 import { executionHandlers } from "./execution";
 import { experimentHandlers } from "./experiments";
 import { projectHandlers } from "./projects";
@@ -17,6 +18,7 @@ import { workspaceHandlers } from "./workspace";
 export const handlers = [
     ...agentHandlers,
     ...assetHandlers,
+    ...catalogHandlers,
     ...executionHandlers,
     ...experimentHandlers,
     ...projectHandlers,

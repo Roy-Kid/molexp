@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ExperimentComparisonResponse } from '../models/ExperimentComparisonResponse';
 import type { ExperimentCreateRequest } from '../models/ExperimentCreateRequest';
 import type { ExperimentResponse } from '../models/ExperimentResponse';
 import type { MessageResponse } from '../models/MessageResponse';
@@ -90,6 +91,30 @@ export class ExperimentsService {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/projects/{project_id}/experiments/{experiment_id}',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Experiment Comparison
+     * Sweep matrix: parameter columns x run rows + final metric values per run.
+     * @param projectId
+     * @param experimentId
+     * @returns ExperimentComparisonResponse Successful Response
+     * @throws ApiError
+     */
+    public static getExperimentComparisonApiProjectsProjectIdExperimentsExperimentIdComparisonGet(
+        projectId: string,
+        experimentId: string,
+    ): CancelablePromise<ExperimentComparisonResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/comparison',
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,

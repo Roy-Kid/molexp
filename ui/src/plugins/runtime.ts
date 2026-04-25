@@ -1,72 +1,77 @@
 import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
-import type { PluginManifest, UiPluginModule } from "@/plugins/types";
+import corePlugin from "@/plugins/core";
+import type { UiPluginModule } from "@/plugins/types";
 
-const builtinPluginLoaders: Record<string, () => Promise<{ default: UiPluginModule }>> = {
-  core: () => import("@/plugins/core"),
+type LazyPluginLoader = () => Promise<{ default: UiPluginModule }>;
+
+const lazyPluginLoaders: Record<string, LazyPluginLoader> = {
   metrics: () => import("@/plugins/metrics"),
   molq: () => import("@/plugins/molq"),
 };
 
-const installedPlugins = new Set<string>();
-let initializationPromise: Promise<void> | null = null;
+const installed = new Set<string>();
+const lazyPromises = new Map<string, Promise<void>>();
 
-const loadBuiltinPlugin = async (moduleId: string): Promise<void> => {
-  if (installedPlugins.has(moduleId)) {
+const registerPluginInstance = (plugin: UiPluginModule): void => {
+  if (installed.has(plugin.id)) {
     return;
   }
+  installed.add(plugin.id);
+  const result = plugin.register();
+  if (result instanceof Promise) {
+    result.catch((error) => {
+      console.warn(`[plugins] "${plugin.id}" register() rejected:`, error);
+    });
+  }
+};
 
-  const loader = builtinPluginLoaders[moduleId];
+const loadLazyPlugin = (key: string): Promise<void> => {
+  const cached = lazyPromises.get(key);
+  if (cached) {
+    return cached;
+  }
+
+  const loader = lazyPluginLoaders[key];
   if (!loader) {
-    console.warn(`[plugins] No builtin module registered for "${moduleId}".`);
-    return;
+    return Promise.resolve();
   }
 
-  const module = await loader();
-  await module.default.register();
-  installedPlugins.add(moduleId);
-  installedPlugins.add(module.default.id);
+  const promise = loader()
+    .then((mod) => registerPluginInstance(mod.default))
+    .catch((error) => {
+      console.warn(`[plugins] Failed to load lazy plugin "${key}":`, error);
+      lazyPromises.delete(key);
+    });
+
+  lazyPromises.set(key, promise);
+  return promise;
 };
 
-const fetchPluginManifests = async (): Promise<PluginManifest[]> => {
-  const response = await fetch("/api/plugins");
-  if (!response.ok) {
-    throw new Error(`Plugin manifest request failed: ${response.status}`);
-  }
+registerPluginInstance(corePlugin);
 
-  const payload = (await response.json()) as { plugins?: PluginManifest[] };
-  return payload.plugins ?? [];
+const scheduleBackgroundLoad = (): void => {
+  for (const key of Object.keys(lazyPluginLoaders)) {
+    void loadLazyPlugin(key);
+  }
 };
 
-export const initializeUiPlugins = async (): Promise<void> => {
-  if (initializationPromise) {
-    return initializationPromise;
+if (typeof window !== "undefined") {
+  const idle = (window as Window & {
+    requestIdleCallback?: (cb: () => void) => void;
+  }).requestIdleCallback;
+  if (idle) {
+    idle(scheduleBackgroundLoad);
+  } else {
+    setTimeout(scheduleBackgroundLoad, 0);
   }
+}
 
-  initializationPromise = (async () => {
-    await loadBuiltinPlugin("core");
-
-    try {
-      const manifests = await fetchPluginManifests();
-      for (const manifest of manifests) {
-        const moduleId = manifest.uiModule ?? manifest.id;
-        if (moduleId === "core") {
-          continue;
-        }
-        await loadBuiltinPlugin(moduleId);
-      }
-    } catch (error) {
-      console.warn(
-        "[plugins] Failed to load plugin manifests. Continuing with core UI only.",
-        error,
-      );
-    }
-  })();
-
-  return initializationPromise;
+export const ensureLazyPlugin = (key: keyof typeof lazyPluginLoaders): Promise<void> => {
+  return loadLazyPlugin(key);
 };
 
 export const resetUiPluginsForTests = (): void => {
-  installedPlugins.clear();
-  initializationPromise = null;
+  installed.clear();
+  lazyPromises.clear();
   resetContributionRuntimeForTests();
 };

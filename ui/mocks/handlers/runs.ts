@@ -160,4 +160,144 @@ export const runHandlers = [
             return HttpResponse.json({ message: "Run deleted" });
         }
     ),
+
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/files - Output file tree
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/files`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            const now = Date.now() / 1000;
+            return HttpResponse.json({
+                runId: run.id,
+                runDir: `projects/${params.projectId}/experiments/${params.experimentId}/runs/run-${run.id}`,
+                nodes: [
+                    {
+                        name: "artifacts",
+                        relPath: "artifacts",
+                        type: "folder",
+                        modified: now,
+                        children: [
+                            {
+                                name: "model.bin",
+                                relPath: "artifacts/model.bin",
+                                type: "file",
+                                size: 4096,
+                                modified: now,
+                                assetId: `${run.id}-model`,
+                                assetKind: "artifact",
+                                taskId: "train",
+                                children: [],
+                            },
+                            {
+                                name: "metrics.json",
+                                relPath: "artifacts/metrics.json",
+                                type: "file",
+                                size: 192,
+                                modified: now,
+                                assetId: `${run.id}-metrics`,
+                                assetKind: "artifact",
+                                taskId: "train",
+                                children: [],
+                            },
+                        ],
+                    },
+                    {
+                        name: "logs",
+                        relPath: "logs",
+                        type: "folder",
+                        modified: now,
+                        children: [
+                            {
+                                name: "run.log",
+                                relPath: "logs/run.log",
+                                type: "file",
+                                size: 1024,
+                                modified: now,
+                                assetId: `${run.id}-runlog`,
+                                assetKind: "log",
+                                taskId: null,
+                                children: [],
+                            },
+                        ],
+                    },
+                ],
+            });
+        }
+    ),
+
+    // POST /api/projects/:projectId/experiments/:experimentId/runs/:runId/rerun
+    http.post(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/rerun`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            const newRunId = `run-${Date.now()}`;
+            const cloned: ApiRunResponse = {
+                id: newRunId,
+                projectId: run.projectId,
+                experimentId: run.experimentId,
+                status: "pending",
+                finished: null,
+                parameters: { ...run.parameters },
+                created: new Date().toISOString(),
+                executorInfo: {},
+            };
+            setRun(cloned);
+            return HttpResponse.json(
+                {
+                    sourceRunId: run.id,
+                    newRunId,
+                    projectId: run.projectId,
+                    experimentId: run.experimentId,
+                    status: cloned.status,
+                },
+                { status: 201 }
+            );
+        }
+    ),
+
+    // POST /api/projects/:projectId/experiments/:experimentId/runs/:runId/kill
+    http.post(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/kill`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            const updated: ApiRunResponse = {
+                ...run,
+                status: "cancelled",
+                finished: new Date().toISOString(),
+            };
+            setRun(updated);
+            return HttpResponse.json({
+                runId: run.id,
+                status: "cancelled",
+                message: "Run marked as cancelled",
+            });
+        }
+    ),
+
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/export
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/export`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            // Mock zip — not a valid archive, but enough to round-trip a Blob.
+            return new HttpResponse(new Blob(["MOCK_RUN_EXPORT_ZIP"]), {
+                headers: {
+                    "Content-Type": "application/zip",
+                    "Content-Disposition": `attachment; filename="run-${run.id}.zip"`,
+                },
+            });
+        }
+    ),
 ];

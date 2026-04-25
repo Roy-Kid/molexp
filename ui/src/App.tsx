@@ -5,7 +5,7 @@ import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import { useWorkspaceState } from "@/app/state/useWorkspaceState";
 import type { InspectorTarget, Selection } from "@/app/types";
-import { initializeUiPlugins } from "@/plugins/runtime";
+import "@/plugins/runtime";
 
 const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarget => {
   if (!selection) {
@@ -22,7 +22,6 @@ const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarg
 const App = (): JSX.Element => {
   const { snapshot, status, error, refresh } = useWorkspaceState();
   const { leftPanelView, selection, setLeftPanelView, setSelection } = useNavigationState(snapshot);
-  const [pluginsReady, setPluginsReady] = useState(false);
   const [inspectorTarget, setInspectorTarget] = useState<InspectorTarget>(
     buildDefaultInspectorTarget(selection),
   );
@@ -31,38 +30,8 @@ const App = (): JSX.Element => {
     setInspectorTarget(buildDefaultInspectorTarget(selection));
   }, [selection]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    initializeUiPlugins()
-      .catch((pluginError) => {
-        console.warn("Failed to initialize UI plugins:", pluginError);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setPluginsReady(true);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   if (error) {
     throw error;
-  }
-
-  if (!pluginsReady) {
-    return (
-      <ErrorBoundary>
-        <div className="flex h-screen items-center justify-center bg-background text-foreground">
-          <div className="rounded-md border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
-            Loading interface plugins...
-          </div>
-        </div>
-      </ErrorBoundary>
-    );
   }
 
   const handleSelectionChange = (nextSelection: Selection): void => {
