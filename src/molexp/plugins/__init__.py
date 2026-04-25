@@ -135,7 +135,7 @@ def discover_ui_plugins() -> list[UiPluginDescriptor]:
             description="Run-scoped metrics recording and monitoring views.",
             ui_module="metrics",
             capabilities=("metrics", "run_metrics"),
-        )
+        ),
     ]
 
     schedulers = supported_schedulers()

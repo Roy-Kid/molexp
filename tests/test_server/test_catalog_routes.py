@@ -4,9 +4,7 @@ from __future__ import annotations
 
 
 class TestCatalogByPath:
-    def test_unmatched_path_under_projects_returns_derived_scope(
-        self, client, project, experiment
-    ):
+    def test_unmatched_path_under_projects_returns_derived_scope(self, client, project, experiment):
         rel = f"projects/{project.id}/experiments/{experiment.id}"
         resp = client.get("/api/catalog/by-path", params={"path": rel})
         assert resp.status_code == 200
@@ -28,9 +26,7 @@ class TestCatalogByPath:
         assert resp.status_code == 200
         assert resp.json()["matched"] is False
 
-    def test_matched_artifact_returns_producer_and_scope(
-        self, client, project, experiment, run
-    ):
+    def test_matched_artifact_returns_producer_and_scope(self, client, project, experiment, run):
         with run.start() as ctx:
             ctx.set_active_task("train")
             ctx.artifact.save("metrics.json", '{"loss": 0.1}')
@@ -82,9 +78,7 @@ class TestRunFilesAndActions:
         artifact_nodes = [n for n in all_nodes if n.get("assetKind") == "artifact"]
         assert artifact_nodes, "expected at least one artifact node"
 
-    def test_run_rerun_creates_new_run_with_same_params(
-        self, client, project, experiment, run
-    ):
+    def test_run_rerun_creates_new_run_with_same_params(self, client, project, experiment, run):
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201
         data = resp.json()
@@ -122,9 +116,7 @@ class TestExperimentComparison:
         with r2.start() as ctx:
             ctx.set_active_task("train")
 
-        resp = client.get(
-            f"/api/projects/{project.id}/experiments/{experiment.id}/comparison"
-        )
+        resp = client.get(f"/api/projects/{project.id}/experiments/{experiment.id}/comparison")
         assert resp.status_code == 200
         data = resp.json()
         assert data["experimentId"] == experiment.id
@@ -133,9 +125,7 @@ class TestExperimentComparison:
 
 
 class TestWorkspaceFilesIncludeCatalog:
-    def test_include_catalog_enriches_artifact_node(
-        self, client, project, experiment, run
-    ):
+    def test_include_catalog_enriches_artifact_node(self, client, project, experiment, run):
         with run.start() as ctx:
             ctx.set_active_task("train")
             ctx.artifact.save("metrics.json", '{"loss": 0.1}')
