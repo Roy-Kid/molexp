@@ -344,6 +344,26 @@ class RunLogsResponse(BaseModel):
     stderr: str | None = None
 
 
+class MetricSeriesResponse(BaseModel):
+    """Summary for one metric series in a run-local metrics query."""
+
+    key: str
+    type: str
+    count: int
+    latestStep: int | float | None = None
+    latestTimestamp: str | None = None
+    latestValue: Any | None = None
+
+
+class RunMetricsResponse(BaseModel):
+    """Run-local metrics query response."""
+
+    nextLine: int = 0
+    records: list[dict[str, Any]] = Field(default_factory=list)
+    series: list[MetricSeriesResponse] = Field(default_factory=list)
+    parseErrors: int = 0
+
+
 class WorkflowStepInfo(BaseModel):
     """Human-readable summary of one workflow execution step."""
 

@@ -166,6 +166,12 @@ describe("mapRuns", () => {
   it("maps an empty array to an empty array", () => {
     expect(mapRuns("p", "e", [])).toEqual([]);
   });
+
+  it("maps profile metadata when present", () => {
+    const [result] = mapRuns("p", "e", [{ ...fixtureRun, profile: "smoke", configHash: "abc123" }]);
+    expect(result.profile).toBe("smoke");
+    expect(result.configHash).toBe("abc123");
+  });
 });
 
 describe("mapAssets", () => {

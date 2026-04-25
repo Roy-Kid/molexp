@@ -1,9 +1,12 @@
 import { registerRendererContribution } from "@/app/registry";
-import { MolqRunInspector } from "@/plugins/molq/MolqRunInspector";
-import { MolqRunViewer } from "@/plugins/molq/MolqRunViewer";
 import type { UiPluginModule } from "@/plugins/types";
+import { MolqRunInspector } from "./MolqRunInspector";
+import { MolqRunViewer } from "./MolqRunViewer";
 
-const isMolqRun = (runId: string, runs: Array<{ id: string; executorInfo: Record<string, string> }>) => {
+const isMolqRun = (
+  runId: string,
+  runs: Array<{ id: string; executorInfo: Record<string, string> }>,
+) => {
   const run = runs.find((item) => item.id === runId);
   return run?.executorInfo.backend === "molq";
 };

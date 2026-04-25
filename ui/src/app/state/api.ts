@@ -42,6 +42,38 @@ interface WorkspaceFilesResponse {
   children?: WorkspaceFileNode[];
 }
 
+export interface MetricRecord {
+  t: string;
+  k: string;
+  s?: number;
+  w?: string;
+  v?: unknown;
+  tags?: Record<string, unknown>;
+}
+
+export interface MetricSeriesSummary {
+  key: string;
+  type: string;
+  count: number;
+  latestStep?: number | null;
+  latestTimestamp?: string | null;
+  latestValue?: unknown;
+}
+
+export interface RunMetricsResponse {
+  nextLine: number;
+  records: MetricRecord[];
+  series: MetricSeriesSummary[];
+  parseErrors: number;
+}
+
+export interface RunMetricsQuery {
+  type?: string;
+  key?: string;
+  sinceLine?: number;
+  limit?: number;
+}
+
 export const workspaceApi = {
   getProjects: async (): Promise<ApiProjectResponse[]> => {
     return ProjectsService.listProjectsApiProjectsGet();
@@ -73,6 +105,36 @@ export const workspaceApi = {
       experimentId,
     );
   },
+  getRunLogs: async (projectId: string, experimentId: string, runId: string) => {
+    return RunsService.getRunLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLogsGet(
+      projectId,
+      experimentId,
+      runId,
+    );
+  },
+  getRunMetrics: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    query: RunMetricsQuery = {},
+  ): Promise<RunMetricsResponse> => {
+    const params = new URLSearchParams();
+    if (query.type) params.set("type", query.type);
+    if (query.key) params.set("key", query.key);
+    if (query.sinceLine !== undefined) params.set("since_line", String(query.sinceLine));
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(
+        experimentId,
+      )}/runs/${encodeURIComponent(runId)}/metrics${suffix}`,
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch run metrics: ${response.statusText}`);
+    }
+    return response.json();
+  },
   createRun: async (
     projectId: string,
     experimentId: string,
@@ -82,6 +144,19 @@ export const workspaceApi = {
       projectId,
       experimentId,
       data,
+    );
+  },
+  updateRunStatus: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    status: string,
+  ): Promise<void> => {
+    await RunsService.updateRunStatusApiProjectsProjectIdExperimentsExperimentIdRunsRunIdStatusPatch(
+      projectId,
+      experimentId,
+      runId,
+      { status },
     );
   },
   getAssets: async (): Promise<ApiAssetResponse[]> => {
@@ -209,6 +284,8 @@ export const mapRuns = (
     updatedAt: run.finished ?? run.created,
     projectId,
     experimentId,
+    profile: run.profile ?? null,
+    configHash: run.configHash ?? null,
   }));
 };
 

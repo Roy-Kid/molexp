@@ -128,6 +128,13 @@ def discover_ui_plugins() -> list[UiPluginDescriptor]:
             description="Built-in Molexp workspace renderers and previews.",
             ui_module="core",
             capabilities=("workspace", "renderers", "file_previews"),
+        ),
+        UiPluginDescriptor(
+            id="metrics",
+            title="Metrics",
+            description="Run-scoped metrics recording and monitoring views.",
+            ui_module="metrics",
+            capabilities=("metrics", "run_metrics"),
         )
     ]
 

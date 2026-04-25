@@ -16,18 +16,20 @@ import {
   EmptyState,
   EntityHeader,
   EntityMetric,
+  EntityTabBar,
+  EntityTabContent,
+  EntityTabs,
   KeyValueGrid,
+  OverviewHighlight,
+  OverviewHighlightGrid,
+  OverviewPage,
+  OverviewSection,
 } from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
-import type {
-  ApiAssetResponse,
-  AssetKind,
-  RendererProps,
-} from "@/app/types";
+import type { ApiAssetResponse, AssetKind, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -39,10 +41,7 @@ const formatBytes = (bytes: number | null | undefined): string => {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 };
 
-const KIND_META: Record<
-  string,
-  { label: string; icon: typeof Archive; accent: string }
-> = {
+const KIND_META: Record<string, { label: string; icon: typeof Archive; accent: string }> = {
   data: { label: "Data", icon: Package, accent: "text-amber-500" },
   artifact: { label: "Artifact", icon: Archive, accent: "text-sky-500" },
   log: { label: "Log", icon: ScrollText, accent: "text-emerald-500" },
@@ -279,7 +278,7 @@ const ErrorTraceView = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => 
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="border-b border-red-500/20 bg-red-500/5 px-6 py-4">
-        <div className="text-xs font-semibold uppercase tracking-[0.18em] text-red-500">
+        <div className="text-xs font-semibold uppercase text-red-500">
           {exceptionType ?? "Unknown exception"}
         </div>
         <div className="mt-1 text-sm text-foreground">{message ?? "(no message)"}</div>
@@ -305,9 +304,6 @@ const ContentPanel = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
       return <JsonPreview asset={asset} />;
     case "error_trace":
       return <ErrorTraceView asset={asset} />;
-    case "data":
-    case "artifact":
-    case "output":
     default:
       return <BinaryPreview asset={asset} />;
   }
@@ -366,13 +362,12 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
   const producerRunId = asset.producer?.run_id as string | undefined;
   const producerTaskId = asset.producer?.task_id as string | undefined;
   const producerExecId = asset.producer?.execution_id as string | undefined;
-  const producerRun = producerRunId
-    ? snapshot.runs.find((r) => r.id === producerRunId)
-    : null;
+  const producerRun = producerRunId ? snapshot.runs.find((r) => r.id === producerRunId) : null;
 
-  const scopeLabel = asset.scope_kind === "workspace"
-    ? "workspace"
-    : `${asset.scope_kind}: ${asset.scope_ids.join(" / ")}`;
+  const scopeLabel =
+    asset.scope_kind === "workspace"
+      ? "workspace"
+      : `${asset.scope_kind}: ${asset.scope_ids.join(" / ")}`;
 
   const tagEntries = Object.entries(asset.tags ?? {});
 
@@ -404,184 +399,156 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <Tabs defaultValue="overview" className="flex flex-1 flex-col">
-          <div className="border-b border-border/70 bg-muted/10 px-6 py-2 md:px-8">
-            <TabsList className="h-auto w-fit justify-start rounded-md bg-transparent p-0">
-              <TabsTrigger value="overview" className="rounded-md px-4 py-2 text-sm font-medium">
-                Overview
-              </TabsTrigger>
-              <TabsTrigger value="content" className="rounded-md px-4 py-2 text-sm font-medium">
-                Content
-              </TabsTrigger>
-            </TabsList>
-          </div>
+        <EntityTabs defaultValue="overview">
+          <EntityTabBar
+            tabs={[
+              { value: "overview", label: "Overview" },
+              { value: "content", label: "Content" },
+            ]}
+          />
 
-          <TabsContent
-            value="overview"
-            className="m-0 flex flex-1 flex-col overflow-auto p-6 md:p-8"
-          >
-            <div className="max-w-3xl space-y-6">
-              {(assetSummary?.projectId || producerRun) && (
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Relationships
-                  </h3>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {assetSummary?.projectId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (assetSummary.projectId) {
-                            setSelection({
-                              objectType: "project",
-                              objectId: assetSummary.projectId,
-                            });
-                          }
-                        }}
-                      >
-                        Project: {assetSummary.projectId}
-                      </Button>
-                    )}
-                    {producerRun && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() =>
-                          setSelection({ objectType: "run", objectId: producerRun.id })
-                        }
-                      >
-                        Producer Run: {producerRun.name || producerRun.id}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )}
+          <EntityTabContent value="overview">
+            <OverviewPage
+              aside={
+                <>
+                  <OverviewSection title="Highlights">
+                    <OverviewHighlightGrid>
+                      <OverviewHighlight label="Kind" value={meta.label} />
+                      <OverviewHighlight label="Size" value={formatBytes(size)} />
+                      <OverviewHighlight
+                        label="Scope"
+                        value={asset.scope_kind}
+                        detail={scopeLabel}
+                      />
+                      <OverviewHighlight label="Status" value={assetSummary?.status ?? "unknown"} />
+                    </OverviewHighlightGrid>
+                  </OverviewSection>
 
-              <div>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                  Identity
-                </h3>
-                <div className="mt-4">
+                  {(assetSummary?.projectId || producerRun) && (
+                    <OverviewSection title="Relationships">
+                      <div className="flex flex-wrap gap-1.5">
+                        {assetSummary?.projectId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() => {
+                              if (assetSummary.projectId) {
+                                setSelection({
+                                  objectType: "project",
+                                  objectId: assetSummary.projectId,
+                                });
+                              }
+                            }}
+                          >
+                            Project: {assetSummary.projectId}
+                          </Button>
+                        )}
+                        {producerRun && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            onClick={() =>
+                              setSelection({ objectType: "run", objectId: producerRun.id })
+                            }
+                          >
+                            Producer Run: {producerRun.name || producerRun.id}
+                          </Button>
+                        )}
+                      </div>
+                    </OverviewSection>
+                  )}
+
+                  {(size != null || mime) && (
+                    <OverviewSection title="Payload">
+                      <KeyValueGrid
+                        items={[
+                          { label: "MIME", value: mime ?? "—" },
+                          { label: "Size", value: formatBytes(size) },
+                        ]}
+                      />
+                    </OverviewSection>
+                  )}
+
+                  {tagEntries.length > 0 && (
+                    <OverviewSection title="Tags">
+                      <div className="flex flex-wrap gap-1.5">
+                        {tagEntries.map(([key, value]) => (
+                          <Badge key={key} variant="secondary" className="text-xs">
+                            {key}: {value}
+                          </Badge>
+                        ))}
+                      </div>
+                    </OverviewSection>
+                  )}
+                </>
+              }
+            >
+              <OverviewSection title="Identity">
+                <KeyValueGrid
+                  items={[
+                    {
+                      label: "Asset ID",
+                      value: <span className="font-mono text-xs">{asset.id}</span>,
+                    },
+                    { label: "Name", value: asset.name },
+                    { label: "Kind", value: meta.label },
+                    {
+                      label: "Scope",
+                      value: <span className="font-mono text-xs">{scopeLabel}</span>,
+                    },
+                    {
+                      label: "Path",
+                      value: <span className="break-all font-mono text-xs">{asset.path}</span>,
+                    },
+                    {
+                      label: "Created",
+                      value: new Date(asset.created_at).toLocaleString(),
+                    },
+                    {
+                      label: "Updated",
+                      value: new Date(asset.updated_at).toLocaleString(),
+                    },
+                  ]}
+                />
+              </OverviewSection>
+
+              {(producerRunId || producerTaskId || producerExecId) && (
+                <OverviewSection title="Producer">
                   <KeyValueGrid
                     items={[
                       {
-                        label: "Asset ID",
-                        value: <span className="font-mono text-xs">{asset.id}</span>,
-                      },
-                      { label: "Name", value: asset.name },
-                      { label: "Kind", value: meta.label },
-                      {
-                        label: "Scope",
-                        value: (
-                          <span className="font-mono text-xs">{scopeLabel}</span>
-                        ),
+                        label: "Run",
+                        value: <span className="font-mono text-xs">{producerRunId ?? "—"}</span>,
                       },
                       {
-                        label: "Path",
-                        value: (
-                          <span className="break-all font-mono text-xs">{asset.path}</span>
-                        ),
+                        label: "Execution",
+                        value: <span className="font-mono text-xs">{producerExecId ?? "—"}</span>,
                       },
                       {
-                        label: "Created",
-                        value: new Date(asset.created_at).toLocaleString(),
-                      },
-                      {
-                        label: "Updated",
-                        value: new Date(asset.updated_at).toLocaleString(),
+                        label: "Task",
+                        value: <span className="font-mono text-xs">{producerTaskId ?? "—"}</span>,
                       },
                     ]}
                   />
-                </div>
-              </div>
-
-              {(producerRunId || producerTaskId || producerExecId) && (
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Producer
-                  </h3>
-                  <div className="mt-4">
-                    <KeyValueGrid
-                      items={[
-                        {
-                          label: "Run",
-                          value: (
-                            <span className="font-mono text-xs">
-                              {producerRunId ?? "—"}
-                            </span>
-                          ),
-                        },
-                        {
-                          label: "Execution",
-                          value: (
-                            <span className="font-mono text-xs">
-                              {producerExecId ?? "—"}
-                            </span>
-                          ),
-                        },
-                        {
-                          label: "Task",
-                          value: (
-                            <span className="font-mono text-xs">
-                              {producerTaskId ?? "—"}
-                            </span>
-                          ),
-                        },
-                      ]}
-                    />
-                  </div>
-                </div>
-              )}
-
-              {(size != null || mime) && (
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Payload
-                  </h3>
-                  <div className="mt-4">
-                    <KeyValueGrid
-                      items={[
-                        { label: "MIME", value: mime ?? "—" },
-                        { label: "Size", value: formatBytes(size) },
-                      ]}
-                    />
-                  </div>
-                </div>
+                </OverviewSection>
               )}
 
               {asset.extra && Object.keys(asset.extra).length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Kind-specific details
-                  </h3>
-                  <pre className="mt-3 overflow-auto rounded-md border border-border/60 bg-muted/30 p-3 font-mono text-xs">
+                <OverviewSection title="Kind-specific details">
+                  <pre className="overflow-auto border-y border-border/70 bg-muted/20 p-3 font-mono text-xs">
                     {JSON.stringify(asset.extra, null, 2)}
                   </pre>
-                </div>
+                </OverviewSection>
               )}
+            </OverviewPage>
+          </EntityTabContent>
 
-              {tagEntries.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                    Tags
-                  </h3>
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {tagEntries.map(([key, value]) => (
-                      <Badge key={key} variant="secondary" className="text-xs">
-                        {key}: {value}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </TabsContent>
-
-          <TabsContent value="content" className="m-0 flex flex-1 flex-col overflow-hidden p-0">
+          <EntityTabContent value="content">
             <ContentPanel asset={asset} />
-          </TabsContent>
-        </Tabs>
+          </EntityTabContent>
+        </EntityTabs>
       </div>
     </div>
   );
@@ -590,4 +557,5 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
 // Suppress unused-import warning (kept for future virtualised log tail)
 void FileText;
 void EMPTY_COPY;
+
 export type { AssetKind };

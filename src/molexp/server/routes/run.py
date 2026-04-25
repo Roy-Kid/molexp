@@ -6,8 +6,9 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
+from molexp.plugins.metrics import read_run_metrics
 from molexp.workspace import RunStatus
 
 from ..dependencies import get_workspace
@@ -16,6 +17,7 @@ from ..schemas import (
     RunCreateRequest,
     RunExecutionResponse,
     RunLogsResponse,
+    RunMetricsResponse,
     RunResponse,
     RunStatusResponse,
     WorkflowStepInfo,
@@ -104,6 +106,40 @@ def get_run_logs(
         stderr = job_err.read_text(errors="replace")
 
     return RunLogsResponse(stdout=stdout, stderr=stderr)
+
+
+@router.get("/{run_id}/metrics", response_model=RunMetricsResponse)
+def get_run_metrics(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    metric_type: str | None = Query(default=None, alias="type"),
+    key: str | None = None,
+    since_line: int = Query(default=0, ge=0),
+    limit: int = Query(default=5000, ge=1, le=50000),
+    workspace=Depends(get_workspace),
+) -> RunMetricsResponse:
+    """Return run-local metrics from ``metrics/metrics.jsonl``."""
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    result = read_run_metrics(
+        run.run_dir,
+        metric_type=metric_type,
+        key=key,
+        since_line=since_line,
+        limit=limit,
+    )
+    return RunMetricsResponse(
+        nextLine=result.next_line,
+        records=result.records,
+        series=result.series,
+        parseErrors=result.parse_errors,
+    )
 
 
 @router.get("/{run_id}/execution", response_model=RunExecutionResponse)

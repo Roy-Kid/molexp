@@ -56,6 +56,45 @@ export const runHandlers = [
         }
     ),
 
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/metrics - Run metrics
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/metrics`,
+        ({ request }) => {
+            const url = new URL(request.url);
+            const sinceLine = Number(url.searchParams.get("since_line") ?? "0");
+            const allRecords = [
+                { t: "scalar", k: "train/loss", s: 1, w: new Date().toISOString(), v: 0.31 },
+                { t: "scalar", k: "train/loss", s: 2, w: new Date().toISOString(), v: 0.24 },
+                { t: "scalar", k: "eval/acc", s: 2, w: new Date().toISOString(), v: 0.82 },
+            ];
+            const records = allRecords.slice(sinceLine);
+
+            return HttpResponse.json({
+                nextLine: allRecords.length,
+                records,
+                series: [
+                    {
+                        key: "eval/acc",
+                        type: "scalar",
+                        count: 1,
+                        latestStep: 2,
+                        latestTimestamp: allRecords[2].w,
+                        latestValue: 0.82,
+                    },
+                    {
+                        key: "train/loss",
+                        type: "scalar",
+                        count: 2,
+                        latestStep: 2,
+                        latestTimestamp: allRecords[1].w,
+                        latestValue: 0.24,
+                    },
+                ],
+                parseErrors: 0,
+            });
+        }
+    ),
+
     // PATCH /api/projects/:projectId/experiments/:experimentId/runs/:runId/status - Update status
     http.patch(
         `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/status`,

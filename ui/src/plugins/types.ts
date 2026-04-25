@@ -6,6 +6,7 @@ import type {
   RendererKey,
   RendererProps,
   Selection,
+  SemanticObjectType,
   WorkspaceSnapshot,
 } from "@/app/types";
 
@@ -51,6 +52,15 @@ export interface FilePreviewPlugin {
   priority?: number;
   canHandle?: (props: { name: string; path: string }) => boolean;
   Component: React.ComponentType<FilePreviewContentProps>;
+}
+
+export interface EntityTabContribution {
+  id: string;
+  objectType: SemanticObjectType;
+  value: string;
+  label: string;
+  priority?: number;
+  Component: React.ComponentType<RendererProps>;
 }
 
 export interface PluginManifest {

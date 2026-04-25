@@ -290,7 +290,7 @@ def run_cancel(
             run_scheduler = executor_info.get("scheduler") or scheduler
             run_cluster = executor_info.get("cluster_name") or cluster or "default"
 
-            if Submitor is not None and molq_available:
+            if run_scheduler != "local" and Submitor is not None and molq_available:
                 if molq_id and run_scheduler:
                     cache_key = (run_scheduler, run_cluster)
                     submitor = submitor_cache.get(cache_key)

@@ -12,13 +12,15 @@ import type { RendererEntry } from "@/app/registry";
 import {
   buildRegistryKey,
   buildRendererKeyFromSelection,
+  listEntityTabs,
+  registerEntityTabContribution,
   registerRenderer,
   registerRendererContribution,
   renderPlanByObjectType,
   resolveRenderer,
 } from "@/app/registry";
-import { resetUiPluginsForTests } from "@/plugins/runtime";
 import type { RendererKey, WorkspaceSnapshot } from "@/app/types";
+import { resetUiPluginsForTests } from "@/plugins/runtime";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -152,6 +154,8 @@ describe("resolveRenderer", () => {
           projectId: "proj-1",
           experimentId: "exp-1",
           executorInfo: { backend: "molq" },
+          profile: null,
+          configHash: null,
         },
       ],
       assets: [],
@@ -168,6 +172,21 @@ describe("resolveRenderer", () => {
         target: { panelKind: "viewer", contentType: "metadata", fileKind: "json" },
       }).title,
     ).toBe("Molq");
+  });
+});
+
+describe("entity tab contributions", () => {
+  it("lists registered tabs by object type", () => {
+    registerEntityTabContribution({
+      id: "metrics:test-tab",
+      objectType: "run",
+      value: "metrics",
+      label: "Metrics",
+      Component: (() => null) as unknown as RendererEntry["Component"],
+    });
+
+    expect(listEntityTabs("run").map((tab) => tab.value)).toEqual(["metrics"]);
+    expect(listEntityTabs("project")).toEqual([]);
   });
 });
 

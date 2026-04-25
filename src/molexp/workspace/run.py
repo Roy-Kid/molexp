@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .experiment import Experiment
 
 from molexp.config import ProfileConfig
+from molexp.plugins.metrics import MetricsWriter
 
 from .assets import (
     ArtifactAccessor,
@@ -125,6 +126,7 @@ class RunContext:
             self._catalog,
             self._producer,
         )
+        self.metrics = MetricsWriter(self.work_dir)
 
     def _producer(self) -> Producer:
         return Producer(

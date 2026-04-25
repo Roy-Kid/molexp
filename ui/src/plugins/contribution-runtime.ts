@@ -1,6 +1,7 @@
 import type { RendererKey } from "@/app/types";
 import { ContributionRegistry } from "@/lib/contribution-registry";
 import type {
+  EntityTabContribution,
   FilePreviewPlugin,
   RendererContribution,
   RendererResolutionContext,
@@ -9,6 +10,9 @@ import { buildRendererRegistryKey } from "@/plugins/types";
 
 const rendererRegistry = new ContributionRegistry<RendererContribution>("Renderer contribution");
 const filePreviewRegistry = new ContributionRegistry<FilePreviewPlugin>("File preview plugin");
+const entityTabRegistry = new ContributionRegistry<EntityTabContribution>(
+  "Entity tab contribution",
+);
 
 export const registerRendererContribution = (contribution: RendererContribution): void => {
   rendererRegistry.register(contribution);
@@ -51,7 +55,21 @@ export const listFilePreviewContributions = (): FilePreviewPlugin[] => {
     .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
 };
 
+export const registerEntityTabContribution = (contribution: EntityTabContribution): void => {
+  entityTabRegistry.register(contribution, { onDuplicate: "skip" });
+};
+
+export const listEntityTabContributions = (
+  objectType: EntityTabContribution["objectType"],
+): EntityTabContribution[] => {
+  return entityTabRegistry
+    .getAll()
+    .filter((contribution) => contribution.objectType === objectType)
+    .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
+};
+
 export const resetContributionRuntimeForTests = (): void => {
   rendererRegistry.clear();
   filePreviewRegistry.clear();
+  entityTabRegistry.clear();
 };

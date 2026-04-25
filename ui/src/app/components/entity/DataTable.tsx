@@ -1,4 +1,12 @@
-import type { JSX, ReactNode } from "react";
+import type { ComponentType, JSX, ReactNode } from "react";
+import { Fragment } from "react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 export interface DataTableColumn<T> {
   key: string;
@@ -8,6 +16,17 @@ export interface DataTableColumn<T> {
   cell: (row: T) => ReactNode;
 }
 
+export interface DataTableRowAction<T> {
+  id: string;
+  label: string;
+  icon?: ComponentType<{ className?: string }>;
+  disabled?: boolean;
+  destructive?: boolean;
+  separatorBefore?: boolean;
+  title?: string;
+  onSelect: (row: T) => void;
+}
+
 export interface DataTableProps<T> {
   columns: DataTableColumn<T>[];
   data: T[];
@@ -15,6 +34,7 @@ export interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   empty: ReactNode;
   rowClassName?: (row: T) => string;
+  rowActions?: (row: T) => DataTableRowAction<T>[];
 }
 
 export const DataTable = <T,>({
@@ -24,7 +44,59 @@ export const DataTable = <T,>({
   onRowClick,
   empty,
   rowClassName,
+  rowActions,
 }: DataTableProps<T>): JSX.Element => {
+  const renderRow = (row: T): JSX.Element => {
+    const actions = rowActions?.(row) ?? [];
+    const rowElement = (
+      <tr
+        className={`group transition-colors hover:bg-accent/50 ${onRowClick ? "cursor-pointer" : ""} ${rowClassName?.(row) ?? ""}`}
+        onClick={onRowClick ? () => onRowClick(row) : undefined}
+      >
+        {columns.map((col) => (
+          <td key={col.key} className={`px-3 py-1.5 ${col.align === "right" ? "text-right" : ""}`}>
+            {col.cell(row)}
+          </td>
+        ))}
+      </tr>
+    );
+
+    if (actions.length === 0) {
+      return <Fragment key={getRowKey(row)}>{rowElement}</Fragment>;
+    }
+
+    return (
+      <ContextMenu key={getRowKey(row)}>
+        <ContextMenuTrigger asChild>{rowElement}</ContextMenuTrigger>
+        <ContextMenuContent>
+          {actions.map((action) => {
+            const ActionIcon = action.icon;
+            return (
+              <Fragment key={action.id}>
+                {action.separatorBefore && <ContextMenuSeparator />}
+                <ContextMenuItem
+                  disabled={action.disabled}
+                  title={action.title}
+                  className={
+                    action.destructive ? "text-destructive focus:text-destructive" : undefined
+                  }
+                  onSelect={() => {
+                    if (!action.disabled) {
+                      action.onSelect(row);
+                    }
+                  }}
+                >
+                  {ActionIcon && <ActionIcon className="mr-2 h-3.5 w-3.5" />}
+                  <span className="truncate">{action.label}</span>
+                </ContextMenuItem>
+              </Fragment>
+            );
+          })}
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  };
+
   return (
     <div className="flex-1 overflow-auto">
       <table className="w-full text-left text-sm">
@@ -48,22 +120,7 @@ export const DataTable = <T,>({
               </td>
             </tr>
           ) : (
-            data.map((row) => (
-              <tr
-                key={getRowKey(row)}
-                className={`group transition-colors hover:bg-accent/50 ${onRowClick ? "cursor-pointer" : ""} ${rowClassName?.(row) ?? ""}`}
-                onClick={onRowClick ? () => onRowClick(row) : undefined}
-              >
-                {columns.map((col) => (
-                  <td
-                    key={col.key}
-                    className={`px-3 py-1.5 ${col.align === "right" ? "text-right" : ""}`}
-                  >
-                    {col.cell(row)}
-                  </td>
-                ))}
-              </tr>
-            ))
+            data.map(renderRow)
           )}
         </tbody>
       </table>

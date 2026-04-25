@@ -121,4 +121,6 @@ export const fixtureRunSummary: RunSummary = {
   projectId: "proj-alpha",
   experimentId: "exp-001",
   executorInfo: { backend: "local" },
+  profile: null,
+  configHash: null,
 };

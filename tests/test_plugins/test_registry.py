@@ -58,6 +58,13 @@ class TestPluginRegistry:
         plugins = discover_ui_plugins()
         assert [plugin.id for plugin in plugins][0] == "core"
 
+    def test_discover_ui_plugins_includes_metrics(self):
+        plugins = discover_ui_plugins()
+        metrics = next(plugin for plugin in plugins if plugin.id == "metrics")
+
+        assert metrics.ui_module == "metrics"
+        assert metrics.capabilities == ("metrics", "run_metrics")
+
     def test_discover_ui_plugins_includes_molq_when_supported(self, monkeypatch):
         monkeypatch.setattr("molexp.plugins.supported_schedulers", lambda: ("slurm", "pbs"))
 

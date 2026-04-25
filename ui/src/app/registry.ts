@@ -1,9 +1,12 @@
 import type { RendererKey, Selection, SemanticObjectType } from "@/app/types";
 import {
+  registerEntityTabContribution as addEntityTabContribution,
   registerRendererContribution as addRendererContribution,
+  listEntityTabContributions,
   resolveRendererContribution,
 } from "@/plugins/contribution-runtime";
 import type {
+  EntityTabContribution,
   RendererContribution,
   RendererEntry,
   RendererResolutionContext,
@@ -11,7 +14,13 @@ import type {
 } from "@/plugins/types";
 import { buildRendererRegistryKey } from "@/plugins/types";
 
-export type { PanelSlot, RendererContribution, RendererEntry, RenderTarget } from "@/plugins/types";
+export type {
+  EntityTabContribution,
+  PanelSlot,
+  RendererContribution,
+  RendererEntry,
+  RenderTarget,
+} from "@/plugins/types";
 
 export interface RenderPlan {
   center: RenderTarget[];
@@ -30,6 +39,16 @@ export const registerRenderer = (entry: RendererEntry): void => {
 
 export const registerRendererContribution = (entry: RendererContribution): void => {
   addRendererContribution(entry);
+};
+
+export const registerEntityTabContribution = (entry: EntityTabContribution): void => {
+  addEntityTabContribution(entry);
+};
+
+export const listEntityTabs = (
+  objectType: EntityTabContribution["objectType"],
+): EntityTabContribution[] => {
+  return listEntityTabContributions(objectType);
 };
 
 export const resolveRenderer = (

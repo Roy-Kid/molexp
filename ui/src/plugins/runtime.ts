@@ -3,6 +3,7 @@ import type { PluginManifest, UiPluginModule } from "@/plugins/types";
 
 const builtinPluginLoaders: Record<string, () => Promise<{ default: UiPluginModule }>> = {
   core: () => import("@/plugins/core"),
+  metrics: () => import("@/plugins/metrics"),
   molq: () => import("@/plugins/molq"),
 };
 
@@ -54,7 +55,10 @@ export const initializeUiPlugins = async (): Promise<void> => {
         await loadBuiltinPlugin(moduleId);
       }
     } catch (error) {
-      console.warn("[plugins] Failed to load plugin manifests. Continuing with core UI only.", error);
+      console.warn(
+        "[plugins] Failed to load plugin manifests. Continuing with core UI only.",
+        error,
+      );
     }
   })();
 

@@ -1,9 +1,4 @@
-export type LeftPanelView =
-  | "workspace"
-  | "projects"
-  | "asset"
-  | "workflow"
-  | "agent";
+export type LeftPanelView = "workspace" | "projects" | "asset" | "workflow" | "agent";
 
 export type SemanticObjectType =
   | "project"
@@ -109,6 +104,8 @@ export interface RunSummary {
   projectId: string;
   experimentId: string;
   executorInfo: Record<string, string>;
+  profile: string | null;
+  configHash: string | null;
 }
 
 export interface AssetSummary {
@@ -195,9 +192,12 @@ export interface WorkspaceSnapshot {
   consoleEntries: ConsoleEntry[];
 }
 
+export type ObjectView = "overview" | "logs" | "metrics" | "scheduler" | "snapshot";
+
 export interface ObjectSelection {
   objectType: BaseObjectType;
   objectId: string;
+  objectView?: ObjectView;
 }
 
 export interface WorkflowSelection {
