@@ -199,12 +199,12 @@ class TestRunCommand:
         assert "no config file" in result.output.lower()
 
     def test_run_help_shows_backends(self):
-        result = runner.invoke(app, ["run", "--help"])
+        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
         assert "local" in result.output
 
     def test_run_help_has_grouped_options(self):
-        result = runner.invoke(app, ["run", "--help"])
+        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
         assert "--local" in result.output
         assert "--scheduler" in result.output

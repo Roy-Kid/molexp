@@ -188,7 +188,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
             ``<workspace_root>/projects/<p>/experiments/<e>/runs/<r>``
         """
         parents = self._run_dir.resolve().parents
-        if len(parents) < 5:
+        if len(parents) < 6:
             return
         exp_dir = parents[1]
         proj_dir = parents[3]
