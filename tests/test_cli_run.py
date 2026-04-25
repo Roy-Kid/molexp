@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from typer.testing import CliRunner
 
@@ -10,6 +11,14 @@ from molexp.cli import app
 from molexp.workspace import Workspace
 
 runner = CliRunner()
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(s: str) -> str:
+    """Strip ANSI escape codes — Rich may insert style codes around flag
+    tokens, breaking literal substring matches like `'--local'`."""
+    return _ANSI_RE.sub("", s)
 
 
 def _write_script(
@@ -201,13 +210,15 @@ class TestRunCommand:
     def test_run_help_shows_backends(self):
         result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
-        assert "local" in result.output
+        plain = _plain(result.output)
+        assert "local" in plain
 
     def test_run_help_has_grouped_options(self):
         result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
-        assert "--local" in result.output
-        assert "--scheduler" in result.output
-        assert "--profile" in result.output
-        assert "--config" in result.output
-        assert "HPC Options" in result.output
+        plain = _plain(result.output)
+        assert "--local" in plain
+        assert "--scheduler" in plain
+        assert "--profile" in plain
+        assert "--config" in plain
+        assert "HPC Options" in plain
