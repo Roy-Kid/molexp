@@ -1,7 +1,25 @@
 import { ChevronRight } from "lucide-react";
 import type { ComponentType, JSX, ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { EMPTY_COPY, EmptyState } from "@/app/components/entity";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+
+export interface TreeNodeAction {
+  id: string;
+  label: string;
+  icon?: ComponentType<{ className?: string }>;
+  disabled?: boolean;
+  destructive?: boolean;
+  separatorBefore?: boolean;
+  title?: string;
+  onSelect: () => void;
+}
 
 export interface TreeNode {
   id: string;
@@ -12,6 +30,7 @@ export interface TreeNode {
   meta?: ReactNode;
   children?: TreeNode[];
   emptyChildLabel?: string;
+  actions?: TreeNodeAction[];
   onSelect?: () => void;
 }
 
@@ -39,6 +58,72 @@ const TreeRow = ({ node, depth, activeId, expanded, onToggle }: RowProps): JSX.E
   const isExpanded = expanded.has(node.id);
   const isActive = activeId === node.id;
   const Icon = node.icon;
+  const actions = node.actions ?? [];
+
+  const rowButton = (
+    <button
+      type="button"
+      className={`group flex h-7 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-2 text-left text-sm transition-colors ${
+        isActive ? "bg-accent text-accent-foreground" : "hover:bg-muted/40"
+      }`}
+      onClick={() => {
+        if (node.onSelect) {
+          node.onSelect();
+        } else if (hasChildren) {
+          onToggle(node.id);
+        }
+      }}
+      onContextMenu={() => {
+        node.onSelect?.();
+      }}
+      title={node.label}
+    >
+      {Icon && (
+        <Icon
+          className={`h-3.5 w-3.5 flex-none ${node.iconClassName ?? "text-muted-foreground"}`}
+        />
+      )}
+      <span className="min-w-0 flex-1 truncate">{node.label}</span>
+      {node.right && <span className="flex-none">{node.right}</span>}
+      {node.meta !== undefined && node.meta !== null && (
+        <span className="flex-none font-mono text-[10px] text-muted-foreground">{node.meta}</span>
+      )}
+    </button>
+  );
+
+  const wrappedRow =
+    actions.length > 0 ? (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{rowButton}</ContextMenuTrigger>
+        <ContextMenuContent>
+          {actions.map((action) => {
+            const ActionIcon = action.icon;
+            return (
+              <Fragment key={action.id}>
+                {action.separatorBefore && <ContextMenuSeparator />}
+                <ContextMenuItem
+                  disabled={action.disabled}
+                  title={action.title}
+                  className={
+                    action.destructive ? "text-destructive focus:text-destructive" : undefined
+                  }
+                  onSelect={() => {
+                    if (!action.disabled) {
+                      action.onSelect();
+                    }
+                  }}
+                >
+                  {ActionIcon && <ActionIcon className="mr-2 h-3.5 w-3.5" />}
+                  <span className="truncate">{action.label}</span>
+                </ContextMenuItem>
+              </Fragment>
+            );
+          })}
+        </ContextMenuContent>
+      </ContextMenu>
+    ) : (
+      rowButton
+    );
 
   return (
     <div>
@@ -60,33 +145,7 @@ const TreeRow = ({ node, depth, activeId, expanded, onToggle }: RowProps): JSX.E
         ) : (
           <span className="h-6 w-6 flex-none" />
         )}
-        <button
-          type="button"
-          className={`group flex h-7 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md px-2 text-left text-sm transition-colors ${
-            isActive ? "bg-accent text-accent-foreground" : "hover:bg-muted/40"
-          }`}
-          onClick={() => {
-            if (node.onSelect) {
-              node.onSelect();
-            } else if (hasChildren) {
-              onToggle(node.id);
-            }
-          }}
-          title={node.label}
-        >
-          {Icon && (
-            <Icon
-              className={`h-3.5 w-3.5 flex-none ${node.iconClassName ?? "text-muted-foreground"}`}
-            />
-          )}
-          <span className="min-w-0 flex-1 truncate">{node.label}</span>
-          {node.right && <span className="flex-none">{node.right}</span>}
-          {node.meta !== undefined && node.meta !== null && (
-            <span className="flex-none font-mono text-[10px] text-muted-foreground">
-              {node.meta}
-            </span>
-          )}
-        </button>
+        {wrappedRow}
       </div>
       {node.children !== undefined && isExpanded && (
         <div>

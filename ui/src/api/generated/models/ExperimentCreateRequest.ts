@@ -20,4 +20,3 @@ export type ExperimentCreateRequest = {
      */
     parameter_space?: Record<string, any>;
 };
-

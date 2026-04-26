@@ -12,6 +12,9 @@ repos:
       - id: mixed-line-ending
       - id: check-toml
       - id: check-json
+        # tsconfig.json/tsconfig.*.json and devcontainer.json use JSON-with-
+        # comments (JSONC), which the check-json hook cannot parse.
+        exclude: '(^|/)(tsconfig(\..+)?\.json|devcontainer\.json)$'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.12

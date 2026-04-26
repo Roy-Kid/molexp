@@ -20,13 +20,17 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, TypeAlias
 
 from ._adapter import ASSET_ADAPTER, parse_asset
 from .base import Asset
 
 SCHEMA_VERSION = 1
 MANIFEST_FILENAME = "assets.json"
+
+# Alias avoids the static-checker confusion where ``list`` (the method) shadows
+# ``list`` (the builtin) in return annotations.
+AssetList: TypeAlias = list[Asset]
 
 
 class AssetManifest:
@@ -51,7 +55,7 @@ class AssetManifest:
     def get(self, asset_id: str) -> Asset | None:
         return self.load().get(asset_id)
 
-    def list(self) -> list[Asset]:
+    def list(self) -> AssetList:
         return list(self.load().values())
 
     def __iter__(self) -> Iterator[Asset]:

@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, cast
 
 from mollog import get_logger
 from pydantic_graph import End, exceptions
@@ -64,7 +64,11 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         self._execution_id = execution_id
         self._exec_dir = run_dir / "executions" / execution_id
         self._exec_dir.mkdir(parents=True, exist_ok=True)
-        self._last_snapshot: NodeSnapshot | EndSnapshot | None = None
+        self._last_snapshot: (
+            NodeSnapshot[WorkflowState, WorkflowState]
+            | EndSnapshot[WorkflowState, WorkflowState]
+            | None
+        ) = None
         self._workflow_file = self._exec_dir / "workflow.json"
         # In-memory state; written atomically on every mutation.
         self._state: dict[str, Any] = {
@@ -86,7 +90,11 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
 
     # ── BaseStatePersistence protocol ────────────────────────────────────────
 
-    async def snapshot_node(self, state: WorkflowState, next_node: BaseNode) -> None:
+    async def snapshot_node(
+        self,
+        state: WorkflowState,
+        next_node: BaseNode[WorkflowState, Any, WorkflowState],
+    ) -> None:
         self._last_snapshot = NodeSnapshot(state=state, node=next_node)
         if type(next_node).__name__ == "WorkflowStep":
             level_index = getattr(next_node, "level_index", len(self._state["steps"]))
@@ -104,7 +112,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         self,
         snapshot_id: str,
         state: WorkflowState,
-        next_node: BaseNode,
+        next_node: BaseNode[WorkflowState, Any, WorkflowState],
     ) -> None:
         if self._last_snapshot and self._last_snapshot.id == snapshot_id:
             return
@@ -148,12 +156,10 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         return []
 
     async def load_next(self) -> NodeSnapshot[WorkflowState, WorkflowState] | None:
-        if (
-            isinstance(self._last_snapshot, NodeSnapshot)
-            and self._last_snapshot.status == "created"
-        ):
-            self._last_snapshot.status = "pending"
-            return self._last_snapshot
+        snapshot = self._last_snapshot
+        if isinstance(snapshot, NodeSnapshot) and snapshot.status == "created":
+            snapshot.status = "pending"
+            return cast(NodeSnapshot[WorkflowState, WorkflowState], snapshot)
         return None
 
     # ── Internal helpers ─────────────────────────────────────────────────────
@@ -188,7 +194,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
             ``<workspace_root>/projects/<p>/experiments/<e>/runs/<r>``
         """
         parents = self._run_dir.resolve().parents
-        if len(parents) < 5:
+        if len(parents) < 6:
             return
         exp_dir = parents[1]
         proj_dir = parents[3]

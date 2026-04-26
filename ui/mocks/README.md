@@ -93,7 +93,7 @@ describe('ProjectList', () => {
     });
 
     render(<ProjectList />);
-    
+
     expect(await screen.findByText('Test Project 1')).toBeInTheDocument();
   });
 });
@@ -116,7 +116,7 @@ it('handles API errors', async () => {
   );
 
   render(<ProjectList />);
-  
+
   expect(await screen.findByText('Error loading projects')).toBeInTheDocument();
 });
 ```
@@ -183,7 +183,7 @@ export const projectHandlers = [
   http.patch(`${API_BASE}/projects/:id`, async ({ params, request }) => {
     const { id } = params;
     const updates = await request.json();
-    
+
     const project = getProject(id as string);
     if (!project) {
       return HttpResponse.json(

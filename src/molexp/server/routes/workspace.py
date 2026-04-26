@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -59,17 +60,46 @@ def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoRespons
 def list_workspace_files(
     path: str = Query("", description="Workspace-relative path to list"),
     max_depth: int = Query(4, ge=0, le=8, description="Maximum recursion depth"),
+    include: str | None = Query(
+        None,
+        description="Comma-separated optional enrichments (e.g. 'catalog')",
+    ),
     workspace=Depends(get_workspace),
 ) -> dict:
-    """Return a nested file tree rooted at the requested path."""
+    """Return a nested file tree rooted at the requested path.
+
+    With ``include=catalog``, file nodes that match a registered asset
+    are enriched with ``assetId``, ``assetKind``, ``producerRunId`` and
+    ``producerTaskId`` so the UI can render lineage chips inline.
+    """
     root = Path(workspace.root).resolve()
     requested = resolve_workspace_path(root, path.lstrip("/"))
     if not requested.exists():
         raise HTTPException(status_code=404, detail="Path not found")
 
-    def build_node(node_path: Path, depth: int) -> dict:
+    include_set = {part.strip() for part in (include or "").split(",") if part.strip()}
+    asset_index_by_abs: dict[Path, dict] = {}
+    if "catalog" in include_set:
+        from ._scope import resolve_scope_dir
+
+        for asset in workspace.catalog.query_assets():
+            scope_dir = resolve_scope_dir(workspace, asset.scope)
+            if scope_dir is None:
+                continue
+            try:
+                abs_path = (scope_dir / asset.path).resolve()
+            except OSError:
+                continue
+            asset_index_by_abs[abs_path] = {
+                "assetId": asset.asset_id,
+                "assetKind": asset.kind,  # type: ignore[attr-defined]
+                "producerRunId": asset.producer.run_id if asset.producer else None,
+                "producerTaskId": asset.producer.task_id if asset.producer else None,
+            }
+
+    def build_node(node_path: Path, depth: int) -> dict[str, Any]:
         is_file = node_path.is_file()
-        node = {
+        node: dict[str, Any] = {
             "id": str(node_path),
             "name": node_path.name or str(node_path),
             "path": str(node_path),
@@ -77,6 +107,14 @@ def list_workspace_files(
             "size": node_path.stat().st_size if is_file else None,
             "modified": node_path.stat().st_mtime,
         }
+        if asset_index_by_abs:
+            try:
+                resolved = node_path.resolve()
+            except OSError:
+                resolved = node_path
+            enrich = asset_index_by_abs.get(resolved)
+            if enrich is not None:
+                node.update(enrich)
         if not is_file and depth < max_depth:
             children = []
             for child in sorted(node_path.iterdir(), key=lambda p: (p.is_file(), p.name)):

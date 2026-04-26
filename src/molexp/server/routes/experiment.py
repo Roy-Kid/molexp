@@ -6,9 +6,17 @@ from shutil import rmtree
 
 from fastapi import APIRouter, Depends
 
+from molexp.plugins.metrics import read_run_metrics
+
 from ..dependencies import get_workspace
 from ..exceptions import ExperimentNotFoundError, ProjectNotFoundError
-from ..schemas import ExperimentCreateRequest, ExperimentResponse, MessageResponse
+from ..schemas import (
+    ComparisonRunRow,
+    ExperimentComparisonResponse,
+    ExperimentCreateRequest,
+    ExperimentResponse,
+    MessageResponse,
+)
 
 router = APIRouter(prefix="/projects/{project_id}/experiments", tags=["experiments"])
 
@@ -54,6 +62,72 @@ def create_experiment(
         params=req.parameter_space,
     )
     return ExperimentResponse.from_model(exp)
+
+
+@router.get("/{experiment_id}/comparison", response_model=ExperimentComparisonResponse)
+def get_experiment_comparison(
+    project_id: str,
+    experiment_id: str,
+    workspace=Depends(get_workspace),
+) -> ExperimentComparisonResponse:
+    """Sweep matrix: parameter columns x run rows + final metric values per run."""
+    project = workspace.get_project(project_id)
+    if not project:
+        raise ProjectNotFoundError(project_id)
+    experiment = project.get_experiment(experiment_id)
+    if not experiment:
+        raise ExperimentNotFoundError(project_id, experiment_id)
+
+    runs = experiment.list_runs()
+    rows: list[ComparisonRunRow] = []
+    param_keys: set[str] = set()
+    metric_keys: set[str] = set()
+
+    for run in runs:
+        param_keys.update(run.parameters.keys())
+        metrics_summary: dict[str, object] = {}
+        try:
+            result = read_run_metrics(run.run_dir, limit=50000)
+            for series in result.series:
+                key = series.get("key")
+                latest = series.get("latestValue")
+                if key and latest is not None:
+                    metrics_summary[key] = latest
+                    metric_keys.add(key)
+        except (FileNotFoundError, OSError, ValueError):
+            pass
+
+        duration: float | None = None
+        if run.metadata.finished_at and run.metadata.created_at:
+            duration = (run.metadata.finished_at - run.metadata.created_at).total_seconds()
+
+        error_dict: dict[str, str] | None = None
+        if run.metadata.error:
+            error_dict = {
+                "type": run.metadata.error.type,
+                "message": run.metadata.error.message,
+            }
+
+        rows.append(
+            ComparisonRunRow(
+                runId=run.id,
+                status=run.status,
+                parameters=dict(run.parameters),
+                metrics=metrics_summary,
+                durationSec=duration,
+                created=run.metadata.created_at.isoformat(),
+                finished=run.metadata.finished_at.isoformat() if run.metadata.finished_at else None,
+                error=error_dict,
+            )
+        )
+
+    return ExperimentComparisonResponse(
+        experimentId=experiment_id,
+        projectId=project_id,
+        paramKeys=sorted(param_keys),
+        metricKeys=sorted(metric_keys),
+        runs=rows,
+    )
 
 
 @router.delete("/{experiment_id}", response_model=MessageResponse)

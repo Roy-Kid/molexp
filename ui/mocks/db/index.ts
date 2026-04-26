@@ -1,6 +1,6 @@
 /**
  * In-memory database for MSW mock API responses.
- * 
+ *
  * This module provides stateful storage for workspace data (projects, experiments, runs, assets, files)
  * with session-scoped persistence. Data survives across requests within a browser tab or test file.
  */
@@ -337,21 +337,21 @@ inputs:
 tasks:
   - name: feature_extraction
     image: alphafold:2.3.1
-    command: 
+    command:
       - python
       - run_alphafold.py
       - --fasta_paths=\${inputs.fasta_file}
       - --data_dir=\${inputs.database_dir}
       - --output_dir=\${outputs.features}
       - --model_preset=monomer
-    
+
   - name: structure_prediction
     image: alphafold:2.3.1
     needs: [feature_extraction]
     resources:
       gpu: "1"
     command:
-      - python 
+      - python
       - predict_structure.py
       - --features_dir=\${tasks.feature_extraction.outputs.features}
       - --output_path=\${outputs.pdb_file}

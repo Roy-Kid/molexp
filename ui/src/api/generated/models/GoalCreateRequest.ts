@@ -10,4 +10,3 @@ export type GoalCreateRequest = {
     constraints?: Record<string, any>;
     success_criteria?: Array<string>;
 };
-

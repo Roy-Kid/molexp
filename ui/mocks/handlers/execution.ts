@@ -1,6 +1,6 @@
 /**
  * Mock handlers for Execution API endpoints
- * 
+ *
  * Note: These endpoints were not found in the backend routes but are included
  * for potential future use based on the proposal requirements.
  */

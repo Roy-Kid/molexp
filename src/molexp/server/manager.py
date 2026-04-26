@@ -15,7 +15,7 @@ from typing import Iterator
 try:
     import psutil
 except ImportError:
-    psutil = None
+    psutil = None  # ty: ignore[invalid-assignment]
 
 
 class ServerManager:

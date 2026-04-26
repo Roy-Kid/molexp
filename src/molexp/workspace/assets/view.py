@@ -9,12 +9,17 @@ For importing ``DataAsset`` inputs, use ``{scope}.data_assets`` instead.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAlias
 
 from .base import Asset, AssetScope
 
 if TYPE_CHECKING:
     from .catalog import AssetCatalog
+
+
+# Alias avoids the static-checker confusion where the ``list`` method name
+# shadows the ``list`` builtin in return-type expressions.
+AssetList: TypeAlias = list[Asset]
 
 
 class AssetsView:
@@ -24,11 +29,11 @@ class AssetsView:
         self._catalog = catalog
         self._scope = scope
 
-    def list(self) -> list[Asset]:
+    def list(self) -> AssetList:
         return self._catalog.query_assets(scope=self._scope)
 
     # Alias that mirrors the old API surface.
-    def list_assets(self) -> list[Asset]:
+    def list_assets(self) -> AssetList:
         return self.list()
 
     def get(self, asset_id: str) -> Asset | None:
@@ -47,7 +52,7 @@ class AssetsView:
         producer_task: str | None = None,
         tag: tuple[str, str] | None = None,
         limit: int | None = None,
-    ) -> list[Asset]:
+    ) -> AssetList:
         return self._catalog.query_assets(
             kind=kind,
             scope=self._scope,

@@ -3,7 +3,10 @@ import { useMemo } from "react";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
 import type { RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+
+const formatExecutorLabel = (key: string): string => {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+};
 
 export const MolqRunInspector = (props: RendererProps): JSX.Element => {
   const run = useMemo(() => {
@@ -17,29 +20,28 @@ export const MolqRunInspector = (props: RendererProps): JSX.Element => {
   const rows = Object.entries(run.executorInfo);
 
   return (
-    <Card className="h-full border-cyan-500/20 bg-cyan-50/40">
-      <CardHeader className="space-y-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-base font-semibold">
-            <ServerCog className="h-4 w-4 text-cyan-700" />
-            Molq Inspector
-          </CardTitle>
-          <Badge className="bg-cyan-600 text-white hover:bg-cyan-700">scheduler</Badge>
+    <div className="flex h-full flex-col bg-background">
+      <div className="flex items-center justify-between border-b border-border/70 bg-muted/20 px-3 py-1.5">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <ServerCog className="h-3.5 w-3.5 text-muted-foreground" />
+          <h2 className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Executor
+          </h2>
         </div>
-        <p className="text-xs text-muted-foreground">
-          Normalized executor metadata emitted by the molq backend.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3 pt-1">
+        <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
+          molq
+        </Badge>
+      </div>
+      <dl className="flex-1 divide-y divide-border/50 overflow-auto">
         {rows.map(([key, value]) => (
-          <div key={key} className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {key}
-            </p>
-            <p className="font-mono text-xs text-foreground">{value}</p>
+          <div key={key} className="px-3 py-1.5">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {formatExecutorLabel(key)}
+            </dt>
+            <dd className="mt-0.5 break-words font-mono text-xs text-foreground">{value}</dd>
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </dl>
+    </div>
   );
 };

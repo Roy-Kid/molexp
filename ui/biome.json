@@ -14,6 +14,6 @@
     "lineWidth": 100
   },
   "files": {
-    "includes": ["**/src/**/*.ts", "**/src/**/*.tsx", "!**/src/api/generated/**"]
+    "includes": ["**/src/**/*.ts", "**/src/**/*.tsx", "!**/src/api/generated"]
   }
 }

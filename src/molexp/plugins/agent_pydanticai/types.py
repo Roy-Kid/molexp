@@ -105,8 +105,14 @@ class AgentSession(ABC):
         self.artifacts: list[Any] = []
 
     @abstractmethod
-    async def stream_events(self) -> AsyncIterator[SessionEvent]:
-        """Stream session events in real time."""
+    def stream_events(self) -> AsyncIterator[SessionEvent]:
+        """Stream session events in real time.
+
+        Implementations are typically ``async def`` generators that ``yield`` events.
+        Returning ``AsyncIterator`` (rather than declaring ``async def``) keeps the
+        abstract type compatible with both async-generator and coroutine-returning-
+        iterator implementations.
+        """
         ...
 
     @abstractmethod

@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
@@ -18,19 +19,27 @@ import { Textarea } from "@/components/ui/textarea";
 interface CreateExperimentDialogProps {
   projectId: string;
   onExperimentCreated: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: ReactNode;
 }
 
 export function CreateExperimentDialog({
   projectId,
   onExperimentCreated,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
 }: CreateExperimentDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [name, setName] = useState("");
   const [workflow, setWorkflow] = useState("");
   const [description, setDescription] = useState("");
   const [parameterSpace, setParameterSpace] = useState("{}");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = onOpenChange ?? setUncontrolledOpen;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,12 +69,16 @@ export function CreateExperimentDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="h-7 gap-1">
-          <Plus className="h-3.5 w-3.5" />
-          <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">New Experiment</span>
-        </Button>
-      </DialogTrigger>
+      {trigger === undefined ? (
+        <DialogTrigger asChild>
+          <Button variant="outline" size="sm" className="h-7 gap-1">
+            <Plus className="h-3.5 w-3.5" />
+            <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">New Experiment</span>
+          </Button>
+        </DialogTrigger>
+      ) : (
+        trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[550px]">
         <DialogHeader>
           <DialogTitle>Create Experiment</DialogTitle>

@@ -94,8 +94,10 @@ async def fanout_demo() -> None:
         return ctx.inputs["square_evens"] + ctx.inputs["square_odds"]
 
     result = await wf.build().execute()
-    print(f"fan-out:     squares_evens={result.outputs['square_evens']}, "
-          f"squares_odds={result.outputs['square_odds']}, total={result.outputs['total']}")
+    print(
+        f"fan-out:     squares_evens={result.outputs['square_evens']}, "
+        f"squares_odds={result.outputs['square_odds']}, total={result.outputs['total']}"
+    )
 
 
 async def main() -> None:

@@ -20,4 +20,3 @@ export type ProjectCreateRequest = {
      */
     tags?: Array<string>;
 };
-

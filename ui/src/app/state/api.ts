@@ -26,21 +26,63 @@ import type {
   WorkspaceTreeNode,
 } from "@/app/types";
 
-// Local types not yet in OpenAPI
+// Local types not yet in OpenAPI. The lineage fields (`assetId`,
+// `assetKind`, `producerRunId`, `producerTaskId`) are populated when
+// the workspace files endpoint is called with `?include=catalog`.
 interface WorkspaceFileNode {
   id?: string;
   name: string;
   path: string;
   type?: string;
   children?: WorkspaceFileNode[];
-  size?: number;
+  size?: number | null;
   modified?: string | number;
+  assetId?: string | null;
+  assetKind?: string | null;
+  producerRunId?: string | null;
+  producerTaskId?: string | null;
 }
 
 interface WorkspaceFilesResponse {
   path?: string;
   children?: WorkspaceFileNode[];
 }
+
+export interface MetricRecord {
+  t: string;
+  k: string;
+  s?: number;
+  w?: string;
+  v?: unknown;
+  tags?: Record<string, unknown>;
+}
+
+export interface MetricSeriesSummary {
+  key: string;
+  type: string;
+  count: number;
+  latestStep?: number | null;
+  latestTimestamp?: string | null;
+  latestValue?: unknown;
+}
+
+export interface RunMetricsResponse {
+  nextLine: number;
+  records: MetricRecord[];
+  series: MetricSeriesSummary[];
+  parseErrors: number;
+}
+
+export interface RunMetricsQuery {
+  type?: string;
+  key?: string;
+  sinceLine?: number;
+  limit?: number;
+}
+
+export type { LammpsLogResponse } from "@/api/generated/models/LammpsLogResponse";
+export type { LammpsThermoStage } from "@/api/generated/models/LammpsThermoStage";
+export type { RunFileTextResponse } from "@/api/generated/models/RunFileTextResponse";
 
 export const workspaceApi = {
   getProjects: async (): Promise<ApiProjectResponse[]> => {
@@ -73,6 +115,63 @@ export const workspaceApi = {
       experimentId,
     );
   },
+  getRun: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<ApiRunResponse> => {
+    return RunsService.getRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdGet(
+      projectId,
+      experimentId,
+      runId,
+    );
+  },
+  getRunLogs: async (projectId: string, experimentId: string, runId: string) => {
+    return RunsService.getRunLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLogsGet(
+      projectId,
+      experimentId,
+      runId,
+    );
+  },
+  getRunLammpsLog: async (projectId: string, experimentId: string, runId: string, path: string) => {
+    return RunsService.getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
+      projectId,
+      experimentId,
+      runId,
+      path,
+    );
+  },
+  getRunFileText: async (projectId: string, experimentId: string, runId: string, path: string) => {
+    return RunsService.getRunFileTextApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFileTextGet(
+      projectId,
+      experimentId,
+      runId,
+      path,
+    );
+  },
+  getRunMetrics: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    query: RunMetricsQuery = {},
+  ): Promise<RunMetricsResponse> => {
+    const params = new URLSearchParams();
+    if (query.type) params.set("type", query.type);
+    if (query.key) params.set("key", query.key);
+    if (query.sinceLine !== undefined) params.set("since_line", String(query.sinceLine));
+    if (query.limit !== undefined) params.set("limit", String(query.limit));
+
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(
+        experimentId,
+      )}/runs/${encodeURIComponent(runId)}/metrics${suffix}`,
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to fetch run metrics: ${response.statusText}`);
+    }
+    return response.json();
+  },
   createRun: async (
     projectId: string,
     experimentId: string,
@@ -82,6 +181,19 @@ export const workspaceApi = {
       projectId,
       experimentId,
       data,
+    );
+  },
+  updateRunStatus: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    status: string,
+  ): Promise<void> => {
+    await RunsService.updateRunStatusApiProjectsProjectIdExperimentsExperimentIdRunsRunIdStatusPatch(
+      projectId,
+      experimentId,
+      runId,
+      { status },
     );
   },
   getAssets: async (): Promise<ApiAssetResponse[]> => {
@@ -94,10 +206,6 @@ export const workspaceApi = {
       throw new Error(`Failed to fetch project assets: ${response.statusText}`);
     }
     return response.json();
-  },
-  getWorkspaceTree: async (path: string): Promise<WorkspaceFilesResponse> => {
-    const response = await WorkspaceService.listWorkspaceFilesApiWorkspaceFilesGet(path, 8);
-    return response as unknown as WorkspaceFilesResponse;
   },
   openWorkspace: async (path: string, createIfMissing = false): Promise<void> => {
     await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({
@@ -137,7 +245,176 @@ export const workspaceApi = {
     }
     return response.blob();
   },
+
+  /**
+   * Fetch the workspace file tree, optionally enriched with catalog
+   * lineage metadata (`assetId`, `assetKind`, `producerRunId`,
+   * `producerTaskId`) for nodes that match a registered asset.
+   */
+  getWorkspaceTree: async (
+    options: { path?: string; maxDepth?: number; includeCatalog?: boolean } = {},
+  ): Promise<WorkspaceTreeNodeRaw> => {
+    const params = new URLSearchParams();
+    params.set("path", options.path ?? "");
+    params.set("max_depth", String(options.maxDepth ?? 8));
+    if (options.includeCatalog) {
+      params.set("include", "catalog");
+    }
+    const response = await fetch(`/api/workspace/files?${params.toString()}`);
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /**
+   * Reverse-lookup: which run/experiment/project produced this file.
+   */
+  getCatalogByPath: async (path: string): Promise<CatalogByPathResponse> => {
+    const response = await fetch(`/api/catalog/by-path?path=${encodeURIComponent(path)}`);
+    if (!response.ok) {
+      throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  /** Fetch the per-run output file tree, enriched with catalog data. */
+  getRunFiles: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<RunFilesResponse> => {
+    return RunsService.getRunFilesApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFilesGet(
+      projectId,
+      experimentId,
+      runId,
+    ) as unknown as Promise<RunFilesResponse>;
+  },
+
+  /** Fetch the experiment comparison sweep matrix. */
+  getExperimentComparison: async (
+    projectId: string,
+    experimentId: string,
+  ): Promise<ExperimentComparisonResponse> => {
+    return ExperimentsService.getExperimentComparisonApiProjectsProjectIdExperimentsExperimentIdComparisonGet(
+      projectId,
+      experimentId,
+    ) as unknown as Promise<ExperimentComparisonResponse>;
+  },
+
+  /** Best-effort kill: marks the run as cancelled. */
+  killRun: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<RunActionResponse> => {
+    return RunsService.killRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
+      projectId,
+      experimentId,
+      runId,
+    ) as unknown as Promise<RunActionResponse>;
+  },
+
+  /** Clone an existing run's parameters into a fresh run. */
+  rerunRun: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<RunRerunResponse> => {
+    return RunsService.rerunRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdRerunPost(
+      projectId,
+      experimentId,
+      runId,
+    ) as unknown as Promise<RunRerunResponse>;
+  },
+
+  /** Stream URL for a run export zip — used directly via <a href>. */
+  runExportUrl: (projectId: string, experimentId: string, runId: string): string => {
+    return `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(experimentId)}/runs/${encodeURIComponent(runId)}/export`;
+  },
 };
+
+// ── Local types for endpoints not strictly modelled in the generated client ──
+
+export interface WorkspaceTreeNodeRaw {
+  id?: string;
+  name: string;
+  path: string;
+  type?: string;
+  size?: number | null;
+  modified?: number | string;
+  children?: WorkspaceTreeNodeRaw[];
+  assetId?: string | null;
+  assetKind?: string | null;
+  producerRunId?: string | null;
+  producerTaskId?: string | null;
+}
+
+export interface CatalogByPathResponse {
+  matched: boolean;
+  workspaceRelPath: string;
+  assetId: string | null;
+  assetKind: string | null;
+  producer: { runId: string | null; taskId: string | null; executionId: string | null } | null;
+  scope: {
+    kind: "workspace" | "project" | "experiment" | "run";
+    projectId: string | null;
+    experimentId: string | null;
+    runId: string | null;
+  } | null;
+  siblings: Array<{ assetId: string; name: string; kind: string; relPath: string }>;
+}
+
+export interface RunFileNodeRaw {
+  name: string;
+  relPath: string;
+  type: "file" | "folder";
+  size: number | null;
+  modified: number | null;
+  assetId: string | null;
+  assetKind: string | null;
+  taskId: string | null;
+  children: RunFileNodeRaw[];
+}
+
+export interface RunFilesResponse {
+  runId: string;
+  runDir: string;
+  nodes: RunFileNodeRaw[];
+}
+
+export interface ComparisonRunRowRaw {
+  runId: string;
+  status: string;
+  parameters: Record<string, unknown>;
+  metrics: Record<string, unknown>;
+  durationSec: number | null;
+  created: string;
+  finished: string | null;
+  error: { type: string; message: string } | null;
+}
+
+export interface ExperimentComparisonResponse {
+  experimentId: string;
+  projectId: string;
+  paramKeys: string[];
+  metricKeys: string[];
+  runs: ComparisonRunRowRaw[];
+}
+
+export interface RunActionResponse {
+  runId: string;
+  status: string;
+  message: string | null;
+}
+
+export interface RunRerunResponse {
+  sourceRunId: string;
+  newRunId: string;
+  projectId: string;
+  experimentId: string;
+  status: string;
+}
 
 export const buildEmptySnapshot = (): WorkspaceSnapshot => {
   return {
@@ -209,6 +486,8 @@ export const mapRuns = (
     updatedAt: run.finished ?? run.created,
     projectId,
     experimentId,
+    profile: run.profile ?? null,
+    configHash: run.configHash ?? null,
   }));
 };
 

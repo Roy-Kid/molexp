@@ -28,8 +28,16 @@ export const registryHandlers = [
             schedulers: ["local", "slurm"],
           },
         },
+        {
+          id: "metrics",
+          title: "Metrics",
+          description: "Run-scoped metrics recording and monitoring views.",
+          uiModule: "metrics",
+          capabilities: ["metrics", "run_metrics"],
+          metadata: {},
+        },
       ],
-      total: 2,
+      total: 3,
     });
   }),
 

@@ -352,6 +352,50 @@ class RunLogsResponse(BaseModel):
     stderr: str | None = None
 
 
+class MetricSeriesResponse(BaseModel):
+    """Summary for one metric series in a run-local metrics query."""
+
+    key: str
+    type: str
+    count: int
+    latestStep: int | float | None = None
+    latestTimestamp: str | None = None
+    latestValue: Any | None = None
+
+
+class RunMetricsResponse(BaseModel):
+    """Run-local metrics query response."""
+
+    nextLine: int = 0
+    records: list[dict[str, Any]] = Field(default_factory=list)
+    series: list[MetricSeriesResponse] = Field(default_factory=list)
+    parseErrors: int = 0
+
+
+class RunFileTextResponse(BaseModel):
+    """Raw UTF-8 text content of a file under a run directory."""
+
+    path: str
+    content: str
+    size: int
+
+
+class LammpsThermoStage(BaseModel):
+    """One ``Per MPI rank ... Loop time`` block as columns + numeric rows."""
+
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list[float]] = Field(default_factory=list)
+
+
+class LammpsLogResponse(BaseModel):
+    """Parsed LAMMPS log thermo stages, produced by ``molpy.io.LAMMPSLog``."""
+
+    path: str
+    version: str | None = None
+    nStages: int = 0
+    stages: list[LammpsThermoStage] = Field(default_factory=list)
+
+
 class WorkflowStepInfo(BaseModel):
     """Human-readable summary of one workflow execution step."""
 
@@ -367,3 +411,116 @@ class RunExecutionResponse(BaseModel):
     status: str = "not_started"  # running | completed | failed | not_started
     steps: list[WorkflowStepInfo] = Field(default_factory=list)
     end: dict[str, Any] | None = None
+
+
+# ── Catalog / file lineage ──────────────────────────────────────────────────
+
+
+class CatalogProducerInfo(BaseModel):
+    """Producer metadata for a catalog entry."""
+
+    runId: str | None = None
+    taskId: str | None = None
+    executionId: str | None = None
+
+
+class CatalogScopeInfo(BaseModel):
+    """Scope chain that owns this asset (project/experiment/run ids)."""
+
+    kind: str
+    projectId: str | None = None
+    experimentId: str | None = None
+    runId: str | None = None
+
+
+class CatalogSibling(BaseModel):
+    """Other outputs from the same producer.task_id."""
+
+    assetId: str
+    name: str
+    kind: str
+    relPath: str
+
+
+class CatalogByPathResponse(BaseModel):
+    """Reverse-lookup: which run/experiment/project produced a file?"""
+
+    matched: bool
+    workspaceRelPath: str
+    assetId: str | None = None
+    assetKind: str | None = None
+    producer: CatalogProducerInfo | None = None
+    scope: CatalogScopeInfo | None = None
+    siblings: list[CatalogSibling] = Field(default_factory=list)
+
+
+class RunFileNode(BaseModel):
+    """One node in a run's output file tree."""
+
+    name: str
+    relPath: str  # relative to run_dir
+    type: str  # 'file' | 'folder'
+    size: int | None = None
+    modified: float | None = None
+    assetId: str | None = None
+    assetKind: str | None = None
+    taskId: str | None = None
+    children: list["RunFileNode"] = Field(default_factory=list)
+
+
+RunFileNode.model_rebuild()
+
+
+class RunFilesResponse(BaseModel):
+    """Per-run output file tree, enriched with catalog producer metadata."""
+
+    runId: str
+    runDir: str
+    nodes: list[RunFileNode] = Field(default_factory=list)
+
+
+# ── Experiment comparison ───────────────────────────────────────────────────
+
+
+class ComparisonRunRow(BaseModel):
+    """One run row in the experiment comparison matrix."""
+
+    runId: str
+    status: str
+    parameters: dict[str, Any] = Field(default_factory=dict)
+    metrics: dict[str, Any] = Field(default_factory=dict)
+    durationSec: float | None = None
+    created: str
+    finished: str | None = None
+    error: dict[str, str] | None = None
+
+
+class ExperimentComparisonResponse(BaseModel):
+    """Sweep matrix: parameter columns x run rows + metric columns."""
+
+    experimentId: str
+    projectId: str
+    paramKeys: list[str] = Field(default_factory=list)
+    metricKeys: list[str] = Field(default_factory=list)
+    runs: list[ComparisonRunRow] = Field(default_factory=list)
+
+
+# ── Run actions ─────────────────────────────────────────────────────────────
+
+
+class RunActionResponse(BaseModel):
+    """Result of an actionable mutation on a run."""
+
+    runId: str
+    status: str
+    message: str | None = None
+
+
+class RunRerunResponse(BaseModel):
+    """A new run cloned from an existing one."""
+
+    sourceRunId: str
+    newRunId: str
+    projectId: str
+    experimentId: str
+    status: str

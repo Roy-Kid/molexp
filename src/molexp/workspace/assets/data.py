@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from .catalog import AssetCatalog
 
 
+ImportAction = Literal["copy", "move", "symlink", "hardlink"]
+
+
 class DataAsset(Asset):
     """User-imported input.
 
@@ -30,7 +33,7 @@ class DataAsset(Asset):
 
     kind: Literal["data"] = "data"
     source_path: str
-    import_action: Literal["copy", "move", "symlink", "hardlink"] = "copy"
+    import_action: ImportAction = "copy"
     content_hash: str | None = None
 
     def payload(self, scope_dir: Path, rel: str = "") -> Path:
@@ -66,7 +69,7 @@ class DataAssetLibrary:
         self,
         name: str,
         src: str | Path,
-        action: Literal["copy", "move", "symlink", "hardlink"] = "copy",
+        action: ImportAction = "copy",
         meta: dict[str, Any] | None = None,
     ) -> DataAsset:
         """Import a file or directory as a ``DataAsset``."""

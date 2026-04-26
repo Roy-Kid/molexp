@@ -37,6 +37,17 @@ from molexp.config import ProfileConfig
 from .types import WorkflowExecution, WorkflowResult
 
 
+def _callable_name(f: Callable, fallback: str = "anonymous") -> str:
+    """Return a Python function's ``__name__`` if present, else ``fallback``.
+
+    Type-checked codepaths annotate decorator targets as ``Callable``, which
+    static checkers cannot prove has ``__name__``. In practice every decorated
+    target is a function, so ``getattr`` is sufficient and keeps the annotation
+    free of more specific protocols.
+    """
+    return getattr(f, "__name__", None) or fallback
+
+
 class TaskRegistration:
     """Internal record of a registered task or actor."""
 
@@ -192,7 +203,7 @@ class Workflow:
         """
 
         def decorator(f: Callable) -> Callable:
-            task_name = name or f.__name__
+            task_name = name or _callable_name(f)
             self._tasks.append(
                 TaskRegistration(
                     name=task_name,
@@ -218,7 +229,7 @@ class Workflow:
         """Register an async generator as a streaming actor."""
 
         def decorator(f: Callable) -> Callable:
-            actor_name = name or f.__name__
+            actor_name = name or _callable_name(f)
             self._tasks.append(
                 TaskRegistration(
                     name=actor_name,
@@ -284,7 +295,7 @@ class Workflow:
         """Decorator for fan-out parallel tasks."""
 
         def decorator(fn: Callable) -> Callable:
-            task_name = name or fn.__name__
+            task_name = name or _callable_name(fn)
             self._tasks.append(
                 TaskRegistration(
                     name=task_name,
@@ -293,7 +304,10 @@ class Workflow:
                     is_actor=False,
                 )
             )
-            fn._parallel_map_config = {"fan_out_over": fan_out_over}  # type: ignore[attr-defined]
+            # Stash the fan-out config on the function object; consumed by the
+            # graph compiler. ``setattr`` keeps the static checker happy without
+            # an ignore directive whose placement is fragile under autoformat.
+            setattr(fn, "_parallel_map_config", {"fan_out_over": fan_out_over})
             return fn
 
         return decorator
@@ -308,7 +322,7 @@ class Workflow:
         """Decorator for collecting and reducing parallel outputs."""
 
         def decorator(fn: Callable) -> Callable:
-            task_name = name or fn.__name__
+            task_name = name or _callable_name(fn)
             self._tasks.append(
                 TaskRegistration(
                     name=task_name,
@@ -317,7 +331,8 @@ class Workflow:
                     is_actor=False,
                 )
             )
-            fn._join_config = {"reducer": reducer}  # type: ignore[attr-defined]
+            # See ``parallel_map`` for the rationale behind ``setattr``.
+            setattr(fn, "_join_config", {"reducer": reducer})
             return fn
 
         return decorator

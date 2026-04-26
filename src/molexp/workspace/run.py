@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .experiment import Experiment
 
 from molexp.config import ProfileConfig
+from molexp.plugins.metrics import MetricsWriter
 
 from .assets import (
     ArtifactAccessor,
@@ -32,6 +33,7 @@ from .assets import (
     AssetScope,
     CheckpointAccessor,
     ErrorTraceAsset,
+    ImportAction,
     LogAccessor,
     Producer,
 )
@@ -144,6 +146,7 @@ class RunContext:
             self._catalog,
             self._producer,
         )
+        self.metrics = MetricsWriter(self.work_dir)
 
     def _producer(self) -> Producer:
         return Producer(
@@ -300,7 +303,7 @@ class RunContext:
         self,
         name: str,
         src: Path | str,
-        action: str = "copy",
+        action: ImportAction = "copy",
         meta: dict | None = None,
     ):
         """Import a ``DataAsset`` into this run's experiment scope."""

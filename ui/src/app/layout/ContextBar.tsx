@@ -1,22 +1,12 @@
-import { PanelRightClose, PanelRightOpen, Search } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 
 interface ContextBarProps {
-  inspectorOpen: boolean;
   searchQuery: string;
-  selectionActive: boolean;
   onSearchChange: (query: string) => void;
-  onToggleInspector: () => void;
 }
 
-export const ContextBar = ({
-  inspectorOpen,
-  searchQuery,
-  selectionActive,
-  onSearchChange,
-  onToggleInspector,
-}: ContextBarProps): JSX.Element => {
+export const ContextBar = ({ searchQuery, onSearchChange }: ContextBarProps): JSX.Element => {
   return (
     <header className="border-b border-border bg-background/95 backdrop-blur">
       <div className="flex items-center justify-between gap-6 px-4 py-2 md:px-6">
@@ -37,20 +27,6 @@ export const ContextBar = ({
               onChange={(event) => onSearchChange(event.target.value)}
             />
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-8 gap-2"
-            onClick={onToggleInspector}
-            disabled={!selectionActive}
-          >
-            {inspectorOpen ? (
-              <PanelRightClose className="h-4 w-4" />
-            ) : (
-              <PanelRightOpen className="h-4 w-4" />
-            )}
-            Details
-          </Button>
         </div>
       </div>
     </header>

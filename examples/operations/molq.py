@@ -43,7 +43,8 @@ def main() -> None:
     run = exp.run(parameters={"seed": 0})
 
     # The CLI composes this same object from --scheduler/--cpus/--gpus/… .
-    handler = SubmitHandler(
+    # Demonstration only; the CLI builds and uses this handler at submit time.
+    _handler = SubmitHandler(
         scheduler="slurm",
         cluster=None,
         resources={"cpus": 8, "gpus": 1, "mem": "32G", "time": "4h"},

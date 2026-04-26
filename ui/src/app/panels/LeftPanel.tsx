@@ -1,8 +1,11 @@
 import {
   Archive,
+  Ban,
   Blocks,
   Bot,
   Clock,
+  Copy,
+  ExternalLink,
   FilePlus,
   FileText,
   FlaskConical,
@@ -15,17 +18,24 @@ import {
   RefreshCw,
   Settings,
   Sparkles,
+  Terminal,
   Workflow,
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
+import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { EMPTY_COPY, StatusBadge } from "@/app/components/entity";
-import type { TreeNode } from "@/app/panels/TreeView";
+import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
+import { workspaceApi } from "@/app/state/api";
 import type {
+  ExperimentSummary,
   FileKind,
   LeftPanelView,
+  ObjectView,
+  RunSummary,
   Selection,
   SemanticStatus,
   WorkspaceSnapshot,
@@ -104,9 +114,82 @@ const runIconClass = (status: SemanticStatus): string => {
   }
 };
 
+const terminalRunStatuses = new Set<SemanticStatus>([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "skipped",
+]);
+
+const joinWorkspacePath = (parent: string, child: string): string => {
+  const trimmedChild = child.trim();
+  if (!trimmedChild) return parent;
+  if (trimmedChild.startsWith("/")) return trimmedChild;
+  return `${parent.replace(/\/$/, "")}/${trimmedChild}`;
+};
+
+const copyText = async (text: string): Promise<void> => {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (error) {
+    console.warn("Failed to copy to clipboard:", error);
+  }
+};
+
+interface ProjectTreeActions {
+  onSelect: (selection: Selection) => void;
+  onCreateExperiment: (projectId: string) => void;
+  onCreateRun: (experimentId: string) => void;
+  onDeleteProject: (projectId: string) => void;
+  onDeleteExperiment: (experiment: ExperimentSummary) => void;
+  onCancelRun: (run: RunSummary) => void;
+  onOpenRunView: (run: RunSummary, view?: ObjectView) => void;
+  onCopyText: (text: string) => void;
+  onRefresh: () => void;
+}
+
+const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNodeAction[] => [
+  {
+    id: "open",
+    label: "Open run",
+    icon: ExternalLink,
+    onSelect: () => actions.onOpenRunView(run),
+  },
+  {
+    id: "logs",
+    label: "View logs",
+    icon: Terminal,
+    onSelect: () => actions.onOpenRunView(run, "logs"),
+  },
+  {
+    id: "snapshot",
+    label: "View snapshot",
+    icon: Archive,
+    onSelect: () => actions.onOpenRunView(run, "snapshot"),
+  },
+  {
+    id: "copy-id",
+    label: "Copy run ID",
+    icon: Copy,
+    onSelect: () => actions.onCopyText(run.id),
+  },
+  {
+    id: "cancel",
+    label: "Mark cancelled",
+    icon: Ban,
+    disabled: terminalRunStatuses.has(run.status),
+    destructive: true,
+    separatorBefore: true,
+    title: terminalRunStatuses.has(run.status)
+      ? "Terminal runs cannot be cancelled."
+      : "Updates workspace status only; it does not cancel a scheduler job.",
+    onSelect: () => actions.onCancelRun(run),
+  },
+];
+
 const buildProjectNodes = (
   snapshot: WorkspaceSnapshot,
-  onSelect: (selection: Selection) => void,
+  actions: ProjectTreeActions,
   searchQuery: string,
 ): TreeNode[] => {
   const lowerQuery = searchQuery.toLowerCase().trim();
@@ -145,23 +228,92 @@ const buildProjectNodes = (
     label: project.name,
     icon: Blocks,
     iconClassName: "text-blue-500",
-    meta: project.experiments.length,
-    onSelect: () => onSelect({ objectType: "project", objectId: project.id }),
+    meta: `${project.experiments.length} exp`,
+    onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
+    actions: [
+      {
+        id: "open",
+        label: "Open project",
+        icon: ExternalLink,
+        onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
+      },
+      {
+        id: "new-experiment",
+        label: "New experiment",
+        icon: FlaskConical,
+        onSelect: () => actions.onCreateExperiment(project.id),
+      },
+      {
+        id: "refresh",
+        label: "Refresh",
+        icon: RefreshCw,
+        onSelect: actions.onRefresh,
+      },
+      {
+        id: "delete",
+        label: "Delete project",
+        icon: Ban,
+        destructive: true,
+        separatorBefore: true,
+        onSelect: () => actions.onDeleteProject(project.id),
+      },
+    ],
     children: project.experiments.map((experiment) => ({
       id: experiment.id,
       label: experiment.name,
       icon: FlaskConical,
       iconClassName: "text-purple-500",
       right: <StatusBadge status={experiment.status} size="sm" />,
-      onSelect: () => onSelect({ objectType: "experiment", objectId: experiment.id }),
+      meta: `${experiment.runs.length} runs`,
+      onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
+      actions: [
+        {
+          id: "open",
+          label: "Open experiment",
+          icon: ExternalLink,
+          onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
+        },
+        {
+          id: "new-run",
+          label: "New run",
+          icon: PlayCircle,
+          onSelect: () => actions.onCreateRun(experiment.id),
+        },
+        {
+          id: "open-workflow",
+          label: "Open workflow",
+          icon: Workflow,
+          onSelect: () => {
+            const workflow = snapshot.workflows.find((item) => item.experimentId === experiment.id);
+            if (workflow) {
+              actions.onSelect({
+                objectType: "workflow",
+                objectId: workflow.id,
+                workflowId: workflow.id,
+              });
+            }
+          },
+          disabled: !snapshot.workflows.some((item) => item.experimentId === experiment.id),
+        },
+        {
+          id: "delete",
+          label: "Delete experiment",
+          icon: Ban,
+          destructive: true,
+          separatorBefore: true,
+          onSelect: () => actions.onDeleteExperiment(experiment),
+        },
+      ],
       emptyChildLabel: EMPTY_COPY.runs.title,
       children: experiment.runs.map((run) => ({
         id: run.id,
         label: run.name || run.id,
         icon: PlayCircle,
         iconClassName: runIconClass(run.status),
-        meta: run.id.substring(0, 8),
-        onSelect: () => onSelect({ objectType: "run", objectId: run.id }),
+        right: <StatusBadge status={run.status} size="sm" />,
+        meta: run.profile ?? run.id.substring(0, 8),
+        onSelect: () => actions.onOpenRunView(run),
+        actions: buildRunActions(run, actions),
       })),
     })),
   }));
@@ -172,6 +324,14 @@ interface WorkspaceSemantic {
   id: string;
   icon: ComponentType<{ className?: string }>;
   iconClass: string;
+}
+
+interface WorkspaceTreeActions {
+  onSelect: (selection: Selection) => void;
+  onCreateDirectory: (path: string) => void;
+  onCreateFile: (path: string) => void;
+  onCopyText: (text: string) => void;
+  onRefresh: () => void;
 }
 
 const detectWorkspaceSemantic = (
@@ -213,7 +373,7 @@ const detectWorkspaceSemantic = (
 
 const buildWorkspaceNodes = (
   snapshot: WorkspaceSnapshot,
-  onSelect: (selection: Selection) => void,
+  actions: WorkspaceTreeActions,
 ): TreeNode[] => {
   const root = snapshot.workspaceRoot;
   if (!root) return [];
@@ -237,7 +397,7 @@ const buildWorkspaceNodes = (
       ) : undefined,
       onSelect: () => {
         if (isFile) {
-          onSelect({
+          actions.onSelect({
             objectType: "workspace-file",
             objectId: node.path,
             filePath: node.path,
@@ -246,9 +406,68 @@ const buildWorkspaceNodes = (
           return;
         }
         if (semantic) {
-          onSelect({ objectType: semantic.type, objectId: semantic.id });
+          actions.onSelect({ objectType: semantic.type, objectId: semantic.id });
         }
       },
+      actions: isFile
+        ? [
+            {
+              id: "open",
+              label: "Open file",
+              icon: ExternalLink,
+              onSelect: () =>
+                actions.onSelect({
+                  objectType: "workspace-file",
+                  objectId: node.path,
+                  filePath: node.path,
+                  fileKind: detectFileKind(node.path),
+                }),
+            },
+            {
+              id: "copy-path",
+              label: "Copy path",
+              icon: Copy,
+              onSelect: () => actions.onCopyText(node.path),
+            },
+          ]
+        : [
+            ...(semantic
+              ? [
+                  {
+                    id: "open",
+                    label: `Open ${semantic.type}`,
+                    icon: ExternalLink,
+                    onSelect: () =>
+                      actions.onSelect({ objectType: semantic.type, objectId: semantic.id }),
+                  } satisfies TreeNodeAction,
+                ]
+              : []),
+            {
+              id: "new-file",
+              label: "New file here",
+              icon: FilePlus,
+              onSelect: () => actions.onCreateFile(node.path),
+            },
+            {
+              id: "new-folder",
+              label: "New folder here",
+              icon: FolderPlus,
+              onSelect: () => actions.onCreateDirectory(node.path),
+            },
+            {
+              id: "copy-path",
+              label: "Copy path",
+              icon: Copy,
+              onSelect: () => actions.onCopyText(node.path),
+            },
+            {
+              id: "refresh",
+              label: "Refresh",
+              icon: RefreshCw,
+              separatorBefore: true,
+              onSelect: actions.onRefresh,
+            },
+          ],
       children: isFile ? undefined : node.children.map(walk),
       emptyChildLabel: !isFile ? EMPTY_COPY.emptyFolder.title : undefined,
     };
@@ -272,6 +491,7 @@ const filterBySearch = <T extends { name: string; summary?: string }>(
 const buildAssetNodes = (
   snapshot: WorkspaceSnapshot,
   onSelect: (selection: Selection) => void,
+  onCopyText: (text: string) => void,
   searchQuery: string,
 ): TreeNode[] => {
   return filterBySearch(snapshot.assets, searchQuery).map((asset) => ({
@@ -281,12 +501,27 @@ const buildAssetNodes = (
     iconClassName: "text-amber-500",
     right: <StatusBadge status={asset.status} size="sm" />,
     onSelect: () => onSelect({ objectType: "asset", objectId: asset.id }),
+    actions: [
+      {
+        id: "open",
+        label: "Open asset",
+        icon: ExternalLink,
+        onSelect: () => onSelect({ objectType: "asset", objectId: asset.id }),
+      },
+      {
+        id: "copy-id",
+        label: "Copy asset ID",
+        icon: Copy,
+        onSelect: () => onCopyText(asset.id),
+      },
+    ],
   }));
 };
 
 const buildWorkflowNodes = (
   snapshot: WorkspaceSnapshot,
   onSelect: (selection: Selection) => void,
+  onCopyText: (text: string) => void,
   searchQuery: string,
 ): TreeNode[] => {
   return filterBySearch(snapshot.workflows, searchQuery).map((workflow) => ({
@@ -297,12 +532,34 @@ const buildWorkflowNodes = (
     right: <StatusBadge status={workflow.status} size="sm" />,
     onSelect: () =>
       onSelect({ objectType: "workflow", objectId: workflow.id, workflowId: workflow.id }),
+    actions: [
+      {
+        id: "open",
+        label: "Open workflow",
+        icon: ExternalLink,
+        onSelect: () =>
+          onSelect({ objectType: "workflow", objectId: workflow.id, workflowId: workflow.id }),
+      },
+      {
+        id: "open-experiment",
+        label: "Open experiment",
+        icon: FlaskConical,
+        onSelect: () => onSelect({ objectType: "experiment", objectId: workflow.experimentId }),
+      },
+      {
+        id: "copy-id",
+        label: "Copy workflow ID",
+        icon: Copy,
+        onSelect: () => onCopyText(workflow.id),
+      },
+    ],
   }));
 };
 
 const buildAgentNodes = (
   snapshot: WorkspaceSnapshot,
   onSelect: (selection: Selection) => void,
+  onCopyText: (text: string) => void,
 ): TreeNode[] => {
   return snapshot.agentSessions.map((session) => ({
     id: session.id,
@@ -317,6 +574,20 @@ const buildAgentNodes = (
       </span>
     ),
     onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
+    actions: [
+      {
+        id: "open",
+        label: "Open session",
+        icon: ExternalLink,
+        onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
+      },
+      {
+        id: "copy-id",
+        label: "Copy session ID",
+        icon: Copy,
+        onSelect: () => onCopyText(session.id),
+      },
+    ],
   }));
 };
 
@@ -367,6 +638,8 @@ export const LeftPanel = ({
 }: LeftPanelProps): JSX.Element => {
   const listHeader = listHeaderByView[view];
   const hasWorkspace = Boolean(snapshot.workspaceRoot);
+  const [createExperimentProjectId, setCreateExperimentProjectId] = useState<string | null>(null);
+  const [createRunExperimentId, setCreateRunExperimentId] = useState<string | null>(null);
 
   const prevSelectionRef = useRef(selection);
   useEffect(() => {
@@ -395,24 +668,88 @@ export const LeftPanel = ({
     if (!path) return;
     onCreateDirectory(path);
   };
+  const handleCreateFileInDirectory = (directoryPath: string): void => {
+    const name = window.prompt("New file name");
+    if (!name) return;
+    onCreateFile(joinWorkspacePath(directoryPath, name));
+  };
+  const handleCreateDirectoryInDirectory = (directoryPath: string): void => {
+    const name = window.prompt("New folder name");
+    if (!name) return;
+    onCreateDirectory(joinWorkspacePath(directoryPath, name));
+  };
+  const handleCopyText = (text: string): void => {
+    void copyText(text);
+  };
+  const handleOpenRunView = (run: RunSummary, objectView?: ObjectView): void => {
+    onSelect({ objectType: "run", objectId: run.id, objectView });
+  };
+  const handleCancelRun = async (run: RunSummary): Promise<void> => {
+    if (terminalRunStatuses.has(run.status)) return;
+    const confirmed = window.confirm(
+      `Mark run "${run.id}" as cancelled?\n\nThis updates workspace status only; it does not cancel a scheduler job.`,
+    );
+    if (!confirmed) return;
+    try {
+      await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
+      onRefresh();
+    } catch (error) {
+      console.error("Failed to mark run cancelled:", error);
+      window.alert("Failed to mark run cancelled");
+    }
+  };
+  const handleDeleteProject = async (projectId: string): Promise<void> => {
+    if (!window.confirm(`Delete project "${projectId}"?`)) return;
+    try {
+      await workspaceApi.deleteProject(projectId);
+      onRefresh();
+    } catch (error) {
+      console.error("Failed to delete project:", error);
+      window.alert("Failed to delete project");
+    }
+  };
+  const handleDeleteExperiment = async (experiment: ExperimentSummary): Promise<void> => {
+    if (!window.confirm(`Delete experiment "${experiment.id}"?`)) return;
+    try {
+      await workspaceApi.deleteExperiment(experiment.projectId, experiment.id);
+      onRefresh();
+    } catch (error) {
+      console.error("Failed to delete experiment:", error);
+      window.alert("Failed to delete experiment");
+    }
+  };
 
-  const projectNodes = useMemo(
-    () => buildProjectNodes(snapshot, onSelect, searchQuery),
-    [snapshot, onSelect, searchQuery],
-  );
-  const workspaceNodes = useMemo(
-    () => buildWorkspaceNodes(snapshot, onSelect),
-    [snapshot, onSelect],
-  );
-  const assetNodes = useMemo(
-    () => buildAssetNodes(snapshot, onSelect, searchQuery),
-    [snapshot, onSelect, searchQuery],
-  );
-  const workflowNodes = useMemo(
-    () => buildWorkflowNodes(snapshot, onSelect, searchQuery),
-    [snapshot, onSelect, searchQuery],
-  );
-  const agentNodes = useMemo(() => buildAgentNodes(snapshot, onSelect), [snapshot, onSelect]);
+  const projectTreeActions: ProjectTreeActions = {
+    onSelect,
+    onCreateExperiment: setCreateExperimentProjectId,
+    onCreateRun: setCreateRunExperimentId,
+    onDeleteProject: (projectId) => {
+      void handleDeleteProject(projectId);
+    },
+    onDeleteExperiment: (experiment) => {
+      void handleDeleteExperiment(experiment);
+    },
+    onCancelRun: (run) => {
+      void handleCancelRun(run);
+    },
+    onOpenRunView: handleOpenRunView,
+    onCopyText: handleCopyText,
+    onRefresh,
+  };
+
+  const workspaceTreeActions: WorkspaceTreeActions = {
+    onSelect,
+    onCreateDirectory: handleCreateDirectoryInDirectory,
+    onCreateFile: handleCreateFileInDirectory,
+    onCopyText: handleCopyText,
+    onRefresh,
+  };
+
+  const projectNodes = buildProjectNodes(snapshot, projectTreeActions, searchQuery);
+  const workspaceNodes = buildWorkspaceNodes(snapshot, workspaceTreeActions);
+  const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
+  const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);
+  const agentNodes = buildAgentNodes(snapshot, onSelect, handleCopyText);
 
   const projectExpandPath = useMemo(
     () => buildProjectExpandPath(snapshot, activeId, searchQuery),
@@ -461,6 +798,10 @@ export const LeftPanel = ({
       />
     ),
   };
+
+  const createRunExperiment = createRunExperimentId
+    ? snapshot.experiments.find((experiment) => experiment.id === createRunExperimentId)
+    : null;
 
   return (
     <div className="flex h-full">
@@ -573,6 +914,30 @@ export const LeftPanel = ({
         </div>
         <ScrollArea className="flex-1 px-4 pb-4">{treeByView[view]}</ScrollArea>
       </div>
+      {createExperimentProjectId && (
+        <CreateExperimentDialog
+          projectId={createExperimentProjectId}
+          open
+          trigger={null}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setCreateExperimentProjectId(null);
+          }}
+          onExperimentCreated={onRefresh}
+        />
+      )}
+      {createRunExperiment && (
+        <CreateRunDialog
+          projectId={createRunExperiment.projectId}
+          experimentId={createRunExperiment.id}
+          workflowFile={createRunExperiment.workflowFile || ""}
+          open
+          trigger={null}
+          onOpenChange={(nextOpen) => {
+            if (!nextOpen) setCreateRunExperimentId(null);
+          }}
+          onRunCreated={onRefresh}
+        />
+      )}
     </div>
   );
 };

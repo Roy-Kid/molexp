@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type {
   BreadcrumbItem,
   LeftPanelView,
+  ObjectView,
   Selection,
   WorkspaceSnapshot,
 } from "@/app/types";
@@ -55,10 +56,25 @@ const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   return "projects";
 };
 
+const parseObjectView = (raw: string | null): ObjectView | undefined => {
+  if (
+    raw === "overview" ||
+    raw === "logs" ||
+    raw === "metrics" ||
+    raw === "scheduler" ||
+    raw === "snapshot"
+  ) {
+    return raw;
+  }
+  return undefined;
+};
+
 const buildSelectionFromLocation = (
   pathname: string,
   searchParams: URLSearchParams,
 ): Selection | null => {
+  const objectView = parseObjectView(searchParams.get("tab"));
+
   const projectRunMatch = pathname.match(
     /^\/projects\/([^/]+)\/experiments\/([^/]+)\/runs\/([^/]+)$/,
   );
@@ -66,6 +82,7 @@ const buildSelectionFromLocation = (
     return {
       objectType: "run",
       objectId: decodeURIComponent(projectRunMatch[3]),
+      objectView,
     };
   }
 
@@ -144,7 +161,12 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
       if (!run) {
         return "/projects";
       }
-      return `/projects/${encodeURIComponent(run.projectId)}/experiments/${encodeURIComponent(run.experimentId)}/runs/${encodeURIComponent(run.id)}`;
+      const path = `/projects/${encodeURIComponent(run.projectId)}/experiments/${encodeURIComponent(run.experimentId)}/runs/${encodeURIComponent(run.id)}`;
+      if (!selection.objectView) {
+        return path;
+      }
+      const params = new URLSearchParams({ tab: selection.objectView });
+      return `${path}?${params.toString()}`;
     }
     case "workflow":
       return `/workflows/${encodeURIComponent(selection.workflowId)}`;
@@ -347,7 +369,10 @@ const buildContextMeta = (
     case "agent": {
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return {
-        title: selection.objectId === "new" ? "New Goal" : session?.goalDescription ?? selection.objectId,
+        title:
+          selection.objectId === "new"
+            ? "New Goal"
+            : (session?.goalDescription ?? selection.objectId),
         subtitle:
           selection.objectId === "new"
             ? "Create a new agent session."
@@ -380,10 +405,7 @@ export const useNavigationState = (snapshot: WorkspaceSnapshot): NavigationState
   const location = useLocation();
   const navigate = useNavigate();
 
-  const searchParams = useMemo(
-    () => new URLSearchParams(location.search),
-    [location.search],
-  );
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
   const leftPanelView = useMemo(
     () => getLeftPanelViewFromPath(location.pathname),
@@ -415,7 +437,10 @@ export const useNavigationState = (snapshot: WorkspaceSnapshot): NavigationState
   const setLeftPanelView = useCallback(
     (view: LeftPanelView): void => {
       if (selection) {
-        if (view === "projects" && ["project", "experiment", "run"].includes(selection.objectType)) {
+        if (
+          view === "projects" &&
+          ["project", "experiment", "run"].includes(selection.objectType)
+        ) {
           navigate(getSelectionPath(selection, snapshot));
           return;
         }

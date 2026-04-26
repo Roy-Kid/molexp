@@ -42,7 +42,11 @@ const resolveTone = (status: string | null | undefined): StatusTone => {
   return STATUS_TONE[status.toLowerCase()] ?? "neutral";
 };
 
-export const StatusBadge = ({ status, size = "md", pulse }: StatusBadgeProps): JSX.Element | null => {
+export const StatusBadge = ({
+  status,
+  size = "md",
+  pulse,
+}: StatusBadgeProps): JSX.Element | null => {
   if (!status) return null;
   const tone = resolveTone(status);
   const shouldPulse = pulse ?? tone === "running";

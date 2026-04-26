@@ -76,14 +76,14 @@ def agent_tool(
     """
 
     def decorator(f: Callable) -> Callable:
-        tool_name = name or f.__name__
+        tool_name = name or getattr(f, "__name__", None) or "anonymous"
         tool_instance = FunctionTool(
             fn=f,
             name=tool_name,
             level=level,
             requires_approval=requires_approval,
         )
-        f._tool_registration = tool_instance
+        f._tool_registration = tool_instance  # ty: ignore[unresolved-attribute]
         return f
 
     if fn is not None:

@@ -1,8 +1,8 @@
+import { registerDefaultRenderers } from "@/app/renderers/registerRenderers";
 import { MarkdownPreview } from "@/components/previews/MarkdownPreview";
 import { WorkflowPreview } from "@/components/previews/WorkflowPreview";
 import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
 import type { UiPluginModule } from "@/plugins/types";
-import { registerDefaultRenderers } from "@/app/renderers/registerRenderers";
 
 const corePlugin: UiPluginModule = {
   id: "core",

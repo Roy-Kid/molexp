@@ -1,4 +1,5 @@
 import { Play } from "lucide-react";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,9 @@ interface CreateRunDialogProps {
   experimentId: string;
   workflowFile: string;
   onRunCreated: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: ReactNode;
 }
 
 export function CreateRunDialog({
@@ -27,11 +31,16 @@ export function CreateRunDialog({
   experimentId,
   workflowFile,
   onRunCreated,
+  open: controlledOpen,
+  onOpenChange,
+  trigger,
 }: CreateRunDialogProps) {
-  const [open, setOpen] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const [parameters, setParameters] = useState("{}");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = onOpenChange ?? setUncontrolledOpen;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,12 +64,16 @@ export function CreateRunDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button size="sm" className="gap-1">
-          <Play className="h-3.5 w-3.5" />
-          Run
-        </Button>
-      </DialogTrigger>
+      {trigger === undefined ? (
+        <DialogTrigger asChild>
+          <Button size="sm" className="gap-1">
+            <Play className="h-3.5 w-3.5" />
+            Run
+          </Button>
+        </DialogTrigger>
+      ) : (
+        trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle>Launch Run</DialogTitle>

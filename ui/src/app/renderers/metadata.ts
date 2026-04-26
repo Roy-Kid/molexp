@@ -93,6 +93,12 @@ export const buildMetadataFields = (
       if (run.executorInfo.backend) {
         fields.push({ label: "Backend", value: run.executorInfo.backend });
       }
+      if (run.profile) {
+        fields.push({ label: "Profile", value: run.profile });
+      }
+      if (run.configHash) {
+        fields.push({ label: "Config Hash", value: run.configHash });
+      }
       if (run.executorInfo.scheduler) {
         fields.push({ label: "Scheduler", value: run.executorInfo.scheduler });
       }

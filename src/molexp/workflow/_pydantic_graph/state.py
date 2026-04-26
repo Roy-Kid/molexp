@@ -6,7 +6,10 @@ Users never import these directly — they use the public StepContext/WorkflowRe
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .node import _StepEntry
 
 
 @dataclass
@@ -58,9 +61,17 @@ class WorkflowDeps:
     run_context: The active RunContext associated with this execution (may be None).
     config: The active :class:`~molexp.config.ProfileConfig` (may be None).
     user_deps: Application-level deps forwarded from the caller.
+
+    The compiler-populated fields below carry the topology + execution
+    targets. They are declared here (not as a dynamic subclass) so the
+    pydantic-graph nodes can read them without static-analysis ignores.
     """
 
     run: Any = None
     run_context: Any = None
     config: Any = None  # molexp.config.ProfileConfig | None
     user_deps: Any = None
+    step_list: list["_StepEntry"] = field(default_factory=list)
+    levels: list[list["_StepEntry"]] = field(default_factory=list)
+    remote_executor: Any = None
+    run_dir: Any = None

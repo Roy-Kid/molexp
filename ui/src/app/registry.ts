@@ -1,9 +1,16 @@
 import type { RendererKey, Selection, SemanticObjectType } from "@/app/types";
 import {
+  registerEntityTabContribution as addEntityTabContribution,
+  registerFileTypeContribution as addFileTypeContribution,
   registerRendererContribution as addRendererContribution,
+  listEntityTabContributions,
+  listFileTypeContributions,
   resolveRendererContribution,
+  unregisterFileTypeContribution,
 } from "@/plugins/contribution-runtime";
 import type {
+  EntityTabContribution,
+  FileTypeContribution,
   RendererContribution,
   RendererEntry,
   RendererResolutionContext,
@@ -11,7 +18,17 @@ import type {
 } from "@/plugins/types";
 import { buildRendererRegistryKey } from "@/plugins/types";
 
-export type { PanelSlot, RendererContribution, RendererEntry, RenderTarget } from "@/plugins/types";
+export type {
+  DiscoveredFile,
+  EntityTabContribution,
+  FileMatchContext,
+  FileTypeContribution,
+  FileTypeMatcher,
+  PanelSlot,
+  RendererContribution,
+  RendererEntry,
+  RenderTarget,
+} from "@/plugins/types";
 
 export interface RenderPlan {
   center: RenderTarget[];
@@ -30,6 +47,30 @@ export const registerRenderer = (entry: RendererEntry): void => {
 
 export const registerRendererContribution = (entry: RendererContribution): void => {
   addRendererContribution(entry);
+};
+
+export const registerEntityTabContribution = (entry: EntityTabContribution): void => {
+  addEntityTabContribution(entry);
+};
+
+export const listEntityTabs = (
+  objectType: EntityTabContribution["objectType"],
+): EntityTabContribution[] => {
+  return listEntityTabContributions(objectType);
+};
+
+export const registerFileTypeContribution = (entry: FileTypeContribution): void => {
+  addFileTypeContribution(entry);
+};
+
+export const unregisterFileType = (contributionId: string): boolean => {
+  return unregisterFileTypeContribution(contributionId);
+};
+
+export const listFileTypes = (
+  objectType: FileTypeContribution["objectType"],
+): FileTypeContribution[] => {
+  return listFileTypeContributions(objectType);
 };
 
 export const resolveRenderer = (
