@@ -14,7 +14,13 @@ import shutil
 from pathlib import Path
 
 from .assets import AssetCatalog, AssetScope, AssetsView, DataAssetLibrary
-from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
+from .base import (
+    _list_children,
+    _load_metadata,
+    _rebuild_container_index,
+    _reconstruct,
+    _save_metadata,
+)
 from .models import ProjectMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
@@ -174,6 +180,7 @@ class Workspace:
         else:
             project = Project(name=name, workspace=self)
             project.materialize()
+            self._refresh_projects_index()
         self._projects_cache[project_id] = project
         return project
 
@@ -236,8 +243,17 @@ class Workspace:
         shutil.rmtree(project_dir)
         self._projects_cache.pop(project_id, None)
         self.catalog.remove_project(project_id)
+        self._refresh_projects_index()
 
     # ── Internal ────────────────────────────────────────────────────────
+
+    def _refresh_projects_index(self) -> None:
+        _rebuild_container_index(
+            container_dir=self.root / "projects",
+            index_filename="projects.json",
+            metadata_filename="project.json",
+            fields=["id", "name", "description", "created_at"],
+        )
 
     def _load_project_from_dir(self, project_dir: Path) -> Project:
         meta = _load_metadata(ProjectMetadata, project_dir / "project.json")

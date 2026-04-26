@@ -19,10 +19,12 @@ from molexp.cli import (  # noqa: E402,F401
     asset,
     experiment,
     explore_cmd,
+    migrate_cmd,
     project,
     run_cmd,
     runs,
     serve_cmd,
+    watch_cmd,
     workspace_cmd,
 )
 

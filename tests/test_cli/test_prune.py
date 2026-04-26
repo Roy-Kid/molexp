@@ -25,7 +25,7 @@ def seeded_workspace(tmp_path):
     history = []
     for i, status in enumerate(("succeeded", "failed", "failed"), start=1):
         exec_id = f"exec-{run.id}" if i == 1 else f"exec-{run.id}-{i}"
-        exec_dir = run.run_dir / "execution" / exec_id
+        exec_dir = run.run_dir / "executions" / exec_id
         exec_dir.mkdir(parents=True, exist_ok=True)
         (exec_dir / "workflow.json").write_text('{"status":"' + status + '"}')
         history.append(
@@ -54,7 +54,7 @@ def test_prune_deletes_failed_executions(seeded_workspace):
     assert result.exit_code == 0, result.stdout
 
     # Two failed dirs gone, the succeeded one remains.
-    exec_root = run.run_dir / "execution"
+    exec_root = run.run_dir / "executions"
     remaining = sorted(p.name for p in exec_root.iterdir())
     assert remaining == [f"exec-{run.id}"]
 
@@ -76,7 +76,7 @@ def test_prune_abort_on_empty_selection(seeded_workspace):
 
     assert result.exit_code == 0
     # All 3 dirs intact.
-    exec_root = run.run_dir / "execution"
+    exec_root = run.run_dir / "executions"
     assert len(list(exec_root.iterdir())) == 3
 
 
@@ -91,7 +91,7 @@ def test_prune_range_syntax(seeded_workspace):
     )
 
     assert result.exit_code == 0, result.stdout
-    exec_root = run.run_dir / "execution"
+    exec_root = run.run_dir / "executions"
     remaining = sorted(p.name for p in exec_root.iterdir())
     assert remaining == [f"exec-{run.id}"]
 
@@ -103,7 +103,7 @@ def test_prune_refuses_live_running_record(tmp_path):
     run = exp.run(parameters={})
 
     exec_id = f"exec-{run.id}"
-    (run.run_dir / "execution" / exec_id).mkdir(parents=True)
+    (run.run_dir / "executions" / exec_id).mkdir(parents=True)
     run._update_metadata(
         status="running",
         execution_history=[
@@ -123,4 +123,4 @@ def test_prune_refuses_live_running_record(tmp_path):
 
     assert result.exit_code == 1
     assert "Refusing" in result.stdout
-    assert (run.run_dir / "execution" / exec_id).exists()
+    assert (run.run_dir / "executions" / exec_id).exists()

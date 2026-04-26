@@ -26,7 +26,13 @@ from molexp.workflow.spec import Workflow, WorkflowSpec
 from molexp.workflow.task import Task
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
-from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
+from .base import (
+    _list_children,
+    _load_metadata,
+    _rebuild_container_index,
+    _reconstruct,
+    _save_metadata,
+)
 from .models import ExperimentMetadata, RunMetadata, WorkflowSnapshotRef
 from .run import Run
 from .utils import generate_id
@@ -63,6 +69,40 @@ class _EntryTask(Task):
 def _promote_to_workflow(fn: Callable, name: str) -> WorkflowSpec:
     """Promote a bare ``fn(RunContext)`` to a single-Task WorkflowSpec."""
     return Workflow(name=name).add(_EntryTask(fn), name=fn.__name__).build()
+
+
+def _resolve_callable_entrypoint(fn: Callable) -> str:
+    """Return ``"<file>:<qualname>"`` for a module-level callable."""
+    qualname = getattr(fn, "__qualname__", None) or getattr(fn, "__name__", None)
+    if qualname is None or "<locals>" in qualname or "<lambda>" in qualname:
+        raise ValueError(
+            f"cannot determine an importable entrypoint for {fn!r}: "
+            "define it at module scope (not nested / lambda) so the "
+            "worker can re-import it."
+        )
+    file_path = Path(inspect.getfile(fn)).resolve()
+    return f"{file_path}:{qualname}"
+
+
+def _resolve_spec_entrypoint(spec: WorkflowSpec) -> str:
+    """Return ``"<file>:<varname>"`` for *spec*.
+
+    A ``WorkflowSpec`` carries no name; the worker re-imports it by
+    looking up the variable that holds it.  We find that module by
+    asking the first registered task (which always lives in the same
+    user module that assembled the spec) for its source, then scan
+    that module's globals for a binding to *spec* by identity.
+    """
+    mod = inspect.getmodule(spec._tasks[0].fn_or_class)
+    file_path = Path(inspect.getfile(mod)).resolve()
+    for var, val in vars(mod).items():
+        if val is spec:
+            return f"{file_path}:{var}"
+    raise ValueError(
+        f"cannot determine an importable entrypoint: {spec!r} is not "
+        f"bound to a module-level variable in {file_path}.  Assign the "
+        "spec to a name at module scope so the worker can re-import it."
+    )
 
 
 class Experiment:
@@ -108,6 +148,10 @@ class Experiment:
         )
         self._data_assets: DataAssetLibrary | None = None
         self._workflow: WorkflowSpec | None = None
+        # Captured at ``set_workflow()`` time as ``"<file>:<qualname>"`` so
+        # the worker can pull the workflow object back without re-running
+        # the entire user script.
+        self._workflow_entrypoint: str | None = None
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -190,16 +234,27 @@ class Experiment:
         Accepts a compiled :class:`WorkflowSpec` or a bare ``fn(RunContext)``
         callable; callables are auto-promoted to a single-Task ``WorkflowSpec``.
 
+        Captures an *entrypoint* — ``"<absolute_file>:<qualname>"`` — so
+        a worker process can re-import the workflow object without
+        re-running the entire user script.  For a callable the qualname
+        is the function itself; for a :class:`WorkflowSpec` we walk its
+        registered tasks back to the module that assembled them and
+        locate the spec by identity in that module's globals.
+
         Raises:
             TypeError: If *workflow* is not a ``WorkflowSpec`` or callable.
-            ValueError: If a workflow is already bound.
+            ValueError: If a workflow is already bound, or the entrypoint
+                cannot be resolved (e.g. the spec was constructed in a
+                lambda / interactive shell with no importable backing).
         """
         if self._workflow is not None:
             raise ValueError(f"Experiment {self.name!r} already has a workflow bound.")
         if isinstance(workflow, WorkflowSpec):
             self._workflow = workflow
+            self._workflow_entrypoint = _resolve_spec_entrypoint(workflow)
         elif callable(workflow):
             self._workflow = _promote_to_workflow(workflow, self.name)
+            self._workflow_entrypoint = _resolve_callable_entrypoint(workflow)
         else:
             raise TypeError(f"Expected WorkflowSpec or callable, got {type(workflow).__name__}")
 
@@ -258,10 +313,15 @@ class Experiment:
         If a run with the same ID already exists on disk, load and return it.
         Otherwise, construct + materialize a new Run.
         """
+        # Always emit a snapshot when an entrypoint was captured, even
+        # without a recorded workflow_source — the entrypoint itself is
+        # what the worker needs.
+        source = self.metadata.workflow_source or self._workflow_entrypoint
         snapshot = None
-        if self.metadata.workflow_source:
+        if source is not None or self._workflow_entrypoint is not None:
             snapshot = WorkflowSnapshotRef(
-                source=self.metadata.workflow_source,
+                source=source or "",
+                entrypoint=self._workflow_entrypoint,
                 git_commit=self.metadata.git_commit,
             )
 
@@ -275,6 +335,7 @@ class Experiment:
         if run_dir.exists():
             return self._load_run_from_dir(run_dir)
         r.materialize()
+        self._refresh_runs_index()
         return r
 
     def get_run(self, run_id: str) -> Run | None:
@@ -307,8 +368,17 @@ class Experiment:
             raise KeyError(f"Run '{run_id}' not found")
         shutil.rmtree(run_dir)
         self.project.workspace.catalog.remove_run(run_id)
+        self._refresh_runs_index()
 
     # ── Internal ────────────────────────────────────────────────────────
+
+    def _refresh_runs_index(self) -> None:
+        _rebuild_container_index(
+            container_dir=self.experiment_dir / "runs",
+            index_filename="runs.json",
+            metadata_filename="run.json",
+            fields=["id", "status", "parameters", "profile", "created_at", "finished_at"],
+        )
 
     def _load_run_from_dir(self, run_dir: Path) -> Run:
         meta = _load_metadata(RunMetadata, run_dir / "run.json")

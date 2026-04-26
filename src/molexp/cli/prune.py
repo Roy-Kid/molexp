@@ -253,7 +253,7 @@ def prune_runs(
         raise typer.Exit(0)
 
     removed_ids = {t.execution_id for t in targets}
-    exec_root: Path = run.run_dir / "execution"
+    exec_root: Path = run.run_dir / "executions"
     deleted_dirs = 0
     for exec_id in removed_ids:
         exec_dir = exec_root / exec_id

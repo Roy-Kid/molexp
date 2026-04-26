@@ -89,7 +89,7 @@ export class RunsService {
     }
     /**
      * Get Run Logs
-     * Return stdout (job.out) and stderr (job.err) for a run.
+     * Return stdout/stderr for the most recent execution of a run.
      * @param projectId
      * @param experimentId
      * @param runId
@@ -108,6 +108,36 @@ export class RunsService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Execution Logs
+     * Return stdout/stderr for a specific execution attempt.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param executionId
+     * @returns RunLogsResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunExecutionLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionsExecutionIdLogsGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        executionId: string,
+    ): CancelablePromise<RunLogsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/executions/{execution_id}/logs',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'execution_id': executionId,
             },
             errors: {
                 422: `Validation Error`,

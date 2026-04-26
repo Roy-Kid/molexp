@@ -39,7 +39,7 @@ def seeded_workspace(tmp_path):
     hist = []
     for i, status in enumerate(("failed", "succeeded"), start=1):
         eid = f"exec-{r1.id}" if i == 1 else f"exec-{r1.id}-{i}"
-        (r1.run_dir / "execution" / eid).mkdir(parents=True)
+        (r1.run_dir / "executions" / eid).mkdir(parents=True)
         hist.append(
             ExecutionRecord(
                 execution_id=eid,

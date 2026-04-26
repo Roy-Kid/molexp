@@ -1,7 +1,8 @@
 """LogAsset — append-only text stream.
 
-Lives at ``run_dir/logs/<name>.log``.  Supports tail and iterator streaming
-for SSE.
+Lives at ``run_dir/executions/<exec_id>/logs/<name>.log``.  Each execution
+attempt owns its own log files; multi-execution runs do not commingle
+output.  Supports tail and iterator streaming for SSE.
 """
 
 from __future__ import annotations

@@ -25,6 +25,7 @@ Example (CLI internal)::
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -100,12 +101,80 @@ def clear_registry() -> None:
 
 
 def _import_script(script: Path) -> None:
-    """Dynamically import a user script."""
-    spec = importlib.util.spec_from_file_location("_molexp_script", script)
+    """Dynamically import a user script *as ``__main__``*.
+
+    Setting the spec name to ``"__main__"`` makes the user's
+    ``if __name__ == "__main__":`` guard fire — that block is exactly
+    where the script wires up its workspace, projects, experiments and
+    bound workflows, which ``molexp run`` needs to discover via
+    :func:`entry`.
+
+    The worker (``molexp execute``) uses a different entry point:
+    :func:`load_workflow_from_entrypoint`, which imports the same file
+    under a *non*-``__main__`` module name so the guard skips and the
+    workspace setup is not re-executed.
+    """
+    spec = importlib.util.spec_from_file_location("__main__", script)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"Cannot load script: {script}")
     module = importlib.util.module_from_spec(spec)
+    # Register the user-script module as ``sys.modules["__main__"]`` so
+    # ``inspect``-based helpers (e.g. ``_resolve_spec_entrypoint`` in
+    # :mod:`molexp.workspace.experiment`) find the user's globals via
+    # ``sys.modules["__main__"]`` instead of the CLI's own ``__main__``.
+    # Matches the semantics of a normal ``python script.py`` invocation.
+    sys.modules["__main__"] = module
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+
+
+def load_workflow_from_entrypoint(entrypoint: str) -> Any:
+    """Import the workflow object referenced by *entrypoint*.
+
+    *entrypoint* is the colon-separated form
+    ``"<absolute_file_path>:<qualname>"`` produced by
+    :meth:`molexp.workspace.Experiment.set_workflow`.  The file is
+    imported as a *non*-``__main__`` module so any
+    ``if __name__ == "__main__":`` guard skips, leaving only the
+    module-level workflow definition exposed.
+
+    Args:
+        entrypoint: ``"<path>:<qualname>"`` string from
+            ``run.metadata.workflow_snapshot.entrypoint``.
+
+    Returns:
+        The resolved object — typically a
+        :class:`~molexp.workflow.WorkflowSpec` or a bare callable.
+
+    Raises:
+        ValueError: If *entrypoint* is malformed.
+        ImportError: If the file cannot be loaded.
+        AttributeError: If the qualname cannot be resolved inside the
+            imported module.
+    """
+    import functools
+
+    if ":" not in entrypoint:
+        raise ValueError(
+            f"Invalid workflow entrypoint {entrypoint!r}; "
+            "expected '<file_path>:<qualname>'."
+        )
+    file_str, qualname = entrypoint.rsplit(":", 1)
+    file_path = Path(file_str)
+    if not file_path.exists():
+        raise ImportError(
+            f"Workflow file not found: {file_path}. "
+            "Did the source move between submission and execution?"
+        )
+    spec = importlib.util.spec_from_file_location(
+        "_molexp_worker_workflow", file_path
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load workflow file: {file_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
     try:
-        spec.loader.exec_module(module)  # type: ignore[union-attr]
-    except SystemExit:
-        pass  # silence __main__ guards
+        return functools.reduce(getattr, qualname.split("."), module)
+    except AttributeError as exc:
+        raise AttributeError(
+            f"Cannot resolve {qualname!r} in {file_path}: {exc}"
+        ) from exc

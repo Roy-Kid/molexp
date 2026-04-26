@@ -11,7 +11,7 @@ from .base import Asset
 class ErrorTraceAsset(Asset):
     """Stack trace captured when an execution fails.
 
-    Lives at ``run_dir/execution/<execution_id>/error.txt``.
+    Lives at ``run_dir/executions/<execution_id>/error.txt``.
     """
 
     kind: Literal["error_trace"] = "error_trace"

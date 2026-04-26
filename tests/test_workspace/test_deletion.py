@@ -21,7 +21,7 @@ def _build(tmp_path):
     hist = []
     for i, status in enumerate(("failed", "succeeded"), start=1):
         eid = f"exec-{r.id}" if i == 1 else f"exec-{r.id}-{i}"
-        (r.run_dir / "execution" / eid).mkdir(parents=True)
+        (r.run_dir / "executions" / eid).mkdir(parents=True)
         hist.append(
             ExecutionRecord(
                 execution_id=eid,
@@ -39,7 +39,7 @@ class TestDeleteExecution:
         ws, _p, _e, r = _build(tmp_path)
         first_exec = r.metadata.execution_history[0].execution_id
         r.delete_execution(first_exec)
-        assert not (r.run_dir / "execution" / first_exec).exists()
+        assert not (r.run_dir / "executions" / first_exec).exists()
         assert all(
             rec.execution_id != first_exec for rec in r.metadata.execution_history
         )

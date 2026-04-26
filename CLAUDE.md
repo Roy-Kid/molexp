@@ -136,6 +136,38 @@ File-system-backed hierarchical state: `Workspace → Project → Experiment →
 - All metadata writes are atomic (temp-file + `os.rename`)
 - Constructors are side-effect-free, but child factories (`ws.project(...)`, `project.experiment(...)`, `exp.run(...)`) materialize immediately and are idempotent (get-or-create by slug/ID)
 
+**On-disk layout** — per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level:
+
+```
+workspace_root/
+├── workspace.json
+├── projects.json                          # container index
+└── projects/<project_id>/
+    ├── project.json
+    ├── experiments.json                   # container index
+    └── experiments/<experiment_id>/
+        ├── experiment.json
+        ├── runs.json                      # container index
+        └── runs/run-<id>/
+            ├── run.json                   # status, params, execution_history
+            ├── assets.json                # run-scoped manifest (all attempts)
+            ├── artifacts/                 # per-run final products
+            ├── .ckpt/                     # per-run resume checkpoints
+            ├── cache/                     # per-run user-domain cache
+            └── executions/                # per-attempt artifacts
+                ├── executions.json        # container index
+                └── exec-<run_id>[-N]/
+                    ├── execution.json     # per-attempt metadata
+                    ├── workflow.json      # pydantic-graph state
+                    ├── stdout.log         # scheduler stdout
+                    ├── stderr.log         # scheduler stderr
+                    ├── error.txt          # exception trace (on failure)
+                    ├── logs/<name>.log    # named log streams (ctx.log("name"))
+                    └── jobs/<uuid>/       # molq scheduler manifests
+```
+
+Container indices (`*.json`) are local conveniences rebuilt on materialize/delete; the global catalog at `.catalog/` remains authoritative for cross-cutting queries. To migrate a pre-cutover workspace, run `molexp migrate-layout <path>` (idempotent).
+
 #### 4. Server Layer (`src/molexp/server/`)
 
 FastAPI app, all routes under `/api`:

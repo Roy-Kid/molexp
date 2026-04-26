@@ -824,8 +824,19 @@ def _detail_execution(node: TreeNode) -> list[Any]:
             kv.add_row("scheduler_job_id", str(rec["scheduler_job_id"]))
     if node.elapsed:
         kv.add_row("elapsed", node.elapsed)
-    exec_dir = run.run_dir / "execution" / exec_id
+    exec_dir = run.run_dir / "executions" / exec_id
     kv.add_row("execution_dir", str(exec_dir))
+    # Per-attempt artifacts now live under executions/<id>/; surface
+    # whichever ones exist so users can locate them at a glance.
+    for fname in ("stdout.log", "stderr.log", "workflow.json", "error.txt"):
+        candidate = exec_dir / fname
+        if candidate.exists():
+            kv.add_row(fname, str(candidate))
+    logs_dir = exec_dir / "logs"
+    if logs_dir.is_dir():
+        named = sorted(p.name for p in logs_dir.glob("*.log"))
+        if named:
+            kv.add_row("logs/", ", ".join(named))
     return [kv]
 
 

@@ -14,7 +14,13 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
-from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
+from .base import (
+    _list_children,
+    _load_metadata,
+    _rebuild_container_index,
+    _reconstruct,
+    _save_metadata,
+)
 from .experiment import Experiment
 from .models import ExperimentMetadata, ProjectMetadata
 from .utils import slugify
@@ -171,6 +177,7 @@ class Project:
                 tags=tags,
             )
             exp.materialize()
+            self._refresh_experiments_index()
         self._experiments_cache[exp.id] = exp
         return exp
 
@@ -234,8 +241,17 @@ class Project:
         shutil.rmtree(exp_dir)
         self._experiments_cache.pop(experiment_id, None)
         self.workspace.catalog.remove_experiment(experiment_id)
+        self._refresh_experiments_index()
 
     # ── Internal ────────────────────────────────────────────────────────
+
+    def _refresh_experiments_index(self) -> None:
+        _rebuild_container_index(
+            container_dir=self.project_dir / "experiments",
+            index_filename="experiments.json",
+            metadata_filename="experiment.json",
+            fields=["id", "name", "description", "tags", "n_replicas", "created_at"],
+        )
 
     def _load_experiment_from_dir(self, exp_dir: Path) -> Experiment:
         meta = _load_metadata(ExperimentMetadata, exp_dir / "experiment.json")

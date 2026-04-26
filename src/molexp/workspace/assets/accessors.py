@@ -129,20 +129,48 @@ class _BoundLog:
 
 
 class LogAccessor(_AccessorBase):
-    """Get-or-create a named log stream under ``<run_dir>/logs/<name>.log``."""
+    """Get-or-create a named log stream under
+    ``<run_dir>/executions/<exec_id>/logs/<name>.log``.
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    The accessor is scoped to the *current* execution: each ``RunContext``
+    enter binds a fresh ``execution_id`` (via :pyattr:`_execution_id`), so
+    ``ctx.log("run")`` inside execution-2 writes a separate file from
+    execution-1, and the manifest entry is filtered to the active attempt.
+    """
+
+    def __init__(
+        self,
+        scope_dir: Path,
+        scope: AssetScope,
+        manifest: AssetManifest,
+        catalog: AssetCatalog | None,
+        producer_provider: Callable[[], Producer],
+        execution_id_provider: Callable[[], str | None],
+    ) -> None:
+        super().__init__(scope_dir, scope, manifest, catalog, producer_provider)
+        self._execution_id_provider = execution_id_provider
         self._cache: dict[str, _BoundLog] = {}
 
     def __call__(self, name: str) -> _BoundLog:
         if name in self._cache:
             return self._cache[name]
 
-        # Try to find an existing LogAsset in the manifest
+        exec_id = self._execution_id_provider()
+        if exec_id is None:
+            raise RuntimeError(
+                "LogAccessor requires an active execution_id; "
+                "call ctx.log(...) inside `with run.start() as ctx:`."
+            )
+
+        # Find an existing LogAsset in the manifest scoped to this execution.
         existing: LogAsset | None = None
         for a in self._manifest.load().values():
-            if isinstance(a, LogAsset) and a.name == name:
+            if (
+                isinstance(a, LogAsset)
+                and a.name == name
+                and a.producer is not None
+                and a.producer.execution_id == exec_id
+            ):
                 existing = a
                 break
 
@@ -152,7 +180,7 @@ class LogAccessor(_AccessorBase):
                 asset_id=generate_asset_id(),
                 name=name,
                 scope=self._scope,
-                path=Path("logs") / f"{name}.log",
+                path=Path("executions") / exec_id / "logs" / f"{name}.log",
                 created_at=now,
                 updated_at=now,
                 producer=self._producer_provider(),

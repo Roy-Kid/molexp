@@ -36,9 +36,21 @@ from .assets import (
     Producer,
 )
 from .assets.manifest import MANIFEST_FILENAME  # noqa: F401 (imported for side effects in tests)
-from .base import _atomic_write_json, _load_metadata, _reconstruct, _save_metadata
+from .base import (
+    _atomic_write_json,
+    _load_metadata,
+    _rebuild_container_index,
+    _reconstruct,
+    _save_metadata,
+)
 from .context import Context
-from .models import ErrorInfo, ExecutionRecord, RunMetadata, WorkflowSnapshotRef
+from .models import (
+    ErrorInfo,
+    ExecutionMetadata,
+    ExecutionRecord,
+    RunMetadata,
+    WorkflowSnapshotRef,
+)
 from .utils import generate_asset_id, generate_id
 
 logger = get_logger(__name__)
@@ -71,6 +83,7 @@ class RunContext:
         run: Run,
         *,
         profile_config: ProfileConfig | None = None,
+        execution_id: str | None = None,
     ) -> None:
         self.run = run
         self.work_dir = run.run_dir
@@ -85,6 +98,11 @@ class RunContext:
             work_dir=self.work_dir,
         )
         self._start_time: datetime | None = None
+        # ``execution_id`` is normally derived inside ``__enter__``; an
+        # explicit override is used by molq submission to pre-allocate
+        # the slot so stdout/stderr/jobs land under the same directory
+        # the worker will use.
+        self._explicit_execution_id: str | None = execution_id
         self._execution_id: str | None = None
         # Actor message-passing infrastructure
         self._channels: dict[str, Any] = {}
@@ -117,6 +135,7 @@ class RunContext:
             self._manifest,
             self._catalog,
             self._producer,
+            self._get_execution_id,
         )
         self.checkpoint = CheckpointAccessor(
             self.work_dir,
@@ -132,6 +151,9 @@ class RunContext:
             execution_id=self._execution_id,
             task_id=self._active_task_id,
         )
+
+    def _get_execution_id(self) -> str | None:
+        return self._execution_id
 
     def set_active_task(self, task_id: str | None) -> None:
         """Set the active task id so future accessor writes set ``Producer.task_id``."""
@@ -149,7 +171,7 @@ class RunContext:
         self._entered = True
 
         # Determine which execution attempt this is and record it.
-        self._execution_id = self._next_execution_id()
+        self._execution_id = self._explicit_execution_id or self._next_execution_id()
         new_record = ExecutionRecord(
             execution_id=self._execution_id,
             started_at=self._start_time,
@@ -157,6 +179,15 @@ class RunContext:
         self.run._update_metadata(
             execution_history=[*self.run.metadata.execution_history, new_record]
         )
+        self._write_execution_metadata(
+            ExecutionMetadata(
+                execution_id=self._execution_id,
+                run_id=self.run.id,
+                started_at=self._start_time,
+                status=RunStatus.RUNNING.value,
+            )
+        )
+        self._refresh_executions_index()
         self._append_run_log(f"execution started  exec_id={self._execution_id}")
 
         self._save_context()
@@ -165,6 +196,7 @@ class RunContext:
     def __exit__(self, exc_type, exc_val, exc_tb):
         now = datetime.now()
         labels = self._labels_without_ownership()
+        error_info: ErrorInfo | None = None
         if exc_type is None:
             workflow_status = self._context.status.get("run")
             final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
@@ -176,18 +208,26 @@ class RunContext:
             )
         else:
             final = RunStatus.FAILED
+            error_info = ErrorInfo(
+                type=exc_type.__name__,
+                message=str(exc_val),
+                timestamp=now,
+            )
             self.run._update_metadata(
                 status=final,
                 finished_at=now,
                 labels=labels,
-                error=ErrorInfo(
-                    type=exc_type.__name__,
-                    message=str(exc_val),
-                    timestamp=now,
-                ),
+                error=error_info,
                 execution_history=self._close_execution_record(final.value, now),
             )
             self._save_error_details(exc_type, exc_val, exc_tb)
+        self._update_execution_metadata(
+            finished_at=now,
+            status=final.value,
+            error=error_info,
+        )
+        self._refresh_executions_index()
+        self.run.experiment._refresh_runs_index()
         self._append_run_log(
             f"execution finished exec_id={self._execution_id}  status={final.value}"
         )
@@ -384,6 +424,39 @@ class RunContext:
             },
         )
 
+    def _execution_metadata_path(self) -> Path:
+        assert self._execution_id is not None
+        return self.work_dir / "executions" / self._execution_id / "execution.json"
+
+    def _write_execution_metadata(self, meta: ExecutionMetadata) -> None:
+        target = self._execution_metadata_path()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(target, meta.model_dump(mode="json"))
+
+    def _update_execution_metadata(self, **updates: Any) -> None:
+        """Merge *updates* into the on-disk execution.json (read-modify-write)."""
+        target = self._execution_metadata_path()
+        if not target.exists():
+            return
+        current = ExecutionMetadata.model_validate_json(target.read_text())
+        merged = current.model_copy(update=updates)
+        _atomic_write_json(target, merged.model_dump(mode="json"))
+
+    def _refresh_executions_index(self) -> None:
+        _rebuild_container_index(
+            container_dir=self.work_dir / "executions",
+            index_filename="executions.json",
+            metadata_filename="execution.json",
+            fields=[
+                "execution_id",
+                "run_id",
+                "status",
+                "started_at",
+                "finished_at",
+                "scheduler_job_id",
+            ],
+        )
+
     def _next_execution_id(self) -> str:
         """Return the execution_id for this attempt.
 
@@ -393,7 +466,7 @@ class RunContext:
         """
         run_id = self.run.id
         base = f"exec-{run_id}"
-        exec_root = self.work_dir / "execution"
+        exec_root = self.work_dir / "executions"
         if not exec_root.exists():
             return base
         existing = [p for p in exec_root.iterdir() if p.name.startswith(base)]
@@ -450,7 +523,7 @@ class RunContext:
         """Persist an ``ErrorTraceAsset`` for the current execution."""
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
         exec_id = self._execution_id or "unbound"
-        rel_path = Path("execution") / exec_id / "error.txt"
+        rel_path = Path("executions") / exec_id / "error.txt"
         target = self.work_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(
@@ -570,13 +643,22 @@ class Run:
 
     # ── Execution ───────────────────────────────────────────────────────
 
-    def start(self, profile_config: ProfileConfig | None = None) -> RunContext:
+    def start(
+        self,
+        profile_config: ProfileConfig | None = None,
+        *,
+        execution_id: str | None = None,
+    ) -> RunContext:
         """Return a context manager for executing this run.
 
         *profile_config* selects the active molcfg profile; when omitted
         the run executes with an empty (defaults-only) :class:`ProfileConfig`.
+
+        *execution_id* pre-allocates the execution slot — used by external
+        submitters (e.g. molq) that need to know the per-attempt directory
+        ahead of worker startup.
         """
-        return RunContext(self, profile_config=profile_config)
+        return RunContext(self, profile_config=profile_config, execution_id=execution_id)
 
     def cancel(self) -> None:
         """Mark the run as cancelled in workspace metadata."""
@@ -592,7 +674,7 @@ class Run:
     def delete_execution(self, execution_id: str) -> None:
         """Delete a single execution attempt from this run.
 
-        Removes ``execution/<execution_id>/`` on disk, pops the matching
+        Removes ``executions/<execution_id>/`` on disk, pops the matching
         entry from ``execution_history``, and drops the catalog row.  The
         run itself is left intact.
 
@@ -601,7 +683,7 @@ class Run:
         """
         import shutil
 
-        exec_dir = self.run_dir / "execution" / execution_id
+        exec_dir = self.run_dir / "executions" / execution_id
         history = list(self.metadata.execution_history)
         matched_idx = next(
             (i for i, rec in enumerate(history) if rec.execution_id == execution_id),
@@ -617,6 +699,19 @@ class Run:
             history.pop(matched_idx)
             self._update_metadata(execution_history=history)
         self.experiment.project.workspace.catalog.remove_execution(execution_id)
+        _rebuild_container_index(
+            container_dir=self.run_dir / "executions",
+            index_filename="executions.json",
+            metadata_filename="execution.json",
+            fields=[
+                "execution_id",
+                "run_id",
+                "status",
+                "started_at",
+                "finished_at",
+                "scheduler_job_id",
+            ],
+        )
 
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 

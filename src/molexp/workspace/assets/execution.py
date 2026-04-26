@@ -10,7 +10,7 @@ from .base import Asset
 class ExecutionStateAsset(Asset):
     """Workflow state snapshot written by ``RunStorePersistence``.
 
-    Lives at ``run_dir/execution/<execution_id>/workflow.json``.
+    Lives at ``run_dir/executions/<execution_id>/workflow.json``.
     """
 
     kind: Literal["execution_state"] = "execution_state"

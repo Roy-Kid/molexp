@@ -64,7 +64,7 @@ def _make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
     if run_dir is None:
         return base
 
-    exec_root = run_dir / "execution"
+    exec_root = run_dir / "executions"
     if not exec_root.exists():
         return base
 
@@ -147,6 +147,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         run: Any,
         run_context: Any,
         profile_config: ProfileConfig | None,
+        execution_id: str | None = None,
     ) -> AsyncGenerator[Any, None]:
         if run is not None and run_context is not None:
             raise ValueError("Pass either run or run_context, not both")
@@ -164,7 +165,11 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         if run is not None:
             from molexp.workspace.run import RunContext as WorkspaceRunContext
 
-            managed_ctx = WorkspaceRunContext(run, profile_config=profile_config)
+            managed_ctx = WorkspaceRunContext(
+                run,
+                profile_config=profile_config,
+                execution_id=execution_id,
+            )
             with managed_ctx:
                 yield managed_ctx
             return
@@ -198,7 +203,11 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         _early_run_dir = (
             Path(run_context.work_dir) if run_context is not None else _get_run_dir(_early_run)
         )
-        execution_id = _make_execution_id(_early_run_id, _early_run_dir)
+        # An explicit execution_id (e.g. from `molexp execute --execution-id`)
+        # bypasses derivation so the worker reuses the slot the submitter
+        # pre-allocated.
+        explicit_exec_id = kwargs.pop("execution_id", None)
+        execution_id = explicit_exec_id or _make_execution_id(_early_run_id, _early_run_dir)
         owner_supplied_context = run_context
 
         try:
@@ -206,6 +215,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 run=run,
                 run_context=run_context,
                 profile_config=profile_config,
+                execution_id=execution_id,
             ) as active_run_context:
                 effective_run = active_run_context.run if active_run_context is not None else run
                 deps, run_dir = self._build_deps(
@@ -306,7 +316,8 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         _early_run_dir = (
             Path(run_context.work_dir) if run_context is not None else _get_run_dir(effective_run)
         )
-        execution_id = _make_execution_id(run_id, _early_run_dir)
+        explicit_exec_id = kwargs.pop("execution_id", None)
+        execution_id = explicit_exec_id or _make_execution_id(run_id, _early_run_dir)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
@@ -320,6 +331,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     run=run,
                     run_context=run_context,
                     profile_config=profile_config,
+                    execution_id=execution_id,
                 ) as active_run_context:
                     effective_run = (
                         active_run_context.run if active_run_context is not None else run

@@ -688,48 +688,71 @@ def execute(
             resolve_path=True,
         ),
     ],
+    execution_id: Annotated[
+        str | None,
+        typer.Option(
+            "--execution-id",
+            help="Pre-allocated execution_id (used by molq submission to "
+            "guarantee stdout/stderr/jobs land in the same directory the "
+            "worker writes workflow.json into).",
+        ),
+    ] = None,
 ) -> None:
     """Execute a run from its run directory.
 
-    This is the worker entry point used by cluster backends.  The run
-    directory must contain a ``run.json`` with a ``script`` field written
-    by ``molexp run`` at submission time.
+    Worker entry point used by cluster backends.  The run's
+    ``workflow_snapshot.entrypoint`` (``"<file>:<qualname>"``) is the
+    sole source of truth — the file is imported as a *non*-``__main__``
+    module so any ``if __name__ == "__main__":`` guard in the user
+    script skips, leaving only the workflow definition exposed.  No
+    workspace materialization happens during this import.
     """
     import asyncio
 
     from molexp.config import ProfileConfig
-    from molexp.entry import find_workflow_for_run, load_workspaces
+    from molexp.entry import load_workflow_from_entrypoint
+    from molexp.workflow.spec import WorkflowSpec
+    from molexp.workspace.experiment import _promote_to_workflow
     from molexp.workspace.run import RunContext
 
     ctx = RunContext.open(run_dir)
     run = ctx.run
 
-    script = run.metadata.script
-    if script is None:
+    snapshot = run.metadata.workflow_snapshot
+    if snapshot is None or not snapshot.entrypoint:
         rprint(
-            "[red]Error:[/red] run.json has no 'script' field. "
-            "This run was not created with a recent version of molexp."
+            "[red]Error:[/red] run.json has no 'workflow_snapshot.entrypoint'. "
+            "Re-submit the run with a current version of molexp so the "
+            "worker can locate the workflow."
         )
         raise typer.Exit(1)
 
     try:
-        workspaces = load_workspaces(Path(script))
+        target = load_workflow_from_entrypoint(snapshot.entrypoint)
     except Exception as exc:
-        rprint(f"[red]Error importing {script}:[/red] {exc}")
+        rprint(f"[red]Error loading {snapshot.entrypoint}:[/red] {exc}")
         rprint(traceback.format_exc(), end="")
         raise typer.Exit(1)
 
-    workflow = find_workflow_for_run(workspaces, run)
-    if workflow is None:
+    if isinstance(target, WorkflowSpec):
+        workflow = target
+    elif callable(target):
+        workflow = _promote_to_workflow(target, run.experiment.name)
+    else:
         rprint(
-            f"[red]Error:[/red] No workflow found for experiment "
-            f"'{run.experiment.id}' in project '{run.experiment.project.id}' "
-            f"in {script}."
+            f"[red]Error:[/red] entrypoint {snapshot.entrypoint!r} resolved to "
+            f"{type(target).__name__}, expected WorkflowSpec or callable."
         )
         raise typer.Exit(1)
 
     profile_config = ProfileConfig(run.metadata.config, name=run.metadata.profile)
-    asyncio.run(workflow.execute(run=run, profile_config=profile_config))
+    asyncio.run(
+        workflow.execute(
+            run=run,
+            profile_config=profile_config,
+            execution_id=execution_id,
+        )
+    )
 
 
 # Silence unused-import lint (console is re-exported for other modules).

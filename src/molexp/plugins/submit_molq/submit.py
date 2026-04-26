@@ -56,6 +56,7 @@ class SubmitHandler:
         experiment: Any,
         project: Any,
     ) -> None:
+        from molexp.workflow._pydantic_graph.runtime import _make_execution_id
         from molq import (
             Duration,
             JobExecution,
@@ -71,9 +72,12 @@ class SubmitHandler:
         job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
         run_dir = Path(mol_run.run_dir)
 
-        # molq manifests live under jobs/; execution/ is reserved for
-        # molexp's own per-attempt workflow state (see RunStorePersistence).
-        jobs_dir = run_dir / "jobs"
+        # Pre-allocate the execution_id the worker will use, then create
+        # the per-attempt directory so molq's stdout/stderr/jobs paths
+        # land alongside the workflow.json the worker will write.
+        execution_id = _make_execution_id(mol_run.id, run_dir)
+        exec_dir = run_dir / "executions" / execution_id
+        jobs_dir = exec_dir / "jobs"
         jobs_dir.mkdir(parents=True, exist_ok=True)
 
         with Submitor(
@@ -88,6 +92,8 @@ class SubmitHandler:
                     "molexp.cli",
                     "execute",
                     str(run_dir),
+                    "--execution-id",
+                    execution_id,
                 ],
                 resources=JobResources(
                     cpu_count=res.get("cpus"),
@@ -104,12 +110,13 @@ class SubmitHandler:
                 execution=JobExecution(
                     job_name=job_name,
                     cwd=str(run_dir),
-                    output_file=str(run_dir / "stdout.log"),
-                    error_file=str(run_dir / "stderr.log"),
+                    output_file=str(exec_dir / "stdout.log"),
+                    error_file=str(exec_dir / "stderr.log"),
                 ),
                 metadata={
                     "run_id": mol_run.id,
                     "run_dir": str(run_dir),
+                    "execution_id": execution_id,
                 },
             )
 

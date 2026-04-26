@@ -76,6 +76,19 @@ def create_run(
     return RunResponse.from_model(run)
 
 
+def _read_execution_logs(run, execution_id: str) -> RunLogsResponse:
+    exec_dir: Path = run.run_dir / "executions" / execution_id
+    stdout: str | None = None
+    stderr: str | None = None
+    out_file = exec_dir / "stdout.log"
+    err_file = exec_dir / "stderr.log"
+    if out_file.exists():
+        stdout = out_file.read_text(errors="replace")
+    if err_file.exists():
+        stderr = err_file.read_text(errors="replace")
+    return RunLogsResponse(execution_id=execution_id, stdout=stdout, stderr=stderr)
+
+
 @router.get("/{run_id}/logs", response_model=RunLogsResponse)
 def get_run_logs(
     project_id: str,
@@ -83,7 +96,7 @@ def get_run_logs(
     run_id: str,
     workspace=Depends(get_workspace),
 ) -> RunLogsResponse:
-    """Return stdout (job.out) and stderr (job.err) for a run."""
+    """Return stdout/stderr for the most recent execution of a run."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
@@ -91,19 +104,31 @@ def get_run_logs(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir: Path = run.run_dir
-    stdout: str | None = None
-    stderr: str | None = None
+    history = run.metadata.execution_history
+    if not history:
+        return RunLogsResponse()
+    return _read_execution_logs(run, history[-1].execution_id)
 
-    job_out = run_dir / "job.out"
-    if job_out.exists():
-        stdout = job_out.read_text(errors="replace")
 
-    job_err = run_dir / "job.err"
-    if job_err.exists():
-        stderr = job_err.read_text(errors="replace")
-
-    return RunLogsResponse(stdout=stdout, stderr=stderr)
+@router.get(
+    "/{run_id}/executions/{execution_id}/logs",
+    response_model=RunLogsResponse,
+)
+def get_run_execution_logs(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    execution_id: str,
+    workspace=Depends(get_workspace),
+) -> RunLogsResponse:
+    """Return stdout/stderr for a specific execution attempt."""
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    return _read_execution_logs(run, execution_id)
 
 
 @router.get("/{run_id}/execution", response_model=RunExecutionResponse)
@@ -126,7 +151,7 @@ def get_run_execution(
         return RunExecutionResponse()
 
     latest_id = history[-1].execution_id
-    wf_file: Path = run.run_dir / "execution" / latest_id / "workflow.json"
+    wf_file: Path = run.run_dir / "executions" / latest_id / "workflow.json"
     if not wf_file.exists():
         return RunExecutionResponse(execution_id=latest_id)
 

@@ -88,6 +88,68 @@ def _reconstruct(
     return obj
 
 
+def _rebuild_container_index(
+    container_dir: Path,
+    index_filename: str,
+    metadata_filename: str,
+    fields: list[str],
+) -> None:
+    """Rebuild a container directory's index file by scanning child entries.
+
+    Each container level (``projects/``, ``experiments/``, ``runs/``,
+    ``executions/``) ships a sibling ``<container>.json`` index of the
+    form ``{ "updated_at": ..., "items": [...] }``.  The filesystem scan
+    is the source of truth; the index is a cache that local tools can
+    consume without loading the global catalog.
+
+    Args:
+        container_dir: Directory holding child subdirectories
+            (e.g. ``<exp_dir>/runs/``).
+        index_filename: Output filename written next to *container_dir*
+            with a matching basename (e.g. ``runs.json``).
+        metadata_filename: Per-child metadata file to load
+            (e.g. ``run.json``).
+        fields: Top-level field names to copy from each child's metadata
+            JSON into its index entry.  ``id`` and ``name`` are always
+            included if present; the relative ``path`` is added
+            automatically.
+
+    Notes:
+        Silently skips child dirs whose metadata file is missing or
+        unreadable — the catalog remains the authoritative cross-cutting
+        index.
+    """
+    from datetime import datetime
+
+    items: list[dict[str, Any]] = []
+    if container_dir.exists():
+        for child_dir in sorted(container_dir.iterdir(), key=lambda p: p.name):
+            if not child_dir.is_dir():
+                continue
+            mfile = child_dir / metadata_filename
+            if not mfile.exists():
+                continue
+            try:
+                with open(mfile, "r") as fh:
+                    data = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                continue
+            entry: dict[str, Any] = {"path": child_dir.name}
+            for f in fields:
+                if f in data:
+                    entry[f] = data[f]
+            items.append(entry)
+
+    index_path = container_dir.parent / index_filename
+    _atomic_write_json(
+        index_path,
+        {
+            "updated_at": datetime.now().isoformat(),
+            "items": items,
+        },
+    )
+
+
 def _list_children(
     children_dir: Path,
     metadata_filename: str,

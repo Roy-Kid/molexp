@@ -27,9 +27,17 @@ class WorkflowSnapshotRef(BaseModel, frozen=True):
 
     Captured at run-creation time so the exact code/config
     can always be traced back.
+
+    ``entrypoint`` is the worker's import coordinate, formatted as
+    ``"<absolute_file_path>:<qualname>"``.  The worker imports the file
+    as a *non-``__main__``* module — any ``if __name__ == "__main__":``
+    guard in the user script therefore skips workspace setup, so
+    re-importing for workflow lookup has no side effects.  ``source``
+    is retained for human-readable audit (often the same path).
     """
 
     source: str
+    entrypoint: str | None = None
     git_commit: str | None = None
     code_hash: str | None = None
     config_hash: str | None = None
@@ -106,6 +114,26 @@ class ExecutionRecord(BaseModel, frozen=True):
     scheduler_job_id: str | None = None
 
 
+class ExecutionMetadata(BaseModel):
+    """Per-attempt metadata persisted to ``executions/<exec_id>/execution.json``.
+
+    Mirrors the matching :class:`ExecutionRecord` entry in
+    ``run.json.execution_history`` so a single ``executions/<exec_id>/``
+    directory is self-describing without consulting the parent run.
+    Fields beyond the record are populated from the active
+    :class:`RunContext` (executor info, error summary).
+    """
+
+    execution_id: str
+    run_id: str
+    started_at: datetime
+    finished_at: datetime | None = None
+    status: str = "running"
+    scheduler_job_id: str | None = None
+    executor_info: dict[str, Any] = Field(default_factory=dict)
+    error: ErrorInfo | None = None
+
+
 class RunMetadata(BaseModel):
     """Single execution instance metadata.
 
@@ -119,7 +147,7 @@ class RunMetadata(BaseModel):
 
     ``execution_history`` indexes every attempt to execute this run,
     newest last.  Each entry points to the corresponding sub-directory
-    under ``run_dir/execution/``.
+    under ``run_dir/executions/``.
     """
 
     id: str

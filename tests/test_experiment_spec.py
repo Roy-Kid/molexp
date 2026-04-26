@@ -9,6 +9,28 @@ from molexp.workspace import Workspace
 from molexp.workspace.experiment import _promote_to_workflow
 
 
+# Module-level definitions — required by the entrypoint capture in
+# ``set_workflow``: a workflow must be re-importable by the worker, so
+# locals/lambdas are intentionally rejected by the framework.
+def _train_fn(ctx):
+    pass
+
+
+def _train_fn_alt(ctx):
+    pass
+
+
+_train_spec_wf = Workflow(name="test")
+
+
+@_train_spec_wf.task
+async def _train_spec_step(ctx):
+    pass
+
+
+_TRAIN_SPEC = _train_spec_wf.build()
+
+
 @pytest.fixture
 def workspace(tmp_path):
     return Workspace(root=tmp_path / "lab", name="Test")
@@ -53,22 +75,15 @@ class TestExperimentConstruction:
 
 class TestSetWorkflow:
     def test_callable_promotes_to_workflow_spec(self, experiment):
-        def train(ctx):
-            pass
-
-        experiment.set_workflow(train)
+        experiment.set_workflow(_train_fn)
         assert isinstance(experiment.workflow, WorkflowSpec)
 
     def test_workflow_spec_stored_directly(self, experiment):
-        spec = Workflow(name="test").build()
-        experiment.set_workflow(spec)
-        assert experiment.workflow is spec
+        experiment.set_workflow(_TRAIN_SPEC)
+        assert experiment.workflow is _TRAIN_SPEC
 
     def test_workflow_always_workflow_spec_type(self, experiment):
-        def train(ctx):
-            pass
-
-        experiment.set_workflow(train)
+        experiment.set_workflow(_train_fn)
         assert type(experiment.workflow) is WorkflowSpec
 
     def test_non_callable_raises_type_error(self, experiment):
@@ -76,9 +91,34 @@ class TestSetWorkflow:
             experiment.set_workflow(42)
 
     def test_double_set_raises_value_error(self, experiment):
-        experiment.set_workflow(lambda ctx: None)
+        experiment.set_workflow(_train_fn)
         with pytest.raises(ValueError, match="already has a workflow"):
+            experiment.set_workflow(_train_fn_alt)
+
+    def test_local_callable_rejected(self, experiment):
+        def local_fn(ctx):
+            pass
+
+        with pytest.raises(ValueError, match="cannot determine an importable entrypoint"):
+            experiment.set_workflow(local_fn)
+
+    def test_lambda_rejected(self, experiment):
+        with pytest.raises(ValueError, match="cannot determine an importable entrypoint"):
             experiment.set_workflow(lambda ctx: None)
+
+    def test_entrypoint_captured_for_callable(self, experiment):
+        experiment.set_workflow(_train_fn)
+        assert experiment._workflow_entrypoint is not None
+        file_str, qualname = experiment._workflow_entrypoint.rsplit(":", 1)
+        assert qualname == "_train_fn"
+        assert file_str.endswith("test_experiment_spec.py")
+
+    def test_entrypoint_captured_for_spec(self, experiment):
+        experiment.set_workflow(_TRAIN_SPEC)
+        assert experiment._workflow_entrypoint is not None
+        file_str, qualname = experiment._workflow_entrypoint.rsplit(":", 1)
+        assert qualname == "_TRAIN_SPEC"
+        assert file_str.endswith("test_experiment_spec.py")
 
 
 class TestGetSeeds:

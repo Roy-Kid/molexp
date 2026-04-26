@@ -1,7 +1,7 @@
 """RunStorePersistence: pydantic-graph BaseStatePersistence backed by a single workflow.json.
 
 All workflow execution state (steps + end) is consolidated into one file:
-    <run_dir>/execution/<execution_id>/workflow.json
+    <run_dir>/executions/<execution_id>/workflow.json
 
 This replaces the previous per-snapshot file layout
 (``WorkflowStep:{uuid}.json``, ``__end__.json``), making it easy to inspect
@@ -62,7 +62,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
     def __init__(self, run_dir: Path, execution_id: str) -> None:
         self._run_dir = run_dir
         self._execution_id = execution_id
-        self._exec_dir = run_dir / "execution" / execution_id
+        self._exec_dir = run_dir / "executions" / execution_id
         self._exec_dir.mkdir(parents=True, exist_ok=True)
         self._last_snapshot: NodeSnapshot | EndSnapshot | None = None
         self._workflow_file = self._exec_dir / "workflow.json"
@@ -207,7 +207,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         if self._manifest is None or self._catalog is None or self._scope is None:
             return
         now = datetime.now()
-        rel_path = Path("execution") / self._execution_id / "workflow.json"
+        rel_path = Path("executions") / self._execution_id / "workflow.json"
         if self._state_asset_id is None:
             self._state_asset_id = generate_asset_id()
             asset = ExecutionStateAsset(

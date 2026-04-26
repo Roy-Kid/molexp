@@ -111,14 +111,24 @@ class RunMonitor:
         """
         from molq.dashboard import DashboardState, JobRow, RunDashboard
 
-        # Snapshot (id, run_dir) pairs once — paths are stable
-        run_entries: list[tuple[str, Path]] = [(r.id, r.run_dir) for r in runs]
+        # Snapshot (id, name, run_dir) triples once — paths are stable.
+        # ``name`` is the experiment name (the human-meaningful label); when
+        # an experiment has multiple replicas we append ``#<replica>`` from
+        # run.parameters so rows stay distinguishable.
+        run_entries: list[tuple[str, str | None, Path]] = []
+        for r in runs:
+            exp_name = r.experiment.name
+            replica = r.metadata.parameters.get("replica")
+            label: str | None = exp_name
+            if replica is not None and exp_name:
+                label = f"{exp_name}#{replica}"
+            run_entries.append((r.id, label, r.run_dir))
 
         def _build_state() -> DashboardState:
             rows: list[JobRow] = []
             running = pending = done = failed = 0
 
-            for run_id, run_dir in run_entries:
+            for run_id, run_name, run_dir in run_entries:
                 data = _read_run_json(run_dir)
                 status = data.get("status", "pending")
 
@@ -147,6 +157,7 @@ class RunMonitor:
                     JobRow(
                         state=status,
                         run_id=run_id,
+                        name=run_name,
                         cluster=executor_info.get("cluster_name"),
                         scheduler_id=sched_id,
                         elapsed=elapsed,

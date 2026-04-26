@@ -175,7 +175,7 @@ class TestErrorTraceAsset:
             pass
         ctx = ctx_ref["ctx"]
         # Physical file
-        error_txt = ctx.work_dir / "execution" / ctx._execution_id / "error.txt"
+        error_txt = ctx.work_dir / "executions" / ctx._execution_id / "error.txt"
         assert error_txt.exists()
         assert "RuntimeError" in error_txt.read_text()
 
