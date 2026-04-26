@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -96,9 +97,9 @@ def list_workspace_files(
                 "producerTaskId": asset.producer.task_id if asset.producer else None,
             }
 
-    def build_node(node_path: Path, depth: int) -> dict:
+    def build_node(node_path: Path, depth: int) -> dict[str, Any]:
         is_file = node_path.is_file()
-        node = {
+        node: dict[str, Any] = {
             "id": str(node_path),
             "name": node_path.name or str(node_path),
             "path": str(node_path),

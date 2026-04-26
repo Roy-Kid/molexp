@@ -106,23 +106,16 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         constructed with a fixed ``ProfileConfig`` and must be honoured.
         """
         user_deps = kwargs.get("deps")
-        submitors = kwargs.get("submitors")
         run_dir = Path(run_context.work_dir) if run_context is not None else _get_run_dir(run)
 
         effective_config = run_context.config if run_context is not None else profile_config
-
-        remote_executor = None
-        if submitors:
-            from ..remote import RemoteStepExecutor
-
-            remote_executor = RemoteStepExecutor(submitors)
 
         deps = compiled.make_deps(
             run=run,
             run_context=run_context,
             config=effective_config,
             user_deps=user_deps,
-            remote_executor=remote_executor,
+            remote_executor=None,
             run_dir=run_dir,
         )
         return deps, run_dir

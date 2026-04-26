@@ -11,7 +11,7 @@ from .artifact import ArtifactAsset
 from .base import Asset, AssetScope, Producer
 from .catalog import AssetCatalog
 from .checkpoint import CheckpointAsset
-from .data import DataAsset, DataAssetLibrary
+from .data import DataAsset, DataAssetLibrary, ImportAction
 from .error import ErrorTraceAsset
 from .execution import ExecutionStateAsset
 from .log import LogAsset
@@ -34,6 +34,7 @@ __all__ = [
     "DataAsset",
     "DataAssetLibrary",
     "ErrorTraceAsset",
+    "ImportAction",
     "ExecutionStateAsset",
     "LogAccessor",
     "LogAsset",

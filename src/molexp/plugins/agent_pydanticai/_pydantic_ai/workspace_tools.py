@@ -50,7 +50,7 @@ async def list_experiments(ctx: RunContext[MolexpDeps], project_id: str) -> list
     """
     project = ctx.deps.workspace.get_project(project_id)
     if project is None:
-        return {"error": f"Project '{project_id}' not found"}  # type: ignore[return-value]
+        return [{"error": f"Project '{project_id}' not found"}]
     experiments = project.list_experiments()
     return [
         {
@@ -73,10 +73,10 @@ async def list_runs(
     """
     project = ctx.deps.workspace.get_project(project_id)
     if project is None:
-        return {"error": f"Project '{project_id}' not found"}  # type: ignore[return-value]
+        return [{"error": f"Project '{project_id}' not found"}]
     experiment = project.get_experiment(experiment_id)
     if experiment is None:
-        return {"error": f"Experiment '{experiment_id}' not found"}  # type: ignore[return-value]
+        return [{"error": f"Experiment '{experiment_id}' not found"}]
     runs = experiment.list_runs()
     return [
         {

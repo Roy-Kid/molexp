@@ -44,8 +44,9 @@ class _EntryTask(Task):
     async def execute(self, ctx: TaskContext) -> None:
         run_ctx = ctx.run_context
         if run_ctx is None:
+            fn_name = getattr(self._fn, "__name__", None) or "anonymous"
             raise RuntimeError(
-                f"{self._fn.__name__}() requires a RunContext, but the "
+                f"{fn_name}() requires a RunContext, but the "
                 "workflow was executed without a workspace run."
             )
         if asyncio.iscoroutinefunction(self._fn):
@@ -62,7 +63,8 @@ class _EntryTask(Task):
 
 def _promote_to_workflow(fn: Callable, name: str) -> WorkflowSpec:
     """Promote a bare ``fn(RunContext)`` to a single-Task WorkflowSpec."""
-    return Workflow(name=name).add(_EntryTask(fn), name=fn.__name__).build()
+    fn_name = getattr(fn, "__name__", None) or "anonymous"
+    return Workflow(name=name).add(_EntryTask(fn), name=fn_name).build()
 
 
 class Experiment:

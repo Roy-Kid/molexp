@@ -33,6 +33,7 @@ from .assets import (
     AssetScope,
     CheckpointAccessor,
     ErrorTraceAsset,
+    ImportAction,
     LogAccessor,
     Producer,
 )
@@ -262,7 +263,7 @@ class RunContext:
         self,
         name: str,
         src: Path | str,
-        action: str = "copy",
+        action: ImportAction = "copy",
         meta: dict | None = None,
     ):
         """Import a ``DataAsset`` into this run's experiment scope."""

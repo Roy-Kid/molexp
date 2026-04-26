@@ -38,7 +38,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     async def run(
         self, ctx: GraphRunContext[WorkflowState, WorkflowDeps]
     ) -> "WorkflowStep | End[WorkflowState]":
-        levels: list[list[_StepEntry]] = ctx.deps.levels  # type: ignore[attr-defined]
+        levels: list[list[_StepEntry]] = ctx.deps.levels
 
         if self.level_index >= len(levels):
             return End(ctx.state)

@@ -167,7 +167,11 @@ async def run_sweep(
         semaphore=sem,
     )
     state = SweepState()
-    graph: Graph[SweepState, SweepDeps, SweepState] = Graph(nodes=[SweepRoot])
+    graph: Graph[SweepState, SweepDeps, SweepState] = Graph(
+        nodes=[SweepRoot],
+        state_type=SweepState,
+        run_end_type=SweepState,
+    )
     run_result = await graph.run(SweepRoot(), state=state, deps=deps)
     return run_result.output
 

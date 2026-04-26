@@ -68,7 +68,7 @@ def _validate_step(step: int | float | None) -> int | float | None:
     return step
 
 
-def _validate_key(key: str) -> str:
+def _validate_key(key: Any) -> str:
     if not isinstance(key, str) or not key.strip():
         raise ValueError("metric key must be a non-empty string")
     return key

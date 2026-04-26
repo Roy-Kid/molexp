@@ -9,6 +9,7 @@ manually pick what to delete at each layer.  Removes the chosen
 from __future__ import annotations
 
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated, Any, Optional
 
@@ -23,7 +24,7 @@ from ._common import console, rprint, status_color
 
 def _select_one(
     title: str,
-    rows: list[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
     headers: tuple[str, ...],
 ) -> int | None:
     """Render a numbered table and prompt for a single choice.
@@ -55,10 +56,10 @@ def _select_one(
 
 def _select_many(
     title: str,
-    rows: list[tuple[str, ...]],
+    rows: Sequence[tuple[str, ...]],
     headers: tuple[str, ...],
     *,
-    status_values: list[str] | None = None,
+    status_values: Sequence[str] | None = None,
 ) -> list[int]:
     """Multi-select prompt.
 

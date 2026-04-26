@@ -19,6 +19,7 @@ from ..exceptions import InvalidStatusError, RunNotFoundError
 from ..schemas import (
     LammpsLogResponse,
     LammpsThermoStage,
+    MetricSeriesResponse,
     RunActionResponse,
     RunCreateRequest,
     RunExecutionResponse,
@@ -147,7 +148,7 @@ def get_run_metrics(
     return RunMetricsResponse(
         nextLine=result.next_line,
         records=result.records,
-        series=result.series,
+        series=[MetricSeriesResponse(**entry) for entry in result.series],
         parseErrors=result.parse_errors,
     )
 

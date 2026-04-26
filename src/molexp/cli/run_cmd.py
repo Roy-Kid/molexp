@@ -579,6 +579,9 @@ def run(
         return
 
     # ── Cluster backends ───────────────────────────────────────────────────
+    # The local branch above returned, so a scheduler must have been selected
+    # to reach this point. Narrow `selected_scheduler` for the type checker.
+    assert selected_scheduler is not None
     try:
         from molexp.plugins.submit_molq.metadata import supported_schedulers
         from molexp.plugins.submit_molq.submit import make_submit_handler

@@ -154,10 +154,7 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
             return False
 
         def submit(self, **_kwargs):
-            return (
-                SimpleNamespace(job_id="molq-job-123", scheduler_job_id="sched-456"),
-                (),
-            )
+            return SimpleNamespace(job_id="molq-job-123", scheduler_job_id="sched-456")
 
     fake_molq = ModuleType("molq")
     fake_molq.Duration = DummyDuration

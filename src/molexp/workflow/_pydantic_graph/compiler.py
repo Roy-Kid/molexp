@@ -51,21 +51,16 @@ class CompiledWorkflow:
         run_dir: Any = None,
     ) -> WorkflowDeps:
         """Create WorkflowDeps for one execution."""
-
-        class _DepsWithStepList(WorkflowDeps):
-            """WorkflowDeps subclass that carries the level list and flat step list."""
-
-        deps = _DepsWithStepList(
+        return WorkflowDeps(
             run=run,
             run_context=run_context,
             config=config,
             user_deps=user_deps,
+            step_list=list(self._sorted_steps),
+            levels=[list(level) for level in self._levels],
+            remote_executor=remote_executor,
+            run_dir=run_dir,
         )
-        deps.step_list = self._sorted_steps  # type: ignore[attr-defined]
-        deps.levels = self._levels  # type: ignore[attr-defined]
-        deps.remote_executor = remote_executor  # type: ignore[attr-defined]
-        deps.run_dir = run_dir  # type: ignore[attr-defined]
-        return deps
 
 
 class WorkflowGraphCompiler:
@@ -86,7 +81,11 @@ class WorkflowGraphCompiler:
         """Validate and compile spec into a runnable graph."""
         sorted_steps = self._topological_sort(spec)
         levels = self._compute_levels(sorted_steps)
-        graph: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(nodes=[WorkflowStep])
+        graph: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(
+            nodes=[WorkflowStep],
+            state_type=WorkflowState,
+            run_end_type=WorkflowState,
+        )
         return CompiledWorkflow(
             graph=graph,
             levels=levels,

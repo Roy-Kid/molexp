@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from molcfg import Config, ConfigLoader, DictSource
+from molcfg import Config, ConfigLoader, DictSource, Source
 from pydantic import BaseModel
 
 from molexp.workspace import Workspace
@@ -53,7 +53,7 @@ class Settings(BaseModel):
 
 def _load_server_config() -> Config:
     """Load server configuration from defaults + optional molexp.toml."""
-    sources = [DictSource(_SERVER_DEFAULTS)]
+    sources: list[Source] = [DictSource(_SERVER_DEFAULTS)]
     config_file = Path.cwd() / "molexp.toml"
     if config_file.exists():
         from molcfg import TomlFileSource

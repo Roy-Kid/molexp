@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .workspace import Workspace
 
-from .assets import AssetScope, AssetsView, DataAssetLibrary
+from .assets import AssetScope, AssetsView, DataAssetLibrary, ImportAction
 from .base import _list_children, _load_metadata, _reconstruct, _save_metadata
 from .experiment import Experiment
 from .models import ExperimentMetadata, ProjectMetadata
@@ -119,7 +119,7 @@ class Project:
         self,
         name: str,
         src: str | Path,
-        action: str = "copy",
+        action: ImportAction = "copy",
         meta: dict[str, Any] | None = None,
     ):
         """Import a ``DataAsset`` into the project library."""

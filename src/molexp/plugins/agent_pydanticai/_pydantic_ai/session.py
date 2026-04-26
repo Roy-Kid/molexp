@@ -10,6 +10,7 @@ Design:
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterable
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from mollog import get_logger
@@ -60,19 +61,21 @@ class PydanticAISession(AgentSession):
         self._run_task: asyncio.Task | None = None
         self._message_history: list[Any] = []
 
-    def _launch(self, agent: Agent, prompt: str, deps: MolexpDeps) -> None:
+    def _launch(self, agent: Agent[MolexpDeps, str], prompt: str, deps: MolexpDeps) -> None:
         """Start the agent run as a background asyncio.Task."""
         self._run_task = asyncio.create_task(
             self._run_agent(agent, prompt, deps),
             name=f"molexp-session-{self.session_id}",
         )
 
-    async def _run_agent(self, agent: Agent, prompt: str, deps: MolexpDeps) -> None:
+    async def _run_agent(
+        self, agent: Agent[MolexpDeps, str], prompt: str, deps: MolexpDeps
+    ) -> None:
         """Background coroutine: runs the agent and forwards events."""
         try:
             event_queue = self._event_queue
 
-            async def handle_events(ctx: Any, events: AsyncIterator[AgentStreamEvent]) -> None:
+            async def handle_events(ctx: Any, events: AsyncIterable[AgentStreamEvent]) -> None:
                 async for raw_event in events:
                     molexp_event = map_stream_event(raw_event)
                     if molexp_event is not None:
