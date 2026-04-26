@@ -3,6 +3,7 @@ import { ContributionRegistry } from "@/lib/contribution-registry";
 import type {
   EntityTabContribution,
   FilePreviewPlugin,
+  FileTypeContribution,
   RendererContribution,
   RendererResolutionContext,
 } from "@/plugins/types";
@@ -13,6 +14,7 @@ const filePreviewRegistry = new ContributionRegistry<FilePreviewPlugin>("File pr
 const entityTabRegistry = new ContributionRegistry<EntityTabContribution>(
   "Entity tab contribution",
 );
+const fileTypeRegistry = new ContributionRegistry<FileTypeContribution>("File type contribution");
 
 export const registerRendererContribution = (contribution: RendererContribution): void => {
   rendererRegistry.register(contribution);
@@ -68,8 +70,26 @@ export const listEntityTabContributions = (
     .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
 };
 
+export const registerFileTypeContribution = (contribution: FileTypeContribution): void => {
+  fileTypeRegistry.register(contribution, { onDuplicate: "skip" });
+};
+
+export const unregisterFileTypeContribution = (contributionId: string): boolean => {
+  return fileTypeRegistry.unregister(contributionId);
+};
+
+export const listFileTypeContributions = (
+  objectType: FileTypeContribution["objectType"],
+): FileTypeContribution[] => {
+  return fileTypeRegistry
+    .getAll()
+    .filter((contribution) => contribution.objectType === objectType)
+    .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
+};
+
 export const resetContributionRuntimeForTests = (): void => {
   rendererRegistry.clear();
   filePreviewRegistry.clear();
   entityTabRegistry.clear();
+  fileTypeRegistry.clear();
 };

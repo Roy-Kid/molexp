@@ -10,4 +10,3 @@ export type UiPluginResponse = {
     capabilities?: Array<string>;
     metadata?: Record<string, any>;
 };
-

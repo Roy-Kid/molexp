@@ -2,10 +2,12 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { LammpsLogResponse } from '../models/LammpsLogResponse';
 import type { RunActionResponse } from '../models/RunActionResponse';
 import type { RunCreateRequest } from '../models/RunCreateRequest';
 import type { RunExecutionResponse } from '../models/RunExecutionResponse';
 import type { RunFilesResponse } from '../models/RunFilesResponse';
+import type { RunFileTextResponse } from '../models/RunFileTextResponse';
 import type { RunLogsResponse } from '../models/RunLogsResponse';
 import type { RunMetricsResponse } from '../models/RunMetricsResponse';
 import type { RunRerunResponse } from '../models/RunRerunResponse';
@@ -153,6 +155,70 @@ export class RunsService {
                 'key': key,
                 'since_line': sinceLine,
                 'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run File Text
+     * Return the raw text content of a file under the run directory.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param path Relative path under run_dir
+     * @returns RunFileTextResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunFileTextApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFileTextGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        path: string,
+    ): CancelablePromise<RunFileTextResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/file/text',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            query: {
+                'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Lammps Log
+     * Parse a LAMMPS log file via ``molpy.io.LAMMPSLog`` and return thermo stages.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param path Relative path of the log file under run_dir
+     * @returns LammpsLogResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        path: string,
+    ): CancelablePromise<LammpsLogResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/lammps-log',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            query: {
+                'path': path,
             },
             errors: {
                 422: `Validation Error`,

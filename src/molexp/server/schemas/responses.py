@@ -364,6 +364,30 @@ class RunMetricsResponse(BaseModel):
     parseErrors: int = 0
 
 
+class RunFileTextResponse(BaseModel):
+    """Raw UTF-8 text content of a file under a run directory."""
+
+    path: str
+    content: str
+    size: int
+
+
+class LammpsThermoStage(BaseModel):
+    """One ``Per MPI rank ... Loop time`` block as columns + numeric rows."""
+
+    columns: list[str] = Field(default_factory=list)
+    rows: list[list[float]] = Field(default_factory=list)
+
+
+class LammpsLogResponse(BaseModel):
+    """Parsed LAMMPS log thermo stages, produced by ``molpy.io.LAMMPSLog``."""
+
+    path: str
+    version: str | None = None
+    nStages: int = 0
+    stages: list[LammpsThermoStage] = Field(default_factory=list)
+
+
 class WorkflowStepInfo(BaseModel):
     """Human-readable summary of one workflow execution step."""
 

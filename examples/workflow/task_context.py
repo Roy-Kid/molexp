@@ -62,12 +62,7 @@ async def main() -> None:
     project = ws.project("demo")
     exp = project.experiment("counter")
 
-    spec = (
-        Workflow(name="counter")
-        .add(Seed())
-        .add(Record(), depends_on=["seed"])
-        .build()
-    )
+    spec = Workflow(name="counter").add(Seed()).add(Record(), depends_on=["seed"]).build()
     exp.set_workflow(spec)
 
     run = exp.run()

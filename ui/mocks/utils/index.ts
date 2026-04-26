@@ -20,7 +20,7 @@ import type {
 
 /**
  * Seed workspace with custom data
- * 
+ *
  * @example
  * ```ts
  * seedWorkspace({

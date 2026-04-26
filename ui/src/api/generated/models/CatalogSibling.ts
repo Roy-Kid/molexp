@@ -11,4 +11,3 @@ export type CatalogSibling = {
     kind: string;
     relPath: string;
 };
-

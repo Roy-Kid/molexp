@@ -80,6 +80,10 @@ export interface RunMetricsQuery {
   limit?: number;
 }
 
+export type { LammpsLogResponse } from "@/api/generated/models/LammpsLogResponse";
+export type { LammpsThermoStage } from "@/api/generated/models/LammpsThermoStage";
+export type { RunFileTextResponse } from "@/api/generated/models/RunFileTextResponse";
+
 export const workspaceApi = {
   getProjects: async (): Promise<ApiProjectResponse[]> => {
     return ProjectsService.listProjectsApiProjectsGet();
@@ -127,6 +131,22 @@ export const workspaceApi = {
       projectId,
       experimentId,
       runId,
+    );
+  },
+  getRunLammpsLog: async (projectId: string, experimentId: string, runId: string, path: string) => {
+    return RunsService.getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
+      projectId,
+      experimentId,
+      runId,
+      path,
+    );
+  },
+  getRunFileText: async (projectId: string, experimentId: string, runId: string, path: string) => {
+    return RunsService.getRunFileTextApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFileTextGet(
+      projectId,
+      experimentId,
+      runId,
+      path,
     );
   },
   getRunMetrics: async (
@@ -251,9 +271,7 @@ export const workspaceApi = {
    * Reverse-lookup: which run/experiment/project produced this file.
    */
   getCatalogByPath: async (path: string): Promise<CatalogByPathResponse> => {
-    const response = await fetch(
-      `/api/catalog/by-path?path=${encodeURIComponent(path)}`,
-    );
+    const response = await fetch(`/api/catalog/by-path?path=${encodeURIComponent(path)}`);
     if (!response.ok) {
       throw new Error(`Request failed: ${response.status} ${response.statusText}`);
     }

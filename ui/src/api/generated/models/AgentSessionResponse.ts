@@ -10,4 +10,3 @@ export type AgentSessionResponse = {
     createdAt: string;
     events?: Array<SessionEventResponse>;
 };
-

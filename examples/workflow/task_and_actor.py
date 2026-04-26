@@ -53,12 +53,7 @@ class Sum(Task):
 
 
 async def oop_demo() -> None:
-    spec = (
-        Workflow(name="oop")
-        .add(Load())
-        .add(Sum(), depends_on=["load"])
-        .build()
-    )
+    spec = Workflow(name="oop").add(Load()).add(Sum(), depends_on=["load"]).build()
     result = await spec.execute()
     print(f"oop:        {result.outputs}")
 

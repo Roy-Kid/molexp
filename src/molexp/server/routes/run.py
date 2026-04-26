@@ -8,7 +8,7 @@ import zipfile
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from molexp.plugins.metrics import read_run_metrics
@@ -17,11 +17,14 @@ from molexp.workspace import RunStatus
 from ..dependencies import get_workspace
 from ..exceptions import InvalidStatusError, RunNotFoundError
 from ..schemas import (
+    LammpsLogResponse,
+    LammpsThermoStage,
     RunActionResponse,
     RunCreateRequest,
     RunExecutionResponse,
     RunFileNode,
     RunFilesResponse,
+    RunFileTextResponse,
     RunLogsResponse,
     RunMetricsResponse,
     RunRerunResponse,
@@ -146,6 +149,74 @@ def get_run_metrics(
         records=result.records,
         series=result.series,
         parseErrors=result.parse_errors,
+    )
+
+
+@router.get("/{run_id}/file/text", response_model=RunFileTextResponse)
+def get_run_file_text(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    path: str = Query(..., description="Relative path under run_dir"),
+    workspace=Depends(get_workspace),
+) -> RunFileTextResponse:
+    """Return the raw text content of a file under the run directory."""
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    run_dir: Path = run.run_dir
+    target = (run_dir / path).resolve()
+    try:
+        target.relative_to(run_dir.resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="path escapes run directory") from exc
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"file not found: {path}")
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=415, detail="file is not text-decodable as UTF-8") from exc
+    return RunFileTextResponse(path=path, content=content, size=target.stat().st_size)
+
+
+@router.get("/{run_id}/lammps-log", response_model=LammpsLogResponse)
+def get_run_lammps_log(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    path: str = Query(..., description="Relative path of the log file under run_dir"),
+    workspace=Depends(get_workspace),
+) -> LammpsLogResponse:
+    """Parse a LAMMPS log file via ``molpy.io.LAMMPSLog`` and return thermo stages."""
+    from molpy.io import LAMMPSLog
+
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = experiment.get_run(run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    run_dir: Path = run.run_dir
+    target = (run_dir / path).resolve()
+    try:
+        target.relative_to(run_dir.resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="path escapes run directory") from exc
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail=f"log file not found: {path}")
+
+    payload = LAMMPSLog(target).read().to_dict()
+    return LammpsLogResponse(
+        path=path,
+        version=payload.get("version"),
+        nStages=payload.get("n_stages", 0),
+        stages=[LammpsThermoStage(**stage) for stage in payload.get("stages", [])],
     )
 
 

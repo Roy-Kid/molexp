@@ -9,15 +9,15 @@ This directory contains JSON Schema definitions for the molexp workflow serializ
 1. **[task_config.json](task_config.json)** - TaskConfig schema
    - Defines the structure for serialized task configurations
 - Contains task ID, type, config data, and status
-   
+
 2. **[link.json](link.json)** - Link schema
    - Defines connections between tasks
 - Contains source/target task IDs, explicit mappings, and status
-   
+
 3. **[workflow_metadata.json](workflow_metadata.json)** - WorkflowMetadata schema
    - Optional metadata for workflows
    - Includes label, description, tags, and custom fields
-   
+
 4. **[workflow.json](workflow.json)** - Workflow schema (main)
    - Complete workflow definition
    - Composes task_config, link, and workflow_metadata schemas using `$ref`

@@ -63,6 +63,32 @@ export interface EntityTabContribution {
   Component: React.ComponentType<RendererProps>;
 }
 
+export interface FileMatchContext {
+  name: string;
+  relPath: string;
+  size?: number | null;
+  type: string;
+}
+
+export interface FileTypeMatcher {
+  patterns?: string[];
+  matches?: (file: FileMatchContext) => boolean;
+}
+
+export interface DiscoveredFile extends FileMatchContext {
+  matchedBy: string;
+}
+
+export interface FileTypeContribution {
+  id: string;
+  objectType: SemanticObjectType;
+  value: string;
+  label: string;
+  priority?: number;
+  matcher: FileTypeMatcher;
+  Component: React.ComponentType<RendererProps & { discoveredFiles: DiscoveredFile[] }>;
+}
+
 export interface PluginManifest {
   id: string;
   title: string;

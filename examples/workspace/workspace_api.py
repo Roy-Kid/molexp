@@ -48,7 +48,7 @@ async def main() -> None:
 
     # Reload the workspace from disk — same logical state.
     reopened = me.Workspace.load(root)
-    print(f"\nafter Workspace.load(root):")
+    print("\nafter Workspace.load(root):")
     print(f"  projects:    {[p.name for p in reopened.list_projects()]}")
     reopened_proj = reopened.get_project("demo")
     reopened_exp = reopened_proj.get_experiment(exp.id)

@@ -12,6 +12,9 @@ repos:
       - id: mixed-line-ending
       - id: check-toml
       - id: check-json
+        # tsconfig.json/tsconfig.*.json and devcontainer.json use JSON-with-
+        # comments (JSONC), which the check-json hook cannot parse.
+        exclude: '(^|/)(tsconfig(\..+)?\.json|devcontainer\.json)$'
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.12
@@ -23,8 +26,10 @@ repos:
   - repo: local
     hooks:
       - id: ty
-        name: ty (type check)
-        entry: ty check src/
+        name: ty (type check, advisory)
+        # --exit-zero matches the CI workflow which marks ty as advisory
+        # (`continue-on-error: true`). Diagnostics are still printed.
+        entry: ty check --exit-zero src/
         language: system
         types: [python]
         pass_filenames: false

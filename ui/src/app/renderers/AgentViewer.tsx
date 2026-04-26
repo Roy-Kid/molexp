@@ -137,9 +137,7 @@ const EventRow = ({
         {event.type === "ReplanEvent" && (
           <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
             {Boolean(payload.reason) && (
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                {String(payload.reason)}
-              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-400">{String(payload.reason)}</p>
             )}
             {Array.isArray(payload.new_plan) &&
               (payload.new_plan as string[]).map((step, stepNum) => (

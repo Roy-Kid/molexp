@@ -6,6 +6,7 @@ type LazyPluginLoader = () => Promise<{ default: UiPluginModule }>;
 
 const lazyPluginLoaders: Record<string, LazyPluginLoader> = {
   metrics: () => import("@/plugins/metrics"),
+  molvis: () => import("@/plugins/molvis"),
   molq: () => import("@/plugins/molq"),
 };
 
@@ -56,9 +57,11 @@ const scheduleBackgroundLoad = (): void => {
 };
 
 if (typeof window !== "undefined") {
-  const idle = (window as Window & {
-    requestIdleCallback?: (cb: () => void) => void;
-  }).requestIdleCallback;
+  const idle = (
+    window as Window & {
+      requestIdleCallback?: (cb: () => void) => void;
+    }
+  ).requestIdleCallback;
   if (idle) {
     idle(scheduleBackgroundLoad);
   } else {

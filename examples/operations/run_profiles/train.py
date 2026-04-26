@@ -25,7 +25,6 @@ from pathlib import Path
 
 import molexp as me
 
-
 WORKSPACE_ROOT = Path(__file__).resolve().parent / "_workspace"
 
 
@@ -49,8 +48,7 @@ def train(ctx: me.RunContext) -> None:
     ctx.set_result("lr", lr)
     ctx.set_result("batch_size", batch)
     ctx.log("train").append(
-        f"profile={ctx.config.name} dataset={dataset} epochs={epochs} "
-        f"batch={batch} lr={lr}"
+        f"profile={ctx.config.name} dataset={dataset} epochs={epochs} batch={batch} lr={lr}"
     )
 
 

@@ -30,6 +30,8 @@ export type { FileContentUpdateRequest } from './models/FileContentUpdateRequest
 export type { GoalCreateRequest } from './models/GoalCreateRequest';
 export type { HealthResponse } from './models/HealthResponse';
 export type { HTTPValidationError } from './models/HTTPValidationError';
+export type { LammpsLogResponse } from './models/LammpsLogResponse';
+export type { LammpsThermoStage } from './models/LammpsThermoStage';
 export type { MessageResponse } from './models/MessageResponse';
 export type { MetricSeriesResponse } from './models/MetricSeriesResponse';
 export type { ProjectCreateRequest } from './models/ProjectCreateRequest';
@@ -39,6 +41,7 @@ export type { RunCreateRequest } from './models/RunCreateRequest';
 export type { RunExecutionResponse } from './models/RunExecutionResponse';
 export type { RunFileNode } from './models/RunFileNode';
 export type { RunFilesResponse } from './models/RunFilesResponse';
+export type { RunFileTextResponse } from './models/RunFileTextResponse';
 export type { RunLogsResponse } from './models/RunLogsResponse';
 export type { RunMetricsResponse } from './models/RunMetricsResponse';
 export type { RunRerunResponse } from './models/RunRerunResponse';

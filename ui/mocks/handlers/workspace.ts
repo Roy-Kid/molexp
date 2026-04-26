@@ -17,6 +17,34 @@ import type { FileNode } from "../db";
 const API_BASE = "/api";
 
 /**
+ * Build a synthetic LAMMPS log for mock mode so the molvis plugin can parse
+ * thermo output without needing a real run on disk. Used by the workspace
+ * file-text endpoint; the ``/lammps-log`` route mocks pre-parsed thermo
+ * directly (see runs.ts).
+ */
+function synthesizeLammpsLog(): string {
+    const STEPS = 50;
+    const lines: string[] = [
+        "LAMMPS (29 Sep 2021)",
+        "Step Temp PotEng KinEng TotEng Press",
+    ];
+    for (let i = 0; i <= STEPS; i += 1) {
+        const t = i / STEPS;
+        const step = i * 1000;
+        const temp = 300 - 100 * Math.exp(-3 * t) + (Math.random() - 0.5) * 5;
+        const peng = -1500 + 600 * Math.exp(-2 * t) + (Math.random() - 0.5) * 8;
+        const keng = (3 / 2) * temp;
+        const teng = peng + keng;
+        const press = 1.0 - 0.4 * Math.exp(-2.5 * t) + (Math.random() - 0.5) * 0.05;
+        lines.push(
+            `${step} ${temp.toFixed(4)} ${peng.toFixed(4)} ${keng.toFixed(4)} ${teng.toFixed(4)} ${press.toFixed(4)}`,
+        );
+    }
+    lines.push(`Loop time of 1.234 on 1 procs for ${STEPS * 1000} steps with 1000 atoms`);
+    return lines.join("\n");
+}
+
+/**
  * Build nested file tree from flat file map
  */
 function buildNestedTree(path: string): { path: string; children: FileNode[] } {
@@ -71,6 +99,10 @@ export const workspaceHandlers = [
     http.get(`${API_BASE}/workspace/file`, ({ request }) => {
         const url = new URL(request.url);
         const path = url.searchParams.get("path") || "";
+
+        if (path.endsWith("log.lammps") || path.endsWith(".lammps.log")) {
+            return HttpResponse.json({ content: synthesizeLammpsLog() });
+        }
 
         const file = getFile(path);
         if (!file || file.type !== "file") {

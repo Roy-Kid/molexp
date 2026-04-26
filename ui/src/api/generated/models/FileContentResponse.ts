@@ -5,4 +5,3 @@
 export type FileContentResponse = {
     content: string;
 };
-

@@ -16,6 +16,7 @@ import { listEntityTabs } from "@/app/registry";
 import { buildMetadataFields } from "@/app/renderers/metadata";
 import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
 import { workspaceApi } from "@/app/state/api";
+import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,13 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
   const run = useMemo(() => {
     return snapshot.runs.find((r) => r.id === selection.objectId);
   }, [snapshot.runs, selection.objectId]);
+
+  const runCoords = useMemo(
+    () =>
+      run ? { projectId: run.projectId, experimentId: run.experimentId, runId: run.id } : null,
+    [run],
+  );
+  const { discovered: discoveredPlugins } = useDiscoveredFileTypesForRun(runCoords, "run");
 
   const requestedTab =
     selection.objectType === "run" ? (selection.objectView ?? "overview") : "overview";
@@ -149,6 +157,10 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
               { value: "overview", label: "Overview" },
               { value: "logs", label: "Logs" },
               ...runTabContributions.map((tab) => ({ value: tab.value, label: tab.label })),
+              ...discoveredPlugins.map(({ contribution, files }) => ({
+                value: contribution.value,
+                label: `${contribution.label} (${files.length})`,
+              })),
               { value: "snapshot", label: "Snapshot" },
             ]}
           />
@@ -259,6 +271,17 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
             return (
               <EntityTabContent key={tab.id} value={tab.value}>
                 {activeTab === tab.value && <TabComponent key={selectedRunId} {...props} />}
+              </EntityTabContent>
+            );
+          })}
+
+          {discoveredPlugins.map(({ contribution, files }) => {
+            const PluginComponent = contribution.Component;
+            return (
+              <EntityTabContent key={contribution.id} value={contribution.value}>
+                {activeTab === contribution.value && (
+                  <PluginComponent key={selectedRunId} {...props} discoveredFiles={files} />
+                )}
               </EntityTabContent>
             );
           })}

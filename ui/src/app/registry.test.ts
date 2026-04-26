@@ -20,7 +20,7 @@ import {
   resolveRenderer,
 } from "@/app/registry";
 import type { RendererKey, WorkspaceSnapshot } from "@/app/types";
-import { resetUiPluginsForTests } from "@/plugins/runtime";
+import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,7 +38,7 @@ function makeEntry(key: RendererKey, title = "Test"): RendererEntry {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  resetUiPluginsForTests();
+  resetContributionRuntimeForTests();
 });
 
 describe("buildRegistryKey", () => {
