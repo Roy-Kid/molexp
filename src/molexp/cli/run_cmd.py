@@ -293,12 +293,17 @@ def _execute_sweep(
                     icon = "[cyan]>[/cyan]" if resume else "[dim]o[/dim]"
                     rprint(f"  {icon} {exp.id}  seed={seed}")
 
+                submit_cwd_str = str(Path.cwd().resolve())
                 for mol_run, _seed in created_runs:
-                    # Persist script path and profile config into run.json before
-                    # any handler so the worker can reconstruct everything from
-                    # run_dir alone (via ``molexp execute <run_dir>``).
+                    # Persist script path, submit cwd, and profile config into
+                    # run.json before any handler so the worker can reconstruct
+                    # everything from run_dir alone (via ``molexp execute
+                    # <run_dir>``).  ``submit_cwd`` lets the worker resolve
+                    # cwd-relative paths in the user script the same way they
+                    # resolved at submit time.
                     mol_run._update_metadata(
                         script=str(script.resolve()),
+                        submit_cwd=submit_cwd_str,
                         profile=profile_cfg.name,
                         config=profile_cfg.to_dict(),
                         config_hash=(
@@ -707,10 +712,14 @@ def execute(
     ``workflow_snapshot.entrypoint`` (``"<file>:<qualname>"``) is the
     sole source of truth — the file is imported as a *non*-``__main__``
     module so any ``if __name__ == "__main__":`` guard in the user
-    script skips, leaving only the workflow definition exposed.  No
-    workspace materialization happens during this import.
+    script skips.  Before the import the worker chdirs to
+    ``run.metadata.submit_cwd`` so any cwd-relative paths in
+    module-level code (e.g. ``Workspace("./lab")``) resolve to the same
+    location they did at submit time; cwd is restored afterwards so the
+    job continues to run with ``cwd=run_dir``.
     """
     import asyncio
+    import os
 
     from molexp.config import ProfileConfig
     from molexp.entry import load_workflow_from_entrypoint
@@ -730,12 +739,31 @@ def execute(
         )
         raise typer.Exit(1)
 
+    saved_cwd = os.getcwd()
+    submit_cwd = run.metadata.submit_cwd
+    chdir_target: Path | None = None
+    if submit_cwd:
+        candidate = Path(submit_cwd)
+        if candidate.is_dir():
+            chdir_target = candidate
+        else:
+            rprint(
+                f"[yellow]Warning:[/yellow] submit_cwd {submit_cwd!r} not "
+                "reachable on this worker; importing with the current cwd. "
+                "Module-level relative paths in the workflow file may "
+                "resolve unexpectedly."
+            )
     try:
-        target = load_workflow_from_entrypoint(snapshot.entrypoint)
-    except Exception as exc:
-        rprint(f"[red]Error loading {snapshot.entrypoint}:[/red] {exc}")
-        rprint(traceback.format_exc(), end="")
-        raise typer.Exit(1)
+        if chdir_target is not None:
+            os.chdir(chdir_target)
+        try:
+            target = load_workflow_from_entrypoint(snapshot.entrypoint)
+        except Exception as exc:
+            rprint(f"[red]Error loading {snapshot.entrypoint}:[/red] {exc}")
+            rprint(traceback.format_exc(), end="")
+            raise typer.Exit(1)
+    finally:
+        os.chdir(saved_cwd)
 
     if isinstance(target, WorkflowSpec):
         workflow = target

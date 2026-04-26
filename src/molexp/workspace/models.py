@@ -148,6 +148,13 @@ class RunMetadata(BaseModel):
     ``execution_history`` indexes every attempt to execute this run,
     newest last.  Each entry points to the corresponding sub-directory
     under ``run_dir/executions/``.
+
+    ``submit_cwd`` is the absolute working directory at the moment
+    ``molexp run`` submitted this run.  The cluster worker chdirs here
+    before importing the user's workflow file so cwd-relative paths in
+    module-level code (e.g. ``Workspace("./lab")``) resolve to the same
+    location they did at submit time, preventing nested duplicate
+    workspaces under ``run_dir/``.
     """
 
     id: str
@@ -158,6 +165,7 @@ class RunMetadata(BaseModel):
     error: ErrorInfo | None = None
     workflow_snapshot: WorkflowSnapshotRef | None = None
     script: str | None = None
+    submit_cwd: str | None = None
     profile: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     config_hash: str | None = None
