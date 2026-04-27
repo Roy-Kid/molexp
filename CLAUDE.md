@@ -166,7 +166,7 @@ workspace_root/
                     └── jobs/<uuid>/       # molq scheduler manifests
 ```
 
-Container indices (`*.json`) are local conveniences rebuilt on materialize/delete; the global catalog at `.catalog/` remains authoritative for cross-cutting queries. To migrate a pre-cutover workspace, run `molexp migrate-layout <path>` (idempotent).
+Container indices (`*.json`) are local conveniences rebuilt on materialize/delete; the global catalog at `.catalog/` remains authoritative for cross-cutting queries.
 
 #### 4. Server Layer (`src/molexp/server/`)
 
