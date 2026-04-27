@@ -23,12 +23,18 @@ import {
 } from "lucide-react";
 import type { ComponentType, SVGProps } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { EMPTY_COPY, StatusBadge } from "@/app/components/entity";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
+import { computeFacetCounts } from "@/app/runs/aggregates";
+import { parseFilterParams, writeFilterParams } from "@/app/runs/filterParams";
+import { RunsFacetPanel } from "@/app/runs/RunsFacetPanel";
+import type { WorkspaceRunsFilters } from "@/app/runs/types";
+import { useWorkspaceRuns } from "@/app/runs/useWorkspaceRuns";
 import { workspaceApi } from "@/app/state/api";
 import type {
   ExperimentSummary,
@@ -68,6 +74,7 @@ interface ViewOption {
 const viewOptions: ViewOption[] = [
   { id: "projects", label: "Projects", icon: Blocks },
   { id: "workspace", label: "Workspace", icon: FolderTree },
+  { id: "runs", label: "Runs", icon: PlayCircle },
   { id: "asset", label: "Asset", icon: Archive },
   { id: "workflow", label: "Workflow", icon: Workflow },
   { id: "agent", label: "Agent", icon: Bot },
@@ -76,6 +83,7 @@ const viewOptions: ViewOption[] = [
 const listHeaderByView: Record<LeftPanelView, string> = {
   projects: "Projects",
   workspace: "Workspace",
+  runs: "Runs",
   asset: "Assets",
   workflow: "Workflows",
   agent: "Agent Sessions",
@@ -640,6 +648,19 @@ export const LeftPanel = ({
   const hasWorkspace = Boolean(snapshot.workspaceRoot);
   const [createExperimentProjectId, setCreateExperimentProjectId] = useState<string | null>(null);
   const [createRunExperimentId, setCreateRunExperimentId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const runsFilters = useMemo<WorkspaceRunsFilters>(
+    () => (view === "runs" ? parseFilterParams(searchParams) : {}),
+    [searchParams, view],
+  );
+  const { rows: runsRows } = useWorkspaceRuns();
+  const runsFacets = useMemo(
+    () => computeFacetCounts(runsRows, runsFilters),
+    [runsRows, runsFilters],
+  );
+  const handleRunsFiltersChange = (next: WorkspaceRunsFilters): void => {
+    setSearchParams((prev) => writeFilterParams(prev, next), { replace: true });
+  };
 
   const prevSelectionRef = useRef(selection);
   useEffect(() => {
@@ -775,6 +796,13 @@ export const LeftPanel = ({
         activeId={activeId}
         expandPath={workspaceExpandPath}
         emptyTitle={EMPTY_COPY.workspace.title}
+      />
+    ),
+    runs: (
+      <RunsFacetPanel
+        facets={runsFacets}
+        filters={runsFilters}
+        onFiltersChange={handleRunsFiltersChange}
       />
     ),
     asset: (

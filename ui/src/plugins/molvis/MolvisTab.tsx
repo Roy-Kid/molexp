@@ -5,7 +5,7 @@ import type { LammpsLogResponse, LammpsThermoStage } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import type { DiscoveredFile } from "@/plugins/types";
-import { Plot } from "../metrics/plotly";
+import { Plot } from "@/lib/plot";
 import { TrajectoryViewer } from "./TrajectoryViewer";
 
 type MolvisTabProps = RendererProps & { discoveredFiles?: DiscoveredFile[] };
