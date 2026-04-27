@@ -1,9 +1,17 @@
-import { RefreshCw } from "lucide-react";
+import { LayoutGrid, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { JSX } from "react";
+import type { JSX, ReactNode } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ensureLazyPlugin } from "@/plugins/runtime";
 import { formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
@@ -18,6 +26,7 @@ import {
   computeTopFailingExperiments,
   type FailingExperimentEntry,
 } from "./aggregates";
+import { DashboardPanel } from "./DashboardPanel";
 import { ExecutionDetailDrawer } from "./ExecutionDetailDrawer";
 import { parseFilterParams, toggleArrayFilter, writeFilterParams } from "./filterParams";
 import { RunDetailDrawer } from "./RunDetailDrawer";
@@ -26,6 +35,7 @@ import { RunsAggregateRow } from "./RunsAggregateRow";
 import { RunsGanttChart } from "./RunsGanttChart";
 import { RunsKpiStrip } from "./RunsKpiStrip";
 import { RunsStatusProgress } from "./RunsStatusProgress";
+import { useDashboardLayout } from "./useDashboardLayout";
 import { useWorkspaceRuns } from "./useWorkspaceRuns";
 import type {
   WorkspaceExecutionRow,
@@ -44,6 +54,26 @@ interface DrawerSelection {
 
 type GanttMode = "runs" | "executions";
 
+type DashboardPanelId = "kpi" | "status" | "aggregate" | "activity" | "gantt";
+
+const DASHBOARD_PANEL_IDS: DashboardPanelId[] = [
+  "kpi",
+  "status",
+  "aggregate",
+  "activity",
+  "gantt",
+];
+
+const DASHBOARD_PANEL_LABELS: Record<DashboardPanelId, string> = {
+  kpi: "KPI strip",
+  status: "Status mix",
+  aggregate: "Backends & failing experiments",
+  activity: "Activity chart",
+  gantt: "Gantt chart",
+};
+
+const DASHBOARD_LAYOUT_STORAGE_KEY = "molexp.runs.dashboard.layout.v1";
+
 export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -54,6 +84,11 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
   const [ganttMode, setGanttMode] = useState<GanttMode>("runs");
   const [drawerSelection, setDrawerSelection] = useState<DrawerSelection | null>(null);
   const initialAutoSelectRunId = useRef<string | null>(searchParams.get("runId"));
+
+  const layout = useDashboardLayout<DashboardPanelId>(
+    DASHBOARD_LAYOUT_STORAGE_KEY,
+    DASHBOARD_PANEL_IDS,
+  );
 
   useEffect(() => {
     void ensureLazyPlugin("molq");
@@ -131,6 +166,42 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
     updateFilters(toggleArrayFilter(filters, "status", status));
   };
 
+  const renderPanel = (panelId: DashboardPanelId): ReactNode => {
+    switch (panelId) {
+      case "kpi":
+        return <RunsKpiStrip stats={kpiStats} avgWaitSeconds={avgWait} />;
+      case "status":
+        return (
+          <RunsStatusProgress runs={filteredRuns} onSelectStatus={handleSelectStatus} />
+        );
+      case "aggregate":
+        return (
+          <RunsAggregateRow
+            backendDistribution={backendDistribution}
+            topFailing={topFailing}
+            onSelectBackend={handleSelectBackend}
+            onSelectExperiment={handleSelectFailingExperiment}
+          />
+        );
+      case "activity":
+        return <RunsActivityChart buckets={activity} />;
+      case "gantt":
+        return (
+          <>
+            <RunsGanttChart
+              rows={filteredRuns}
+              mode={ganttMode}
+              onSelectRun={openRunDrawer}
+              onSelectExecution={openExecutionDrawer}
+            />
+            <p className="mt-2 text-[11px] italic text-muted-foreground">
+              Click a bar to open its detail drawer. Faded bars are queued / pending.
+            </p>
+          </>
+        );
+    }
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4 md:p-6">
@@ -145,6 +216,11 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <ModeToggle value={ganttMode} onChange={setGanttMode} />
+            <PanelManager
+              hiddenIds={layout.hiddenIds}
+              onRestore={layout.restore}
+              onReset={layout.reset}
+            />
             <span>
               Last synced{" "}
               {lastSyncedAt ? formatRelative(lastSyncedAt.toISOString()) : "—"}
@@ -156,35 +232,29 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
           </div>
         </header>
 
-        <RunsKpiStrip stats={kpiStats} avgWaitSeconds={avgWait} />
-
-        <RunsStatusProgress runs={filteredRuns} onSelectStatus={handleSelectStatus} />
-
-        <RunsAggregateRow
-          backendDistribution={backendDistribution}
-          topFailing={topFailing}
-          onSelectBackend={handleSelectBackend}
-          onSelectExperiment={handleSelectFailingExperiment}
-        />
-
-        <RunsActivityChart buckets={activity} />
-
         {error && (
           <div className="rounded border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             {error}
           </div>
         )}
 
-        <RunsGanttChart
-          rows={filteredRuns}
-          mode={ganttMode}
-          onSelectRun={openRunDrawer}
-          onSelectExecution={openExecutionDrawer}
-        />
+        {layout.visibleIds.map((panelId) => (
+          <DashboardPanel
+            key={panelId}
+            id={panelId}
+            title={DASHBOARD_PANEL_LABELS[panelId]}
+            onReorder={layout.reorder}
+            onRemove={layout.hide}
+          >
+            {renderPanel(panelId)}
+          </DashboardPanel>
+        ))}
 
-        <p className="text-[11px] italic text-muted-foreground">
-          Click a bar to open its detail drawer. Faded bars are queued / pending.
-        </p>
+        {layout.visibleIds.length === 0 && (
+          <div className="rounded border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
+            All panels hidden. Use the layout menu above to restore them.
+          </div>
+        )}
       </div>
 
       {drawerRun && drawerExecution && (
@@ -229,4 +299,40 @@ const ModeToggle = ({ value, onChange }: ModeToggleProps): JSX.Element => (
       </button>
     ))}
   </div>
+);
+
+interface PanelManagerProps {
+  hiddenIds: DashboardPanelId[];
+  onRestore: (id: string) => void;
+  onReset: () => void;
+}
+
+const PanelManager = ({ hiddenIds, onRestore, onReset }: PanelManagerProps): JSX.Element => (
+  <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button size="sm" variant="outline" title="Layout">
+        <LayoutGrid className="mr-1.5 h-3.5 w-3.5" />
+        Layout
+        {hiddenIds.length > 0 && (
+          <span className="ml-1 rounded-full bg-muted px-1.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+            {hiddenIds.length}
+          </span>
+        )}
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuLabel>Hidden panels</DropdownMenuLabel>
+      {hiddenIds.length === 0 ? (
+        <DropdownMenuItem disabled>No hidden panels</DropdownMenuItem>
+      ) : (
+        hiddenIds.map((id) => (
+          <DropdownMenuItem key={id} onSelect={() => onRestore(id)}>
+            Restore “{DASHBOARD_PANEL_LABELS[id]}”
+          </DropdownMenuItem>
+        ))
+      )}
+      <DropdownMenuSeparator />
+      <DropdownMenuItem onSelect={() => onReset()}>Reset layout</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
 );
