@@ -40,9 +40,7 @@ class TestDeleteExecution:
         first_exec = r.metadata.execution_history[0].execution_id
         r.delete_execution(first_exec)
         assert not (r.run_dir / "executions" / first_exec).exists()
-        assert all(
-            rec.execution_id != first_exec for rec in r.metadata.execution_history
-        )
+        assert all(rec.execution_id != first_exec for rec in r.metadata.execution_history)
 
     def test_catalog_row_removed(self, tmp_path):
         ws, _p, _e, r = _build(tmp_path)
@@ -50,13 +48,11 @@ class TestDeleteExecution:
         # Run materialization populates catalog executions too
         r.save()
         assert any(
-            row["execution_id"] == first_exec
-            for row in ws.catalog.query_executions(run_id=r.id)
+            row["execution_id"] == first_exec for row in ws.catalog.query_executions(run_id=r.id)
         )
         r.delete_execution(first_exec)
         assert not any(
-            row["execution_id"] == first_exec
-            for row in ws.catalog.query_executions(run_id=r.id)
+            row["execution_id"] == first_exec for row in ws.catalog.query_executions(run_id=r.id)
         )
 
     def test_unknown_execution_raises(self, tmp_path):

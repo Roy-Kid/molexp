@@ -68,9 +68,7 @@ class TestRunCommand:
         workspace_root = tmp_path / "workspace"
         workspace_root.mkdir()
         # Seed an orphan project with an orphan experiment, both on disk only.
-        orphan_exp = (
-            workspace_root / "projects" / "orphan-proj" / "experiments" / "orphan-exp"
-        )
+        orphan_exp = workspace_root / "projects" / "orphan-proj" / "experiments" / "orphan-exp"
         orphan_exp.mkdir(parents=True)
         (orphan_exp.parent.parent / "project.json").write_text(
             '{"id":"orphan-proj","name":"orphan","description":"","owner":"",'

@@ -25,7 +25,6 @@ from .models import ProjectMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
 
-
 # CLI-level root override: set by ``molexp run -w PATH`` before executing the
 # user script, so every ``me.Workspace(...)`` in that script resolves to the
 # overridden path instead of its hardcoded argument. ``None`` means no

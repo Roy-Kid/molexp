@@ -12,7 +12,6 @@ from molexp.cli import app
 from molexp.workspace import Workspace
 from molexp.workspace.models import ExecutionRecord
 
-
 runner = CliRunner()
 
 
@@ -90,14 +89,10 @@ def test_migrate_writes_container_indices(tmp_path):
     projects_idx = json.loads((ws_path / "projects.json").read_text())
     assert any(item["id"] == "proj-a" for item in projects_idx["items"])
 
-    experiments_idx = json.loads(
-        (ws_path / "projects/proj-a/experiments.json").read_text()
-    )
+    experiments_idx = json.loads((ws_path / "projects/proj-a/experiments.json").read_text())
     assert any(item["id"] == "exp-x" for item in experiments_idx["items"])
 
-    runs_idx = json.loads(
-        (ws_path / "projects/proj-a/experiments/exp-x/runs.json").read_text()
-    )
+    runs_idx = json.loads((ws_path / "projects/proj-a/experiments/exp-x/runs.json").read_text())
     assert any(item["id"] == run_id for item in runs_idx["items"])
 
     run_dir = ws_path / "projects/proj-a/experiments/exp-x/runs" / f"run-{run_id}"

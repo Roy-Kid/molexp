@@ -37,18 +37,14 @@ def test_molq_backend_uses_job_id(running_run):
 
 
 def test_local_same_host_uses_pid(running_run):
-    running_run._update_metadata(
-        labels={"pid": "12345", "host": platform.node()}
-    )
+    running_run._update_metadata(labels={"pid": "12345", "host": platform.node()})
     plan = classify(running_run)
     assert plan.kind == "local"
     assert plan.detail == "12345"
 
 
 def test_local_different_host_is_uncancellable(running_run):
-    running_run._update_metadata(
-        labels={"pid": "12345", "host": "some-other-host.example"}
-    )
+    running_run._update_metadata(labels={"pid": "12345", "host": "some-other-host.example"})
     plan = classify(running_run)
     assert plan.kind == "none"
     assert "different host" in plan.detail

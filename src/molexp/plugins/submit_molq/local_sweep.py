@@ -41,8 +41,9 @@ async def run_local_sweep(
     if not replicas:
         return {}
 
-    from molexp.workflow._pydantic_graph.runtime import _make_execution_id
     from molq import JobExecution, Submitor
+
+    from molexp.workflow._pydantic_graph.runtime import _make_execution_id
 
     sem = asyncio.Semaphore(max(1, jobs))
     failures: dict[str, Exception] = {}
@@ -104,9 +105,7 @@ async def run_local_sweep(
 
             exit_code = getattr(record, "exit_code", None)
             if exit_code is not None and exit_code != 0:
-                failures[rid] = RuntimeError(
-                    f"worker for run {rid!r} exited with code {exit_code}"
-                )
+                failures[rid] = RuntimeError(f"worker for run {rid!r} exited with code {exit_code}")
 
     await asyncio.gather(*(_run_one(r) for r in replicas))
     return failures

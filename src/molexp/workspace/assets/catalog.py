@@ -158,28 +158,18 @@ class AssetCatalog:
             data = self._load()
             data["projects"].pop(project_id, None)
             exp_ids = {
-                eid
-                for eid, e in data["experiments"].items()
-                if e.get("project_id") == project_id
+                eid for eid, e in data["experiments"].items() if e.get("project_id") == project_id
             }
             for eid in exp_ids:
                 data["experiments"].pop(eid, None)
-            run_ids = {
-                rid
-                for rid, r in data["runs"].items()
-                if r.get("experiment_id") in exp_ids
-            }
+            run_ids = {rid for rid, r in data["runs"].items() if r.get("experiment_id") in exp_ids}
             for rid in run_ids:
                 data["runs"].pop(rid, None)
             data["executions"] = {
-                xid: x
-                for xid, x in data["executions"].items()
-                if x.get("run_id") not in run_ids
+                xid: x for xid, x in data["executions"].items() if x.get("run_id") not in run_ids
             }
             data["consumes"] = [
-                edge
-                for edge in data["consumes"]
-                if edge.get("execution_id") in data["executions"]
+                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
             ]
             self._save(data)
 
@@ -189,21 +179,15 @@ class AssetCatalog:
             data = self._load()
             data["experiments"].pop(experiment_id, None)
             run_ids = {
-                rid
-                for rid, r in data["runs"].items()
-                if r.get("experiment_id") == experiment_id
+                rid for rid, r in data["runs"].items() if r.get("experiment_id") == experiment_id
             }
             for rid in run_ids:
                 data["runs"].pop(rid, None)
             data["executions"] = {
-                xid: x
-                for xid, x in data["executions"].items()
-                if x.get("run_id") not in run_ids
+                xid: x for xid, x in data["executions"].items() if x.get("run_id") not in run_ids
             }
             data["consumes"] = [
-                edge
-                for edge in data["consumes"]
-                if edge.get("execution_id") in data["executions"]
+                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
             ]
             self._save(data)
 
@@ -213,14 +197,10 @@ class AssetCatalog:
             data = self._load()
             data["runs"].pop(run_id, None)
             data["executions"] = {
-                xid: x
-                for xid, x in data["executions"].items()
-                if x.get("run_id") != run_id
+                xid: x for xid, x in data["executions"].items() if x.get("run_id") != run_id
             }
             data["consumes"] = [
-                edge
-                for edge in data["consumes"]
-                if edge.get("execution_id") in data["executions"]
+                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
             ]
             self._save(data)
 
@@ -230,9 +210,7 @@ class AssetCatalog:
             data = self._load()
             data["executions"].pop(execution_id, None)
             data["consumes"] = [
-                edge
-                for edge in data["consumes"]
-                if edge.get("execution_id") != execution_id
+                edge for edge in data["consumes"] if edge.get("execution_id") != execution_id
             ]
             self._save(data)
 

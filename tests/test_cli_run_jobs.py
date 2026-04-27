@@ -73,8 +73,7 @@ class TestJobsFlag:
         # sleep_s + per_proc_overhead.  We give a generous overhead budget
         # so the test is robust on slow filesystems.
         assert wall < n * sleep_s * 0.7 + 30, (
-            f"Expected parallel execution, got {wall:.2f}s — "
-            "probably fell back to sequential."
+            f"Expected parallel execution, got {wall:.2f}s — probably fell back to sequential."
         )
 
         ws = Workspace.load(workspace_root)

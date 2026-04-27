@@ -155,8 +155,7 @@ def load_workflow_from_entrypoint(entrypoint: str) -> Any:
 
     if ":" not in entrypoint:
         raise ValueError(
-            f"Invalid workflow entrypoint {entrypoint!r}; "
-            "expected '<file_path>:<qualname>'."
+            f"Invalid workflow entrypoint {entrypoint!r}; expected '<file_path>:<qualname>'."
         )
     file_str, qualname = entrypoint.rsplit(":", 1)
     file_path = Path(file_str)
@@ -165,9 +164,7 @@ def load_workflow_from_entrypoint(entrypoint: str) -> Any:
             f"Workflow file not found: {file_path}. "
             "Did the source move between submission and execution?"
         )
-    spec = importlib.util.spec_from_file_location(
-        "_molexp_worker_workflow", file_path
-    )
+    spec = importlib.util.spec_from_file_location("_molexp_worker_workflow", file_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Cannot load workflow file: {file_path}")
     module = importlib.util.module_from_spec(spec)
@@ -175,6 +172,4 @@ def load_workflow_from_entrypoint(entrypoint: str) -> Any:
     try:
         return functools.reduce(getattr, qualname.split("."), module)
     except AttributeError as exc:
-        raise AttributeError(
-            f"Cannot resolve {qualname!r} in {file_path}: {exc}"
-        ) from exc
+        raise AttributeError(f"Cannot resolve {qualname!r} in {file_path}: {exc}") from exc

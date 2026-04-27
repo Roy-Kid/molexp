@@ -693,9 +693,7 @@ class Run:
             None,
         )
         if matched_idx is None and not exec_dir.exists():
-            raise KeyError(
-                f"Execution '{execution_id}' not found under run '{self.id}'"
-            )
+            raise KeyError(f"Execution '{execution_id}' not found under run '{self.id}'")
         if exec_dir.exists():
             shutil.rmtree(exec_dir)
         if matched_idx is not None:

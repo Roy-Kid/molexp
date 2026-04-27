@@ -56,7 +56,6 @@ class SubmitHandler:
         experiment: Any,
         project: Any,
     ) -> None:
-        from molexp.workflow._pydantic_graph.runtime import _make_execution_id
         from molq import (
             Duration,
             JobExecution,
@@ -65,6 +64,8 @@ class SubmitHandler:
             Memory,
             Submitor,
         )
+
+        from molexp.workflow._pydantic_graph.runtime import _make_execution_id
 
         res = self._res
         sched = self._sched

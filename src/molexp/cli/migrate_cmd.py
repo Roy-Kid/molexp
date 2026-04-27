@@ -321,8 +321,7 @@ def migrate_layout(
                     if moved:
                         runs_modified += 1
                         rprint(
-                            f"  [green]OK[/green] {run_dir.relative_to(path)}: "
-                            f"{', '.join(moved)}"
+                            f"  [green]OK[/green] {run_dir.relative_to(path)}: {', '.join(moved)}"
                         )
 
     if dry_run:

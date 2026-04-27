@@ -33,7 +33,6 @@ from __future__ import annotations
 import json
 import os
 import select
-import shutil
 import sys
 import termios
 import threading
@@ -170,9 +169,7 @@ def build_tree(
     return root
 
 
-def _build_project_node(
-    project: Project, experiment_filter: str | None
-) -> TreeNode:
+def _build_project_node(project: Project, experiment_filter: str | None) -> TreeNode:
     node = TreeNode(
         kind="project",
         node_id=("project", project.id),
@@ -231,9 +228,7 @@ def _build_run_node(run: Run, project_id: str, exp_id: str) -> TreeNode:
     attempts = len(history)
     node.count_hint = f"{attempts} attempts" if attempts else None
     for rec in history:
-        node.children.append(
-            _build_execution_node(rec, project_id, exp_id, run, info)
-        )
+        node.children.append(_build_execution_node(rec, project_id, exp_id, run, info))
     return node
 
 
@@ -473,9 +468,7 @@ class _DeleteDialog:
 # ── Delete flow ───────────────────────────────────────────────────────────────
 
 
-def _collect_targets(
-    root: TreeNode, ui: _UIState, cursor_node: TreeNode | None
-) -> list[TreeNode]:
+def _collect_targets(root: TreeNode, ui: _UIState, cursor_node: TreeNode | None) -> list[TreeNode]:
     multi = ui.multi_snapshot()
     if multi:
         # Preserve tree order
@@ -600,9 +593,7 @@ def _render_breadcrumb(root: TreeNode, rows: list[VisibleRow], selected: int) ->
     return Panel(text, style="dim", padding=(0, 2))
 
 
-def _render_tree(
-    rows: list[VisibleRow], selected: int, multi: set[NodePath]
-) -> Panel:
+def _render_tree(rows: list[VisibleRow], selected: int, multi: set[NodePath]) -> Panel:
     table = Table(
         show_header=True,
         header_style="dim",
@@ -623,7 +614,6 @@ def _render_tree(
         n = row.node
         is_sel = i == selected
         is_checked = n.node_id in multi
-        check = "■" if is_checked else (" " if not is_sel else " ")
         if is_checked:
             check_text = Text("■", style="bold magenta")
         else:
