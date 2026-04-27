@@ -218,8 +218,13 @@ def get_run_lammps_log(
     path: str = Query(..., description="Relative path of the log file under run_dir"),
     workspace=Depends(get_workspace),
 ) -> LammpsLogResponse:
-    """Parse a LAMMPS log file via ``molpy.io.LAMMPSLog`` and return thermo stages."""
-    from molpy.io import LAMMPSLog
+    """Parse a LAMMPS log file and return thermo stages.
+
+    Inlined parser — ``molpy.io`` does not export a multi-stage log
+    reader, so the route owns this lightweight regex-based parse to
+    avoid coupling the API surface to a transient molpy refactor.
+    """
+    import re
 
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -237,12 +242,35 @@ def get_run_lammps_log(
     if not target.is_file():
         raise HTTPException(status_code=404, detail=f"log file not found: {path}")
 
-    payload = LAMMPSLog(target).read().to_dict()
+    text = target.read_text(encoding="utf-8", errors="replace")
+    version = text.split("\n", 1)[0].strip() if text else None
+
+    stages: list[LammpsThermoStage] = []
+    for block in re.findall(
+        r"Per MPI rank memory allocation .*?\n(.*?)Loop time of",
+        text,
+        flags=re.DOTALL,
+    ):
+        lines = [ln for ln in block.splitlines() if ln.strip()]
+        if not lines:
+            continue
+        columns = lines[0].split()
+        rows: list[list[float]] = []
+        for ln in lines[1:]:
+            parts = ln.split()
+            if len(parts) != len(columns):
+                continue
+            try:
+                rows.append([float(x) for x in parts])
+            except ValueError:
+                continue
+        stages.append(LammpsThermoStage(columns=columns, rows=rows))
+
     return LammpsLogResponse(
         path=path,
-        version=payload.get("version"),
-        nStages=payload.get("n_stages", 0),
-        stages=[LammpsThermoStage(**stage) for stage in payload.get("stages", [])],
+        version=version,
+        nStages=len(stages),
+        stages=stages,
     )
 
 
