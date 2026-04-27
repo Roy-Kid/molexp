@@ -109,7 +109,7 @@ class SubmitHandler:
                 ),
                 execution=JobExecution(
                     job_name=job_name,
-                    cwd=str(run_dir),
+                    cwd=str(exec_dir),
                     output_file=str(exec_dir / "stdout.log"),
                     error_file=str(exec_dir / "stderr.log"),
                 ),

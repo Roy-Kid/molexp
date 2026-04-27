@@ -317,13 +317,31 @@ def _execute_sweep(
                 total_dispatched += len(created_runs)
 
     if use_sweep_graph:
-        from molexp.sweep import SweepReplica, run_sweep
+        # ``--local`` routes through molq's ``local`` scheduler so each replica
+        # runs in its own ``molexp execute`` subprocess with ``cwd=exec_dir``.
+        # This gives ``--local`` the same per-attempt isolation as cluster
+        # backends — cwd-relative output (``logs/...``, tensorboard, framework
+        # checkpoints) lands inside ``executions/<exec_id>/`` instead of
+        # leaking into the run directory.
+        try:
+            from molexp.plugins.submit_molq.local_sweep import run_local_sweep
+        except ImportError:
+            rprint(
+                "[red]Error:[/red] molq is required for ``--local`` (subprocess "
+                "dispatch via molq's local scheduler). Install it with "
+                "[bold]pip install molq[/bold]."
+            )
+            raise typer.Exit(1)
+
+        from molexp.sweep import SweepReplica
 
         replicas = [
             SweepReplica(mol_run=mol_run, experiment=exp) for mol_run, exp, _project in all_replicas
         ]
         if replicas:
-            asyncio.run(run_sweep(replicas, profile_config=profile_cfg, jobs=jobs))
+            failures = asyncio.run(run_local_sweep(replicas, jobs=jobs))
+            for rid, exc in failures.items():
+                rprint(f"[red]Run {rid} failed:[/red] {exc}")
         dispatched_runs.extend(mol_run for mol_run, _, _ in all_replicas)
         if not suppress_ok:
             verb = "resumed" if resume else "completed"
@@ -716,7 +734,12 @@ def execute(
     ``run.metadata.submit_cwd`` so any cwd-relative paths in
     module-level code (e.g. ``Workspace("./lab")``) resolve to the same
     location they did at submit time; cwd is restored afterwards so the
-    job continues to run with ``cwd=run_dir``.
+    job continues to run with ``cwd=exec_dir`` (the per-attempt
+    directory the scheduler launched the worker in).  This means
+    cwd-relative file output from user tasks (e.g. ``logs/train.log``,
+    ``logs/tensorboard/``) lands inside ``executions/<exec_id>/`` —
+    co-located with stdout/stderr/workflow.json — instead of leaking
+    into the run directory and being overwritten on retry.
     """
     import asyncio
     import os

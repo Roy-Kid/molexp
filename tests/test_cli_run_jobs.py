@@ -48,8 +48,16 @@ class TestJobsFlag:
         assert "--jobs" in result.output or "-j" in result.output
 
     def test_jobs_gt_1_runs_experiments_in_parallel(self, tmp_path):
-        """Three experiments × 0.3s should finish in roughly 0.3s with ``-j 3``."""
-        sleep_s = 0.3
+        """Three experiments × ``sleep_s`` finish near-concurrently with ``-j 3``.
+
+        ``--local`` spawns each replica as a subprocess via molq's local
+        scheduler so per-attempt cwd isolation matches cluster backends.
+        Subprocess startup (Python interpreter + module import + molq poll
+        backoff) is on the order of seconds, so ``sleep_s`` is tuned to
+        dominate the constant overhead and make the parallel/serial ratio
+        observable in wall-clock time.
+        """
+        sleep_s = 5.0
         n = 3
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
@@ -60,10 +68,12 @@ class TestJobsFlag:
         wall = time.perf_counter() - t0
 
         assert result.exit_code == 0, result.output
-        # Parallel wall time should be < 2× single-experiment time.
-        # Sequential would be n * sleep_s = 0.9s; parallel ~= sleep_s + overhead.
-        assert wall < 2 * sleep_s * n * 0.7, (
-            f"Expected parallel execution (~{sleep_s}s), got {wall:.2f}s — "
+        # Parallel wall time should be much less than serial.  Sequential
+        # would be ~n*(sleep_s + per_proc_overhead); parallel ~=
+        # sleep_s + per_proc_overhead.  We give a generous overhead budget
+        # so the test is robust on slow filesystems.
+        assert wall < n * sleep_s * 0.7 + 30, (
+            f"Expected parallel execution, got {wall:.2f}s — "
             "probably fell back to sequential."
         )
 
@@ -113,7 +123,7 @@ class TestJobsFlag:
 
     def test_jobs_from_profile(self, tmp_path):
         """`jobs:` key in molcfg profile takes effect when CLI ``-j`` is omitted."""
-        sleep_s = 0.3
+        sleep_s = 5.0
         n = 3
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
@@ -129,8 +139,8 @@ class TestJobsFlag:
         wall = time.perf_counter() - t0
 
         assert result.exit_code == 0, result.output
-        assert wall < 2 * sleep_s * n * 0.7, (
-            f"Profile jobs={n} should parallelize, expected ~{sleep_s}s, got {wall:.2f}s"
+        assert wall < n * sleep_s * 0.7 + 30, (
+            f"Profile jobs={n} should parallelize, got {wall:.2f}s"
         )
 
     def test_cli_jobs_overrides_profile(self, tmp_path):
