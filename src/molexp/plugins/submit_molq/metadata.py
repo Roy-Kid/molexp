@@ -1,8 +1,4 @@
-"""Helpers for molq-backed run metadata.
-
-This module must stay free of top-level ``molq`` imports so it can be used by
-CLI, monitor, and server code without making optional dependencies mandatory.
-"""
+"""Helpers for molq-backed run metadata."""
 
 from __future__ import annotations
 
@@ -11,10 +7,8 @@ from typing import Any
 
 def supported_schedulers() -> tuple[str, ...]:
     """Return scheduler backends supported by the installed ``molq``."""
-    try:
-        from molq.options import OPTIONS_TYPE_MAP
-    except ImportError:
-        return ()
+    from molq.options import OPTIONS_TYPE_MAP
+
     return tuple(OPTIONS_TYPE_MAP.keys())
 
 

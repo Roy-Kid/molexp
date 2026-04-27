@@ -266,18 +266,9 @@ def run_cancel(
             rprint("[dim]Aborted.[/dim]")
             raise typer.Exit(0)
 
+    from molq import Submitor
+
     submitor_cache: dict[tuple[str, str], Any] = {}
-    molq_available = True
-    Submitor = None
-    try:
-        from molq import Submitor  # type: ignore[import]
-    except ImportError:
-        molq_available = False
-        rprint(
-            "[yellow]Warning:[/yellow] molq is not installed — will only update "
-            "workspace state without calling the scheduler.\n"
-            "  Install with: [bold]pip install molq[/bold]"
-        )
 
     cancelled = 0
     errors = 0
@@ -290,7 +281,7 @@ def run_cancel(
             run_scheduler = executor_info.get("scheduler") or scheduler
             run_cluster = executor_info.get("cluster_name") or cluster or "default"
 
-            if run_scheduler != "local" and Submitor is not None and molq_available:
+            if run_scheduler != "local":
                 if molq_id and run_scheduler:
                     cache_key = (run_scheduler, run_cluster)
                     submitor = submitor_cache.get(cache_key)

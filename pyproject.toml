@@ -20,12 +20,16 @@ dependencies = [
     "uvicorn>=0.23.0",
     "molcrafts-mollog>=1.0.0",
     "molcrafts-molcfg>=1.2.0",
+    # molq powers both ``--local`` (subprocess via the ``local`` scheduler)
+    # and cluster backends (slurm/pbs/lsf), so it is required at runtime —
+    # not optional.  Unifying dispatch under molq lets ``molexp watch`` /
+    # ``molexp explore`` share one job-state model across backends.
+    "molcrafts-molq>=0.2.0",
 ]
 
 [project.optional-dependencies]
 agent = ["pydantic-ai>=1.0"]
-remote = []                          # molq when published
-all = ["molexp[agent,remote]"]
+all = ["molexp[agent]"]
 dev = [
     "molexp[all]",
     "pytest>=7.0",

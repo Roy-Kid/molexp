@@ -79,11 +79,7 @@ def watch(
         rprint("[yellow]No runs found[/yellow] — check --project / --experiment filters.")
         raise typer.Exit(0)
 
-    try:
-        from molexp.monitor import RunMonitor
-    except ImportError:
-        rprint("[red]Error:[/red] molq is not installed. Install it to use the monitor.")
-        raise typer.Exit(1)
+    from molexp.monitor import RunMonitor
 
     title = ws.name
     if experiment:

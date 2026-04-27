@@ -317,22 +317,13 @@ def _execute_sweep(
                 total_dispatched += len(created_runs)
 
     if use_sweep_graph:
-        # ``--local`` routes through molq's ``local`` scheduler so each replica
-        # runs in its own ``molexp execute`` subprocess with ``cwd=exec_dir``.
-        # This gives ``--local`` the same per-attempt isolation as cluster
-        # backends — cwd-relative output (``logs/...``, tensorboard, framework
-        # checkpoints) lands inside ``executions/<exec_id>/`` instead of
-        # leaking into the run directory.
-        try:
-            from molexp.plugins.submit_molq.local_sweep import run_local_sweep
-        except ImportError:
-            rprint(
-                "[red]Error:[/red] molq is required for ``--local`` (subprocess "
-                "dispatch via molq's local scheduler). Install it with "
-                "[bold]pip install molq[/bold]."
-            )
-            raise typer.Exit(1)
-
+        # ``--local`` and the cluster backends share the same dispatch model:
+        # each replica is a ``molexp execute`` subprocess submitted through
+        # molq with ``cwd=exec_dir``.  This gives ``--local`` per-attempt
+        # isolation (cwd-relative output like ``logs/...`` lands inside
+        # ``executions/<exec_id>/``) and a single job-state model across
+        # backends so ``molexp watch`` / ``molexp explore`` work uniformly.
+        from molexp.plugins.submit_molq.local_sweep import run_local_sweep
         from molexp.sweep import SweepReplica
 
         replicas = [
@@ -633,23 +624,10 @@ def run(
     # The local branch above returned, so a scheduler must have been selected
     # to reach this point. Narrow `selected_scheduler` for the type checker.
     assert selected_scheduler is not None
-    try:
-        from molexp.plugins.submit_molq.metadata import supported_schedulers
-        from molexp.plugins.submit_molq.submit import make_submit_handler
-    except ImportError:
-        rprint(
-            "[red]Error:[/red] molq is not installed. "
-            "Install it to use cluster backends: [bold]pip install molq[/bold]"
-        )
-        raise typer.Exit(1)
+    from molexp.plugins.submit_molq.metadata import supported_schedulers
+    from molexp.plugins.submit_molq.submit import make_submit_handler
 
     available_schedulers = supported_schedulers()
-    if not available_schedulers:
-        rprint(
-            "[red]Error:[/red] molq is not installed. "
-            "Install it to use cluster backends: [bold]pip install molq[/bold]"
-        )
-        raise typer.Exit(1)
     if available_schedulers and selected_scheduler not in available_schedulers:
         supported_text = ", ".join(available_schedulers)
         rprint(
