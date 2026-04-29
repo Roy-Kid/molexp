@@ -1,8 +1,7 @@
 import { X } from "lucide-react";
 import type { JSX, ReactNode } from "react";
-
-import { listExecutionDetails } from "@/app/registry";
 import { StatusBadge } from "@/app/components/entity";
+import { listExecutionDetails } from "@/app/registry";
 import { formatDuration, formatTimestamp } from "@/lib/format-time";
 
 import type { WorkspaceExecutionRow, WorkspaceRunRow } from "./types";
@@ -98,7 +97,11 @@ const Field = ({
   <div className="flex items-baseline justify-between gap-3">
     <span className="text-muted-foreground">{label}</span>
     <span
-      className={mono ? "max-w-[60%] truncate font-mono text-foreground" : "max-w-[60%] truncate text-foreground"}
+      className={
+        mono
+          ? "max-w-[60%] truncate font-mono text-foreground"
+          : "max-w-[60%] truncate text-foreground"
+      }
       title={value}
     >
       {value}

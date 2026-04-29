@@ -15,6 +15,7 @@ const sectionRootByView: Record<LeftPanelView, string> = {
   workflow: "/workflows",
   asset: "/assets",
   agent: "/agents",
+  settings: "/settings",
 };
 
 const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection | null => {
@@ -56,6 +57,9 @@ export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   }
   if (pathname.startsWith("/agents")) {
     return "agent";
+  }
+  if (pathname.startsWith("/settings")) {
+    return "settings";
   }
   return "projects";
 };
@@ -211,6 +215,9 @@ const buildBreadcrumbs = (
     if (leftPanelView === "agent") {
       return [{ label: "Agents" }];
     }
+    if (leftPanelView === "settings") {
+      return [{ label: "Settings" }];
+    }
     return [{ label: "Workspace" }];
   }
 
@@ -336,6 +343,11 @@ const buildContextMeta = (
         return {
           title: "Agents",
           subtitle: "Manage agent sessions and goals.",
+        };
+      case "settings":
+        return {
+          title: "Settings",
+          subtitle: "Workspace-level configuration: compute targets, profiles, integrations.",
         };
     }
   }

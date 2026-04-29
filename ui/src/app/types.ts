@@ -1,4 +1,11 @@
-export type LeftPanelView = "workspace" | "projects" | "runs" | "asset" | "workflow" | "agent";
+export type LeftPanelView =
+  | "workspace"
+  | "projects"
+  | "runs"
+  | "asset"
+  | "workflow"
+  | "agent"
+  | "settings";
 
 export type SemanticObjectType =
   | "project"

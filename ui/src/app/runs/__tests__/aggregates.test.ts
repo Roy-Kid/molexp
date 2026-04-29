@@ -50,6 +50,7 @@ const run = (over: Partial<WorkspaceRunRow>): WorkspaceRunRow => ({
   backend: "local",
   cluster: null,
   scheduler: null,
+  target: null,
   profile: "default",
   parameters: {},
   createdAt: new Date(NOW - 60 * MIN).toISOString(),

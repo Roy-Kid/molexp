@@ -89,9 +89,7 @@ interface ExperimentsTreeData {
   workflows: WorkflowSummary[];
 }
 
-const fetchExperimentsTree = async (
-  projects: ProjectSummary[],
-): Promise<ExperimentsTreeData> => {
+const fetchExperimentsTree = async (projects: ProjectSummary[]): Promise<ExperimentsTreeData> => {
   const experimentsByProject = await Promise.all(
     projects.map(async (project) => ({
       projectId: project.id,
@@ -127,9 +125,7 @@ const fetchExperimentsTree = async (
   };
 };
 
-const fetchAllAssets = async (
-  projects: ProjectSummary[],
-): Promise<WorkspaceSnapshot["assets"]> => {
+const fetchAllAssets = async (projects: ProjectSummary[]): Promise<WorkspaceSnapshot["assets"]> => {
   const projectAssets = await Promise.all(
     projects.map(async (project) => {
       try {

@@ -87,7 +87,7 @@ class TestSetWorkflow:
         assert type(experiment.workflow) is WorkflowSpec
 
     def test_non_callable_raises_type_error(self, experiment):
-        with pytest.raises(TypeError, match="Expected WorkflowSpec or callable"):
+        with pytest.raises(TypeError, match="Expected WorkflowSpec, callable, or IR dict"):
             experiment.set_workflow(42)
 
     def test_double_set_raises_value_error(self, experiment):

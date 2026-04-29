@@ -1,41 +1,41 @@
-"""Task plugin routes for MolExp API.
-
-Note: Task registry is being re-implemented as part of Phase 3.
-"""
+"""Plugin and task-type registry routes."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException
 
 from molexp.plugins import discover_ui_plugins
+from molexp.workflow.registry import default_registry
 
-from ..schemas import UiPluginListResponse, UiPluginResponse
+from ..schemas import (
+    TaskTypeListResponse,
+    TaskTypeResponse,
+    UiPluginListResponse,
+    UiPluginResponse,
+)
 
 router = APIRouter(tags=["registry"])
 
 
-@router.get("/tasks")
-def list_nodes() -> JSONResponse:
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error": "not_implemented",
-            "message": "Task registry is being re-implemented in Phase 3.",
-            "tasks": [],
-        },
-    )
+@router.get("/tasks", response_model=TaskTypeListResponse)
+def list_task_types() -> TaskTypeListResponse:
+    """Return every task-type slug the agent / UI can compose into IR."""
+    items = [
+        TaskTypeResponse(slug=slug, description=description)
+        for slug, description in default_registry.items()
+    ]
+    return TaskTypeListResponse(task_types=items, total=len(items))
 
 
-@router.get("/tasks/{node_id}")
-def get_node(node_id: str) -> JSONResponse:
-    return JSONResponse(
-        status_code=501,
-        content={
-            "error": "not_implemented",
-            "message": f"Task registry is being re-implemented in Phase 3. Task '{node_id}' not found.",
-        },
-    )
+@router.get("/tasks/{slug:path}", response_model=TaskTypeResponse)
+def get_task_type(slug: str) -> TaskTypeResponse:
+    """Return one task type by slug, or 404 if not registered."""
+    if not default_registry.has(slug):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Task type {slug!r} is not registered.",
+        )
+    return TaskTypeResponse(slug=slug, description=default_registry.describe(slug))
 
 
 @router.get("/plugins", response_model=UiPluginListResponse, tags=["plugins"])

@@ -13,7 +13,9 @@ from molexp.plugins.agent_pydanticai._pydantic_ai.workspace_tools import (
     list_experiments,
     list_projects,
     list_runs,
+    list_task_types,
     list_workflow_templates,
+    set_workflow_from_ir,
     submit_run,
 )
 
@@ -77,6 +79,138 @@ async def test_list_workflow_templates_includes_square(fake_ctx):
 
 
 # ── create_experiment + workflow attachment ─────────────────────────────
+
+
+# ── IR-driven workflow authoring ────────────────────────────────────────
+
+
+def _ir_constant_double() -> dict:
+    return {
+        "workflow_id": "workflow_00000000",
+        "name": "double",
+        "task_configs": [
+            {
+                "task_id": "k",
+                "task_type": "core.constant",
+                "config": {"value": 9},
+                "status": "pending",
+            },
+            {
+                "task_id": "out",
+                "task_type": "core.multiply",
+                "config": {"factor": 2.0},
+                "status": "pending",
+            },
+        ],
+        "links": [
+            {"source": "k", "target": "out", "mapping": {}, "status": "pending"},
+        ],
+        "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_list_task_types_includes_core_slugs(fake_ctx):
+    rows = await list_task_types(fake_ctx)
+    slugs = {r["slug"] for r in rows}
+    assert {"core.constant", "core.add", "core.multiply"} <= slugs
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_create_experiment_without_template_leaves_no_workflow(fake_ctx, workspace):
+    proj = await create_project(fake_ctx, name="demo")
+    out = await create_experiment(fake_ctx, project_id=proj["project_id"], name="bare")
+    assert out["workflow_template"] is None
+    assert out["has_workflow"] is False
+    project = workspace.get_project(proj["project_id"])
+    assert project.get_experiment("bare").workflow is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_set_workflow_from_ir_binds_and_persists(fake_ctx, workspace):
+    proj = await create_project(fake_ctx, name="demo")
+    exp = await create_experiment(fake_ctx, project_id=proj["project_id"], name="bare")
+    out = await set_workflow_from_ir(
+        fake_ctx,
+        project_id=proj["project_id"],
+        experiment_id=exp["experiment_id"],
+        workflow_json=_ir_constant_double(),
+    )
+    assert "error" not in out, out
+    assert out["task_count"] == 2
+    project = workspace.get_project(proj["project_id"])
+    experiment = project.get_experiment(exp["experiment_id"])
+    assert experiment.workflow is not None
+    assert (experiment.experiment_dir / "workflow.json").exists()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_set_workflow_from_ir_rejects_unknown_slug(fake_ctx):
+    proj = await create_project(fake_ctx, name="demo")
+    exp = await create_experiment(fake_ctx, project_id=proj["project_id"], name="bare")
+    bad = _ir_constant_double()
+    bad["task_configs"][0]["task_type"] = "no.such.slug"
+    out = await set_workflow_from_ir(
+        fake_ctx,
+        project_id=proj["project_id"],
+        experiment_id=exp["experiment_id"],
+        workflow_json=bad,
+    )
+    assert "error" in out
+    assert "no.such.slug" in out["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_set_workflow_from_ir_refuses_double_bind(fake_ctx):
+    proj = await create_project(fake_ctx, name="demo")
+    exp = await create_experiment(
+        fake_ctx, project_id=proj["project_id"], name="square", template="square"
+    )
+    out = await set_workflow_from_ir(
+        fake_ctx,
+        project_id=proj["project_id"],
+        experiment_id=exp["experiment_id"],
+        workflow_json=_ir_constant_double(),
+    )
+    assert "error" in out
+    assert "already has a workflow" in out["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_full_lifecycle_via_ir(fake_ctx, workspace):
+    """Same chat flow but driven through IR rather than templates."""
+    proj = await create_project(fake_ctx, name="demo")
+    project_id = proj["project_id"]
+    exp = await create_experiment(fake_ctx, project_id=project_id, name="ir-flow")
+    experiment_id = exp["experiment_id"]
+    bind = await set_workflow_from_ir(
+        fake_ctx,
+        project_id=project_id,
+        experiment_id=experiment_id,
+        workflow_json=_ir_constant_double(),
+    )
+    assert "error" not in bind, bind
+    submitted = await submit_run(
+        fake_ctx,
+        project_id=project_id,
+        experiment_id=experiment_id,
+        parameters={},
+    )
+    run_id = submitted["run_id"]
+    executed = await execute_run(
+        fake_ctx,
+        project_id=project_id,
+        experiment_id=experiment_id,
+        run_id=run_id,
+    )
+    assert "error" not in executed, executed
+    assert "succeeded" in executed["status"].lower()
 
 
 @pytest.mark.asyncio

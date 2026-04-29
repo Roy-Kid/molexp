@@ -30,6 +30,7 @@ via its methods. Three equivalent styles share the same class:
 from .cache import Caching
 from .context import ActorContext, TaskContext
 from .protocols import Runnable, Streamable
+from .registry import TaskTypeRegistry, default_registry
 from .runtime import WorkflowRuntime
 from .snapshot import TaskSnapshot
 from .spec import Workflow, WorkflowSpec
@@ -53,6 +54,9 @@ __all__ = [
     "WorkflowRuntime",
     "WorkflowResult",
     "WorkflowExecution",
+    # Task-type registry (for IR-driven workflows)
+    "TaskTypeRegistry",
+    "default_registry",
     # Utilities
     "Caching",
     "TaskSnapshot",

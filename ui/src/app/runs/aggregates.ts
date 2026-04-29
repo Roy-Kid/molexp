@@ -58,6 +58,7 @@ interface FilterPredicates {
   experimentId: (run: WorkspaceRunRow) => boolean;
   backend: (run: WorkspaceRunRow) => boolean;
   cluster: (run: WorkspaceRunRow) => boolean;
+  target: (run: WorkspaceRunRow) => boolean;
   quickView: (run: WorkspaceRunRow) => boolean;
 }
 
@@ -67,6 +68,7 @@ const buildPredicates = (filters: WorkspaceRunsFilters, now: number): FilterPred
   experimentId: (run) => includesValue(filters.experimentId, run.experimentId),
   backend: (run) => includesValue(filters.backend, run.backend),
   cluster: (run) => includesValue(filters.cluster, run.cluster),
+  target: (run) => includesValue(filters.target, run.target),
   quickView: (run) => {
     const views = filters.quickView;
     if (!views || views.length === 0) return true;
@@ -87,6 +89,7 @@ export const applyFilters = (
       predicates.experimentId(run) &&
       predicates.backend(run) &&
       predicates.cluster(run) &&
+      predicates.target(run) &&
       predicates.quickView(run),
   );
 };
@@ -101,6 +104,7 @@ export interface FacetSnapshot {
   status: FacetCount[];
   backend: FacetCount[];
   cluster: FacetCount[];
+  target: FacetCount[];
   projectId: FacetCount[];
   experimentId: FacetCount[];
   quickView: Record<RunsQuickView, number>;
@@ -151,6 +155,7 @@ export const computeFacetCounts = (
   const statusRuns = filterFor("status");
   const backendRuns = filterFor("backend");
   const clusterRuns = filterFor("cluster");
+  const targetRuns = filterFor("target");
   const projectRuns = filterFor("projectId");
   const experimentRuns = filterFor("experimentId");
   const quickRuns = filterFor("quickView");
@@ -162,6 +167,9 @@ export const computeFacetCounts = (
     ),
     cluster: tally(clusterRuns, (run) =>
       run.cluster ? [{ value: run.cluster, label: run.cluster }] : [],
+    ),
+    target: tally(targetRuns, (run) =>
+      run.target ? [{ value: run.target, label: run.target }] : [],
     ),
     projectId: tally(projectRuns, (run) => [{ value: run.projectId, label: run.projectName }]),
     experimentId: tally(experimentRuns, (run) => [

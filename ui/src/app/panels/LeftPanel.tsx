@@ -89,6 +89,7 @@ const listHeaderByView: Record<LeftPanelView, string> = {
   asset: "Assets",
   workflow: "Workflows",
   agent: "Agent Sessions",
+  settings: "Settings",
 };
 
 const fileKindByExtension: Record<string, FileKind> = {
@@ -903,6 +904,13 @@ export const LeftPanel = ({
         emptyDescription={EMPTY_COPY.agentSessions.description}
       />
     ),
+    settings: (
+      <nav className="space-y-0.5 px-1 pb-4 text-xs">
+        <div className="rounded-sm bg-muted/30 px-2 py-1.5 font-medium text-foreground">
+          Compute targets
+        </div>
+      </nav>
+    ),
   };
 
   const createRunExperiment = createRunExperimentId
@@ -933,7 +941,12 @@ export const LeftPanel = ({
           <div className="mt-auto">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button
+                  variant={view === "settings" ? "secondary" : "ghost"}
+                  size="icon"
+                  onClick={() => onViewChange("settings")}
+                  aria-label="Settings"
+                >
                   <Settings className="h-4 w-4" />
                 </Button>
               </TooltipTrigger>

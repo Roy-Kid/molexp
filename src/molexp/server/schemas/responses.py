@@ -84,6 +84,7 @@ class ExperimentResponse(BaseModel):
     workflowType: str | None = None
     gitCommit: str | None = None
     parameterSpace: dict[str, Any] = Field(default_factory=dict)
+    defaultTarget: str | None = None
     created: str
     runCount: int | None = None
     runs: list["RunSummary"] = Field(default_factory=list)
@@ -116,6 +117,7 @@ class ExperimentResponse(BaseModel):
             workflowType=experiment.metadata.workflow_type,
             gitCommit=experiment.metadata.git_commit,
             parameterSpace=experiment.metadata.parameter_space,
+            defaultTarget=experiment.metadata.default_target,
             created=experiment.created_at.isoformat(),
             runCount=len(runs) if runs else None,
             runs=run_list,
@@ -173,6 +175,7 @@ class RunResponse(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     configHash: str | None = None
     executionHistory: list[ExecutionRecordResponse] = Field(default_factory=list)
+    target: str | None = None
 
     @classmethod
     def from_model(cls, run: Run) -> RunResponse:
@@ -220,6 +223,7 @@ class RunResponse(BaseModel):
             config=run.metadata.config,
             configHash=run.metadata.config_hash,
             executionHistory=history,
+            target=run.metadata.target,
         )
 
 
@@ -442,6 +446,21 @@ class UiPluginResponse(BaseModel):
 
 class UiPluginListResponse(BaseModel):
     plugins: list[UiPluginResponse]
+    total: int
+
+
+# ── Task-type registry ──────────────────────────────────────────────────────
+
+
+class TaskTypeResponse(BaseModel):
+    """Single registered task type the agent / UI can compose into IR."""
+
+    slug: str = Field(..., description="Registry slug, e.g. 'core.add'")
+    description: str = Field("", description="Human-readable summary")
+
+
+class TaskTypeListResponse(BaseModel):
+    task_types: list[TaskTypeResponse]
     total: int
 
 

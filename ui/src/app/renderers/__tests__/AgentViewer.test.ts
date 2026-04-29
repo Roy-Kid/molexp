@@ -43,16 +43,15 @@ describe("derivePendingUserRequest", () => {
 
   it("treats a request without a string request_id as no pending request", () => {
     expect(
-      derivePendingUserRequest([
-        ev("UserMessageRequestEvent", { prompt: "no-id question" }),
-      ]),
+      derivePendingUserRequest([ev("UserMessageRequestEvent", { prompt: "no-id question" })]),
     ).toBeNull();
   });
 
   it("treats a missing prompt as null prompt rather than failure", () => {
-    expect(
-      derivePendingUserRequest([ev("UserMessageRequestEvent", { request_id: "r" })]),
-    ).toEqual({ requestId: "r", prompt: null });
+    expect(derivePendingUserRequest([ev("UserMessageRequestEvent", { request_id: "r" })])).toEqual({
+      requestId: "r",
+      prompt: null,
+    });
   });
 
   it("handles multiple request/reply cycles, returning only the latest unanswered one", () => {

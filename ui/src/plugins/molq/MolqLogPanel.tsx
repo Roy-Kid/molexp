@@ -1,6 +1,6 @@
 import { Pause, Play, Terminal } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
 import type { JSX } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { molqApi } from "@/plugins/molq/api";

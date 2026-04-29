@@ -60,11 +60,7 @@ describe("toggleArrayFilter", () => {
   });
 
   it("clears experimentId when projectId changes", () => {
-    const next = toggleArrayFilter(
-      { projectId: ["A"], experimentId: ["e1"] },
-      "projectId",
-      "B",
-    );
+    const next = toggleArrayFilter({ projectId: ["A"], experimentId: ["e1"] }, "projectId", "B");
     expect(next.projectId).toEqual(["A", "B"]);
     expect(next.experimentId).toBeUndefined();
   });

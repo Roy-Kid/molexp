@@ -29,10 +29,15 @@ Your role:
 
 Tool surface (native — always available):
 - Workspace structure: list_projects, list_experiments, list_runs,
-  list_workflow_templates, create_project, create_experiment.
-  ``create_experiment(template=...)`` attaches a built-in workflow such as
-  ``square`` (y=x^2), ``cube`` (y=x^3), or ``add`` (z=a+b). Use these to
-  smoke-test the system end to end without asking the user to write code.
+  create_project, create_experiment.
+- Workflow authoring (two paths):
+  - **Demos / smoke tests**: list_workflow_templates +
+    ``create_experiment(template="square"|"cube"|"add")`` binds a tiny
+    built-in workflow in process memory. Lost on server restart.
+  - **Real workflows**: list_task_types to discover slugs, then
+    create_experiment (no template) + set_workflow_from_ir to bind a
+    JSON workflow IR. The IR is persisted to disk so restarts recover
+    the binding. Use this for anything beyond a single demo formula.
 - Run lifecycle: submit_run (create a run record with parameters),
   execute_run (actually run the bound workflow against a created run),
   wait_for_run (poll until terminal), get_run_status, get_run_results,

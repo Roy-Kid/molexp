@@ -1,26 +1,22 @@
-import { useEffect, useState } from "react";
 import type { JSX } from "react";
+import { useEffect, useState } from "react";
 
 import { StatusBadge } from "@/app/components/entity";
 import { molqApi } from "@/plugins/molq/api";
-import { MolqLogPanel } from "@/plugins/molq/MolqLogPanel";
 import { formatDuration, formatTimestamp } from "@/plugins/molq/format";
+import { MolqLogPanel } from "@/plugins/molq/MolqLogPanel";
 import type { MolqJobDetail, MolqJobSummary } from "@/plugins/molq/types";
 
 interface MolqJobInspectorProps {
   job: MolqJobSummary | null;
 }
 
-const Field = ({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}): JSX.Element => (
+const Field = ({ label, children }: { label: string; children: React.ReactNode }): JSX.Element => (
   <div className="flex justify-between gap-3 py-1">
     <span className="text-[11px] uppercase tracking-wide text-muted-foreground">{label}</span>
-    <span className="min-w-0 truncate text-right font-mono text-xs text-foreground">{children}</span>
+    <span className="min-w-0 truncate text-right font-mono text-xs text-foreground">
+      {children}
+    </span>
   </div>
 );
 

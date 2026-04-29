@@ -1,13 +1,10 @@
-import { useMemo } from "react";
 import type { JSX } from "react";
+import { useMemo } from "react";
 
 import { Plot } from "@/lib/plot";
 import { cn } from "@/lib/utils";
 
-import type {
-  BackendDistributionEntry,
-  FailingExperimentEntry,
-} from "./aggregates";
+import type { BackendDistributionEntry, FailingExperimentEntry } from "./aggregates";
 
 interface RunsAggregateRowProps {
   backendDistribution: BackendDistributionEntry[];
@@ -69,9 +66,7 @@ const BackendDistributionChart = ({
   const traces = useMemo(() => {
     if (distribution.length === 0) return [];
     const backends = Array.from(new Set(distribution.map((entry) => entry.backend)));
-    const clusters = Array.from(
-      new Set(distribution.map((entry) => entry.cluster ?? "—")),
-    );
+    const clusters = Array.from(new Set(distribution.map((entry) => entry.cluster ?? "—")));
     return clusters.map((clusterName, index) => {
       const x = backends.map((backend) => {
         const match = distribution.find(

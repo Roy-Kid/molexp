@@ -11,9 +11,7 @@ const Cluster = ({ execution }: ExecutionColumnRenderProps): JSX.Element => {
   return (
     <span className="font-mono text-[11px]">
       {cluster ?? "—"}
-      {scheduler && (
-        <span className="ml-1 text-muted-foreground">[{scheduler}]</span>
-      )}
+      {scheduler && <span className="ml-1 text-muted-foreground">[{scheduler}]</span>}
     </span>
   );
 };

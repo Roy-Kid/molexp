@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,7 @@ from molexp.workflow.task import Task
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import (
+    _atomic_write_json,
     _list_children,
     _load_metadata,
     _rebuild_container_index,
@@ -134,6 +136,7 @@ class Experiment:
         git_commit: str | None = None,
         description: str = "",
         tags: list[str] | None = None,
+        default_target: str | None = None,
     ) -> None:
         self.project = project
         self.metadata = ExperimentMetadata(
@@ -147,6 +150,7 @@ class Experiment:
             git_commit=git_commit,
             n_replicas=n_replicas,
             seeds=list(seeds) if seeds is not None else None,
+            default_target=default_target,
         )
         self._data_assets: DataAssetLibrary | None = None
         self._workflow: WorkflowSpec | None = None
@@ -154,6 +158,9 @@ class Experiment:
         # the worker can pull the workflow object back without re-running
         # the entire user script.
         self._workflow_entrypoint: str | None = None
+        # Snapshot of the JSON IR when bound from a dict; ``None`` when
+        # bound from a Python ``WorkflowSpec`` / callable.
+        self._workflow_ir: dict[str, Any] | None = None
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -200,8 +207,25 @@ class Experiment:
 
     @property
     def workflow(self) -> WorkflowSpec | None:
-        """The bound workflow (always ``WorkflowSpec`` or ``None``)."""
-        return self._workflow
+        """The bound workflow (always ``WorkflowSpec`` or ``None``).
+
+        Lazy-loads from ``experiment_dir/workflow.json`` (the IR file) on
+        first access if no workflow has been bound in-process. This
+        recovers IR-bound workflows after a server restart, where
+        :meth:`set_workflow` was called in a previous process.
+        """
+        cached = getattr(self, "_workflow", None)
+        if cached is not None:
+            return cached
+        ir = self._read_workflow_ir_from_disk()
+        if ir is None:
+            return None
+        from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
+
+        spec = _WorkflowSpec.from_dict(ir)
+        self._workflow = spec
+        self._workflow_ir = ir
+        return spec
 
     @property
     def workspace(self) -> Workspace:
@@ -230,27 +254,45 @@ class Experiment:
 
     # ── Workflow binding ────────────────────────────────────────────────
 
-    def set_workflow(self, workflow: WorkflowSpec | Callable) -> None:
+    def set_workflow(
+        self,
+        workflow: WorkflowSpec | Callable | dict[str, Any],
+    ) -> None:
         """Bind a workflow to this experiment.
 
-        Accepts a compiled :class:`WorkflowSpec` or a bare ``fn(RunContext)``
-        callable; callables are auto-promoted to a single-Task ``WorkflowSpec``.
+        Accepted forms:
 
-        Captures an *entrypoint* — ``"<absolute_file>:<qualname>"`` — so
-        a worker process can re-import the workflow object without
-        re-running the entire user script.  For a callable the qualname
-        is the function itself; for a :class:`WorkflowSpec` we walk its
-        registered tasks back to the module that assembled them and
-        locate the spec by identity in that module's globals.
+        - A compiled :class:`WorkflowSpec`.
+        - A bare ``fn(RunContext)`` callable; auto-promoted to a
+          single-Task ``WorkflowSpec``.
+        - A JSON IR ``dict`` matching ``schema/workflow.json``;
+          compiled via :meth:`WorkflowSpec.from_dict` and persisted to
+          ``experiment_dir/workflow.json`` so the binding survives
+          process restarts.
+
+        For Python-side bindings (spec / callable), captures an
+        *entrypoint* — ``"<absolute_file>:<qualname>"`` — so a worker
+        process can re-import the workflow without re-running the entire
+        user script. IR bindings need no entrypoint: the IR itself is
+        the durable artifact.
 
         Raises:
-            TypeError: If *workflow* is not a ``WorkflowSpec`` or callable.
-            ValueError: If a workflow is already bound, or the entrypoint
-                cannot be resolved (e.g. the spec was constructed in a
-                lambda / interactive shell with no importable backing).
+            TypeError: If *workflow* is not a ``WorkflowSpec``, callable,
+                or dict.
+            ValueError: If a workflow is already bound, the entrypoint
+                cannot be resolved, or the IR fails to compile.
         """
-        if self._workflow is not None:
+        if getattr(self, "_workflow", None) is not None:
             raise ValueError(f"Experiment {self.name!r} already has a workflow bound.")
+        if isinstance(workflow, dict):
+            from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
+
+            spec = _WorkflowSpec.from_dict(workflow)
+            self._workflow = spec
+            self._workflow_ir = dict(workflow)
+            self._workflow_entrypoint = None
+            self._persist_workflow_ir(self._workflow_ir)
+            return
         if isinstance(workflow, WorkflowSpec):
             self._workflow = workflow
             self._workflow_entrypoint = _resolve_spec_entrypoint(workflow)
@@ -258,7 +300,30 @@ class Experiment:
             self._workflow = _promote_to_workflow(workflow, self.name)
             self._workflow_entrypoint = _resolve_callable_entrypoint(workflow)
         else:
-            raise TypeError(f"Expected WorkflowSpec or callable, got {type(workflow).__name__}")
+            raise TypeError(
+                f"Expected WorkflowSpec, callable, or IR dict, got {type(workflow).__name__}"
+            )
+
+    # ── Workflow IR persistence ─────────────────────────────────────────
+
+    @property
+    def workflow_ir_path(self) -> Path:
+        """Path to the on-disk workflow IR file (may not exist)."""
+        return self.experiment_dir / "workflow.json"
+
+    def _persist_workflow_ir(self, ir: dict[str, Any]) -> None:
+        self.experiment_dir.mkdir(parents=True, exist_ok=True)
+        _atomic_write_json(self.workflow_ir_path, ir)
+
+    def _read_workflow_ir_from_disk(self) -> dict[str, Any] | None:
+        path = self.workflow_ir_path
+        if not path.exists():
+            return None
+        try:
+            with open(path, "r") as fh:
+                return json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            return None
 
     def get_seeds(self) -> list[int]:
         """Return replica seeds (length == ``n_replicas``)."""
@@ -309,6 +374,7 @@ class Experiment:
         parameters: dict[str, Any] | None = None,
         *,
         id: str | None = None,
+        target: str | None = None,
     ) -> Run:
         """Get-or-create a run (idempotent, materialized immediately).
 
@@ -332,6 +398,7 @@ class Experiment:
             parameters=parameters,
             id=id,
             workflow_snapshot=snapshot,
+            target=target if target is not None else self.metadata.default_target,
         )
         run_dir = self.experiment_dir / "runs" / f"run-{r.id}"
         if run_dir.exists():

@@ -14,10 +14,7 @@ import {
 import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
 import { molqApi } from "@/plugins/molq/api";
 import { formatDuration, formatRelative } from "@/plugins/molq/format";
-import type {
-  ExecutionColumnContribution,
-  ExecutionDetailContribution,
-} from "@/plugins/types";
+import type { ExecutionColumnContribution, ExecutionDetailContribution } from "@/plugins/types";
 
 beforeEach(() => {
   resetContributionRuntimeForTests();
@@ -126,13 +123,11 @@ describe("execution detail registry", () => {
 
 describe("molqApi.listTargets", () => {
   it("returns the targets array from the response envelope", async () => {
-    const fetchSpy = rs
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(JSON.stringify({ targets: [{ name: "demo" }], total: 1 }), {
-          status: 200,
-        }),
-      );
+    const fetchSpy = rs.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ targets: [{ name: "demo" }], total: 1 }), {
+        status: 200,
+      }),
+    );
 
     const targets = await molqApi.listTargets();
 
@@ -151,18 +146,16 @@ describe("molqApi.listTargets", () => {
 
 describe("molqApi.listJobs", () => {
   it("encodes target and limit as query params", async () => {
-    const fetchSpy = rs
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            jobs: [],
-            stats: { running: 0, pending: 0, failed: 0, succeeded: 0, avgWaitSeconds: null },
-            total: 0,
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchSpy = rs.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          jobs: [],
+          stats: { running: 0, pending: 0, failed: 0, succeeded: 0, avgWaitSeconds: null },
+          total: 0,
+        }),
+        { status: 200 },
+      ),
+    );
 
     await molqApi.listJobs("demo", 50);
 

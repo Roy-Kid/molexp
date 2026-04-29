@@ -25,6 +25,7 @@ const formatDuration = (startIso: string | null, endIso: string | null): string 
   const remainder = Math.round(seconds - minutes * 60);
   return `${minutes}m${remainder}s`;
 };
+
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
@@ -327,9 +328,7 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
           <span className="flex items-baseline gap-2 text-xs">
             <span className="font-semibold tabular-nums text-foreground">{stats.total}</span>
             {stats.succeeded > 0 && (
-              <span className="text-emerald-600 dark:text-emerald-400">
-                {stats.succeeded} ok
-              </span>
+              <span className="text-emerald-600 dark:text-emerald-400">{stats.succeeded} ok</span>
             )}
             {stats.failed > 0 && (
               <span className="text-rose-600 dark:text-rose-400">{stats.failed} fail</span>
@@ -538,9 +537,7 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   description="Most recently finished runs across this project."
                 >
                   {recentRuns.length === 0 ? (
-                    <p className="text-sm italic text-muted-foreground">
-                      No completed runs yet.
-                    </p>
+                    <p className="text-sm italic text-muted-foreground">No completed runs yet.</p>
                   ) : (
                     <ul className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
                       {recentRuns.map((run) => {

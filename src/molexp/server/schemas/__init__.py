@@ -9,6 +9,13 @@ from .molq import (
     MolqTargetListResponse,
     MolqTargetSummary,
 )
+from .targets import (
+    TargetCreateRequest,
+    TargetListResponse,
+    TargetResponse,
+    TargetTestCheck,
+    TargetTestResponse,
+)
 from .workspace_runs import (
     WorkspaceExecutionRow,
     WorkspaceRunRow,
@@ -100,6 +107,8 @@ from .responses import (
     SkillListResponse,
     SkillResponse,
     ToolParameterResponse,
+    TaskTypeListResponse,
+    TaskTypeResponse,
     UiPluginListResponse,
     UiPluginResponse,
     WorkflowSnapshotResponse,
@@ -117,6 +126,12 @@ __all__ = [
     "MolqQueueStats",
     "MolqTargetListResponse",
     "MolqTargetSummary",
+    # Targets
+    "TargetCreateRequest",
+    "TargetListResponse",
+    "TargetResponse",
+    "TargetTestCheck",
+    "TargetTestResponse",
     # Requests
     "AgentProviderUpdateRequest",
     "ApprovalRespondRequest",
@@ -200,6 +215,8 @@ __all__ = [
     "SessionStatsResponse",
     "SkillListResponse",
     "SkillResponse",
+    "TaskTypeListResponse",
+    "TaskTypeResponse",
     "ToolParameterResponse",
     "UiPluginListResponse",
     "UiPluginResponse",

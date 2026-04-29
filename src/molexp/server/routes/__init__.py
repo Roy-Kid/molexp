@@ -16,6 +16,7 @@ from . import (
     project,
     registry,
     run,
+    targets,
     workspace,
 )
 
@@ -39,6 +40,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(registry.router)
     api_router.include_router(execution.router)
     api_router.include_router(molq.router)
+    api_router.include_router(targets.router)
 
     return api_router
 
@@ -56,4 +58,5 @@ __all__ = [
     "registry",
     "execution",
     "molq",
+    "targets",
 ]

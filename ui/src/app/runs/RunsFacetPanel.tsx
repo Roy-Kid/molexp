@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
 import type { JSX } from "react";
+import { useMemo, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -45,7 +45,7 @@ export const RunsFacetPanel = ({
   onFiltersChange,
 }: RunsFacetPanelProps): JSX.Element => {
   const showExperiment = (filters.projectId?.length ?? 0) > 0;
-  const showCluster = facets.cluster.length > 0;
+  const showTarget = facets.target.length > 0;
   const active = hasActiveFilters(filters);
 
   return (
@@ -86,11 +86,11 @@ export const RunsFacetPanel = ({
         onFiltersChange={onFiltersChange}
       />
 
-      {showCluster && (
+      {showTarget && (
         <CheckboxFacetGroup
-          title="Cluster"
-          facetKey="cluster"
-          options={facets.cluster}
+          title="Target"
+          facetKey="target"
+          options={facets.target}
           filters={filters}
           onFiltersChange={onFiltersChange}
         />
@@ -232,9 +232,7 @@ const CheckboxFacetGroup = ({
             label={labels?.[option.value] ?? option.label}
             count={option.count}
             checked={selected.has(option.value)}
-            onToggle={() =>
-              onFiltersChange(toggleArrayFilter(filters, facetKey, option.value))
-            }
+            onToggle={() => onFiltersChange(toggleArrayFilter(filters, facetKey, option.value))}
           />
         ))}
         {merged.length > COLLAPSE_THRESHOLD && (

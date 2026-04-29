@@ -89,9 +89,7 @@ export const registerExecutionColumn = (entry: ExecutionColumnContribution): voi
   addExecutionColumnContribution(entry);
 };
 
-export const listExecutionColumns = (
-  backend?: string | null,
-): ExecutionColumnContribution[] => {
+export const listExecutionColumns = (backend?: string | null): ExecutionColumnContribution[] => {
   return listExecutionColumnContributions(backend);
 };
 
@@ -99,9 +97,7 @@ export const registerExecutionDetail = (entry: ExecutionDetailContribution): voi
   addExecutionDetailContribution(entry);
 };
 
-export const listExecutionDetails = (
-  backend?: string | null,
-): ExecutionDetailContribution[] => {
+export const listExecutionDetails = (backend?: string | null): ExecutionDetailContribution[] => {
   return listExecutionDetailContributions(backend);
 };
 

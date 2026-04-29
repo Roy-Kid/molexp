@@ -1,6 +1,9 @@
 import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { TargetResponse } from "@/api/generated/models/TargetResponse";
+import { TargetsService } from "@/api/generated/services/TargetsService";
+import { AddTargetDialog } from "@/app/settings/AddTargetDialog";
 import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +17,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+
+const NO_TARGET_VALUE = "__none__";
 
 interface CreateExperimentDialogProps {
   projectId: string;
@@ -36,10 +48,26 @@ export function CreateExperimentDialog({
   const [workflow, setWorkflow] = useState("");
   const [description, setDescription] = useState("");
   const [parameterSpace, setParameterSpace] = useState("{}");
+  const [defaultTarget, setDefaultTarget] = useState<string>(NO_TARGET_VALUE);
+  const [targets, setTargets] = useState<TargetResponse[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const open = controlledOpen ?? uncontrolledOpen;
   const setOpen = onOpenChange ?? setUncontrolledOpen;
+
+  const refreshTargets = useCallback(async () => {
+    try {
+      const res = await TargetsService.listTargetsEndpointApiTargetsGet();
+      setTargets(res.targets);
+    } catch {
+      setTargets([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    void refreshTargets();
+  }, [open, refreshTargets]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,6 +80,7 @@ export function CreateExperimentDialog({
         workflow_source: workflow,
         description,
         parameter_space: JSON.parse(parameterSpace),
+        defaultTarget: defaultTarget === NO_TARGET_VALUE ? null : defaultTarget,
       });
 
       setOpen(false);
@@ -59,6 +88,7 @@ export function CreateExperimentDialog({
       setWorkflow("");
       setDescription("");
       setParameterSpace("{}");
+      setDefaultTarget(NO_TARGET_VALUE);
       onExperimentCreated();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create experiment");
@@ -124,6 +154,45 @@ export function CreateExperimentDialog({
                 className="col-span-3 font-mono text-xs"
                 rows={4}
               />
+            </div>
+            <div className="grid grid-cols-4 items-start gap-4">
+              <Label htmlFor="exp-target" className="pt-2 text-right">
+                Default target
+              </Label>
+              <div className="col-span-3 space-y-1.5">
+                <Select value={defaultTarget} onValueChange={setDefaultTarget}>
+                  <SelectTrigger id="exp-target">
+                    <SelectValue placeholder="No default — pick at run time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_TARGET_VALUE}>No default</SelectItem>
+                    {targets.map((t) => (
+                      <SelectItem key={t.name} value={t.name}>
+                        <span className="flex items-center gap-2">
+                          <span className="font-medium">{t.name}</span>
+                          <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                            {t.isRemote ? "remote" : "local"}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <AddTargetDialog
+                  trigger={
+                    <button
+                      type="button"
+                      className="text-xs text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      + Add new target…
+                    </button>
+                  }
+                  onCreated={(t) => {
+                    void refreshTargets();
+                    setDefaultTarget(t.name);
+                  }}
+                />
+              </div>
             </div>
             {error && <div className="text-sm text-red-500 col-span-4 text-center">{error}</div>}
           </div>

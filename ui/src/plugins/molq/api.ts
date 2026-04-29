@@ -1,8 +1,4 @@
-import type {
-  MolqJobDetail,
-  MolqJobsResponse,
-  MolqTargetSummary,
-} from "@/plugins/molq/types";
+import type { MolqJobDetail, MolqJobsResponse, MolqTargetSummary } from "@/plugins/molq/types";
 
 const BASE = "/api/plugins/molq";
 
@@ -37,16 +33,12 @@ export const molqApi = {
 
   async getJob(target: string, jobId: string): Promise<MolqJobDetail> {
     const params = new URLSearchParams({ target });
-    const response = await fetch(
-      `${BASE}/jobs/${encodeURIComponent(jobId)}?${params.toString()}`,
-    );
+    const response = await fetch(`${BASE}/jobs/${encodeURIComponent(jobId)}?${params.toString()}`);
     return handle<MolqJobDetail>(response, "Get job");
   },
 
   streamLogs(target: string, jobId: string, stream: "stdout" | "stderr" = "stdout"): EventSource {
     const params = new URLSearchParams({ target, stream });
-    return new EventSource(
-      `${BASE}/jobs/${encodeURIComponent(jobId)}/logs?${params.toString()}`,
-    );
+    return new EventSource(`${BASE}/jobs/${encodeURIComponent(jobId)}/logs?${params.toString()}`);
   },
 };

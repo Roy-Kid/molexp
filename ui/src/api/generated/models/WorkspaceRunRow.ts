@@ -17,6 +17,7 @@ export type WorkspaceRunRow = {
     backend?: (string | null);
     cluster?: (string | null);
     scheduler?: (string | null);
+    target?: (string | null);
     profile?: (string | null);
     parameters?: Record<string, any>;
     createdAt: string;

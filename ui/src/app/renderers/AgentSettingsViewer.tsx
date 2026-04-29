@@ -1308,10 +1308,7 @@ const ToolsTab = (): JSX.Element => {
       <ScrollArea className="flex-1">
         <div className="flex flex-col gap-3 pr-2">
           {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {!loading &&
-            groups.map((group) => (
-              <ToolGroupSection key={group.source} group={group} />
-            ))}
+          {!loading && groups.map((group) => <ToolGroupSection key={group.source} group={group} />)}
         </div>
       </ScrollArea>
     </div>

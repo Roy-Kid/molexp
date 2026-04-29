@@ -135,11 +135,7 @@ export const applyReorder = (
 
   const newRow: DashboardRow = { id: generateRowId(), panels: [activeId] };
   const insertRowAt = position === "top" ? targetRowIdx : targetRowIdx + 1;
-  return [
-    ...cleaned.slice(0, insertRowAt),
-    newRow,
-    ...cleaned.slice(insertRowAt),
-  ];
+  return [...cleaned.slice(0, insertRowAt), newRow, ...cleaned.slice(insertRowAt)];
 };
 
 export const useDashboardLayout = <T extends string>(
@@ -166,15 +162,12 @@ export const useDashboardLayout = <T extends string>(
     }
   }, [storageKey, state]);
 
-  const reorder = useCallback(
-    (activeId: string, overId: string, position: DropPosition) => {
-      setState((prev) => ({
-        ...prev,
-        rows: applyReorder(prev.rows, activeId, overId, position),
-      }));
-    },
-    [],
-  );
+  const reorder = useCallback((activeId: string, overId: string, position: DropPosition) => {
+    setState((prev) => ({
+      ...prev,
+      rows: applyReorder(prev.rows, activeId, overId, position),
+    }));
+  }, []);
 
   const hide = useCallback((id: string) => {
     setState((prev) => {
@@ -215,10 +208,7 @@ export const useDashboardLayout = <T extends string>(
     setState(buildDefaults(defaultsRef.current));
   }, []);
 
-  const visibleIds = useMemo(
-    () => state.rows.flatMap((row) => row.panels) as T[],
-    [state.rows],
-  );
+  const visibleIds = useMemo(() => state.rows.flatMap((row) => row.panels) as T[], [state.rows]);
 
   return {
     rows: state.rows as DashboardRow<T>[],

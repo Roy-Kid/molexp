@@ -4,10 +4,6 @@
 /* eslint-disable */
 export type ExecutionCreateRequest = {
     /**
-     * Serialized workflow graph
-     */
-    workflow_json: Record<string, any>;
-    /**
      * Target project ID
      */
     project_id: string;
@@ -16,5 +12,9 @@ export type ExecutionCreateRequest = {
      */
     experiment_id: string;
     parameters?: Record<string, any>;
+    /**
+     * Optional workflow IR (matches schema/workflow.json). When provided and the experiment has no workflow bound yet, the server binds it and persists the IR to disk. Subsequent calls reuse the on-disk binding.
+     */
+    workflow_json?: (Record<string, any> | null);
 };
 

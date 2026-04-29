@@ -21,7 +21,12 @@ def create_execution(
     request: ExecutionCreateRequest,
     workspace=Depends(get_workspace),
 ) -> RunResponse:
-    """Create a new execution in a specific project/experiment."""
+    """Create a new execution in a specific project/experiment.
+
+    If ``request.workflow_json`` is supplied and the experiment has no
+    workflow bound, compile and persist the IR before the run is
+    materialized so worker processes can pick it up off disk.
+    """
     project = workspace.get_project(request.project_id)
     if not project:
         raise ProjectNotFoundError(request.project_id)
@@ -29,6 +34,9 @@ def create_execution(
     experiment = project.get_experiment(request.experiment_id)
     if not experiment:
         raise ExperimentNotFoundError(request.project_id, request.experiment_id)
+
+    if request.workflow_json is not None and experiment.workflow is None:
+        experiment.set_workflow(request.workflow_json)
 
     new_run = experiment.run(parameters=request.parameters)
     return RunResponse.from_model(new_run)

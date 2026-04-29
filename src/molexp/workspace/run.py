@@ -572,12 +572,14 @@ class Run:
         parameters: dict[str, Any] | None = None,
         id: str | None = None,
         workflow_snapshot: WorkflowSnapshotRef | None = None,
+        target: str | None = None,
     ) -> None:
         self.experiment = experiment
         self.metadata = RunMetadata(
             id=id or generate_id(),
             parameters=parameters or {},
             workflow_snapshot=workflow_snapshot,
+            target=target,
         )
 
     # ── Properties ──────────────────────────────────────────────────────

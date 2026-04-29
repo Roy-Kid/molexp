@@ -703,10 +703,7 @@ const ServerEditor = ({
 
   const referencedKeys = useMemo(() => {
     if (spec.type === "stdio") return collectRefs(envRows.map((r) => r.value));
-    return collectRefs([
-      ...customHeaderRows.map((r) => r.value),
-      ...compiledAuthHeaderValues,
-    ]);
+    return collectRefs([...customHeaderRows.map((r) => r.value), ...compiledAuthHeaderValues]);
   }, [spec.type, envRows, customHeaderRows, compiledAuthHeaderValues]);
 
   const setKeys = useMemo(
@@ -1143,10 +1140,7 @@ const detectAuthMode = (headerKeys: readonly string[]): AuthMode => {
 //   bearer / basic       → "Authorization"
 //   apikey               → user-chosen header name (case-insensitive)
 //   none / custom        → owns nothing
-const stripAuthOwnedHeaders = (
-  rows: KvRow[],
-  auth: HttpAuthState,
-): KvRow[] => {
+const stripAuthOwnedHeaders = (rows: KvRow[], auth: HttpAuthState): KvRow[] => {
   if (auth.mode === "none" || auth.mode === "custom") return rows;
   const owned = new Set<string>();
   if (auth.mode === "bearer" || auth.mode === "basic") {
@@ -1302,11 +1296,7 @@ const HttpAuthSection = ({
         />
       )}
 
-      <HeaderRows
-        mode={auth.mode}
-        rows={customRows}
-        setRows={setCustomRows}
-      />
+      <HeaderRows mode={auth.mode} rows={customRows} setRows={setCustomRows} />
     </div>
   );
 };
@@ -1468,8 +1458,8 @@ const OAuthConnectPanel = ({
           className="font-mono text-xs"
         />
         <p className="mt-1 text-xs text-muted-foreground">
-          Leave empty to let the IdP pick. <Code>offline_access</Code> is recommended for
-          long-lived sessions (refresh tokens).
+          Leave empty to let the IdP pick. <Code>offline_access</Code> is recommended for long-lived
+          sessions (refresh tokens).
         </p>
       </div>
       <div>

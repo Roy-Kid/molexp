@@ -56,12 +56,24 @@ def create_experiment(
     project = workspace.get_project(project_id)
     if not project:
         raise ProjectNotFoundError(project_id)
+    if req.default_target is not None and not _target_exists(workspace, req.default_target):
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=422,
+            detail=f"compute target {req.default_target!r} is not registered on this workspace",
+        )
     exp = project.experiment(
         name=req.name,
         workflow_source=req.workflow_source,
         params=req.parameter_space,
+        default_target=req.default_target,
     )
     return ExperimentResponse.from_model(exp)
+
+
+def _target_exists(workspace, name: str) -> bool:
+    return any(t.name == name for t in workspace.metadata.targets)
 
 
 @router.get("/{experiment_id}/comparison", response_model=ExperimentComparisonResponse)

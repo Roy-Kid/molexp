@@ -153,6 +153,10 @@ class ExperimentMetadata(BaseModel, frozen=True):
     n_replicas: int = 1
     seeds: list[int] | None = None
 
+    # Default compute target for runs created under this experiment.
+    # Validated against ``WorkspaceMetadata.targets`` at write time.
+    default_target: str | None = None
+
 
 class ExecutionRecord(BaseModel, frozen=True):
     """One attempt to execute a Run.
@@ -227,3 +231,9 @@ class RunMetadata(BaseModel):
     labels: dict[str, str] = Field(default_factory=dict)
     executor_info: dict[str, Any] = Field(default_factory=dict)
     execution_history: list[ExecutionRecord] = Field(default_factory=list)
+
+    # Intended compute target name (matches a ComputeTarget in the workspace
+    # registry).  Captured at run-creation time so the UI can filter and the
+    # actual submitter can pick the right SubmitHandler later.  Distinct from
+    # ``executor_info.cluster_name`` which is populated post-submit by molq.
+    target: str | None = None

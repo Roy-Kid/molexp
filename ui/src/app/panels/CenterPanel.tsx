@@ -4,6 +4,7 @@ import {
   resolveRenderer,
 } from "@/app/registry";
 import { RunsPage } from "@/app/runs/RunsPage";
+import { SettingsPage } from "@/app/settings/SettingsPage";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 
 const EmptySelectionPlaceholder = (): JSX.Element => (
@@ -11,8 +12,8 @@ const EmptySelectionPlaceholder = (): JSX.Element => (
     <div className="max-w-sm space-y-2">
       <h2 className="text-base font-semibold text-foreground">Select an item to begin</h2>
       <p className="text-sm text-muted-foreground">
-        Pick a project, experiment, run, or workflow from the left navigation, or open the Runs
-        view to inspect every execution across the workspace.
+        Pick a project, experiment, run, or workflow from the left navigation, or open the Runs view
+        to inspect every execution across the workspace.
       </p>
     </div>
   </div>
@@ -39,6 +40,9 @@ export const CenterPanel = ({
   if (!selection) {
     if (leftPanelView === "runs") {
       return <RunsPage snapshot={snapshot} />;
+    }
+    if (leftPanelView === "settings") {
+      return <SettingsPage />;
     }
     return <EmptySelectionPlaceholder />;
   }

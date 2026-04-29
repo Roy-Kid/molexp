@@ -1,11 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import { workspaceRunsApi } from "./api";
-import type {
-  WorkspaceRunRow,
-  WorkspaceRunsResponse,
-  WorkspaceRunsStats,
-} from "./types";
+import type { WorkspaceRunRow, WorkspaceRunsResponse, WorkspaceRunsStats } from "./types";
 
 interface UseWorkspaceRunsResult {
   rows: WorkspaceRunRow[];
@@ -144,11 +140,7 @@ export interface UseWorkspaceRunsOptions {
 
 export const useWorkspaceRuns = (options: UseWorkspaceRunsOptions = {}): UseWorkspaceRunsResult => {
   const { enabled = true } = options;
-  const data = useSyncExternalStore(
-    enabled ? subscribe : noopSubscribe,
-    getSnapshot,
-    getSnapshot,
-  );
+  const data = useSyncExternalStore(enabled ? subscribe : noopSubscribe, getSnapshot, getSnapshot);
   return {
     ...data,
     refresh: () => triggerFetch(false),

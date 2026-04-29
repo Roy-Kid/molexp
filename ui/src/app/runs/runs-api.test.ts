@@ -12,8 +12,7 @@ afterEach(() => {
   rs.restoreAllMocks();
 });
 
-const okJson = (body: object): Response =>
-  new Response(JSON.stringify(body), { status: 200 });
+const okJson = (body: object): Response => new Response(JSON.stringify(body), { status: 200 });
 
 const emptyResponse = (): Response =>
   okJson({

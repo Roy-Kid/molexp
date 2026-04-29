@@ -1,5 +1,5 @@
-import { useMemo } from "react";
 import type { JSX } from "react";
+import { useMemo } from "react";
 
 import { Plot } from "@/lib/plot";
 

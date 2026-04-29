@@ -49,9 +49,23 @@ def _callable_name(f: Callable, fallback: str = "anonymous") -> str:
 
 
 class TaskRegistration:
-    """Internal record of a registered task or actor."""
+    """Internal record of a registered task or actor.
 
-    __slots__ = ("name", "fn_or_class", "depends_on", "is_actor", "remote")
+    ``task_type`` and ``config`` are populated when the task originates
+    from a registry slug (either via :meth:`Workflow.add` with
+    ``task_type=...`` or via :meth:`WorkflowSpec.from_dict`). They are
+    required for :meth:`WorkflowSpec.to_dict` to produce IR JSON.
+    """
+
+    __slots__ = (
+        "name",
+        "fn_or_class",
+        "depends_on",
+        "is_actor",
+        "remote",
+        "task_type",
+        "config",
+    )
 
     def __init__(
         self,
@@ -60,12 +74,16 @@ class TaskRegistration:
         depends_on: list[str],
         is_actor: bool = False,
         remote: Any = None,
+        task_type: str | None = None,
+        config: dict[str, Any] | None = None,
     ) -> None:
         self.name = name
         self.fn_or_class = fn_or_class
         self.depends_on = depends_on
         self.is_actor = is_actor
         self.remote = remote
+        self.task_type = task_type
+        self.config = dict(config) if config else None
 
 
 # ── WorkflowSpec ────────────────────────────────────────────────────────────
@@ -138,6 +156,121 @@ class WorkflowSpec:
             run_context=run_context,
             profile_config=profile_config,
             **kwargs,
+        )
+
+    # ── IR serialization (JSON workflow IR) ─────────────────────────────
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize this spec to the JSON IR shape (see ``schema/workflow.json``).
+
+        Every task must have been registered with a ``task_type`` slug
+        (passed via :meth:`Workflow.add` or set by
+        :meth:`WorkflowSpec.from_dict`); otherwise this raises
+        :class:`ValueError`. Decorator-style functions and ad-hoc Task
+        instances added without a slug are not serializable — they live
+        only in process memory.
+        """
+        unslugged = [t.name for t in self._tasks if t.task_type is None]
+        if unslugged:
+            raise ValueError(
+                "Cannot serialize workflow to IR: the following tasks have no "
+                f"task_type slug: {unslugged}. Use `Workflow.add(..., task_type=...)` "
+                "or build the spec from IR via WorkflowSpec.from_dict()."
+            )
+
+        task_configs = [
+            {
+                "task_id": t.name,
+                "task_type": t.task_type,
+                "config": dict(t.config) if t.config else {},
+                "status": "pending",
+            }
+            for t in self._tasks
+        ]
+        links = [
+            {"source": dep, "target": t.name, "mapping": {}, "status": "pending"}
+            for t in self._tasks
+            for dep in t.depends_on
+        ]
+        return {
+            "workflow_id": f"workflow_{self.workflow_id[:8]}",
+            "name": self.name,
+            "task_configs": task_configs,
+            "links": links,
+            "metadata": {
+                "label": None,
+                "description": None,
+                "tags": [],
+                "custom": {},
+            },
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        data: dict[str, Any],
+        *,
+        registry: Any = None,
+    ) -> WorkflowSpec:
+        """Build a :class:`WorkflowSpec` from JSON IR.
+
+        Each ``task_configs[]`` entry's ``task_type`` is looked up in
+        *registry* (defaults to the module-level
+        :data:`~molexp.workflow.registry.default_registry`); the
+        registered factory is invoked with the entry's ``config`` to
+        produce the runnable task object.
+
+        ``links[]`` are aggregated into per-task ``depends_on`` lists.
+        The ``mapping`` field is reserved for richer wiring and is
+        currently ignored — the runtime passes upstream outputs directly
+        (single value or ``dict[name, value]``).
+
+        The returned spec's ``workflow_id`` is recomputed from the
+        topology hash; the IR's ``workflow_id`` field is informational.
+        """
+        if registry is None:
+            from .registry import default_registry as registry  # type: ignore[no-redef]
+
+        from .protocols import Streamable
+
+        deps_by_target: dict[str, list[str]] = {}
+        for link in data.get("links", []):
+            target = link["target"]
+            deps_by_target.setdefault(target, []).append(link["source"])
+
+        tasks: list[TaskRegistration] = []
+        for tc in data.get("task_configs", []):
+            slug = tc["task_type"]
+            config = dict(tc.get("config") or {})
+            factory = registry.get(slug)
+            instance = factory(config)
+            tasks.append(
+                TaskRegistration(
+                    name=tc["task_id"],
+                    fn_or_class=instance,
+                    depends_on=deps_by_target.get(tc["task_id"], []),
+                    is_actor=isinstance(instance, Streamable),
+                    task_type=slug,
+                    config=config,
+                )
+            )
+
+        # Validate every link target / source is a known task_id
+        known = {t.name for t in tasks}
+        for link in data.get("links", []):
+            for endpoint in (link["source"], link["target"]):
+                if endpoint not in known:
+                    raise ValueError(
+                        f"Link references unknown task_id {endpoint!r}; "
+                        f"known: {sorted(known)}"
+                    )
+
+        name = data.get("name") or ""
+        return cls(
+            name=name,
+            workflow_id=_stable_workflow_id(name, tasks),
+            tasks=tasks,
+            mode="batch",
         )
 
 
@@ -253,6 +386,8 @@ class Workflow:
         depends_on: list[str] | None = None,
         name: str | None = None,
         remote: Any = None,
+        task_type: str | None = None,
+        config: dict[str, Any] | None = None,
     ) -> Workflow:
         """Register a Task / Actor instance (or any Runnable/Streamable).
 
@@ -261,6 +396,11 @@ class Workflow:
         - Any object matching the :class:`~molexp.workflow.protocols.Runnable`
           or :class:`~molexp.workflow.protocols.Streamable` protocol
         - A bare callable (treated as a batch task)
+
+        Pass ``task_type`` (the registry slug) and ``config`` (the
+        kwargs originally given to the factory) when the task came from
+        :data:`~molexp.workflow.registry.default_registry` and you want
+        the resulting spec to be serializable via :meth:`WorkflowSpec.to_dict`.
 
         Returns ``self`` to support chaining.
         """
@@ -279,6 +419,8 @@ class Workflow:
                 depends_on=depends_on or [],
                 is_actor=isinstance(task, Streamable),
                 remote=remote,
+                task_type=task_type,
+                config=config,
             )
         )
         return self

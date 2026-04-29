@@ -4,8 +4,8 @@ import { EmptyState, OverviewSection } from "@/app/components/entity";
 import type { LammpsLogResponse, LammpsThermoStage } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import type { DiscoveredFile } from "@/plugins/types";
 import { Plot } from "@/lib/plot";
+import type { DiscoveredFile } from "@/plugins/types";
 import { TrajectoryViewer } from "./TrajectoryViewer";
 
 type MolvisTabProps = RendererProps & { discoveredFiles?: DiscoveredFile[] };

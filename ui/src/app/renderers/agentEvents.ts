@@ -10,9 +10,7 @@ export interface PendingUserRequest {
  * waiting on a UserMessageRequestEvent that has not yet been answered
  * by a UserMessageEvent.
  */
-export const derivePendingUserRequest = (
-  events: ApiSessionEvent[],
-): PendingUserRequest | null => {
+export const derivePendingUserRequest = (events: ApiSessionEvent[]): PendingUserRequest | null => {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
     if (ev.type === "UserMessageEvent") return null;

@@ -1,4 +1,26 @@
-"""Tests for plugin registry routes."""
+"""Tests for plugin and task-type registry routes."""
+
+
+class TestTaskTypeRoutes:
+    def test_list_includes_core_demo_slugs(self, client):
+        resp = client.get("/api/tasks")
+        assert resp.status_code == 200
+        data = resp.json()
+        slugs = {item["slug"] for item in data["task_types"]}
+        # The core demo registry seeds these:
+        assert {"core.constant", "core.add", "core.multiply"} <= slugs
+        assert data["total"] == len(data["task_types"])
+
+    def test_get_known_slug(self, client):
+        resp = client.get("/api/tasks/core.add")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["slug"] == "core.add"
+        assert "Sum" in body["description"]
+
+    def test_get_unknown_slug_404(self, client):
+        resp = client.get("/api/tasks/no.such.slug")
+        assert resp.status_code == 404
 
 
 class TestRegistryRoutes:

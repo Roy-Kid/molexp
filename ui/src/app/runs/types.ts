@@ -22,6 +22,7 @@ export interface WorkspaceRunRow {
   backend: string | null;
   cluster: string | null;
   scheduler: string | null;
+  target: string | null;
   profile: string | null;
   parameters: Record<string, unknown>;
   createdAt: string;
@@ -53,6 +54,7 @@ export interface WorkspaceRunsFilters {
   experimentId?: string[];
   backend?: string[];
   cluster?: string[];
+  target?: string[];
   status?: string[];
   quickView?: RunsQuickView[];
   limit?: number;

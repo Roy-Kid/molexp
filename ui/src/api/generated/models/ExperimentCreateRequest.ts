@@ -19,5 +19,9 @@ export type ExperimentCreateRequest = {
      * Parameter space definition
      */
     parameter_space?: Record<string, any>;
+    /**
+     * Compute target name new runs should default to (must exist)
+     */
+    defaultTarget?: (string | null);
 };
 

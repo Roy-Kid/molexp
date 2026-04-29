@@ -1,6 +1,6 @@
 import type { RunsQuickView, WorkspaceRunsFilters } from "./types";
 
-const ARRAY_KEYS = ["projectId", "experimentId", "backend", "cluster", "status"] as const;
+const ARRAY_KEYS = ["projectId", "experimentId", "backend", "cluster", "target", "status"] as const;
 type ArrayKey = (typeof ARRAY_KEYS)[number];
 
 const QUICK_VIEW_VALUES: ReadonlySet<RunsQuickView> = new Set([

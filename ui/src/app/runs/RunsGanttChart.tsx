@@ -1,5 +1,5 @@
-import { useMemo } from "react";
 import type { JSX } from "react";
+import { useMemo } from "react";
 
 import { Plot } from "@/lib/plot";
 
@@ -86,9 +86,7 @@ const buildRunTask = (run: WorkspaceRunRow): GanttTask | null => {
 
   const created = safeDate(run.createdAt);
   const start =
-    execStarts.length > 0
-      ? new Date(Math.min(...execStarts.map((d) => d.getTime())))
-      : created;
+    execStarts.length > 0 ? new Date(Math.min(...execStarts.map((d) => d.getTime()))) : created;
   if (!start) return null;
 
   const isOpen = run.status.toLowerCase() === "running" || execStarts.length === 0;

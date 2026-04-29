@@ -93,11 +93,7 @@ const extractTaskNames = (root: Record<string, unknown>): string[] => {
         const rec = asRecord(node);
         if (!rec) return null;
         const label =
-          typeof rec.label === "string"
-            ? rec.label
-            : typeof rec.id === "string"
-              ? rec.id
-              : null;
+          typeof rec.label === "string" ? rec.label : typeof rec.id === "string" ? rec.id : null;
         return label;
       })
       .filter((v): v is string => Boolean(v));
@@ -117,7 +113,11 @@ const extractTaskNames = (root: Record<string, unknown>): string[] => {
 const fetchWorkflowPreview = async (path: string): Promise<WorkflowPreview | null> => {
   // Code references like "module.py:function" aren't readable as workflow
   // graphs — bail rather than emitting a 404 in the console.
-  if (!path || path.includes(":") || (!path.endsWith(".json") && !path.endsWith(".yaml") && !path.endsWith(".yml"))) {
+  if (
+    !path ||
+    path.includes(":") ||
+    (!path.endsWith(".json") && !path.endsWith(".yaml") && !path.endsWith(".yml"))
+  ) {
     return null;
   }
   try {
@@ -282,7 +282,11 @@ export const ExperimentViewer = ({
       const value = (run.parameters ?? {})[key];
       return (
         <span className="font-mono text-xs text-foreground">
-          {value === undefined ? <span className="text-muted-foreground">—</span> : formatScalar(value)}
+          {value === undefined ? (
+            <span className="text-muted-foreground">—</span>
+          ) : (
+            formatScalar(value)
+          )}
         </span>
       );
     },
@@ -525,9 +529,7 @@ export const ExperimentViewer = ({
                   <KeyValueGrid
                     items={Object.entries(experiment.parameterSpace).map(([key, value]) => ({
                       label: key,
-                      value: (
-                        <span className="font-mono text-xs">{formatScalar(value)}</span>
-                      ),
+                      value: <span className="font-mono text-xs">{formatScalar(value)}</span>,
                     }))}
                   />
                 </OverviewSection>
@@ -583,9 +585,7 @@ export const ExperimentViewer = ({
                     <ChevronRight className="mt-0.5 h-4 w-4 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
                   </button>
                 ) : (
-                  <p className="text-sm italic text-muted-foreground">
-                    No workflow file recorded.
-                  </p>
+                  <p className="text-sm italic text-muted-foreground">No workflow file recorded.</p>
                 )}
               </OverviewSection>
 

@@ -362,20 +362,32 @@ async def create_experiment(
     ctx: RunContext[MolexpDeps],
     project_id: str,
     name: str,
-    template: str,
+    template: str | None = None,
 ) -> dict[str, Any]:
-    """Create an experiment with a built-in workflow template attached.
+    """Create an experiment, optionally binding a built-in workflow template.
 
-    The chosen ``template`` (see :func:`list_workflow_templates`) is bound
-    to the experiment in-memory. Subsequent ``submit_run`` + ``execute_run``
-    calls will run that template against each Run's parameters.
+    Two flows:
 
-    Note: workflow bindings live in the server process only — restarting
-    the server drops them. Re-create the experiment to re-attach.
+    - **Quick demo**: pass ``template`` (one of :func:`list_workflow_templates`)
+      to bind a tiny in-memory workflow. The binding lives only in the
+      current server process — a restart drops it.
+    - **Real workflows**: omit ``template`` and follow up with
+      :func:`set_workflow_from_ir` to bind a JSON IR. The IR is
+      persisted to disk and survives restarts.
     """
     project = ctx.deps.workspace.get_project(project_id)
     if project is None:
         return {"error": f"Project '{project_id}' not found"}
+
+    if template is None:
+        experiment = project.experiment(name)
+        return {
+            "experiment_id": experiment.id,
+            "name": experiment.name,
+            "workflow_template": None,
+            "has_workflow": experiment.workflow is not None,
+        }
+
     if template not in TEMPLATES:
         return {
             "error": (
@@ -393,6 +405,72 @@ async def create_experiment(
         "workflow_template": template,
         "description": description,
         "expected_parameters": list(expected_params),
+    }
+
+
+async def list_task_types(ctx: RunContext[MolexpDeps]) -> list[dict[str, str]]:
+    """Return every task-type slug that can appear in a workflow IR.
+
+    Use this before calling :func:`set_workflow_from_ir` so the IR's
+    ``task_type`` fields reference real, server-side-resolvable
+    capabilities. Each entry is ``{"slug", "description"}``.
+    """
+    from molexp.workflow.registry import default_registry
+
+    return [
+        {"slug": slug, "description": description}
+        for slug, description in default_registry.items()
+    ]
+
+
+async def set_workflow_from_ir(
+    ctx: RunContext[MolexpDeps],
+    project_id: str,
+    experiment_id: str,
+    workflow_json: dict[str, Any],
+) -> dict[str, Any]:
+    """Bind a JSON workflow IR to an experiment and persist it to disk.
+
+    The IR shape matches ``schema/workflow.json``:
+
+    - ``task_configs[]``: each entry has ``task_id`` (unique within the
+      workflow), ``task_type`` (one of :func:`list_task_types`), and
+      ``config`` (constructor kwargs for the task).
+    - ``links[]``: edges with ``source`` / ``target`` ``task_id`` pairs.
+    - ``metadata``: optional label / tags.
+
+    The server compiles the IR into a ``WorkflowSpec`` (validating that
+    every slug is registered and every link references known task IDs)
+    and writes the IR to ``<exp_dir>/workflow.json`` so the binding
+    survives restart. Errors before the experiment is touched are
+    surfaced as ``{"error": "..."}``.
+
+    Use this *instead of* :func:`create_experiment`'s ``template`` for
+    real workflows — the template path is for demos only.
+    """
+    project = ctx.deps.workspace.get_project(project_id)
+    if project is None:
+        return {"error": f"Project '{project_id}' not found"}
+    experiment = project.get_experiment(experiment_id)
+    if experiment is None:
+        return {"error": f"Experiment '{experiment_id}' not found"}
+    if experiment.workflow is not None:
+        return {
+            "error": (
+                f"Experiment '{experiment_id}' already has a workflow bound. "
+                "Delete the experiment to rebind."
+            )
+        }
+    try:
+        experiment.set_workflow(workflow_json)
+    except (KeyError, ValueError) as exc:
+        return {"error": f"Invalid workflow IR: {exc}"}
+    spec = experiment.workflow
+    return {
+        "experiment_id": experiment.id,
+        "workflow_id": spec.workflow_id if spec is not None else None,
+        "task_count": len(workflow_json.get("task_configs", [])),
+        "persisted_to": str(experiment.workflow_ir_path),
     }
 
 
@@ -451,12 +529,14 @@ READ_ONLY_TOOLS: list = [
     list_runs,
     get_run_results,
     list_workflow_templates,
+    list_task_types,
     get_run_status,
 ]
 
 WRITE_TOOLS: list = [
     create_project,
     create_experiment,
+    set_workflow_from_ir,
     submit_run,
     execute_run,
     wait_for_run,

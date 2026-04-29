@@ -12,6 +12,7 @@ import { molqHandlers } from "./molq";
 import { projectHandlers } from "./projects";
 import { registryHandlers } from "./registry";
 import { runHandlers } from "./runs";
+import { targetsHandlers } from "./targets";
 import { workspaceHandlers } from "./workspace";
 
 /**
@@ -28,5 +29,6 @@ export const handlers = [
     ...projectHandlers,
     ...registryHandlers,
     ...runHandlers,
+    ...targetsHandlers,
     ...workspaceHandlers,
 ];

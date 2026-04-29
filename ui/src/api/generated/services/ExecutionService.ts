@@ -13,6 +13,10 @@ export class ExecutionService {
     /**
      * Create Execution
      * Create a new execution in a specific project/experiment.
+     *
+     * If ``request.workflow_json`` is supplied and the experiment has no
+     * workflow bound, compile and persist the IR before the run is
+     * materialized so worker processes can pick it up off disk.
      * @param requestBody
      * @returns RunResponse Successful Response
      * @throws ApiError

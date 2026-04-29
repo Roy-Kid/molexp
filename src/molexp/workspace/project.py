@@ -146,6 +146,7 @@ class Project:
         git_commit: str | None = None,
         description: str = "",
         tags: list[str] | None = None,
+        default_target: str | None = None,
     ) -> Experiment:
         """Get-or-create an experiment (idempotent, materialized immediately).
 
@@ -175,6 +176,7 @@ class Project:
                 git_commit=git_commit,
                 description=description,
                 tags=tags,
+                default_target=default_target,
             )
             exp.materialize()
             self._refresh_experiments_index()
@@ -221,6 +223,8 @@ class Project:
                 "metadata": m,
                 "_data_assets": None,
                 "_workflow": None,
+                "_workflow_entrypoint": None,
+                "_workflow_ir": None,
             },
         )
         for e in scanned:
@@ -262,5 +266,7 @@ class Project:
                 "metadata": meta,
                 "_data_assets": None,
                 "_workflow": None,
+                "_workflow_entrypoint": None,
+                "_workflow_ir": None,
             },
         )

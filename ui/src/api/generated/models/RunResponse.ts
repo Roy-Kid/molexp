@@ -21,5 +21,6 @@ export type RunResponse = {
     config?: Record<string, any>;
     configHash?: (string | null);
     executionHistory?: Array<ExecutionRecordResponse>;
+    target?: (string | null);
 };
 

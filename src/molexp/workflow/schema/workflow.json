@@ -59,30 +59,28 @@
             "name": "example_workflow",
             "task_configs": [
                 {
-                    "task_id": "AddTask_xyz",
-                    "task_type": "molexp.workflow.nodes.AddTask",
+                    "task_id": "k",
+                    "task_type": "core.constant",
                     "config": {
                         "value": 10
                     },
-                    "status": "succeeded"
+                    "status": "pending"
                 },
                 {
-                    "task_id": "MultiplyTask_def",
-                    "task_type": "molexp.workflow.nodes.MultiplyTask",
+                    "task_id": "doubled",
+                    "task_type": "core.multiply",
                     "config": {
                         "factor": 2
                     },
-                    "status": "running"
+                    "status": "pending"
                 }
             ],
             "links": [
                 {
-                    "source": "AddTask_xyz",
-                    "target": "MultiplyTask_def",
-                    "mapping": {
-                        "result": "value"
-                    },
-                    "status": "running"
+                    "source": "k",
+                    "target": "doubled",
+                    "mapping": {},
+                    "status": "pending"
                 }
             ],
             "metadata": {

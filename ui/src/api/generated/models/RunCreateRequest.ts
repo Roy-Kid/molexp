@@ -7,5 +7,9 @@ export type RunCreateRequest = {
      * Run parameters
      */
     parameters?: Record<string, any>;
+    /**
+     * Compute target name (must exist in workspace registry)
+     */
+    target?: (string | null);
 };
 

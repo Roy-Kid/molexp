@@ -42,6 +42,7 @@ class WorkspaceRunRow(BaseModel):
     backend: str | None = None
     cluster: str | None = None
     scheduler: str | None = None
+    target: str | None = None
     profile: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
     createdAt: str
@@ -83,6 +84,7 @@ class WorkspaceRunRow(BaseModel):
             backend=backend,
             cluster=cluster,
             scheduler=scheduler,
+            target=run.metadata.target,
             profile=run.metadata.profile,
             parameters=dict(run.parameters),
             createdAt=run.metadata.created_at.isoformat(),

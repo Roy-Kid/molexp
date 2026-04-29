@@ -12,6 +12,7 @@ export type ExperimentResponse = {
     workflowType?: (string | null);
     gitCommit?: (string | null);
     parameterSpace?: Record<string, any>;
+    defaultTarget?: (string | null);
     created: string;
     runCount?: (number | null);
     runs?: Array<RunSummary>;

@@ -2,36 +2,40 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { TaskTypeListResponse } from '../models/TaskTypeListResponse';
+import type { TaskTypeResponse } from '../models/TaskTypeResponse';
 import type { UiPluginListResponse } from '../models/UiPluginListResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class RegistryService {
     /**
-     * List Nodes
-     * @returns any Successful Response
+     * List Task Types
+     * Return every task-type slug the agent / UI can compose into IR.
+     * @returns TaskTypeListResponse Successful Response
      * @throws ApiError
      */
-    public static listNodesApiTasksGet(): CancelablePromise<any> {
+    public static listTaskTypesApiTasksGet(): CancelablePromise<TaskTypeListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/tasks',
         });
     }
     /**
-     * Get Node
-     * @param nodeId
-     * @returns any Successful Response
+     * Get Task Type
+     * Return one task type by slug, or 404 if not registered.
+     * @param slug
+     * @returns TaskTypeResponse Successful Response
      * @throws ApiError
      */
-    public static getNodeApiTasksNodeIdGet(
-        nodeId: string,
-    ): CancelablePromise<any> {
+    public static getTaskTypeApiTasksSlugGet(
+        slug: string,
+    ): CancelablePromise<TaskTypeResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/tasks/{node_id}',
+            url: '/api/tasks/{slug}',
             path: {
-                'node_id': nodeId,
+                'slug': slug,
             },
             errors: {
                 422: `Validation Error`,

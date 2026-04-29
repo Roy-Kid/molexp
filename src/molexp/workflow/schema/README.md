@@ -1,6 +1,16 @@
 # Workflow JSON Schemas
 
-This directory contains JSON Schema definitions for the molexp workflow serialization format.
+This directory contains JSON Schema definitions for the molexp workflow IR
+(intermediate representation) — the on-disk JSON form that
+`WorkflowSpec.from_dict()` / `to_dict()` round-trip through, and that the
+agent emits when calling `set_workflow_from_ir`.
+
+`task_type` values are **registry slugs** resolved through
+`molexp.workflow.registry.default_registry`, *not* Python FQNs. Slugs are
+namespaced (`<namespace>.<name>`) so that the same workflow JSON loads on
+any server that ships the same task plugins, regardless of the underlying
+Python module path. Use `GET /api/tasks` (or the `list_task_types` agent
+tool) to discover the registered set.
 
 ## Schema Files
 
@@ -68,17 +78,23 @@ print('✓ Valid workflow')
   "name": "example_workflow",
   "task_configs": [
     {
-      "task_id": "AddTask_xyz",
-      "task_type": "molexp.workflow.nodes.AddTask",
+      "task_id": "k",
+      "task_type": "core.constant",
       "config": {"value": 10},
-      "status": "succeeded"
+      "status": "pending"
+    },
+    {
+      "task_id": "doubled",
+      "task_type": "core.multiply",
+      "config": {"factor": 2},
+      "status": "pending"
     }
   ],
   "links": [
     {
-      "source": "AddTask_xyz",
-      "target": "MultiplyTask_def",
-      "mapping": {"result": "value"},
+      "source": "k",
+      "target": "doubled",
+      "mapping": {},
       "status": "pending"
     }
   ],
@@ -97,9 +113,9 @@ print('✓ Valid workflow')
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `task_id` | string | Yes | Unique task identifier (format: `TaskName_hexhash`) |
-| `task_type` | string | Yes | Deterministic task type ID for registry lookup |
-| `config` | object | Yes | Task-specific configuration parameters |
+| `task_id` | string | Yes | Unique task identifier within the workflow |
+| `task_type` | string | Yes | Registry slug (`<namespace>.<name>`); resolved via `TaskTypeRegistry` |
+| `config` | object | Yes | Constructor kwargs forwarded to the registered task factory |
 | `status` | string | Yes | Execution status (pending/running/succeeded/failed/cancelled) |
 
 ### Link
@@ -141,8 +157,13 @@ All status fields use the following enum:
 
 ## Pattern Validation
 
-Task IDs follow the pattern: `^[A-Za-z0-9_]+_[a-f0-9]{8}$`
-- Examples: `AddTask_abc12345`, `MyCustomTask_def67890`
+Task IDs follow the pattern: `^[A-Za-z_][A-Za-z0-9_-]*$`
+- Any non-empty identifier-like string. Examples: `build_box`, `run_md`,
+  `analyze`, `step_a1b2`.
+
+Task types follow the pattern: `^[A-Za-z_][A-Za-z0-9_.-]*$`
+- Registry slug, namespaced. Examples: `core.add`, `lammps.run`,
+  `molpy.build_box`.
 
 Workflow IDs follow the pattern: `^workflow_[a-f0-9]{8}$`
 - Examples: `workflow_abc12345`, `workflow_def67890`

@@ -45,6 +45,13 @@ class ExperimentCreateRequest(BaseModel):
     parameter_space: dict[str, Any] = Field(
         default_factory=dict, description="Parameter space definition"
     )
+    default_target: str | None = Field(
+        default=None,
+        alias="defaultTarget",
+        description="Compute target name new runs should default to (must exist)",
+    )
+
+    model_config = {"populate_by_name": True}
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -52,6 +59,10 @@ class ExperimentCreateRequest(BaseModel):
 
 class RunCreateRequest(BaseModel):
     parameters: dict[str, Any] = Field(default_factory=dict, description="Run parameters")
+    target: str | None = Field(
+        default=None,
+        description="Compute target name (must exist in workspace registry)",
+    )
 
 
 class RunStatusUpdateRequest(BaseModel):
@@ -62,10 +73,18 @@ class RunStatusUpdateRequest(BaseModel):
 
 
 class ExecutionCreateRequest(BaseModel):
-    workflow_json: dict[str, Any] = Field(..., description="Serialized workflow graph")
     project_id: str = Field(..., description="Target project ID")
     experiment_id: str = Field(..., description="Target experiment ID")
     parameters: dict[str, Any] = Field(default_factory=dict)
+    workflow_json: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Optional workflow IR (matches schema/workflow.json). When "
+            "provided and the experiment has no workflow bound yet, the "
+            "server binds it and persists the IR to disk. Subsequent "
+            "calls reuse the on-disk binding."
+        ),
+    )
 
 
 # ── Asset ───────────────────────────────────────────────────────────────────
