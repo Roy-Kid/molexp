@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "molcrafts": {
+      "_comment": "Unified MCP server provided by molcrafts-mcp-suite. Bundles molexp + molpy + any installed sibling provider. Workspace path is read from MOLEXP_WORKSPACE.",
+      "command": "molcrafts-mcp",
+      "env": {
+        "MOLEXP_WORKSPACE": "${workspaceRoot}"
+      }
+    },
+    "python-sandbox": {
+      "command": "deno",
+      "args": [
+        "run",
+        "-N",
+        "-R=node_modules",
+        "-W=node_modules",
+        "--node-modules-dir=auto",
+        "jsr:@pydantic/mcp-run-python",
+        "stdio"
+      ]
+    }
+  }
+}

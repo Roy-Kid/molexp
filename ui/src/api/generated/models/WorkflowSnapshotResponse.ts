@@ -8,3 +8,4 @@ export type WorkflowSnapshotResponse = {
     codeHash?: (string | null);
     configHash?: (string | null);
 };
+

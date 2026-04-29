@@ -10,7 +10,9 @@ import {
   computeAvgWaitSeconds,
   computeBackendDistribution,
   computeFacetCounts,
+  computeKpiSparklines,
   computeKpiStats,
+  computeRecentEventsForRun,
   computeTopFailingExperiments,
 } from "@/app/runs/aggregates";
 import type {
@@ -180,7 +182,7 @@ describe("computeAvgWaitSeconds", () => {
       executions: [exec({ startedAt: new Date(NOW - 30 * MIN).toISOString() })],
     });
     const avg = computeAvgWaitSeconds([a, b], 24, NOW);
-    expect(avg).toBe(((10 * MIN + 5 * MIN) / 2) / 1000);
+    expect(avg).toBe((10 * MIN + 5 * MIN) / 2 / 1000);
   });
 });
 
@@ -258,6 +260,109 @@ describe("computeActivityBuckets", () => {
       failed: 0,
       cancelled: 0,
     });
+  });
+});
+
+describe("computeKpiSparklines", () => {
+  it("returns the right number of buckets and matches computeKpiStats totals", () => {
+    const runs = [
+      run({
+        id: "r1",
+        status: "running",
+        executions: [exec({ startedAt: new Date(NOW - 30 * MIN).toISOString(), finishedAt: null })],
+      }),
+      run({
+        id: "r2",
+        status: "failed",
+        finishedAt: new Date(NOW - 90 * MIN).toISOString(),
+      }),
+      run({
+        id: "r3",
+        status: "succeeded",
+        finishedAt: new Date(NOW - 4 * HOUR).toISOString(),
+      }),
+    ];
+    const sparks = computeKpiSparklines(runs, 24, 24, NOW);
+    expect(sparks.running.series).toHaveLength(24);
+    const stats = computeKpiStats(runs);
+    expect(sparks.running.series.reduce((a, b) => a + b, 0)).toBe(stats.running);
+    expect(sparks.failed.series.reduce((a, b) => a + b, 0)).toBe(stats.failed);
+    expect(sparks.succeeded.series.reduce((a, b) => a + b, 0)).toBe(stats.succeeded);
+  });
+
+  it("computes delta as current minus previous bucket", () => {
+    const runs = [
+      run({
+        id: "now",
+        status: "succeeded",
+        finishedAt: new Date(NOW - 1 * MIN).toISOString(),
+      }),
+      run({
+        id: "earlier",
+        status: "succeeded",
+        finishedAt: new Date(NOW - 65 * MIN).toISOString(),
+      }),
+    ];
+    const sparks = computeKpiSparklines(runs, 24, 24, NOW);
+    expect(sparks.succeeded.current).toBe(1);
+    expect(sparks.succeeded.previous).toBe(1);
+    expect(sparks.succeeded.delta).toBe(0);
+  });
+
+  it("ignores runs whose anchor timestamp falls outside the window", () => {
+    const old = run({
+      id: "old",
+      status: "failed",
+      finishedAt: new Date(NOW - 48 * HOUR).toISOString(),
+    });
+    const sparks = computeKpiSparklines([old], 24, 24, NOW);
+    expect(sparks.failed.series.every((v) => v === 0)).toBe(true);
+  });
+});
+
+describe("computeRecentEventsForRun", () => {
+  it("emits submitted + started + finished events sorted desc", () => {
+    const r = run({
+      id: "r1",
+      status: "succeeded",
+      createdAt: new Date(NOW - 60 * MIN).toISOString(),
+      executions: [
+        exec({
+          executionId: "e1",
+          startedAt: new Date(NOW - 50 * MIN).toISOString(),
+          finishedAt: new Date(NOW - 5 * MIN).toISOString(),
+          status: "succeeded",
+        }),
+      ],
+    });
+    const events = computeRecentEventsForRun(r);
+    expect(events.map((e) => e.kind)).toEqual(["finished", "started", "submitted"]);
+    expect(events[0].outcome).toBe("succeeded");
+    expect(events[1].executionId).toBe("e1");
+  });
+
+  it("never emits unsupported event kinds", () => {
+    const r = run({
+      id: "r1",
+      executions: [exec({}), exec({ executionId: "e2", finishedAt: null })],
+    });
+    const kinds = new Set(computeRecentEventsForRun(r).map((e) => e.kind));
+    for (const kind of kinds) {
+      expect(["submitted", "started", "finished"]).toContain(kind);
+    }
+  });
+
+  it("emits at most 1 + 2N events for N executions", () => {
+    const r = run({
+      id: "r1",
+      executions: [
+        exec({ executionId: "e1" }),
+        exec({ executionId: "e2" }),
+        exec({ executionId: "e3" }),
+      ],
+    });
+    const events = computeRecentEventsForRun(r);
+    expect(events.length).toBeLessThanOrEqual(1 + 2 * 3);
   });
 });
 

@@ -12,3 +12,4 @@ export type WorkspaceOpenRequest = {
      */
     create_if_missing?: boolean;
 };
+

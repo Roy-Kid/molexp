@@ -43,6 +43,12 @@ dev = [
 [project.scripts]
 molexp = "molexp.cli:app"
 
+[tool.pytest.ini_options]
+markers = [
+    "unit: fast standalone tests for a single function/class",
+    "integration: tests that exercise multi-component flows (FastAPI, workspace)",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
@@ -53,9 +59,9 @@ ignore = ["E501"]
 
 [tool.hatch.build]
 # Ship the built frontend bundle inside the wheel — populated by
-# `npm run build:ui` before `python -m build --wheel`.
+# `npm run build` (in ui/) before `python -m build --wheel`.
 artifacts = [
-    "src/molexp/_webapp/**",
+    "src/molexp/dist/**",
 ]
 
 [tool.hatch.build.targets.wheel]

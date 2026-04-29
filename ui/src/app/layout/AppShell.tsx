@@ -14,6 +14,7 @@ interface AppShellProps {
   selection: Selection | null;
   snapshot: WorkspaceSnapshot;
   inspectorTarget: InspectorTarget;
+  isRefreshing: boolean;
   onLeftPanelViewChange: (view: LeftPanelView) => void;
   onSelectionChange: (selection: Selection) => void;
   onInspectorTargetChange: (target: InspectorTarget) => void;
@@ -21,6 +22,7 @@ interface AppShellProps {
   onCreateDirectory: (path: string) => void;
   onCreateFile: (path: string) => void;
   onWorkspaceRefresh: () => void;
+  onActiveRefresh: () => void;
 }
 
 const NAV_SIZE = { default: 22, min: 16, max: 30 };
@@ -31,6 +33,7 @@ export const AppShell = ({
   selection,
   snapshot,
   inspectorTarget,
+  isRefreshing,
   onLeftPanelViewChange,
   onSelectionChange,
   onInspectorTargetChange,
@@ -38,6 +41,7 @@ export const AppShell = ({
   onCreateDirectory,
   onCreateFile,
   onWorkspaceRefresh,
+  onActiveRefresh,
 }: AppShellProps): JSX.Element => {
   const [searchQuery, setSearchQuery] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
@@ -48,7 +52,12 @@ export const AppShell = ({
 
   return (
     <div className="flex h-screen flex-col bg-background text-foreground">
-      <ContextBar searchQuery={searchQuery} onSearchChange={setSearchQuery} />
+      <ContextBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onRefresh={onActiveRefresh}
+        isRefreshing={isRefreshing}
+      />
       <main className="flex flex-1 flex-col overflow-hidden">
         <ResizablePanelGroup direction="horizontal" className="flex-1">
           <ResizablePanel
@@ -101,6 +110,7 @@ export const AppShell = ({
                     <CenterPanel
                       selection={selection}
                       snapshot={snapshot}
+                      leftPanelView={leftPanelView}
                       inspectorTarget={inspectorTarget}
                       onInspectorTargetChange={onInspectorTargetChange}
                       onRefresh={onWorkspaceRefresh}

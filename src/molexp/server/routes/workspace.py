@@ -17,6 +17,9 @@ from ..schemas import (
     FileContentResponse,
     WorkspaceInfoResponse,
     WorkspaceOpenRequest,
+    WorkspaceRunRow,
+    WorkspaceRunsResponse,
+    compute_workspace_runs_stats,
 )
 
 
@@ -53,6 +56,56 @@ def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoRespons
         root=str(workspace.root),
         projectCount=len(workspace.list_projects()),
         assetCount=len(workspace.assets.list()),
+    )
+
+
+@router.get("/runs", response_model=WorkspaceRunsResponse)
+def list_workspace_runs(
+    project_id: str | None = Query(default=None, alias="projectId"),
+    experiment_id: str | None = Query(default=None, alias="experimentId"),
+    backend: str | None = Query(default=None, description="Filter by executor backend"),
+    status: str | None = Query(default=None, description="Filter by run status"),
+    limit: int = Query(default=500, ge=1, le=2000),
+    workspace=Depends(get_workspace),
+) -> WorkspaceRunsResponse:
+    """Cross-experiment list of runs, each with embedded execution attempts.
+
+    Returns rows ordered by ``created_at`` desc.  Plugins surface
+    backend-specific columns (cluster, scheduler job id, etc.) via the
+    ``backend`` / ``backendMetadata`` fields on each execution row.
+    """
+
+    rows: list[WorkspaceRunRow] = []
+    for project in workspace.list_projects():
+        if project_id and project.id != project_id:
+            continue
+        project_name = project.name
+        for experiment in project.list_experiments():
+            if experiment_id and experiment.id != experiment_id:
+                continue
+            experiment_name = experiment.name
+            for run in experiment.list_runs():
+                row = WorkspaceRunRow.from_run(
+                    run,
+                    project_name=project_name,
+                    experiment_name=experiment_name,
+                )
+                if backend and (row.backend or "").lower() != backend.lower():
+                    continue
+                if status and row.status.lower() != status.lower():
+                    continue
+                rows.append(row)
+
+    rows.sort(key=lambda r: r.createdAt, reverse=True)
+    truncated = len(rows) > limit
+    if truncated:
+        rows = rows[:limit]
+
+    return WorkspaceRunsResponse(
+        runs=rows,
+        stats=compute_workspace_runs_stats(rows),
+        total=len(rows),
+        truncated=truncated,
     )
 
 

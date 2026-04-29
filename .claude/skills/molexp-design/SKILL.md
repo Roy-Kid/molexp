@@ -60,4 +60,4 @@ If visual verification is not possible in this environment, say so explicitly â€
 - Do not invent new design tokens â€” add to `tailwind.css` only if the user confirms a theme change.
 - Do not introduce a new UI primitive if a suitable one exists in `components/ui/`.
 - Density first: if a change makes the layout sparser without a user-visible reason, reject it.
-- This skill is for **visual quality**. For behavior changes, state reshaping, or new features, use `/molexp-ui` instead.
+- This skill is for **visual quality**. For behavior changes, state reshaping, or new features, use `/molexp-add-ui` instead.

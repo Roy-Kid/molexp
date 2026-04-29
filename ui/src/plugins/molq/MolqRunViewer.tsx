@@ -19,6 +19,7 @@ import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
+import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
 
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skipped"]);
@@ -46,6 +47,8 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
   const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
   const runTabContributions = listEntityTabs("run");
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { alert, dialog: alertDialog } = useAlert();
 
   const run = useMemo(() => {
     return snapshot.runs.find((item) => item.id === selection.objectId) ?? null;
@@ -133,9 +136,17 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
 
   const handleCancelRun = async (): Promise<void> => {
     if (terminalRunStatuses.has(run.status)) return;
-    const confirmed = window.confirm(
-      `Mark run "${run.id}" as cancelled?\n\nThis updates workspace status only; it does not cancel a scheduler job.`,
-    );
+    const confirmed = await confirm({
+      title: "Mark run as cancelled?",
+      description: (
+        <>
+          Run <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code> will be marked
+          cancelled in the workspace. This does not stop any underlying scheduler job.
+        </>
+      ),
+      confirmLabel: "Mark cancelled",
+      destructive: true,
+    });
     if (!confirmed) return;
 
     try {
@@ -143,7 +154,10 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
       onRefresh();
     } catch (error) {
       console.error("Failed to mark run cancelled:", error);
-      window.alert("Failed to mark run cancelled");
+      void alert({
+        title: "Failed to mark run cancelled",
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -334,6 +348,8 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
           </EntityTabContent>
         </EntityTabs>
       </div>
+      {confirmDialog}
+      {alertDialog}
     </div>
   );
 };

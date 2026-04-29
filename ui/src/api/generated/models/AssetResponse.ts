@@ -22,3 +22,4 @@ export type AssetResponse = {
     tags?: Record<string, string>;
     extra?: Record<string, any>;
 };
+

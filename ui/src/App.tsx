@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { AppShell } from "@/app/layout/AppShell";
 import { ErrorBoundary } from "@/app/layout/ErrorBoundary";
+import { OAuthCallbackPage } from "@/app/oauth/OAuthCallbackPage";
+import { useWorkspaceRuns } from "@/app/runs/useWorkspaceRuns";
 import { workspaceApi } from "@/app/state/api";
-import { useNavigationState } from "@/app/state/useNavigationState";
+import { getLeftPanelViewFromPath, useNavigationState } from "@/app/state/useNavigationState";
 import { useWorkspaceState } from "@/app/state/useWorkspaceState";
 import type { InspectorTarget, Selection } from "@/app/types";
 import "@/plugins/runtime";
@@ -20,7 +23,18 @@ const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarg
 };
 
 const App = (): JSX.Element => {
-  const { snapshot, status, error, refresh } = useWorkspaceState();
+  const location = useLocation();
+  // OAuth popup target — bypass workspace boot so the page can postMessage
+  // its code/state back to the opener without spinning up the whole app.
+  if (location.pathname === "/oauth-callback") {
+    return <OAuthCallbackPage />;
+  }
+  const activeView = getLeftPanelViewFromPath(location.pathname);
+  const { snapshot, status, error, refresh } = useWorkspaceState(activeView);
+  // Subscribe to the runs poller only when the user is on the runs view; the
+  // hook still gives us a refresh handle even when disabled so manual refresh
+  // works regardless of polling state.
+  const runs = useWorkspaceRuns({ enabled: activeView === "runs" });
   const { leftPanelView, selection, setLeftPanelView, setSelection } = useNavigationState(snapshot);
   const [inspectorTarget, setInspectorTarget] = useState<InspectorTarget>(
     buildDefaultInspectorTarget(selection),
@@ -53,6 +67,19 @@ const App = (): JSX.Element => {
     refresh();
   };
 
+  // The toolbar refresh button targets only the data the active view actually
+  // reads — runs view pulls from the runs poller; everything else reads from
+  // the workspace snapshot.
+  const handleActiveRefresh = useCallback((): void => {
+    if (activeView === "runs") {
+      runs.refresh();
+      return;
+    }
+    refresh();
+  }, [activeView, refresh, runs]);
+
+  const isRefreshing = activeView === "runs" ? runs.loading : status === "loading";
+
   return (
     <ErrorBoundary>
       <AppShell
@@ -60,6 +87,7 @@ const App = (): JSX.Element => {
         selection={selection}
         snapshot={snapshot}
         inspectorTarget={inspectorTarget}
+        isRefreshing={isRefreshing}
         onLeftPanelViewChange={setLeftPanelView}
         onSelectionChange={handleSelectionChange}
         onInspectorTargetChange={setInspectorTarget}
@@ -67,6 +95,7 @@ const App = (): JSX.Element => {
         onCreateDirectory={handleCreateDirectory}
         onCreateFile={handleCreateFile}
         onWorkspaceRefresh={refresh}
+        onActiveRefresh={handleActiveRefresh}
       />
       {status === "loading" && (
         <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-background/50">

@@ -544,6 +544,18 @@ def run(
         Optional[str],
         typer.Option("--cluster", help="molq cluster name.", rich_help_panel="HPC Options"),
     ] = None,
+    target: Annotated[
+        Optional[str],
+        typer.Option(
+            "--target",
+            help=(
+                "Named compute target from `molexp target list`. Overrides "
+                "--scheduler/--cluster — the target carries both axes "
+                "(transport: local/ssh + scheduler: shell/slurm/pbs/lsf)."
+            ),
+            rich_help_panel="Execution Backend",
+        ),
+    ] = None,
     # ── SLURM-specific ─────────────────────────────────────────────────────
     partition: Annotated[
         Optional[str],
@@ -575,12 +587,33 @@ def run(
 ) -> None:
     """Execute the workflow(s) defined by *script*."""
     # ── Backend selection ──────────────────────────────────────────────────
-    if local and scheduler is not None:
-        rprint("[red]Error:[/red] Specify at most one backend flag (--local, --scheduler).")
+    backend_flags = sum(
+        1 for f in (local, scheduler is not None, target is not None) if f
+    )
+    if backend_flags > 1:
+        rprint(
+            "[red]Error:[/red] Specify at most one backend flag "
+            "(--local, --scheduler, --target)."
+        )
         raise typer.Exit(1)
 
-    selected_scheduler = scheduler
-    is_local = selected_scheduler is None
+    # --target resolves the scheduler from the target's metadata.
+    selected_target = None
+    if target is not None:
+        from molexp.workspace import Workspace, get_target
+
+        ws_path = workspace if workspace is not None else Path.cwd()
+        ws = Workspace(ws_path)
+        try:
+            selected_target = get_target(ws, target)
+        except KeyError as exc:
+            rprint(f"[red]{exc}[/red] — see `molexp target list`.")
+            raise typer.Exit(1) from exc
+
+    selected_scheduler = (
+        selected_target.scheduler if selected_target is not None else scheduler
+    )
+    is_local = selected_scheduler is None and selected_target is None
 
     if bg and not is_local:
         rprint("[red]Error:[/red] --bg is only valid with --local.")
@@ -642,6 +675,7 @@ def run(
         cluster=cluster,
         resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
         scheduling={"queue": selected_queue, "account": account, "qos": qos},
+        target=selected_target,
     )
     profile_label = (
         f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"

@@ -13,3 +13,4 @@ export type MetricSeriesResponse = {
     latestTimestamp?: (string | null);
     latestValue?: null;
 };
+

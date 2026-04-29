@@ -73,6 +73,196 @@ function buildNestedTree(path: string): { path: string; children: FileNode[] } {
     };
 }
 
+interface MockExecutionRow {
+    executionId: string;
+    runId: string;
+    status: string;
+    startedAt: string;
+    finishedAt: string | null;
+    durationSeconds: number | null;
+    schedulerJobId: string | null;
+    backend: string | null;
+    metadata: Record<string, string>;
+    backendMetadata: Record<string, string>;
+}
+
+interface MockRunRow {
+    id: string;
+    name: string;
+    projectId: string;
+    projectName: string;
+    experimentId: string;
+    experimentName: string;
+    status: string;
+    backend: string | null;
+    cluster: string | null;
+    scheduler: string | null;
+    profile: string | null;
+    parameters: Record<string, unknown>;
+    createdAt: string;
+    finishedAt: string | null;
+    executionCount: number;
+    latestSchedulerJobId: string | null;
+    executions: MockExecutionRow[];
+}
+
+const baseSubmittedAt = Date.now() - 6 * 3600 * 1000;
+
+function buildMockWorkspaceRuns(): MockRunRow[] {
+    const fixtures: Array<{
+        id: string;
+        projectId: string;
+        projectName: string;
+        experimentId: string;
+        experimentName: string;
+        status: string;
+        backend: string | null;
+        cluster: string | null;
+        scheduler: string | null;
+        profile: string | null;
+        attempts: Array<{ status: string; schedulerJobId?: string; durationSec?: number }>;
+    }> = [
+        {
+            id: "run-allegro-001",
+            projectId: "proj-allegro",
+            projectName: "Allegro Sweep",
+            experimentId: "exp-lr-grid",
+            experimentName: "Learning rate grid",
+            status: "running",
+            backend: "molq",
+            cluster: "dardel.scilifelab.se",
+            scheduler: "slurm",
+            profile: "dardel-gpu",
+            attempts: [
+                { status: "failed", schedulerJobId: "48201", durationSec: 1810 },
+                { status: "running", schedulerJobId: "48317", durationSec: 4302 },
+            ],
+        },
+        {
+            id: "run-nemd-014",
+            projectId: "proj-electrolytes",
+            projectName: "Electrolyte transport",
+            experimentId: "exp-nemd",
+            experimentName: "NEMD conductivity",
+            status: "succeeded",
+            backend: "molq",
+            cluster: "alvis.scilifelab.se",
+            scheduler: "slurm",
+            profile: "alvis",
+            attempts: [
+                { status: "succeeded", schedulerJobId: "910023", durationSec: 7200 },
+            ],
+        },
+        {
+            id: "run-local-quick",
+            projectId: "proj-allegro",
+            projectName: "Allegro Sweep",
+            experimentId: "exp-smoke",
+            experimentName: "Smoke test",
+            status: "succeeded",
+            backend: "local",
+            cluster: null,
+            scheduler: "local",
+            profile: null,
+            attempts: [{ status: "succeeded", durationSec: 35 }],
+        },
+        {
+            id: "run-pending",
+            projectId: "proj-electrolytes",
+            projectName: "Electrolyte transport",
+            experimentId: "exp-nemd",
+            experimentName: "NEMD conductivity",
+            status: "pending",
+            backend: null,
+            cluster: null,
+            scheduler: null,
+            profile: null,
+            attempts: [],
+        },
+    ];
+
+    return fixtures.map((row, runIdx) => {
+        const createdAt = new Date(baseSubmittedAt + runIdx * 12 * 60_000).toISOString();
+        const executions: MockExecutionRow[] = row.attempts.map((attempt, attemptIdx) => {
+            const startedAt = new Date(
+                baseSubmittedAt + runIdx * 12 * 60_000 + attemptIdx * 600_000,
+            );
+            const finishedAt =
+                attempt.durationSec && attempt.status !== "running"
+                    ? new Date(startedAt.getTime() + attempt.durationSec * 1000)
+                    : null;
+            const metadata: Record<string, string> = {};
+            if (row.cluster) metadata.cluster_name = row.cluster;
+            if (row.scheduler) metadata.scheduler = row.scheduler;
+            if (attempt.schedulerJobId) metadata.scheduler_job_id = attempt.schedulerJobId;
+
+            return {
+                executionId: `exec-${row.id}-${attemptIdx + 1}`,
+                runId: row.id,
+                status: attempt.status,
+                startedAt: startedAt.toISOString(),
+                finishedAt: finishedAt?.toISOString() ?? null,
+                durationSeconds: attempt.durationSec ?? null,
+                schedulerJobId: attempt.schedulerJobId ?? null,
+                backend: row.backend,
+                metadata,
+                backendMetadata: metadata,
+            };
+        });
+
+        return {
+            ...row,
+            name: row.id,
+            parameters: { lr: 0.0001, batch: 32 },
+            createdAt,
+            finishedAt:
+                row.status === "succeeded" || row.status === "failed"
+                    ? executions[executions.length - 1]?.finishedAt ?? null
+                    : null,
+            executionCount: executions.length,
+            latestSchedulerJobId:
+                executions
+                    .slice()
+                    .reverse()
+                    .find((e) => e.schedulerJobId)?.schedulerJobId ?? null,
+            executions,
+        };
+    });
+}
+
+function computeMockStats(rows: MockRunRow[]): {
+    total: number;
+    running: number;
+    pending: number;
+    failed: number;
+    succeeded: number;
+} {
+    const stats = { total: rows.length, running: 0, pending: 0, failed: 0, succeeded: 0 };
+    for (const row of rows) {
+        switch (row.status) {
+            case "running":
+                stats.running += 1;
+                break;
+            case "pending":
+            case "queued":
+            case "submitted":
+            case "created":
+                stats.pending += 1;
+                break;
+            case "failed":
+            case "cancelled":
+            case "timed_out":
+            case "lost":
+                stats.failed += 1;
+                break;
+            case "succeeded":
+                stats.succeeded += 1;
+                break;
+        }
+    }
+    return stats;
+}
+
 export const workspaceHandlers = [
     // GET /api/workspace/info - Get workspace metadata
     http.get(`${API_BASE}/workspace/info`, () => {
@@ -83,6 +273,31 @@ export const workspaceHandlers = [
             root: "/mock-workspace",
             projectCount: projects.length,
             assetCount: assets.length,
+        });
+    }),
+
+    // GET /api/workspace/runs - Cross-experiment runs aggregator
+    http.get(`${API_BASE}/workspace/runs`, ({ request }) => {
+        const url = new URL(request.url);
+        const projectFilter = url.searchParams.get("projectId");
+        const experimentFilter = url.searchParams.get("experimentId");
+        const backendFilter = url.searchParams.get("backend");
+        const statusFilter = url.searchParams.get("status");
+
+        const allRuns = buildMockWorkspaceRuns();
+        const filtered = allRuns.filter((row) => {
+            if (projectFilter && row.projectId !== projectFilter) return false;
+            if (experimentFilter && row.experimentId !== experimentFilter) return false;
+            if (backendFilter && (row.backend ?? "") !== backendFilter) return false;
+            if (statusFilter && row.status !== statusFilter) return false;
+            return true;
+        });
+
+        return HttpResponse.json({
+            runs: filtered,
+            stats: computeMockStats(filtered),
+            total: filtered.length,
+            truncated: false,
         });
     }),
 

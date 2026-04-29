@@ -225,7 +225,11 @@ export class RunsService {
     }
     /**
      * Get Run Lammps Log
-     * Parse a LAMMPS log file via ``molpy.io.LAMMPSLog`` and return thermo stages.
+     * Parse a LAMMPS log file and return thermo stages.
+     *
+     * Inlined parser — ``molpy.io`` does not export a multi-stage log
+     * reader, so the route owns this lightweight regex-based parse to
+     * avoid coupling the API surface to a transient molpy refactor.
      * @param projectId
      * @param experimentId
      * @param runId

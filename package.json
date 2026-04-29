@@ -10,15 +10,14 @@
     "dev": "npm run dev -w molexp-ui",
     "dev:mock": "npm run dev:mock -w molexp-ui",
     "build": "npm run build -w molexp-ui",
-    "build:ui": "npm run build -w molexp-ui && rm -rf src/molexp/_webapp && mkdir -p src/molexp/_webapp && cp -r ui/dist/. src/molexp/_webapp/",
-    "build:python": "npm run build:ui",
+    "build:ui": "npm run build -w molexp-ui",
     "typecheck": "npm run typecheck -w molexp-ui",
     "test:ui": "npm run test -w molexp-ui",
     "lint": "npm run lint -w molexp-ui",
     "generate:api": "npm run generate:api -w molexp-ui"
   },
   "devDependencies": {
-    "shadcn": "^3.6.3"
+    "shadcn": "^4.5.0"
   },
   "packageManager": "npm@11.11.0+sha512.f36811c4aae1fde639527368ae44c571d050006a608d67a191f195a801a52637a312d259186254aa3a3799b05335b7390539cf28656d18f0591a1125ba35f973"
 }

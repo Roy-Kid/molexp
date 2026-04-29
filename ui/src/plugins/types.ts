@@ -89,6 +89,58 @@ export interface FileTypeContribution {
   Component: React.ComponentType<RendererProps & { discoveredFiles: DiscoveredFile[] }>;
 }
 
+/**
+ * Per-execution data passed to plugin renderers.
+ *
+ * Mirrors `WorkspaceExecutionRow` returned by `/api/workspace/runs`. The
+ * `backend` discriminator decides which plugin contribution(s) light up
+ * for this row; `metadata` carries scheduler-specific fields (cluster,
+ * scheduler_job_id, queue, …) for table cells and detail panels.
+ */
+export interface ExecutionRowData {
+  executionId: string;
+  runId: string;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  durationSeconds: number | null;
+  schedulerJobId: string | null;
+  backend: string | null;
+  metadata: Record<string, string>;
+}
+
+export interface ExecutionColumnRenderProps {
+  execution: ExecutionRowData;
+}
+
+export interface ExecutionColumnContribution {
+  id: string;
+  /** Backend discriminator (e.g. "molq"). Undefined = always render. */
+  backend?: string;
+  /** Stable column key used for header + ordering. */
+  columnId: string;
+  header: string;
+  priority?: number;
+  /** Optional fixed pixel width hint for the column header cell. */
+  width?: number;
+  align?: "left" | "right" | "center";
+  Cell: React.ComponentType<ExecutionColumnRenderProps>;
+}
+
+export interface ExecutionDetailRenderProps {
+  execution: ExecutionRowData;
+  /** Parent run id for plugins that need run-level context. */
+  runId: string;
+}
+
+export interface ExecutionDetailContribution {
+  id: string;
+  backend?: string;
+  title: string;
+  priority?: number;
+  Component: React.ComponentType<ExecutionDetailRenderProps>;
+}
+
 export interface PluginManifest {
   id: string;
   title: string;

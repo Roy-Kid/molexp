@@ -238,9 +238,7 @@ export interface BackendDistributionEntry {
   count: number;
 }
 
-export const computeBackendDistribution = (
-  runs: WorkspaceRunRow[],
-): BackendDistributionEntry[] => {
+export const computeBackendDistribution = (runs: WorkspaceRunRow[]): BackendDistributionEntry[] => {
   const map = new Map<string, BackendDistributionEntry>();
   for (const run of runs) {
     if (!run.backend) continue;
@@ -308,6 +306,169 @@ const outcomeFor = (status: string): "succeeded" | "failed" | "cancelled" | null
   const group = groupForStatus(status);
   if (group === "succeeded" || group === "failed" || group === "cancelled") return group;
   return null;
+};
+
+export interface KpiSparkline {
+  /** Sparkline buckets ordered chronologically (oldest → newest). */
+  series: number[];
+  /** Count for the most recent bucket. */
+  current: number;
+  /** Count for the bucket immediately before the most recent one. */
+  previous: number;
+  /** current − previous. */
+  delta: number;
+}
+
+export interface KpiSparklines {
+  running: KpiSparkline;
+  pending: KpiSparkline;
+  failed: KpiSparkline;
+  succeeded: KpiSparkline;
+  /** "submitted" series — count of runs created in each bucket (any status). */
+  submitted: KpiSparkline;
+}
+
+const emptyKpiSparkline = (buckets: number): KpiSparkline => ({
+  series: new Array(buckets).fill(0),
+  current: 0,
+  previous: 0,
+  delta: 0,
+});
+
+const finalizeKpiSparkline = (series: number[]): KpiSparkline => {
+  const n = series.length;
+  const current = n >= 1 ? series[n - 1] : 0;
+  const previous = n >= 2 ? series[n - 2] : 0;
+  return { series, current, previous, delta: current - previous };
+};
+
+/**
+ * Bucket the supplied runs into `buckets` evenly-spaced bins covering the
+ * trailing `hours` window (default 24 / 24 ≈ one bucket per hour). Produces
+ * one series per status group plus a `submitted` series counting newly-created
+ * runs. Used by the KPI strip sparklines — derived purely from the existing
+ * run list response, no extra backend calls required.
+ */
+export const computeKpiSparklines = (
+  runs: WorkspaceRunRow[],
+  hours: number = 24,
+  buckets: number = 24,
+  now: number = Date.now(),
+): KpiSparklines => {
+  if (buckets <= 0 || hours <= 0) {
+    return {
+      running: emptyKpiSparkline(0),
+      pending: emptyKpiSparkline(0),
+      failed: emptyKpiSparkline(0),
+      succeeded: emptyKpiSparkline(0),
+      submitted: emptyKpiSparkline(0),
+    };
+  }
+
+  const totalMs = hours * HOUR_MS;
+  const bucketMs = totalMs / buckets;
+  const windowStart = now - totalMs;
+
+  const running = new Array<number>(buckets).fill(0);
+  const pending = new Array<number>(buckets).fill(0);
+  const failed = new Array<number>(buckets).fill(0);
+  const succeeded = new Array<number>(buckets).fill(0);
+  const submitted = new Array<number>(buckets).fill(0);
+
+  const indexFor = (ts: number): number | null => {
+    if (ts < windowStart || ts > now) return null;
+    const raw = Math.floor((ts - windowStart) / bucketMs);
+    if (raw < 0) return null;
+    return Math.min(raw, buckets - 1);
+  };
+
+  for (const run of runs) {
+    const created = safeDate(run.createdAt);
+    if (created) {
+      const i = indexFor(created.getTime());
+      if (i !== null) submitted[i] += 1;
+    }
+
+    const group = groupForStatus(run.status);
+    const finished = safeDate(run.finishedAt);
+
+    if (group === "running" || group === "pending") {
+      const earliestStart = run.executions
+        .map((exec) => safeDate(exec.startedAt))
+        .filter((d): d is Date => d !== null)
+        .map((d) => d.getTime())
+        .sort((a, b) => a - b)[0];
+      const ts = earliestStart ?? created?.getTime() ?? null;
+      if (ts !== null) {
+        const i = indexFor(ts);
+        if (i !== null) {
+          if (group === "running") running[i] += 1;
+          else pending[i] += 1;
+        }
+      }
+    } else if (group === "failed" && finished) {
+      const i = indexFor(finished.getTime());
+      if (i !== null) failed[i] += 1;
+    } else if (group === "succeeded" && finished) {
+      const i = indexFor(finished.getTime());
+      if (i !== null) succeeded[i] += 1;
+    }
+  }
+
+  return {
+    running: finalizeKpiSparkline(running),
+    pending: finalizeKpiSparkline(pending),
+    failed: finalizeKpiSparkline(failed),
+    succeeded: finalizeKpiSparkline(succeeded),
+    submitted: finalizeKpiSparkline(submitted),
+  };
+};
+
+export type RecentEventKind = "submitted" | "started" | "finished";
+
+export interface RecentEvent {
+  kind: RecentEventKind;
+  at: string;
+  executionId?: string;
+  /** For finished events, mirrors execution.status (succeeded/failed/cancelled). */
+  outcome?: string;
+}
+
+/**
+ * Derives a "Recent events" list for a single run strictly from data the
+ * backend already exposes — `createdAt`, plus per-execution `startedAt` /
+ * `finishedAt`. Emits ONLY `submitted | started | finished`; never invents
+ * synthetic events ("checkpoint saved", "stdout streaming", etc.).
+ */
+export const computeRecentEventsForRun = (run: WorkspaceRunRow): RecentEvent[] => {
+  const events: RecentEvent[] = [];
+
+  if (run.createdAt) {
+    events.push({ kind: "submitted", at: run.createdAt });
+  }
+
+  for (const exec of run.executions) {
+    if (exec.startedAt) {
+      events.push({ kind: "started", at: exec.startedAt, executionId: exec.executionId });
+    }
+    if (exec.finishedAt) {
+      events.push({
+        kind: "finished",
+        at: exec.finishedAt,
+        executionId: exec.executionId,
+        outcome: exec.status,
+      });
+    }
+  }
+
+  return events.sort((a, b) => {
+    const ta = new Date(a.at).getTime();
+    const tb = new Date(b.at).getTime();
+    if (Number.isNaN(ta) && Number.isNaN(tb)) return 0;
+    if (Number.isNaN(ta)) return 1;
+    if (Number.isNaN(tb)) return -1;
+    return tb - ta;
+  });
 };
 
 export const computeActivityBuckets = (

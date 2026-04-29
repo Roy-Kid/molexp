@@ -11,6 +11,20 @@ import {
   Workflow,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+
+const formatDuration = (startIso: string | null, endIso: string | null): string | null => {
+  if (!startIso || !endIso) return null;
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  const ms = Math.max(0, end - start);
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds - minutes * 60);
+  return `${minutes}m${remainder}s`;
+};
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
@@ -18,11 +32,8 @@ import {
   DataTable,
   EMPTY_COPY,
   EmptyState,
-  EntityHeader,
   EntityMetric,
-  EntityTabBar,
-  EntityTabContent,
-  EntityTabs,
+  EntityPage,
   KeyValueGrid,
   OverviewHighlight,
   OverviewHighlightGrid,
@@ -68,6 +79,44 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     () => snapshot.runs.filter((r) => r.projectId === projectId),
     [snapshot.runs, projectId],
   );
+
+  // Per-experiment run roll-up: counts by status, used by both the
+  // experiment table column and the inline overview Activity panel.
+  interface ExperimentRunStats {
+    total: number;
+    succeeded: number;
+    failed: number;
+    running: number;
+    other: number;
+  }
+
+  const experimentRunStats = useMemo(() => {
+    const map = new Map<string, ExperimentRunStats>();
+    for (const exp of projectExperiments) {
+      map.set(exp.id, { total: 0, succeeded: 0, failed: 0, running: 0, other: 0 });
+    }
+    for (const run of projectRuns) {
+      const stats = map.get(run.experimentId);
+      if (!stats) continue;
+      stats.total += 1;
+      if (run.status === "succeeded") stats.succeeded += 1;
+      else if (run.status === "failed") stats.failed += 1;
+      else if (run.status === "running") stats.running += 1;
+      else stats.other += 1;
+    }
+    return map;
+  }, [projectExperiments, projectRuns]);
+
+  const recentRuns = useMemo(() => {
+    const ranked = [...projectRuns]
+      .filter((r) => r.finishedAt || r.startedAt)
+      .sort((a, b) => {
+        const aT = Date.parse(a.finishedAt ?? a.startedAt ?? "") || 0;
+        const bT = Date.parse(b.finishedAt ?? b.startedAt ?? "") || 0;
+        return bT - aT;
+      });
+    return ranked.slice(0, 5);
+  }, [projectRuns]);
 
   const handleDelete = async () => {
     if (!confirm(`Are you sure you want to delete project "${projectId}"?`)) {
@@ -262,13 +311,40 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     {
       key: "status",
       header: "Status",
-      width: "w-[160px]",
+      width: "w-[140px]",
       cell: (exp) => <StatusBadge status={exp.status} />,
+    },
+    {
+      key: "runs",
+      header: "Runs",
+      width: "w-[180px]",
+      cell: (exp) => {
+        const stats = experimentRunStats.get(exp.id);
+        if (!stats || stats.total === 0) {
+          return <span className="text-xs text-muted-foreground">No runs</span>;
+        }
+        return (
+          <span className="flex items-baseline gap-2 text-xs">
+            <span className="font-semibold tabular-nums text-foreground">{stats.total}</span>
+            {stats.succeeded > 0 && (
+              <span className="text-emerald-600 dark:text-emerald-400">
+                {stats.succeeded} ok
+              </span>
+            )}
+            {stats.failed > 0 && (
+              <span className="text-rose-600 dark:text-rose-400">{stats.failed} fail</span>
+            )}
+            {stats.running > 0 && (
+              <span className="text-sky-600 dark:text-sky-400">{stats.running} run</span>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: "updated",
       header: "Updated",
-      width: "w-[180px]",
+      width: "w-[160px]",
       cell: (exp) => (
         <span className="text-muted-foreground">
           {new Date(exp.updatedAt).toLocaleDateString()}
@@ -391,52 +467,41 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
 
   return (
     <>
-      <div className="flex h-full flex-col bg-background">
-        <EntityHeader
-          breadcrumbs={breadcrumbs}
-          canNavigateUp={canNavigateUp}
-          onNavigateUp={navigateUp}
-          icon={FolderKanban}
-          title={project.name}
-          status={project.status}
-          subtitle={project.summary || undefined}
-          actions={
-            <>
-              <CreateExperimentDialog projectId={projectId} onExperimentCreated={onRefresh} />
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleDelete}
-                disabled={isDeleting}
-                className="text-muted-foreground hover:text-destructive"
-                title="Delete Project"
-              >
-                <Trash2 className="h-5 w-5" />
-              </Button>
-            </>
-          }
-          metrics={
-            <>
-              <EntityMetric label="Experiments" value={projectExperiments.length} />
-              <EntityMetric label="Runs" value={projectRuns.length} />
-              <EntityMetric label="Assets" value={projectAssets.length} />
-            </>
-          }
-        />
-
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <EntityTabs defaultValue="overview">
-            <EntityTabBar
-              tabs={[
-                { value: "overview", label: "Overview" },
-                { value: "experiments", label: "Experiments" },
-                { value: "runs", label: "Runs" },
-                { value: "assets", label: "Assets" },
-                { value: "settings", label: "Settings" },
-              ]}
-            />
-
-            <EntityTabContent value="overview">
+      <EntityPage
+        breadcrumbs={breadcrumbs}
+        canNavigateUp={canNavigateUp}
+        onNavigateUp={navigateUp}
+        icon={FolderKanban}
+        title={project.name}
+        status={project.status}
+        subtitle={project.summary || undefined}
+        actions={
+          <>
+            <CreateExperimentDialog projectId={projectId} onExperimentCreated={onRefresh} />
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleDelete}
+              disabled={isDeleting}
+              className="text-muted-foreground hover:text-destructive"
+              title="Delete Project"
+            >
+              <Trash2 className="h-5 w-5" />
+            </Button>
+          </>
+        }
+        metrics={
+          <>
+            <EntityMetric label="Experiments" value={projectExperiments.length} />
+            <EntityMetric label="Runs" value={projectRuns.length} />
+            <EntityMetric label="Assets" value={projectAssets.length} />
+          </>
+        }
+        tabs={[
+          {
+            value: "overview",
+            label: "Overview",
+            content: (
               <OverviewPage
                 aside={
                   <>
@@ -468,6 +533,50 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   </p>
                 </OverviewSection>
 
+                <OverviewSection
+                  title="Recent activity"
+                  description="Most recently finished runs across this project."
+                >
+                  {recentRuns.length === 0 ? (
+                    <p className="text-sm italic text-muted-foreground">
+                      No completed runs yet.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
+                      {recentRuns.map((run) => {
+                        const exp = projectExperiments.find((e) => e.id === run.experimentId);
+                        const duration = formatDuration(run.startedAt, run.finishedAt);
+                        const when = run.finishedAt ?? run.startedAt;
+                        return (
+                          <li key={run.id}>
+                            <button
+                              type="button"
+                              className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40"
+                              onClick={() => navigateToRunView(run)}
+                            >
+                              <StatusBadge status={run.status} size="sm" />
+                              <span className="min-w-0 truncate">
+                                <span className="font-medium text-foreground">
+                                  {exp?.name ?? run.experimentId}
+                                </span>
+                                <span className="ml-2 font-mono text-muted-foreground">
+                                  {run.id.substring(0, 8)}
+                                </span>
+                              </span>
+                              <span className="font-mono text-muted-foreground">
+                                {duration ?? "—"}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {when ? new Date(when).toLocaleString() : "—"}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </OverviewSection>
+
                 <OverviewSection title="Identity">
                   <KeyValueGrid
                     items={[
@@ -479,9 +588,12 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   />
                 </OverviewSection>
               </OverviewPage>
-            </EntityTabContent>
-
-            <EntityTabContent value="experiments">
+            ),
+          },
+          {
+            value: "experiments",
+            label: "Experiments",
+            content: (
               <DataTable
                 columns={experimentColumns}
                 data={projectExperiments}
@@ -495,9 +607,12 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   />
                 }
               />
-            </EntityTabContent>
-
-            <EntityTabContent value="runs">
+            ),
+          },
+          {
+            value: "runs",
+            label: "Runs",
+            content: (
               <DataTable
                 columns={runColumns}
                 data={projectRuns}
@@ -511,9 +626,12 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   />
                 }
               />
-            </EntityTabContent>
-
-            <EntityTabContent value="assets">
+            ),
+          },
+          {
+            value: "assets",
+            label: "Assets",
+            content: (
               <DataTable
                 columns={assetColumns}
                 data={projectAssets}
@@ -527,28 +645,33 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   />
                 }
               />
-            </EntityTabContent>
-
-            <EntityTabContent value="settings" className="overflow-auto p-6">
-              <div className="max-w-2xl space-y-5">
-                <div className="border-b border-border/70 pb-4">
-                  <h3 className="text-sm font-semibold uppercase text-muted-foreground">
-                    Danger Zone
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    Deleting a project removes access to its experiment and run hierarchy from this
-                    workspace view.
-                  </p>
+            ),
+          },
+          {
+            value: "settings",
+            label: "Settings",
+            content: (
+              <div className="overflow-auto p-6">
+                <div className="max-w-2xl space-y-5">
+                  <div className="border-b border-border/70 pb-4">
+                    <h3 className="text-sm font-semibold uppercase text-muted-foreground">
+                      Danger Zone
+                    </h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Deleting a project removes access to its experiment and run hierarchy from
+                      this workspace view.
+                    </p>
+                  </div>
+                  <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete Project
+                  </Button>
                 </div>
-                <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Delete Project
-                </Button>
               </div>
-            </EntityTabContent>
-          </EntityTabs>
-        </div>
-      </div>
+            ),
+          },
+        ]}
+      />
       {createRunExperiment && (
         <CreateRunDialog
           projectId={createRunExperiment.projectId}

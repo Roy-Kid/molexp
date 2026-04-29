@@ -7,6 +7,7 @@ import type { FileContentResponse } from '../models/FileContentResponse';
 import type { FileContentUpdateRequest } from '../models/FileContentUpdateRequest';
 import type { WorkspaceInfoResponse } from '../models/WorkspaceInfoResponse';
 import type { WorkspaceOpenRequest } from '../models/WorkspaceOpenRequest';
+import type { WorkspaceRunsResponse } from '../models/WorkspaceRunsResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -21,6 +22,43 @@ export class WorkspaceService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workspace/info',
+        });
+    }
+    /**
+     * List Workspace Runs
+     * Cross-experiment list of runs, each with embedded execution attempts.
+     *
+     * Returns rows ordered by ``created_at`` desc.  Plugins surface
+     * backend-specific columns (cluster, scheduler job id, etc.) via the
+     * ``backend`` / ``backendMetadata`` fields on each execution row.
+     * @param projectId
+     * @param experimentId
+     * @param backend Filter by executor backend
+     * @param status Filter by run status
+     * @param limit
+     * @returns WorkspaceRunsResponse Successful Response
+     * @throws ApiError
+     */
+    public static listWorkspaceRunsApiWorkspaceRunsGet(
+        projectId?: (string | null),
+        experimentId?: (string | null),
+        backend?: (string | null),
+        status?: (string | null),
+        limit: number = 500,
+    ): CancelablePromise<WorkspaceRunsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspace/runs',
+            query: {
+                'projectId': projectId,
+                'experimentId': experimentId,
+                'backend': backend,
+                'status': status,
+                'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**

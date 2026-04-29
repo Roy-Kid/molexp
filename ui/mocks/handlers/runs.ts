@@ -34,8 +34,11 @@ export const runHandlers = [
                 status: "pending",
                 finished: null,
                 parameters: body.parameters || {},
+                results: {},
                 created: new Date().toISOString(),
                 executorInfo: {},
+                workflowSource: null,
+                executionHistory: [],
             };
 
             setRun(newRun);

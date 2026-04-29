@@ -1,4 +1,5 @@
 import { registerRenderer } from "@/app/registry";
+import { AgentSessionInspector } from "@/app/renderers/AgentSessionInspector";
 import { AgentViewer } from "@/app/renderers/AgentViewer";
 import { AssetViewer } from "@/app/renderers/AssetViewer";
 import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
@@ -215,6 +216,6 @@ export const registerDefaultRenderers = (): void => {
     },
     title: "Agent Inspector",
     panelSlot: "right",
-    Component: MetadataInspector,
+    Component: AgentSessionInspector,
   });
 };

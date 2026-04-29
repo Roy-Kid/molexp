@@ -19,14 +19,14 @@ pytest tests/workspace/test_workspace.py
 # Run single test
 pytest tests/workspace/test_workspace.py::test_workspace_creation
 
-# Start server (serves bundled UI if src/molexp/_webapp/ is populated, otherwise API-only)
+# Start server (serves bundled UI if src/molexp/dist/ is populated, otherwise API-only)
 molexp serve /path/to/workspace --port 8000
 
 # Initialize a workspace
 molexp init [path]
 
-# Release: build frontend into src/molexp/_webapp/, then build the wheel
-npm run build:ui
+# Release: build frontend into src/molexp/dist/, then build the wheel
+cd ui && npm run build && cd ..
 python -m build --wheel
 ```
 
@@ -209,15 +209,15 @@ Key patterns:
 The React frontend is **compiled ahead of time by npm** and bundled inside the Python package — matching the `molvis` release workflow. `pip install` / `python -m build` **never** invokes npm.
 
 ```
-ui/src/  →  (npm run build:ui)  →  src/molexp/_webapp/  →  (hatchling)  →  wheel
+ui/src/  →  (cd ui && npm run build)  →  src/molexp/dist/  →  (hatchling)  →  wheel
 ```
 
-- **Root `package.json`** exposes `npm run build:ui`, which builds the `molexp-ui` workspace and copies `ui/dist/.` into `src/molexp/_webapp/`
-- **`pyproject.toml`** uses `hatchling` and declares `[tool.hatch.build] artifacts = ["src/molexp/_webapp/**"]` so the wheel ships the bundle
-- **`src/molexp/_webapp/`** is gitignored (except `.gitkeep`); it is populated on demand by `npm run build:ui`
-- **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "_webapp"` to locate the bundled assets. If empty, the server runs API-only.
-- **Release**: `npm run build:ui && python -m build --wheel`
-- **Dev mode**: Run backend (`molexp serve --port 8000`) and frontend (`npm run dev` from repo root, or `cd ui && npm run dev`) separately
+- **`ui/package.json`** `build` script runs rsbuild and copies `ui/dist/.` into `src/molexp/dist/` — one command does both halves
+- **`pyproject.toml`** uses `hatchling` and declares `[tool.hatch.build] artifacts = ["src/molexp/dist/**"]` so the wheel ships the bundle
+- **`src/molexp/dist/`** is gitignored (except `.gitkeep`); it is populated on demand by `cd ui && npm run build`
+- **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "dist"` to locate the bundled assets. If empty, the server runs API-only.
+- **Release**: `cd ui && npm run build && cd .. && python -m build --wheel`
+- **Dev mode**: Run backend (`molexp serve --port 8000`) and frontend (`cd ui && npm run dev`) separately
 - **Production** (`molexp serve`): serves API + bundled SPA from the installed package
 
 ### Key Patterns
@@ -267,15 +267,17 @@ Each test directory has `conftest.py` for shared fixtures. Use `conftest.py` at 
 
 | Skill | Trigger | Purpose |
 |---|---|---|
-| `/molexp-impl` | User | Full feature implementation (plan → TDD → cross-layer wiring → verify) |
-| `/molexp-spec` | User | Natural language → structured technical spec |
-| `/molexp-api` | User | API endpoint (route + schema + client regen + MSW mock) |
-| `/molexp-ui` | User | Frontend mechanics (renderer + state + mock + test) — invokes `molexp-designer` for post-impl polish |
+| `/molexp-plan` | User | Natural language → structured technical spec |
+| `/molexp-add` | User | Full feature implementation (plan → TDD → cross-layer wiring → verify) |
+| `/molexp-add-api` | User | API endpoint (route + schema + client regen + MSW mock) |
+| `/molexp-add-ui` | User | Frontend mechanics (renderer + state + mock + test) — invokes `molexp-designer` for post-impl polish |
+| `/molexp-add-task` | User | Workflow Task/Actor development |
+| `/molexp-add-tool` | User | PydanticAI agent tool development |
 | `/molexp-design` | User | Frontend visual/UX polish: info density, design-system tokens, a11y, empty/error states |
-| `/molexp-step` | User | Workflow Task/Actor development |
 | `/molexp-test` | User | TDD testing with coverage analysis |
 | `/molexp-review` | Auto/User | Architecture + performance + UI design review (layer compliance, async safety, caching, I/O, concurrency, design system) |
-| `/molexp-agent-tool` | User | PydanticAI agent tool development |
+
+> Naming follows the conventions in `molmcp/docs/concepts/naming.md`: `<domain>-<phase>[-<scope>]` with closed phase vocabulary.
 
 ### Agents (delegated, not user-invoked)
 

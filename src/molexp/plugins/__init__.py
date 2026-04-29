@@ -146,7 +146,13 @@ def discover_ui_plugins() -> list[UiPluginDescriptor]:
                 title="Molq",
                 description="Scheduler-aware run viewers and monitor surfaces for molq-backed runs.",
                 ui_module="molq",
-                capabilities=("submit", "monitor", "scheduler_inspector"),
+                capabilities=(
+                    "submit",
+                    "monitor",
+                    "scheduler_inspector",
+                    "execution_columns",
+                    "execution_detail",
+                ),
                 metadata={"schedulers": list(schedulers)},
             )
         )

@@ -11,6 +11,7 @@ import type {
 const sectionRootByView: Record<LeftPanelView, string> = {
   projects: "/projects",
   workspace: "/workspace",
+  runs: "/runs",
   workflow: "/workflows",
   asset: "/assets",
   agent: "/agents",
@@ -40,9 +41,12 @@ const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection |
   };
 };
 
-const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
+export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   if (pathname.startsWith("/workspace")) {
     return "workspace";
+  }
+  if (pathname.startsWith("/runs")) {
+    return "runs";
   }
   if (pathname.startsWith("/workflows")) {
     return "workflow";
@@ -195,6 +199,9 @@ const buildBreadcrumbs = (
     if (leftPanelView === "projects") {
       return [{ label: "Projects" }];
     }
+    if (leftPanelView === "runs") {
+      return [{ label: "Runs" }];
+    }
     if (leftPanelView === "workflow") {
       return [{ label: "Workflows" }];
     }
@@ -275,6 +282,9 @@ const buildBreadcrumbs = (
       if (selection.objectId === "new") {
         return [{ label: "Agents", to: "/agents" }, { label: "New Goal" }];
       }
+      if (selection.objectId === "settings") {
+        return [{ label: "Agents", to: "/agents" }, { label: "Settings" }];
+      }
 
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return [
@@ -301,6 +311,11 @@ const buildContextMeta = (
         return {
           title: "Projects",
           subtitle: "Browse projects, experiments, and runs from a single hierarchy.",
+        };
+      case "runs":
+        return {
+          title: "Runs",
+          subtitle: "All runs across the workspace, expandable to inspect each execution attempt.",
         };
       case "workspace":
         return {
@@ -367,6 +382,12 @@ const buildContextMeta = (
       };
     }
     case "agent": {
+      if (selection.objectId === "settings") {
+        return {
+          title: "Agent settings",
+          subtitle: "Provider, skills, tools, and MCP servers",
+        };
+      }
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return {
         title:

@@ -8,6 +8,7 @@ Core packages:
 
 __version__ = "0.3.0"
 
+from molexp._logger import Logger, get_logger
 from molexp.entry import entry
 
 # User-facing hierarchy (all from workspace — single source of truth)
@@ -27,6 +28,8 @@ __all__ = [
     "UniformSpace",
     "ParamSpace",
     "entry",
+    "Logger",
+    "get_logger",
 ]
 
 

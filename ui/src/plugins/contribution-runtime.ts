@@ -2,6 +2,8 @@ import type { RendererKey } from "@/app/types";
 import { ContributionRegistry } from "@/lib/contribution-registry";
 import type {
   EntityTabContribution,
+  ExecutionColumnContribution,
+  ExecutionDetailContribution,
   FilePreviewPlugin,
   FileTypeContribution,
   RendererContribution,
@@ -15,6 +17,12 @@ const entityTabRegistry = new ContributionRegistry<EntityTabContribution>(
   "Entity tab contribution",
 );
 const fileTypeRegistry = new ContributionRegistry<FileTypeContribution>("File type contribution");
+const executionColumnRegistry = new ContributionRegistry<ExecutionColumnContribution>(
+  "Execution column contribution",
+);
+const executionDetailRegistry = new ContributionRegistry<ExecutionDetailContribution>(
+  "Execution detail contribution",
+);
 
 export const registerRendererContribution = (contribution: RendererContribution): void => {
   rendererRegistry.register(contribution);
@@ -87,9 +95,41 @@ export const listFileTypeContributions = (
     .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
 };
 
+export const registerExecutionColumnContribution = (
+  contribution: ExecutionColumnContribution,
+): void => {
+  executionColumnRegistry.register(contribution, { onDuplicate: "skip" });
+};
+
+export const listExecutionColumnContributions = (
+  backend?: string | null,
+): ExecutionColumnContribution[] => {
+  return executionColumnRegistry
+    .getAll()
+    .filter((c) => !c.backend || (backend && c.backend.toLowerCase() === backend.toLowerCase()))
+    .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
+};
+
+export const registerExecutionDetailContribution = (
+  contribution: ExecutionDetailContribution,
+): void => {
+  executionDetailRegistry.register(contribution, { onDuplicate: "skip" });
+};
+
+export const listExecutionDetailContributions = (
+  backend?: string | null,
+): ExecutionDetailContribution[] => {
+  return executionDetailRegistry
+    .getAll()
+    .filter((c) => !c.backend || (backend && c.backend.toLowerCase() === backend.toLowerCase()))
+    .sort((left, right) => (right.priority ?? 0) - (left.priority ?? 0));
+};
+
 export const resetContributionRuntimeForTests = (): void => {
   rendererRegistry.clear();
   filePreviewRegistry.clear();
   entityTabRegistry.clear();
   fileTypeRegistry.clear();
+  executionColumnRegistry.clear();
+  executionDetailRegistry.clear();
 };

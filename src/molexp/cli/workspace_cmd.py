@@ -20,9 +20,18 @@ def init(
         typer.Argument(help="Workspace path (default: current directory)"),
     ] = None,
 ) -> None:
-    """Initialize a new workspace."""
+    """Initialize a new workspace.
+
+    Constructs a :class:`~molexp.workspace.Workspace` and *materializes*
+    it so the directory and ``workspace.json`` actually appear on disk.
+    The ``Workspace(...)`` constructor itself is side-effect-free by
+    design (see CLAUDE.md), so this command must call ``materialize()``
+    explicitly — otherwise ``molexp serve`` later complains the
+    workspace doesn't exist.
+    """
     workspace_path = path or Path.cwd()
     ws = Workspace(workspace_path)
+    ws.materialize()
 
     rprint(f"[green]OK[/green] Initialized workspace at: {ws.root}")
     rprint(f"  - Projects directory: {ws.root / 'projects'}")

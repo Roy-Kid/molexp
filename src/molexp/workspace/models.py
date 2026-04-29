@@ -7,9 +7,9 @@ The server, CLI, and Python API all derive from these models.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # ── Shared value objects ────────────────────────────────────────────────────
 
@@ -52,12 +52,67 @@ class WorkflowSnapshotRef(BaseModel, frozen=True):
 #   3. No ``updated_at``.  If you need "last modified", read the file mtime.
 
 
+class ComputeTarget(BaseModel, frozen=True):
+    """A registered execution destination — the cross product of two axes.
+
+    The two-axis cluster model (Transport × Scheduler) treats *where* commands
+    run as orthogonal to *how* jobs are dispatched.  ``host`` is the transport
+    axis: ``None`` means run locally (``LocalTransport``); a non-empty value
+    routes through SSH to that host.  ``scheduler`` is the dispatch axis: one
+    of the molq scheduler names.
+
+    Examples::
+
+        # Today's `--local` path, just named.
+        ComputeTarget(name="laptop", scratch_root="/tmp/molexp")
+
+        # Remote SLURM cluster — the canonical HPC use case.
+        ComputeTarget(name="hpc1", host="me@cluster.example.org",
+                      scheduler="slurm", scratch_root="/scratch/me/molexp")
+
+        # Run on a remote workstation directly, no batch system.
+        ComputeTarget(name="desk", host="me@desk.lan", scheduler="shell",
+                      scratch_root="/home/me/molexp-runs")
+    """
+
+    name: str
+
+    # ── Transport axis (where commands run) ─────────────────────────────────
+    host: str | None = None                                  # None → LocalTransport, else SshTransport
+    port: int | None = None
+    identity_file: str | None = None
+    ssh_opts: list[str] = Field(default_factory=list)
+
+    # ── Scheduler axis (how jobs are dispatched) ────────────────────────────
+    scheduler: Literal["shell", "slurm", "pbs", "lsf"] = "shell"
+
+    # ── Working dir + defaults ──────────────────────────────────────────────
+    scratch_root: str
+    default_resources: dict[str, Any] = Field(default_factory=dict)
+    default_scheduling: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_axes(self) -> ComputeTarget:
+        if self.host is None and (self.port is not None or self.identity_file or self.ssh_opts):
+            raise ValueError(
+                "transport options (port, identity_file, ssh_opts) require host to be set"
+            )
+        if not self.scratch_root:
+            raise ValueError("scratch_root is required")
+        return self
+
+    @property
+    def is_remote(self) -> bool:
+        return self.host is not None
+
+
 class WorkspaceMetadata(BaseModel, frozen=True):
     """Top-level workspace."""
 
     id: str
     name: str
     created_at: datetime = Field(default_factory=datetime.now)
+    targets: list[ComputeTarget] = Field(default_factory=list)
 
 
 class ProjectMetadata(BaseModel, frozen=True):

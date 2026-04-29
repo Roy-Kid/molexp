@@ -12,3 +12,4 @@ export type DirectoryCreateRequest = {
      */
     path: string;
 };
+

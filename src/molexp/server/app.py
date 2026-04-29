@@ -37,7 +37,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 def _find_bundled_webapp() -> Path | None:
-    """Locate the ``_webapp`` directory shipped inside the installed package.
+    """Locate the ``dist`` directory shipped inside the installed package.
 
     Uses ``importlib.resources`` so this works regardless of whether the
     package was installed from a wheel, an editable install, or a checkout.
@@ -47,7 +47,7 @@ def _find_bundled_webapp() -> Path | None:
 
     try:
         pkg_path = Path(str(resources.files("molexp")))
-        webapp = pkg_path / "_webapp"
+        webapp = pkg_path / "dist"
         if webapp.is_dir() and (webapp / "index.html").exists():
             return webapp
     except Exception:  # noqa: BLE001
@@ -71,7 +71,9 @@ def _mount_webapp(app: FastAPI, webapp_dir: Path) -> None:
 
     index_html = str(webapp_dir / "index.html")
 
-    # Serve hashed JS / CSS / images produced by rsbuild
+    # Serve hashed JS / CSS / images produced by rsbuild. These have
+    # content-hashed filenames so browsers can cache them aggressively
+    # — a new build produces new filenames automatically.
     static_subdir = webapp_dir / "static"
     if static_subdir.is_dir():
         app.mount(
@@ -80,14 +82,17 @@ def _mount_webapp(app: FastAPI, webapp_dir: Path) -> None:
             name="webapp_static",
         )
 
-    # SPA fallback — serves index.html for every non-API, non-static path
+    # SPA fallback — serves index.html for every non-API, non-static path.
+    # ``index.html`` is the only un-hashed asset, so it MUST never be cached
+    # by the browser; otherwise a fresh build's new JS hashes won't be loaded.
+    no_cache_headers = {"Cache-Control": "no-store, must-revalidate"}
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def _spa_fallback(full_path: str) -> FileResponse:
-        # If an actual file exists at the root (favicon.ico, robots.txt, …)
         candidate = webapp_dir / full_path
         if full_path and candidate.is_file():
             return FileResponse(str(candidate))
-        return FileResponse(index_html)
+        return FileResponse(index_html, headers=no_cache_headers)
 
 
 # ---------------------------------------------------------------------------
@@ -104,7 +109,7 @@ def create_app(
 
     Args:
         static_dir: Explicit path to built UI files.  When *None* and
-            *serve_static* is ``True`` the bundled ``_webapp`` directory
+            *serve_static* is ``True`` the bundled ``dist`` directory
             is auto-detected via ``importlib.resources``.
         serve_static: Set to ``False`` to run in API-only mode.
     """

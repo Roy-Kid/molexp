@@ -7,10 +7,12 @@ from fastapi import APIRouter
 
 from . import (
     agent,
+    agent_admin,
     asset,
     catalog,
     execution,
     experiment,
+    molq,
     project,
     registry,
     run,
@@ -27,6 +29,7 @@ def create_api_router() -> APIRouter:
     api_router = APIRouter()
 
     api_router.include_router(agent.router)
+    api_router.include_router(agent_admin.router)
     api_router.include_router(project.router)
     api_router.include_router(experiment.router)
     api_router.include_router(run.router)
@@ -35,6 +38,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(workspace.router)
     api_router.include_router(registry.router)
     api_router.include_router(execution.router)
+    api_router.include_router(molq.router)
 
     return api_router
 
@@ -42,6 +46,7 @@ def create_api_router() -> APIRouter:
 __all__ = [
     "create_api_router",
     "agent",
+    "agent_admin",
     "project",
     "experiment",
     "run",
@@ -50,4 +55,5 @@ __all__ = [
     "workspace",
     "registry",
     "execution",
+    "molq",
 ]

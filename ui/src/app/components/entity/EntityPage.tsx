@@ -2,6 +2,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import type { ComponentType, JSX, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { BreadcrumbItem, SemanticStatus } from "@/app/types";
+import { EntityTabBar, EntityTabContent, EntityTabs } from "./EntityTabs";
 import { StatusBadge } from "./StatusBadge";
 
 interface SemanticStatusBadgeProps {
@@ -113,7 +114,10 @@ export const EntityHeader = ({
           />
         )}
 
-        <div className="mt-1.5 flex items-center justify-between gap-4 pb-2.5">
+        {/* min-h locks the header height regardless of whether actions/metrics
+            slots are populated, so different viewers (some with buttons, some
+            without) line up vertically in the same way. */}
+        <div className="mt-1.5 flex min-h-9 items-center justify-between gap-4 pb-2.5">
           <div className="flex min-w-0 flex-1 items-center gap-2.5">
             <div className="flex h-7 w-7 flex-none items-center justify-center rounded-md bg-muted">
               <Icon className="h-4 w-4 text-foreground" />
@@ -169,5 +173,98 @@ export const KeyValueGrid = ({ items }: KeyValueGridProps): JSX.Element => {
         </div>
       ))}
     </dl>
+  );
+};
+
+// ── EntityPage ──────────────────────────────────────────────────────────────
+//
+// One template every entity viewer renders into. Owns the outer flex column,
+// the header chrome (via :class:`EntityHeader`), and the tab bar + tab content
+// pattern. Viewers only supply the data: header props, tab list, optional
+// post-tab body. This is what keeps Workflow / Run / Asset / Project / Agent
+// settings looking identical regardless of which tab is active.
+
+export interface EntityPageTab {
+  value: string;
+  label: ReactNode;
+  /** Tab body. Rendered inside an ``EntityTabContent`` so it owns scrolling. */
+  content: ReactNode;
+  /** Disable the tab trigger; used for plugin-discovered tabs that haven't loaded. */
+  disabled?: boolean;
+}
+
+interface EntityPageProps {
+  // Header — forwarded verbatim to :class:`EntityHeader`.
+  breadcrumbs?: BreadcrumbItem[];
+  canNavigateUp?: boolean;
+  onNavigateUp?: () => void;
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  subtitle?: string;
+  status?: string;
+  actions?: ReactNode;
+  metrics?: ReactNode;
+
+  // Tabs — controlled (pass ``activeTab`` + ``onActiveTabChange``) or
+  // uncontrolled (pass ``defaultTab``). Omit ``tabs`` entirely for a
+  // header-only page (``children`` then renders directly under the header).
+  tabs?: EntityPageTab[];
+  activeTab?: string;
+  defaultTab?: string;
+  onActiveTabChange?: (value: string) => void;
+
+  /** Body rendered when ``tabs`` is omitted. */
+  children?: ReactNode;
+}
+
+export const EntityPage = ({
+  breadcrumbs,
+  canNavigateUp,
+  onNavigateUp,
+  icon,
+  title,
+  subtitle,
+  status,
+  actions,
+  metrics,
+  tabs,
+  activeTab,
+  defaultTab,
+  onActiveTabChange,
+  children,
+}: EntityPageProps): JSX.Element => {
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <EntityHeader
+        breadcrumbs={breadcrumbs}
+        canNavigateUp={canNavigateUp}
+        onNavigateUp={onNavigateUp}
+        icon={icon}
+        title={title}
+        subtitle={subtitle}
+        status={status}
+        actions={actions}
+        metrics={metrics}
+      />
+
+      {tabs && tabs.length > 0 ? (
+        <EntityTabs
+          value={activeTab}
+          defaultValue={defaultTab ?? tabs[0]?.value}
+          onValueChange={onActiveTabChange}
+        >
+          <EntityTabBar
+            tabs={tabs.map(({ value, label, disabled }) => ({ value, label, disabled }))}
+          />
+          {tabs.map((tab) => (
+            <EntityTabContent key={tab.value} value={tab.value}>
+              {tab.content}
+            </EntityTabContent>
+          ))}
+        </EntityTabs>
+      ) : (
+        children && <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+      )}
+    </div>
   );
 };

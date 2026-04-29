@@ -10,7 +10,9 @@ Design:
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import AsyncIterable
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from mollog import get_logger
@@ -20,8 +22,13 @@ from pydantic_ai.messages import AgentStreamEvent
 from ..types import (
     AgentSession,
     Goal,
+    ResultArtifactEvent,
     SessionCompletedEvent,
     SessionEvent,
+    ToolCallEvent,
+    ToolResultEvent,
+    UserMessageEvent,
+    UserMessageRequestEvent,
 )
 from .events import map_stream_event
 
@@ -31,6 +38,29 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 _DONE = object()  # Sentinel to signal stream_events() to stop
+
+_ARTIFACT_KINDS = {"plot", "table", "text"}
+
+
+def _maybe_artifact(result: Any) -> ResultArtifactEvent | None:
+    """Detect the artifact convention in a tool result.
+
+    Tools (including agent-generated code-execution returns) may
+    produce a dict shaped ``{"kind": "plot"|"table"|"text", ...}``.
+    When detected, the runtime emits a :class:`ResultArtifactEvent`
+    so the UI can render the artifact inline.
+    """
+    if not isinstance(result, dict):
+        return None
+    kind = result.get("kind")
+    if kind not in _ARTIFACT_KINDS:
+        return None
+    payload = {k: v for k, v in result.items() if k not in {"kind", "title"}}
+    return ResultArtifactEvent(
+        kind=kind,
+        title=str(result.get("title", "")),
+        payload=payload,
+    )
 
 
 class PydanticAISession(AgentSession):
@@ -58,11 +88,36 @@ class PydanticAISession(AgentSession):
         self._workspace = workspace
         self._event_queue: asyncio.Queue[Any] = asyncio.Queue()
         self._approval_futures: dict[str, asyncio.Future[bool]] = {}
+        self._user_message_futures: dict[str, asyncio.Future[str]] = {}
         self._run_task: asyncio.Task | None = None
         self._message_history: list[Any] = []
+        self._agent: Agent[Any, str] | None = None
+        self._deps: Any = None
+        self._followup_lock = asyncio.Lock()
+        # Optional hook fired after status transitions to a terminal state
+        # ("completed" / "failed"). The runtime sets this so it can re-flush
+        # metadata to disk; tests may leave it None.
+        self._on_terminal: Any = None
+        # The composed system prompt active for this session — set by the
+        # runtime right before launching the agent so the inspector route
+        # can show what the agent actually saw without re-running the
+        # composition (which could drift from live edits to provider config).
+        self._system_prompt: str = ""
+
+    @property
+    def system_prompt(self) -> str:
+        """Return the composed system prompt the agent was started with."""
+        return self._system_prompt
+
+    def set_system_prompt(self, prompt: str) -> None:
+        """Record the prompt that was passed to the underlying Agent."""
+        self._system_prompt = prompt
 
     def _launch(self, agent: Agent[MolexpDeps, str], prompt: str, deps: MolexpDeps) -> None:
         """Start the agent run as a background asyncio.Task."""
+        self.stats.started_at = datetime.now(timezone.utc)
+        self._agent = agent
+        self._deps = deps
         self._run_task = asyncio.create_task(
             self._run_agent(agent, prompt, deps),
             name=f"molexp-session-{self.session_id}",
@@ -74,12 +129,32 @@ class PydanticAISession(AgentSession):
         """Background coroutine: runs the agent and forwards events."""
         try:
             event_queue = self._event_queue
+            stats = self.stats
 
             async def handle_events(ctx: Any, events: AsyncIterable[AgentStreamEvent]) -> None:
                 async for raw_event in events:
                     molexp_event = map_stream_event(raw_event)
-                    if molexp_event is not None:
-                        await event_queue.put(molexp_event)
+                    if molexp_event is None:
+                        continue
+                    stats.events += 1
+                    if isinstance(molexp_event, ToolCallEvent):
+                        stats.tool_calls += 1
+                    await event_queue.put(molexp_event)
+                    # Convention: tools that return a dict shaped like
+                    # {"kind": "plot"|"table"|"text", ...} produce an
+                    # additional inline artifact event for the UI.
+                    if isinstance(molexp_event, ToolResultEvent):
+                        artifact = _maybe_artifact(molexp_event.result)
+                        if artifact is not None:
+                            stats.events += 1
+                            await event_queue.put(artifact)
+                            self.artifacts.append(
+                                {
+                                    "kind": artifact.kind,
+                                    "title": artifact.title,
+                                    "payload": artifact.payload,
+                                }
+                            )
 
             result = await agent.run(
                 prompt,
@@ -90,8 +165,10 @@ class PydanticAISession(AgentSession):
 
             # Persist message history for potential resumption
             self._message_history = result.all_messages()
+            self._absorb_usage(result)
 
             self.status = "completed"
+            stats.completed_at = datetime.now(timezone.utc)
             completed_event = SessionCompletedEvent(
                 summary=str(result.output),
                 produced_runs=list(self.produced_runs),
@@ -102,17 +179,70 @@ class PydanticAISession(AgentSession):
         except Exception as exc:
             logger.exception(f"Agent session {self.session_id} failed")
             self.status = "failed"
+            self.stats.completed_at = datetime.now(timezone.utc)
             await event_queue.put(SessionCompletedEvent(summary=f"Session failed: {exc}"))
         finally:
+            self._fire_terminal_hook()
             await self._event_queue.put(_DONE)
 
+    def _fire_terminal_hook(self) -> None:
+        """Best-effort callback after the run loop exits — never raises."""
+        hook = self._on_terminal
+        if hook is None:
+            return
+        try:
+            hook(self)
+        except Exception:
+            logger.exception(f"Terminal hook failed for session {self.session_id}")
+
+    def _absorb_usage(self, result: Any) -> None:
+        """Merge a pydantic-ai run result's usage into the session stats."""
+        getter = getattr(result, "usage", None)
+        if getter is None:
+            return
+        try:
+            usage = getter() if callable(getter) else getter
+        except Exception:
+            logger.debug("Failed to read usage from agent result", exc_info=True)
+            return
+        if usage is None:
+            return
+        stats = self.stats
+        stats.input_tokens += int(getattr(usage, "input_tokens", 0) or 0)
+        stats.output_tokens += int(getattr(usage, "output_tokens", 0) or 0)
+        stats.cache_read_tokens += int(getattr(usage, "cache_read_tokens", 0) or 0)
+        stats.cache_write_tokens += int(getattr(usage, "cache_write_tokens", 0) or 0)
+        stats.requests += int(getattr(usage, "requests", 0) or 0)
+        # Prefer pydantic-ai's tool_calls count (authoritative) when present.
+        usage_tool_calls = int(getattr(usage, "tool_calls", 0) or 0)
+        if usage_tool_calls:
+            stats.tool_calls = max(stats.tool_calls, usage_tool_calls)
+        stats.total_tokens = stats.input_tokens + stats.output_tokens
+
     async def stream_events(self) -> AsyncIterator[SessionEvent]:
-        """Yield session events until the run completes."""
+        """Yield session events until the (current) run completes."""
         while True:
             item = await self._event_queue.get()
             if item is _DONE:
                 return
             yield item
+
+    def drain_pending_events(self) -> list[SessionEvent]:
+        """Non-blocking drain of buffered events.
+
+        Returns every event currently sitting in the queue. ``_DONE``
+        sentinels are filtered out so chat follow-ups remain consumable
+        across multiple agent runs.
+        """
+        out: list[SessionEvent] = []
+        while True:
+            try:
+                item = self._event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                return out
+            if item is _DONE:
+                continue
+            out.append(item)
 
     async def respond_approval(self, request_id: str, approved: bool) -> None:
         """Resolve a pending approval request.
@@ -134,3 +264,69 @@ class PydanticAISession(AgentSession):
     def restore_message_history(self, history: list[Any]) -> None:
         """Restore message history for a resumed session."""
         self._message_history = list(history)
+
+    async def await_user_message(self, prompt: str) -> str:
+        """Pause the run and wait for a user reply.
+
+        Emits a :class:`UserMessageRequestEvent` and parks on a future
+        until :meth:`respond_user_message` resolves it.
+        """
+        request_id = uuid.uuid4().hex
+        future: asyncio.Future[str] = asyncio.get_event_loop().create_future()
+        self._user_message_futures[request_id] = future
+        await self._event_queue.put(
+            UserMessageRequestEvent(request_id=request_id, prompt=prompt)
+        )
+        try:
+            return await future
+        finally:
+            self._user_message_futures.pop(request_id, None)
+
+    async def respond_user_message(
+        self, content: str, request_id: str | None = None
+    ) -> None:
+        """Deliver a user reply to the session.
+
+        If ``request_id`` matches a pending :meth:`await_user_message`,
+        resolves the future. Otherwise treats the message as an
+        unsolicited follow-up and re-runs the agent with the message
+        appended to history (keeps the session alive for chat).
+        """
+        await self._event_queue.put(
+            UserMessageEvent(content=content, request_id=request_id)
+        )
+        if request_id is not None:
+            future = self._user_message_futures.get(request_id)
+            if future is not None and not future.done():
+                future.set_result(content)
+                return
+            logger.warning(
+                f"No pending user-message request for id={request_id}; "
+                "treating as unsolicited follow-up."
+            )
+        await self._kick_followup(content)
+
+    async def _kick_followup(self, content: str) -> None:
+        """Re-run the agent with a follow-up user prompt.
+
+        Serialized via ``_followup_lock`` so concurrent messages queue
+        rather than racing the agent run.
+        """
+        async with self._followup_lock:
+            if self._agent is None or self._deps is None:
+                logger.warning(
+                    "Cannot dispatch follow-up: session has no agent/deps yet."
+                )
+                return
+            # Wait for any in-flight run to finish so message history is consistent.
+            if self._run_task is not None and not self._run_task.done():
+                try:
+                    await self._run_task
+                except Exception:
+                    pass
+            self.status = "running"
+            self.stats.completed_at = None
+            self._run_task = asyncio.create_task(
+                self._run_agent(self._agent, content, self._deps),
+                name=f"molexp-session-{self.session_id}-followup",
+            )

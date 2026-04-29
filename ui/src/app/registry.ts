@@ -1,15 +1,22 @@
 import type { RendererKey, Selection, SemanticObjectType } from "@/app/types";
 import {
   registerEntityTabContribution as addEntityTabContribution,
+  registerExecutionColumnContribution as addExecutionColumnContribution,
+  registerExecutionDetailContribution as addExecutionDetailContribution,
   registerFileTypeContribution as addFileTypeContribution,
   registerRendererContribution as addRendererContribution,
   listEntityTabContributions,
+  listExecutionColumnContributions,
+  listExecutionDetailContributions,
   listFileTypeContributions,
   resolveRendererContribution,
   unregisterFileTypeContribution,
 } from "@/plugins/contribution-runtime";
 import type {
   EntityTabContribution,
+  ExecutionColumnContribution,
+  ExecutionDetailContribution,
+  ExecutionRowData,
   FileTypeContribution,
   RendererContribution,
   RendererEntry,
@@ -21,6 +28,11 @@ import { buildRendererRegistryKey } from "@/plugins/types";
 export type {
   DiscoveredFile,
   EntityTabContribution,
+  ExecutionColumnContribution,
+  ExecutionColumnRenderProps,
+  ExecutionDetailContribution,
+  ExecutionDetailRenderProps,
+  ExecutionRowData,
   FileMatchContext,
   FileTypeContribution,
   FileTypeMatcher,
@@ -72,6 +84,28 @@ export const listFileTypes = (
 ): FileTypeContribution[] => {
   return listFileTypeContributions(objectType);
 };
+
+export const registerExecutionColumn = (entry: ExecutionColumnContribution): void => {
+  addExecutionColumnContribution(entry);
+};
+
+export const listExecutionColumns = (
+  backend?: string | null,
+): ExecutionColumnContribution[] => {
+  return listExecutionColumnContributions(backend);
+};
+
+export const registerExecutionDetail = (entry: ExecutionDetailContribution): void => {
+  addExecutionDetailContribution(entry);
+};
+
+export const listExecutionDetails = (
+  backend?: string | null,
+): ExecutionDetailContribution[] => {
+  return listExecutionDetailContributions(backend);
+};
+
+export const buildExecutionRowFromBackendData = (raw: ExecutionRowData): ExecutionRowData => raw;
 
 export const resolveRenderer = (
   key: RendererKey,

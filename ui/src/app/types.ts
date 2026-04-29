@@ -1,4 +1,4 @@
-export type LeftPanelView = "workspace" | "projects" | "asset" | "workflow" | "agent";
+export type LeftPanelView = "workspace" | "projects" | "runs" | "asset" | "workflow" | "agent";
 
 export type SemanticObjectType =
   | "project"
@@ -93,6 +93,16 @@ export interface ExperimentSummary {
   workflowFile: string;
   updatedAt: string;
   projectId: string;
+  parameterSpace: Record<string, unknown>;
+  workflowSource: string | null;
+}
+
+export interface ExecutionRecordSummary {
+  executionId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: string;
+  schedulerJobId: string | null;
 }
 
 export interface RunSummary {
@@ -106,6 +116,13 @@ export interface RunSummary {
   executorInfo: Record<string, string>;
   profile: string | null;
   configHash: string | null;
+  parameters: Record<string, unknown>;
+  results: Record<string, unknown>;
+  workflowSource: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  executionHistory: ExecutionRecordSummary[];
+  errorMessage: string | null;
 }
 
 export interface AssetSummary {

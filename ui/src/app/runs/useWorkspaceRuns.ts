@@ -28,7 +28,7 @@ interface StoreSnapshot {
   lastSyncedAt: Date | null;
 }
 
-const POLL_INTERVAL_MS = 10_000;
+const POLL_INTERVAL_MS = 3_000;
 const FETCH_LIMIT = 1000;
 
 const EMPTY_STATS: WorkspaceRunsStats = {
@@ -131,8 +131,24 @@ const subscribe = (fn: () => void): (() => void) => {
 
 const getSnapshot = (): StoreSnapshot => snapshot;
 
-export const useWorkspaceRuns = (): UseWorkspaceRunsResult => {
-  const data = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+// No-op subscribe used when the caller asks us to stand down (e.g. when the
+// active left-panel view isn't "runs"). Keeps the Rules of Hooks intact while
+// letting subscriber count fall to zero so the poll loop stops.
+const noopSubscribe = (): (() => void) => (): void => undefined;
+
+export interface UseWorkspaceRunsOptions {
+  /** When false, the hook returns the cached snapshot but does not subscribe
+   *  or trigger fetches. Use to gate polling by active view. Defaults to true. */
+  enabled?: boolean;
+}
+
+export const useWorkspaceRuns = (options: UseWorkspaceRunsOptions = {}): UseWorkspaceRunsResult => {
+  const { enabled = true } = options;
+  const data = useSyncExternalStore(
+    enabled ? subscribe : noopSubscribe,
+    getSnapshot,
+    getSnapshot,
+  );
   return {
     ...data,
     refresh: () => triggerFetch(false),

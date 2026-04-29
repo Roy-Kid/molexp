@@ -2,7 +2,8 @@ export type { DataTableColumn, DataTableProps, DataTableRowAction } from "./Data
 export { DataTable } from "./DataTable";
 export type { EmptyStateDensity, EmptyStateProps } from "./EmptyState";
 export { EmptyState } from "./EmptyState";
-export { EntityHeader, EntityMetric, KeyValueGrid } from "./EntityPage";
+export type { EntityPageTab } from "./EntityPage";
+export { EntityHeader, EntityMetric, EntityPage, KeyValueGrid } from "./EntityPage";
 export type { EntityTabItem } from "./EntityTabs";
 export { EntityTabBar, EntityTabContent, EntityTabs } from "./EntityTabs";
 export { EMPTY_COPY } from "./emptyStateCopy";

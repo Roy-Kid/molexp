@@ -207,6 +207,9 @@ export const workspaceApi = {
     }
     return response.json();
   },
+  getRunAssets: async (runId: string): Promise<ApiAssetResponse[]> => {
+    return AssetsService.listAssetsApiAssetsGet(undefined, undefined, runId);
+  },
   openWorkspace: async (path: string, createIfMissing = false): Promise<void> => {
     await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({
       path,
@@ -451,6 +454,8 @@ export const mapExperiments = (
     workflowFile: experiment.workflow ?? "",
     updatedAt: experiment.created,
     projectId,
+    parameterSpace: (experiment.parameterSpace ?? {}) as Record<string, unknown>,
+    workflowSource: experiment.workflow ?? null,
   }));
 };
 
@@ -488,6 +493,19 @@ export const mapRuns = (
     experimentId,
     profile: run.profile ?? null,
     configHash: run.configHash ?? null,
+    parameters: (run.parameters ?? {}) as Record<string, unknown>,
+    results: (run.results ?? {}) as Record<string, unknown>,
+    workflowSource: run.workflowSource ?? run.workflow?.source ?? null,
+    startedAt: run.created ?? null,
+    finishedAt: run.finished ?? null,
+    executionHistory: (run.executionHistory ?? []).map((rec) => ({
+      executionId: rec.executionId,
+      startedAt: rec.startedAt,
+      finishedAt: rec.finishedAt ?? null,
+      status: rec.status,
+      schedulerJobId: rec.schedulerJobId ?? null,
+    })),
+    errorMessage: run.error?.message ?? null,
   }));
 };
 
@@ -578,6 +596,45 @@ export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSumma
   }));
 };
 
+export interface ApiAgentHealth {
+  ready: boolean;
+  provider: string;
+  model: string;
+  source: "stored" | "env" | "none";
+  reason: string;
+  envVar: string;
+}
+
+/**
+ * Thrown by createSession when the backend rejects with code
+ * "agent_not_configured" (HTTP 400). Carries the structured fields so
+ * the UI can route the user to the Provider settings tab.
+ */
+export class AgentNotConfiguredError extends Error {
+  readonly code = "agent_not_configured";
+  readonly provider: string;
+  readonly model: string;
+  readonly envVar: string;
+
+  constructor(message: string, provider: string, model: string, envVar: string) {
+    super(message);
+    this.name = "AgentNotConfiguredError";
+    this.provider = provider;
+    this.model = model;
+    this.envVar = envVar;
+  }
+}
+
+/**
+ * Optional overrides accepted by ``POST /api/agent/sessions``. Keep aligned
+ * with :class:`molexp.server.schemas.requests.GoalCreateRequest`.
+ */
+export interface SessionLaunchOptions {
+  planMode?: boolean;
+  instructionsOverride?: string;
+  skillId?: string;
+}
+
 export const agentApi = {
   listSessions: async (): Promise<ApiAgentSession[]> => {
     const response = await fetch("/api/agent/sessions");
@@ -586,15 +643,43 @@ export const agentApi = {
     return data.sessions ?? [];
   },
 
+  getHealth: async (): Promise<ApiAgentHealth> => {
+    const response = await fetch("/api/agent/health");
+    if (!response.ok) throw new Error(`Failed to fetch agent health: ${response.statusText}`);
+    return response.json();
+  },
+
   createSession: async (
     description: string,
     successCriteria: string[] = [],
+    options: SessionLaunchOptions = {},
   ): Promise<ApiAgentSession> => {
+    const body: Record<string, unknown> = {
+      description,
+      success_criteria: successCriteria,
+    };
+    if (options.planMode !== undefined) body.plan_mode = options.planMode;
+    if (options.instructionsOverride !== undefined)
+      body.instructions_override = options.instructionsOverride;
+    if (options.skillId !== undefined) body.skill_id = options.skillId;
     const response = await fetch("/api/agent/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ description, success_criteria: successCriteria }),
+      body: JSON.stringify(body),
     });
+    if (response.status === 400) {
+      // FastAPI nests structured errors under {"detail": {...}}
+      const body = await response.json().catch(() => null);
+      const detail = body?.detail;
+      if (detail && typeof detail === "object" && detail.code === "agent_not_configured") {
+        throw new AgentNotConfiguredError(
+          String(detail.message ?? "Agent provider is not configured."),
+          String(detail.provider ?? ""),
+          String(detail.model ?? ""),
+          String(detail.envVar ?? ""),
+        );
+      }
+    }
     if (!response.ok) throw new Error(`Failed to create session: ${response.statusText}`);
     return response.json();
   },
@@ -620,5 +705,547 @@ export const agentApi = {
       body: JSON.stringify({ request_id: requestId, approved }),
     });
     if (!response.ok) throw new Error(`Failed to respond approval: ${response.statusText}`);
+  },
+
+  postMessage: async (
+    sessionId: string,
+    content: string,
+    requestId: string | null = null,
+  ): Promise<void> => {
+    const response = await fetch(`/api/agent/sessions/${sessionId}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content, request_id: requestId }),
+    });
+    if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
+  },
+};
+
+// ── Agent admin (MCP / tools / skills) ────────────────────────────────────
+
+export type ApiMcpScope = "user" | "workspace";
+export type ApiMcpTransport = "stdio" | "http" | "sse";
+
+export interface ApiMcpAuthSummary {
+  type: "oauth2";
+  scopes: string[];
+  clientId: string | null;
+  connected: boolean;
+}
+
+export interface ApiMcpServer {
+  name: string;
+  scope: ApiMcpScope;
+  transport: string;
+  command: string | null;
+  args: string[];
+  url: string | null;
+  envKeys: string[];
+  headerKeys: string[];
+  secretRefs: string[];
+  unresolvedSecrets: string[];
+  shadowed: boolean;
+  valid: boolean;
+  invalidReason: string;
+  auth: ApiMcpAuthSummary | null;
+}
+
+export interface ApiMcpOAuthStatus {
+  name: string;
+  scope: ApiMcpScope;
+  hasTokens: boolean;
+  scopes: string[];
+}
+
+export interface ApiMcpOAuthStart {
+  name: string;
+  scope: ApiMcpScope;
+  authorizeUrl: string;
+}
+
+export interface ApiMcpServerList {
+  workspacePath: string;
+  userPath: string;
+  servers: ApiMcpServer[];
+}
+
+export interface ApiMcpServerTestResult {
+  ok: boolean;
+  name: string;
+  scope: ApiMcpScope;
+  transport: string;
+  latencyMs: number;
+  toolCount: number;
+  error: string | null;
+}
+
+export interface ApiMcpSecretRow {
+  key: string;
+  isSet: boolean;
+  referencedBy: string[];
+}
+
+export interface ApiMcpSecretList {
+  scope: ApiMcpScope;
+  path: string;
+  secrets: ApiMcpSecretRow[];
+}
+
+export interface McpOAuth2AuthInput {
+  type: "oauth2";
+  scopes: string[];
+  clientId: string | null;
+}
+
+export type McpServerSpecInput =
+  | { type: "stdio"; command: string; args: string[]; env: Record<string, string> }
+  | {
+      type: "http" | "sse";
+      url: string;
+      headers: Record<string, string>;
+      auth?: McpOAuth2AuthInput | null;
+    };
+
+export interface McpServerUpsertInput {
+  name: string;
+  scope: ApiMcpScope;
+  spec: McpServerSpecInput;
+}
+
+export interface ApiToolParameter {
+  name: string;
+  annotation: string;
+  required: boolean;
+}
+
+export interface ApiAgentTool {
+  name: string;
+  description: string;
+  parameters: ApiToolParameter[];
+  requiresApproval: boolean;
+  source: string;
+}
+
+export interface ApiMcpToolGroup {
+  server: string;
+  scope: ApiMcpScope;
+  ok: boolean;
+  toolCount: number;
+  error: string | null;
+}
+
+export interface ApiAgentToolList {
+  tools: ApiAgentTool[];
+  mcpGroups: ApiMcpToolGroup[];
+}
+
+// Tool ``source`` is either ``"native"`` for built-in tools or
+// ``"mcp:<server-name>"`` for tools discovered through an MCP server.
+// Helpers below keep the prefix in one place.
+export const NATIVE_SOURCE = "native";
+
+export const mcpSource = (server: string): string => `mcp:${server}`;
+
+export const isMcpSource = (source: string): boolean => source.startsWith("mcp:");
+
+export interface ApiSkill {
+  id: string;
+  name: string;
+  description: string;
+  goalTemplate: string;
+  slashName: string;
+  instructions: string;
+  defaultPlanMode: boolean;
+  constraints: string[];
+  successCriteria: string[];
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SkillUpsertInput {
+  name: string;
+  goalTemplate: string;
+  description?: string;
+  slashName?: string;
+  instructions?: string;
+  defaultPlanMode?: boolean;
+  constraints?: string[];
+  successCriteria?: string[];
+  tags?: string[];
+}
+
+const _toSkillBody = (input: SkillUpsertInput) => ({
+  name: input.name,
+  goal_template: input.goalTemplate,
+  description: input.description ?? "",
+  slash_name: input.slashName ?? "",
+  instructions: input.instructions ?? "",
+  default_plan_mode: input.defaultPlanMode ?? false,
+  constraints: input.constraints ?? [],
+  success_criteria: input.successCriteria ?? [],
+  tags: input.tags ?? [],
+});
+
+// ── Slash commands + system prompt ────────────────────────────────────────
+
+export interface ApiCommandParameter {
+  name: string;
+  required: boolean;
+}
+
+export interface ApiCommand {
+  slashName: string;
+  name: string;
+  description: string;
+  parameters: ApiCommandParameter[];
+  defaultPlanMode: boolean;
+  isBuiltin: boolean;
+  skillId: string | null;
+}
+
+export interface ApiCommandParse {
+  kind: "skill" | "builtin" | "error";
+  name: string;
+  skillId: string;
+  parameters: Record<string, string>;
+  planMode: boolean;
+  error: string;
+}
+
+export interface ApiAgentSystemPrompt {
+  base: string;
+  workspaceInstructions: string;
+  skillInstructions: string;
+  sessionOverride: string | null;
+  planMode: boolean;
+  effective: string;
+}
+
+/** RESERVED_SLASH_NAMES mirrors the backend whitelist for client-side validation. */
+export const RESERVED_SLASH_NAMES = ["plan", "clear", "model", "help"] as const;
+export const SLASH_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
+
+// Provider config — read/write the workspace's LLM provider settings.
+export type ApiProviderName = "anthropic" | "openai" | "google" | "deepseek" | "openai-compatible";
+
+export interface ApiAgentProvider {
+  provider: ApiProviderName;
+  model: string;
+  baseUrl: string;
+  apiKeyPreview: string;
+  apiKeySet: boolean;
+  instructions: string;
+  supportedProviders: ApiProviderName[];
+}
+
+export interface ProviderUpdateInput {
+  provider?: ApiProviderName;
+  model?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  instructions?: string;
+}
+
+export interface ApiAgentProviderTestResult {
+  ok: boolean;
+  provider: string;
+  model: string;
+  latencyMs: number;
+  reply: string;
+  error: string | null;
+}
+
+const _toProviderBody = (input: ProviderUpdateInput): Record<string, unknown> => {
+  const body: Record<string, unknown> = {};
+  if (input.provider !== undefined) body.provider = input.provider;
+  if (input.model !== undefined) body.model = input.model;
+  if (input.apiKey !== undefined) body.api_key = input.apiKey;
+  if (input.baseUrl !== undefined) body.base_url = input.baseUrl;
+  if (input.instructions !== undefined) body.instructions = input.instructions;
+  return body;
+};
+
+export const agentAdminApi = {
+  getProvider: async (): Promise<ApiAgentProvider> => {
+    const response = await fetch("/api/agent/provider");
+    if (!response.ok) throw new Error(`Failed to fetch provider: ${response.statusText}`);
+    return response.json();
+  },
+
+  updateProvider: async (input: ProviderUpdateInput): Promise<ApiAgentProvider> => {
+    const response = await fetch("/api/agent/provider", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(_toProviderBody(input)),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to update provider: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  testProvider: async (input: ProviderUpdateInput): Promise<ApiAgentProviderTestResult> => {
+    const response = await fetch("/api/agent/provider/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(_toProviderBody(input)),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to test provider: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  listMcpServers: async (): Promise<ApiMcpServerList> => {
+    const response = await fetch("/api/agent/mcp/servers");
+    if (!response.ok) throw new Error(`Failed to fetch MCP servers: ${response.statusText}`);
+    return response.json();
+  },
+
+  createMcpServer: async (input: McpServerUpsertInput): Promise<ApiMcpServer> => {
+    const response = await fetch("/api/agent/mcp/servers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to create MCP server: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  replaceMcpServer: async (name: string, input: McpServerUpsertInput): Promise<ApiMcpServer> => {
+    const response = await fetch(`/api/agent/mcp/servers/${encodeURIComponent(name)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to update MCP server: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  deleteMcpServer: async (name: string, scope: ApiMcpScope): Promise<void> => {
+    const response = await fetch(
+      `/api/agent/mcp/servers/${encodeURIComponent(name)}?scope=${scope}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to delete MCP server: ${response.statusText} ${detail}`);
+    }
+  },
+
+  testMcpServer: async (name: string, scope: ApiMcpScope): Promise<ApiMcpServerTestResult> => {
+    const response = await fetch(
+      `/api/agent/mcp/servers/${encodeURIComponent(name)}/test?scope=${scope}`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to test MCP server: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  startMcpOauth: async (name: string, scope: ApiMcpScope): Promise<ApiMcpOAuthStart> => {
+    const response = await fetch(
+      `/api/agent/mcp/servers/${encodeURIComponent(name)}/oauth/start?scope=${scope}`,
+      { method: "POST" },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to start OAuth: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  callbackMcpOauth: async (
+    name: string,
+    scope: ApiMcpScope,
+    code: string,
+    state: string | null,
+  ): Promise<ApiMcpOAuthStatus> => {
+    const response = await fetch(
+      `/api/agent/mcp/servers/${encodeURIComponent(name)}/oauth/callback?scope=${scope}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, state }),
+      },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`OAuth callback failed: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  getMcpOauthStatus: async (name: string, scope: ApiMcpScope): Promise<ApiMcpOAuthStatus> => {
+    const response = await fetch(
+      `/api/agent/mcp/servers/${encodeURIComponent(name)}/oauth?scope=${scope}`,
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to get OAuth status: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  disconnectMcpOauth: async (name: string, scope: ApiMcpScope): Promise<void> => {
+    const response = await fetch(
+      `/api/agent/mcp/servers/${encodeURIComponent(name)}/oauth?scope=${scope}`,
+      { method: "DELETE" },
+    );
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to disconnect OAuth: ${response.statusText} ${detail}`);
+    }
+  },
+
+  listMcpSecrets: async (scope: ApiMcpScope): Promise<ApiMcpSecretList> => {
+    const response = await fetch(`/api/agent/mcp/secrets?scope=${scope}`);
+    if (!response.ok) {
+      throw new Error(`Failed to list MCP secrets: ${response.statusText}`);
+    }
+    return response.json();
+  },
+
+  setMcpSecret: async (key: string, value: string, scope: ApiMcpScope): Promise<void> => {
+    const response = await fetch(`/api/agent/mcp/secrets/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value, scope }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to set MCP secret: ${response.statusText} ${detail}`);
+    }
+  },
+
+  listTools: async (): Promise<ApiAgentTool[]> => {
+    const response = await fetch("/api/agent/tools");
+    if (!response.ok) throw new Error(`Failed to fetch tools: ${response.statusText}`);
+    const data = await response.json();
+    return data.tools ?? [];
+  },
+
+  listToolsAndGroups: async (): Promise<ApiAgentToolList> => {
+    const response = await fetch("/api/agent/tools");
+    if (!response.ok) throw new Error(`Failed to fetch tools: ${response.statusText}`);
+    const data = await response.json();
+    return { tools: data.tools ?? [], mcpGroups: data.mcpGroups ?? [] };
+  },
+
+  listSkills: async (): Promise<ApiSkill[]> => {
+    const response = await fetch("/api/agent/skills");
+    if (!response.ok) throw new Error(`Failed to fetch skills: ${response.statusText}`);
+    const data = await response.json();
+    return data.skills ?? [];
+  },
+
+  createSkill: async (input: SkillUpsertInput): Promise<ApiSkill> => {
+    const response = await fetch("/api/agent/skills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(_toSkillBody(input)),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to create skill: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  updateSkill: async (skillId: string, input: Partial<SkillUpsertInput>): Promise<ApiSkill> => {
+    const body: Record<string, unknown> = {};
+    if (input.name !== undefined) body.name = input.name;
+    if (input.goalTemplate !== undefined) body.goal_template = input.goalTemplate;
+    if (input.description !== undefined) body.description = input.description;
+    if (input.slashName !== undefined) body.slash_name = input.slashName;
+    if (input.instructions !== undefined) body.instructions = input.instructions;
+    if (input.defaultPlanMode !== undefined) body.default_plan_mode = input.defaultPlanMode;
+    if (input.constraints !== undefined) body.constraints = input.constraints;
+    if (input.successCriteria !== undefined) body.success_criteria = input.successCriteria;
+    if (input.tags !== undefined) body.tags = input.tags;
+    const response = await fetch(`/api/agent/skills/${skillId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to update skill: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  deleteSkill: async (skillId: string): Promise<void> => {
+    const response = await fetch(`/api/agent/skills/${skillId}`, { method: "DELETE" });
+    if (!response.ok) throw new Error(`Failed to delete skill: ${response.statusText}`);
+  },
+
+  launchSkill: async (
+    skillId: string,
+    parameters: Record<string, unknown> = {},
+    options: { planMode?: boolean } = {},
+  ): Promise<ApiAgentSession> => {
+    const body: Record<string, unknown> = { parameters };
+    if (options.planMode !== undefined) body.plan_mode = options.planMode;
+    const response = await fetch(`/api/agent/skills/${skillId}/launch`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) throw new Error(`Failed to launch skill: ${response.statusText}`);
+    return response.json();
+  },
+};
+
+// ── Slash commands ────────────────────────────────────────────────────────
+
+export const commandsApi = {
+  list: async (): Promise<ApiCommand[]> => {
+    const response = await fetch("/api/agent/commands");
+    if (!response.ok) throw new Error(`Failed to fetch commands: ${response.statusText}`);
+    const data = await response.json();
+    return data.commands ?? [];
+  },
+
+  parse: async (raw: string): Promise<ApiCommandParse> => {
+    const response = await fetch("/api/agent/commands/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ raw }),
+    });
+    if (!response.ok) throw new Error(`Failed to parse command: ${response.statusText}`);
+    return response.json();
+  },
+};
+
+// ── Plan-mode follow-up + per-session prompt inspection ───────────────────
+
+export const planApi = {
+  /** Promote a finished plan-mode session into an executing follow-up. */
+  execute: async (sessionId: string): Promise<ApiAgentSession> => {
+    const response = await fetch(`/api/agent/sessions/${sessionId}/execute-plan`, {
+      method: "POST",
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => "");
+      throw new Error(`Failed to execute plan: ${response.statusText} ${detail}`);
+    }
+    return response.json();
+  },
+
+  getSystemPrompt: async (sessionId: string): Promise<ApiAgentSystemPrompt> => {
+    const response = await fetch(`/api/agent/sessions/${sessionId}/system-prompt`);
+    if (!response.ok) throw new Error(`Failed to fetch system prompt: ${response.statusText}`);
+    return response.json();
   },
 };

@@ -165,6 +165,7 @@ export function seed(): void {
             status: "succeeded",
             finished: isoAt(-60),
             parameters: { batch_size: 32 },
+            results: { final_loss: 0.142, plddt_mean: 87.4 },
             created: isoAt(-120),
             workflow: {
                 source: "workflows/alphafold.yml",
@@ -172,6 +173,7 @@ export function seed(): void {
                 codeHash: null,
                 configHash: null,
             },
+            workflowSource: "workflows/alphafold.yml",
             executorInfo: {
                 backend: "molq",
                 scheduler: "slurm",
@@ -179,6 +181,15 @@ export function seed(): void {
                 job_id: "molq-101",
                 scheduler_job_id: "421337",
             },
+            executionHistory: [
+                {
+                    executionId: "exec-001",
+                    startedAt: isoAt(-120),
+                    finishedAt: isoAt(-60),
+                    status: "succeeded",
+                    schedulerJobId: "421337",
+                },
+            ],
         },
         {
             id: "run-101",
@@ -187,6 +198,7 @@ export function seed(): void {
             status: "succeeded",
             finished: isoAt(-50),
             parameters: { batch_size: 16 },
+            results: { hit_rate: 0.31 },
             created: isoAt(-100),
             workflow: {
                 source: "workflows/catalyst.yml",
@@ -194,7 +206,17 @@ export function seed(): void {
                 codeHash: null,
                 configHash: null,
             },
+            workflowSource: "workflows/catalyst.yml",
             executorInfo: { backend: "local" },
+            executionHistory: [
+                {
+                    executionId: "exec-101",
+                    startedAt: isoAt(-100),
+                    finishedAt: isoAt(-50),
+                    status: "succeeded",
+                    schedulerJobId: null,
+                },
+            ],
         },
     ];
 

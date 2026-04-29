@@ -6,7 +6,8 @@ no ``getattr`` guessing.
 
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,28 @@ from molexp.workspace import (
     Project,
     Run,
 )
+
+
+def _read_context_results(run: Run) -> dict[str, Any]:
+    """Read the ``context.results`` block from run.json on disk.
+
+    The ``Context`` object is owned by the active ``RunContext`` only; once
+    a run has finished, the only place ``results`` survives is the
+    ``context`` sub-object inside ``run.json``. We read it lazily so the
+    REST response can show "what did this run produce" without bringing
+    runtime state into the persisted ``RunMetadata`` model.
+    """
+    run_json = run.run_dir / "run.json"
+    if not run_json.exists():
+        return {}
+    try:
+        with open(run_json) as fh:
+            data = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    ctx = data.get("context") or {}
+    results = ctx.get("results") or {}
+    return dict(results) if isinstance(results, dict) else {}
 
 # ── Project ─────────────────────────────────────────────────────────────────
 
@@ -76,7 +99,11 @@ class ExperimentResponse(BaseModel):
                     id=r.id,
                     status=r.status,
                     created=r.metadata.created_at.isoformat(),
+                    finished=(
+                        r.metadata.finished_at.isoformat() if r.metadata.finished_at else None
+                    ),
                     parameters=r.parameters,
+                    results=_read_context_results(r),
                 )
                 for r in runs
             ]
@@ -102,7 +129,9 @@ class RunSummary(BaseModel):
     id: str
     status: str
     created: str
+    finished: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
+    results: dict[str, Any] = Field(default_factory=dict)
 
 
 class WorkflowSnapshotResponse(BaseModel):
@@ -110,6 +139,21 @@ class WorkflowSnapshotResponse(BaseModel):
     gitCommit: str | None = None
     codeHash: str | None = None
     configHash: str | None = None
+
+
+class ExecutionRecordResponse(BaseModel):
+    """One execution attempt of a Run.
+
+    Mirrors :class:`molexp.workspace.models.ExecutionRecord` with
+    JSON-friendly field names so the UI can render a per-attempt
+    timeline.
+    """
+
+    executionId: str
+    startedAt: str
+    finishedAt: str | None = None
+    status: str
+    schedulerJobId: str | None = None
 
 
 class RunResponse(BaseModel):
@@ -120,16 +164,20 @@ class RunResponse(BaseModel):
     created: str
     finished: str | None = None
     parameters: dict[str, Any] = Field(default_factory=dict)
+    results: dict[str, Any] = Field(default_factory=dict)
     workflow: WorkflowSnapshotResponse | None = None
+    workflowSource: str | None = None
     error: dict[str, str] | None = None
     executorInfo: dict[str, Any] = Field(default_factory=dict)
     profile: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
     configHash: str | None = None
+    executionHistory: list[ExecutionRecordResponse] = Field(default_factory=list)
 
     @classmethod
     def from_model(cls, run: Run) -> RunResponse:
         wf_snap = None
+        wf_source: str | None = None
         if run.metadata.workflow_snapshot:
             s = run.metadata.workflow_snapshot
             wf_snap = WorkflowSnapshotResponse(
@@ -138,12 +186,23 @@ class RunResponse(BaseModel):
                 codeHash=s.code_hash,
                 configHash=s.config_hash,
             )
+            wf_source = s.source
         error = None
         if run.metadata.error:
             error = {
                 "type": run.metadata.error.type,
                 "message": run.metadata.error.message,
             }
+        history = [
+            ExecutionRecordResponse(
+                executionId=rec.execution_id,
+                startedAt=rec.started_at.isoformat(),
+                finishedAt=rec.finished_at.isoformat() if rec.finished_at else None,
+                status=rec.status,
+                schedulerJobId=rec.scheduler_job_id,
+            )
+            for rec in run.metadata.execution_history
+        ]
         return cls(
             id=run.id,
             projectId=run.experiment.project.id,
@@ -152,12 +211,15 @@ class RunResponse(BaseModel):
             created=run.metadata.created_at.isoformat(),
             finished=run.metadata.finished_at.isoformat() if run.metadata.finished_at else None,
             parameters=run.parameters,
+            results=_read_context_results(run),
             workflow=wf_snap,
+            workflowSource=wf_source,
             error=error,
             executorInfo=run.metadata.executor_info,
             profile=run.metadata.profile,
             config=run.metadata.config,
             configHash=run.metadata.config_hash,
+            executionHistory=history,
         )
 
 
@@ -280,17 +342,79 @@ class SessionEventResponse(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class SessionStatsResponse(BaseModel):
+    inputTokens: int = 0
+    outputTokens: int = 0
+    cacheReadTokens: int = 0
+    cacheWriteTokens: int = 0
+    totalTokens: int = 0
+    requests: int = 0
+    toolCalls: int = 0
+    events: int = 0
+    startedAt: str | None = None
+    completedAt: str | None = None
+    durationSeconds: float | None = None
+
+
 class AgentSessionResponse(BaseModel):
     sessionId: str
     status: str
     goalDescription: str
     createdAt: str
     events: list[SessionEventResponse] = Field(default_factory=list)
+    stats: SessionStatsResponse = Field(default_factory=SessionStatsResponse)
+    planMode: bool = False
+    skillId: str | None = None
 
 
 class AgentSessionListResponse(BaseModel):
     sessions: list[AgentSessionResponse]
     total: int
+
+
+class CommandParameterSpec(BaseModel):
+    """One ``{{param}}`` slot in a slash command's goal_template."""
+
+    name: str
+    required: bool = True
+
+
+class CommandSpec(BaseModel):
+    """A single slash command — skill-backed or builtin."""
+
+    slashName: str
+    name: str
+    description: str = ""
+    parameters: list[CommandParameterSpec] = Field(default_factory=list)
+    defaultPlanMode: bool = False
+    isBuiltin: bool = False
+    skillId: str | None = None
+
+
+class CommandListResponse(BaseModel):
+    commands: list[CommandSpec] = Field(default_factory=list)
+
+
+class CommandParseResponse(BaseModel):
+    """Mirror of :class:`molexp.plugins.agent_pydanticai.commands.ParsedCommand`."""
+
+    kind: Literal["skill", "builtin", "error"]
+    name: str = ""
+    skillId: str = ""
+    parameters: dict[str, str] = Field(default_factory=dict)
+    planMode: bool = False
+    error: str = ""
+
+
+class AgentSystemPromptResponse(BaseModel):
+    """Per-session system prompt breakdown for the inspector."""
+
+    base: str
+    workspaceInstructions: str = ""
+    skillInstructions: str = ""
+    sessionOverride: str | None = None
+    planMode: bool = False
+    effective: str
 
 
 # ── Plugin Registry ─────────────────────────────────────────────────────────
@@ -524,3 +648,226 @@ class RunRerunResponse(BaseModel):
     projectId: str
     experimentId: str
     status: str
+
+
+# ── Skills / MCP / Tool admin ───────────────────────────────────────────────
+
+
+class SkillResponse(BaseModel):
+    """A saved goal template."""
+
+    id: str
+    name: str
+    description: str = ""
+    goalTemplate: str
+    slashName: str = ""
+    instructions: str = ""
+    defaultPlanMode: bool = False
+    constraints: list[str] = Field(default_factory=list)
+    successCriteria: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    createdAt: str = ""
+    updatedAt: str = ""
+
+
+class SkillListResponse(BaseModel):
+    skills: list[SkillResponse] = Field(default_factory=list)
+
+
+class ToolParameterResponse(BaseModel):
+    name: str
+    annotation: str = "Any"
+    required: bool = False
+
+
+class AgentToolResponse(BaseModel):
+    """One tool exposed to the agent — native or MCP-discovered.
+
+    For MCP tools, ``source`` is ``"mcp:<server-name>"`` so the UI can
+    group by server. Native tools keep ``source = "native"``.
+    """
+
+    name: str
+    description: str = ""
+    parameters: list[ToolParameterResponse] = Field(default_factory=list)
+    requiresApproval: bool = False
+    source: str = "native"
+
+
+class McpToolGroupResponse(BaseModel):
+    """Per-server status surface for the Tools panel.
+
+    Even when a server is offline / misconfigured / unauthorized we want
+    the UI to render *something* under that server's heading — a row with
+    the error keeps users oriented instead of silently dropping the group.
+    """
+
+    server: str
+    scope: Literal["user", "workspace"]
+    ok: bool
+    toolCount: int = 0
+    error: str | None = None
+
+
+class AgentToolListResponse(BaseModel):
+    tools: list[AgentToolResponse] = Field(default_factory=list)
+    mcpGroups: list[McpToolGroupResponse] = Field(default_factory=list)
+
+
+class McpAuthSummary(BaseModel):
+    """Public-safe view of a server's structured auth settings.
+
+    Token values, refresh tokens, and client secrets are never exposed —
+    only metadata the UI needs to render the connection card. ``connected``
+    indicates the token store on disk has at least one persisted token
+    (rough proxy for "user has completed Connect at least once").
+    """
+
+    type: Literal["oauth2"]
+    scopes: list[str] = Field(default_factory=list)
+    clientId: str | None = None
+    connected: bool = False
+
+
+class McpServerResponse(BaseModel):
+    """One MCP server entry, possibly merged across scopes.
+
+    ``shadowed`` is True when this entry exists at User scope but is
+    overridden by a Workspace entry of the same name. ``unresolvedSecrets``
+    lists ``${SECRET:KEY}`` references that have no value in either secret
+    store — the runtime skips such entries.
+    """
+
+    name: str
+    scope: Literal["user", "workspace"]
+    transport: str = ""
+    command: str | None = None
+    args: list[str] = Field(default_factory=list)
+    url: str | None = None
+    envKeys: list[str] = Field(default_factory=list)
+    headerKeys: list[str] = Field(default_factory=list)
+    secretRefs: list[str] = Field(default_factory=list)
+    unresolvedSecrets: list[str] = Field(default_factory=list)
+    shadowed: bool = False
+    valid: bool = True
+    invalidReason: str = ""
+    auth: McpAuthSummary | None = None
+
+
+class McpServerListResponse(BaseModel):
+    """Merged view of both scopes plus the resolved file paths.
+
+    ``workspacePath`` and ``userPath`` are the absolute paths the store
+    would read/write at each scope (whether or not the file currently
+    exists) — useful for UI tooltips like "Edit ~/.molexp/mcp.json".
+    """
+
+    workspacePath: str
+    userPath: str
+    servers: list[McpServerResponse] = Field(default_factory=list)
+
+
+class McpServerTestResponse(BaseModel):
+    """Outcome of probing an MCP server (subprocess spawn or HTTP handshake)."""
+
+    ok: bool
+    name: str
+    scope: Literal["user", "workspace"]
+    transport: str
+    latencyMs: int = 0
+    toolCount: int = 0
+    error: str | None = None
+
+
+class McpOAuthStartResponse(BaseModel):
+    """Result of POST /mcp/servers/{name}/oauth/start.
+
+    The UI opens ``authorizeUrl`` in a popup; once the IdP bounces back to
+    the SPA the SPA POSTs ``code``+``state`` to the callback endpoint to
+    finish the flow.
+    """
+
+    name: str
+    scope: Literal["user", "workspace"]
+    authorizeUrl: str
+
+
+class McpOAuthStatusResponse(BaseModel):
+    """Whether the named server currently has a usable OAuth token on disk.
+
+    ``hasTokens`` is True after a successful Connect; False if the user has
+    never connected, has disconnected, or the token file got corrupted.
+    """
+
+    name: str
+    scope: Literal["user", "workspace"]
+    hasTokens: bool
+    scopes: list[str] = Field(default_factory=list)
+
+
+class McpSecretRefRow(BaseModel):
+    """One row in the secrets list — key + which servers reference it."""
+
+    key: str
+    isSet: bool
+    referencedBy: list[str] = Field(default_factory=list)
+
+
+class McpSecretListResponse(BaseModel):
+    """Secrets at the requested scope. Plaintext values are never returned."""
+
+    scope: Literal["user", "workspace"]
+    path: str
+    secrets: list[McpSecretRefRow] = Field(default_factory=list)
+
+
+# ── Agent provider config ───────────────────────────────────────────────────
+
+
+class AgentProviderResponse(BaseModel):
+    """Public view of the workspace's LLM provider config — never the raw key.
+
+    ``apiKeyPreview`` is a masked rendering ("sk-...1234"); ``apiKeySet``
+    is the boolean the UI uses to gate the "ready" indicator.
+    """
+
+    provider: str = "anthropic"
+    model: str = "claude-sonnet-4-6"
+    baseUrl: str = ""
+    apiKeyPreview: str = ""
+    apiKeySet: bool = False
+    instructions: str = ""
+    supportedProviders: list[str] = Field(default_factory=list)
+
+
+class AgentProviderTestResponse(BaseModel):
+    """Result of probing the configured provider with a minimal request.
+
+    ``ok=True`` means we got a model response back. ``latencyMs`` is the
+    wall-clock RTT for the probe; ``error`` is filled only on failure
+    with a short, user-readable description (no stack trace, no key).
+    """
+
+    ok: bool = False
+    provider: str = ""
+    model: str = ""
+    latencyMs: int = 0
+    reply: str = ""
+    error: str | None = None
+
+
+class AgentHealthResponse(BaseModel):
+    """Whether the agent runtime is ready to start a new session.
+
+    ``ready=False`` indicates a configuration problem the user can
+    resolve in Agent Settings (most commonly: no API key). ``source``
+    is one of ``"stored"`` (workspace config), ``"env"`` (process env
+    var), or ``"none"`` (not configured).
+    """
+
+    ready: bool = False
+    provider: str = ""
+    model: str = ""
+    source: str = "none"
+    reason: str = ""
+    envVar: str = ""

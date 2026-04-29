@@ -14,11 +14,8 @@ import { useEffect, useMemo, useState } from "react";
 import {
   EMPTY_COPY,
   EmptyState,
-  EntityHeader,
   EntityMetric,
-  EntityTabBar,
-  EntityTabContent,
-  EntityTabs,
+  EntityPage,
   KeyValueGrid,
   OverviewHighlight,
   OverviewHighlightGrid,
@@ -372,42 +369,34 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
   const tagEntries = Object.entries(asset.tags ?? {});
 
   return (
-    <div className="flex h-full flex-col bg-background">
-      <EntityHeader
-        breadcrumbs={breadcrumbs}
-        canNavigateUp={canNavigateUp}
-        onNavigateUp={navigateUp}
-        icon={meta.icon}
-        title={asset.name}
-        status={assetSummary?.status}
-        subtitle={`${meta.label} · ${scopeLabel}`}
-        actions={
-          <a href={downloadUrl} download={asset.name}>
-            <Button variant="outline" size="sm">
-              <Download className="mr-2 h-4 w-4" />
-              Download
-            </Button>
-          </a>
-        }
-        metrics={
-          <>
-            <EntityMetric label="Kind" value={meta.label} />
-            <EntityMetric label="Scope" value={asset.scope_kind} />
-            <EntityMetric label="Size" value={formatBytes(size)} />
-          </>
-        }
-      />
-
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <EntityTabs defaultValue="overview">
-          <EntityTabBar
-            tabs={[
-              { value: "overview", label: "Overview" },
-              { value: "content", label: "Content" },
-            ]}
-          />
-
-          <EntityTabContent value="overview">
+    <EntityPage
+      breadcrumbs={breadcrumbs}
+      canNavigateUp={canNavigateUp}
+      onNavigateUp={navigateUp}
+      icon={meta.icon}
+      title={asset.name}
+      status={assetSummary?.status}
+      subtitle={`${meta.label} · ${scopeLabel}`}
+      actions={
+        <a href={downloadUrl} download={asset.name}>
+          <Button variant="outline" size="sm">
+            <Download className="mr-2 h-4 w-4" />
+            Download
+          </Button>
+        </a>
+      }
+      metrics={
+        <>
+          <EntityMetric label="Kind" value={meta.label} />
+          <EntityMetric label="Scope" value={asset.scope_kind} />
+          <EntityMetric label="Size" value={formatBytes(size)} />
+        </>
+      }
+      tabs={[
+        {
+          value: "overview",
+          label: "Overview",
+          content: (
             <OverviewPage
               aside={
                 <>
@@ -543,14 +532,15 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                 </OverviewSection>
               )}
             </OverviewPage>
-          </EntityTabContent>
-
-          <EntityTabContent value="content">
-            <ContentPanel asset={asset} />
-          </EntityTabContent>
-        </EntityTabs>
-      </div>
-    </div>
+          ),
+        },
+        {
+          value: "content",
+          label: "Content",
+          content: <ContentPanel asset={asset} />,
+        },
+      ]}
+    />
   );
 };
 

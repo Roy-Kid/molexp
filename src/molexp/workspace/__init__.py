@@ -28,6 +28,7 @@ from .assets import (
 from .context import Context
 from .experiment import Experiment
 from .models import (
+    ComputeTarget,
     ErrorInfo,
     ExecutionRecord,
     ExperimentMetadata,
@@ -39,6 +40,15 @@ from .models import (
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
 from .run import Run, RunContext, RunStatus
+from .targets import (
+    add_target,
+    get_target,
+    has_target,
+    list_targets,
+    remove_target,
+    target_run_dir,
+    to_transport,
+)
 from .workspace import Workspace
 
 __all__ = [
@@ -57,6 +67,15 @@ __all__ = [
     "ExecutionRecord",
     "ErrorInfo",
     "WorkflowSnapshotRef",
+    "ComputeTarget",
+    # Compute target helpers
+    "add_target",
+    "get_target",
+    "has_target",
+    "list_targets",
+    "remove_target",
+    "target_run_dir",
+    "to_transport",
     # Assets
     "Asset",
     "ArtifactAsset",

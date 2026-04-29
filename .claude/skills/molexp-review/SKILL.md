@@ -11,7 +11,7 @@ If no path given, review all files modified in `git diff --name-only HEAD`.
 
 **Invoke all dimensions in parallel:**
 
-1. **Architecture** → invoke `/molexp-spec` validation checks (layer compliance L1-L5)
+1. **Architecture** → invoke `/molexp-plan` validation checks (layer compliance L1-L5)
 2. **Performance** → check async/I/O anti-patterns
 3. **Documentation** → check docstring completeness
 4. **Async & System Safety**:

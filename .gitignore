@@ -190,6 +190,10 @@ sketch
 
 openapi.json
 
-# Compiled frontend bundle (populated by `npm run build:ui`)
-src/molexp/_webapp/*
-!src/molexp/_webapp/.gitkeep
+# Compiled frontend bundle (populated by `npm run build` in ui/)
+src/molexp/dist/*
+!src/molexp/dist/.gitkeep
+
+# Workspace-level agent secrets — never commit
+.mcp_secrets.json
+.agent_provider.json

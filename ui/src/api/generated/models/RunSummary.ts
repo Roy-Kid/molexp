@@ -6,5 +6,8 @@ export type RunSummary = {
     id: string;
     status: string;
     created: string;
+    finished?: (string | null);
     parameters?: Record<string, any>;
+    results?: Record<string, any>;
 };
+

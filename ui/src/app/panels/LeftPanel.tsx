@@ -47,6 +47,8 @@ import type {
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
+import { useAlert, useConfirm } from "@/components/ConfirmDialog";
+import { usePrompt } from "@/components/PromptDialog";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -648,12 +650,18 @@ export const LeftPanel = ({
   const hasWorkspace = Boolean(snapshot.workspaceRoot);
   const [createExperimentProjectId, setCreateExperimentProjectId] = useState<string | null>(null);
   const [createRunExperimentId, setCreateRunExperimentId] = useState<string | null>(null);
+  const { prompt, dialog: promptDialog } = usePrompt();
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { alert, dialog: alertDialog } = useAlert();
   const [searchParams, setSearchParams] = useSearchParams();
   const runsFilters = useMemo<WorkspaceRunsFilters>(
     () => (view === "runs" ? parseFilterParams(searchParams) : {}),
     [searchParams, view],
   );
-  const { rows: runsRows } = useWorkspaceRuns();
+  // Only subscribe to the runs poller when the user is actually looking at
+  // the runs view; otherwise the LeftPanel would keep hitting /api/runs in
+  // the background even on the workspace/projects views.
+  const { rows: runsRows } = useWorkspaceRuns({ enabled: view === "runs" });
   const runsFacets = useMemo(
     () => computeFacetCounts(runsRows, runsFilters),
     [runsRows, runsFilters],
@@ -674,28 +682,55 @@ export const LeftPanel = ({
 
   const activeId = selection ? selection.objectId : undefined;
 
-  const handleOpenWorkspace = (): void => {
-    const path = window.prompt("Workspace path");
+  const handleOpenWorkspace = async (): Promise<void> => {
+    const path = await prompt({
+      title: "Open workspace",
+      label: "Workspace path",
+      placeholder: "/path/to/workspace",
+      confirmLabel: "Open",
+    });
     if (!path) return;
     onOpenWorkspace(path);
   };
-  const handleCreateFile = (): void => {
-    const path = window.prompt("New file path (relative to workspace)");
+  const handleCreateFile = async (): Promise<void> => {
+    const path = await prompt({
+      title: "New file",
+      label: "File path",
+      description: "Relative to the workspace root.",
+      placeholder: "notebooks/example.md",
+      confirmLabel: "Create",
+    });
     if (!path) return;
     onCreateFile(path);
   };
-  const handleCreateDirectory = (): void => {
-    const path = window.prompt("New folder path (relative to workspace)");
+  const handleCreateDirectory = async (): Promise<void> => {
+    const path = await prompt({
+      title: "New folder",
+      label: "Folder path",
+      description: "Relative to the workspace root.",
+      placeholder: "experiments/new",
+      confirmLabel: "Create",
+    });
     if (!path) return;
     onCreateDirectory(path);
   };
-  const handleCreateFileInDirectory = (directoryPath: string): void => {
-    const name = window.prompt("New file name");
+  const handleCreateFileInDirectory = async (directoryPath: string): Promise<void> => {
+    const name = await prompt({
+      title: "New file",
+      label: "File name",
+      description: directoryPath,
+      confirmLabel: "Create",
+    });
     if (!name) return;
     onCreateFile(joinWorkspacePath(directoryPath, name));
   };
-  const handleCreateDirectoryInDirectory = (directoryPath: string): void => {
-    const name = window.prompt("New folder name");
+  const handleCreateDirectoryInDirectory = async (directoryPath: string): Promise<void> => {
+    const name = await prompt({
+      title: "New folder",
+      label: "Folder name",
+      description: directoryPath,
+      confirmLabel: "Create",
+    });
     if (!name) return;
     onCreateDirectory(joinWorkspacePath(directoryPath, name));
   };
@@ -707,36 +742,75 @@ export const LeftPanel = ({
   };
   const handleCancelRun = async (run: RunSummary): Promise<void> => {
     if (terminalRunStatuses.has(run.status)) return;
-    const confirmed = window.confirm(
-      `Mark run "${run.id}" as cancelled?\n\nThis updates workspace status only; it does not cancel a scheduler job.`,
-    );
+    const confirmed = await confirm({
+      title: "Mark run as cancelled?",
+      description: (
+        <>
+          Run <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code> will be marked
+          cancelled in the workspace. This does not stop any underlying scheduler job.
+        </>
+      ),
+      confirmLabel: "Mark cancelled",
+      destructive: true,
+    });
     if (!confirmed) return;
     try {
       await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
       onRefresh();
     } catch (error) {
       console.error("Failed to mark run cancelled:", error);
-      window.alert("Failed to mark run cancelled");
+      void alert({
+        title: "Failed to mark run cancelled",
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
   const handleDeleteProject = async (projectId: string): Promise<void> => {
-    if (!window.confirm(`Delete project "${projectId}"?`)) return;
+    const confirmed = await confirm({
+      title: "Delete project?",
+      description: (
+        <>
+          Project <code className="rounded bg-muted px-1 py-0.5 text-xs">{projectId}</code> and its
+          experiments will be removed from the workspace.
+        </>
+      ),
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       await workspaceApi.deleteProject(projectId);
       onRefresh();
     } catch (error) {
       console.error("Failed to delete project:", error);
-      window.alert("Failed to delete project");
+      void alert({
+        title: "Failed to delete project",
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
   const handleDeleteExperiment = async (experiment: ExperimentSummary): Promise<void> => {
-    if (!window.confirm(`Delete experiment "${experiment.id}"?`)) return;
+    const confirmed = await confirm({
+      title: "Delete experiment?",
+      description: (
+        <>
+          Experiment <code className="rounded bg-muted px-1 py-0.5 text-xs">{experiment.id}</code>{" "}
+          and its runs will be removed.
+        </>
+      ),
+      confirmLabel: "Delete",
+      destructive: true,
+    });
+    if (!confirmed) return;
     try {
       await workspaceApi.deleteExperiment(experiment.projectId, experiment.id);
       onRefresh();
     } catch (error) {
       console.error("Failed to delete experiment:", error);
-      window.alert("Failed to delete experiment");
+      void alert({
+        title: "Failed to delete experiment",
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
@@ -760,8 +834,12 @@ export const LeftPanel = ({
 
   const workspaceTreeActions: WorkspaceTreeActions = {
     onSelect,
-    onCreateDirectory: handleCreateDirectoryInDirectory,
-    onCreateFile: handleCreateFileInDirectory,
+    onCreateDirectory: (path) => {
+      void handleCreateDirectoryInDirectory(path);
+    },
+    onCreateFile: (path) => {
+      void handleCreateFileInDirectory(path);
+    },
     onCopyText: handleCopyText,
     onRefresh,
   };
@@ -885,7 +963,9 @@ export const LeftPanel = ({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    onClick={handleOpenWorkspace}
+                    onClick={() => {
+                      void handleOpenWorkspace();
+                    }}
                     aria-label="Open workspace"
                   >
                     <FolderOpen className="h-4 w-4" />
@@ -896,7 +976,9 @@ export const LeftPanel = ({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
-                      onClick={handleCreateFile}
+                      onClick={() => {
+                        void handleCreateFile();
+                      }}
                       aria-label="New file"
                     >
                       <FilePlus className="h-4 w-4" />
@@ -905,7 +987,9 @@ export const LeftPanel = ({
                       variant="ghost"
                       size="icon"
                       className="h-7 w-7"
-                      onClick={handleCreateDirectory}
+                      onClick={() => {
+                        void handleCreateDirectory();
+                      }}
                       aria-label="New folder"
                     >
                       <FolderPlus className="h-4 w-4" />
@@ -926,6 +1010,16 @@ export const LeftPanel = ({
 
             {view === "agent" && (
               <div className="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => onSelect({ objectType: "agent", objectId: "settings" })}
+                  aria-label="Agent settings"
+                  title="Skills, tools, MCP"
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
                 <Button
                   variant="ghost"
                   size="icon"
@@ -966,6 +1060,9 @@ export const LeftPanel = ({
           onRunCreated={onRefresh}
         />
       )}
+      {promptDialog}
+      {confirmDialog}
+      {alertDialog}
     </div>
   );
 };

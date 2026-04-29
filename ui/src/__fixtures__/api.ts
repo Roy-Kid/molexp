@@ -110,6 +110,8 @@ export const fixtureExperimentSummary: ExperimentSummary = {
   workflowFile: "workflow.py",
   updatedAt: "2026-03-01T10:00:00Z",
   projectId: "proj-alpha",
+  parameterSpace: {},
+  workflowSource: "workflow.py",
 };
 
 export const fixtureRunSummary: RunSummary = {
@@ -123,4 +125,11 @@ export const fixtureRunSummary: RunSummary = {
   executorInfo: { backend: "local" },
   profile: null,
   configHash: null,
+  parameters: {},
+  results: {},
+  workflowSource: "workflow.py",
+  startedAt: "2026-03-01T12:00:00Z",
+  finishedAt: "2026-03-01T12:00:00Z",
+  executionHistory: [],
+  errorMessage: null,
 };

@@ -46,8 +46,9 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
 
     captured: dict[str, str] = {}
 
-    def fake_make_submit_handler(*, scheduler, cluster, resources, scheduling):
+    def fake_make_submit_handler(*, scheduler, cluster, resources, scheduling, target=None):
         captured["scheduler"] = scheduler
+        captured["target"] = target
 
         class DummyHandler:
             def __init__(self) -> None:

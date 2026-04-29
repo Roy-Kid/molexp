@@ -35,6 +35,7 @@ declare module "react-plotly.js/factory" {
     onUpdate?: (figure: unknown, graphDiv: HTMLDivElement) => void;
     onRelayout?: (event: unknown) => void;
     onHover?: (event: unknown) => void;
+    onClick?: (event: { points: Array<{ customdata?: unknown; pointIndex?: number }> }) => void;
   }
 
   export default function createPlotlyComponent(plotly: unknown): ComponentType<PlotComponentProps>;

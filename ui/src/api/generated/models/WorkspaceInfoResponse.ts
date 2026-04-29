@@ -7,3 +7,4 @@ export type WorkspaceInfoResponse = {
     projectCount: number;
     assetCount: number;
 };
+

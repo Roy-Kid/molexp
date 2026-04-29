@@ -21,11 +21,14 @@ from .types import (
     ObservationEvent,
     PlanCreatedEvent,
     ReplanEvent,
+    ResultArtifactEvent,
     SessionCompletedEvent,
     SessionEvent,
     ToolCallEvent,
     ToolContext,
     ToolResultEvent,
+    UserMessageEvent,
+    UserMessageRequestEvent,
     WorkflowStartedEvent,
 )
 
@@ -47,6 +50,9 @@ __all__ = [
     "ReplanEvent",
     "ApprovalRequestEvent",
     "SessionCompletedEvent",
+    "ResultArtifactEvent",
+    "UserMessageRequestEvent",
+    "UserMessageEvent",
 ]
 
 

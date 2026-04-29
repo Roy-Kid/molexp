@@ -1,35 +1,97 @@
-import { Ban, Copy, FileQuestion, FileText, Terminal } from "lucide-react";
+import { ArrowRight, Ban, Code2, Copy, FileQuestion, FileText, Terminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   EmptyState,
-  EntityHeader,
-  EntityTabBar,
-  EntityTabContent,
-  EntityTabs,
+  EntityPage,
   KeyValueGrid,
   OverviewHighlight,
   OverviewHighlightGrid,
   OverviewPage,
   OverviewSection,
+  StatusBadge,
 } from "@/app/components/entity";
 import { listEntityTabs } from "@/app/registry";
-import { buildMetadataFields } from "@/app/renderers/metadata";
 import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
 import { workspaceApi } from "@/app/state/api";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
 import { useNavigationState } from "@/app/state/useNavigationState";
-import type { RendererProps } from "@/app/types";
+import type { ApiAssetResponse, RendererProps } from "@/app/types";
+import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
+
+const formatScalar = (value: unknown): string => {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const formatDuration = (startIso: string | null, endIso: string | null): string | null => {
+  if (!startIso || !endIso) return null;
+  const start = Date.parse(startIso);
+  const end = Date.parse(endIso);
+  if (Number.isNaN(start) || Number.isNaN(end)) return null;
+  const ms = Math.max(0, end - start);
+  if (ms < 1000) return `${ms} ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 2 : 1)} s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds - minutes * 60);
+  return `${minutes}m ${remainder}s`;
+};
+
+const formatTimeOfDay = (iso: string | null): string => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "—" : d.toLocaleTimeString();
+};
+
+const ASSET_KIND_ORDER = [
+  "log",
+  "execution_state",
+  "artifact",
+  "data",
+  "checkpoint",
+  "error_trace",
+  "output",
+];
+
+const groupAssetsByKind = (assets: ApiAssetResponse[]): Map<string, ApiAssetResponse[]> => {
+  const buckets = new Map<string, ApiAssetResponse[]>();
+  for (const asset of assets) {
+    const list = buckets.get(asset.kind) ?? [];
+    list.push(asset);
+    buckets.set(asset.kind, list);
+  }
+  // Stable order: known kinds first, unknown kinds alphabetical.
+  return new Map(
+    [...buckets.entries()].sort(([a], [b]) => {
+      const ai = ASSET_KIND_ORDER.indexOf(a);
+      const bi = ASSET_KIND_ORDER.indexOf(b);
+      if (ai === -1 && bi === -1) return a.localeCompare(b);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    }),
+  );
+};
 
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skipped"]);
 
 export const RunViewer = (props: RendererProps): JSX.Element => {
   const { selection, snapshot, onRefresh } = props;
   const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
-  const fields = buildMetadataFields(selection, snapshot);
   const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
+  const [runAssets, setRunAssets] = useState<ApiAssetResponse[]>([]);
   const runTabContributions = listEntityTabs("run");
+
+  const { confirm, dialog: confirmDialog } = useConfirm();
+  const { alert, dialog: alertDialog } = useAlert();
 
   const run = useMemo(() => {
     return snapshot.runs.find((r) => r.id === selection.objectId);
@@ -80,6 +142,26 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     };
   }, [activeTab, run]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!run) {
+      setRunAssets([]);
+      return;
+    }
+    workspaceApi
+      .getRunAssets(run.id)
+      .then((assets) => {
+        if (!cancelled) setRunAssets(assets);
+      })
+      .catch((err) => {
+        console.warn(`Failed to load assets for run ${run.id}:`, err);
+        if (!cancelled) setRunAssets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run]);
+
   if (!run) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
@@ -94,11 +176,19 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
 
   const project = snapshot.projects.find((item) => item.id === run.projectId);
   const experiment = snapshot.experiments.find((item) => item.id === run.experimentId);
+  const workflow = experiment
+    ? snapshot.workflows.find(
+        (item) =>
+          item.experimentId === experiment.id &&
+          (item.name === experiment.workflowFile || item.id === experiment.workflowFile),
+      )
+    : undefined;
 
-  // Filter interesting fields to show in the table
-  const displayFields = fields.filter(
-    (f) => !["Run", "Status", "Summary", "Project", "Experiment"].includes(f.label),
-  );
+  const parameterEntries = Object.entries(run.parameters ?? {});
+  const resultEntries = Object.entries(run.results ?? {});
+  const duration = formatDuration(run.startedAt, run.finishedAt);
+  const attemptCount = run.executionHistory.length;
+  const groupedAssets = groupAssetsByKind(runAssets);
 
   const handleCopyRunId = (): void => {
     void navigator.clipboard.writeText(run.id);
@@ -106,22 +196,343 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
 
   const handleCancelRun = async (): Promise<void> => {
     if (terminalRunStatuses.has(run.status)) return;
-    const confirmed = window.confirm(
-      `Mark run "${run.id}" as cancelled?\n\nThis updates workspace status only; it does not cancel a scheduler job.`,
-    );
+    const confirmed = await confirm({
+      title: "Mark run as cancelled?",
+      description: (
+        <>
+          Run <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code> will be marked
+          cancelled in the workspace. This does not stop any underlying scheduler job.
+        </>
+      ),
+      confirmLabel: "Mark cancelled",
+      destructive: true,
+    });
     if (!confirmed) return;
     try {
       await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
       onRefresh();
     } catch (error) {
       console.error("Failed to mark run cancelled:", error);
-      window.alert("Failed to mark run cancelled");
+      void alert({
+        title: "Failed to mark run cancelled",
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 
+  const overviewContent = (
+    <OverviewPage
+      aside={
+        <>
+          <OverviewSection title="Highlights">
+            <OverviewHighlightGrid>
+              <OverviewHighlight
+                label="Started"
+                value={
+                  run.startedAt ? (
+                    new Date(run.startedAt).toLocaleString()
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )
+                }
+              />
+              <OverviewHighlight
+                label="Duration"
+                value={duration ?? <span className="text-muted-foreground">—</span>}
+                detail={
+                  run.finishedAt
+                    ? `Finished ${new Date(run.finishedAt).toLocaleTimeString()}`
+                    : undefined
+                }
+              />
+              <OverviewHighlight
+                label="Attempts"
+                value={attemptCount || 1}
+                detail={attemptCount > 1 ? `${attemptCount} executions` : undefined}
+              />
+              <OverviewHighlight
+                label="Generated"
+                value={runAssets.length}
+                detail={runAssets.length === 1 ? "asset" : "assets"}
+              />
+              <OverviewHighlight label="Backend" value={run.executorInfo.backend || "local"} />
+              <OverviewHighlight
+                label="Run ID"
+                value={<span className="font-mono text-sm">{run.id}</span>}
+              />
+            </OverviewHighlightGrid>
+          </OverviewSection>
+
+          <OverviewSection title="Relationships">
+            <div className="flex flex-wrap gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setSelection({ objectType: "project", objectId: run.projectId })}
+              >
+                Project: {project?.name || run.projectId}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() =>
+                  setSelection({ objectType: "experiment", objectId: run.experimentId })
+                }
+              >
+                Experiment: {experiment?.name || run.experimentId}
+              </Button>
+              {workflow && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() =>
+                    setSelection({
+                      objectType: "workflow",
+                      objectId: workflow.id,
+                      workflowId: workflow.id,
+                    })
+                  }
+                >
+                  Workflow: {workflow.name}
+                </Button>
+              )}
+            </div>
+          </OverviewSection>
+        </>
+      }
+    >
+      <OverviewSection title="Inputs → Outputs">
+        <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr]">
+          <div className="rounded-md border border-border/70 bg-muted/30 p-3">
+            <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span>Parameters</span>
+              <span className="text-foreground/60">({parameterEntries.length})</span>
+            </div>
+            {parameterEntries.length === 0 ? (
+              <p className="text-xs italic text-muted-foreground">No parameters recorded.</p>
+            ) : (
+              <KeyValueGrid
+                items={parameterEntries.map(([key, value]) => ({
+                  label: key,
+                  value: <span className="font-mono text-xs">{formatScalar(value)}</span>,
+                }))}
+              />
+            )}
+          </div>
+          <div className="hidden items-center justify-center text-muted-foreground md:flex">
+            <ArrowRight className="h-5 w-5" />
+          </div>
+          <div
+            className={`rounded-md border p-3 ${
+              resultEntries.length > 0
+                ? "border-emerald-500/30 bg-emerald-500/5"
+                : "border-border/70 bg-muted/30"
+            }`}
+          >
+            <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-muted-foreground">
+              <span>Results</span>
+              <span className="text-foreground/60">({resultEntries.length})</span>
+            </div>
+            {resultEntries.length === 0 ? (
+              <p className="text-xs italic text-muted-foreground">
+                {run.status === "succeeded"
+                  ? "Workflow finished without setting any result."
+                  : "Results appear after the run finishes."}
+              </p>
+            ) : (
+              <KeyValueGrid
+                items={resultEntries.map(([key, value]) => ({
+                  label: key,
+                  value: (
+                    <span className="font-mono text-xs text-foreground">{formatScalar(value)}</span>
+                  ),
+                }))}
+              />
+            )}
+          </div>
+        </div>
+      </OverviewSection>
+
+      {run.errorMessage && (
+        <OverviewSection title="Error">
+          <div className="rounded-md border border-rose-500/30 bg-rose-500/5 p-3">
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs text-rose-700 dark:text-rose-300">
+              {run.errorMessage}
+            </pre>
+          </div>
+        </OverviewSection>
+      )}
+
+      <OverviewSection title="What ran">
+        {run.workflowSource ? (
+          <button
+            type="button"
+            className="flex w-full max-w-3xl items-start gap-3 rounded-md border border-border/70 bg-muted/30 p-3 text-left transition-colors hover:border-border hover:bg-muted/50"
+            onClick={() => {
+              if (workflow) {
+                setSelection({
+                  objectType: "workflow",
+                  objectId: workflow.id,
+                  workflowId: workflow.id,
+                });
+              }
+            }}
+            disabled={!workflow}
+            title={workflow ? "Open workflow" : "Workflow object not loaded"}
+          >
+            <Code2 className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <div className="break-all font-mono text-xs text-foreground">
+                {run.workflowSource}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+                {run.configHash && (
+                  <span className="font-mono">config: {run.configHash.slice(0, 12)}</span>
+                )}
+                {run.profile && <span>profile: {run.profile}</span>}
+              </div>
+            </div>
+          </button>
+        ) : (
+          <p className="text-sm italic text-muted-foreground">
+            No workflow snapshot recorded for this run.
+          </p>
+        )}
+      </OverviewSection>
+
+      <OverviewSection title="Timeline">
+        {run.executionHistory.length === 0 ? (
+          <p className="text-sm italic text-muted-foreground">No execution attempts recorded.</p>
+        ) : (
+          <ol className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
+            {run.executionHistory.map((rec, index) => (
+              <li
+                key={rec.executionId}
+                className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs"
+              >
+                <span className="font-mono text-muted-foreground">#{index + 1}</span>
+                <span className="truncate font-mono text-foreground" title={rec.executionId}>
+                  {rec.executionId}
+                </span>
+                <span className="text-muted-foreground">
+                  {formatTimeOfDay(rec.startedAt)}
+                  {rec.finishedAt ? ` → ${formatTimeOfDay(rec.finishedAt)}` : ""}
+                  {(() => {
+                    const d = formatDuration(rec.startedAt, rec.finishedAt);
+                    return d ? ` · ${d}` : "";
+                  })()}
+                </span>
+                <StatusBadge status={rec.status} size="sm" />
+              </li>
+            ))}
+          </ol>
+        )}
+      </OverviewSection>
+
+      <OverviewSection title="Generated">
+        {runAssets.length === 0 ? (
+          <p className="text-sm italic text-muted-foreground">
+            No assets were registered for this run.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {[...groupedAssets.entries()].map(([kind, assets]) => (
+              <div key={kind} className="rounded-md border border-border/70">
+                <div className="flex items-center justify-between border-b border-border/70 bg-muted/30 px-3 py-1.5 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  <span>{kind}</span>
+                  <span>{assets.length}</span>
+                </div>
+                <ul className="divide-y divide-border/70">
+                  {assets.map((asset) => (
+                    <li key={asset.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs transition-colors hover:bg-muted/40"
+                        onClick={() => setSelection({ objectType: "asset", objectId: asset.id })}
+                      >
+                        <span className="truncate font-medium text-foreground" title={asset.name}>
+                          {asset.name}
+                        </span>
+                        <span
+                          className="truncate font-mono text-[11px] text-muted-foreground"
+                          title={asset.path}
+                        >
+                          {asset.path}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </OverviewSection>
+    </OverviewPage>
+  );
+
+  const logsContent = (
+    <div className="flex h-full flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-50 dark:bg-black">
+      <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-400">
+        <Terminal className="h-3 w-3" />
+        stdout/stderr
+      </div>
+      <div className="flex-1 overflow-auto p-3 font-mono text-xs">
+        {logsError ? (
+          <div className="text-rose-300">{logsError}</div>
+        ) : logs ? (
+          <div className="space-y-4">
+            <section>
+              <div className="mb-1 text-[11px] uppercase text-zinc-500">stdout</div>
+              <pre className="whitespace-pre-wrap text-zinc-100">
+                {logs.stdout || "No stdout captured."}
+              </pre>
+            </section>
+            <section>
+              <div className="mb-1 text-[11px] uppercase text-zinc-500">stderr</div>
+              <pre className="whitespace-pre-wrap text-rose-100">
+                {logs.stderr || "No stderr captured."}
+              </pre>
+            </section>
+          </div>
+        ) : (
+          <div className="italic opacity-60">Loading logs...</div>
+        )}
+      </div>
+    </div>
+  );
+
+  const tabs = [
+    { value: "overview", label: "Overview", content: overviewContent },
+    { value: "logs", label: "Logs", content: logsContent },
+    ...runTabContributions.map((tab) => {
+      const TabComponent = tab.Component;
+      return {
+        value: tab.value,
+        label: tab.label,
+        content: activeTab === tab.value ? <TabComponent key={selectedRunId} {...props} /> : null,
+      };
+    }),
+    ...discoveredPlugins.map(({ contribution, files }) => {
+      const PluginComponent = contribution.Component;
+      return {
+        value: contribution.value,
+        label: `${contribution.label} (${files.length})`,
+        content:
+          activeTab === contribution.value ? (
+            <PluginComponent key={selectedRunId} {...props} discoveredFiles={files} />
+          ) : null,
+      };
+    }),
+    { value: "snapshot", label: "Snapshot", content: <RunSnapshotPanel runId={run.id} /> },
+  ];
+
   return (
-    <div className="flex h-full flex-col bg-background">
-      <EntityHeader
+    <>
+      <EntityPage
         breadcrumbs={breadcrumbs}
         canNavigateUp={canNavigateUp}
         onNavigateUp={navigateUp}
@@ -148,145 +559,12 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
             </Button>
           </>
         }
+        activeTab={activeTab}
+        onActiveTabChange={setActiveTab}
+        tabs={tabs}
       />
-
-      <div className="flex-1 overflow-hidden flex flex-col">
-        <EntityTabs value={activeTab} onValueChange={setActiveTab}>
-          <EntityTabBar
-            tabs={[
-              { value: "overview", label: "Overview" },
-              { value: "logs", label: "Logs" },
-              ...runTabContributions.map((tab) => ({ value: tab.value, label: tab.label })),
-              ...discoveredPlugins.map(({ contribution, files }) => ({
-                value: contribution.value,
-                label: `${contribution.label} (${files.length})`,
-              })),
-              { value: "snapshot", label: "Snapshot" },
-            ]}
-          />
-
-          <EntityTabContent value="overview">
-            <OverviewPage
-              aside={
-                <>
-                  <OverviewSection title="Highlights">
-                    <OverviewHighlightGrid>
-                      <OverviewHighlight label="Status" value={run.status} />
-                      <OverviewHighlight
-                        label="Updated"
-                        value={new Date(run.updatedAt).toLocaleString()}
-                      />
-                      <OverviewHighlight
-                        label="Backend"
-                        value={run.executorInfo.backend || "local"}
-                      />
-                      <OverviewHighlight label="Run ID" value={run.id} />
-                    </OverviewHighlightGrid>
-                  </OverviewSection>
-
-                  <OverviewSection title="Relationships">
-                    <div className="flex flex-wrap gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() =>
-                          setSelection({ objectType: "project", objectId: run.projectId })
-                        }
-                      >
-                        Project: {project?.name || run.projectId}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() =>
-                          setSelection({ objectType: "experiment", objectId: run.experimentId })
-                        }
-                      >
-                        Experiment: {experiment?.name || run.experimentId}
-                      </Button>
-                    </div>
-                  </OverviewSection>
-                </>
-              }
-            >
-              <OverviewSection title="Summary">
-                <p className="max-w-3xl text-sm leading-6 text-foreground">
-                  {run.summary || (
-                    <span className="text-muted-foreground">No summary provided.</span>
-                  )}
-                </p>
-              </OverviewSection>
-
-              <OverviewSection title="Metadata">
-                <KeyValueGrid
-                  items={displayFields.map((field) => ({
-                    label: field.label,
-                    value: <span className="font-mono text-xs">{field.value}</span>,
-                  }))}
-                />
-              </OverviewSection>
-            </OverviewPage>
-          </EntityTabContent>
-
-          <EntityTabContent
-            value="logs"
-            className="m-0 flex flex-1 flex-col overflow-hidden bg-zinc-950 p-0 text-zinc-50 dark:bg-black"
-          >
-            <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-400">
-              <Terminal className="h-3 w-3" />
-              stdout/stderr
-            </div>
-            <div className="flex-1 overflow-auto p-3 font-mono text-xs">
-              {logsError ? (
-                <div className="text-rose-300">{logsError}</div>
-              ) : logs ? (
-                <div className="space-y-4">
-                  <section>
-                    <div className="mb-1 text-[11px] uppercase text-zinc-500">stdout</div>
-                    <pre className="whitespace-pre-wrap text-zinc-100">
-                      {logs.stdout || "No stdout captured."}
-                    </pre>
-                  </section>
-                  <section>
-                    <div className="mb-1 text-[11px] uppercase text-zinc-500">stderr</div>
-                    <pre className="whitespace-pre-wrap text-rose-100">
-                      {logs.stderr || "No stderr captured."}
-                    </pre>
-                  </section>
-                </div>
-              ) : (
-                <div className="italic opacity-60">Loading logs...</div>
-              )}
-            </div>
-          </EntityTabContent>
-
-          <EntityTabContent value="snapshot">
-            <RunSnapshotPanel runId={run.id} />
-          </EntityTabContent>
-
-          {runTabContributions.map((tab) => {
-            const TabComponent = tab.Component;
-            return (
-              <EntityTabContent key={tab.id} value={tab.value}>
-                {activeTab === tab.value && <TabComponent key={selectedRunId} {...props} />}
-              </EntityTabContent>
-            );
-          })}
-
-          {discoveredPlugins.map(({ contribution, files }) => {
-            const PluginComponent = contribution.Component;
-            return (
-              <EntityTabContent key={contribution.id} value={contribution.value}>
-                {activeTab === contribution.value && (
-                  <PluginComponent key={selectedRunId} {...props} discoveredFiles={files} />
-                )}
-              </EntityTabContent>
-            );
-          })}
-        </EntityTabs>
-      </div>
-    </div>
+      {confirmDialog}
+      {alertDialog}
+    </>
   );
 };

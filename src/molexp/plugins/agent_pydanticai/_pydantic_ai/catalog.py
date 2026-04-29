@@ -1,9 +1,14 @@
 """MolexpToolCatalog: builds a pydantic-ai toolset from molexp tools.
 
 Combines:
-1. Built-in Level 1/2/3 workspace tools
+1. Native task-management + chat tools (submit_run, retry_run, ask_user, …)
 2. User-provided extra tools (molexp Tool instances or pydantic-ai tools)
 3. ApprovalPolicy applied via pydantic-ai's approval_required() wrapper
+
+Read-only data access (list_*, read_metrics, …) is **not** registered
+here — it lives in the molexp-data MCP server and is auto-discovered
+by the Agent runtime through ``.mcp.json``. Likewise, code execution
+for analysis is provided by an external code-exec MCP server.
 """
 
 from __future__ import annotations
@@ -17,7 +22,16 @@ from ..tools import FunctionTool
 from ..tools import Tool as MolexpTool
 from ..types import ToolContext
 from .deps import MolexpDeps
-from .workspace_tools import get_all_builtin_tools
+from .workspace_tools import get_all_builtin_tools, get_read_only_tools
+
+# Tools that require human approval **by default**.
+#
+# Empty on purpose: the agent's primary UX is "user types the goal, agent
+# carries it out", and an approval popup for every submit_run / execute_run
+# kills that flow. Production deployments that want a confirm-before-act
+# model should pass an explicit ``ApprovalPolicy`` to ``AgentService`` —
+# e.g. ``ApprovalPolicy(require_approval_for=["execute_run", "retry_run"])``.
+DEFAULT_APPROVAL_TOOLS: tuple[str, ...] = ()
 
 
 class MolexpToolCatalog:
@@ -30,15 +44,33 @@ class MolexpToolCatalog:
         extra_tools: User-provided additional tools (molexp.agent.Tool instances
                      or raw pydantic-ai tool functions)
         approval_policy: Policy controlling which tools need human approval
+        read_only: When True, register only read-only native tools (plus
+            chat plumbing). Used by plan mode to make write tools simply
+            unavailable to the agent. ``extra_tools`` are still registered —
+            their classification is the caller's responsibility. MCP write
+            tools loaded via ``.mcp.json`` are *not* filtered (MCP doesn't
+            expose a generic read/write classifier); operators that need a
+            stricter plan-mode posture should configure a read-only MCP
+            profile separately.
     """
 
     def __init__(
         self,
         extra_tools: list[Any] | None = None,
         approval_policy: ApprovalPolicy | None = None,
+        read_only: bool = False,
     ) -> None:
         self._extra_tools = extra_tools or []
         self._approval_policy = approval_policy or ApprovalPolicy()
+        self._read_only = read_only
+        # Inject defaults for write-side tools when caller didn't override.
+        for name in DEFAULT_APPROVAL_TOOLS:
+            already_listed = any(
+                pattern == name or "*" in pattern
+                for pattern in self._approval_policy.require_approval_for
+            )
+            if not already_listed:
+                self._approval_policy.require_approval_for.append(name)
 
     def build(self) -> AbstractToolset[MolexpDeps]:
         """Build and return the complete toolset.
@@ -46,7 +78,8 @@ class MolexpToolCatalog:
         Returns:
             AbstractToolset ready to pass to pydantic-ai Agent
         """
-        toolset: FunctionToolset[MolexpDeps] = FunctionToolset(tools=get_all_builtin_tools())
+        builtins = get_read_only_tools() if self._read_only else get_all_builtin_tools()
+        toolset: FunctionToolset[MolexpDeps] = FunctionToolset(tools=builtins)
 
         # Add user extra tools
         for tool in self._extra_tools:

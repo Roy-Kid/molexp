@@ -3,12 +3,25 @@ import {
   renderPlanByObjectType,
   resolveRenderer,
 } from "@/app/registry";
-import type { InspectorTarget, Selection, WorkspaceSnapshot } from "@/app/types";
-import { Card } from "@/components/ui/card";
+import { RunsPage } from "@/app/runs/RunsPage";
+import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
+
+const EmptySelectionPlaceholder = (): JSX.Element => (
+  <div className="flex h-full items-center justify-center p-6 text-center">
+    <div className="max-w-sm space-y-2">
+      <h2 className="text-base font-semibold text-foreground">Select an item to begin</h2>
+      <p className="text-sm text-muted-foreground">
+        Pick a project, experiment, run, or workflow from the left navigation, or open the Runs
+        view to inspect every execution across the workspace.
+      </p>
+    </div>
+  </div>
+);
 
 interface CenterPanelProps {
   selection: Selection | null;
   snapshot: WorkspaceSnapshot;
+  leftPanelView?: LeftPanelView;
   inspectorTarget: InspectorTarget;
 
   onInspectorTargetChange: (target: InspectorTarget) => void;
@@ -18,18 +31,16 @@ interface CenterPanelProps {
 export const CenterPanel = ({
   selection,
   snapshot,
+  leftPanelView,
   inspectorTarget,
   onInspectorTargetChange,
   onRefresh,
 }: CenterPanelProps): JSX.Element => {
   if (!selection) {
-    return (
-      <Card className="flex h-full items-center justify-center border-dashed border-border/60 bg-muted/20">
-        <p className="text-sm text-muted-foreground">
-          Select a project, workflow, or asset to begin.
-        </p>
-      </Card>
-    );
+    if (leftPanelView === "runs") {
+      return <RunsPage snapshot={snapshot} />;
+    }
+    return <EmptySelectionPlaceholder />;
   }
 
   const plan = renderPlanByObjectType[selection.objectType];

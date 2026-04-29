@@ -1,5 +1,5 @@
-import { useMemo } from "react";
 import type { JSX } from "react";
+import { useMemo } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -36,7 +36,7 @@ export const RunsStatusProgress = ({
 
   if (total === 0) {
     return (
-      <div className="rounded border border-border bg-background p-3 text-center text-xs italic text-muted-foreground">
+      <div className="text-center text-xs italic text-muted-foreground">
         No runs match the current filters.
       </div>
     );
@@ -45,7 +45,7 @@ export const RunsStatusProgress = ({
   const visible = segments.filter((segment) => segment.count > 0);
 
   return (
-    <div className="rounded border border-border bg-background p-3">
+    <div>
       <div className="mb-2 flex items-baseline justify-between">
         <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Status mix
@@ -93,9 +93,7 @@ export const RunsStatusProgress = ({
               disabled={!clickable}
               className={cn(
                 "flex items-center gap-1.5 transition-colors",
-                clickable
-                  ? "cursor-pointer text-foreground hover:text-primary"
-                  : "cursor-default",
+                clickable ? "cursor-pointer text-foreground hover:text-primary" : "cursor-default",
                 dimmed && "opacity-40",
               )}
             >
@@ -106,9 +104,7 @@ export const RunsStatusProgress = ({
               />
               <span className="text-muted-foreground">{segment.spec.label}</span>
               <span className="font-semibold tabular-nums">{segment.count}</span>
-              <span className="text-muted-foreground">
-                · {(segment.ratio * 100).toFixed(0)}%
-              </span>
+              <span className="text-muted-foreground">· {(segment.ratio * 100).toFixed(0)}%</span>
             </button>
           );
         })}
