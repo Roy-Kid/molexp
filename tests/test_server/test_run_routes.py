@@ -1,5 +1,10 @@
 """Tests for run API routes."""
 
+import pytest
+
+from molexp.plugins.submit_molq.submit import SubmitHandler
+from molexp.workspace import ComputeTarget, add_target
+
 
 class TestRunRoutes:
     def _prefix(self, project, experiment):
@@ -79,3 +84,150 @@ class TestRunRoutes:
         summary = next(r for r in data["runs"] if r["id"] == run.id)
         assert summary["results"] == {"y": 9.0}
         assert summary["finished"] is not None
+
+
+def _stub_workflow(ctx):
+    """Module-level callable so ``set_workflow`` can resolve an entrypoint."""
+
+
+@pytest.fixture
+def local_target(workspace):
+    add_target(
+        workspace,
+        ComputeTarget(name="laptop", scratch_root=str(workspace.root / "scratch")),
+    )
+    return "laptop"
+
+
+@pytest.fixture
+def experiment_with_entrypoint(project):
+    exp = project.experiment(
+        "wired-exp",
+        workflow_source="train.py",
+        params={"lr": 1e-4},
+    )
+    exp.set_workflow(_stub_workflow)
+    return exp
+
+
+@pytest.fixture
+def captured_submits(monkeypatch):
+    """Recorder for ``SubmitHandler.__call__``; each entry is ``(handler, args)``."""
+    calls: list = []
+    monkeypatch.setattr(
+        SubmitHandler,
+        "__call__",
+        lambda self, *args, **kwargs: calls.append((self, args)),
+    )
+    return calls
+
+
+class TestRunSubmissionWiring:
+    """The API path must dispatch to molq when a target is given."""
+
+    def _prefix(self, project, experiment):
+        return f"/api/projects/{project.id}/experiments/{experiment.id}/runs"
+
+    def test_create_with_target_invokes_submit_handler(
+        self,
+        client,
+        project,
+        experiment_with_entrypoint,
+        local_target,
+        captured_submits,
+    ):
+        resp = client.post(
+            self._prefix(project, experiment_with_entrypoint),
+            json={"parameters": {"lr": 1e-4}, "target": local_target},
+        )
+        assert resp.status_code == 201, resp.text
+        assert len(captured_submits) == 1
+        handler, args = captured_submits[0]
+        assert handler._scheduler == "shell"
+        _script, mol_run, exp, proj = args
+        assert mol_run.id == resp.json()["id"]
+        assert exp.id == experiment_with_entrypoint.id
+        assert proj.id == project.id
+
+    def test_create_without_target_skips_submit(
+        self, client, project, experiment, captured_submits
+    ):
+        resp = client.post(
+            self._prefix(project, experiment),
+            json={"parameters": {}},
+        )
+        assert resp.status_code == 201
+        assert captured_submits == []
+
+    def test_create_with_target_without_entrypoint_returns_422(
+        self, client, project, experiment, local_target
+    ):
+        resp = client.post(
+            self._prefix(project, experiment),
+            json={"parameters": {}, "target": local_target},
+        )
+        assert resp.status_code == 422
+        assert "entrypoint" in resp.json()["detail"].lower()
+
+    def test_rerun_inherits_target_and_dispatches(
+        self,
+        client,
+        project,
+        experiment_with_entrypoint,
+        local_target,
+        captured_submits,
+    ):
+        src_run = experiment_with_entrypoint.run(
+            parameters={"lr": 1e-4}, target=local_target
+        )
+        captured_submits.clear()  # ignore implicit submit on source-run creation
+
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{src_run.id}/rerun"
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["sourceRunId"] == src_run.id
+        assert body["newRunId"] != src_run.id
+        assert len(captured_submits) == 1
+
+    def test_rerun_without_target_does_not_submit(
+        self, client, project, experiment, run, captured_submits
+    ):
+        resp = client.post(
+            f"{self._prefix(project, experiment)}/{run.id}/rerun"
+        )
+        assert resp.status_code == 201
+        assert captured_submits == []
+
+    def test_kill_routes_through_try_cancel(
+        self, client, project, experiment, run, monkeypatch
+    ):
+        seen: list = []
+
+        def fake_try_cancel(r):
+            seen.append(r.id)
+            r.cancel()
+            return None
+
+        monkeypatch.setattr(
+            "molexp.server.routes.run.try_cancel", fake_try_cancel
+        )
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
+        assert resp.status_code == 200
+        assert seen == [run.id]
+        assert resp.json()["message"] == "Run cancelled"
+        assert resp.json()["status"] == "cancelled"
+
+    def test_kill_falls_back_when_try_cancel_warns(
+        self, client, project, experiment, run, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "molexp.server.routes.run.try_cancel",
+            lambda r: "no molq job id",
+        )
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["message"] == "no molq job id"
+        assert body["status"] == "cancelled"

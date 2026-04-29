@@ -11,8 +11,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from molexp._run_cancel import try_cancel
 from molexp.plugins.metrics import read_run_metrics
+from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workspace import RunStatus
+from molexp.workspace.targets import get_target
 
 from ..dependencies import get_workspace
 from ..exceptions import InvalidStatusError, RunNotFoundError
@@ -45,6 +48,38 @@ def _get_experiment(workspace, project_id: str, experiment_id: str):
     if not project:
         return None
     return project.get_experiment(experiment_id)
+
+
+def _dispatch_to_molq(target, run) -> None:
+    """Submit *run* through molq onto *target*.
+
+    Resources and scheduling come from the target's defaults — the API
+    has no per-run CLI overrides like ``molexp run --cpus``.
+    """
+    snapshot = run.metadata.workflow_snapshot
+    if snapshot is None or not snapshot.entrypoint:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"experiment {run.experiment.id!r} has no workflow entrypoint; "
+                "bind a Python WorkflowSpec or callable on the experiment "
+                "before submitting via the API"
+            ),
+        )
+
+    # Worker chdirs to submit_cwd before importing user code so cwd-relative
+    # paths resolve the same as at submit time.
+    if not run.metadata.submit_cwd:
+        run._update_metadata(submit_cwd=str(Path.cwd().resolve()))
+
+    handler = SubmitHandler(
+        scheduler=target.scheduler,
+        cluster=None,
+        resources=target.default_resources,
+        scheduling=target.default_scheduling,
+        target=target,
+    )
+    handler(None, run, run.experiment, run.experiment.project)
 
 
 @router.get("", response_model=list[RunResponse])
@@ -85,7 +120,20 @@ def create_run(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, "")
-    run = experiment.run(parameters=run_req.parameters)
+
+    target = None
+    if run_req.target is not None:
+        try:
+            target = get_target(workspace, run_req.target)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"compute target {run_req.target!r} is not registered on this workspace",
+            ) from exc
+
+    run = experiment.run(parameters=run_req.parameters, target=run_req.target)
+    if target is not None:
+        _dispatch_to_molq(target, run)
     return RunResponse.from_model(run)
 
 
@@ -389,7 +437,12 @@ def rerun_run(
     run_id: str,
     workspace=Depends(get_workspace),
 ) -> RunRerunResponse:
-    """Clone an existing run's parameters into a fresh run within the same experiment."""
+    """Clone an existing run's parameters into a fresh run within the same experiment.
+
+    The new run inherits the source run's compute target.  When a target is
+    set, the new run is also submitted through molq so a re-run from the UI
+    actually re-executes (no manual ``molexp run`` step required).
+    """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
@@ -397,7 +450,23 @@ def rerun_run(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    new_run = experiment.run(parameters=dict(run.parameters))
+    inherited_target = run.metadata.target
+    target = None
+    if inherited_target is not None:
+        try:
+            target = get_target(workspace, inherited_target)
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"compute target {inherited_target!r} is not registered on this workspace",
+            ) from exc
+
+    new_run = experiment.run(
+        parameters=dict(run.parameters),
+        target=inherited_target,
+    )
+    if target is not None:
+        _dispatch_to_molq(target, new_run)
     return RunRerunResponse(
         sourceRunId=run.id,
         newRunId=new_run.id,
@@ -414,11 +483,14 @@ def kill_run(
     run_id: str,
     workspace=Depends(get_workspace),
 ) -> RunActionResponse:
-    """Best-effort kill: mark the run as cancelled in workspace metadata.
+    """Cancel a run.
 
-    Note: this does not yet signal an external scheduler. It updates run
-    status and clears ownership labels; live process termination is the
-    scheduler's responsibility once such hooks are available.
+    Routes through :func:`molexp._run_cancel.try_cancel`, which signals
+    molq via :class:`molq.Submitor` for cluster-submitted runs and
+    sends ``SIGTERM`` for runs still owned by a local pid.  When neither
+    path applies (run never submitted, terminal, or executor info
+    missing) we fall back to flipping the metadata status so the UI
+    still reflects user intent.
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -427,11 +499,18 @@ def kill_run(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
+    warning = try_cancel(run)
+    if warning is None:
+        return RunActionResponse(
+            runId=run.id,
+            status=run.status,
+            message="Run cancelled",
+        )
     run.cancel()
     return RunActionResponse(
         runId=run.id,
         status=run.status,
-        message="Run marked as cancelled",
+        message=warning,
     )
 
 
