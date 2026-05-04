@@ -72,9 +72,24 @@ def _service_for(workspace) -> AgentService:
                 workspace_path=root or Path("."),
                 workspace=workspace,
                 model=_resolve_model_client(root),
+                tool_sources=_resolve_tool_sources(),
             )
             _service_cache[key] = existing
     return existing
+
+
+def _resolve_tool_sources():
+    """Return every registered :class:`ToolSource` for the harness.
+
+    Importing :mod:`molexp.plugins.tool_mcp` triggers its self-
+    registration; the registry is process-wide, so subsequent
+    sessions see the same source list.
+    """
+
+    import molexp.plugins.tool_mcp  # noqa: F401 — registers the source
+    from molexp.agent.tools.source import all_tool_sources
+
+    return all_tool_sources()
 
 
 def _resolve_model_client(root: Path | None):

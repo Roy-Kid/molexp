@@ -27,6 +27,7 @@ from molexp.agent.state.store import AgentStateStore
 from molexp.agent.tools.dispatcher import ToolDispatcher
 from molexp.agent.tools.policy import PERMISSIVE_POLICY, ToolPolicy
 from molexp.agent.tools.registry import ToolRegistry
+from molexp.agent.tools.source import ToolSource
 from molexp.agent.types import Goal, SessionStatus, utc_now
 
 
@@ -54,6 +55,7 @@ class AgentService:
         policy: ToolPolicy = PERMISSIVE_POLICY,
         workspace: object | None = None,
         register_native_tools: bool = True,
+        tool_sources: tuple[ToolSource, ...] = (),
     ) -> None:
         self.workspace_path = Path(workspace_path)
         self.settings = settings or AgentSettings()
@@ -64,6 +66,7 @@ class AgentService:
         self.workspace = workspace
         self._sessions: dict[str, AgentSession] = {}
         self._runner_factory = runner_factory
+        self.tool_sources = tuple(tool_sources)
         if register_native_tools:
             self._register_native_tools()
 
@@ -76,6 +79,7 @@ class AgentService:
         settings: AgentSettings | None = None,
         model: ModelClient | None = None,
         workspace: object | None = None,
+        tool_sources: tuple[ToolSource, ...] = (),
     ) -> "AgentService":
         """Construct a service rooted at ``workspace_path``.
 
@@ -83,6 +87,11 @@ class AgentService:
         which resolves a provider config through
         :func:`molexp.agent.model_registry.create_model_client`. The
         harness itself never imports a model plugin.
+
+        ``tool_sources`` lets the caller plug in :class:`ToolSource`
+        instances (MCP, etc.); the dispatcher merges their tools into
+        the model-facing schema list and routes matching calls to
+        ``source.call``.
         """
 
         return cls(
@@ -90,6 +99,7 @@ class AgentService:
             settings=settings,
             model=model,
             workspace=workspace,
+            tool_sources=tool_sources,
         )
 
     def start_session(self, goal: Goal) -> AgentSession:
@@ -189,7 +199,7 @@ class AgentService:
         if self._runner_factory is not None:
             return self._runner_factory(session)
         assert self.model is not None
-        dispatcher = ToolDispatcher(self.registry)
+        dispatcher = ToolDispatcher(self.registry, sources=self.tool_sources)
         return AgentRunner(
             model=self.model,
             registry=self.registry,

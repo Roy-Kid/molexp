@@ -153,7 +153,7 @@ class AgentRunner:
         approval_gate = SessionApprovalGate(session, turn_id=turn_id)
         dispatcher = self.dispatcher
         assert dispatcher is not None
-        tool_schemas = self.registry.schemas(self.policy)
+        tool_schemas = await dispatcher.discover(self.workspace, self.policy)
 
         for _ in range(_MAX_TOOL_LOOPS):
             packet = await self._build_context(session, turn_id, history)

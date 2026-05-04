@@ -148,3 +148,127 @@ async def test_auto_approve_gate_lets_mutating_tools_through() -> None:
     )
     assert result.ok is True
     assert result.value == "done"
+
+
+class _StubToolSource:
+    """Minimal :class:`ToolSource` stand-in for dispatcher tests."""
+
+    source_name = "stub"
+
+    def __init__(self, specs: list[ToolSpec]) -> None:
+        self.specs = specs
+        self.calls: list[tuple[str, dict]] = []
+
+    async def list_tools(self, workspace):  # noqa: ANN001 — workspace is opaque
+        return list(self.specs)
+
+    async def call(self, name: str, args: dict, ctx: ToolContext) -> ToolResult:
+        self.calls.append((name, args))
+        return ToolResult(ok=True, value={"name": name, "args": args})
+
+
+@pytest.mark.asyncio
+async def test_discover_merges_native_and_source_schemas() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        _spec("native:list"),
+        lambda a, c: ToolResult(ok=True),  # type: ignore[arg-type]
+    )
+    source = _StubToolSource([_spec("mcp:srv.echo"), _spec("mcp:srv.ping")])
+    dispatcher = ToolDispatcher(registry, sources=(source,))
+
+    schemas = await dispatcher.discover(workspace=None, policy=PERMISSIVE_POLICY)
+    names = {s.name for s in schemas}
+
+    assert names == {"native:list", "mcp:srv.echo", "mcp:srv.ping"}
+
+
+@pytest.mark.asyncio
+async def test_dispatch_routes_source_calls_to_source_dot_call() -> None:
+    registry = ToolRegistry()
+    source = _StubToolSource([_spec("mcp:srv.echo")])
+    dispatcher = ToolDispatcher(registry, sources=(source,))
+    await dispatcher.discover(workspace=None, policy=PERMISSIVE_POLICY)
+
+    result = await dispatcher.dispatch(
+        ModelToolCall(id="1", name="mcp:srv.echo", arguments={"x": 1}),
+        _ctx(),
+        PERMISSIVE_POLICY,
+    )
+
+    assert result.ok is True
+    assert result.value == {"name": "mcp:srv.echo", "args": {"x": 1}}
+    assert source.calls == [("mcp:srv.echo", {"x": 1})]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_returns_not_found_when_source_unknown_until_discover() -> None:
+    """Source tools must be discovered before they become callable."""
+
+    registry = ToolRegistry()
+    source = _StubToolSource([_spec("mcp:srv.echo")])
+    dispatcher = ToolDispatcher(registry, sources=(source,))
+
+    result = await dispatcher.dispatch(
+        ModelToolCall(id="1", name="mcp:srv.echo", arguments={}),
+        _ctx(),
+        PERMISSIVE_POLICY,
+    )
+
+    assert result.ok is False
+    assert result.error is not None
+    assert result.error.kind is FailureKind.TOOL_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_native_name_shadows_source_with_same_name() -> None:
+    """When both register the same name, native wins."""
+
+    registry = ToolRegistry()
+
+    async def native_stub(args: dict, ctx: ToolContext) -> ToolResult:
+        return ToolResult(ok=True, value="native")
+
+    registry.register(_spec("collide"), native_stub)
+    source = _StubToolSource([_spec("collide")])
+    dispatcher = ToolDispatcher(registry, sources=(source,))
+
+    schemas = await dispatcher.discover(workspace=None, policy=PERMISSIVE_POLICY)
+    assert sum(1 for s in schemas if s.name == "collide") == 1
+
+    result = await dispatcher.dispatch(
+        ModelToolCall(id="1", name="collide", arguments={}),
+        _ctx(),
+        PERMISSIVE_POLICY,
+    )
+    assert result.value == "native"
+    assert source.calls == []
+
+
+@pytest.mark.asyncio
+async def test_source_call_normalizes_exceptions_into_tool_error() -> None:
+    registry = ToolRegistry()
+
+    class _Boom:
+        source_name = "boom"
+
+        async def list_tools(self, workspace):  # noqa: ANN001
+            return [_spec("boom:fail")]
+
+        async def call(self, name, args, ctx):  # noqa: ANN001
+            raise RuntimeError("kaboom")
+
+    dispatcher = ToolDispatcher(registry, sources=(_Boom(),))
+    await dispatcher.discover(workspace=None, policy=PERMISSIVE_POLICY)
+
+    result = await dispatcher.dispatch(
+        ModelToolCall(id="1", name="boom:fail", arguments={}),
+        _ctx(),
+        PERMISSIVE_POLICY,
+    )
+
+    assert result.ok is False
+    assert result.error is not None
+    assert result.error.kind is FailureKind.TOOL_ERROR
+    assert "kaboom" in result.error.message
+    assert result.error.detail.get("source") == "boom"
