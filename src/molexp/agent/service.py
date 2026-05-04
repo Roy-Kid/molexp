@@ -121,20 +121,59 @@ class AgentService:
             status=SessionStatus.PENDING,
         )
         self.state.sessions.write_metadata(meta)
-
-        if self.model is not None:
-            runner = self._build_runner(session)
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            if loop is not None:
-                task = loop.create_task(
-                    runner.drive_session(session),
-                    name=f"agent-session-{session_id}",
-                )
-                session.attach_task(task)
+        self._spawn_runner(session)
         return session
+
+    def resume_session(self, session_id: str) -> AgentSession:
+        """Re-spawn a runner for a ``RESUMABLE`` / ``INTERRUPTED`` session.
+
+        Loads the persisted message history from ``messages.jsonl`` and
+        hands it to the runner so it picks up where the previous
+        process stopped — the model gets the same context, the turn
+        loop continues on the next inbound user message.
+        """
+
+        meta = self.state.sessions.read_metadata(session_id)
+        if meta is None:
+            raise KeyError(f"session '{session_id}' not found")
+        if meta.status not in (SessionStatus.RESUMABLE, SessionStatus.INTERRUPTED):
+            raise ValueError(
+                f"session '{session_id}' is in status {meta.status.value!r}; "
+                "only RESUMABLE or INTERRUPTED sessions can be resumed"
+            )
+        history = list(self.state.sessions.read_messages(session_id))
+        session = AgentSession(session_id=session_id, goal=meta.goal)
+        self._sessions[session_id] = session
+        self.state.sessions.write_metadata(
+            SessionMetadata(
+                session_id=session_id,
+                goal=meta.goal,
+                status=SessionStatus.PENDING,
+                created_at=meta.created_at,
+                updated_at=utc_now(),
+                summary=meta.summary,
+            )
+        )
+        self._spawn_runner(session, initial_history=history)
+        return session
+
+    def _spawn_runner(
+        self,
+        session: AgentSession,
+        initial_history: list | None = None,
+    ) -> None:
+        if self.model is None:
+            return
+        runner = self._build_runner(session)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = loop.create_task(
+            runner.drive_session(session, initial_history=initial_history),
+            name=f"agent-session-{session.session_id}",
+        )
+        session.attach_task(task)
 
     async def emit_session_started(self, session: AgentSession) -> None:
         """Publish the initial :class:`SessionStarted` event.
@@ -230,15 +269,15 @@ class AgentService:
                 self.registry.register(spec, obj)
 
     def _mark_orphaned_sessions_interrupted(self) -> None:
-        """Flip non-terminal persisted sessions to ``INTERRUPTED``.
+        """Reconcile orphaned persisted sessions on construction.
 
-        On server restart any session whose JSON still claims a live
-        status (``PENDING`` / ``RUNNING`` / ``AWAITING_*``) belonged to
-        a previous process and has no live runner. Marking them
-        ``INTERRUPTED`` lets the UI surface "session ended
-        unexpectedly" instead of pretending they're still running.
-        Full rehydration (status → ``RESUMABLE`` + replayed turn loop)
-        is a follow-up.
+        Sessions whose JSON still claims a live status
+        (``PENDING`` / ``RUNNING`` / ``AWAITING_*``) belonged to a
+        previous process. If their persisted ``messages.jsonl`` has
+        replayable history they flip to ``RESUMABLE`` so
+        :meth:`resume_session` can pick up where they stopped;
+        otherwise they go to ``INTERRUPTED`` and the UI surfaces
+        "ended unexpectedly".
         """
 
         live_states = {
@@ -251,14 +290,24 @@ class AgentService:
         for meta in self.state.sessions.list_sessions():
             if meta.status not in live_states:
                 continue
+            history = self.state.sessions.read_messages(meta.session_id)
+            replayable = bool(history) and any(m.role == "user" for m in history)
+            new_status = (
+                SessionStatus.RESUMABLE if replayable else SessionStatus.INTERRUPTED
+            )
+            summary = meta.summary or (
+                "resumable: server restart"
+                if replayable
+                else "interrupted: server restart"
+            )
             self.state.sessions.write_metadata(
                 SessionMetadata(
                     session_id=meta.session_id,
                     goal=meta.goal,
-                    status=SessionStatus.INTERRUPTED,
+                    status=new_status,
                     created_at=meta.created_at,
                     updated_at=utc_now(),
-                    summary=meta.summary or "interrupted: server restart",
+                    summary=summary,
                 )
             )
 

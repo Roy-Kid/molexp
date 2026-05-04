@@ -347,3 +347,160 @@ async def test_evaluator_records_eval_checkpoint_at_terminal(
     record = json.loads(eval_path.read_text())
     assert record["evaluator"] == "noop"
     assert "ts" in record
+
+
+@pytest.mark.asyncio
+async def test_resume_session_replays_persisted_history(workspace_path: Path) -> None:
+    """A ``RESUMABLE`` session re-spawns its runner from messages.jsonl."""
+
+    from molexp.agent.model import ModelRequest, ModelResponse
+
+    class _RecordingModel:
+        name = "rec"
+
+        def __init__(self) -> None:
+            self.requests: list[ModelRequest] = []
+
+        async def complete(self, request: ModelRequest) -> ModelResponse:
+            self.requests.append(request)
+            return ModelResponse(text="resumed reply", finish_reason="stop")
+
+        def stream(self, request):  # noqa: ANN001
+            raise NotImplementedError
+
+    # First process: queue a goal + a follow-up turn so messages.jsonl
+    # records something replayable.
+    fake = FakeModelClient()
+    fake.queue_text("first reply")
+    service = AgentService.from_workspace(workspace_path, model=fake)
+    sess = service.start_session(Goal(description="resume me"))
+
+    async def wait_responded() -> None:
+        async for ev in sess.stream_events():
+            if isinstance(ev, ModelResponded):
+                return
+
+    await asyncio.wait_for(wait_responded(), timeout=2.0)
+    await service.cancel(sess.session_id)
+
+    # Second process: a fresh service with a recording model. Startup
+    # should mark the session RESUMABLE; resume_session replays the
+    # persisted user goal + assistant reply into the new runner.
+    rec = _RecordingModel()
+    fresh = AgentService.from_workspace(workspace_path, model=rec)
+    meta = fresh.state.sessions.read_metadata(sess.session_id)
+    assert meta is not None
+    assert meta.status is SessionStatus.RESUMABLE
+
+    resumed = fresh.resume_session(sess.session_id)
+
+    async def wait_resumed() -> None:
+        async for ev in resumed.stream_events():
+            if isinstance(ev, ModelResponded):
+                return
+
+    await asyncio.wait_for(wait_resumed(), timeout=2.0)
+    await fresh.cancel(resumed.session_id)
+
+    assert rec.requests, "recording model should have seen a request"
+    # The very first request the resumed runner makes carries the
+    # persisted history from the prior process.
+    roles = [m.role for m in rec.requests[0].messages]
+    assert roles == ["user", "assistant"]
+    assert rec.requests[0].messages[0].content == "resume me"
+    assert rec.requests[0].messages[1].content == "first reply"
+
+
+@pytest.mark.asyncio
+async def test_token_budget_caps_session_with_context_overflow(
+    workspace_path: Path,
+) -> None:
+    """``max_total_input_tokens`` budget fires a CONTEXT_OVERFLOW failure."""
+
+    from molexp.agent.model import ModelRequest, ModelResponse
+    from molexp.agent.orchestration import FailureRecorded
+    from molexp.agent.orchestration.runner import AgentRunner
+    from molexp.agent.orchestration.session import AgentSession
+    from molexp.agent.recovery.constraints import ConstraintSet
+    from molexp.agent.tools.dispatcher import ToolDispatcher
+    from molexp.agent.tools.registry import ToolRegistry
+    from molexp.agent.types import Usage
+
+    class _GreedyModel:
+        name = "greedy"
+
+        async def complete(self, request: ModelRequest) -> ModelResponse:
+            return ModelResponse(
+                text="ok",
+                usage=Usage(input_tokens=200, output_tokens=10),
+                finish_reason="stop",
+            )
+
+        def stream(self, request):  # noqa: ANN001
+            raise NotImplementedError
+
+    service = AgentService.from_workspace(workspace_path)
+    registry = ToolRegistry()
+    runner = AgentRunner(
+        model=_GreedyModel(),
+        registry=registry,
+        store=service.state.sessions,
+        dispatcher=ToolDispatcher(registry),
+        constraints=ConstraintSet(max_total_input_tokens=150),
+    )
+    # Pre-load usage so the very first turn trips the cap.
+    runner.usage.input_tokens = 200
+
+    session = AgentSession(session_id="sess-budget", goal=Goal(description="burn"))
+    # Subscribe *before* driving so we capture every published event.
+    events = session.stream_events()
+    await runner.drive_session(session)
+    await session.bus.close()
+
+    failures: list[FailureRecorded] = []
+    async for ev in events:
+        if isinstance(ev, FailureRecorded):
+            failures.append(ev)
+
+    assert failures
+    assert failures[0].failure.kind.value == "context_overflow"
+
+
+def test_legacy_sessions_migration_writes_tombstones(workspace_path: Path) -> None:
+    """``migrate_legacy_sessions`` lays down ``status=legacy`` tombstones."""
+
+    from molexp.agent.state.migrate import migrate_legacy_sessions
+    from molexp.agent.state.sessions import SessionStore
+
+    legacy_dir = workspace_path / "sessions" / "old-1"
+    legacy_dir.mkdir(parents=True)
+    (legacy_dir / "metadata.json").write_text(
+        json.dumps(
+            {
+                "session_id": "old-1",
+                "status": "running",
+                "goal": {
+                    "description": "do legacy work",
+                    "constraints": {},
+                    "success_criteria": [],
+                },
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+        )
+    )
+
+    store = SessionStore(workspace_path / ".molexp-agent" / "sessions")
+    result = migrate_legacy_sessions(workspace_path, store)
+    assert result.migrated == ("old-1",)
+    assert result.skipped == ()
+
+    meta = store.read_metadata("old-1")
+    assert meta is not None
+    assert meta.status is SessionStatus.LEGACY
+    assert meta.goal.description == "do legacy work"
+    assert "legacy session" in meta.summary
+
+    # Re-running is idempotent: existing tombstones are skipped, not duplicated.
+    second = migrate_legacy_sessions(workspace_path, store)
+    assert second.migrated == ()
+    assert second.skipped == ("old-1",)

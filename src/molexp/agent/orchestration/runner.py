@@ -43,6 +43,7 @@ from molexp.agent.orchestration.plan import (
     render_reject_feedback,
 )
 from molexp.agent.observability.evals import Evaluator, NoopEvaluator
+from molexp.agent.observability.usage import UsageAccumulator
 from molexp.agent.orchestration.session import AgentSession
 from molexp.agent.recovery.constraints import ConstraintSet
 from molexp.agent.recovery.retry import (
@@ -84,6 +85,7 @@ class AgentRunner:
     constraints: ConstraintSet = field(default_factory=ConstraintSet)
     recovery: RecoveryPolicy = field(default_factory=SimpleRetryPolicy)
     evaluator: Evaluator = field(default_factory=NoopEvaluator)
+    usage: UsageAccumulator = field(default_factory=UsageAccumulator)
     base_system_prompt: str = ""
     workspace_addendum: str = ""
 
@@ -93,24 +95,33 @@ class AgentRunner:
 
     # ---------------------------------------------------------------- driver
 
-    async def drive_session(self, session: AgentSession) -> None:
+    async def drive_session(
+        self,
+        session: AgentSession,
+        initial_history: list[Message] | None = None,
+    ) -> None:
         """Pull inbound user messages and run turns until cancelled.
 
-        Spawned by :class:`AgentService` as a background task.
+        Spawned by :class:`AgentService` as a background task. When
+        ``initial_history`` is supplied (resume path), the runner skips
+        the implicit-first-user-message step and replays from the
+        persisted log instead.
         """
 
         await self._publish_and_persist(session, SessionStarted(
             session_id=session.session_id,
             goal_description=session.goal.description,
         ))
-        turn_count = await self._drive_loop(session)
+        turn_count = await self._drive_loop(session, initial_history or [])
         await self._finalize_session(session, turn_count)
 
-    async def _drive_loop(self, session: AgentSession) -> int:
+    async def _drive_loop(
+        self, session: AgentSession, initial_history: list[Message]
+    ) -> int:
         """Run turns until cancelled / failed; return the turn count."""
 
-        history: list[Message] = []
-        if session.goal.description:
+        history: list[Message] = list(initial_history)
+        if not history and session.goal.description:
             history.append(Message(role="user", content=session.goal.description))
             self.store.append_messages(session.session_id, [history[0]])
 
@@ -142,6 +153,17 @@ class AgentRunner:
             try:
                 history = await self.run_turn(session, history)
             except _SessionCancelled:
+                return turn_count
+            except _BudgetExceeded as exc:
+                await self._publish_and_persist(
+                    session,
+                    FailureRecorded(
+                        turn_id="",
+                        failure=AgentFailure(kind=exc.kind, message=exc.message),
+                    ),
+                )
+                session.status = SessionStatus.FAILED
+                self._flush_metadata(session, summary=f"failed: {exc.message}")
                 return turn_count
             except Exception as exc:  # noqa: BLE001 — normalize at boundary
                 await self._publish_and_persist(
@@ -205,7 +227,9 @@ class AgentRunner:
                 messages=tuple(packet.messages),
                 tools=tool_schemas,
             )
+            self._check_token_budget(session, turn_id)
             response = await self._complete_with_retry(request)
+            self.usage.add(response.usage)
             await self._publish_and_persist(
                 session,
                 ModelResponded(
@@ -270,6 +294,27 @@ class AgentRunner:
         return history
 
     # ---------------------------------------------------------------- helpers
+
+    def _check_token_budget(self, session: AgentSession, turn_id: str) -> None:
+        """Raise :class:`_BudgetExceeded` if the session is out of tokens.
+
+        Translated by the outer ``drive_session`` boundary into a
+        ``CONTEXT_OVERFLOW`` ``FailureRecorded`` event.
+        """
+
+        snapshot = self.usage.snapshot()
+        if snapshot.input_tokens > self.constraints.max_total_input_tokens:
+            raise _BudgetExceeded(
+                FailureKind.CONTEXT_OVERFLOW,
+                f"Session exceeded max_total_input_tokens "
+                f"({self.constraints.max_total_input_tokens})",
+            )
+        if snapshot.output_tokens > self.constraints.max_total_output_tokens:
+            raise _BudgetExceeded(
+                FailureKind.CONTEXT_OVERFLOW,
+                f"Session exceeded max_total_output_tokens "
+                f"({self.constraints.max_total_output_tokens})",
+            )
 
     async def _complete_with_retry(self, request: ModelRequest) -> ModelResponse:
         """Call ``model.complete`` with :class:`RecoveryPolicy` retries.
@@ -502,6 +547,15 @@ class AgentRunner:
 
 class _SessionCancelled(Exception):
     """Internal signal: the session was cancelled while a turn was running."""
+
+
+class _BudgetExceeded(Exception):
+    """Internal signal: a hard budget cap fired."""
+
+    def __init__(self, kind: FailureKind, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
 
 
 def _new_turn_id() -> str:

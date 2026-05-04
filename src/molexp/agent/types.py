@@ -42,6 +42,7 @@ class SessionStatus(str, Enum):
     CANCELLED = "cancelled"
     INTERRUPTED = "interrupted"
     RESUMABLE = "resumable"
+    LEGACY = "legacy"
 
 
 class FailureKind(str, Enum):
