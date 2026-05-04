@@ -1,4 +1,4 @@
-"""Budgets, workspace boundaries, side-effect constraints (spec §6.6)."""
+"""Budgets, workspace boundaries, side-effect constraints."""
 
 from __future__ import annotations
 
@@ -18,4 +18,5 @@ class ConstraintSet:
     max_total_input_tokens: int = 1_000_000
     max_total_output_tokens: int = 1_000_000
     max_tool_calls: int = 200
+    max_tool_calls_per_turn: int = 16
     allow_writes_outside_run: bool = False

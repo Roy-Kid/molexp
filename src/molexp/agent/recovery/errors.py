@@ -1,4 +1,4 @@
-"""Typed failure exceptions (spec §6.6).
+"""Typed failure exceptions.
 
 The taxonomy lives on :class:`molexp.agent.types.FailureKind`. Each
 exception class wraps one tag so callers can ``except`` selectively

@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 ModelIoSink = Callable[[str, dict[str, Any]], None]
 """Callable the plugin invokes once per ``complete()`` to record one
-``(request, response)`` pair on ``model_io.jsonl`` (Decision M1)."""
+``(request, response)`` pair on ``model_io.jsonl``."""
 
 
 class PydanticAIModelClient:
@@ -69,9 +69,9 @@ class PydanticAIModelClient:
         return out
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
-        # Streaming is not yet wired through the harness runner; complete()
-        # is the only path Phase 3 needs. Surface a clear error rather than
-        # silently degrading so callers know to use complete().
+        # Streaming isn't wired through the runner yet; surface a clear
+        # error rather than silently degrading so callers know to use
+        # complete().
         raise NotImplementedError(
             "PydanticAIModelClient.stream is not implemented yet"
         )
@@ -223,10 +223,10 @@ def _model_io_record(
 ) -> dict[str, Any]:
     """Build the ``model_io.jsonl`` line for one model round-trip.
 
-    Owned exclusively by the plugin per Decision M1 — the harness
-    never reads this layer. Provider-native parts are dumped via
-    ``dataclasses.asdict`` to keep the record human-readable; binary
-    or oversized payloads should be promoted to ``provider_blobs/``
+    Owned exclusively by the plugin — the harness never reads this
+    layer. Provider-native parts are dumped via ``dataclasses.asdict``
+    to keep the record human-readable; binary or oversized payloads
+    should be promoted to ``provider_blobs/``
     in a later phase.
     """
 

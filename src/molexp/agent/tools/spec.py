@@ -1,4 +1,4 @@
-"""Tool boundary types per spec §5.3.
+"""Tool boundary types
 
 Tool execution lives entirely inside the harness; the model plugin
 surfaces ``ModelToolCall`` objects (see :mod:`molexp.agent.model`) and
@@ -60,7 +60,7 @@ class ToolContext:
 
 @dataclass(frozen=True)
 class ToolResult:
-    """Normalized return shape per spec §5.3.
+    """Normalized return shape
 
     On failure ``ok`` is False and ``error`` is set; on success
     ``value`` carries the JSON-encodable payload (for the model) and

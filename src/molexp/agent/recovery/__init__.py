@@ -1,4 +1,4 @@
-"""Constraints + recovery layer (spec §6.6)."""
+"""Constraints + recovery layer."""
 
 from molexp.agent.recovery.constraints import ConstraintSet
 from molexp.agent.recovery.errors import (

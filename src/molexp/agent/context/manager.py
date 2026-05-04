@@ -1,7 +1,7 @@
 """ContextManager protocol + default implementation.
 
-Per spec §6.1 the manager is the only code path that produces a
-``ContextPacket``. The default implementation is intentionally
+The manager is the only code path that produces a
+:class:`ContextPacket`. The default implementation is intentionally
 conservative — character-budget tail selection, no automatic
 filesystem crawl, no tokenization — so tests can pin its behavior
 exactly.

@@ -1,10 +1,9 @@
-"""Test utilities — FakeModelClient + helpers (spec §10 Phase 1a).
+"""Test utilities — FakeModelClient + helpers.
 
-Per spec §10 Phase 1a and §14 R2, ``FakeModelClient`` is the
-reference implementation for the model boundary: deterministic,
-scriptable (pre-seeded responses + tool-call replay), and the
-canonical round-trip-correct ``model_io.jsonl`` writer that real
-plugins crib from.
+``FakeModelClient`` is the reference implementation for the model
+boundary: deterministic, scriptable (pre-seeded responses + tool-call
+replay), and the canonical round-trip-correct ``model_io.jsonl``
+writer that real plugins crib from.
 
 Lives under ``molexp.agent`` (not ``tests/``) so plugin authors can
 import it from outside the test suite.

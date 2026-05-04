@@ -1,4 +1,4 @@
-"""Context packet + budget metadata per spec §6.1."""
+"""Context packet + budget metadata"""
 
 from __future__ import annotations
 

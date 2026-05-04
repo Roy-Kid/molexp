@@ -1,4 +1,4 @@
-"""Execution orchestration layer (spec §6.3)."""
+"""Execution orchestration layer."""
 
 from molexp.agent.orchestration.approvals import ApprovalRegistry, PendingApproval
 from molexp.agent.orchestration.chat import (

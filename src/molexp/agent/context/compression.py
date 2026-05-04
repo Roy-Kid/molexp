@@ -1,4 +1,4 @@
-"""Compression hooks (spec §6.1).
+"""Compression hooks.
 
 The harness ships with a no-op compressor; later phases can plug in
 summarizers without touching the orchestrator. The protocol is

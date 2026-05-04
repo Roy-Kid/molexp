@@ -1,4 +1,4 @@
-"""Approval policy and skill allow/deny gating per spec §6.2.
+"""Approval policy and skill allow/deny gating
 
 Pure data + pure functions: no I/O, no logging, no model imports.
 """
@@ -59,4 +59,4 @@ PERMISSIVE_POLICY = ToolPolicy()
 READ_ONLY_POLICY = ToolPolicy(
     deny=("*:write_*", "*:delete_*", "*:run_*", "*:execute_*"),
 )
-"""Policy used during plan mode (spec §6.3): mutators are hidden."""
+"""Policy used during plan mode: mutators are hidden."""

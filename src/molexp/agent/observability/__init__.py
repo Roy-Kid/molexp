@@ -1,4 +1,4 @@
-"""Evaluation + observability layer (spec §6.5)."""
+"""Evaluation + observability layer."""
 
 from molexp.agent.observability.artifacts import (
     normalize_artifact,

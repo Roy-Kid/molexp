@@ -1,8 +1,8 @@
 """Tool registry — explicit registration, no module-level singletons.
 
-Per Decision T1 (spec §13), each ``AgentService`` instance owns its
-own registry; ``@native_tool`` only tags a callable as a candidate so
-tests and concurrent services do not contaminate each other.
+Each :class:`AgentService` instance owns its own registry;
+``@native_tool`` only tags a callable as a candidate so tests and
+concurrent services do not contaminate each other.
 """
 
 from __future__ import annotations
@@ -20,10 +20,9 @@ _NATIVE_TOOL_ATTR = "__molexp_native_tool_spec__"
 def native_tool(spec: ToolSpec):
     """Tag a callable as a native-tool candidate.
 
-    Per Decision T1 the decorator does **not** auto-register on a
-    module-level global. ``AgentService`` walks the
-    ``molexp.agent.tools.native`` package and registers every tagged
-    callable on its own registry.
+    The decorator does **not** auto-register on a module-level global.
+    :class:`AgentService` walks the ``molexp.agent.tools.native``
+    package and registers every tagged callable on its own registry.
 
     Usage::
 

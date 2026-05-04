@@ -1,4 +1,4 @@
-"""Session-driven approval and chat gateways (spec §6.2, §6.3).
+"""Session-driven approval and chat gateways.
 
 The dispatcher is model-agnostic; it only knows about an
 :class:`ApprovalGate` protocol. The runner installs a

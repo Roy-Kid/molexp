@@ -1,7 +1,7 @@
-"""Memory store protocol + initial implementations (spec §6.4).
+"""Memory store protocol + initial implementations.
 
-Phase 0/1a only ship the no-op store and the JSONL append-only stub.
-No embeddings, no vector indexes — those land in a later spec.
+Ships a no-op store plus a JSONL append-only stub; no embeddings or
+vector indexes — those land in a later spec.
 """
 
 from __future__ import annotations
@@ -46,7 +46,7 @@ class NoopMemoryStore:
 
 
 class JsonlMemoryStore:
-    """Append-only JSONL memory store (spec §6.4)."""
+    """Append-only JSONL memory store."""
 
     def __init__(self, path: Path) -> None:
         self._path = path

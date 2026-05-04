@@ -1,4 +1,4 @@
-"""Evaluator hooks (spec §6.5).
+"""Evaluator hooks.
 
 Evaluators run at session terminal-state to score, classify, or
 record outcomes. The default is a no-op so the orchestration flow

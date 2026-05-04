@@ -1,4 +1,4 @@
-"""Provider validator + factory for the PydanticAI plugin (spec §7.1)."""
+"""Provider validator + factory for the PydanticAI plugin."""
 
 from __future__ import annotations
 

@@ -1,9 +1,9 @@
-"""PydanticAI as a :class:`molexp.agent.ModelClient` plugin (spec §7.1).
+"""PydanticAI as a :class:`molexp.agent.ModelClient` plugin.
 
-Importing this package registers the factory + validator with the core
-``model_registry``. The plugin owns ``model_io.jsonl`` writes and
-``provider_blobs/`` storage exclusively (Decision M1); the harness
-never parses either layer.
+Importing this package registers the factory + validator with the
+core model registry. The plugin owns ``model_io.jsonl`` writes and
+``provider_blobs/`` storage exclusively; the harness never parses
+either layer.
 """
 
 from __future__ import annotations

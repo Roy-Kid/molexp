@@ -1,4 +1,4 @@
-"""Agent settings + provider config (spec §3, §7.1).
+"""Agent settings + provider config.
 
 No provider SDK imports here. ``ProviderConfig`` is the generic shape
 the UI and admin routes work with; the model plugin attaches concrete

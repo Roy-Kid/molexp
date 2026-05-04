@@ -1,12 +1,8 @@
-"""Session event types + in-memory event bus (spec §6.5).
+"""Session event types + in-memory event bus.
 
-Per spec §6.5 the harness emits a fixed set of event categories. Each
-event is a frozen dataclass; the bus is async-iterable so server SSE
-routes can stream straight from it.
-
-The event taxonomy here matches the migration table in §6.5: the old
-``ApprovalRequestEvent`` becomes :class:`ToolApprovalRequested`, the
-old ``ToolCallEvent`` becomes :class:`ToolCallRequested`, and so on.
+The harness emits a fixed set of event categories. Each event is a
+frozen dataclass; the bus is async-iterable so server SSE routes can
+stream straight from it.
 """
 
 from __future__ import annotations

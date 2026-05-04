@@ -1,8 +1,7 @@
-"""Approval wait/resume primitives (spec §6.3).
+"""Approval wait/resume primitives.
 
-Phase 1c needs only the wait/resume contract; the gate sits inside
-the dispatcher. The session-side handle lives here so route layers
-can resolve a pending approval by id.
+The dispatcher owns the gate; the session-side handle lives here so
+route layers can resolve a pending approval by id.
 """
 
 from __future__ import annotations

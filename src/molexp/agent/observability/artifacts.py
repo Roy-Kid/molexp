@@ -1,4 +1,4 @@
-"""Inline artifact normalization (spec §6.5).
+"""Inline artifact normalization.
 
 Tools may return raw dictionaries shaped like
 ``{"kind": "plot"|"table"|"text", ...}``. This module turns them into

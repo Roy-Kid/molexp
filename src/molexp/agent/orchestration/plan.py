@@ -1,4 +1,4 @@
-"""Plan-mode state machine per spec §6.3.
+"""Plan-mode state machine.
 
 States::
 
@@ -89,7 +89,7 @@ class PlanStateMachine:
 REJECT_FEEDBACK_TEMPLATE = (
     "Plan rejected. Feedback: {feedback}. Revise the plan and emit it again."
 )
-"""Per Decision O2 (§6.3): synthetic user message wording for rejects."""
+"""Synthetic user-message wording the runner injects on plan reject."""
 
 
 def render_reject_feedback(feedback: str) -> str:

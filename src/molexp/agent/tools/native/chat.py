@@ -1,9 +1,8 @@
 """Native chat tools — currently just :func:`ask_user`.
 
-The previous PydanticAI plugin shipped ``exit_plan_mode`` here too;
-per Decision O2 the harness drops it: plan mode is a runner-side state
-machine, not a tool, and reject feedback is delivered as a synthetic
-user message (see :func:`molexp.agent.orchestration.render_reject_feedback`).
+Plan mode lives in the runner state machine, not in this surface;
+reject feedback flows back as a synthetic user message via
+:func:`molexp.agent.orchestration.render_reject_feedback`.
 """
 
 from __future__ import annotations

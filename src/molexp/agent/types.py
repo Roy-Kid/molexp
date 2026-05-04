@@ -1,9 +1,9 @@
 """Core agent types — stdlib-only, plugin-agnostic.
 
-Per spec §3 and §5, this module defines the harness data contracts that
-every layer (context, tools, orchestration, state, observability,
-recovery) and every plugin (model, tool source) shares. Nothing here may
-import third-party SDKs, HTTP clients, or optional dependencies.
+Defines the harness data contracts every layer (context, tools,
+orchestration, state, observability, recovery) and every plugin
+(model, tool source) shares. Nothing here may import third-party
+SDKs, HTTP clients, or optional dependencies.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from typing import Any, Literal
 class AgentMode(str, Enum):
     """High-level mode the harness operates in for one session.
 
-    ``REVIEW`` is reserved per spec §5.1 and has no semantics yet.
+    ``REVIEW`` is reserved and has no semantics yet.
     """
 
     CHAT = "chat"
@@ -28,9 +28,8 @@ class AgentMode(str, Enum):
 class SessionStatus(str, Enum):
     """Terminal and live session states.
 
-    ``interrupted`` and ``resumable`` are introduced for Decision O3
-    (cross-process resume). Phases 1-4 only emit ``interrupted`` on
-    server restart; Phase 5+ promotes to ``resumable``.
+    On server restart any non-terminal session is flipped to
+    ``interrupted``; full rehydration to ``resumable`` is a follow-up.
     """
 
     PENDING = "pending"
@@ -46,7 +45,7 @@ class SessionStatus(str, Enum):
 
 
 class FailureKind(str, Enum):
-    """Typed failure taxonomy per spec §6.6."""
+    """Typed failure taxonomy."""
 
     MODEL_ERROR = "model_error"
     TOOL_ERROR = "tool_error"
@@ -64,10 +63,10 @@ class FailureKind(str, Enum):
 class Goal:
     """A user-specified objective for one agent session.
 
-    Per Decision M1 the harness keeps only *semantic* state; per spec
-    §5.1 the skill is referenced by id (``skill_id``) so that the
-    ``ContextManager`` can re-resolve the addendum from ``SkillStore``
-    on every turn. The full skill body is **not** inlined.
+    The skill is referenced by id (``skill_id``) so the
+    ``ContextManager`` can re-resolve the addendum from
+    :class:`SkillStore` on every turn. The full skill body is *never*
+    inlined here — the harness keeps semantic state only.
     """
 
     description: str
@@ -82,10 +81,10 @@ class Goal:
 class Message:
     """Harness-level semantic message.
 
-    Per Decision M1 this is the only on-disk message shape the harness
-    persists or reads. ``content`` is a flat string sufficient for
-    prompt assembly and replay; provider-native shapes live in the
-    parallel ``model_io.jsonl`` owned by the model plugin.
+    The only on-disk message shape the harness persists or reads.
+    ``content`` is a flat string sufficient for prompt assembly and
+    replay; provider-native shapes live in the parallel
+    ``model_io.jsonl`` owned by the model plugin.
     """
 
     role: Literal["system", "user", "assistant", "tool"]
@@ -96,7 +95,7 @@ class Message:
 
 @dataclass(frozen=True)
 class Usage:
-    """Normalized token / request usage counters per spec §6.5."""
+    """Normalized token / request usage counters."""
 
     input_tokens: int = 0
     output_tokens: int = 0
@@ -126,9 +125,8 @@ class ArtifactRef:
 class WorkflowPreview:
     """Structured preview of the workflow a plan would bind.
 
-    Survives unchanged from the previous event surface (see spec §6.5
-    migration table). Every plan corresponds to a workflow IR; the
-    Mermaid + Python script + intervention points are derived views.
+    Every plan corresponds to a workflow IR; the Mermaid + Python
+    script + intervention points are derived views.
     """
 
     workflow_ir: dict[str, Any]

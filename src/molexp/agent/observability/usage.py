@@ -1,4 +1,4 @@
-"""Normalized usage counters (spec §6.5).
+"""Normalized usage counters.
 
 The harness aggregates :class:`Usage` records across turns; the
 plugin emits per-request usage in :class:`ModelResponse`. This module

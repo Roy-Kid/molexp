@@ -1,9 +1,9 @@
 """ModelClient protocol + request/response types.
 
-Per spec §5.2, the model boundary is narrow: a model plugin accepts a
-``ModelRequest`` and returns either a synchronous ``ModelResponse`` or
-streams ``ModelEvent`` items. Tool execution and session orchestration
-live outside the plugin.
+The model boundary is narrow: a model plugin accepts a
+``ModelRequest`` and returns a ``ModelResponse`` (or streams
+``ModelEvent`` items). Tool execution and session orchestration live
+outside the plugin.
 """
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ class ModelClient(Protocol):
 
 @runtime_checkable
 class ModelClientFactory(Protocol):
-    """Provider-side construction surface (spec §7.1)."""
+    """Provider-side construction surface."""
 
     provider_name: str
 
@@ -124,7 +124,7 @@ class ModelClientFactory(Protocol):
 
 @dataclass(frozen=True)
 class ModelConfig:
-    """Generic provider config (spec §7.1).
+    """Generic provider config.
 
     Carried as core state so the UI and admin routes can render or
     edit settings without a model plugin loaded. Per-provider
@@ -141,7 +141,7 @@ class ModelConfig:
 
 @runtime_checkable
 class ProviderConfigValidator(Protocol):
-    """Per-provider field rules (spec §7.1)."""
+    """Per-provider field rules."""
 
     provider_name: str
 

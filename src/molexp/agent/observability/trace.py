@@ -1,8 +1,7 @@
-"""Structured trace sink (spec §6.5).
+"""Structured trace sink.
 
-Phase 0 ships the protocol + a JSONL implementation. The orchestration
-layer emits one trace record per harness event so post-hoc replay is
-trivial.
+Protocol + JSONL implementation. The orchestration layer emits one
+trace record per harness event so post-hoc replay is trivial.
 """
 
 from __future__ import annotations

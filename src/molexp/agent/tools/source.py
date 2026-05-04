@@ -1,4 +1,4 @@
-"""Tool sources — pluggable suppliers of out-of-package tools (spec §7.2).
+"""Tool sources — pluggable suppliers of out-of-package tools.
 
 A :class:`ToolSource` reports what tools it offers for a given
 workspace and dispatches calls to them. Native tools live on the
@@ -17,7 +17,7 @@ from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 
 @runtime_checkable
 class ToolSource(Protocol):
-    """Tool plugin contract (spec §7.2)."""
+    """Tool plugin contract."""
 
     source_name: str
 

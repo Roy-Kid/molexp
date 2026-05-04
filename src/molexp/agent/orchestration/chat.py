@@ -1,4 +1,4 @@
-"""User-message wait/resume primitives (spec §6.3).
+"""User-message wait/resume primitives.
 
 The harness exposes an ``ask_user`` tool to model plugins. When a tool
 calls the chat gateway, the runner emits :class:`UserMessageRequested`

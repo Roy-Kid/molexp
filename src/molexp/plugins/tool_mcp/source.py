@@ -2,7 +2,7 @@
 
 Bridges the harness tool-source contract (``list_tools`` + ``call``)
 to the workspace's MCP store. Each MCP tool is exposed under the
-``mcp:<server>.<tool>`` name convention from spec §5.3.
+``mcp:<server>.<tool>`` name convention.
 
 The source is intentionally stateless: it re-reads the store each
 ``list_tools`` call so admin-route edits land without restarts. Tool

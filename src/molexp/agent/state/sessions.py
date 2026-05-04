@@ -1,4 +1,4 @@
-"""Session metadata + JSONL log stores (spec §6.4).
+"""Session metadata + JSONL log stores.
 
 The harness writes three independent JSONL streams per session:
 
@@ -6,8 +6,8 @@ The harness writes three independent JSONL streams per session:
 - ``events.jsonl`` — append-only event log.
 - ``model_io.jsonl`` — raw model request/response (model plugin owned).
 
-Per Decision M1 the harness only reads ``messages.jsonl``; the model
-plugin owns ``model_io.jsonl`` exclusively.
+The harness only reads ``messages.jsonl``; the model plugin owns
+``model_io.jsonl`` exclusively.
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ class SessionStore:
         _append_jsonl(path, [_to_json_safe(event)])
 
     def append_model_io(self, session_id: str, payload: dict[str, Any]) -> None:
-        """Plugin-only entry point for the raw layer (Decision M1)."""
+        """Plugin-only entry point for the raw model_io layer."""
 
         path = self.session_dir(session_id) / self.MODEL_IO_FILENAME
         _append_jsonl(path, [payload])

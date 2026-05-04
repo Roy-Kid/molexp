@@ -69,6 +69,7 @@ class AgentService:
         self.tool_sources = tuple(tool_sources)
         if register_native_tools:
             self._register_native_tools()
+        self._mark_orphaned_sessions_interrupted()
 
     # Public API ----------------------------------------------------------
 
@@ -227,6 +228,39 @@ class AgentService:
                     continue
                 spec = get_native_spec(obj)
                 self.registry.register(spec, obj)
+
+    def _mark_orphaned_sessions_interrupted(self) -> None:
+        """Flip non-terminal persisted sessions to ``INTERRUPTED``.
+
+        On server restart any session whose JSON still claims a live
+        status (``PENDING`` / ``RUNNING`` / ``AWAITING_*``) belonged to
+        a previous process and has no live runner. Marking them
+        ``INTERRUPTED`` lets the UI surface "session ended
+        unexpectedly" instead of pretending they're still running.
+        Full rehydration (status → ``RESUMABLE`` + replayed turn loop)
+        is a follow-up.
+        """
+
+        live_states = {
+            SessionStatus.PENDING,
+            SessionStatus.RUNNING,
+            SessionStatus.AWAITING_APPROVAL,
+            SessionStatus.AWAITING_PLAN_DECISION,
+            SessionStatus.AWAITING_USER,
+        }
+        for meta in self.state.sessions.list_sessions():
+            if meta.status not in live_states:
+                continue
+            self.state.sessions.write_metadata(
+                SessionMetadata(
+                    session_id=meta.session_id,
+                    goal=meta.goal,
+                    status=SessionStatus.INTERRUPTED,
+                    created_at=meta.created_at,
+                    updated_at=utc_now(),
+                    summary=meta.summary or "interrupted: server restart",
+                )
+            )
 
     @staticmethod
     def _new_session_id() -> str:

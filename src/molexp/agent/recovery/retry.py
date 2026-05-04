@@ -1,8 +1,4 @@
-"""RecoveryPolicy + simple/no-op implementations (spec §6.6).
-
-Phase 0/1a only need the protocol + the default ``one retry on
-transient model error`` policy. Phase 5 expands the surface.
-"""
+"""RecoveryPolicy + simple/no-op implementations."""
 
 from __future__ import annotations
 
@@ -32,10 +28,7 @@ class NoRetryPolicy:
 
 
 class SimpleRetryPolicy:
-    """One retry on ``MODEL_ERROR``, otherwise give up.
-
-    Per spec §6.6 ``Initial recovery behavior``.
-    """
+    """One retry on ``MODEL_ERROR``, otherwise give up."""
 
     def __init__(self, delay_seconds: float = 1.0) -> None:
         self._delay = delay_seconds

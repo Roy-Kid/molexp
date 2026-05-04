@@ -1,4 +1,4 @@
-"""MCP as a :class:`molexp.agent.ToolSource` plugin (spec §7.2).
+"""MCP as a :class:`molexp.agent.ToolSource` plugin.
 
 Importing this package registers the source on
 :func:`molexp.agent.tools.source.register_tool_source`. The plugin

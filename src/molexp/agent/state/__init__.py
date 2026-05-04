@@ -1,4 +1,4 @@
-"""State + memory layer (spec §6.4)."""
+"""State + memory layer."""
 
 from molexp.agent.state.config import AgentSettings, ModelConfig, ProviderConfig
 from molexp.agent.state.memory import (

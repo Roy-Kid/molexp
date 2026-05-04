@@ -1,7 +1,7 @@
-"""Tool layer (spec §6.2).
+"""Tool layer.
 
 Public exports: dataclasses + registry + dispatcher + policy. The
-``native`` subpackage holds package-shipped tools (Phase 2+).
+``native`` subpackage holds package-shipped tools 
 """
 
 from molexp.agent.tools.dispatcher import (

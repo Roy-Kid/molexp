@@ -42,7 +42,14 @@ from molexp.agent.orchestration.plan import (
     PlanState,
     render_reject_feedback,
 )
+from molexp.agent.observability.evals import Evaluator, NoopEvaluator
 from molexp.agent.orchestration.session import AgentSession
+from molexp.agent.recovery.constraints import ConstraintSet
+from molexp.agent.recovery.retry import (
+    NoRetryPolicy,
+    RecoveryPolicy,
+    SimpleRetryPolicy,
+)
 from molexp.agent.state.sessions import SessionMetadata, SessionStore
 from molexp.agent.tools.dispatcher import ToolDispatcher
 from molexp.agent.tools.policy import PERMISSIVE_POLICY, ToolPolicy
@@ -60,9 +67,6 @@ from molexp.agent.types import (
 )
 
 
-_MAX_TOOL_LOOPS = 16
-"""Hard ceiling on how many tool-call rounds we allow per turn."""
-
 _MISSING: Any = object()
 
 
@@ -77,6 +81,9 @@ class AgentRunner:
     dispatcher: ToolDispatcher | None = None
     context_manager: ContextManager = field(default_factory=DefaultContextManager)
     policy: ToolPolicy = PERMISSIVE_POLICY
+    constraints: ConstraintSet = field(default_factory=ConstraintSet)
+    recovery: RecoveryPolicy = field(default_factory=SimpleRetryPolicy)
+    evaluator: Evaluator = field(default_factory=NoopEvaluator)
     base_system_prompt: str = ""
     workspace_addendum: str = ""
 
@@ -96,23 +103,46 @@ class AgentRunner:
             session_id=session.session_id,
             goal_description=session.goal.description,
         ))
-        # The goal description is the implicit first user message.
+        turn_count = await self._drive_loop(session)
+        await self._finalize_session(session, turn_count)
+
+    async def _drive_loop(self, session: AgentSession) -> int:
+        """Run turns until cancelled / failed; return the turn count."""
+
         history: list[Message] = []
         if session.goal.description:
             history.append(Message(role="user", content=session.goal.description))
             self.store.append_messages(session.session_id, [history[0]])
 
+        turn_count = 0
         while True:
             if not history:
                 inbound = await session.next_inbound()
                 if inbound is None:  # session cancelled
-                    return
+                    return turn_count
                 history.append(Message(role="user", content=inbound.content))
                 self.store.append_messages(session.session_id, [history[-1]])
+            if turn_count >= self.constraints.max_turns:
+                await self._publish_and_persist(
+                    session,
+                    FailureRecorded(
+                        turn_id="",
+                        failure=AgentFailure(
+                            kind=FailureKind.INTERNAL_ERROR,
+                            message=(
+                                f"Session exceeded {self.constraints.max_turns} turns"
+                            ),
+                        ),
+                    ),
+                )
+                session.status = SessionStatus.FAILED
+                self._flush_metadata(session, summary="failed: turn cap exceeded")
+                return turn_count
+            turn_count += 1
             try:
                 history = await self.run_turn(session, history)
             except _SessionCancelled:
-                return
+                return turn_count
             except Exception as exc:  # noqa: BLE001 — normalize at boundary
                 await self._publish_and_persist(
                     session,
@@ -126,11 +156,10 @@ class AgentRunner:
                 )
                 session.status = SessionStatus.FAILED
                 self._flush_metadata(session, summary=f"failed: {exc!r}")
-                return
-            # Wait for next user message (e.g. continued chat or plan resolution).
+                return turn_count
             inbound = await session.next_inbound()
             if inbound is None:
-                return
+                return turn_count
             history.append(Message(role="user", content=inbound.content))
             self.store.append_messages(session.session_id, [history[-1]])
 
@@ -155,7 +184,7 @@ class AgentRunner:
         assert dispatcher is not None
         tool_schemas = await dispatcher.discover(self.workspace, self.policy)
 
-        for _ in range(_MAX_TOOL_LOOPS):
+        for _ in range(self.constraints.max_tool_calls_per_turn):
             packet = await self._build_context(session, turn_id, history)
             await self._publish_and_persist(
                 session,
@@ -176,7 +205,7 @@ class AgentRunner:
                 messages=tuple(packet.messages),
                 tools=tool_schemas,
             )
-            response = await self.model.complete(request)
+            response = await self._complete_with_retry(request)
             await self._publish_and_persist(
                 session,
                 ModelResponded(
@@ -229,7 +258,10 @@ class AgentRunner:
                 turn_id=turn_id,
                 failure=AgentFailure(
                     kind=FailureKind.INTERNAL_ERROR,
-                    message=f"Tool-call loop exceeded {_MAX_TOOL_LOOPS} rounds",
+                    message=(
+                        f"Tool-call loop exceeded "
+                        f"{self.constraints.max_tool_calls_per_turn} rounds"
+                    ),
                 ),
             ),
         )
@@ -238,6 +270,34 @@ class AgentRunner:
         return history
 
     # ---------------------------------------------------------------- helpers
+
+    async def _complete_with_retry(self, request: ModelRequest) -> ModelResponse:
+        """Call ``model.complete`` with :class:`RecoveryPolicy` retries.
+
+        The default :class:`SimpleRetryPolicy` retries one transient
+        ``MODEL_ERROR`` after a short delay; other failure kinds give
+        up immediately. Re-raises the last exception when the policy
+        declines to retry, so the outer ``drive_session`` catch
+        records it as a typed failure.
+        """
+
+        attempt = 0
+        while True:
+            try:
+                return await self.model.complete(request)
+            except Exception as exc:  # noqa: BLE001 — policy decides what's transient
+                failure = AgentFailure(
+                    kind=FailureKind.MODEL_ERROR,
+                    message=f"{type(exc).__name__}: {exc}",
+                )
+                decision = self.recovery.on_failure(failure, attempt)
+                if not decision.retry:
+                    raise
+                if decision.delay_seconds > 0:
+                    import asyncio
+
+                    await asyncio.sleep(decision.delay_seconds)
+                attempt += 1
 
     async def _build_context(
         self,
@@ -380,6 +440,37 @@ class AgentRunner:
             summary=summary,
         )
         self.store.write_metadata(meta)
+
+    async def _finalize_session(
+        self, session: AgentSession, turn_count: int
+    ) -> None:
+        """Hand the terminal session to the configured :class:`Evaluator`.
+
+        The eval result is persisted as a per-session checkpoint so
+        replay/audit tooling can reconstruct outcome scoring without
+        re-running the model. Default :class:`NoopEvaluator` records
+        nothing of interest but keeps the call site uniform.
+        """
+
+        result = await self.evaluator.evaluate(
+            session.session_id,
+            {
+                "status": session.status.value,
+                "turns": turn_count,
+                "goal": session.goal.description,
+            },
+        )
+        self.store.write_checkpoint(
+            session.session_id,
+            "eval",
+            {
+                "evaluator": result.name,
+                "score": result.score,
+                "passed": result.passed,
+                "details": dict(result.details),
+                "ts": utc_now().isoformat(),
+            },
+        )
 
     def _write_plan_checkpoint(
         self,

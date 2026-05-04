@@ -1,4 +1,4 @@
-"""Context management layer (spec §6.1)."""
+"""Context management layer."""
 
 from molexp.agent.context.compression import (
     ContextCompressor,

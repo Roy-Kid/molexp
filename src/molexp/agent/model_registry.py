@@ -1,4 +1,4 @@
-"""Process-level registry for model plugins (spec §7.1).
+"""Process-level registry for model plugins.
 
 Plugins register themselves on import; the harness looks them up by
 ``provider_name`` when constructing an :class:`AgentService` from a

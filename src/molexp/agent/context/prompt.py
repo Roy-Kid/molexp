@@ -1,6 +1,6 @@
 """PromptComposer: deterministic layered system prompt assembly.
 
-Per spec §6.1 the layers are:
+Layer order:
 
 1. Base prompt (built into the harness or supplied by config).
 2. Workspace addendum (workspace-level instructions).
@@ -141,8 +141,8 @@ class PromptComposer:
         """Return the rendered system prompt.
 
         ``override`` short-circuits all layering when set; the harness
-        stores it as a flat string (spec §5.1) and the composer never
-        merges it with other sources.
+        stores it as a flat string and the composer never merges it
+        with other sources.
         """
 
         if override is not None:

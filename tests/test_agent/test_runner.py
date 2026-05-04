@@ -250,3 +250,100 @@ async def test_no_model_skips_runner_keeps_phase_1a_surface(workspace_path: Path
     session = service.start_session(Goal(description="hi"))
     assert session.status is SessionStatus.PENDING
     assert session.task is None
+
+
+@pytest.mark.asyncio
+async def test_orphaned_running_session_marked_interrupted_on_restart(
+    workspace_path: Path,
+) -> None:
+    """Decision O3 phase-1: previous-process sessions surface as ``interrupted``."""
+
+    service = AgentService.from_workspace(workspace_path)
+    session = service.start_session(Goal(description="never finishes"))
+    # Pretend the previous process died mid-run.
+    session.status = SessionStatus.RUNNING
+    service.state.sessions.write_metadata(
+        type(service.state.sessions.read_metadata(session.session_id))(
+            session_id=session.session_id,
+            goal=session.goal,
+            status=SessionStatus.RUNNING,
+        )
+    )
+
+    fresh = AgentService.from_workspace(workspace_path)
+    meta = fresh.state.sessions.read_metadata(session.session_id)
+    assert meta is not None
+    assert meta.status is SessionStatus.INTERRUPTED
+
+
+@pytest.mark.asyncio
+async def test_recovery_policy_retries_transient_model_errors(
+    workspace_path: Path,
+) -> None:
+    """``SimpleRetryPolicy`` retries one ``MODEL_ERROR`` then succeeds."""
+
+    class _FlakyModel:
+        name = "flaky"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request):  # noqa: ANN001
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("transient")
+            from molexp.agent.model import ModelResponse
+
+            return ModelResponse(text="recovered", finish_reason="stop")
+
+        def stream(self, request):  # noqa: ANN001
+            raise NotImplementedError
+
+    model = _FlakyModel()
+    service = AgentService.from_workspace(workspace_path, model=model)
+    session = service.start_session(Goal(description="go"))
+
+    async def wait_for_text() -> ModelResponded:
+        async for ev in session.stream_events():
+            if isinstance(ev, ModelResponded):
+                return ev
+        raise AssertionError("no ModelResponded event")
+
+    ev = await asyncio.wait_for(wait_for_text(), timeout=2.0)
+    await service.cancel(session.session_id)
+    assert ev.finish_reason == "stop"
+    assert model.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_evaluator_records_eval_checkpoint_at_terminal(
+    workspace_path: Path,
+) -> None:
+    """``Evaluator`` runs at session terminal-state and writes a checkpoint.
+
+    Drives ``_finalize_session`` directly so the test is independent of
+    cancellation semantics — that path is exercised at every natural
+    drive-loop exit.
+    """
+
+    from molexp.agent.orchestration.session import AgentSession
+
+    model = FakeModelClient()
+    service = AgentService.from_workspace(workspace_path, model=model)
+    session = AgentSession(session_id="sess-eval", goal=Goal(description="hi"))
+    runner = service._build_runner(session)
+
+    await runner._finalize_session(session, turn_count=3)
+
+    eval_path = (
+        workspace_path
+        / ".molexp-agent"
+        / "sessions"
+        / "sess-eval"
+        / "checkpoints"
+        / "eval.json"
+    )
+    assert eval_path.exists()
+    record = json.loads(eval_path.read_text())
+    assert record["evaluator"] == "noop"
+    assert "ts" in record
