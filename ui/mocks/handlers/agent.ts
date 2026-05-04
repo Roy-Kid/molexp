@@ -101,7 +101,7 @@ const createMockTaskSession = (body: {
                 ...(current.events ?? []),
                 planMode
                     ? {
-                          type: "PlanCreatedEvent",
+                          type: "PlanCreated",
                           ts,
                           payload: {
                               request_id: `plan-${sessionId}`,
@@ -126,7 +126,7 @@ const createMockTaskSession = (body: {
                           },
                       }
                     : {
-                          type: "SessionCompletedEvent",
+                          type: "SessionCompleted",
                           ts,
                           payload: { summary: `Goal completed: "${body.description}"` },
                       },
@@ -311,7 +311,7 @@ export const agentHandlers = [
             events: [
                 ...(session.events ?? []),
                 {
-                    type: body.approved ? "SessionCompletedEvent" : "ObservationEvent",
+                    type: body.approved ? "SessionCompleted" : "ObservationEvent",
                     ts,
                     payload: body.approved
                         ? { summary: "Plan approved and completed." }
@@ -342,7 +342,7 @@ export const agentHandlers = [
             events: [
                 ...(session.events ?? []),
                 {
-                    type: "UserMessageEvent",
+                    type: "UserMessageReceived",
                     ts,
                     payload: { content: body.content, request_id: body.request_id ?? null },
                 },
@@ -468,7 +468,7 @@ export const agentHandlers = [
             const eventsTail = planMode
                 ? [
                       {
-                          type: "PlanCreatedEvent",
+                          type: "PlanCreated",
                           ts: completedAt,
                           payload: {
                               request_id: `plan-${sessionId}`,
@@ -493,7 +493,7 @@ export const agentHandlers = [
                       },
                       sampleArtifact,
                       {
-                          type: "SessionCompletedEvent",
+                          type: "SessionCompleted",
                           ts: completedAt,
                           payload: {
                               summary: `Goal completed: "${body.description}"`,
@@ -624,7 +624,7 @@ export const agentHandlers = [
                     events: [
                         ...(session.events ?? []),
                         {
-                            type: "SessionCompletedEvent",
+                            type: "SessionCompleted",
                             ts: decisionTs,
                             payload: {
                                 summary:
@@ -719,7 +719,7 @@ export const agentHandlers = [
             events: [
                 ...(session.events ?? []),
                 {
-                    type: "UserMessageEvent",
+                    type: "UserMessageReceived",
                     ts,
                     payload: { content: body.content, request_id: body.request_id ?? null },
                 },

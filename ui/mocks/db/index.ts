@@ -565,7 +565,7 @@ outputs:
             createdAt: isoAt(-180),
             events: [
                 {
-                    type: "PlanCreatedEvent",
+                    type: "PlanCreated",
                     ts: isoAt(-179),
                     payload: {
                         request_id: "plan-sess-001",
@@ -621,27 +621,27 @@ outputs:
                     },
                 },
                 {
-                    type: "ToolCallEvent",
+                    type: "ToolCallRequested",
                     ts: isoAt(-178),
                     payload: { tool_name: "list_experiments", args: { project_id: "protein-folding" } },
                 },
                 {
-                    type: "ToolResultEvent",
+                    type: "ToolCallCompleted",
                     ts: isoAt(-178),
                     payload: { tool_name: "list_experiments", result: ["exp-001 — AlphaFold Baseline", "exp-002 — Structure Sweep"] },
                 },
                 {
-                    type: "ToolCallEvent",
+                    type: "ToolCallRequested",
                     ts: isoAt(-177),
                     payload: { tool_name: "create_run", args: { project_id: "protein-folding", experiment_id: "exp-001", parameters: { batch_size: 32 } } },
                 },
                 {
-                    type: "ToolResultEvent",
+                    type: "ToolCallCompleted",
                     ts: isoAt(-177),
                     payload: { tool_name: "create_run", result: { run_id: "run-001", status: "pending" } },
                 },
                 {
-                    type: "WorkflowStartedEvent",
+                    type: "ToolCallCompleted",
                     ts: isoAt(-176),
                     payload: { run_id: "run-001", workflow_id: "exp-001" },
                 },
@@ -651,7 +651,7 @@ outputs:
                     payload: { content: "Run run-001 completed successfully. Output model saved to asset-003." },
                 },
                 {
-                    type: "SessionCompletedEvent",
+                    type: "SessionCompleted",
                     ts: isoAt(-119),
                     payload: {
                         summary: "AlphaFold baseline run completed. Model checkpoint saved as asset-003 (20 MB). Val loss: 0.032.",
@@ -667,7 +667,7 @@ outputs:
             createdAt: isoAt(-90),
             events: [
                 {
-                    type: "PlanCreatedEvent",
+                    type: "PlanCreated",
                     ts: isoAt(-89),
                     payload: {
                         request_id: "plan-sess-002",
@@ -736,12 +736,12 @@ outputs:
                 // The agent is still allowed to inspect tool slugs / templates
                 // during plan-mode reconnaissance before authoring the IR.
                 {
-                    type: "ToolCallEvent",
+                    type: "ToolCallRequested",
                     ts: isoAt(-4),
                     payload: { tool_name: "list_task_types", args: {} },
                 },
                 {
-                    type: "ToolResultEvent",
+                    type: "ToolCallCompleted",
                     ts: isoAt(-4),
                     payload: {
                         tool_name: "list_task_types",
@@ -764,7 +764,7 @@ outputs:
                 },
                 // The unified plan: investigation steps are nodes too.
                 {
-                    type: "PlanCreatedEvent",
+                    type: "PlanCreated",
                     ts: isoAt(-2),
                     payload: {
                         request_id: "plan-sess-003",

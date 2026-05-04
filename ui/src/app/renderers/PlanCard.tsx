@@ -1,5 +1,5 @@
 /**
- * PlanCard — inline chat card for a structured ``PlanCreatedEvent``.
+ * PlanCard — inline chat card for a structured ``PlanCreated`` event.
  *
  * Plan-mode in molexp emits ONE kind of plan: a runnable workflow.
  * Every numbered step in ``plan_markdown`` corresponds to one node in
@@ -97,7 +97,7 @@ export const PlanCard = ({ sessionId, event, onResolved }: PlanCardProps): JSX.E
   const payload = event.payload as Partial<PlanCreatedPayload> | undefined;
 
   // Defensive: a misbehaving agent (or a stale on-disk fixture) might
-  // emit a PlanCreatedEvent missing contract fields. Render a clear
+  // emit a PlanCreated event missing contract fields. Render a clear
   // error block instead of throwing — crashing the chat would make the
   // session unusable for the rest of the conversation.
   if (

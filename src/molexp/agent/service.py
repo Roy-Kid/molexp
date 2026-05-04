@@ -1,43 +1,44 @@
-"""AgentService — public entry point (spec §6.3, §8).
+"""AgentService — public entry point.
 
-Per Decision O1 the service is the workspace-scoped facade: it owns
-the live session registry, the tool registry, and the asyncio task
-that drives each session. Server routes import only this class.
-
-Phase 0/1a ships the surface; Phase 1b lights up the runner.
+The workspace-scoped facade. It owns the live session registry, the
+tool registry, and the asyncio task that drives each session. Server
+routes import only this class.
 """
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from pathlib import Path
-from typing import AsyncIterator
+from typing import AsyncIterator, Callable
 
 from molexp.agent.model import ModelClient
 from molexp.agent.orchestration.events import (
     SessionEvent,
     SessionStarted,
 )
+from molexp.agent.orchestration.runner import AgentRunner
 from molexp.agent.orchestration.session import AgentSession
 from molexp.agent.state.config import AgentSettings
 from molexp.agent.state.memory import NoopMemoryStore
 from molexp.agent.state.sessions import SessionMetadata, SessionStore
 from molexp.agent.state.skills import SkillStore
 from molexp.agent.state.store import AgentStateStore
+from molexp.agent.tools.dispatcher import ToolDispatcher
+from molexp.agent.tools.policy import PERMISSIVE_POLICY, ToolPolicy
 from molexp.agent.tools.registry import ToolRegistry
 from molexp.agent.types import Goal, SessionStatus, utc_now
+
+
+RunnerFactory = Callable[[AgentSession], AgentRunner]
 
 
 class AgentService:
     """Workspace-scoped facade over the agent harness.
 
-    Per Decision T1, every service instance owns its own
-    :class:`ToolRegistry`. Native tools are registered at construction
-    time by the workspace bootstrap code (Phase 2+).
-
-    Phase 1a only exposes ``start_session`` / ``list_sessions`` /
-    ``get_session`` / ``stream_events`` with stubbed behavior so the
-    server route layer can compile against the final shape.
+    Each service instance owns its own :class:`ToolRegistry`. Native
+    tools are registered at construction by walking
+    ``molexp.agent.tools.native``.
     """
 
     AGENT_DIRNAME = ".molexp-agent"
@@ -49,13 +50,22 @@ class AgentService:
         model: ModelClient | None = None,
         registry: ToolRegistry | None = None,
         state: AgentStateStore | None = None,
+        runner_factory: RunnerFactory | None = None,
+        policy: ToolPolicy = PERMISSIVE_POLICY,
+        workspace: object | None = None,
+        register_native_tools: bool = True,
     ) -> None:
         self.workspace_path = Path(workspace_path)
         self.settings = settings or AgentSettings()
         self.model = model
         self.registry = registry or ToolRegistry()
         self.state = state or self._default_state()
+        self.policy = policy
+        self.workspace = workspace
         self._sessions: dict[str, AgentSession] = {}
+        self._runner_factory = runner_factory
+        if register_native_tools:
+            self._register_native_tools()
 
     # Public API ----------------------------------------------------------
 
@@ -65,6 +75,7 @@ class AgentService:
         workspace_path: str | Path,
         settings: AgentSettings | None = None,
         model: ModelClient | None = None,
+        workspace: object | None = None,
     ) -> "AgentService":
         """Construct a service rooted at ``workspace_path``."""
 
@@ -72,13 +83,15 @@ class AgentService:
             workspace_path=Path(workspace_path),
             settings=settings,
             model=model,
+            workspace=workspace,
         )
 
     def start_session(self, goal: Goal) -> AgentSession:
-        """Register a new session and return its handle.
+        """Register a new session and start its background runner.
 
-        Phase 1a: emits :class:`SessionStarted`, persists metadata,
-        and returns the handle. The runner is wired in Phase 1b.
+        If no :class:`ModelClient` is configured the session is
+        registered and metadata persisted, but no task is spawned —
+        callers must attach a model before any turn can run.
         """
 
         session_id = self._new_session_id()
@@ -91,14 +104,27 @@ class AgentService:
             status=SessionStatus.PENDING,
         )
         self.state.sessions.write_metadata(meta)
-        # Fire-and-forget the synchronous SessionStarted event so any
-        # subscriber attached before the first turn observes it.
+
+        if self.model is not None:
+            runner = self._build_runner(session)
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+            if loop is not None:
+                task = loop.create_task(
+                    runner.drive_session(session),
+                    name=f"agent-session-{session_id}",
+                )
+                session.attach_task(task)
         return session
 
     async def emit_session_started(self, session: AgentSession) -> None:
         """Publish the initial :class:`SessionStarted` event.
 
-        Phase 1a helper — Phase 1b folds this into ``run_turn``.
+        Used by the no-model fixture path: when no model is configured
+        the runner never spawns, so tests that assert on
+        :class:`SessionStarted` arrival call this directly.
         """
 
         await session.bus.publish(
@@ -131,11 +157,13 @@ class AgentService:
         return True
 
     async def shutdown(self) -> None:
-        """Mark every live session interrupted (Decision O3, Phases 1-4)."""
+        """Mark every live session interrupted."""
 
         for session in list(self._sessions.values()):
             session.status = SessionStatus.INTERRUPTED
             await session.bus.close()
+            if session.task is not None and not session.task.done():
+                session.task.cancel()
         self._sessions.clear()
 
     # Internals -----------------------------------------------------------
@@ -150,6 +178,39 @@ class AgentService:
             skills=SkillStore(),
             memory=NoopMemoryStore(),
         )
+
+    def _build_runner(self, session: AgentSession) -> AgentRunner:
+        if self._runner_factory is not None:
+            return self._runner_factory(session)
+        assert self.model is not None
+        dispatcher = ToolDispatcher(self.registry)
+        return AgentRunner(
+            model=self.model,
+            registry=self.registry,
+            store=self.state.sessions,
+            workspace=self.workspace,
+            dispatcher=dispatcher,
+            policy=self.policy,
+        )
+
+    def _register_native_tools(self) -> None:
+        """Walk ``molexp.agent.tools.native`` and register every tagged tool."""
+
+        from molexp.agent.tools import native as native_pkg
+        from molexp.agent.tools.registry import get_native_spec, is_native_tool
+        import importlib
+        import pkgutil
+
+        for module_info in pkgutil.iter_modules(
+            native_pkg.__path__, prefix=f"{native_pkg.__name__}."
+        ):
+            module = importlib.import_module(module_info.name)
+            for attr_name in dir(module):
+                obj = getattr(module, attr_name)
+                if not is_native_tool(obj):
+                    continue
+                spec = get_native_spec(obj)
+                self.registry.register(spec, obj)
 
     @staticmethod
     def _new_session_id() -> str:

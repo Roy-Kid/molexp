@@ -1,16 +1,9 @@
-"""ToolDispatcher: validation + policy + execution per spec §6.2.
+"""ToolDispatcher: validation + policy + execution.
 
 The dispatcher is the only code path that turns a ``ModelToolCall``
-into a ``ToolResult``. It:
-
-1. Looks up the tool in the registry.
-2. Applies the policy filter.
-3. Awaits human approval when required.
-4. Calls the tool callable.
-5. Normalizes exceptions into typed :class:`AgentFailure` results.
-
-Phase 1c lights up real approval; Phase 0/1a only need the validation
-+ execution surface, so :class:`ApprovalGate` defaults to auto-approve.
+into a ``ToolResult``. It looks up the tool, applies the policy
+filter, awaits human approval when required, calls the tool, and
+normalizes exceptions into typed :class:`AgentFailure` results.
 """
 
 from __future__ import annotations
@@ -39,8 +32,7 @@ class ApprovalGate(Protocol):
 class AutoApproveGate:
     """Default gate: every request is approved without human input.
 
-    Used in tests and during Phase 1c before the orchestration layer
-    wires real approval prompts. Production deployments must override.
+    Used in tests; production deployments must override.
     """
 
     async def request(
@@ -84,11 +76,16 @@ class ToolDispatcher:
         self._gate = gate or AutoApproveGate()
         self._on_event = on_event
 
+    @property
+    def registry(self) -> ToolRegistry:
+        return self._registry
+
     async def dispatch(
         self,
         call: ModelToolCall,
         ctx: ToolContext,
         policy: ToolPolicy,
+        gate: ApprovalGate | None = None,
     ) -> ToolResult:
         registered = self._registry.get(call.name)
         if registered is None or not policy.visible(registered.spec):
@@ -100,9 +97,10 @@ class ToolDispatcher:
                 ),
             )
 
+        active_gate = gate or self._gate
         spec = registered.spec
         if policy.needs_approval(spec):
-            decision = await self._gate.request(call, spec, ctx)
+            decision = await active_gate.request(call, spec, ctx)
             await self._emit("tool.approval", {
                 "tool": call.name,
                 "approved": decision.approved,

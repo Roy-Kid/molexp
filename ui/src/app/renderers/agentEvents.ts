@@ -7,14 +7,14 @@ export interface PendingUserRequest {
 
 /**
  * Walks an event log backwards to detect whether the agent is currently
- * waiting on a UserMessageRequestEvent that has not yet been answered
- * by a UserMessageEvent.
+ * waiting on a UserMessageRequested that has not yet been answered
+ * by a UserMessageReceived.
  */
 export const derivePendingUserRequest = (events: ApiSessionEvent[]): PendingUserRequest | null => {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
-    if (ev.type === "UserMessageEvent") return null;
-    if (ev.type === "UserMessageRequestEvent") {
+    if (ev.type === "UserMessageReceived") return null;
+    if (ev.type === "UserMessageRequested") {
       const payload = (ev.payload ?? {}) as Record<string, unknown>;
       const rid = payload.request_id;
       if (typeof rid === "string") {
@@ -45,26 +45,25 @@ export interface ConversationTurn {
 }
 
 const isResultEvent = (event: ApiSessionEvent): boolean =>
-  event.type === "SessionCompletedEvent" ||
-  event.type === "ResultArtifactEvent" ||
-  // PlanCreatedEvent IS the agent's answer for the plan-mode turn —
+  event.type === "SessionCompleted" ||
+  // PlanCreated IS the agent's answer for the plan-mode turn —
   // the user reviews + approves it as the headline. The session is
   // paused on a future until the user decides; resuming continues
-  // post-event in the same turn until SessionCompletedEvent overrides
+  // post-event in the same turn until SessionCompleted overrides
   // the headline.
-  event.type === "PlanCreatedEvent";
+  event.type === "PlanCreated";
 
 const eventKey = (event: ApiSessionEvent, fallback: number): string =>
   `${event.type}-${event.ts}-${fallback}`;
 
 /**
  * Group events into conversational turns. Each turn is opened by either
- * the original goal (the implicit first turn) or a UserMessageEvent, and
- * closed by the final ResultArtifactEvent / SessionCompletedEvent before
+ * the original goal (the implicit first turn) or a UserMessageReceived,
+ * and closed by the final SessionCompleted / PlanCreated event before
  * the next user message.
  *
- * Intermediate events (tool calls, observations, replans, approvals,
- * workflow runs) are surfaced as `steps` so the UI can collapse them.
+ * Intermediate events (tool calls, approvals, ...) are surfaced as
+ * `steps` so the UI can collapse them.
  */
 export const groupEventsIntoTurns = (
   events: ApiSessionEvent[],
@@ -82,11 +81,9 @@ export const groupEventsIntoTurns = (
   };
 
   events.forEach((event, idx) => {
-    if (event.type === "UserMessageEvent") {
+    if (event.type === "UserMessageReceived") {
       const payload = (event.payload ?? {}) as Record<string, unknown>;
       const content = typeof payload.content === "string" ? payload.content : "";
-      // Close the previous turn (it may not have a "result" event if the user
-      // interrupted; mark it as no longer in-progress regardless).
       current.inProgress = false;
       turns.push(current);
       current = {
@@ -101,10 +98,6 @@ export const groupEventsIntoTurns = (
     }
 
     if (isResultEvent(event)) {
-      // SessionCompletedEvent / ResultArtifactEvent — promote to the turn's
-      // headline result. If multiple show up in one turn, the last one wins
-      // for the headline but earlier ones remain as steps so the user can
-      // still inspect them.
       if (current.result) {
         current.steps.push(current.result);
       }

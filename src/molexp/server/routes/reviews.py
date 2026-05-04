@@ -105,6 +105,7 @@ async def approve_review(
                 edited_workflow_ir=request.edited_workflow_ir,
                 feedback=request.comment,
             ),
+            workspace=workspace,
         )
     resolve_review(_workspace_root(workspace), item, status="approved", comment=request.comment)
     return MessageResponse(message="approved")
@@ -130,6 +131,7 @@ async def reject_review(
                 approved=False,
                 feedback=request.comment,
             ),
+            workspace=workspace,
         )
     resolve_review(_workspace_root(workspace), item, status="rejected", comment=request.comment)
     return MessageResponse(message="rejected")

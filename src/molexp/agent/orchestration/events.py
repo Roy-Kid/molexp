@@ -88,6 +88,7 @@ class ToolCallCompleted:
     tool_name: str
     ok: bool
     value: Any = None
+    error: AgentFailure | None = None
     artifacts: tuple[ArtifactRef, ...] = ()
     metadata: dict[str, Any] = field(default_factory=dict)
     ts: datetime = field(default_factory=utc_now)

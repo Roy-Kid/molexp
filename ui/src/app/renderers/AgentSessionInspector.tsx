@@ -262,7 +262,7 @@ const CommandsHistorySection = ({ session }: { session: ApiAgentSession }): JSX.
   const commands = useMemo(() => {
     const rows: { ts: string; slashName: string }[] = [];
     for (const event of events) {
-      if (event.type !== "UserMessageEvent") continue;
+      if (event.type !== "UserMessageReceived") continue;
       const content = event.payload?.content;
       if (typeof content !== "string") continue;
       const match = SLASH_LINE_RE.exec(content);

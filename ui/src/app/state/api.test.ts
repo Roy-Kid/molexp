@@ -283,8 +283,8 @@ describe("mapAgentSessions", () => {
     goalDescription: "Run baseline experiment",
     createdAt: "2026-03-01T10:00:00Z",
     events: [
-      { type: "PlanCreatedEvent", ts: "2026-03-01T10:00:01Z", payload: {} },
-      { type: "SessionCompletedEvent", ts: "2026-03-01T10:05:00Z", payload: {} },
+      { type: "PlanCreated", ts: "2026-03-01T10:00:01Z", payload: {} },
+      { type: "SessionCompleted", ts: "2026-03-01T10:05:00Z", payload: {} },
     ],
   };
 

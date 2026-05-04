@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable, TYPE_CHECKING
 from molexp.agent.types import AgentFailure, ArtifactRef
 
 if TYPE_CHECKING:  # pragma: no cover - import guard, used only for typing
+    from molexp.agent.orchestration.chat import ChatGateway
     from molexp.agent.state.memory import MemoryStore
 
 
@@ -43,6 +44,10 @@ class ToolContext:
     Not frozen because tools may attach short-lived bookkeeping
     (e.g. a per-call cache); persistent state must be stored through
     the workspace or through ``memory``.
+
+    ``chat`` is the gateway tools use to talk to the user mid-turn
+    (e.g. ``native:ask_user``). Set by the runner; tools that don't
+    need it can ignore the field.
     """
 
     workspace: Any
@@ -50,6 +55,7 @@ class ToolContext:
     turn_id: str
     run: Any | None = None
     memory: "MemoryStore | None" = None
+    chat: "ChatGateway | None" = None
 
 
 @dataclass(frozen=True)

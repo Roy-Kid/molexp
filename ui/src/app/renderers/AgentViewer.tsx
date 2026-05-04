@@ -52,25 +52,34 @@ import {
 // ---------------------------------------------------------------------------
 
 const EVENT_META: Record<string, { icon: typeof Bot; label: string; colorClass: string }> = {
-  PlanCreatedEvent: { icon: Sparkles, label: "Plan created", colorClass: "text-violet-500" },
-  ToolCallEvent: { icon: Terminal, label: "Tool call", colorClass: "text-blue-500" },
-  ToolResultEvent: { icon: CheckCircle2, label: "Tool result", colorClass: "text-green-600" },
-  WorkflowStartedEvent: { icon: Workflow, label: "Workflow started", colorClass: "text-sky-500" },
-  ObservationEvent: { icon: Bot, label: "Observation", colorClass: "text-muted-foreground" },
-  ReplanEvent: { icon: RotateCcw, label: "Replanning", colorClass: "text-amber-500" },
-  ApprovalRequestEvent: {
+  // Phase 2 spec §6.5 names — emitted by the new harness.
+  SessionStarted: { icon: Sparkles, label: "Session started", colorClass: "text-violet-400" },
+  TurnStarted: { icon: CircleUser, label: "Turn started", colorClass: "text-muted-foreground" },
+  ContextBuilt: { icon: Bot, label: "Context built", colorClass: "text-muted-foreground" },
+  ModelRequested: { icon: Bot, label: "Model requested", colorClass: "text-muted-foreground" },
+  ModelResponded: { icon: Bot, label: "Model responded", colorClass: "text-muted-foreground" },
+  PlanCreated: { icon: Sparkles, label: "Plan created", colorClass: "text-violet-500" },
+  PlanDecided: { icon: CheckCircle2, label: "Plan decided", colorClass: "text-violet-400" },
+  ToolCallRequested: { icon: Terminal, label: "Tool call", colorClass: "text-blue-500" },
+  ToolCallCompleted: { icon: CheckCircle2, label: "Tool result", colorClass: "text-green-600" },
+  ToolApprovalRequested: {
     icon: ShieldAlert,
     label: "Approval needed",
     colorClass: "text-orange-500",
   },
-  SessionCompletedEvent: { icon: CheckCircle2, label: "Completed", colorClass: "text-emerald-500" },
-  ResultArtifactEvent: { icon: BarChart3, label: "Artifact", colorClass: "text-indigo-500" },
-  UserMessageRequestEvent: {
+  FailureRecorded: { icon: XCircle, label: "Failure", colorClass: "text-red-500" },
+  SessionCompleted: { icon: CheckCircle2, label: "Completed", colorClass: "text-emerald-500" },
+  UserMessageRequested: {
     icon: HelpCircle,
     label: "Question",
     colorClass: "text-fuchsia-500",
   },
-  UserMessageEvent: { icon: MessageCircle, label: "You", colorClass: "text-blue-400" },
+  UserMessageReceived: { icon: MessageCircle, label: "You", colorClass: "text-blue-400" },
+  // Legacy names retained so historical session JSON still renders.
+  WorkflowStartedEvent: { icon: Workflow, label: "Workflow started", colorClass: "text-sky-500" },
+  ObservationEvent: { icon: Bot, label: "Observation", colorClass: "text-muted-foreground" },
+  ReplanEvent: { icon: RotateCcw, label: "Replanning", colorClass: "text-amber-500" },
+  ResultArtifactEvent: { icon: BarChart3, label: "Artifact", colorClass: "text-indigo-500" },
 };
 
 const formatTs = (ts: string): string => {
@@ -116,12 +125,12 @@ const EventRow = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{meta.label}</span>
-          {event.type === "ToolCallEvent" && Boolean(payload.tool_name) && (
+          {event.type === "ToolCallRequested" && Boolean(payload.tool_name) && (
             <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
               {String(payload.tool_name)}
             </Badge>
           )}
-          {event.type === "WorkflowStartedEvent" && Boolean(payload.run_id) && (
+          {event.type === "ToolCallCompleted" && Boolean(payload.run_id) && (
             <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
               {String(payload.run_id)}
             </Badge>
@@ -146,7 +155,7 @@ const EventRow = ({
         </div>
 
         {/* Inline content for common event types */}
-        {event.type === "PlanCreatedEvent" && (
+        {event.type === "PlanCreated" && (
           <PlanCard sessionId={sessionId} event={event} onResolved={onPlanResolved} />
         )}
 
@@ -171,7 +180,7 @@ const EventRow = ({
           </div>
         )}
 
-        {event.type === "SessionCompletedEvent" && (
+        {event.type === "SessionCompleted" && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
             {Boolean(payload.summary) && (
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
@@ -181,7 +190,7 @@ const EventRow = ({
           </div>
         )}
 
-        {event.type === "ApprovalRequestEvent" && Boolean(payload.request_id) && (
+        {event.type === "ToolApprovalRequested" && Boolean(payload.request_id) && (
           <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30">
             <p className="flex-1 text-xs text-orange-700 dark:text-orange-400">
               Approve{" "}
@@ -210,7 +219,7 @@ const EventRow = ({
 
         {event.type === "ResultArtifactEvent" && <ArtifactBody payload={payload} />}
 
-        {event.type === "UserMessageRequestEvent" && Boolean(payload.prompt) && (
+        {event.type === "UserMessageRequested" && Boolean(payload.prompt) && (
           <div className="rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 dark:border-fuchsia-800 dark:bg-fuchsia-950/30">
             <p className="text-xs text-fuchsia-700 dark:text-fuchsia-300">
               {String(payload.prompt)}
@@ -218,7 +227,7 @@ const EventRow = ({
           </div>
         )}
 
-        {event.type === "UserMessageEvent" && Boolean(payload.content) && (
+        {event.type === "UserMessageReceived" && Boolean(payload.content) && (
           <p className="text-xs italic text-muted-foreground">“{String(payload.content)}”</p>
         )}
 
@@ -349,13 +358,13 @@ const TurnAnswer = ({
     );
   }
 
-  if (result.type === "PlanCreatedEvent") {
+  if (result.type === "PlanCreated") {
     return <PlanCard sessionId={sessionId} event={result} onResolved={onPlanResolved} />;
   }
 
   const payload = (result.payload ?? {}) as Record<string, unknown>;
 
-  if (result.type === "SessionCompletedEvent") {
+  if (result.type === "SessionCompleted") {
     const summary = typeof payload.summary === "string" ? payload.summary : "";
     return (
       <div className="space-y-2">
@@ -406,7 +415,7 @@ const TurnCard = ({
   // Surface approvals immediately even when the steps section is collapsed —
   // a hidden approval would block the agent indefinitely.
   const pendingApproval = turn.steps.find((s) => {
-    if (s.type !== "ApprovalRequestEvent") return false;
+    if (s.type !== "ToolApprovalRequested") return false;
     const p = (s.payload ?? {}) as Record<string, unknown>;
     if (typeof p.request_id !== "string") return false;
     return !turn.steps.some(
@@ -445,7 +454,7 @@ const TurnCard = ({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {turn.result?.type === "SessionCompletedEvent" && isLast ? "Final answer" : "Answer"}
+              {turn.result?.type === "SessionCompleted" && isLast ? "Final answer" : "Answer"}
             </p>
             <div className="mt-1">
               <TurnAnswer
@@ -1091,8 +1100,11 @@ const AgentSessionViewer = ({
         if (data.type === "done") {
           es.close();
           agentApi.getSession(sessionId).then((s) => {
-            setSession(s);
-            setEvents(s.events ?? []);
+            setSession((prev) => {
+              if (!prev || prev.sessionId !== sessionId) return s;
+              if (prev.status === s.status) return prev;
+              return { ...prev, status: s.status, stats: s.stats };
+            });
           });
           return;
         }
@@ -1127,11 +1139,16 @@ const AgentSessionViewer = ({
       try {
         const fresh = await agentApi.getSession(sessionId);
         if (cancelled) return;
-        setSession((prev) =>
-          prev && prev.sessionId === sessionId
-            ? { ...prev, status: fresh.status, stats: fresh.stats }
-            : prev,
-        );
+        setSession((prev) => {
+          if (!prev || prev.sessionId !== sessionId) return prev;
+          if (
+            prev.status === fresh.status &&
+            JSON.stringify(prev.stats ?? null) === JSON.stringify(fresh.stats ?? null)
+          ) {
+            return prev;
+          }
+          return { ...prev, status: fresh.status, stats: fresh.stats };
+        });
       } catch {
         // ignore transient polling errors
       }

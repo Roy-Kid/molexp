@@ -214,7 +214,7 @@ async def create_agent_task(
     Today this starts exactly one runtime session, but task identity is already
     separate from the runtime session id.
     """
-    session = await agent_routes.create_session(request, workspace)
+    session = await agent_routes.create_session(request, workspace=workspace)
     task = _task_from_session(session, task_id=f"task-{uuid.uuid4().hex[:12]}")
     task = _sync_review_items_for_task(workspace, task)
     _persist_task_response(workspace, task)
@@ -224,7 +224,7 @@ async def create_agent_task(
 @router.get("", response_model=AgentTaskListResponse)
 def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:
     """List active and historical agent tasks."""
-    sessions = agent_routes.list_sessions(workspace)
+    sessions = agent_routes.list_sessions(workspace=workspace)
     tasks: list[AgentTaskResponse] = []
     seen_task_ids: set[str] = set()
     for session in sessions.sessions:
@@ -259,7 +259,7 @@ def get_agent_task(
     """Get a single agent task by task id."""
     session_id = _session_id_for_task(workspace, task_id)
     try:
-        session = agent_routes.get_session(session_id, workspace)
+        session = agent_routes.get_session(session_id, workspace=workspace)
     except HTTPException:
         root = _workspace_root(workspace)
         if root is not None:
@@ -288,17 +288,21 @@ async def stream_agent_task_events(
     Delegates to the existing session event stream until task events are
     persisted independently.
     """
-    return await agent_routes.stream_events(_session_id_for_task(workspace, task_id))
+    return await agent_routes.stream_events(
+        _session_id_for_task(workspace, task_id), workspace=workspace
+    )
 
 
 @router.post("/{task_id}/approve")
-def respond_agent_task_approval(
+async def respond_agent_task_approval(
     task_id: str,
     request: ApprovalRespondRequest,
     workspace=Depends(get_workspace),
 ) -> dict:
     """Respond to a runtime approval request for this task."""
-    return agent_routes.respond_approval(_session_id_for_task(workspace, task_id), request)
+    return await agent_routes.respond_approval(
+        _session_id_for_task(workspace, task_id), request, workspace=workspace
+    )
 
 
 @router.post("/{task_id}/plan-decision", response_model=MessageResponse)
@@ -309,7 +313,7 @@ async def respond_agent_task_plan(
 ) -> MessageResponse:
     """Approve or reject the current task plan."""
     session_id = _session_id_for_task(workspace, task_id)
-    response = await agent_routes.respond_plan(session_id, request)
+    response = await agent_routes.respond_plan(session_id, request, workspace=workspace)
     _resolve_plan_review_for_decision(workspace, task_id, request)
     get_agent_task(task_id, workspace)
     return response
@@ -323,6 +327,8 @@ async def post_agent_task_message(
 ) -> MessageResponse:
     """Send a user message to a running agent task."""
     session_id = _session_id_for_task(workspace, task_id)
-    response = await agent_routes.post_user_message(session_id, request)
+    response = await agent_routes.post_user_message(
+        session_id, request, workspace=workspace
+    )
     get_agent_task(task_id, workspace)
     return response

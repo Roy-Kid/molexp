@@ -1,6 +1,11 @@
 """Execution orchestration layer (spec §6.3)."""
 
 from molexp.agent.orchestration.approvals import ApprovalRegistry, PendingApproval
+from molexp.agent.orchestration.chat import (
+    ChatGateway,
+    PendingUserMessage,
+    UserMessageRegistry,
+)
 from molexp.agent.orchestration.events import (
     ContextBuilt,
     EventBus,
@@ -19,6 +24,10 @@ from molexp.agent.orchestration.events import (
     UserMessageReceived,
     UserMessageRequested,
 )
+from molexp.agent.orchestration.gates import (
+    SessionApprovalGate,
+    SessionChatGateway,
+)
 from molexp.agent.orchestration.plan import (
     REJECT_FEEDBACK_TEMPLATE,
     PlanState,
@@ -32,17 +41,21 @@ __all__ = [
     "AgentRunner",
     "AgentSession",
     "ApprovalRegistry",
+    "ChatGateway",
     "ContextBuilt",
     "EventBus",
     "FailureRecorded",
     "ModelRequested",
     "ModelResponded",
     "PendingApproval",
+    "PendingUserMessage",
     "PlanCreated",
     "PlanDecided",
     "PlanState",
     "PlanStateMachine",
     "REJECT_FEEDBACK_TEMPLATE",
+    "SessionApprovalGate",
+    "SessionChatGateway",
     "SessionCompleted",
     "SessionEvent",
     "SessionStarted",
@@ -51,6 +64,7 @@ __all__ = [
     "ToolCallRequested",
     "TurnStarted",
     "UserMessageReceived",
+    "UserMessageRegistry",
     "UserMessageRequested",
     "render_reject_feedback",
 ]

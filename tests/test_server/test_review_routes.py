@@ -10,11 +10,9 @@ from molexp.server.routes.review_store import PersistedReviewItem, write_review_
 
 @pytest.fixture(autouse=True)
 def _clean_agent_state():
-    agent_route._sessions.clear()
-    agent_route._live_sessions.clear()
+    agent_route.reset_agent_service_cache()
     yield
-    agent_route._sessions.clear()
-    agent_route._live_sessions.clear()
+    agent_route.reset_agent_service_cache()
 
 
 @pytest.mark.integration
@@ -52,30 +50,27 @@ def test_list_reviews_filters_by_status(client, workspace):
 
 @pytest.mark.integration
 def test_approve_plan_review_resolves_live_plan(client, workspace):
-    captured = {}
+    """The reviews layer routes plan approvals into the live AgentSession.
 
-    class _Live:
-        async def respond_plan(
-            self,
-            request_id: str,
-            approved: bool,
-            edited_plan=None,
-            edited_workflow_ir=None,
-            feedback: str = "",
-        ) -> None:
-            captured["request_id"] = request_id
-            captured["approved"] = approved
-            captured["feedback"] = feedback
+    Per spec §6.3 (Decision O1) the live session sits on
+    :class:`AgentService`; the review layer resolves the plan via the
+    same ``respond_plan`` pathway the agent route uses.
+    """
+    from molexp.agent import AgentMode, Goal
+    from molexp.agent.orchestration import PlanCreated, PlanStateMachine
+    from molexp.agent.types import WorkflowPreview
 
-    agent_route._sessions["sess-plan"] = agent_route.AgentSessionResponse(
-        sessionId="sess-plan",
-        status="running",
-        goalDescription="Draft workflow",
-        createdAt="2026-01-01T00:00:00Z",
-        events=[],
-        stats=agent_route.SessionStatsResponse(),
+    service = agent_route._service_for(workspace)
+    session = service.start_session(
+        Goal(description="Draft workflow", mode=AgentMode.PLAN)
     )
-    agent_route._live_sessions["sess-plan"] = _Live()
+    # Park the session on a plan emission so respond_plan has work to do.
+    preview = WorkflowPreview(workflow_ir={"task_configs": []})
+    session.plan = (
+        PlanStateMachine()
+        .request_plan()
+        .emit_plan(request_id="plan-1", plan_markdown="...", preview=preview)
+    )
     write_review_metadata(
         workspace.root,
         PersistedReviewItem(
@@ -86,7 +81,7 @@ def test_approve_plan_review_resolves_live_plan(client, workspace):
             target_type="plan",
             target_id="plan-1",
             task_id="task-1",
-            session_id="sess-plan",
+            session_id=session.session_id,
             created_at="2026-01-01T00:01:00Z",
         ),
     )
@@ -94,7 +89,10 @@ def test_approve_plan_review_resolves_live_plan(client, workspace):
     res = client.post("/api/reviews/review-plan-task-1-plan-1/approve", json={"comment": "ok"})
 
     assert res.status_code == 200
-    assert captured == {"request_id": "plan-1", "approved": True, "feedback": "ok"}
+    # The session state machine should have transitioned to PLAN_APPROVED.
+    from molexp.agent.orchestration import PlanState
+
+    assert session.plan.state is PlanState.PLAN_APPROVED
     review = client.get("/api/reviews/review-plan-task-1-plan-1").json()
     assert review["status"] == "approved"
     assert review["resolutionComment"] == "ok"
