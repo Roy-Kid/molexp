@@ -19,7 +19,7 @@ from typing import Any
 
 from mollog import get_logger
 
-from .mcp_store import (
+from .store import (
     McpScope,
     McpServerEntry,
     McpStore,
@@ -324,7 +324,7 @@ def _maybe_oauth_http_client(
         return None
     import httpx
 
-    from .mcp_oauth import build_oauth_provider, default_redirect_uri, storage_for
+    from .oauth import build_oauth_provider, default_redirect_uri, storage_for
 
     storage = storage_for(store, scope, name)
     provider = build_oauth_provider(

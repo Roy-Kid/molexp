@@ -6,8 +6,9 @@ registry so that ``import molexp`` never fails due to a missing package.
 
 Plugin naming convention: ``{category}_{implementation}``
 
-- ``submit_molq``  — Job submission via molq schedulers
-- ``agent_pydanticai`` — AI agent via PydanticAI
+- ``submit_molq`` — Job submission via molq schedulers
+- ``model_pydanticai`` — Model boundary backed by PydanticAI
+- ``tool_mcp`` — MCP tool sources
 
 Usage::
 

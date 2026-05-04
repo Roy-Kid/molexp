@@ -51,7 +51,7 @@ from mcp.shared.auth import (
 from mollog import get_logger
 
 if TYPE_CHECKING:
-    from .mcp_store import McpScope, McpStore
+    from .store import McpScope, McpStore
 
 logger = get_logger(__name__)
 
@@ -393,7 +393,7 @@ def storage_for(store: McpStore, scope: McpScope, server_name: str) -> FileToken
     points at ``~/.molexp/.mcp_oauth/``. Mirrors the layout of the secrets
     store next to it.
     """
-    from .mcp_store import USER_DIR, McpScope as _McpScope
+    from .store import USER_DIR, McpScope as _McpScope
 
     root = store.workspace_root if scope is _McpScope.WORKSPACE else USER_DIR
     return FileTokenStorage(root, server_name)

@@ -13,19 +13,21 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from molexp.agent.model import ModelConfig
+from molexp.agent.state.commands import parse as parse_slash
 from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillScope, SkillStore
 from molexp.agent.tools.admin import describe_native_tools
-from molexp.plugins.agent_pydanticai.commands import parse as parse_slash
-from molexp.plugins.agent_pydanticai.mcp_oauth import (
+from molexp.plugins.tool_mcp import (
+    McpScope,
+    McpStore,
     OAuthFlowSession,
     START_TIMEOUT_SECONDS,
     build_oauth_provider,
     default_redirect_uri,
+    list_mcp_tools,
+    probe_server,
     session_registry,
     storage_for,
 )
-from molexp.plugins.agent_pydanticai.mcp_probe import list_mcp_tools, probe_server
-from molexp.plugins.agent_pydanticai.mcp_store import McpScope, McpStore
 from molexp.plugins.model_pydanticai import (
     DEFAULT_MODELS,
     SUPPORTED_PROVIDERS,
@@ -840,7 +842,7 @@ async def parse_command(
 ) -> CommandParseResponse:
     """Parse a raw chat input into a structured ``CommandParseResponse``.
 
-    Mirrors :func:`molexp.plugins.agent_pydanticai.commands.parse`. Errors
+    Mirrors :func:`molexp.agent.state.commands.parse`. Errors
     surface as ``kind="error"`` with a UI-ready message — the route never
     raises a 4xx for parser-level issues so the client can render the
     message inline.

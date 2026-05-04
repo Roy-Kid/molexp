@@ -451,7 +451,7 @@ class CommandListResponse(BaseModel):
 
 
 class CommandParseResponse(BaseModel):
-    """Mirror of :class:`molexp.plugins.agent_pydanticai.commands.ParsedCommand`."""
+    """Mirror of :class:`molexp.agent.state.commands.ParsedCommand`."""
 
     kind: Literal["skill", "builtin", "error"]
     name: str = ""

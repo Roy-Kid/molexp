@@ -41,6 +41,12 @@ from molexp.agent.tools.registry import (
     ToolRegistry,
     native_tool,
 )
+from molexp.agent.tools.source import (
+    ToolSource,
+    UnknownToolSourceError,
+    list_tool_sources,
+    register_tool_source,
+)
 from molexp.agent.tools.spec import (
     ToolCallable,
     ToolContext,
@@ -83,12 +89,16 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolSchema",
+    "ToolSource",
     "ToolSpec",
     "UnknownProviderError",
+    "UnknownToolSourceError",
     "Usage",
     "WorkflowPreview",
     "create_model_client",
     "list_providers",
+    "list_tool_sources",
     "native_tool",
     "register_model_provider",
+    "register_tool_source",
 ]
