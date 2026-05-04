@@ -7,8 +7,10 @@ and session lifecycle (per §7.1: "the plugin must not execute tools").
 
 from __future__ import annotations
 
+import dataclasses
 import json
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from molexp.agent.model import (
     ModelClient,
@@ -24,12 +26,23 @@ if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
 
+ModelIoSink = Callable[[str, dict[str, Any]], None]
+"""Callable the plugin invokes once per ``complete()`` to record one
+``(request, response)`` pair on ``model_io.jsonl`` (Decision M1)."""
+
+
 class PydanticAIModelClient:
     """Adapt a pydantic-ai :class:`Model` to the harness contract."""
 
-    def __init__(self, model: "Model", model_name: str) -> None:
+    def __init__(
+        self,
+        model: "Model",
+        model_name: str,
+        model_io_sink: ModelIoSink | None = None,
+    ) -> None:
         self._model = model
         self.name = model_name
+        self._sink = model_io_sink
 
     async def complete(self, request: ModelRequest) -> ModelResponse:
         from pydantic_ai.models import ModelRequestParameters
@@ -50,7 +63,10 @@ class PydanticAIModelClient:
         )
         settings = _build_settings(request)
         raw = await self._model.request(messages, settings, params)
-        return _pai_to_harness(raw)
+        out = _pai_to_harness(raw)
+        if self._sink is not None:
+            self._sink(request.session_id, _model_io_record(request, raw, out))
+        return out
 
     async def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         # Streaming is not yet wired through the harness runner; complete()
@@ -200,4 +216,55 @@ def _coerce_args(args: Any) -> dict[str, Any]:
     return {"_": args}
 
 
-__all__ = ["PydanticAIModelClient"]
+def _model_io_record(
+    request: ModelRequest,
+    raw_response: Any,
+    harness_response: ModelResponse,
+) -> dict[str, Any]:
+    """Build the ``model_io.jsonl`` line for one model round-trip.
+
+    Owned exclusively by the plugin per Decision M1 — the harness
+    never reads this layer. Provider-native parts are dumped via
+    ``dataclasses.asdict`` to keep the record human-readable; binary
+    or oversized payloads should be promoted to ``provider_blobs/``
+    in a later phase.
+    """
+
+    return {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "session_id": request.session_id,
+        "turn_id": request.turn_id,
+        "provider": "pydantic-ai",
+        "model": getattr(raw_response, "model_name", ""),
+        "request": {
+            "system": request.system,
+            "messages": [_message_to_dict(m) for m in request.messages],
+            "tools": [
+                {"name": t.name, "description": t.description, "input_schema": t.input_schema}
+                for t in request.tools
+            ],
+            "metadata": dict(request.metadata),
+        },
+        "response": {
+            "text": harness_response.text,
+            "tool_calls": [
+                {"id": c.id, "name": c.name, "arguments": c.arguments}
+                for c in harness_response.tool_calls
+            ],
+            "usage": dataclasses.asdict(harness_response.usage),
+            "finish_reason": harness_response.finish_reason,
+            "provider_response_id": getattr(raw_response, "provider_response_id", "") or "",
+        },
+    }
+
+
+def _message_to_dict(msg: Message) -> dict[str, Any]:
+    return {
+        "role": msg.role,
+        "content": msg.content,
+        "name": msg.name,
+        "metadata": dict(msg.metadata),
+    }
+
+
+__all__ = ["ModelIoSink", "PydanticAIModelClient"]

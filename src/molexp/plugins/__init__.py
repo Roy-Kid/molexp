@@ -65,9 +65,17 @@ _INSTALL_HINTS: dict[Capability, str] = {
 
 
 def _load_agent() -> Any:
-    from molexp.plugins.agent_pydanticai import get_agent_plugin  # type: ignore[import-not-found]
+    """Probe pydantic-ai availability, then return :class:`AgentService`.
 
-    return get_agent_plugin()
+    The agent capability is satisfied by the core harness; pydantic-ai
+    is only required for the model plugin and gets imported on demand
+    when a session actually needs a provider.
+    """
+
+    import pydantic_ai  # noqa: F401 — availability check
+    from molexp.agent import AgentService
+
+    return AgentService
 
 
 _LOADERS: dict[Capability, Any] = {

@@ -1,65 +1,13 @@
-"""AI agent plugin (PydanticAI-based autonomous execution).
+"""Legacy plugin shell — kept for the MCP submodules during Phase 4 cutover.
 
-Loaded lazily by :class:`~molexp.plugins.PluginRegistry`.
-Requires ``pydantic-ai``: ``pip install molexp[agent]``.
-
-Public API::
-
-    from molexp.plugins.agent_pydanticai import AgentService, Goal
-    service = AgentService.from_workspace("./lab")
-    session = await service.run(Goal(description="..."))
+Per spec §9 the agent runtime, types, tools, tool registry, and the
+``_pydantic_ai/`` private package are removed in Phase 3. The
+remaining MCP-related modules (``mcp_oauth``, ``mcp_probe``,
+``mcp_store``) and a small handful of helpers (``commands``,
+``policy``) stay until Phase 4 promotes them into
+``molexp.plugins.tool_mcp``. Skills, native tools, the model client,
+and the provider config now live in :mod:`molexp.agent` and
+:mod:`molexp.plugins.model_pydanticai`.
 """
 
-from .policy import ApprovalPolicy
-from .runtime import AgentRuntime
-from .service import AgentService
-from .tools import Tool, agent_tool
-from .types import (
-    AgentSession,
-    ApprovalRequestEvent,
-    Goal,
-    ObservationEvent,
-    PlanCreatedEvent,
-    ReplanEvent,
-    ResultArtifactEvent,
-    SessionCompletedEvent,
-    SessionEvent,
-    ToolCallEvent,
-    ToolContext,
-    ToolResultEvent,
-    UserMessageEvent,
-    UserMessageRequestEvent,
-    WorkflowPreview,
-    WorkflowStartedEvent,
-)
-
-__all__ = [
-    "AgentService",
-    "AgentRuntime",
-    "AgentSession",
-    "ApprovalPolicy",
-    "Goal",
-    "Tool",
-    "ToolContext",
-    "agent_tool",
-    "SessionEvent",
-    "PlanCreatedEvent",
-    "ToolCallEvent",
-    "ToolResultEvent",
-    "WorkflowPreview",
-    "WorkflowStartedEvent",
-    "ObservationEvent",
-    "ReplanEvent",
-    "ApprovalRequestEvent",
-    "SessionCompletedEvent",
-    "ResultArtifactEvent",
-    "UserMessageRequestEvent",
-    "UserMessageEvent",
-]
-
-
-def get_agent_plugin():
-    """Entry point for :class:`~molexp.plugins.PluginRegistry`."""
-    import pydantic_ai  # noqa: F401 — availability check
-
-    return AgentService
+from __future__ import annotations

@@ -167,3 +167,35 @@ def test_factory_builds_anthropic_model() -> None:
     client = create_model_client(config)
     assert isinstance(client, PydanticAIModelClient)
     assert client.name == "claude-sonnet-4-6"
+
+
+@pytest.mark.asyncio
+async def test_model_io_sink_records_request_response_pair() -> None:
+    """Per Decision M1 the plugin owns ``model_io.jsonl`` writes."""
+
+    response = PaiModelResponse(
+        parts=[TextPart(content="hi"), ToolCallPart(tool_name="t", args={"x": 1}, tool_call_id="c1")],
+        usage=RequestUsage(input_tokens=4, output_tokens=2),
+        model_name="stub",
+        finish_reason="end_turn",
+    )
+    captured: list[tuple[str, dict]] = []
+
+    def sink(session_id: str, payload: dict) -> None:
+        captured.append((session_id, payload))
+
+    stub = _StubModel(response)
+    client = PydanticAIModelClient(stub, model_name="stub", model_io_sink=sink)
+    await client.complete(_request((Message(role="user", content="go"),)))
+
+    assert len(captured) == 1
+    sid, record = captured[0]
+    assert sid == "s"
+    assert record["session_id"] == "s"
+    assert record["turn_id"] == "t1"
+    assert record["provider"] == "pydantic-ai"
+    assert record["request"]["system"] == "you are agent"
+    assert record["request"]["messages"][0]["role"] == "user"
+    assert record["response"]["text"] == "hi"
+    assert record["response"]["tool_calls"][0]["name"] == "t"
+    assert record["response"]["finish_reason"] == "end_turn"

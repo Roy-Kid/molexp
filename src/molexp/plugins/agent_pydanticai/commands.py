@@ -21,7 +21,7 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .skills import RESERVED_SLASH_NAMES, SkillStore
+from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillStore
 
 CommandKind = Literal["skill", "builtin", "error"]
 

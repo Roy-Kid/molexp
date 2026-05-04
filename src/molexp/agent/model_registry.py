@@ -10,12 +10,18 @@ from __future__ import annotations
 
 from threading import Lock
 
+from typing import Any, Callable
+
 from molexp.agent.model import (
     ModelClient,
     ModelClientFactory,
     ModelConfig,
     ProviderConfigValidator,
 )
+
+ModelIoSink = Callable[[str, dict[str, Any]], None]
+"""Optional callback the plugin can use to record one
+``(request, response)`` pair to ``model_io.jsonl``."""
 
 
 class UnknownProviderError(KeyError):
@@ -60,7 +66,12 @@ class _ModelProviderRegistry:
         with self._lock:
             return self._validators.get(provider_name)
 
-    def create_client(self, config: ModelConfig) -> ModelClient:
+    def create_client(
+        self,
+        config: ModelConfig,
+        *,
+        model_io_sink: ModelIoSink | None = None,
+    ) -> ModelClient:
         validator = self.get_validator(config.provider_name)
         if validator is not None:
             errors = validator.validate(config)
@@ -69,7 +80,10 @@ class _ModelProviderRegistry:
                     f"Provider config invalid for '{config.provider_name}': "
                     + "; ".join(errors)
                 )
-        return self.get_factory(config.provider_name).create(config)
+        factory = self.get_factory(config.provider_name)
+        if model_io_sink is None:
+            return factory.create(config)
+        return factory.create(config, model_io_sink=model_io_sink)
 
 
 _default_registry = _ModelProviderRegistry()
@@ -100,10 +114,14 @@ def get_provider_validator(provider_name: str) -> ProviderConfigValidator | None
     return _default_registry.get_validator(provider_name)
 
 
-def create_model_client(config: ModelConfig) -> ModelClient:
+def create_model_client(
+    config: ModelConfig,
+    *,
+    model_io_sink: ModelIoSink | None = None,
+) -> ModelClient:
     """Validate ``config`` and instantiate the plugin's :class:`ModelClient`."""
 
-    return _default_registry.create_client(config)
+    return _default_registry.create_client(config, model_io_sink=model_io_sink)
 
 
 __all__ = [

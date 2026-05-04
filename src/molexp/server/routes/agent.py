@@ -5,8 +5,9 @@ harness public surface. The session registry and asyncio task
 ownership live entirely on :class:`AgentService`; these handlers do
 not own ``_sessions`` globals.
 
-Skill materialization, provider credentials, and system-prompt
-composition still flow through the legacy ``agent_pydanticai`` package.
+Skills come from :mod:`molexp.agent.state.skills`, provider credentials
+and config from :mod:`molexp.plugins.model_pydanticai`, and the system
+prompt from :mod:`molexp.agent.context.prompt`.
 
 Handlers take ``workspace`` as their only injected dependency and
 derive the workspace-scoped :class:`AgentService` via
@@ -80,19 +81,24 @@ def _resolve_model_client(root: Path | None):
     """Build a :class:`ModelClient` from the workspace's provider config.
 
     Returns ``None`` when no API key is configured — sessions then run
-    in metadata-only mode (no background turn-loop task).
+    in metadata-only mode (no background turn-loop task). When a
+    client is built, the plugin is wired with a ``model_io.jsonl``
+    sink so each request/response pair lands on disk (Decision M1).
     """
 
     if root is None:
         return None
     import molexp.plugins.model_pydanticai  # noqa: F401 — registers the factory
-    from molexp.agent import create_model_client
+    from molexp.agent import AgentService, create_model_client
+    from molexp.agent.state.sessions import SessionStore
     from molexp.plugins.model_pydanticai.store import ProviderStore
 
     config = ProviderStore(root).load()
     if not config.api_key:
         return None
-    return create_model_client(config)
+    sessions_root = root / AgentService.AGENT_DIRNAME / "sessions"
+    store = SessionStore(sessions_root)
+    return create_model_client(config, model_io_sink=store.append_model_io)
 
 
 def get_agent_service(workspace=Depends(get_workspace)) -> AgentService:
@@ -188,7 +194,7 @@ def _resolve_skill_instructions(workspace, skill_id: str | None) -> str:
     root = getattr(workspace, "root", None)
     if root is None:
         return ""
-    from molexp.plugins.agent_pydanticai.skills import SkillStore
+    from molexp.agent.state.skills import SkillStore
 
     skill = SkillStore(root).get(skill_id)
     return skill.instructions if skill is not None else ""
@@ -200,10 +206,7 @@ def _require_credentials(workspace) -> None:
     root = getattr(workspace, "root", None)
     if root is None:
         return
-    from molexp.plugins.agent_pydanticai.provider import (
-        ProviderStore,
-        check_credentials,
-    )
+    from molexp.plugins.model_pydanticai import ProviderStore, check_credentials
 
     config = ProviderStore(root).load()
     status = check_credentials(config)
@@ -410,7 +413,7 @@ async def launch_skill(
     root = getattr(workspace, "root", None)
     if root is None:
         raise HTTPException(status_code=500, detail="Workspace has no root path")
-    from molexp.plugins.agent_pydanticai.skills import SkillStore
+    from molexp.agent.state.skills import SkillStore
 
     skill = SkillStore(root).get(skill_id)
     if skill is None:
@@ -450,15 +453,12 @@ def get_session_system_prompt(
 ) -> AgentSystemPromptResponse:
     """Return the layered system prompt for a session."""
 
-    from molexp.plugins.agent_pydanticai._pydantic_ai.system_prompt import (
-        BASE_SYSTEM_PROMPT,
-        compose_system_prompt,
-    )
+    from molexp.agent.context.prompt import BASE_SYSTEM_PROMPT, compose_system_prompt
 
     workspace_instructions = ""
     root = getattr(workspace, "root", None)
     if root is not None:
-        from molexp.plugins.agent_pydanticai.provider import ProviderStore
+        from molexp.plugins.model_pydanticai.store import ProviderStore
 
         workspace_instructions = ProviderStore(root).load().instructions
 

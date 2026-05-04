@@ -181,7 +181,7 @@ class AgentService:
         sessions_root = self._agent_root() / "sessions"
         return AgentStateStore(
             sessions=SessionStore(sessions_root),
-            skills=SkillStore(),
+            skills=SkillStore(self.workspace_path),
             memory=NoopMemoryStore(),
         )
 

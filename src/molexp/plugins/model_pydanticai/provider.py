@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable
 
 from molexp.agent.model import ModelClient, ModelConfig
 from molexp.plugins.model_pydanticai.store import (
@@ -12,6 +12,8 @@ from molexp.plugins.model_pydanticai.store import (
 
 if TYPE_CHECKING:
     from pydantic_ai.models import Model
+
+ModelIoSink = Callable[[str, dict[str, Any]], None]
 
 
 class PydanticAIProviderValidator:
@@ -53,11 +55,20 @@ class PydanticAIModelClientFactory:
     def __init__(self, provider_name: str) -> None:
         self.provider_name = provider_name
 
-    def create(self, config: ModelConfig) -> ModelClient:
+    def create(
+        self,
+        config: ModelConfig,
+        *,
+        model_io_sink: ModelIoSink | None = None,
+    ) -> ModelClient:
         from molexp.plugins.model_pydanticai.client import PydanticAIModelClient
 
         model = build_model(config)
-        return PydanticAIModelClient(model=model, model_name=config.model)
+        return PydanticAIModelClient(
+            model=model,
+            model_name=config.model,
+            model_io_sink=model_io_sink,
+        )
 
 
 def build_model(config: ModelConfig) -> "Model":

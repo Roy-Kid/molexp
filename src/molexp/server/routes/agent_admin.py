@@ -12,7 +12,9 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from molexp.plugins.agent_pydanticai.admin import describe_native_tools
+from molexp.agent.model import ModelConfig
+from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillScope, SkillStore
+from molexp.agent.tools.admin import describe_native_tools
 from molexp.plugins.agent_pydanticai.commands import parse as parse_slash
 from molexp.plugins.agent_pydanticai.mcp_oauth import (
     OAuthFlowSession,
@@ -24,19 +26,13 @@ from molexp.plugins.agent_pydanticai.mcp_oauth import (
 )
 from molexp.plugins.agent_pydanticai.mcp_probe import list_mcp_tools, probe_server
 from molexp.plugins.agent_pydanticai.mcp_store import McpScope, McpStore
-from molexp.plugins.agent_pydanticai.provider import (
+from molexp.plugins.model_pydanticai import (
     DEFAULT_MODELS,
     SUPPORTED_PROVIDERS,
-    ProviderConfig,
     ProviderStore,
     check_credentials,
     probe_provider,
     to_public,
-)
-from molexp.plugins.agent_pydanticai.skills import (
-    RESERVED_SLASH_NAMES,
-    SkillScope,
-    SkillStore,
 )
 
 from ..dependencies import get_workspace
@@ -878,7 +874,7 @@ def _provider_store(workspace) -> ProviderStore:
 
 def _to_provider_response(public) -> AgentProviderResponse:
     return AgentProviderResponse(
-        provider=public.provider,
+        provider=public.provider_name,
         model=public.model,
         baseUrl=public.base_url,
         apiKeyPreview=public.api_key_preview,
@@ -931,7 +927,7 @@ async def update_provider(
         )
     store = _provider_store(workspace)
     updated = store.update(
-        provider=request.provider,  # type: ignore[arg-type]
+        provider_name=request.provider,
         model=request.model,
         api_key=request.api_key,
         base_url=request.base_url,
@@ -942,31 +938,31 @@ async def update_provider(
 
 def _resolve_probe_config(
     request: AgentProviderUpdateRequest,
-    stored: ProviderConfig,
-) -> ProviderConfig:
+    stored: ModelConfig,
+) -> ModelConfig:
     """Merge unsaved draft fields with the stored config for the probe.
 
-    Any field present in the request overrides the stored value; missing
-    fields fall back to what's persisted. This lets the UI test a freshly
-    typed key without requiring the user to save first. Switching the
-    provider without an explicit model resets to the provider default
-    so we don't probe with a mismatched model name (e.g. an Anthropic
-    model name against the OpenAI endpoint).
+    Any field present in the request overrides the stored value;
+    switching provider without an explicit model resets to that
+    provider's default so we don't probe with a mismatched model.
     """
-    target_provider = request.provider if request.provider is not None else stored.provider
+    target_provider = (
+        request.provider if request.provider is not None else stored.provider_name
+    )
     if request.model is not None:
         target_model = request.model
-    elif request.provider is not None and request.provider != stored.provider:
-        target_model = DEFAULT_MODELS[request.provider]  # type: ignore[index]
+    elif request.provider is not None and request.provider != stored.provider_name:
+        target_model = DEFAULT_MODELS[request.provider]
     else:
         target_model = stored.model
     target_key = request.api_key if request.api_key not in (None, "") else stored.api_key
     target_base = request.base_url if request.base_url is not None else stored.base_url
-    return ProviderConfig(
-        provider=target_provider,  # type: ignore[arg-type]
+    return ModelConfig(
+        provider_name=target_provider,
         model=target_model,
-        api_key=target_key,
-        base_url=target_base,
+        api_key=target_key or None,
+        base_url=target_base or None,
+        instructions=stored.instructions,
     )
 
 
@@ -990,7 +986,7 @@ async def test_provider(
     result = await probe_provider(target)
     return AgentProviderTestResponse(
         ok=result.ok,
-        provider=target.provider,
+        provider=target.provider_name,
         model=target.model,
         latencyMs=result.latency_ms,
         reply=result.reply,

@@ -10,6 +10,14 @@ from __future__ import annotations
 
 from molexp.agent.model_registry import register_model_provider
 from molexp.plugins.model_pydanticai.client import PydanticAIModelClient
+from molexp.plugins.model_pydanticai.credentials import (
+    CredentialStatus,
+    ProbeResult,
+    ProviderConfigPublic,
+    check_credentials,
+    probe_provider,
+    to_public,
+)
 from molexp.plugins.model_pydanticai.provider import (
     PydanticAIModelClientFactory,
     PydanticAIProviderValidator,
@@ -34,11 +42,17 @@ _register()
 
 
 __all__ = [
+    "CredentialStatus",
     "DEFAULT_MODELS",
+    "ProbeResult",
+    "ProviderConfigPublic",
     "PydanticAIModelClient",
     "PydanticAIModelClientFactory",
     "PydanticAIProviderValidator",
     "ProviderStore",
     "SUPPORTED_PROVIDERS",
+    "check_credentials",
     "mask_api_key",
+    "probe_provider",
+    "to_public",
 ]
