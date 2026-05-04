@@ -1,20 +1,18 @@
 """Native pydantic-ai tools exposed by the molexp agent.
 
-Three purposes:
+Each tool here registers itself with the package-level
+:class:`~molexp.plugins.agent_pydanticai.tool_registry.ToolRegistry`
+via the :func:`~molexp.plugins.agent_pydanticai.tool_registry.native_tool`
+decorator. Categories:
 
-1. **Task management** — deterministic side-effecting operations on
-   workspace state (``submit_run``, ``get_run_status``, ``wait_for_run``,
-   ``retry_run``, ``execute_run``). Some require approval; see
-   ``catalog.DEFAULT_APPROVAL_TOOLS``.
-
-2. **Workspace structure** — create / list projects, experiments, runs
-   so the agent can drive the full workspace lifecycle from chat. The
-   ``create_experiment`` tool attaches a built-in workflow template
-   (see :mod:`.workflow_templates`) so users don't have to author
-   Python files just to smoke-test the system.
-
-3. **Chat plumbing** — ``ask_user`` lets the agent pause the run and
-   ask the user for clarification, returning the reply.
+- ``workspace`` — create/list projects, experiments, runs (workspace
+  structure manipulation).
+- ``workflow`` — workflow IR binding + run lifecycle (``submit_run``,
+  ``set_workflow_from_ir``, ``execute_run``, …). Some are mutating;
+  the ``mutates`` flag drives plan-mode filtering.
+- ``chat`` — ``ask_user`` for clarification mid-run.
+- ``control`` — session-control tools like ``exit_plan_mode`` (wired in
+  the session layer to halt + emit a structured event).
 
 Heavy analytic / plotting code is intentionally *not* native: install
 ``molcrafts-mcp`` (read tools) and a code-exec MCP server (aggregation,
@@ -29,6 +27,7 @@ from typing import Any
 
 from pydantic_ai import RunContext
 
+from ..tool_registry import native_tool
 from .deps import MolexpDeps
 from .workflow_templates import TEMPLATES, list_templates
 
@@ -59,6 +58,7 @@ def _read_run_results(run: Any) -> dict[str, Any]:
 # ── Task-management tools (write side effects) ────────────────────────────────
 
 
+@native_tool(category="workflow", mutates=True)
 async def submit_run(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -95,6 +95,7 @@ async def submit_run(
     }
 
 
+@native_tool(category="workflow", mutates=False)
 async def get_run_status(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -143,6 +144,7 @@ async def get_run_status(
 _TERMINAL_STATUSES = {"succeeded", "completed", "failed", "cancelled", "error"}
 
 
+@native_tool(category="workflow", mutates=False)
 async def wait_for_run(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -178,6 +180,7 @@ async def wait_for_run(
         await asyncio.sleep(max(0.1, float(poll_interval)))
 
 
+@native_tool(category="workflow", mutates=True)
 async def retry_run(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -212,6 +215,7 @@ async def retry_run(
 # ── Chat plumbing (no I/O, just hands a prompt to the user) ───────────────────
 
 
+@native_tool(category="chat", mutates=False)
 async def ask_user(ctx: RunContext[MolexpDeps], prompt: str) -> dict[str, Any]:
     """Pause the run and prompt the user for free-form input.
 
@@ -236,6 +240,7 @@ async def ask_user(ctx: RunContext[MolexpDeps], prompt: str) -> dict[str, Any]:
 # ── Workspace structure tools (read + write) ─────────────────────────────────
 
 
+@native_tool(category="workspace", mutates=False)
 async def list_projects(ctx: RunContext[MolexpDeps]) -> list[dict[str, Any]]:
     """List every project in the current workspace.
 
@@ -254,6 +259,7 @@ async def list_projects(ctx: RunContext[MolexpDeps]) -> list[dict[str, Any]]:
     return rows
 
 
+@native_tool(category="workspace", mutates=False)
 async def list_experiments(
     ctx: RunContext[MolexpDeps], project_id: str
 ) -> list[dict[str, Any]] | dict[str, Any]:
@@ -274,6 +280,7 @@ async def list_experiments(
     return rows
 
 
+@native_tool(category="workspace", mutates=False)
 async def list_runs(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -298,6 +305,7 @@ async def list_runs(
     return rows
 
 
+@native_tool(category="workflow", mutates=False)
 async def get_run_results(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -327,6 +335,7 @@ async def get_run_results(
     }
 
 
+@native_tool(category="workspace", mutates=True)
 async def create_project(
     ctx: RunContext[MolexpDeps],
     name: str,
@@ -347,6 +356,7 @@ async def create_project(
     }
 
 
+@native_tool(category="workflow", mutates=False)
 async def list_workflow_templates(
     ctx: RunContext[MolexpDeps],
 ) -> list[dict[str, Any]]:
@@ -358,6 +368,7 @@ async def list_workflow_templates(
     return list_templates()
 
 
+@native_tool(category="workflow", mutates=True)
 async def create_experiment(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -408,6 +419,7 @@ async def create_experiment(
     }
 
 
+@native_tool(category="workflow", mutates=False)
 async def list_task_types(ctx: RunContext[MolexpDeps]) -> list[dict[str, str]]:
     """Return every task-type slug that can appear in a workflow IR.
 
@@ -423,6 +435,7 @@ async def list_task_types(ctx: RunContext[MolexpDeps]) -> list[dict[str, str]]:
     ]
 
 
+@native_tool(category="workflow", mutates=True)
 async def set_workflow_from_ir(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -474,6 +487,7 @@ async def set_workflow_from_ir(
     }
 
 
+@native_tool(category="workflow", mutates=True)
 async def execute_run(
     ctx: RunContext[MolexpDeps],
     project_id: str,
@@ -520,42 +534,108 @@ async def execute_run(
     }
 
 
-# Tool groups — explicit so plan mode can disable writes by simply omitting
-# WRITE_TOOLS from the catalog. Keep these in sync with the system prompt's
-# tool surface section in :mod:`system_prompt`.
-READ_ONLY_TOOLS: list = [
-    list_projects,
-    list_experiments,
-    list_runs,
-    get_run_results,
-    list_workflow_templates,
-    list_task_types,
-    get_run_status,
-]
-
-WRITE_TOOLS: list = [
-    create_project,
-    create_experiment,
-    set_workflow_from_ir,
-    submit_run,
-    execute_run,
-    wait_for_run,
-    retry_run,
-]
-
-CHAT_TOOLS: list = [ask_user]
+# ── Session-control tools ───────────────────────────────────────────────────
 
 
-def get_all_builtin_tools() -> list:
-    """Return every native tool function for catalog registration.
+@native_tool(category="control", mutates=False)
+async def exit_plan_mode(
+    ctx: RunContext[MolexpDeps],
+    plan_markdown: str,
+    workflow_preview: dict[str, Any],
+) -> dict[str, Any]:
+    """Hand a finalized plan back to the user for explicit approval.
 
-    Order matters only for the agent's "available tools" listing —
-    keep read-only tools first so the system prompt's free-form
-    discovery surfaces inspection options before destructive ones.
+    Halts the agent until the user approves, rejects, or edits the
+    plan via the chat UI. The same session resumes after the decision
+    — see :meth:`PydanticAISession.respond_plan`.
+
+    Every plan is a workflow. The numbered steps in ``plan_markdown``
+    are the prose view; ``workflow_preview.workflow_ir`` is the
+    structured view of the same nodes. They MUST be in lockstep:
+    every step number in the prose corresponds to one
+    ``task_configs[]`` node, including investigation-style steps like
+    ``read_paper``, ``inspect_dataset``, or ``survey_runs``. On
+    approval the session flips out of plan mode and the agent
+    proceeds to bind / execute the workflow (the IR compiles directly
+    to a runnable Python script — see ``workflow_preview.python_script``
+    if you want to ship the script alongside the IR).
+
+    Args:
+        plan_markdown: Numbered step plan as markdown. One step per
+            node in ``workflow_ir.task_configs``, in the same order.
+        workflow_preview: Structured workflow preview with shape::
+
+                {
+                    "workflow_ir": {
+                        "name": "<short name>",
+                        "task_configs": [
+                            {"task_id": "<unique>",
+                             "task_type": "<slug from list_task_types>",
+                             "config": {...}},
+                            ...
+                        ],
+                        "links": [{"source": "<task_id>",
+                                   "target": "<task_id>"}, ...],
+                        "metadata": {}
+                    },
+                    "python_script": "<optional; renderable from IR>",
+                    "mermaid": "<optional; UI auto-derives a graph>",
+                    "intervention_points": ["rename A to fetch", ...]
+                }
+
+            ``task_configs`` MUST contain at least one node — empty
+            workflows are not valid plans.
+
+    Returns:
+        On approval: ``{"approved": True, "edited_plan": "...",
+        "edited_workflow_ir": {...} | None}``.
+        On rejection: ``{"approved": False, "feedback": "..."}``.
+        On contract violation: ``{"error": "..."}`` — fix the call
+        and try again in the same turn.
     """
-    return [*READ_ONLY_TOOLS, *WRITE_TOOLS, *CHAT_TOOLS]
+    if not isinstance(workflow_preview, dict):
+        return {
+            "error": (
+                "exit_plan_mode: workflow_preview must be an object with "
+                "shape {workflow_ir: {...}, python_script?, mermaid?, "
+                "intervention_points?}."
+            )
+        }
+    ir = workflow_preview.get("workflow_ir")
+    if not isinstance(ir, dict):
+        return {
+            "error": (
+                "exit_plan_mode: workflow_preview.workflow_ir must be an "
+                "object with task_configs[] and links[]."
+            )
+        }
+    task_configs = ir.get("task_configs")
+    if not isinstance(task_configs, list) or not task_configs:
+        return {
+            "error": (
+                "exit_plan_mode: workflow_preview.workflow_ir.task_configs "
+                "MUST contain at least one node. Investigation-style steps "
+                "(read literature, grep codebase, inspect runs) belong in "
+                "the IR as investigation tasks — every step is a node."
+            )
+        }
+    session = getattr(ctx.deps, "session", None)
+    if session is None or not hasattr(session, "await_plan_decision"):
+        return {
+            "error": (
+                "exit_plan_mode requires an interactive session with "
+                "plan-mode support."
+            )
+        }
+    decision = await session.await_plan_decision(
+        plan_markdown=plan_markdown,
+        workflow_preview=workflow_preview,
+    )
+    return decision
 
 
-def get_read_only_tools() -> list:
-    """Return only the read-only and chat tools, used in plan mode."""
-    return [*READ_ONLY_TOOLS, *CHAT_TOOLS]
+# NOTE: the static READ_ONLY_TOOLS / WRITE_TOOLS / CHAT_TOOLS lists were
+# replaced by :class:`~molexp.plugins.agent_pydanticai.tool_registry.ToolRegistry`.
+# Each function above self-registers via :func:`@native_tool`. Catalogs and
+# the settings UI now query the registry directly, so adding a new tool
+# requires no edits to module-level lists.

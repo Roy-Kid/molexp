@@ -5,6 +5,7 @@ export type LeftPanelView =
   | "asset"
   | "workflow"
   | "agent"
+  | "review"
   | "settings";
 
 export type SemanticObjectType =
@@ -14,7 +15,8 @@ export type SemanticObjectType =
   | "asset"
   | "workflow"
   | "workspace-file"
-  | "agent";
+  | "agent"
+  | "review";
 
 export type BaseObjectType = "project" | "experiment" | "run" | "asset";
 
@@ -39,7 +41,11 @@ export type SemanticStatus =
   | "succeeded"
   | "failed"
   | "cancelled"
-  | "skipped";
+  | "skipped"
+  | "waiting_for_review"
+  | "approved"
+  | "rejected"
+  | "expired";
 
 import type { ExperimentCreateRequest } from "../api/generated/models/ExperimentCreateRequest";
 import type { ProjectCreateRequest } from "../api/generated/models/ProjectCreateRequest";
@@ -67,7 +73,11 @@ export type ApiWorkflowSnapshot = WorkflowSnapshotResponse;
 export type ApiRunSummary = ApiRunSummaryModel;
 export type ApiCacheStats = CacheStatsResponse;
 export type ApiCacheClear = CacheClearResponse;
-export type ApiAgentSession = AgentSessionResponse;
+export type ApiAgentSession = AgentSessionResponse & {
+  taskId?: string;
+  title?: string;
+  updatedAt?: string | null;
+};
 export type ApiSessionEvent = SessionEventResponse;
 
 /**
@@ -156,10 +166,24 @@ export interface WorkflowSummary {
 
 export interface AgentSessionSummary {
   id: string;
+  sessionId: string;
   goalDescription: string;
   status: SemanticStatus;
   createdAt: string;
   eventCount: number;
+}
+
+export interface ReviewSummary {
+  id: string;
+  kind: string;
+  title: string;
+  description: string;
+  status: SemanticStatus;
+  riskLevel: "low" | "medium" | "high";
+  createdAt: string;
+  resolvedAt: string | null;
+  taskId: string | null;
+  sessionId: string | null;
 }
 
 export interface WorkflowNodeMetadata {
@@ -212,6 +236,7 @@ export interface WorkspaceSnapshot {
   assets: AssetSummary[];
   workflows: WorkflowSummary[];
   agentSessions: AgentSessionSummary[];
+  reviews: ReviewSummary[];
   workspaceRoot: WorkspaceTreeNode | null;
   consoleEntries: ConsoleEntry[];
 }
@@ -239,14 +264,20 @@ export interface WorkspaceFileSelection {
 
 export interface AgentSelection {
   objectType: "agent";
-  objectId: string; // session_id, or "new" for the goal-input state
+  objectId: string; // task_id, or "new" for the goal-input state
+}
+
+export interface ReviewSelection {
+  objectType: "review";
+  objectId: string;
 }
 
 export type Selection =
   | ObjectSelection
   | WorkflowSelection
   | WorkspaceFileSelection
-  | AgentSelection;
+  | AgentSelection
+  | ReviewSelection;
 
 export type InspectorTarget =
   | {

@@ -33,7 +33,11 @@ from molexp.plugins.agent_pydanticai.provider import (
     probe_provider,
     to_public,
 )
-from molexp.plugins.agent_pydanticai.skills import RESERVED_SLASH_NAMES, SkillStore
+from molexp.plugins.agent_pydanticai.skills import (
+    RESERVED_SLASH_NAMES,
+    SkillScope,
+    SkillStore,
+)
 
 from ..dependencies import get_workspace
 from ..schemas import (
@@ -648,13 +652,38 @@ def _to_response(skill) -> SkillResponse:
         constraints=list(skill.constraints),
         successCriteria=list(skill.success_criteria),
         tags=list(skill.tags),
+        allowedTools=list(skill.allowed_tools),
+        deniedTools=list(skill.denied_tools),
+        requiresExitTool=skill.requires_exit_tool,
+        builtin=skill.builtin,
+        scope=skill.scope.value,
         createdAt=skill.created_at,
         updatedAt=skill.updated_at,
     )
 
 
+def _parse_scope(scope: str) -> SkillScope:
+    try:
+        return SkillScope(scope)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unknown scope '{scope}'. Expected one of: "
+                f"{', '.join(s.value for s in SkillScope)}."
+            ),
+        ) from exc
+
+
 @router.get("/skills", response_model=SkillListResponse)
 async def list_skills(workspace=Depends(get_workspace)) -> SkillListResponse:
+    """Return every skill across builtin + user-home + workspace tiers.
+
+    Display order: builtin → user → workspace. Each entry carries its
+    ``scope`` and ``builtin`` flag so the UI can render shadowing
+    (a workspace skill with the same ``slash_name`` as a builtin sits
+    later in the list and the client highlights the override).
+    """
     store = _skill_store(workspace)
     return SkillListResponse(skills=[_to_response(s) for s in store.list_all()])
 
@@ -665,6 +694,12 @@ async def create_skill(
     workspace=Depends(get_workspace),
 ) -> SkillResponse:
     store = _skill_store(workspace)
+    scope = _parse_scope(request.scope)
+    if scope == SkillScope.BUILTIN:
+        raise HTTPException(
+            status_code=400,
+            detail="Builtin skills are registered in code and cannot be created via API.",
+        )
     try:
         skill = store.create(
             name=request.name,
@@ -676,6 +711,10 @@ async def create_skill(
             constraints=request.constraints,
             success_criteria=request.success_criteria,
             tags=request.tags,
+            allowed_tools=request.allowed_tools,
+            denied_tools=request.denied_tools,
+            requires_exit_tool=request.requires_exit_tool,
+            scope=scope,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -697,12 +736,16 @@ async def get_skill(
 async def update_skill(
     skill_id: str,
     request: SkillUpdateRequest,
+    scope: Literal["user", "workspace"] = Query(
+        "workspace",
+        description="Tier the skill belongs to. Builtin skills are immutable.",
+    ),
     workspace=Depends(get_workspace),
 ) -> SkillResponse:
     store = _skill_store(workspace)
     changes = {k: v for k, v in request.model_dump().items() if v is not None}
     try:
-        skill = store.update(skill_id, **changes)
+        skill = store.update(skill_id, scope=SkillScope(scope), **changes)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -713,12 +756,22 @@ async def update_skill(
 @router.delete("/skills/{skill_id}", response_model=MessageResponse)
 async def delete_skill(
     skill_id: str,
+    scope: Literal["user", "workspace"] = Query(
+        "workspace",
+        description="Tier to delete from. Builtin skills cannot be deleted.",
+    ),
     workspace=Depends(get_workspace),
 ) -> MessageResponse:
-    deleted = _skill_store(workspace).delete(skill_id)
+    try:
+        deleted = _skill_store(workspace).delete(skill_id, scope=SkillScope(scope))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not deleted:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
-    return MessageResponse(message=f"Skill '{skill_id}' deleted")
+        raise HTTPException(
+            status_code=404,
+            detail=f"Skill '{skill_id}' not found at scope '{scope}'.",
+        )
+    return MessageResponse(message=f"Skill '{skill_id}' deleted from {scope}.")
 
 
 # ── Slash commands ───────────────────────────────────────────────────────────

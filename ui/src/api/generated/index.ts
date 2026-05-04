@@ -69,6 +69,7 @@ export type { MolqJobTransition } from './models/MolqJobTransition';
 export type { MolqQueueStats } from './models/MolqQueueStats';
 export type { MolqTargetListResponse } from './models/MolqTargetListResponse';
 export type { MolqTargetSummary } from './models/MolqTargetSummary';
+export type { PlanDecisionRequest } from './models/PlanDecisionRequest';
 export type { ProjectCreateRequest } from './models/ProjectCreateRequest';
 export type { ProjectResponse } from './models/ProjectResponse';
 export type { RunActionResponse } from './models/RunActionResponse';

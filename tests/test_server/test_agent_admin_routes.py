@@ -3,17 +3,25 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 
 @pytest.fixture(autouse=True)
 def _isolate_user_dir(tmp_path, monkeypatch):
-    """Redirect ``McpStore.USER_DIR`` so tests never touch the real home dir."""
+    """Redirect both McpStore.USER_DIR and Path.home() so tests never see ``~/.molexp``.
+
+    The agent's :class:`SkillStore` reads ``~/.molexp/skills.json`` for the
+    user-home tier. Without the ``Path.home`` patch a developer's local
+    skills would leak into the test suite (and writes would persist).
+    """
     from molexp.plugins.agent_pydanticai import mcp_store as mcp_mod
 
-    fake_user_dir = tmp_path / "_home" / ".molexp"
+    fake_home_root = tmp_path / "_home"
+    fake_user_dir = fake_home_root / ".molexp"
     monkeypatch.setattr(mcp_mod, "USER_DIR", fake_user_dir)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home_root))
 
 
 # ── MCP server: list ────────────────────────────────────────────────────────
@@ -463,11 +471,19 @@ def test_get_agent_tools_surfaces_mcp_failure(monkeypatch, workspace, client):
     assert grp["toolCount"] == 0
 
 
+def _user_skills(payload: dict) -> list[dict]:
+    """Filter the API listing down to user-created (non-builtin) skills."""
+    return [s for s in payload["skills"] if not s.get("builtin", False)]
+
+
 @pytest.mark.integration
 def test_skill_lifecycle_via_api(client):
     list_resp = client.get("/api/agent/skills")
     assert list_resp.status_code == 200
-    assert list_resp.json()["skills"] == []
+    # Builtin /plan skill always present; user list starts empty.
+    assert _user_skills(list_resp.json()) == []
+    builtin_ids = {s["id"] for s in list_resp.json()["skills"] if s["builtin"]}
+    assert "builtin-plan" in builtin_ids
 
     create_resp = client.post(
         "/api/agent/skills",
@@ -482,6 +498,8 @@ def test_skill_lifecycle_via_api(client):
     skill_id = skill["id"]
     assert skill["goalTemplate"].startswith("plot {{metric}}")
     assert skill["tags"] == ["plot"]
+    assert skill["scope"] == "workspace"
+    assert skill["builtin"] is False
 
     update_resp = client.patch(
         f"/api/agent/skills/{skill_id}",
@@ -491,11 +509,46 @@ def test_skill_lifecycle_via_api(client):
     assert update_resp.json()["name"] == "Renamed"
 
     list_resp = client.get("/api/agent/skills")
-    assert len(list_resp.json()["skills"]) == 1
+    assert len(_user_skills(list_resp.json())) == 1
 
     delete_resp = client.delete(f"/api/agent/skills/{skill_id}")
     assert delete_resp.status_code == 200
     assert client.get(f"/api/agent/skills/{skill_id}").status_code == 404
+
+
+@pytest.mark.integration
+def test_builtin_plan_skill_is_immutable_via_api(client):
+    """/plan is a builtin — the API rejects update + delete with a 400/404."""
+    update_resp = client.patch(
+        "/api/agent/skills/builtin-plan",
+        json={"name": "Hijacked"},
+    )
+    # Builtin skills aren't in the workspace tier, so the workspace-scoped
+    # PATCH yields a 404 (no record at that scope).
+    assert update_resp.status_code == 404
+
+    delete_resp = client.delete("/api/agent/skills/builtin-plan")
+    assert delete_resp.status_code == 404
+
+
+@pytest.mark.integration
+def test_create_skill_with_tool_scope(client):
+    """Allow/deny globs and requires_exit_tool round-trip through the API."""
+    resp = client.post(
+        "/api/agent/skills",
+        json={
+            "name": "Plot only",
+            "goal_template": "render {{metric}}",
+            "allowed_tools": ["list_*", "mcp:python.*"],
+            "denied_tools": ["execute_run"],
+            "requires_exit_tool": "exit_plan_mode",
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    assert body["allowedTools"] == ["list_*", "mcp:python.*"]
+    assert body["deniedTools"] == ["execute_run"]
+    assert body["requiresExitTool"] == "exit_plan_mode"
 
 
 @pytest.mark.integration

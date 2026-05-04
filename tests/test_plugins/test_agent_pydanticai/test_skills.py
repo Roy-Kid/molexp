@@ -6,7 +6,12 @@ import json
 
 import pytest
 
-from molexp.plugins.agent_pydanticai.skills import SKILLS_FILE, Skill, SkillStore
+from molexp.plugins.agent_pydanticai.skills import (
+    SKILLS_FILE,
+    Skill,
+    SkillScope,
+    SkillStore,
+)
 
 
 @pytest.mark.unit
@@ -54,8 +59,21 @@ def test_store_list_returns_all_records(tmp_path):
     store = SkillStore(tmp_path)
     store.create(name="A", goal_template="a")
     store.create(name="B", goal_template="b")
+    workspace_skills = store.list_scope(SkillScope.WORKSPACE)
+    assert {s.name for s in workspace_skills} == {"A", "B"}
+
+
+@pytest.mark.unit
+def test_store_list_all_includes_builtin_plan(tmp_path):
+    """list_all surfaces the builtin /plan skill alongside user skills."""
+    store = SkillStore(tmp_path)
+    store.create(name="A", goal_template="a")
     items = store.list_all()
-    assert {s.name for s in items} == {"A", "B"}
+    ids = {s.id for s in items}
+    assert "builtin-plan" in ids
+    plan = next(s for s in items if s.id == "builtin-plan")
+    assert plan.scope == SkillScope.BUILTIN
+    assert plan.builtin is True
 
 
 @pytest.mark.unit
@@ -100,17 +118,17 @@ def test_store_delete_removes_record(tmp_path):
     store = SkillStore(tmp_path)
     skill = store.create(name="A", goal_template="a")
     assert store.delete(skill.id) is True
-    assert store.list_all() == []
+    assert store.list_scope(SkillScope.WORKSPACE) == []
 
 
 @pytest.mark.unit
 def test_store_handles_corrupt_json(tmp_path):
     (tmp_path / SKILLS_FILE).write_text("not json")
     store = SkillStore(tmp_path)
-    assert store.list_all() == []
+    assert store.list_scope(SkillScope.WORKSPACE) == []
     # New writes still succeed (old garbage is overwritten).
     store.create(name="A", goal_template="a")
-    assert len(store.list_all()) == 1
+    assert len(store.list_scope(SkillScope.WORKSPACE)) == 1
 
 
 @pytest.mark.unit

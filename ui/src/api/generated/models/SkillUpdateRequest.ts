@@ -12,5 +12,8 @@ export type SkillUpdateRequest = {
     constraints?: (Array<string> | null);
     success_criteria?: (Array<string> | null);
     tags?: (Array<string> | null);
+    allowed_tools?: (Array<string> | null);
+    denied_tools?: (Array<string> | null);
+    requires_exit_tool?: (string | null);
 };
 

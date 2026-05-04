@@ -376,6 +376,57 @@ class AgentSessionListResponse(BaseModel):
     total: int
 
 
+class AgentTaskResponse(BaseModel):
+    """User-facing task wrapper around one current runtime session.
+
+    ``taskId`` is the product identifier the UI should route on; ``sessionId``
+    is the lower-level runtime handle used to continue the active execution.
+    """
+
+    taskId: str
+    title: str
+    goal: str
+    status: str
+    createdAt: str
+    updatedAt: str | None = None
+    sessionId: str
+    events: list[SessionEventResponse] = Field(default_factory=list)
+    stats: SessionStatsResponse = Field(default_factory=SessionStatsResponse)
+    planMode: bool = False
+    skillId: str | None = None
+
+
+class AgentTaskListResponse(BaseModel):
+    tasks: list[AgentTaskResponse]
+    total: int
+
+
+class ReviewTargetRefResponse(BaseModel):
+    type: str
+    id: str
+    taskId: str | None = None
+    sessionId: str | None = None
+
+
+class ReviewItemResponse(BaseModel):
+    id: str
+    kind: str
+    title: str
+    description: str | None = None
+    riskLevel: str
+    status: str
+    targetRef: ReviewTargetRefResponse
+    createdAt: str
+    resolvedAt: str | None = None
+    resolutionComment: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ReviewListResponse(BaseModel):
+    reviews: list[ReviewItemResponse]
+    total: int
+
+
 class CommandParameterSpec(BaseModel):
     """One ``{{param}}`` slot in a slash command's goal_template."""
 
@@ -673,7 +724,7 @@ class RunRerunResponse(BaseModel):
 
 
 class SkillResponse(BaseModel):
-    """A saved goal template."""
+    """A saved skill (goal template + tool scope + system addendum)."""
 
     id: str
     name: str
@@ -685,6 +736,11 @@ class SkillResponse(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     successCriteria: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    allowedTools: list[str] = Field(default_factory=list)
+    deniedTools: list[str] = Field(default_factory=list)
+    requiresExitTool: str = ""
+    builtin: bool = False
+    scope: str = "workspace"
     createdAt: str = ""
     updatedAt: str = ""
 

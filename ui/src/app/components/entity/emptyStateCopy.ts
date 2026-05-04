@@ -28,7 +28,11 @@ export const EMPTY_COPY = {
     title: "Empty folder",
   },
   agentSessions: {
-    title: "No sessions yet.",
-    description: "Start a new goal to create one.",
+    title: "No agent tasks yet.",
+    description: "Start a task goal to create one.",
+  },
+  reviews: {
+    title: "No reviews.",
+    description: "Plan, permission, and patch approvals will appear here.",
   },
 } as const;

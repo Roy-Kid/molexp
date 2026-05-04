@@ -334,6 +334,12 @@ export class AgentAdminService {
     }
     /**
      * List Skills
+     * Return every skill across builtin + user-home + workspace tiers.
+     *
+     * Display order: builtin → user → workspace. Each entry carries its
+     * ``scope`` and ``builtin`` flag so the UI can render shadowing
+     * (a workspace skill with the same ``slash_name`` as a builtin sits
+     * later in the list and the client highlights the override).
      * @returns SkillListResponse Successful Response
      * @throws ApiError
      */
@@ -386,18 +392,23 @@ export class AgentAdminService {
      * Update Skill
      * @param skillId
      * @param requestBody
+     * @param scope Tier the skill belongs to. Builtin skills are immutable.
      * @returns SkillResponse Successful Response
      * @throws ApiError
      */
     public static updateSkillApiAgentSkillsSkillIdPatch(
         skillId: string,
         requestBody: SkillUpdateRequest,
+        scope: 'user' | 'workspace' = 'workspace',
     ): CancelablePromise<SkillResponse> {
         return __request(OpenAPI, {
             method: 'PATCH',
             url: '/api/agent/skills/{skill_id}',
             path: {
                 'skill_id': skillId,
+            },
+            query: {
+                'scope': scope,
             },
             body: requestBody,
             mediaType: 'application/json',
@@ -409,17 +420,22 @@ export class AgentAdminService {
     /**
      * Delete Skill
      * @param skillId
+     * @param scope Tier to delete from. Builtin skills cannot be deleted.
      * @returns MessageResponse Successful Response
      * @throws ApiError
      */
     public static deleteSkillApiAgentSkillsSkillIdDelete(
         skillId: string,
+        scope: 'user' | 'workspace' = 'workspace',
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/agent/skills/{skill_id}',
             path: {
                 'skill_id': skillId,
+            },
+            query: {
+                'scope': scope,
             },
             errors: {
                 422: `Validation Error`,

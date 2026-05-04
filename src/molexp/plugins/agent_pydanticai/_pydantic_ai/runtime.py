@@ -19,10 +19,12 @@ from mollog import get_logger
 from pydantic_ai import Agent
 from pydantic_ai.models import Model
 
+from ..builtin_skills import get_builtin_skill
 from ..policy import ApprovalPolicy
 from ..provider import DEEPSEEK_DEFAULT_BASE_URL, ProviderConfig, ProviderStore
 from ..runtime import AgentRuntime
 from ..sessions_store import write_session_metadata
+from ..skills import Skill
 from ..tools import Tool
 from ..types import (
     AgentSession,
@@ -88,6 +90,24 @@ class PydanticAIRuntime(AgentRuntime):
             logger.exception("Failed to build model from workspace provider config")
             return self._model
 
+    def _resolve_active_skill(self, goal: Goal | None) -> Skill | None:
+        """Pick the :class:`Skill` whose tool scope + instructions apply.
+
+        Plan mode resolves to the builtin ``builtin-plan`` skill so the
+        catalog filters by its allow/deny lists and the system prompt
+        injects ``PLAN_MODE_ADDENDUM`` via the skill's ``instructions``.
+        Other skills (user-defined slash skills) are wired via
+        ``goal.skill_id`` — when present, the runtime still relies on
+        :attr:`Goal.skill_instructions` for the prompt addendum, but
+        future work could thread the full :class:`Skill` here for
+        allow/deny filtering of user skills too.
+        """
+        if goal is None:
+            return None
+        if goal.plan_mode:
+            return get_builtin_skill("builtin-plan")
+        return None
+
     def _build_agent(
         self,
         extra_tools: list[Tool],
@@ -95,11 +115,11 @@ class PydanticAIRuntime(AgentRuntime):
         workspace: Any | None = None,
         goal: Goal | None = None,
     ) -> Agent[MolexpDeps, str]:
-        plan_mode = bool(goal and goal.plan_mode)
+        active_skill = self._resolve_active_skill(goal)
         catalog = MolexpToolCatalog(
             extra_tools=extra_tools,
             approval_policy=approval_policy,
-            read_only=plan_mode,
+            skill=active_skill,
         )
         toolset = catalog.build()
 
@@ -122,6 +142,8 @@ class PydanticAIRuntime(AgentRuntime):
         Reads the workspace-default ``instructions`` from
         :class:`ProviderStore` (returns ``""`` for unconfigured workspaces),
         then layers on the goal-supplied skill addendum and override.
+        Plan-mode instructions come from the builtin ``/plan`` skill via
+        :meth:`_resolve_active_skill` rather than a special-case flag.
         """
         workspace_instructions = ""
         root = getattr(workspace, "root", None) if workspace is not None else None
@@ -131,15 +153,21 @@ class PydanticAIRuntime(AgentRuntime):
             except Exception:
                 logger.exception("Failed to load workspace instructions")
                 workspace_instructions = ""
+        # Skill instructions: prefer the goal-specified override (so user
+        # skills' addenda still flow through), but fall back to the active
+        # builtin skill (e.g. PLAN_SKILL) when in plan mode.
         skill_instructions = goal.skill_instructions if goal else ""
+        if not skill_instructions:
+            active_skill = self._resolve_active_skill(goal)
+            if active_skill is not None:
+                skill_instructions = active_skill.instructions
         session_override = goal.instructions_override if goal else None
-        plan_mode = bool(goal and goal.plan_mode)
         return compose_system_prompt(
             base=BASE_SYSTEM_PROMPT,
             workspace_instructions=workspace_instructions,
             skill_instructions=skill_instructions,
             session_override=session_override,
-            plan_mode=plan_mode,
+            plan_mode=False,  # plan-mode addendum now flows via skill_instructions
         )
 
     def _goal_to_prompt(self, goal: Goal) -> str:
@@ -186,6 +214,23 @@ class PydanticAIRuntime(AgentRuntime):
         # so disk listings reflect the final status (completed / failed).
         self._save_session_metadata(session, workspace)
         session._on_terminal = lambda s, ws=workspace: self._save_session_metadata(s, ws)
+
+        # Hand the session a closure for rebuilding the agent — used when
+        # plan mode is exited via exit_plan_mode so subsequent turns see the
+        # unrestricted toolset and the post-plan system prompt.
+        def _rebuild(updated_goal: Goal) -> Agent[MolexpDeps, str]:
+            new_agent = self._build_agent(
+                extra_tools,
+                approval_policy,
+                workspace=workspace,
+                goal=updated_goal,
+            )
+            session.set_system_prompt(
+                self._compose_system_prompt(workspace, updated_goal)
+            )
+            return new_agent
+
+        session._rebuild_agent = _rebuild
 
         # Launch agent run as background task
         session._launch(agent=agent, prompt=prompt, deps=deps)

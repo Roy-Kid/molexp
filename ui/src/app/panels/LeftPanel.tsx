@@ -3,7 +3,7 @@ import {
   Ban,
   Blocks,
   Bot,
-  Clock,
+  ClipboardCheck,
   Copy,
   ExternalLink,
   FilePlus,
@@ -79,7 +79,8 @@ const viewOptions: ViewOption[] = [
   { id: "runs", label: "Runs", icon: PlayCircle },
   { id: "asset", label: "Asset", icon: Archive },
   { id: "workflow", label: "Workflow", icon: Workflow },
-  { id: "agent", label: "Agent", icon: Bot },
+  { id: "agent", label: "Agent Tasks", icon: Bot },
+  { id: "review", label: "Reviews", icon: ClipboardCheck },
 ];
 
 const listHeaderByView: Record<LeftPanelView, string> = {
@@ -88,7 +89,8 @@ const listHeaderByView: Record<LeftPanelView, string> = {
   runs: "Runs",
   asset: "Assets",
   workflow: "Workflows",
-  agent: "Agent Sessions",
+  agent: "Agent Tasks",
+  review: "Reviews",
   settings: "Settings",
 };
 
@@ -567,36 +569,83 @@ const buildWorkflowNodes = (
   }));
 };
 
+// Sidebar rows are narrow; show only the first sentence/clause of the
+// goal so the StatusBadge stays visible. Full text is on the entity
+// header inside the task view.
+const shortenGoal = (goal: string): string => {
+  const firstLine = goal.split("\n")[0]?.trim() ?? "";
+  const sentenceEnd = firstLine.search(/[.!?。！？]/);
+  const clipped = sentenceEnd > 0 ? firstLine.slice(0, sentenceEnd) : firstLine;
+  return clipped.length > 32 ? `${clipped.slice(0, 30).trim()}…` : clipped;
+};
+
 const buildAgentNodes = (
   snapshot: WorkspaceSnapshot,
   onSelect: (selection: Selection) => void,
   onCopyText: (text: string) => void,
 ): TreeNode[] => {
-  return snapshot.agentSessions.map((session) => ({
-    id: session.id,
-    label: session.goalDescription,
-    icon: Bot,
-    iconClassName: "text-violet-500",
-    right: <StatusBadge status={session.status} size="sm" />,
-    meta: (
-      <span className="flex items-center gap-0.5">
-        <Clock className="h-2.5 w-2.5" />
-        {new Date(session.createdAt).toLocaleDateString()}
-      </span>
-    ),
-    onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
+  return snapshot.agentSessions.map((session) => {
+    const isLive = session.status === "running";
+    return {
+      id: session.id,
+      label: shortenGoal(session.goalDescription),
+      icon: Bot,
+      iconClassName: isLive ? "text-info animate-pulse" : "text-violet-500",
+      right: (
+        <span className="flex items-center gap-1">
+          {isLive && (
+            <span
+              title="Live"
+              className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-info"
+            />
+          )}
+          <StatusBadge status={session.status} size="sm" dot showLabel={false} />
+        </span>
+      ),
+      onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
+      actions: [
+        {
+          id: "open",
+          label: "Open task",
+          icon: ExternalLink,
+          onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
+        },
+        {
+          id: "copy-id",
+          label: "Copy task ID",
+          icon: Copy,
+          onSelect: () => onCopyText(session.id),
+        },
+      ],
+    };
+  });
+};
+
+const buildReviewNodes = (
+  snapshot: WorkspaceSnapshot,
+  onSelect: (selection: Selection) => void,
+  onCopyText: (text: string) => void,
+): TreeNode[] => {
+  return snapshot.reviews.map((review) => ({
+    id: review.id,
+    label: review.title,
+    icon: ClipboardCheck,
+    iconClassName: review.status === "pending" ? "text-warning" : "text-muted-foreground",
+    right: <StatusBadge status={review.status} size="sm" dot showLabel={false} />,
+    meta: review.description ? <span className="truncate">{review.description}</span> : undefined,
+    onSelect: () => onSelect({ objectType: "review", objectId: review.id }),
     actions: [
       {
         id: "open",
-        label: "Open session",
+        label: "Open review",
         icon: ExternalLink,
-        onSelect: () => onSelect({ objectType: "agent", objectId: session.id }),
+        onSelect: () => onSelect({ objectType: "review", objectId: review.id }),
       },
       {
         id: "copy-id",
-        label: "Copy session ID",
+        label: "Copy review ID",
         icon: Copy,
-        onSelect: () => onCopyText(session.id),
+        onSelect: () => onCopyText(review.id),
       },
     ],
   }));
@@ -850,6 +899,7 @@ export const LeftPanel = ({
   const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const agentNodes = buildAgentNodes(snapshot, onSelect, handleCopyText);
+  const reviewNodes = buildReviewNodes(snapshot, onSelect, handleCopyText);
 
   const projectExpandPath = useMemo(
     () => buildProjectExpandPath(snapshot, activeId, searchQuery),
@@ -902,6 +952,15 @@ export const LeftPanel = ({
         emptyIcon={<Sparkles className="h-8 w-8" />}
         emptyTitle={EMPTY_COPY.agentSessions.title}
         emptyDescription={EMPTY_COPY.agentSessions.description}
+      />
+    ),
+    review: (
+      <TreeView
+        nodes={reviewNodes}
+        activeId={activeId}
+        emptyIcon={<ClipboardCheck className="h-8 w-8" />}
+        emptyTitle={EMPTY_COPY.reviews.title}
+        emptyDescription={EMPTY_COPY.reviews.description}
       />
     ),
     settings: (

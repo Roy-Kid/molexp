@@ -69,8 +69,47 @@ class ToolContext:
 
 
 @dataclass
+class WorkflowPreview:
+    """Structured preview of the workflow a plan would bind.
+
+    Every plan is a workflow: each step in ``plan_markdown`` corresponds
+    to one node in ``workflow_ir.task_configs``. The agent populates
+    ``workflow_ir`` (matching ``schema/workflow.json``) plus optional
+    ``python_script`` (the IR rendered as a runnable molexp script —
+    bidirectionally convertible with the IR) and ``intervention_points``
+    (concrete edit suggestions for the user). The UI auto-renders a
+    task graph from the IR; ``mermaid`` is preserved for text-only
+    reading surfaces.
+    """
+
+    workflow_ir: dict[str, Any]
+    python_script: str = ""
+    mermaid: str = ""
+    intervention_points: list[str] = field(default_factory=list)
+
+
+@dataclass
 class PlanCreatedEvent:
-    plan_steps: list[str]
+    """Emitted when the agent finalizes a plan via ``exit_plan_mode``.
+
+    The session halts on this event and waits for the user to approve,
+    reject, or edit-and-approve via :meth:`AgentSession.respond_plan`.
+
+    A plan is always a workflow: ``plan_markdown`` is the prose view,
+    ``workflow_preview.workflow_ir`` is the structured view, and the
+    two are kept in lockstep — every numbered step in ``plan_markdown``
+    has a matching ``task_configs`` node. Investigation-style steps
+    (read literature, grep codebase, inspect runs, probe data shapes)
+    are encoded as investigation-task nodes in the same IR so the
+    approved plan is a single runnable script.
+
+    On approval the session flips ``plan_mode=False`` and the agent
+    proceeds to bind and execute the (possibly user-edited) workflow.
+    """
+
+    request_id: str
+    plan_markdown: str
+    workflow_preview: WorkflowPreview
     ts: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -201,3 +240,21 @@ class AgentSession(ABC):
     async def respond_approval(self, request_id: str, approved: bool) -> None:
         """Respond to a human-in-the-loop approval request."""
         ...
+
+    async def respond_plan(
+        self,
+        request_id: str,
+        approved: bool,
+        edited_plan: str | None = None,
+        edited_workflow_ir: dict[str, Any] | None = None,
+        feedback: str = "",
+    ) -> None:
+        """Respond to a plan emitted by ``exit_plan_mode``.
+
+        Concrete sessions that support plan-mode handoff override this.
+        On approval the session flips out of plan mode and the agent
+        resumes with the (possibly edited) plan + workflow IR threaded
+        as the next prompt. The agent then binds the IR and executes
+        the workflow.
+        """
+        raise NotImplementedError("This session does not support plan-mode handoff")

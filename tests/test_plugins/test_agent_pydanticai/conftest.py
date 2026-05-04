@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from molexp.workspace import Workspace
+
+
+@pytest.fixture(autouse=True)
+def _isolated_user_home(tmp_path_factory, monkeypatch):
+    """Redirect ``Path.home()`` so tests cannot read or pollute ``~/.molexp``.
+
+    The agent's :class:`SkillStore` uses ``~/.molexp/skills.json`` as the
+    user-home tier; without this fixture the suite would observe the
+    developer's real config and writes would persist between runs.
+    """
+    fake_home = tmp_path_factory.mktemp("home")
+    real_home = Path.home
+
+    def _fake_home(cls=Path):
+        return fake_home
+
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: fake_home))
+    yield fake_home
+    monkeypatch.setattr(Path, "home", real_home)
 
 
 @pytest.fixture

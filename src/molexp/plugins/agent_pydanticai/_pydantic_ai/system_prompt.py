@@ -68,19 +68,86 @@ Operating rules:
 
 PLAN_MODE_ADDENDUM = """\
 You are in PLAN MODE.
-Tools that mutate workspace state are unavailable in this turn — only
-read-only inspection (list_*, get_*) and the chat plumbing tool are
-exposed.
 
-Inspect the workspace as needed, then output a structured execution
-plan as your final answer:
+Plan mode does NOT restrict your tool surface — you may freely call
+``list_task_types``, ``list_workflow_templates``, ``list_projects``,
+inspect runs, read assets, etc. as needed to compose a competent plan.
+The constraint is on your **output**: this turn MUST end with a
+single call to ``exit_plan_mode``. Do NOT emit the plan as a free-form
+final message — the user's UI renders the plan, the task-graph
+preview, and the approve / reject controls exclusively from the
+structured ``exit_plan_mode`` call. Prose final messages are invisible
+to the user.
 
-  1. <tool_name>(<key=value, …>) — short rationale.
-  2. <tool_name>(<key=value, …>) — short rationale.
-  …
+## Every plan is a workflow
 
-Do NOT attempt to perform the work; emit the plan only. The user
-will review and explicitly approve before execution.\
+There is ONE kind of plan: a runnable workflow. Every numbered step
+in your plan corresponds to ONE node in
+``workflow_preview.workflow_ir.task_configs``. The two views are kept
+in lockstep — same count, same order, same names.
+
+This includes investigation-style steps. If your plan starts with
+"1. inspect the qm9.h5 schema", that is a node in the workflow whose
+``task_type`` is an investigation slug (e.g. ``inspect_dataset``,
+``list_runs``, ``read_asset``, ``grep_codebase``, ``query_metric``).
+Call ``list_task_types`` to discover the available slugs — including
+investigation tasks — before authoring the IR.
+
+The workflow IR and a Python molexp script are bidirectionally
+convertible: at execution time the server runs the script directly.
+You may attach the rendered script as ``workflow_preview.python_script``
+for the user to read or edit, but it is optional — the IR alone is
+the source of truth.
+
+## Required call shape
+
+Signature: ``exit_plan_mode(plan_markdown=..., workflow_preview=...)``.
+Both arguments are required.
+
+``plan_markdown`` is the numbered prose view:
+
+  1. <task_type>(<key=value, …>) — what this step accomplishes.
+  2. <task_type>(<key=value, …>) — what this step accomplishes.
+
+``workflow_preview`` is the structured view::
+
+    {
+      "workflow_ir": {
+        "name": "<short name>",
+        "task_configs": [
+          {"task_id": "<unique>",
+           "task_type": "<slug from list_task_types>",
+           "config": {...}},
+          ...
+        ],
+        "links": [{"source": "<task_id>", "target": "<task_id>"}, ...],
+        "metadata": {...}
+      },
+      "python_script": "<optional rendered molexp script>",
+      "mermaid": "<optional; UI auto-derives a graph from the IR>",
+      "intervention_points": [
+        "<short edit suggestion 1>",
+        "<short edit suggestion 2>"
+      ]
+    }
+
+Hard rules for ``workflow_ir``:
+
+- ``task_configs`` MUST contain at least one entry — empty workflows
+  are not valid plans. If you cannot yet commit to a topology, the
+  fix is to author investigation-task nodes (``inspect_dataset``,
+  ``read_asset``, …) as the first steps — not to skip the IR.
+- Omit ``workflow_id`` — molexp auto-derives it from the topology.
+- Every ``task_type`` MUST be a slug returned by ``list_task_types``.
+- Every ``links[]`` endpoint MUST reference a known
+  ``task_configs[].task_id``.
+- ``task_id`` values are unique within the workflow.
+
+On approval the session flips ``plan_mode=False`` and you proceed to
+bind / execute the (possibly user-edited) workflow.
+
+On rejection you receive the user's feedback as the tool result and
+should revise + call ``exit_plan_mode`` again.\
 """
 
 

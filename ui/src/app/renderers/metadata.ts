@@ -140,11 +140,25 @@ export const buildMetadataFields = (
         return emptyFields("agent", selection.objectId);
       }
       return [
-        { label: "Session", value: session.id },
+        { label: "Task", value: session.id },
         { label: "Status", value: session.status },
         { label: "Goal", value: session.goalDescription },
         { label: "Events", value: String(session.eventCount) },
         { label: "Created", value: session.createdAt },
+      ];
+    },
+    review: () => {
+      const review = snapshot.reviews.find((item) => item.id === selection.objectId);
+      if (!review) {
+        return emptyFields("review", selection.objectId);
+      }
+      return [
+        { label: "Review", value: review.id },
+        { label: "Kind", value: review.kind },
+        { label: "Status", value: review.status },
+        { label: "Risk", value: review.riskLevel },
+        { label: "Task", value: review.taskId ?? "None" },
+        { label: "Created", value: review.createdAt },
       ];
     },
     "workspace-file": () => {

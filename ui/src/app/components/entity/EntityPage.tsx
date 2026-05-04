@@ -88,6 +88,8 @@ interface EntityHeaderProps {
   title: string;
   subtitle?: string;
   status?: string;
+  /** Inline element rendered after the status badge (e.g. "Live" indicator). */
+  titleAccessory?: ReactNode;
   actions?: ReactNode;
   metrics?: ReactNode;
 }
@@ -100,6 +102,7 @@ export const EntityHeader = ({
   title,
   subtitle,
   status,
+  titleAccessory,
   actions,
   metrics,
 }: EntityHeaderProps): JSX.Element => {
@@ -125,6 +128,7 @@ export const EntityHeader = ({
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
               {status && <StatusBadge status={status} />}
+              {titleAccessory}
               {subtitle && (
                 <span
                   className="hidden min-w-0 truncate text-xs text-muted-foreground md:inline"

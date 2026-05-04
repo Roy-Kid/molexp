@@ -8,7 +8,7 @@ import {
   ReactFlow,
 } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
-import "@xyflow/react/dist/style.css";
+// xyflow's stylesheet is imported once at the app entry (see index.tsx).
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps, SemanticStatus } from "@/app/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +53,10 @@ const statusStyles: Record<SemanticStatus, { border: string; background: string;
   failed: { border: "#ef4444", background: "#fef2f2", edge: "#ef4444" },
   cancelled: { border: "#6b7280", background: "#f3f4f6", edge: "#6b7280" },
   skipped: { border: "#d97706", background: "#fffbeb", edge: "#d97706" },
+  waiting_for_review: { border: "#f59e0b", background: "#fffbeb", edge: "#f59e0b" },
+  approved: { border: "#16a34a", background: "#f0fdf4", edge: "#16a34a" },
+  rejected: { border: "#ef4444", background: "#fef2f2", edge: "#ef4444" },
+  expired: { border: "#6b7280", background: "#f3f4f6", edge: "#6b7280" },
 };
 
 const WorkflowNode = ({ data }: NodeProps<WorkflowFlowNode>): JSX.Element => {

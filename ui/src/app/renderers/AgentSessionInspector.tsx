@@ -7,15 +7,13 @@
  * cluttering the main workspace.
  */
 
-import { Bot, ChevronRight, FileText, PlayCircle, Slash } from "lucide-react";
+import { Bot, ChevronRight, FileText, Slash } from "lucide-react";
 import type { JSX } from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SessionStatsResponse } from "@/api/generated";
 import { type ApiAgentSystemPrompt, agentApi, planApi } from "@/app/state/api";
-import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAgentSession, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 
 const COMPACT_NUMBER = new Intl.NumberFormat(undefined, {
   notation: "compact",
@@ -87,20 +85,20 @@ const buildStatRows = (
 };
 
 const buildSessionRows = (session: ApiAgentSession): DetailRow[] => [
-  { label: "Session ID", value: session.sessionId },
+  { label: "Task ID", value: session.taskId ?? session.sessionId },
+  { label: "Runtime Session", value: session.sessionId },
   { label: "Goal", value: session.goalDescription || "—" },
   { label: "Created", value: session.createdAt || "—" },
 ];
 
 export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
-  const { selection, snapshot } = props;
+  const { selection } = props;
   const sessionId =
     selection.objectType === "agent" &&
     selection.objectId !== "new" &&
     selection.objectId !== "settings"
       ? selection.objectId
       : null;
-  const nav = useNavigationState(snapshot);
 
   const [session, setSession] = useState<ApiAgentSession | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,21 +150,11 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
   const statsRows: DetailRow[] = stats ? buildStatRows(stats, isRunning, liveDuration) : [];
   const sessionRows: DetailRow[] = session ? buildSessionRows(session) : [];
 
-  const handleExecutePlan = useCallback(async () => {
-    if (!session) return;
-    try {
-      const followUp = await planApi.execute(session.sessionId);
-      nav.setSelection({ objectType: "agent", objectId: followUp.sessionId });
-    } catch (err) {
-      setError(String(err));
-    }
-  }, [nav, session]);
-
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center justify-between border-b border-border/70 bg-muted/20 px-3 py-1.5">
         <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          <Bot className="h-3.5 w-3.5" /> Session details
+          <Bot className="h-3.5 w-3.5" /> Task details
         </h2>
         {session?.status && (
           <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
@@ -176,15 +164,11 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
       </div>
 
       <div className="flex-1 overflow-auto">
-        {!sessionId && (
-          <p className="px-3 py-2 text-xs text-muted-foreground">No session selected.</p>
-        )}
+        {!sessionId && <p className="px-3 py-2 text-xs text-muted-foreground">No task selected.</p>}
         {error && <p className="px-3 py-2 text-xs text-destructive">{error}</p>}
 
-        {session && (
-          <ModeSection session={session} onExecutePlan={() => void handleExecutePlan()} />
-        )}
-        {sessionRows.length > 0 && <Section title="Session" rows={sessionRows} />}
+        {session && <ModeSection session={session} />}
+        {sessionRows.length > 0 && <Section title="Task" rows={sessionRows} />}
         {statsRows.length > 0 && <Section title="Usage" rows={statsRows} />}
         {session && <SystemPromptSection sessionId={session.sessionId} />}
         {session && <CommandsHistorySection session={session} />}
@@ -193,15 +177,8 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
   );
 };
 
-const ModeSection = ({
-  session,
-  onExecutePlan,
-}: {
-  session: ApiAgentSession;
-  onExecutePlan: () => void;
-}): JSX.Element | null => {
+const ModeSection = ({ session }: { session: ApiAgentSession }): JSX.Element | null => {
   if (!session.planMode && !session.skillId) return null;
-  const isTerminal = session.status === "completed" || session.status === "failed";
   return (
     <div className="border-b border-border/40">
       <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
@@ -219,18 +196,6 @@ const ModeSection = ({
           </Badge>
         ) : null}
       </div>
-      {session.planMode && isTerminal ? (
-        <div className="px-3 pb-2">
-          <Button
-            size="sm"
-            className="h-7 w-full"
-            onClick={onExecutePlan}
-            title="Start a follow-up session that executes this plan"
-          >
-            <PlayCircle className="mr-1 h-3.5 w-3.5" /> Execute plan
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 };

@@ -44,6 +44,7 @@ nav = [
         { "Compiler" = "development/compiler.md" },
         { "Task Protocols" = "development/task-protocols.md" },
         { "Spec: molcfg + Profiles" = "development/specs/molcfg-profiles.md" },
+        { "Spec: Agent Harness Architecture" = "development/specs/agent-harness-architecture.md" },
         { "Spec: Unified Sweep Dispatch" = "development/specs/unified-pydantic-graph-dispatch.md" },
         { "Spec: Full-screen Monitor" = "development/specs/fullscreen-monitor.md" }
     ]}

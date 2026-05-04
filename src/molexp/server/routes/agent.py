@@ -32,6 +32,7 @@ from ..schemas import (
     ApprovalRespondRequest,
     GoalCreateRequest,
     MessageResponse,
+    PlanDecisionRequest,
     SessionEventResponse,
     SessionStatsResponse,
     SkillLaunchRequest,
@@ -108,7 +109,13 @@ def _drain_live_events(response: AgentSessionResponse, live: Any) -> None:
 
 
 def _refresh_response(response: AgentSessionResponse) -> AgentSessionResponse:
-    """Update mutable fields (status, stats, buffered events) from the live session."""
+    """Update mutable fields (status, stats, planMode, buffered events) from the live session.
+
+    ``planMode`` flips off when the user approves a plan via
+    ``/plan-decision`` — the runtime mutates ``goal.plan_mode`` on the
+    live session, but the cached :class:`AgentSessionResponse` would
+    otherwise stay at ``True`` and keep the UI stuck in plan view.
+    """
     live = _live_sessions.get(response.sessionId)
     if live is None:
         return response
@@ -116,6 +123,9 @@ def _refresh_response(response: AgentSessionResponse) -> AgentSessionResponse:
     stats = getattr(live, "stats", None)
     if stats is not None:
         response.stats = _stats_to_response(stats)
+    live_goal = getattr(live, "goal", None)
+    if live_goal is not None:
+        response.planMode = bool(getattr(live_goal, "plan_mode", response.planMode))
     _drain_live_events(response, live)
     return response
 
@@ -309,6 +319,40 @@ def respond_approval(
     return {"request_id": request.request_id, "approved": request.approved, "applied": True}
 
 
+@router.post("/sessions/{session_id}/plan-decision", response_model=MessageResponse)
+async def respond_plan(
+    session_id: str,
+    request: PlanDecisionRequest,
+) -> MessageResponse:
+    """Resolve a pending plan handoff emitted by ``exit_plan_mode``.
+
+    On approval the live session flips ``goal.plan_mode=False``, rebuilds
+    its agent (so the next continuation sees the unrestricted toolset),
+    and the agent's ``exit_plan_mode`` tool call returns the user's
+    decision dict so it can proceed with execution. On rejection the
+    agent gets the feedback string and is free to revise + call
+    ``exit_plan_mode`` again from within the same session.
+    """
+    if session_id not in _sessions:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    live = _live_sessions.get(session_id)
+    if live is None or not hasattr(live, "respond_plan"):
+        raise HTTPException(
+            status_code=409,
+            detail="Session does not support plan-mode handoff.",
+        )
+    await live.respond_plan(
+        request_id=request.request_id,
+        approved=request.approved,
+        edited_plan=request.edited_plan,
+        edited_workflow_ir=request.edited_workflow_ir,
+        feedback=request.feedback,
+    )
+    return MessageResponse(
+        message=("approved" if request.approved else "rejected"),
+    )
+
+
 @router.post("/sessions/{session_id}/messages", response_model=MessageResponse)
 async def post_user_message(
     session_id: str,
@@ -380,94 +424,7 @@ async def launch_skill(
     return response
 
 
-# ── Plan-mode follow-up + per-session prompt inspection ────────────────────
-
-
-def _summary_text_from_events(response: AgentSessionResponse) -> str:
-    """Pull the ``SessionCompletedEvent.summary`` from the buffered events.
-
-    Returns ``""`` when the session has no completion event yet — callers
-    handle that case as "no plan available".
-    """
-    for event in response.events:
-        if event.type == "SessionCompletedEvent":
-            payload = event.payload
-            if isinstance(payload, dict):
-                return str(payload.get("summary") or "")
-    return ""
-
-
-@router.post(
-    "/sessions/{session_id}/execute-plan",
-    response_model=AgentSessionResponse,
-)
-async def execute_plan(
-    session_id: str,
-    workspace=Depends(get_workspace),
-) -> AgentSessionResponse:
-    """Promote a finished plan-mode session into an executing follow-up.
-
-    Inherits the original goal (description, constraints, success
-    criteria, ``skill_id``); flips ``plan_mode`` off; injects the prior
-    session's final answer (the plan) as ``instructions_override`` so the
-    new session can execute it without re-deriving it.
-    """
-    response = _sessions.get(session_id)
-    if response is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    response = _refresh_response(response)
-    if not response.planMode:
-        raise HTTPException(
-            status_code=409,
-            detail="Session was not started in plan mode.",
-        )
-    if response.status not in {"completed", "failed"}:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Plan-mode session is still {response.status}; wait for it to finish.",
-        )
-
-    plan_text = _summary_text_from_events(response)
-    if not plan_text.strip():
-        raise HTTPException(
-            status_code=409,
-            detail="Plan-mode session produced no plan to execute.",
-        )
-
-    live = _live_sessions.get(session_id)
-    original_goal: Goal = getattr(live, "goal", None) if live is not None else None
-    if original_goal is None:
-        # Fallback to whatever the persisted summary keeps. Constraints and
-        # success_criteria aren't on the AgentSessionResponse, so we accept
-        # an empty seed — the plan itself carries the substance.
-        original_goal = Goal(description=response.goalDescription)
-
-    skill_instructions = _resolve_skill_instructions(workspace, response.skillId)
-    follow_up = Goal(
-        description=original_goal.description,
-        constraints=dict(original_goal.constraints or {}),
-        success_criteria=list(original_goal.success_criteria or []),
-        plan_mode=False,
-        instructions_override=(
-            "An approved execution plan follows. Execute it step-by-step using "
-            "the available tools, then report the outcome.\n\n" + plan_text.strip()
-        ),
-        skill_id=response.skillId,
-        skill_instructions=skill_instructions,
-    )
-
-    if not registry.is_available(Capability.AGENT):
-        raise HTTPException(
-            501, "Agent capability not available. Install: pip install molexp[agent]"
-        )
-    _require_credentials(workspace)
-    AgentService = registry.get(Capability.AGENT)
-    service = AgentService.from_workspace(str(workspace.root))
-    new_session = await service.start(follow_up)
-    new_response = _session_to_response(new_session, follow_up, created_at=_now_iso())
-    _sessions[new_response.sessionId] = new_response
-    _live_sessions[new_response.sessionId] = new_session
-    return new_response
+# ── Per-session prompt inspection ──────────────────────────────────────────
 
 
 @router.get(

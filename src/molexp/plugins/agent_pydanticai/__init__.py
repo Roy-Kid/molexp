@@ -29,6 +29,7 @@ from .types import (
     ToolResultEvent,
     UserMessageEvent,
     UserMessageRequestEvent,
+    WorkflowPreview,
     WorkflowStartedEvent,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "PlanCreatedEvent",
     "ToolCallEvent",
     "ToolResultEvent",
+    "WorkflowPreview",
     "WorkflowStartedEvent",
     "ObservationEvent",
     "ReplanEvent",

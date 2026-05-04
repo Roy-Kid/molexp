@@ -20,7 +20,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette, useCommandPalette } from "@/app/components/CommandPalette";
 import { EntityHeader, StatusBadge } from "@/app/components/entity";
-import { PlanView } from "@/app/renderers/PlanView";
+import { PlanCard } from "@/app/renderers/PlanCard";
 import {
   AgentNotConfiguredError,
   type ApiAgentHealth,
@@ -85,14 +85,18 @@ const formatTs = (ts: string): string => {
   }
 };
 
+const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
+
 const EventRow = ({
   event,
-  sessionId: _sessionId,
+  sessionId,
   onApprovalRespond,
+  onPlanResolved,
 }: {
   event: ApiSessionEvent;
   sessionId: string;
   onApprovalRespond: (requestId: string, approved: boolean) => void;
+  onPlanResolved?: () => void;
 }): JSX.Element => {
   const [expanded, setExpanded] = useState(false);
   const meta = EVENT_META[event.type] ?? {
@@ -142,18 +146,8 @@ const EventRow = ({
         </div>
 
         {/* Inline content for common event types */}
-        {event.type === "PlanCreatedEvent" && Array.isArray(payload.plan_steps) && (
-          <ol className="ml-2 space-y-0.5">
-            {(payload.plan_steps as string[]).map((step, stepNum) => (
-              <li
-                key={`plan-step-${step.slice(0, 40)}`}
-                className="flex gap-2 text-xs text-muted-foreground"
-              >
-                <span className="font-mono text-primary/60">{stepNum + 1}.</span>
-                <span>{step}</span>
-              </li>
-            ))}
-          </ol>
+        {event.type === "PlanCreatedEvent" && (
+          <PlanCard sessionId={sessionId} event={event} onResolved={onPlanResolved} />
         )}
 
         {event.type === "ObservationEvent" && Boolean(payload.content) && (
@@ -290,18 +284,18 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
             </tr>
           </thead>
           <tbody>
-            {rows.slice(0, 50).map((row, rowIdx) => (
-              <tr
-                key={`row-${rowIdx}-${String(row[0] ?? "")}`}
-                className="border-t border-border/40"
-              >
-                {columns.map((_c, colIdx) => (
-                  <td key={`cell-${rowIdx}-${colIdx}`} className="px-3 py-1 tabular-nums">
-                    {String(row[colIdx] ?? "")}
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {rows.slice(0, 50).map((row) => {
+              const rowKey = row.map((value) => String(value ?? "")).join("|");
+              return (
+                <tr key={`row-${rowKey}`} className="border-t border-border/40">
+                  {columns.map((column, colIdx) => (
+                    <td key={`cell-${column}`} className="px-3 py-1 tabular-nums">
+                      {String(row[colIdx] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {rows.length > 50 && (
@@ -331,9 +325,13 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
 const TurnAnswer = ({
   result,
   inProgress,
+  sessionId,
+  onPlanResolved,
 }: {
   result: ApiSessionEvent | null;
   inProgress: boolean;
+  sessionId: string;
+  onPlanResolved?: () => void;
 }): JSX.Element => {
   if (!result) {
     if (inProgress) {
@@ -349,6 +347,10 @@ const TurnAnswer = ({
         No final answer recorded for this turn.
       </p>
     );
+  }
+
+  if (result.type === "PlanCreatedEvent") {
+    return <PlanCard sessionId={sessionId} event={result} onResolved={onPlanResolved} />;
   }
 
   const payload = (result.payload ?? {}) as Record<string, unknown>;
@@ -385,12 +387,14 @@ const TurnCard = ({
   total,
   sessionId,
   onApprovalRespond,
+  onPlanResolved,
 }: {
   turn: ConversationTurn;
   index: number;
   total: number;
   sessionId: string;
   onApprovalRespond: (requestId: string, approved: boolean) => void;
+  onPlanResolved?: () => void;
 }): JSX.Element => {
   const isLast = index === total - 1;
   const [stepsOpen, setStepsOpen] = useState(false);
@@ -444,7 +448,12 @@ const TurnCard = ({
               {turn.result?.type === "SessionCompletedEvent" && isLast ? "Final answer" : "Answer"}
             </p>
             <div className="mt-1">
-              <TurnAnswer result={turn.result} inProgress={turn.inProgress} />
+              <TurnAnswer
+                result={turn.result}
+                inProgress={turn.inProgress}
+                sessionId={sessionId}
+                onPlanResolved={onPlanResolved}
+              />
             </div>
           </div>
         </div>
@@ -478,12 +487,13 @@ const TurnCard = ({
             </button>
             {stepsOpen && (
               <div className="mt-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                {turn.steps.map((event, eventIdx) => (
+                {turn.steps.map((event) => (
                   <EventRow
-                    key={`${turn.key}-step-${eventIdx}-${event.type}`}
+                    key={`${turn.key}-step-${event.type}-${event.ts}`}
                     event={event}
                     sessionId={sessionId}
                     onApprovalRespond={onApprovalRespond}
+                    onPlanResolved={onPlanResolved}
                   />
                 ))}
               </div>
@@ -808,7 +818,7 @@ const GoalInput = ({
             id="prompt-override"
             rows={4}
             className="w-full resize-none rounded-md border border-input bg-background px-3 py-2 font-mono text-[11px] focus:outline-none focus:ring-2 focus:ring-ring"
-            placeholder="Custom instructions for this single session…"
+            placeholder="Custom instructions for this single task..."
             value={overrideText}
             onChange={(e) => setOverrideText(e.target.value)}
             disabled={disabled}
@@ -835,7 +845,7 @@ const GoalInput = ({
             onClick={handleSendButton}
             disabled={disabled || !description.trim()}
             className="h-8 w-8 flex-none rounded-full"
-            aria-label="Start session"
+            aria-label="Start agent task"
           >
             {disabled ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -935,6 +945,13 @@ const HeaderSettingsAction = ({ onOpenSettings }: { onOpenSettings: () => void }
   </Button>
 );
 
+const LiveIndicator = (): JSX.Element => (
+  <span className="inline-flex items-center gap-1 rounded-md bg-info-soft px-1.5 py-0.5 text-[10px] font-medium text-info-foreground">
+    <Loader2 className="h-3 w-3 animate-spin" />
+    Live
+  </span>
+);
+
 const SessionHeader = ({
   session,
   snapshot,
@@ -943,6 +960,7 @@ const SessionHeader = ({
   snapshot: WorkspaceSnapshot;
 }): JSX.Element => {
   const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const isRunning = session.status === "running";
   return (
     <EntityHeader
       breadcrumbs={breadcrumbs}
@@ -951,6 +969,7 @@ const SessionHeader = ({
       icon={Bot}
       title={session.goalDescription}
       status={session.status}
+      titleAccessory={isRunning ? <LiveIndicator /> : undefined}
     />
   );
 };
@@ -969,8 +988,8 @@ const NewSessionHeader = ({
       canNavigateUp={canNavigateUp}
       onNavigateUp={navigateUp}
       icon={Sparkles}
-      title="New agent session"
-      subtitle="Describe a goal — the agent picks tools and runs the workflow"
+      title="New agent task"
+      subtitle="Set the task goal"
       actions={<HeaderSettingsAction onOpenSettings={onOpenSettings} />}
     />
   );
@@ -1051,24 +1070,27 @@ const AgentSessionViewer = ({
       .then((s) => {
         setSession(s);
         setEvents(s.events ?? []);
+        onRefresh();
       })
       .catch((err) => setError(String(err)))
       .finally(() => setLoading(false));
-  }, [sessionId]);
+  }, [sessionId, onRefresh]);
 
-  // SSE stream for running sessions. We deliberately do NOT pull the
-  // workspace snapshot here — view-driven polling owns that responsibility.
-  // The agent view only refreshes its own session state.
+  // SSE stream for running sessions. Depend on sessionId+status only —
+  // including the whole `session` object would resubscribe on every poll
+  // tick (the polling effect mutates the reference) and the mock SSE
+  // handler would re-deliver the same events, growing state forever.
   useEffect(() => {
-    if (!session || session.status !== "running") return;
-    const es = agentApi.streamEvents(session.sessionId);
+    if (!sessionId) return;
+    if (session?.status !== "running") return;
+    const es = agentApi.streamEvents(sessionId);
     esRef.current = es;
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
         if (data.type === "done") {
           es.close();
-          agentApi.getSession(session.sessionId).then((s) => {
+          agentApi.getSession(sessionId).then((s) => {
             setSession(s);
             setEvents(s.events ?? []);
           });
@@ -1084,7 +1106,7 @@ const AgentSessionViewer = ({
     return () => {
       es.close();
     };
-  }, [session?.sessionId, session?.status, session]);
+  }, [sessionId, session?.status]);
 
   // Auto-scroll to bottom when events change
   useEffect(() => {
@@ -1094,17 +1116,19 @@ const AgentSessionViewer = ({
   }, []);
 
   // While running, poll session stats so token/usage counts stay live
-  // even though they aren't part of the SSE event payloads.
+  // even though they aren't part of the SSE event payloads. Depend on
+  // sessionId+status only — including the session ref would re-create
+  // the interval on every tick.
   useEffect(() => {
-    if (!session || session.status !== "running") return;
-    const sid = session.sessionId;
+    if (!sessionId) return;
+    if (session?.status !== "running") return;
     let cancelled = false;
     const tick = async (): Promise<void> => {
       try {
-        const fresh = await agentApi.getSession(sid);
+        const fresh = await agentApi.getSession(sessionId);
         if (cancelled) return;
         setSession((prev) =>
-          prev && prev.sessionId === sid
+          prev && prev.sessionId === sessionId
             ? { ...prev, status: fresh.status, stats: fresh.stats }
             : prev,
         );
@@ -1117,7 +1141,7 @@ const AgentSessionViewer = ({
       cancelled = true;
       clearInterval(id);
     };
-  }, [session?.sessionId, session?.status, session]);
+  }, [sessionId, session?.status]);
 
   const handleLaunchIntent = useCallback(
     async (intent: LaunchIntent) => {
@@ -1135,6 +1159,7 @@ const AgentSessionViewer = ({
               });
         setSession(created);
         setEvents(created.events ?? []);
+        nav.setSelection({ objectType: "agent", objectId: getAgentTaskId(created) });
         onRefresh();
       } catch (err) {
         if (err instanceof AgentNotConfiguredError) {
@@ -1151,14 +1176,14 @@ const AgentSessionViewer = ({
         setSubmitting(false);
       }
     },
-    [onRefresh],
+    [nav, onRefresh],
   );
 
   const handleApprovalRespond = useCallback(
     async (requestId: string, approved: boolean) => {
       if (!session) return;
       try {
-        await agentApi.respondApproval(session.sessionId, requestId, approved);
+        await agentApi.respondApproval(getAgentTaskId(session), requestId, approved);
       } catch (err) {
         setError(String(err));
       }
@@ -1170,7 +1195,7 @@ const AgentSessionViewer = ({
     async (content: string, requestId: string | null) => {
       if (!session) return;
       try {
-        await agentApi.postMessage(session.sessionId, content, requestId);
+        await agentApi.postMessage(getAgentTaskId(session), content, requestId);
       } catch (err) {
         setError(String(err));
       }
@@ -1209,15 +1234,13 @@ const AgentSessionViewer = ({
                 <Sparkles className="h-6 w-6" />
               </div>
               <h2 className="text-xl font-semibold">What can the agent help you with?</h2>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Describe a goal — the agent picks tools and runs the workflow autonomously.
-              </p>
+              <p className="max-w-md text-sm text-muted-foreground">Set a task goal to begin.</p>
             </div>
 
             {recent.length > 0 && (
               <div className="space-y-1.5">
                 <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Recent sessions
+                  Recent tasks
                 </p>
                 {recent.map((s) => (
                   <button
@@ -1269,35 +1292,24 @@ const AgentSessionViewer = ({
   const isRunning = session.status === "running";
   const turns = groupEventsIntoTurns(events, session.goalDescription);
 
-  // Plan-mode sessions render a structured plan view instead of the
-  // freeform chat. Header + inspector wiring stays the same so live
-  // stats and "Execute plan" remain reachable from the inspector.
-  if (session.planMode) {
-    return (
-      <div className="flex h-full flex-col bg-background">
-        <SessionHeader session={session} snapshot={snapshot} />
-        <PlanView
-          session={session}
-          events={events}
-          snapshot={snapshot}
-          onPromoted={(newSessionId) =>
-            nav.setSelection({ objectType: "agent", objectId: newSessionId })
-          }
-        />
-      </div>
-    );
-  }
+  // After a structured plan is approved/rejected, re-fetch the session
+  // so the freshly-flipped planMode flag, status, and post-handoff
+  // events land in state. The PlanCard fires this callback inline.
+  const refreshAfterPlanDecision = (): void => {
+    agentApi
+      .getSession(getAgentTaskId(session))
+      .then((s) => {
+        setSession(s);
+        setEvents(s.events ?? []);
+      })
+      .catch(() => {
+        // Polling will pick up the change on the next tick.
+      });
+  };
 
   return (
     <div className="flex h-full flex-col bg-background">
       <SessionHeader session={session} snapshot={snapshot} />
-
-      {isRunning && (
-        <div className="flex items-center justify-end gap-1 border-b border-border/70 bg-muted/10 px-6 py-1.5 text-xs text-blue-500 md:px-8">
-          <Loader2 className="h-3 w-3 animate-spin" />
-          <span>Live</span>
-        </div>
-      )}
 
       <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
         <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-6 pt-4 md:px-8">
@@ -1307,8 +1319,9 @@ const AgentSessionViewer = ({
               turn={turn}
               index={turnIdx}
               total={turns.length}
-              sessionId={session.sessionId}
+              sessionId={getAgentTaskId(session)}
               onApprovalRespond={handleApprovalRespond}
+              onPlanResolved={refreshAfterPlanDecision}
             />
           ))}
         </div>
@@ -1326,7 +1339,7 @@ const AgentSessionViewer = ({
           onSubmit={handleLaunchIntent}
           disabled={submitting}
           onOpenSettings={openSettings}
-          placeholder="Start a follow-up session…"
+          placeholder="Send a follow-up message..."
         />
       )}
     </div>

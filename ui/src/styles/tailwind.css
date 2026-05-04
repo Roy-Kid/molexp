@@ -38,6 +38,8 @@
     --color-info-foreground: hsl(var(--info-foreground));
     --color-info-soft: hsl(var(--info-soft));
 
+    --color-canvas: hsl(var(--canvas));
+
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
     --radius-sm: calc(var(--radius) - 4px);
@@ -99,6 +101,8 @@
         --info: 217 91% 48%;
         --info-foreground: 217 91% 30%;
         --info-soft: 217 91% 95%;
+
+        --canvas: 0 0% 98%;
     }
 
     .dark {
@@ -131,6 +135,8 @@
         --info: 217 80% 60%;
         --info-foreground: 217 80% 88%;
         --info-soft: 217 60% 18%;
+
+        --canvas: 240 6% 8%;
     }
 }
 

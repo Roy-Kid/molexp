@@ -3,6 +3,10 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import "./styles/tailwind.css";
+// xyflow's stylesheet is loaded once at the app entry so individual
+// renderer modules can stay CSS-free — this matters for the node-side
+// test runner which does not understand .css imports.
+import "@xyflow/react/dist/style.css";
 
 const rootElement = document.getElementById("root");
 

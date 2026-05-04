@@ -568,12 +568,56 @@ outputs:
                     type: "PlanCreatedEvent",
                     ts: isoAt(-179),
                     payload: {
-                        plan_steps: [
-                            "List existing experiments in protein-folding project",
-                            "Create a run for exp-001 with default parameters",
-                            "Wait for run completion",
-                            "Retrieve run summary and asset outputs",
-                        ],
+                        request_id: "plan-sess-001",
+                        plan_markdown: [
+                            "1. list_experiments(project_id=protein-folding) — locate exp-001",
+                            "2. create_run(experiment_id=exp-001) — submit baseline run",
+                            "3. wait_for_run(run_id=...) — block until terminal",
+                            "4. get_run_results(run_id=...) — fetch metrics + artifacts",
+                        ].join("\n"),
+                        workflow_preview: {
+                            workflow_ir: {
+                                name: "alphafold-baseline",
+                                task_configs: [
+                                    { task_id: "list", task_type: "list_experiments", config: { project_id: "protein-folding" } },
+                                    { task_id: "submit", task_type: "create_run", config: { experiment_id: "exp-001" } },
+                                    { task_id: "wait", task_type: "wait_for_run", config: {} },
+                                    { task_id: "fetch", task_type: "get_run_results", config: {} },
+                                ],
+                                links: [
+                                    { source: "list", target: "submit" },
+                                    { source: "submit", target: "wait" },
+                                    { source: "wait", target: "fetch" },
+                                ],
+                                metadata: {},
+                            },
+                            python_script: [
+                                'from molexp.workflow.spec import WorkflowSpec',
+                                '',
+                                'WORKFLOW_IR = {',
+                                '    "name": "alphafold-baseline",',
+                                '    "task_configs": [',
+                                '        {"task_id": "list", "task_type": "list_experiments", "config": {"project_id": "protein-folding"}},',
+                                '        {"task_id": "submit", "task_type": "create_run", "config": {"experiment_id": "exp-001"}},',
+                                '        {"task_id": "wait", "task_type": "wait_for_run", "config": {}},',
+                                '        {"task_id": "fetch", "task_type": "get_run_results", "config": {}},',
+                                '    ],',
+                                '    "links": [',
+                                '        {"source": "list", "target": "submit"},',
+                                '        {"source": "submit", "target": "wait"},',
+                                '        {"source": "wait", "target": "fetch"},',
+                                '    ],',
+                                '    "metadata": {},',
+                                '}',
+                                '',
+                                'spec = WorkflowSpec.from_dict(WORKFLOW_IR)',
+                            ].join("\n"),
+                            mermaid: "",
+                            intervention_points: [
+                                "rename 'list' if you have a clearer label",
+                                "swap wait_for_run for a longer poll if needed",
+                            ],
+                        },
                     },
                 },
                 {
@@ -618,62 +662,166 @@ outputs:
         },
         {
             sessionId: "sess-002",
-            status: "completed",
-            goalDescription: "Screen catalyst library L1–L3 and report top candidates",
+            status: "running",
+            goalDescription: "Survey our existing molecular property datasets and propose a benchmark study",
             createdAt: isoAt(-90),
             events: [
                 {
                     type: "PlanCreatedEvent",
                     ts: isoAt(-89),
                     payload: {
-                        plan_steps: [
-                            "Locate catalyst-search project and exp-101",
-                            "Create run with ligand parameter sweep",
-                            "Analyse output candidates.csv",
-                        ],
-                    },
-                },
-                {
-                    type: "ToolCallEvent",
-                    ts: isoAt(-88),
-                    payload: { tool_name: "list_experiments", args: { project_id: "catalyst-search" } },
-                },
-                {
-                    type: "ToolResultEvent",
-                    ts: isoAt(-88),
-                    payload: { tool_name: "list_experiments", result: ["exp-101 — Catalyst Sweep"] },
-                },
-                {
-                    type: "WorkflowStartedEvent",
-                    ts: isoAt(-87),
-                    payload: { run_id: "run-101" },
-                },
-                {
-                    type: "SessionCompletedEvent",
-                    ts: isoAt(-50),
-                    payload: {
-                        summary: "Top 2 candidates identified: L2 (η = 0.87) and L1 (η = 0.81). Results written to candidates.csv.",
-                        produced_runs: ["run-101"],
+                        request_id: "plan-sess-002",
+                        // Investigation-heavy plan: every step is still a node.
+                        // The first three nodes use investigation task slugs;
+                        // the fourth aggregates and emits a benchmark proposal.
+                        plan_markdown: [
+                            "1. list_projects() — enumerate existing projects so the survey is exhaustive.",
+                            "2. survey_experiments() — walk every project's experiments and record column / metric names.",
+                            "3. sample_run_summaries(per_experiment=2) — pull two run summaries per experiment to confirm the metrics are populated.",
+                            "4. propose_benchmark(report=summary) — emit a benchmark study proposal grounded in the survey.",
+                        ].join("\n"),
+                        workflow_preview: {
+                            workflow_ir: {
+                                name: "dataset-survey-benchmark",
+                                task_configs: [
+                                    { task_id: "projects", task_type: "list_projects", config: {} },
+                                    { task_id: "survey", task_type: "survey_experiments", config: {} },
+                                    { task_id: "sample", task_type: "sample_run_summaries", config: { per_experiment: 2 } },
+                                    { task_id: "propose", task_type: "propose_benchmark", config: { report: "summary" } },
+                                ],
+                                links: [
+                                    { source: "projects", target: "survey" },
+                                    { source: "survey", target: "sample" },
+                                    { source: "sample", target: "propose" },
+                                ],
+                                metadata: {},
+                            },
+                            python_script: [
+                                'from molexp.workflow.spec import WorkflowSpec',
+                                '',
+                                'WORKFLOW_IR = {',
+                                '    "name": "dataset-survey-benchmark",',
+                                '    "task_configs": [',
+                                '        {"task_id": "projects", "task_type": "list_projects", "config": {}},',
+                                '        {"task_id": "survey", "task_type": "survey_experiments", "config": {}},',
+                                '        {"task_id": "sample", "task_type": "sample_run_summaries", "config": {"per_experiment": 2}},',
+                                '        {"task_id": "propose", "task_type": "propose_benchmark", "config": {"report": "summary"}},',
+                                '    ],',
+                                '    "links": [',
+                                '        {"source": "projects", "target": "survey"},',
+                                '        {"source": "survey", "target": "sample"},',
+                                '        {"source": "sample", "target": "propose"},',
+                                '    ],',
+                                '    "metadata": {},',
+                                '}',
+                                '',
+                                'spec = WorkflowSpec.from_dict(WORKFLOW_IR)',
+                            ].join("\n"),
+                            mermaid: "",
+                            intervention_points: [
+                                "raise per_experiment to 5 if you want a richer sample",
+                                "swap propose_benchmark for emit_markdown_report if you only want a writeup",
+                            ],
+                        },
                     },
                 },
             ],
         },
         {
             sessionId: "sess-003",
-            status: "pending",
+            status: "running",
             goalDescription: "Prepare a validated dataset from qm9.h5 and run a GNN baseline on it",
             createdAt: isoAt(-5),
             events: [
+                // The agent is still allowed to inspect tool slugs / templates
+                // during plan-mode reconnaissance before authoring the IR.
                 {
-                    type: "PlanCreatedEvent",
+                    type: "ToolCallEvent",
+                    ts: isoAt(-4),
+                    payload: { tool_name: "list_task_types", args: {} },
+                },
+                {
+                    type: "ToolResultEvent",
                     ts: isoAt(-4),
                     payload: {
-                        plan_steps: [
-                            "Validate qm9.h5 schema and integrity",
-                            "Create preprocessing experiment",
-                            "Run GNN baseline experiment",
-                            "Evaluate val_loss < 0.05",
+                        tool_name: "list_task_types",
+                        result: [
+                            { slug: "inspect_dataset", description: "inspect hdf5 / parquet schema" },
+                            { slug: "validate_dataset", description: "validate hdf5 schema" },
+                            { slug: "preprocess_dataset", description: "preprocess for GNN" },
+                            { slug: "train_gnn", description: "train a GNN baseline" },
+                            { slug: "evaluate_metrics", description: "report metrics" },
                         ],
+                    },
+                },
+                {
+                    type: "ObservationEvent",
+                    ts: isoAt(-3),
+                    payload: {
+                        content:
+                            "Reconnaissance complete. Investigation steps will live in the IR as inspect_dataset; the rest as standard pipeline tasks.",
+                    },
+                },
+                // The unified plan: investigation steps are nodes too.
+                {
+                    type: "PlanCreatedEvent",
+                    ts: isoAt(-2),
+                    payload: {
+                        request_id: "plan-sess-003",
+                        plan_markdown: [
+                            "1. inspect_dataset(path=qm9.h5) — record schema + sample count so downstream tasks can branch on it.",
+                            "2. validate_dataset(path=qm9.h5) — fail fast on schema drift before doing expensive work.",
+                            "3. preprocess_dataset(...) — produce GNN-ready tensors.",
+                            "4. train_gnn(epochs=50) — fit the baseline.",
+                            "5. evaluate_metrics(threshold=0.05) — report final val_loss.",
+                        ].join("\n"),
+                        workflow_preview: {
+                            workflow_ir: {
+                                name: "qm9-gnn-baseline",
+                                task_configs: [
+                                    { task_id: "inspect", task_type: "inspect_dataset", config: { path: "qm9.h5" } },
+                                    { task_id: "validate", task_type: "validate_dataset", config: { path: "qm9.h5" } },
+                                    { task_id: "preprocess", task_type: "preprocess_dataset", config: {} },
+                                    { task_id: "train", task_type: "train_gnn", config: { epochs: 50 } },
+                                    { task_id: "evaluate", task_type: "evaluate_metrics", config: { threshold: 0.05 } },
+                                ],
+                                links: [
+                                    { source: "inspect", target: "validate" },
+                                    { source: "validate", target: "preprocess" },
+                                    { source: "preprocess", target: "train" },
+                                    { source: "train", target: "evaluate" },
+                                ],
+                                metadata: {},
+                            },
+                            python_script: [
+                                'from molexp.workflow.spec import WorkflowSpec',
+                                '',
+                                'WORKFLOW_IR = {',
+                                '    "name": "qm9-gnn-baseline",',
+                                '    "task_configs": [',
+                                '        {"task_id": "inspect", "task_type": "inspect_dataset", "config": {"path": "qm9.h5"}},',
+                                '        {"task_id": "validate", "task_type": "validate_dataset", "config": {"path": "qm9.h5"}},',
+                                '        {"task_id": "preprocess", "task_type": "preprocess_dataset", "config": {}},',
+                                '        {"task_id": "train", "task_type": "train_gnn", "config": {"epochs": 50}},',
+                                '        {"task_id": "evaluate", "task_type": "evaluate_metrics", "config": {"threshold": 0.05}},',
+                                '    ],',
+                                '    "links": [',
+                                '        {"source": "inspect", "target": "validate"},',
+                                '        {"source": "validate", "target": "preprocess"},',
+                                '        {"source": "preprocess", "target": "train"},',
+                                '        {"source": "train", "target": "evaluate"},',
+                                '    ],',
+                                '    "metadata": {},',
+                                '}',
+                                '',
+                                'spec = WorkflowSpec.from_dict(WORKFLOW_IR)',
+                            ].join("\n"),
+                            mermaid: "",
+                            intervention_points: [
+                                "drop inspect_dataset if you trust the schema is stable",
+                                "raise epochs if you want a stronger baseline",
+                            ],
+                        },
                     },
                 },
             ],

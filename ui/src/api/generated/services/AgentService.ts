@@ -8,6 +8,7 @@ import type { AgentSystemPromptResponse } from '../models/AgentSystemPromptRespo
 import type { ApprovalRespondRequest } from '../models/ApprovalRespondRequest';
 import type { GoalCreateRequest } from '../models/GoalCreateRequest';
 import type { MessageResponse } from '../models/MessageResponse';
+import type { PlanDecisionRequest } from '../models/PlanDecisionRequest';
 import type { SkillLaunchRequest } from '../models/SkillLaunchRequest';
 import type { UserMessageCreateRequest } from '../models/UserMessageCreateRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -118,6 +119,38 @@ export class AgentService {
         });
     }
     /**
+     * Respond Plan
+     * Resolve a pending plan handoff emitted by ``exit_plan_mode``.
+     *
+     * On approval the live session flips ``goal.plan_mode=False``, rebuilds
+     * its agent (so the next continuation sees the unrestricted toolset),
+     * and the agent's ``exit_plan_mode`` tool call returns the user's
+     * decision dict so it can proceed with execution. On rejection the
+     * agent gets the feedback string and is free to revise + call
+     * ``exit_plan_mode`` again from within the same session.
+     * @param sessionId
+     * @param requestBody
+     * @returns MessageResponse Successful Response
+     * @throws ApiError
+     */
+    public static respondPlanApiAgentSessionsSessionIdPlanDecisionPost(
+        sessionId: string,
+        requestBody: PlanDecisionRequest,
+    ): CancelablePromise<MessageResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agent/sessions/{session_id}/plan-decision',
+            path: {
+                'session_id': sessionId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Post User Message
      * Deliver a chat message from the user to a running agent session.
      *
@@ -170,32 +203,6 @@ export class AgentService {
             },
             body: requestBody,
             mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Execute Plan
-     * Promote a finished plan-mode session into an executing follow-up.
-     *
-     * Inherits the original goal (description, constraints, success
-     * criteria, ``skill_id``); flips ``plan_mode`` off; injects the prior
-     * session's final answer (the plan) as ``instructions_override`` so the
-     * new session can execute it without re-deriving it.
-     * @param sessionId
-     * @returns AgentSessionResponse Successful Response
-     * @throws ApiError
-     */
-    public static executePlanApiAgentSessionsSessionIdExecutePlanPost(
-        sessionId: string,
-    ): CancelablePromise<AgentSessionResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/agent/sessions/{session_id}/execute-plan',
-            path: {
-                'session_id': sessionId,
-            },
             errors: {
                 422: `Validation Error`,
             },

@@ -19,6 +19,7 @@ import type {
   ExperimentSummary,
   ProjectCreateRequest,
   ProjectSummary,
+  ReviewSummary,
   RunCreateRequest,
   RunSummary,
   WorkflowSummary,
@@ -427,6 +428,7 @@ export const buildEmptySnapshot = (): WorkspaceSnapshot => {
     assets: [],
     workflows: [],
     agentSessions: [],
+    reviews: [],
     workspaceRoot: null,
     consoleEntries: [],
   };
@@ -588,11 +590,46 @@ export const mapWorkspaceTree = (
 
 export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSummary[] => {
   return sessions.map((s) => ({
-    id: s.sessionId,
+    id: s.taskId ?? s.sessionId,
+    sessionId: s.sessionId,
     goalDescription: s.goalDescription,
     status: s.status as AgentSessionSummary["status"],
     createdAt: s.createdAt,
     eventCount: s.events?.length ?? 0,
+  }));
+};
+
+interface ApiReviewItem {
+  id: string;
+  kind: string;
+  title: string;
+  description?: string | null;
+  riskLevel: "low" | "medium" | "high";
+  status: string;
+  targetRef: {
+    type: string;
+    id: string;
+    taskId?: string | null;
+    sessionId?: string | null;
+  };
+  createdAt: string;
+  resolvedAt?: string | null;
+  resolutionComment?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export const mapReviews = (reviews: ApiReviewItem[]): ReviewSummary[] => {
+  return reviews.map((review) => ({
+    id: review.id,
+    kind: review.kind,
+    title: review.title,
+    description: review.description ?? "",
+    status: review.status as ReviewSummary["status"],
+    riskLevel: review.riskLevel,
+    createdAt: review.createdAt,
+    resolvedAt: review.resolvedAt ?? null,
+    taskId: review.targetRef.taskId ?? null,
+    sessionId: review.targetRef.sessionId ?? null,
   }));
 };
 
@@ -635,12 +672,40 @@ export interface SessionLaunchOptions {
   skillId?: string;
 }
 
+interface ApiAgentTask {
+  taskId: string;
+  title: string;
+  goal: string;
+  status: string;
+  createdAt: string;
+  updatedAt?: string | null;
+  sessionId?: string;
+  events?: ApiAgentSession["events"];
+  stats?: ApiAgentSession["stats"];
+  planMode?: boolean;
+  skillId?: string | null;
+}
+
+const normalizeAgentTask = (task: ApiAgentTask): ApiAgentSession => ({
+  taskId: task.taskId,
+  title: task.title,
+  sessionId: task.sessionId ?? task.taskId,
+  status: task.status,
+  goalDescription: task.goal,
+  createdAt: task.createdAt,
+  updatedAt: task.updatedAt,
+  events: task.events ?? [],
+  stats: task.stats,
+  planMode: task.planMode ?? false,
+  skillId: task.skillId ?? null,
+});
+
 export const agentApi = {
   listSessions: async (): Promise<ApiAgentSession[]> => {
-    const response = await fetch("/api/agent/sessions");
-    if (!response.ok) throw new Error(`Failed to fetch sessions: ${response.statusText}`);
+    const response = await fetch("/api/agent-tasks");
+    if (!response.ok) throw new Error(`Failed to fetch agent tasks: ${response.statusText}`);
     const data = await response.json();
-    return data.sessions ?? [];
+    return (data.tasks ?? []).map(normalizeAgentTask);
   },
 
   getHealth: async (): Promise<ApiAgentHealth> => {
@@ -662,7 +727,7 @@ export const agentApi = {
     if (options.instructionsOverride !== undefined)
       body.instructions_override = options.instructionsOverride;
     if (options.skillId !== undefined) body.skill_id = options.skillId;
-    const response = await fetch("/api/agent/sessions", {
+    const response = await fetch("/api/agent-tasks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -680,18 +745,18 @@ export const agentApi = {
         );
       }
     }
-    if (!response.ok) throw new Error(`Failed to create session: ${response.statusText}`);
-    return response.json();
+    if (!response.ok) throw new Error(`Failed to create agent task: ${response.statusText}`);
+    return normalizeAgentTask(await response.json());
   },
 
   getSession: async (sessionId: string): Promise<ApiAgentSession> => {
-    const response = await fetch(`/api/agent/sessions/${sessionId}`);
-    if (!response.ok) throw new Error(`Failed to fetch session: ${response.statusText}`);
-    return response.json();
+    const response = await fetch(`/api/agent-tasks/${sessionId}`);
+    if (!response.ok) throw new Error(`Failed to fetch agent task: ${response.statusText}`);
+    return normalizeAgentTask(await response.json());
   },
 
   streamEvents: (sessionId: string): EventSource => {
-    return new EventSource(`/api/agent/sessions/${sessionId}/events`);
+    return new EventSource(`/api/agent-tasks/${sessionId}/events`);
   },
 
   respondApproval: async (
@@ -699,7 +764,7 @@ export const agentApi = {
     requestId: string,
     approved: boolean,
   ): Promise<void> => {
-    const response = await fetch(`/api/agent/sessions/${sessionId}/approve`, {
+    const response = await fetch(`/api/agent-tasks/${sessionId}/approve`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ request_id: requestId, approved }),
@@ -712,12 +777,70 @@ export const agentApi = {
     content: string,
     requestId: string | null = null,
   ): Promise<void> => {
-    const response = await fetch(`/api/agent/sessions/${sessionId}/messages`, {
+    const response = await fetch(`/api/agent-tasks/${sessionId}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ content, request_id: requestId }),
     });
     if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
+  },
+
+  respondPlan: async (
+    sessionId: string,
+    args: {
+      requestId: string;
+      approved: boolean;
+      editedPlan?: string | null;
+      editedWorkflowIr?: Record<string, unknown> | null;
+      feedback?: string;
+    },
+  ): Promise<void> => {
+    const response = await fetch(`/api/agent-tasks/${sessionId}/plan-decision`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        request_id: args.requestId,
+        approved: args.approved,
+        edited_plan: args.editedPlan ?? null,
+        edited_workflow_ir: args.editedWorkflowIr ?? null,
+        feedback: args.feedback ?? "",
+      }),
+    });
+    if (!response.ok) throw new Error(`Failed to respond plan: ${response.statusText}`);
+  },
+};
+
+export const reviewsApi = {
+  list: async (status?: string): Promise<ApiReviewItem[]> => {
+    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+    const response = await fetch(`/api/reviews${qs}`);
+    if (!response.ok) throw new Error(`Failed to fetch reviews: ${response.statusText}`);
+    const data = await response.json();
+    return data.reviews ?? [];
+  },
+
+  get: async (reviewId: string): Promise<ApiReviewItem> => {
+    const response = await fetch(`/api/reviews/${reviewId}`);
+    if (!response.ok) throw new Error(`Failed to fetch review: ${response.statusText}`);
+    return response.json();
+  },
+
+  approve: async (reviewId: string, comment = ""): Promise<void> => {
+    const response = await fetch(`/api/reviews/${reviewId}/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment }),
+    });
+    if (!response.ok) throw new Error(`Failed to approve review: ${response.statusText}`);
+  },
+
+  reject: async (reviewId: string, comment = ""): Promise<void> => {
+    const response = await fetch(`/api/reviews/${reviewId}/reject`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment }),
+    });
+    if (!response.ok) throw new Error(`Failed to reject review: ${response.statusText}`);
   },
 };
 
@@ -1228,21 +1351,9 @@ export const commandsApi = {
   },
 };
 
-// ── Plan-mode follow-up + per-session prompt inspection ───────────────────
+// ── Per-session prompt inspection ─────────────────────────────────────────
 
 export const planApi = {
-  /** Promote a finished plan-mode session into an executing follow-up. */
-  execute: async (sessionId: string): Promise<ApiAgentSession> => {
-    const response = await fetch(`/api/agent/sessions/${sessionId}/execute-plan`, {
-      method: "POST",
-    });
-    if (!response.ok) {
-      const detail = await response.text().catch(() => "");
-      throw new Error(`Failed to execute plan: ${response.statusText} ${detail}`);
-    }
-    return response.json();
-  },
-
   getSystemPrompt: async (sessionId: string): Promise<ApiAgentSystemPrompt> => {
     const response = await fetch(`/api/agent/sessions/${sessionId}/system-prompt`);
     if (!response.ok) throw new Error(`Failed to fetch system prompt: ${response.statusText}`);

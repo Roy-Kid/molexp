@@ -320,6 +320,10 @@ export class RunsService {
     /**
      * Rerun Run
      * Clone an existing run's parameters into a fresh run within the same experiment.
+     *
+     * The new run inherits the source run's compute target.  When a target is
+     * set, the new run is also submitted through molq so a re-run from the UI
+     * actually re-executes (no manual ``molexp run`` step required).
      * @param projectId
      * @param experimentId
      * @param runId
@@ -346,11 +350,14 @@ export class RunsService {
     }
     /**
      * Kill Run
-     * Best-effort kill: mark the run as cancelled in workspace metadata.
+     * Cancel a run.
      *
-     * Note: this does not yet signal an external scheduler. It updates run
-     * status and clears ownership labels; live process termination is the
-     * scheduler's responsibility once such hooks are available.
+     * Routes through :func:`molexp._run_cancel.try_cancel`, which signals
+     * molq via :class:`molq.Submitor` for cluster-submitted runs and
+     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
+     * path applies (run never submitted, terminal, or executor info
+     * missing) we fall back to flipping the metadata status so the UI
+     * still reflects user intent.
      * @param projectId
      * @param experimentId
      * @param runId

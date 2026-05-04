@@ -14,7 +14,8 @@ const sectionRootByView: Record<LeftPanelView, string> = {
   runs: "/runs",
   workflow: "/workflows",
   asset: "/assets",
-  agent: "/agents",
+  agent: "/agent-tasks",
+  review: "/reviews",
   settings: "/settings",
 };
 
@@ -55,8 +56,11 @@ export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   if (pathname.startsWith("/assets")) {
     return "asset";
   }
-  if (pathname.startsWith("/agents")) {
+  if (pathname.startsWith("/agent-tasks")) {
     return "agent";
+  }
+  if (pathname.startsWith("/reviews")) {
+    return "review";
   }
   if (pathname.startsWith("/settings")) {
     return "settings";
@@ -127,18 +131,26 @@ const buildSelectionFromLocation = (
     };
   }
 
-  if (pathname === "/agents/new") {
+  if (pathname === "/agent-tasks/new") {
     return {
       objectType: "agent",
       objectId: "new",
     };
   }
 
-  const agentMatch = pathname.match(/^\/agents\/([^/]+)$/);
+  const agentMatch = pathname.match(/^\/agent-tasks\/([^/]+)$/);
   if (agentMatch) {
     return {
       objectType: "agent",
       objectId: decodeURIComponent(agentMatch[1]),
+    };
+  }
+
+  const reviewMatch = pathname.match(/^\/reviews\/([^/]+)$/);
+  if (reviewMatch) {
+    return {
+      objectType: "review",
+      objectId: decodeURIComponent(reviewMatch[1]),
     };
   }
 
@@ -182,8 +194,10 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
       return `/assets/${encodeURIComponent(selection.objectId)}`;
     case "agent":
       return selection.objectId === "new"
-        ? "/agents/new"
-        : `/agents/${encodeURIComponent(selection.objectId)}`;
+        ? "/agent-tasks/new"
+        : `/agent-tasks/${encodeURIComponent(selection.objectId)}`;
+    case "review":
+      return `/reviews/${encodeURIComponent(selection.objectId)}`;
     case "workspace-file": {
       const params = new URLSearchParams({
         file: selection.filePath,
@@ -213,7 +227,10 @@ const buildBreadcrumbs = (
       return [{ label: "Assets" }];
     }
     if (leftPanelView === "agent") {
-      return [{ label: "Agents" }];
+      return [{ label: "Agent Tasks" }];
+    }
+    if (leftPanelView === "review") {
+      return [{ label: "Reviews" }];
     }
     if (leftPanelView === "settings") {
       return [{ label: "Settings" }];
@@ -287,17 +304,21 @@ const buildBreadcrumbs = (
     }
     case "agent": {
       if (selection.objectId === "new") {
-        return [{ label: "Agents", to: "/agents" }, { label: "New Goal" }];
+        return [{ label: "Agent Tasks", to: "/agent-tasks" }, { label: "New Task" }];
       }
       if (selection.objectId === "settings") {
-        return [{ label: "Agents", to: "/agents" }, { label: "Settings" }];
+        return [{ label: "Agent Tasks", to: "/agent-tasks" }, { label: "Settings" }];
       }
 
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return [
-        { label: "Agents", to: "/agents" },
+        { label: "Agent Tasks", to: "/agent-tasks" },
         { label: session?.goalDescription ?? selection.objectId },
       ];
+    }
+    case "review": {
+      const review = snapshot.reviews.find((item) => item.id === selection.objectId);
+      return [{ label: "Reviews", to: "/reviews" }, { label: review?.title ?? selection.objectId }];
     }
     case "workspace-file":
       return [
@@ -341,8 +362,13 @@ const buildContextMeta = (
         };
       case "agent":
         return {
-          title: "Agents",
-          subtitle: "Manage agent sessions and goals.",
+          title: "Agent Tasks",
+          subtitle: "Current goals and task history.",
+        };
+      case "review":
+        return {
+          title: "Reviews",
+          subtitle: "Plans, permissions, and patches waiting for a decision.",
         };
       case "settings":
         return {
@@ -404,13 +430,21 @@ const buildContextMeta = (
       return {
         title:
           selection.objectId === "new"
-            ? "New Goal"
+            ? "New Agent Task"
             : (session?.goalDescription ?? selection.objectId),
         subtitle:
           selection.objectId === "new"
-            ? "Create a new agent session."
+            ? "Create a new agent task."
             : `${session?.eventCount ?? 0} events`,
         statusLabel: session?.status,
+      };
+    }
+    case "review": {
+      const review = snapshot.reviews.find((item) => item.id === selection.objectId);
+      return {
+        title: review?.title ?? selection.objectId,
+        subtitle: review?.description || "Review details",
+        statusLabel: review?.status,
       };
     }
     case "workspace-file":
@@ -486,6 +520,10 @@ export const useNavigationState = (snapshot: WorkspaceSnapshot): NavigationState
           return;
         }
         if (view === "agent" && selection.objectType === "agent") {
+          navigate(getSelectionPath(selection, snapshot));
+          return;
+        }
+        if (view === "review" && selection.objectType === "review") {
           navigate(getSelectionPath(selection, snapshot));
           return;
         }

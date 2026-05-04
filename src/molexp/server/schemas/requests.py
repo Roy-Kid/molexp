@@ -132,6 +132,62 @@ class ApprovalRespondRequest(BaseModel):
     approved: bool = Field(..., description="Whether to approve")
 
 
+class PlanDecisionRequest(BaseModel):
+    """User decision on a plan emitted by ``exit_plan_mode``.
+
+    Pairs with :class:`PlanCreatedEvent` via ``request_id``. Approval
+    flips the session out of plan mode so the agent can bind / run
+    the (possibly user-edited) workflow IR. Rejection hands the
+    feedback back to the agent so it can revise + call
+    ``exit_plan_mode`` again.
+    """
+
+    request_id: str = Field(..., description="ID from the PlanCreatedEvent payload.")
+    approved: bool = Field(
+        ...,
+        description=(
+            "True to approve the plan. False to reject and keep the agent "
+            "in plan mode for revision."
+        ),
+    )
+    edited_plan: str | None = Field(
+        None,
+        description=(
+            "Optional user edit of the plan markdown. When set, the agent "
+            "sees this exact text as the post-approval starting point "
+            "instead of its own draft."
+        ),
+    )
+    edited_workflow_ir: dict[str, Any] | None = Field(
+        None,
+        description=(
+            "Optional user edit of the workflow IR. Replaces the agent's "
+            "drafted IR on approval."
+        ),
+    )
+    feedback: str = Field(
+        "",
+        description=(
+            "Free-form rejection rationale. Surfaced to the agent so its "
+            "next attempt addresses the user's concern."
+        ),
+    )
+
+
+class ReviewDecisionRequest(BaseModel):
+    """Approve or reject a persisted review item."""
+
+    comment: str = Field("", description="Optional human resolution comment.")
+    edited_plan: str | None = Field(
+        None,
+        description="Optional edited plan markdown when approving a plan review.",
+    )
+    edited_workflow_ir: dict[str, Any] | None = Field(
+        None,
+        description="Optional edited workflow IR when approving a plan review.",
+    )
+
+
 class UserMessageCreateRequest(BaseModel):
     """Mid-session chat message from the user to the agent."""
 
@@ -174,6 +230,35 @@ class SkillCreateRequest(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     success_criteria: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    allowed_tools: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional fnmatch-style glob list narrowing the agent's tool "
+            "surface for sessions launched from this skill. Empty = all "
+            "tools that aren't denied. Example: ['list_*', 'mcp:python.*']."
+        ),
+    )
+    denied_tools: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Optional fnmatch-style glob list of tools to hide. Denial wins "
+            "over allow on collision."
+        ),
+    )
+    requires_exit_tool: str = Field(
+        "",
+        description=(
+            "When set, names a builtin tool the agent MUST call to leave "
+            "this skill's mode (e.g. 'exit_plan_mode' for plan mode)."
+        ),
+    )
+    scope: str = Field(
+        "workspace",
+        description=(
+            "Where to persist this skill: 'workspace' (default, "
+            "<workspace>/.skills.json) or 'user' (~/.molexp/skills.json)."
+        ),
+    )
 
 
 class SkillUpdateRequest(BaseModel):
@@ -186,6 +271,9 @@ class SkillUpdateRequest(BaseModel):
     constraints: list[str] | None = None
     success_criteria: list[str] | None = None
     tags: list[str] | None = None
+    allowed_tools: list[str] | None = None
+    denied_tools: list[str] | None = None
+    requires_exit_tool: str | None = None
 
 
 class SkillLaunchRequest(BaseModel):

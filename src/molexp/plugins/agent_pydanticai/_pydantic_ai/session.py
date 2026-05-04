@@ -22,6 +22,7 @@ from pydantic_ai.messages import AgentStreamEvent
 from ..types import (
     AgentSession,
     Goal,
+    PlanCreatedEvent,
     ResultArtifactEvent,
     SessionCompletedEvent,
     SessionEvent,
@@ -29,7 +30,10 @@ from ..types import (
     ToolResultEvent,
     UserMessageEvent,
     UserMessageRequestEvent,
+    WorkflowPreview,
 )
+from molexp.workflow.compiler import default_compiler
+
 from .events import map_stream_event
 
 if TYPE_CHECKING:
@@ -89,11 +93,17 @@ class PydanticAISession(AgentSession):
         self._event_queue: asyncio.Queue[Any] = asyncio.Queue()
         self._approval_futures: dict[str, asyncio.Future[bool]] = {}
         self._user_message_futures: dict[str, asyncio.Future[str]] = {}
+        self._plan_decision_futures: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._run_task: asyncio.Task | None = None
         self._message_history: list[Any] = []
         self._agent: Agent[Any, str] | None = None
         self._deps: Any = None
         self._followup_lock = asyncio.Lock()
+        # Hook the runtime sets so it can rebuild the agent (and thus its
+        # toolset + system prompt) when plan mode is exited via a structured
+        # decision. Receives the freshly-mutated :class:`Goal` and returns
+        # a new pydantic-ai Agent.
+        self._rebuild_agent: Any = None
         # Optional hook fired after status transitions to a terminal state
         # ("completed" / "failed"). The runtime sets this so it can re-flush
         # metadata to disk; tests may leave it None.
@@ -329,4 +339,129 @@ class PydanticAISession(AgentSession):
             self._run_task = asyncio.create_task(
                 self._run_agent(self._agent, content, self._deps),
                 name=f"molexp-session-{self.session_id}-followup",
+            )
+
+    # ── Plan-mode handoff ────────────────────────────────────────────────
+
+    async def await_plan_decision(
+        self,
+        plan_markdown: str,
+        workflow_preview: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Pause the run on a finalized plan and wait for user decision.
+
+        Every plan is a workflow: the prose ``plan_markdown`` and the
+        structured ``workflow_preview.workflow_ir`` are two views of the
+        same set of nodes. Emits a :class:`PlanCreatedEvent` to the
+        stream and parks on a future. Resolved by :meth:`respond_plan`
+        with the user's approve / reject + any edits. The dict returned
+        to the agent is what the agent reads as the tool result of
+        ``exit_plan_mode``.
+
+        Re-validates the workflow_preview shape so the session can never
+        park on a malformed plan even if the tool wrapper is bypassed.
+        """
+        if not isinstance(workflow_preview, dict):
+            raise ValueError(
+                "await_plan_decision: workflow_preview must be a dict with a "
+                "non-empty workflow_ir.task_configs list."
+            )
+        ir = workflow_preview.get("workflow_ir")
+        if not isinstance(ir, dict) or not ir.get("task_configs"):
+            raise ValueError(
+                "await_plan_decision: workflow_preview.workflow_ir.task_configs "
+                "must contain at least one node."
+            )
+
+        request_id = uuid.uuid4().hex
+        future: asyncio.Future[dict[str, Any]] = (
+            asyncio.get_event_loop().create_future()
+        )
+        self._plan_decision_futures[request_id] = future
+
+        # Auto-render the matching Python script if the agent did not
+        # supply one. The IR is the source of truth; the script is the
+        # human-readable view derived from it via the bidirectional
+        # codegen module. When the agent does provide a script, preserve
+        # its text verbatim (the agent may have authored
+        # intentionally-readable comments / formatting we do not want
+        # to normalize away).
+        ir_dict = dict(ir)
+        agent_script_raw = str(workflow_preview.get("python_script", ""))
+        if agent_script_raw.strip():
+            python_script = agent_script_raw
+        else:
+            try:
+                python_script = default_compiler.ir_to_python(ir_dict)
+            except ValueError:
+                logger.exception(
+                    "Failed to render python_script for workflow IR; "
+                    "falling back to empty string."
+                )
+                python_script = ""
+        preview_obj = WorkflowPreview(
+            workflow_ir=ir_dict,
+            python_script=python_script,
+            mermaid=str(workflow_preview.get("mermaid", "")),
+            intervention_points=list(workflow_preview.get("intervention_points") or []),
+        )
+
+        await self._event_queue.put(
+            PlanCreatedEvent(
+                request_id=request_id,
+                plan_markdown=plan_markdown,
+                workflow_preview=preview_obj,
+            )
+        )
+        try:
+            return await future
+        finally:
+            self._plan_decision_futures.pop(request_id, None)
+
+    async def respond_plan(
+        self,
+        request_id: str,
+        approved: bool,
+        edited_plan: str | None = None,
+        edited_workflow_ir: dict[str, Any] | None = None,
+        feedback: str = "",
+    ) -> None:
+        """Resolve a pending plan decision from the chat client.
+
+        On approval the goal flips out of plan mode and the agent is
+        rebuilt without the plan-mode system prompt; the agent's
+        ``exit_plan_mode`` tool returns the user's decision dict so it
+        can proceed with binding and executing the workflow. On
+        rejection the agent receives the feedback and can revise +
+        call ``exit_plan_mode`` again in the same session.
+        """
+        future = self._plan_decision_futures.get(request_id)
+        if future is None:
+            logger.warning(f"No pending plan decision for id={request_id}")
+            return
+        if future.done():
+            logger.warning(f"Plan decision for id={request_id} already resolved")
+            return
+        if approved:
+            self.goal.plan_mode = False
+            if self._rebuild_agent is not None:
+                try:
+                    self._agent = self._rebuild_agent(self.goal)
+                except Exception:
+                    logger.exception(
+                        "Failed to rebuild agent after plan approval"
+                    )
+            future.set_result(
+                {
+                    "approved": True,
+                    "edited_plan": edited_plan,
+                    "edited_workflow_ir": edited_workflow_ir,
+                }
+            )
+        else:
+            future.set_result(
+                {
+                    "approved": False,
+                    "feedback": feedback or "User rejected the plan.",
+                }
             )

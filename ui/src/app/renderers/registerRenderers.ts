@@ -6,6 +6,7 @@ import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
 import { ImageViewer } from "@/app/renderers/ImageViewer";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
 import { ProjectViewer } from "@/app/renderers/ProjectViewer";
+import { ReviewViewer } from "@/app/renderers/ReviewViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
 import { TextEditor } from "@/app/renderers/TextEditor";
 import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
@@ -202,7 +203,7 @@ export const registerDefaultRenderers = (): void => {
       contentType: "metadata",
       panelKind: "viewer",
     },
-    title: "Agent Session",
+    title: "Agent Task",
     panelSlot: "center",
     Component: AgentViewer,
   });
@@ -214,8 +215,32 @@ export const registerDefaultRenderers = (): void => {
       contentType: "metadata",
       panelKind: "inspector",
     },
-    title: "Agent Inspector",
+    title: "Agent Task Inspector",
     panelSlot: "right",
     Component: AgentSessionInspector,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "review",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Review",
+    panelSlot: "center",
+    Component: ReviewViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "review",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Review Inspector",
+    panelSlot: "right",
+    Component: MetadataInspector,
   });
 };

@@ -45,7 +45,14 @@ export interface ConversationTurn {
 }
 
 const isResultEvent = (event: ApiSessionEvent): boolean =>
-  event.type === "SessionCompletedEvent" || event.type === "ResultArtifactEvent";
+  event.type === "SessionCompletedEvent" ||
+  event.type === "ResultArtifactEvent" ||
+  // PlanCreatedEvent IS the agent's answer for the plan-mode turn —
+  // the user reviews + approves it as the headline. The session is
+  // paused on a future until the user decides; resuming continues
+  // post-event in the same turn until SessionCompletedEvent overrides
+  // the headline.
+  event.type === "PlanCreatedEvent";
 
 const eventKey = (event: ApiSessionEvent, fallback: number): string =>
   `${event.type}-${event.ts}-${fallback}`;

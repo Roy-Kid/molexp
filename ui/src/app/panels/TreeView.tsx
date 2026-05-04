@@ -48,17 +48,28 @@ const INDENT = 14;
 interface RowProps {
   node: TreeNode;
   depth: number;
+  /** True if any sibling at this level has children. Drives the chevron-column reservation. */
+  reserveChevron: boolean;
   activeId?: string;
   expanded: Set<string>;
   onToggle: (id: string) => void;
 }
 
-const TreeRow = ({ node, depth, activeId, expanded, onToggle }: RowProps): JSX.Element => {
+const TreeRow = ({
+  node,
+  depth,
+  reserveChevron,
+  activeId,
+  expanded,
+  onToggle,
+}: RowProps): JSX.Element => {
   const hasChildren = node.children !== undefined;
   const isExpanded = expanded.has(node.id);
   const isActive = activeId === node.id;
   const Icon = node.icon;
   const actions = node.actions ?? [];
+  const childrenReserveChevron =
+    node.children?.some((c) => c.children !== undefined) ?? false;
 
   const rowButton = (
     <button
@@ -142,9 +153,9 @@ const TreeRow = ({ node, depth, activeId, expanded, onToggle }: RowProps): JSX.E
               className={`h-3.5 w-3.5 transition-transform ${isExpanded ? "rotate-90" : ""}`}
             />
           </button>
-        ) : (
+        ) : reserveChevron ? (
           <span className="h-6 w-6 flex-none" />
-        )}
+        ) : null}
         {wrappedRow}
       </div>
       {node.children !== undefined && isExpanded && (
@@ -162,6 +173,7 @@ const TreeRow = ({ node, depth, activeId, expanded, onToggle }: RowProps): JSX.E
                 key={child.id}
                 node={child}
                 depth={depth + 1}
+                reserveChevron={childrenReserveChevron}
                 activeId={activeId}
                 expanded={expanded}
                 onToggle={onToggle}
@@ -213,6 +225,8 @@ export const TreeView = ({
     );
   }
 
+  const reserveChevron = nodes.some((n) => n.children !== undefined);
+
   return (
     <div className="space-y-0.5">
       {nodes.map((node) => (
@@ -220,6 +234,7 @@ export const TreeView = ({
           key={node.id}
           node={node}
           depth={0}
+          reserveChevron={reserveChevron}
           activeId={activeId}
           expanded={expanded}
           onToggle={toggle}

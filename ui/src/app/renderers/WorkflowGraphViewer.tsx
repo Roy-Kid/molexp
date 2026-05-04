@@ -1,7 +1,7 @@
 import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 import { useEffect, useMemo, useState } from "react";
-import "@xyflow/react/dist/style.css";
+// xyflow's stylesheet is imported once at the app entry (see index.tsx).
 import type {
   RendererProps,
   SemanticStatus,

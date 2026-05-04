@@ -28,6 +28,7 @@ via its methods. Three equivalent styles share the same class:
 """
 
 from .cache import Caching
+from .compiler import WorkflowCompiler, default_compiler
 from .context import ActorContext, TaskContext
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
@@ -50,6 +51,9 @@ __all__ = [
     # Workflow building (unified OOP API)
     "Workflow",
     "WorkflowSpec",
+    # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec)
+    "WorkflowCompiler",
+    "default_compiler",
     # Execution
     "WorkflowRuntime",
     "WorkflowResult",
