@@ -70,9 +70,29 @@ def _service_for(workspace) -> AgentService:
             existing = AgentService.from_workspace(
                 workspace_path=root or Path("."),
                 workspace=workspace,
+                model=_resolve_model_client(root),
             )
             _service_cache[key] = existing
     return existing
+
+
+def _resolve_model_client(root: Path | None):
+    """Build a :class:`ModelClient` from the workspace's provider config.
+
+    Returns ``None`` when no API key is configured — sessions then run
+    in metadata-only mode (no background turn-loop task).
+    """
+
+    if root is None:
+        return None
+    import molexp.plugins.model_pydanticai  # noqa: F401 — registers the factory
+    from molexp.agent import create_model_client
+    from molexp.plugins.model_pydanticai.store import ProviderStore
+
+    config = ProviderStore(root).load()
+    if not config.api_key:
+        return None
+    return create_model_client(config)
 
 
 def get_agent_service(workspace=Depends(get_workspace)) -> AgentService:

@@ -77,7 +77,13 @@ class AgentService:
         model: ModelClient | None = None,
         workspace: object | None = None,
     ) -> "AgentService":
-        """Construct a service rooted at ``workspace_path``."""
+        """Construct a service rooted at ``workspace_path``.
+
+        ``model`` is supplied by the caller — typically the server,
+        which resolves a provider config through
+        :func:`molexp.agent.model_registry.create_model_client`. The
+        harness itself never imports a model plugin.
+        """
 
         return cls(
             workspace_path=Path(workspace_path),

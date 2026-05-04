@@ -28,6 +28,12 @@ from molexp.agent.model import (
     ProviderConfigValidator,
     ToolSchema,
 )
+from molexp.agent.model_registry import (
+    UnknownProviderError,
+    create_model_client,
+    list_providers,
+    register_model_provider,
+)
 from molexp.agent.orchestration.session import AgentSession
 from molexp.agent.service import AgentService
 from molexp.agent.tools.registry import (
@@ -78,7 +84,11 @@ __all__ = [
     "ToolResult",
     "ToolSchema",
     "ToolSpec",
+    "UnknownProviderError",
     "Usage",
     "WorkflowPreview",
+    "create_model_client",
+    "list_providers",
     "native_tool",
+    "register_model_provider",
 ]
