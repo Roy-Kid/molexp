@@ -11,6 +11,7 @@ Plugin naming convention: ``{category}_{implementation}``
 - ``agent_claude`` — Coding-agent boundary backed by the Claude CLI
 - ``agent_codex`` — Coding-agent boundary backed by the Codex app-server
 - ``coding_agent`` — Shared contract (Protocol + types) for the agent_* plugins
+- ``gh`` — GitHub API client (GraphQL + REST) backed by httpx
 - ``tool_mcp`` — MCP tool sources
 
 Usage::
@@ -36,6 +37,7 @@ class Capability(str, Enum):
     AGENT = "agent"
     CODING_AGENT_CLAUDE = "coding_agent_claude"
     CODING_AGENT_CODEX = "coding_agent_codex"
+    GH = "gh"
 
 
 class CapabilityNotAvailable(RuntimeError):
@@ -69,6 +71,7 @@ _INSTALL_HINTS: dict[Capability, str] = {
     Capability.AGENT: "Install with: pip install molexp[agent]",
     Capability.CODING_AGENT_CLAUDE: "Requires the `claude` CLI on PATH.",
     Capability.CODING_AGENT_CODEX: "Requires the `codex` app-server on PATH.",
+    Capability.GH: "Install with: pip install httpx",
 }
 
 
@@ -110,10 +113,24 @@ def _load_coding_agent_codex() -> Any:
     return CodexAppServerClient
 
 
+def _load_gh() -> Any:
+    """Probe httpx availability, then return :class:`GitHubClient`.
+
+    The ``gh`` plugin requires ``httpx``. Token / network failures
+    happen at request time, not at load time.
+    """
+    import httpx  # noqa: F401 — availability check
+
+    from molexp.plugins.gh import GitHubClient
+
+    return GitHubClient
+
+
 _LOADERS: dict[Capability, Any] = {
     Capability.AGENT: _load_agent,
     Capability.CODING_AGENT_CLAUDE: _load_coding_agent_claude,
     Capability.CODING_AGENT_CODEX: _load_coding_agent_codex,
+    Capability.GH: _load_gh,
 }
 
 

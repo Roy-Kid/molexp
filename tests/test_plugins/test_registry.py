@@ -56,6 +56,17 @@ class TestPluginRegistry:
             available = reg.is_available(cap)
             assert isinstance(available, bool)
 
+    def test_gh_capability_registered_and_gated(self):
+        """``Capability.GH`` is registered; available iff httpx is installed."""
+        assert Capability.GH == "gh"
+        reg = PluginRegistry()
+        try:
+            import httpx  # noqa: F401
+
+            assert reg.is_available(Capability.GH)
+        except ImportError:
+            assert not reg.is_available(Capability.GH)
+
     def test_discover_ui_plugins_always_includes_core(self):
         plugins = discover_ui_plugins()
         assert [plugin.id for plugin in plugins][0] == "core"
