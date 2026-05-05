@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -24,6 +23,9 @@ from molexp.plugins.coding_agent import (
     AgentEventCallback,
     AgentTurnInputRequiredError,
     TurnResult,
+    drain_stderr,
+    emit_event,
+    terminate_subprocess,
 )
 
 
@@ -34,6 +36,11 @@ class ToolHandler(Protocol):
     Implementations receive the ``params`` dict of an ``item/tool/call``
     JSON-RPC request and return the JSON-RPC ``result`` dict the
     app-server expects (``{"success": bool, "contentItems": [...]}``).
+
+    The handler is invoked **synchronously inside the JSON-RPC reader
+    loop**; long-running work should not be done here or it stalls the
+    reader and blocks every other in-flight request. Defer slow I/O to
+    a background task and return a placeholder result if necessary.
     """
 
     def execute_tool(self, params: dict[str, Any] | None) -> dict[str, Any]: ...
@@ -66,6 +73,9 @@ class CodexAppServerClient:
         self._next_id = 1
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
         self._reader_task: asyncio.Task[None] | None = None
+        self._stderr_task: asyncio.Task[None] | None = None
+        # Turn completion arrives as a notification, not a JSON-RPC reply,
+        # so it cannot share `_pending`.
         self._active_turn: asyncio.Future[dict[str, Any]] | None = None
 
     @property
@@ -83,7 +93,7 @@ class CodexAppServerClient:
             stderr=asyncio.subprocess.PIPE,
         )
         self._reader_task = asyncio.create_task(self._read_stdout())
-        asyncio.create_task(self._drain_stderr())
+        self._stderr_task = asyncio.create_task(drain_stderr(self.process, self.on_event))
         await self.request(
             "initialize",
             {
@@ -96,7 +106,9 @@ class CodexAppServerClient:
             },
             timeout_ms=self.config.read_timeout_ms,
         )
-        await self._emit({"event": "app_server_started", "codex_app_server_pid": self.pid})
+        await emit_event(
+            self.on_event, {"event": "app_server_started", "codex_app_server_pid": self.pid}
+        )
 
     async def start_thread(self) -> str:
         params: dict[str, Any] = {
@@ -117,12 +129,13 @@ class CodexAppServerClient:
         thread_id = thread.get("id")
         if not thread_id:
             raise AgentError("response_error missing thread id")
-        await self._emit(
+        await emit_event(
+            self.on_event,
             {
                 "event": "thread_started",
                 "thread_id": thread_id,
                 "codex_app_server_pid": self.pid,
-            }
+            },
         )
         return str(thread_id)
 
@@ -146,7 +159,10 @@ class CodexAppServerClient:
         turn_id = turn.get("id")
         if not turn_id:
             raise AgentError("response_error missing turn id")
-        await self._emit({"event": "turn_started", "thread_id": thread_id, "turn_id": turn_id})
+        await emit_event(
+            self.on_event,
+            {"event": "turn_started", "thread_id": thread_id, "turn_id": turn_id},
+        )
         try:
             completed = await asyncio.wait_for(
                 self._active_turn,
@@ -174,15 +190,20 @@ class CodexAppServerClient:
             raise AgentError(f"response_timeout method={method}") from exc
 
     async def close(self) -> None:
-        if self._reader_task:
+        # Unblock anyone awaiting an RPC reply or turn completion before the
+        # subprocess goes away; otherwise they hang until their own timeout.
+        for future in self._pending.values():
+            if not future.done():
+                future.set_exception(AgentError("port_exit"))
+        self._pending.clear()
+        if self._active_turn is not None and not self._active_turn.done():
+            self._active_turn.set_exception(AgentError("port_exit"))
+        if self._reader_task is not None:
             self._reader_task.cancel()
-        if self.process:
-            self.process.terminate()
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=5)
-            except asyncio.TimeoutError:
-                self.process.kill()
-                await self.process.wait()
+        if self._stderr_task is not None:
+            self._stderr_task.cancel()
+        await terminate_subprocess(self.process)
+        self.process = None
 
     # ── internal ────────────────────────────────────────────────────────
 
@@ -203,24 +224,12 @@ class CodexAppServerClient:
             try:
                 message = json.loads(line.decode("utf-8"))
             except json.JSONDecodeError:
-                await self._emit(
-                    {
-                        "event": "malformed",
-                        "message": line[:200].decode("utf-8", "replace"),
-                    }
+                await emit_event(
+                    self.on_event,
+                    {"event": "malformed", "message": line[:200].decode("utf-8", "replace")},
                 )
                 continue
             await self._handle_message(message)
-
-    async def _drain_stderr(self) -> None:
-        assert self.process is not None and self.process.stderr is not None
-        while True:
-            line = await self.process.stderr.readline()
-            if not line:
-                return
-            await self._emit(
-                {"event": "stderr", "message": line.decode("utf-8", "replace")[:1000]}
-            )
 
     async def _handle_message(self, message: dict[str, Any]) -> None:
         if "id" in message and ("result" in message or "error" in message):
@@ -237,11 +246,15 @@ class CodexAppServerClient:
             return
         method = message.get("method")
         params = message.get("params") or {}
-        await self._emit({"event": method or "other_message", "payload": params})
+        await emit_event(self.on_event, {"event": method or "other_message", "payload": params})
         if method == "thread/tokenUsage/updated":
-            await self._emit({"event": "token_usage", "usage": params.get("tokenUsage")})
+            await emit_event(
+                self.on_event, {"event": "token_usage", "usage": params.get("tokenUsage")}
+            )
         elif method == "account/rateLimits/updated":
-            await self._emit({"event": "rate_limits", "rateLimits": params.get("rateLimits")})
+            await emit_event(
+                self.on_event, {"event": "rate_limits", "rateLimits": params.get("rateLimits")}
+            )
         elif method == "turn/completed":
             if self._active_turn and not self._active_turn.done():
                 self._active_turn.set_result(message)
@@ -250,11 +263,12 @@ class CodexAppServerClient:
         method = message.get("method")
         request_id = message["id"]
         params = message.get("params") or {}
-        if method == "item/commandExecution/requestApproval":
-            await self._emit({"event": "approval_auto_approved", "payload": params})
-            await self._write({"id": request_id, "result": {"decision": "acceptForSession"}})
-        elif method == "item/fileChange/requestApproval":
-            await self._emit({"event": "approval_auto_approved", "payload": params})
+        if method in (
+            "item/commandExecution/requestApproval",
+            "item/fileChange/requestApproval",
+            "item/permissions/requestApproval",
+        ):
+            await emit_event(self.on_event, {"event": "approval_auto_approved", "payload": params})
             await self._write({"id": request_id, "result": {"decision": "acceptForSession"}})
         elif method == "item/tool/requestUserInput":
             await self._write(
@@ -268,9 +282,6 @@ class CodexAppServerClient:
         elif method == "item/tool/call":
             result = self._dispatch_tool(params)
             await self._write({"id": request_id, "result": result})
-        elif method == "item/permissions/requestApproval":
-            await self._emit({"event": "approval_auto_approved", "payload": params})
-            await self._write({"id": request_id, "result": {"decision": "acceptForSession"}})
         else:
             await self._write(
                 {
@@ -296,13 +307,6 @@ class CodexAppServerClient:
                     }
                 ],
             }
-
-    async def _emit(self, payload: dict[str, Any]) -> None:
-        payload.setdefault("timestamp", time.time())
-        result = self.on_event(payload)
-        if asyncio.iscoroutine(result):
-            await result
-
 
 def _unsupported_tool_response(tool: Any) -> dict[str, Any]:
     return {

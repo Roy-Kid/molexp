@@ -1,8 +1,8 @@
 """Happy-path tests for the agent_codex plugin.
 
-The plugin wraps the Codex app-server (``codex app-server``) as a coding-agent
-client. It exchanges JSON-RPC over stdio with the long-lived subprocess.
-Tests stub ``asyncio.create_subprocess_exec`` so no real binary is required.
+Subprocess + JSON-RPC dialog is stubbed: each request from the client
+unblocks an ``asyncio.Event`` that lets the scripted driver feed the
+matching reply onto stdout. Deterministic, no busy-wait.
 """
 
 from __future__ import annotations
@@ -14,64 +14,66 @@ from typing import Any
 
 import pytest
 
-
-@pytest.fixture
-def captured_events() -> list[dict[str, Any]]:
-    return []
+from tests.test_plugins.conftest import StreamReader
 
 
-@pytest.fixture
-def on_event(captured_events: list[dict[str, Any]]):
-    async def _emit(payload: dict[str, Any]) -> None:
-        captured_events.append(payload)
+class _ScriptedStdin:
+    """Stdin that records frames and signals waiters by JSON-RPC ``method``.
 
-    return _emit
+    ``waiter(method)`` returns an Event that is *already set* if the
+    matching frame has already been written, avoiding the registration race
+    between the client calling ``write()`` and the test driver calling
+    ``waiter()``.
+    """
+
+    def __init__(self) -> None:
+        self.frames: list[dict[str, Any]] = []
+        self._fired_methods: set[str] = set()
+        self._waiters: dict[str, asyncio.Event] = {}
+
+    def waiter(self, method: str) -> asyncio.Event:
+        event = self._waiters.setdefault(method, asyncio.Event())
+        if method in self._fired_methods:
+            event.set()
+        return event
+
+    def write(self, data: bytes) -> None:
+        for raw in data.splitlines():
+            if not raw.strip():
+                continue
+            frame = json.loads(raw.decode("utf-8"))
+            self.frames.append(frame)
+            method = frame.get("method")
+            if method:
+                self._fired_methods.add(method)
+                if method in self._waiters:
+                    self._waiters[method].set()
+
+    async def drain(self) -> None: ...
 
 
 class _ScriptedStdout:
-    """Stdout that emits queued JSON-RPC frames in order."""
+    """Async-queue-backed stdout stub. Tests push replies via ``feed``."""
 
     def __init__(self) -> None:
         self._queue: asyncio.Queue[bytes] = asyncio.Queue()
-        self._closed = False
 
     def feed(self, payload: dict[str, Any]) -> None:
         self._queue.put_nowait(json.dumps(payload).encode("utf-8") + b"\n")
-
-    def feed_eof(self) -> None:
-        self._closed = True
-        self._queue.put_nowait(b"")
 
     async def readline(self) -> bytes:
         return await self._queue.get()
 
 
-class _NullStream:
-    async def readline(self) -> bytes:
-        return b""
-
-
-class _CapturedStdin:
-    def __init__(self, sink: list[dict[str, Any]]) -> None:
-        self._sink = sink
-
-    def write(self, data: bytes) -> None:
-        for raw in data.splitlines():
-            if raw.strip():
-                self._sink.append(json.loads(raw.decode("utf-8")))
-
-    async def drain(self) -> None: ...
-
-
 class _FakeProcess:
-    def __init__(self, stdin_sink: list[dict[str, Any]]) -> None:
-        self.stdin = _CapturedStdin(stdin_sink)
+    def __init__(self) -> None:
+        self.stdin = _ScriptedStdin()
         self.stdout = _ScriptedStdout()
-        self.stderr = _NullStream()
+        self.stderr = StreamReader()
         self.pid = 1717
+        self._returncode: int | None = None
         self.terminated = False
         self.killed = False
-        self._returncode: int | None = None
 
     @property
     def returncode(self) -> int | None:
@@ -91,15 +93,21 @@ class _FakeProcess:
 
 @pytest.fixture
 def fake_subprocess(monkeypatch):
-    holder: dict[str, Any] = {"proc": None, "stdin_sink": []}
+    holder: dict[str, Any] = {"proc": None}
 
     async def _fake_exec(*args, **kwargs):
-        proc = _FakeProcess(holder["stdin_sink"])
+        proc = _FakeProcess()
         holder["proc"] = proc
         return proc
 
     monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
     return holder
+
+
+async def _reply_when(stdin: _ScriptedStdin, method: str) -> dict[str, Any]:
+    """Wait for ``method`` to be written to stdin, return its frame."""
+    await stdin.waiter(method).wait()
+    return next(f for f in stdin.frames if f.get("method") == method)
 
 
 @pytest.mark.asyncio
@@ -117,40 +125,22 @@ async def test_run_turn_happy_path(
         on_event=on_event,
     )
 
-    async def _scripted_responses() -> None:
-        # Wait for the proc to exist (start() spawns it).
-        for _ in range(50):
-            await asyncio.sleep(0.01)
-            if fake_subprocess["proc"] is not None:
-                break
+    async def driver() -> None:
+        # Wait until start() has spawned the proc and registered _read_stdout.
+        while fake_subprocess["proc"] is None:
+            await asyncio.sleep(0)
         proc = fake_subprocess["proc"]
-        # Drive the JSON-RPC dialog: respond to each request as it arrives.
-        sink = fake_subprocess["stdin_sink"]
-        # initialize
-        for _ in range(50):
-            if any(r.get("method") == "initialize" for r in sink):
-                break
-            await asyncio.sleep(0.01)
-        init = next(r for r in sink if r.get("method") == "initialize")
+        init = await _reply_when(proc.stdin, "initialize")
         proc.stdout.feed({"id": init["id"], "result": {}})
-        # thread/start
-        for _ in range(50):
-            if any(r.get("method") == "thread/start" for r in sink):
-                break
-            await asyncio.sleep(0.01)
-        ts = next(r for r in sink if r.get("method") == "thread/start")
+        ts = await _reply_when(proc.stdin, "thread/start")
         proc.stdout.feed({"id": ts["id"], "result": {"thread": {"id": "thr-1"}}})
-        # turn/start
-        for _ in range(50):
-            if any(r.get("method") == "turn/start" for r in sink):
-                break
-            await asyncio.sleep(0.01)
-        tsn = next(r for r in sink if r.get("method") == "turn/start")
+        tsn = await _reply_when(proc.stdin, "turn/start")
         proc.stdout.feed({"id": tsn["id"], "result": {"turn": {"id": "turn-1"}}})
-        # turn/completed notification
-        proc.stdout.feed({"method": "turn/completed", "params": {"turn": {"status": "completed"}}})
+        proc.stdout.feed(
+            {"method": "turn/completed", "params": {"turn": {"status": "completed"}}}
+        )
 
-    driver = asyncio.create_task(_scripted_responses())
+    driver_task = asyncio.create_task(driver())
 
     await client.start()
     thread_id = await client.start_thread()
@@ -159,4 +149,4 @@ async def test_run_turn_happy_path(
     assert result.status == "completed"
     assert result.thread_id == "thr-1"
     await client.close()
-    await driver
+    await driver_task

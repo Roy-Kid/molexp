@@ -17,16 +17,18 @@ import asyncio
 import json
 import os
 import shutil
-import time
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from molexp.plugins.agent_claude.config import ClaudeCliConfig, SubagentDef
 from molexp.plugins.coding_agent import (
     AgentError,
     AgentEventCallback,
     TurnResult,
+    drain_stderr,
+    emit_event,
+    terminate_subprocess,
 )
 
 ENV_VARS_TO_STRIP_FOR_SUBSCRIPTION = (
@@ -68,7 +70,6 @@ class ClaudeCliClient:
         self._session_uuid: str | None = None
         self._first_turn_started = False
         self._current_proc: asyncio.subprocess.Process | None = None
-        self._last_pid: int | None = None
         # Claude CLI reports per-turn usage; orchestrator expects cumulative
         # totals per thread. Accumulate here so emitted token_usage events
         # grow monotonically across turns.
@@ -80,25 +81,25 @@ class ClaudeCliClient:
         proc = self._current_proc
         if proc is not None and proc.returncode is None:
             return proc.pid
-        return self._last_pid
+        return None
 
     async def start(self) -> None:
-        binary = shutil.which(self.config.command) or self.config.command
-        if not Path(binary).exists() and shutil.which(self.config.command) is None:
+        if shutil.which(self.config.command) is None:
             raise AgentError(f"claude_cli_not_found command={self.config.command!r}")
-        await self._emit(
+        await emit_event(
+            self.on_event,
             {
                 "event": "claude_cli_ready",
                 "command": self.config.command,
                 "mcp_config": str(self.config.mcp_config) if self.config.mcp_config else None,
-            }
+            },
         )
 
     async def start_thread(self) -> str:
         thread_id = str(uuid.uuid4())
         self._session_uuid = thread_id
         self._first_turn_started = False
-        await self._emit({"event": "thread_started", "thread_id": thread_id})
+        await emit_event(self.on_event, {"event": "thread_started", "thread_id": thread_id})
         return thread_id
 
     async def run_turn(self, thread_id: str, prompt: str) -> TurnResult:
@@ -109,7 +110,10 @@ class ClaudeCliClient:
         cmd = self._build_command(first_turn=not self._first_turn_started)
         env = self._prepare_env()
         turn_id = str(uuid.uuid4())
-        await self._emit({"event": "turn_started", "thread_id": thread_id, "turn_id": turn_id})
+        await emit_event(
+            self.on_event,
+            {"event": "turn_started", "thread_id": thread_id, "turn_id": turn_id},
+        )
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -122,8 +126,7 @@ class ClaudeCliClient:
         except FileNotFoundError as exc:
             raise AgentError(f"claude_cli_not_found command={self.config.command!r}") from exc
         self._current_proc = proc
-        self._last_pid = proc.pid
-        await self._emit({"event": "subprocess_started", "pid": proc.pid})
+        await emit_event(self.on_event, {"event": "subprocess_started", "pid": proc.pid})
 
         assert proc.stdin is not None
         try:
@@ -133,21 +136,20 @@ class ClaudeCliClient:
         except (BrokenPipeError, ConnectionResetError) as exc:
             raise AgentError(f"claude_cli_subprocess_failure stdin={exc}") from exc
 
-        stderr_task = asyncio.create_task(self._drain_stderr(proc))
+        stderr_task = asyncio.create_task(drain_stderr(proc, self.on_event))
         result_event: dict[str, Any] | None = None
         first_event_seen = False
-        first_assistant_seen = False
+        read_timeout = self.config.read_timeout_ms / 1000
+        turn_timeout = self.config.turn_timeout_ms / 1000
         assert proc.stdout is not None
         try:
             while True:
-                line_future = proc.stdout.readline()
-                timeout = (
-                    self.config.read_timeout_ms / 1000
-                    if not first_event_seen
-                    else self.config.turn_timeout_ms / 1000
-                )
+                # asyncio.wait_for cancels the awaiter on timeout, not the
+                # underlying transport read; we kill the subprocess to make
+                # the buffer ownership unambiguous.
+                timeout = read_timeout if not first_event_seen else turn_timeout
                 try:
-                    line = await asyncio.wait_for(line_future, timeout=timeout)
+                    line = await asyncio.wait_for(proc.stdout.readline(), timeout=timeout)
                 except asyncio.TimeoutError as exc:
                     proc.kill()
                     code = "response_timeout" if not first_event_seen else "turn_timeout"
@@ -158,19 +160,17 @@ class ClaudeCliClient:
                 try:
                     message = json.loads(line.decode("utf-8"))
                 except json.JSONDecodeError:
-                    await self._emit(
-                        {
-                            "event": "malformed",
-                            "message": line[:200].decode("utf-8", "replace"),
-                        }
+                    await emit_event(
+                        self.on_event,
+                        {"event": "malformed", "message": line[:200].decode("utf-8", "replace")},
                     )
                     continue
-                handled = await self._dispatch_message(message, thread_id, turn_id)
-                if handled.get("first_assistant") and not first_assistant_seen:
-                    first_assistant_seen = True
-                if handled.get("result"):
-                    result_event = handled["result"]
+                result = await self._dispatch_message(message, thread_id, turn_id)
+                if result is not None:
+                    result_event = result
         finally:
+            # Stream EOF reached naturally → process is exiting; just wait.
+            # Kill is reserved for the timeout path above.
             try:
                 rc = await asyncio.wait_for(proc.wait(), timeout=5)
             except asyncio.TimeoutError:
@@ -185,11 +185,14 @@ class ClaudeCliClient:
         is_error = bool(result_event.get("is_error"))
         subtype = str(result_event.get("subtype") or "")
         terminal_reason = str(result_event.get("terminal_reason") or "")
-        status = "completed" if not is_error and subtype == "success" else "failed"
+        status: Literal["completed", "failed"] = (
+            "completed" if not is_error and subtype == "success" else "failed"
+        )
 
-        if is_error or status != "completed":
+        if status != "completed":
             stop_reason = str(result_event.get("stop_reason") or "")
-            await self._emit(
+            await emit_event(
+                self.on_event,
                 {
                     "event": "turn_failed",
                     "thread_id": thread_id,
@@ -197,20 +200,21 @@ class ClaudeCliClient:
                     "stop_reason": stop_reason,
                     "terminal_reason": terminal_reason,
                     "api_error_status": result_event.get("api_error_status"),
-                }
+                },
             )
             raise AgentError(
                 f"turn_failed subtype={subtype!r} stop_reason={stop_reason!r} "
                 f"terminal_reason={terminal_reason!r}"
             )
 
-        await self._emit(
+        await emit_event(
+            self.on_event,
             {
                 "event": "turn_completed",
                 "thread_id": thread_id,
                 "turn_id": turn_id,
                 "stop_reason": result_event.get("stop_reason"),
-            }
+            },
         )
         self._first_turn_started = True
         return TurnResult(thread_id=thread_id, turn_id=turn_id, status=status)
@@ -218,16 +222,7 @@ class ClaudeCliClient:
     async def close(self) -> None:
         proc = self._current_proc
         self._current_proc = None
-        if proc is None or proc.returncode is not None:
-            return
-        proc.terminate()
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=5)
-        except asyncio.TimeoutError:
-            proc.kill()
-            await proc.wait()
-
-    # ── internal helpers ────────────────────────────────────────────────
+        await terminate_subprocess(proc)
 
     def _build_command(self, *, first_turn: bool) -> list[str]:
         cmd: list[str] = [
@@ -303,11 +298,14 @@ class ClaudeCliClient:
         message: dict[str, Any],
         thread_id: str,
         turn_id: str,
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | None:
+        """Translate one stream-json message to events; return the ``result``
+        message when the turn completes, otherwise ``None``."""
         msg_type = message.get("type")
         subtype = message.get("subtype")
         if msg_type == "system" and subtype == "init":
-            await self._emit(
+            await emit_event(
+                self.on_event,
                 {
                     "event": "system_init",
                     "thread_id": thread_id,
@@ -318,27 +316,27 @@ class ClaudeCliClient:
                     "api_key_source": message.get("apiKeySource"),
                     "mcp_servers": message.get("mcp_servers"),
                     "session_id": message.get("session_id"),
-                }
+                },
             )
-            return {}
+            return None
         if msg_type == "rate_limit_event":
             info = message.get("rate_limit_info") or {}
-            await self._emit({"event": "rate_limits", "rateLimits": info})
+            await emit_event(self.on_event, {"event": "rate_limits", "rateLimits": info})
             status = info.get("status")
             if status and status not in ("allowed", "ok"):
-                await self._emit(
+                await emit_event(
+                    self.on_event,
                     {
                         "event": "rate_limit_rejected",
                         "rateLimits": info,
                         "thread_id": thread_id,
                         "turn_id": turn_id,
                         "resetsAt": info.get("resetsAt"),
-                    }
+                    },
                 )
-            return {}
+            return None
         if msg_type == "assistant":
-            tool_uses = _extract_tool_uses(message)
-            for tool in tool_uses:
+            for tool in _extract_tool_uses(message):
                 tool_name = tool.get("name") or ""
                 tool_input = tool.get("input") if isinstance(tool.get("input"), dict) else {}
                 payload: dict[str, Any] = {
@@ -351,20 +349,21 @@ class ClaudeCliClient:
                 }
                 if tool_name == "TodoWrite":
                     payload["todos"] = _normalize_todos(tool_input.get("todos"))
-                await self._emit(payload)
+                await emit_event(self.on_event, payload)
             assistant_text = _extract_assistant_text(message)
             if assistant_text:
-                await self._emit(
+                await emit_event(
+                    self.on_event,
                     {
                         "event": "assistant_text",
                         "thread_id": thread_id,
                         "turn_id": turn_id,
                         "text": assistant_text,
-                    }
+                    },
                 )
-            return {"first_assistant": True}
+            return None
         if msg_type == "user":
-            return {}
+            return None
         if msg_type == "result":
             usage = _normalize_usage(message.get("usage") or {})
             if usage:
@@ -375,8 +374,11 @@ class ClaudeCliClient:
                     "outputTokens": self._cumulative_output_tokens,
                     "totalTokens": self._cumulative_input_tokens + self._cumulative_output_tokens,
                 }
-                await self._emit({"event": "token_usage", "usage": {"total": cumulative}})
-            await self._emit(
+                await emit_event(
+                    self.on_event, {"event": "token_usage", "usage": {"total": cumulative}}
+                )
+            await emit_event(
+                self.on_event,
                 {
                     "event": "result",
                     "thread_id": thread_id,
@@ -387,42 +389,23 @@ class ClaudeCliClient:
                     "duration_ms": message.get("duration_ms"),
                     "total_cost_usd": message.get("total_cost_usd"),
                     "permission_denials": message.get("permission_denials") or [],
-                }
+                },
             )
-            return {"result": message}
+            return message
         # Categorize less-common events so long pauses are not opaque.
         category_type = str(msg_type or "unknown").replace("/", "_")
         category_sub = str(subtype or "").replace("/", "_") if subtype else ""
         category = "_".join(part for part in ("claude", category_type, category_sub) if part)
-        await self._emit(
+        await emit_event(
+            self.on_event,
             {
                 "event": category,
                 "payload_type": msg_type,
                 "payload_subtype": subtype,
                 "payload": message,
-            }
+            },
         )
-        return {}
-
-    async def _drain_stderr(self, proc: asyncio.subprocess.Process) -> None:
-        if proc.stderr is None:
-            return
-        try:
-            while True:
-                chunk = await proc.stderr.readline()
-                if not chunk:
-                    return
-                await self._emit(
-                    {"event": "stderr", "message": chunk.decode("utf-8", "replace")[:1000]}
-                )
-        except asyncio.CancelledError:
-            return
-
-    async def _emit(self, payload: dict[str, Any]) -> None:
-        payload.setdefault("timestamp", time.time())
-        result = self.on_event(payload)
-        if asyncio.iscoroutine(result):
-            await result
+        return None
 
 
 # ── pure helpers (kept module-private so the plugin surface stays minimal) ──
