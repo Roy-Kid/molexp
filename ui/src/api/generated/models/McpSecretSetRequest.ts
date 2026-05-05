@@ -8,7 +8,7 @@
  * The plaintext ``value`` is sent up only; the secret store never returns
  * it via any GET endpoint. Pass an empty string to delete the key.
  */
-export type MCPSecretSetRequest = {
+export type McpSecretSetRequest = {
     /**
      * Plaintext value; empty deletes the key.
      */
@@ -16,9 +16,9 @@ export type MCPSecretSetRequest = {
     /**
      * Where to write the secret. Workspace beats User on lookup.
      */
-    scope?: MCPSecretSetRequest.scope;
+    scope?: McpSecretSetRequest.scope;
 };
-export namespace MCPSecretSetRequest {
+export namespace McpSecretSetRequest {
     /**
      * Where to write the secret. Workspace beats User on lookup.
      */

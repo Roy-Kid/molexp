@@ -243,6 +243,8 @@ class AssetResponse(BaseModel):
     ``kind`` is the discriminator (``data`` / ``artifact`` / ``log`` / …).
     ``extra`` carries subclass-specific fields so the frontend can render
     per-kind details without a separate schema per kind.
+    ``content_hash`` is the sha256 (``"sha256:<hex>"``) of the payload
+    when the asset is content-addressable; ``None`` for streaming kinds.
     """
 
     id: str
@@ -256,6 +258,7 @@ class AssetResponse(BaseModel):
     producer: dict[str, Any] | None = None
     tags: dict[str, str] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
+    content_hash: str | None = None
 
     @classmethod
     def from_model(cls, asset: Asset) -> AssetResponse:
@@ -272,6 +275,7 @@ class AssetResponse(BaseModel):
             "producer",
             "tags",
             "kind",
+            "content_hash",
         }
         extra = {k: v for k, v in dumped.items() if k not in common_fields}
         return cls(
@@ -286,6 +290,7 @@ class AssetResponse(BaseModel):
             producer=asset.producer.model_dump() if asset.producer else None,
             tags=dict(asset.tags),
             extra=extra,
+            content_hash=asset.content_hash,
         )
 
 
@@ -606,6 +611,35 @@ class RunExecutionResponse(BaseModel):
     status: str = "not_started"  # running | completed | failed | not_started
     steps: list[WorkflowStepInfo] = Field(default_factory=list)
     end: dict[str, Any] | None = None
+
+
+# ── Asset lineage (Producer.inputs DAG) ─────────────────────────────────────
+
+
+class AssetLineageNode(BaseModel):
+    """One node in an asset's lineage neighborhood.
+
+    Carries just enough to render a clickable card in the UI; full
+    asset detail is available via ``GET /api/assets/{id}``.
+    """
+
+    id: str
+    name: str
+    kind: str
+    scope_kind: str
+
+
+class AssetLineageResponse(BaseModel):
+    """Upstream + downstream neighbours of an asset in the lineage DAG.
+
+    ``ancestors`` is the transitive set of upstream asset_ids reached
+    by walking ``producer.inputs`` in reverse; ``descendants`` is the
+    transitive forward set. The starting asset is excluded from both.
+    """
+
+    asset_id: str
+    ancestors: list[AssetLineageNode] = Field(default_factory=list)
+    descendants: list[AssetLineageNode] = Field(default_factory=list)
 
 
 # ── Catalog / file lineage ──────────────────────────────────────────────────

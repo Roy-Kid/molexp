@@ -38,6 +38,7 @@ export namespace CustomToolCreateRequest {
         WORKFLOW = 'workflow',
         CHAT = 'chat',
         CONTROL = 'control',
+        WEB = 'web',
     }
     export enum scope {
         USER = 'user',

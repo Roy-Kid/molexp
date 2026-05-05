@@ -19,7 +19,7 @@ export type TargetResponse = {
 };
 export namespace TargetResponse {
     export enum scheduler {
-        SHELL = 'shell',
+        LOCAL = 'local',
         SLURM = 'slurm',
         PBS = 'pbs',
         LSF = 'lsf',

@@ -5,17 +5,18 @@
 /**
  * Outcome of probing an MCP server (subprocess spawn or HTTP handshake).
  */
-export type MCPServerTestResponse = {
+export type McpServerTestResponse = {
     ok: boolean;
     name: string;
-    scope: MCPServerTestResponse.scope;
+    scope: McpServerTestResponse.scope;
     transport: string;
     latencyMs?: number;
     toolCount?: number;
     error?: (string | null);
 };
-export namespace MCPServerTestResponse {
+export namespace McpServerTestResponse {
     export enum scope {
+        NATIVE = 'native',
         USER = 'user',
         WORKSPACE = 'workspace',
     }

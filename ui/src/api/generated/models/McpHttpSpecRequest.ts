@@ -2,15 +2,15 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { MCPOAuth2AuthRequest } from './MCPOAuth2AuthRequest';
+import type { McpOAuth2AuthRequest } from './McpOAuth2AuthRequest';
 /**
  * Remote HTTP MCP server spec.
  *
  * Two transports: ``http`` (streamable HTTP, Claude Code convention)
  * and ``sse`` (legacy long-poll). Use ``http`` for any new server.
  */
-export type MCPHttpSpecRequest = {
-    type: MCPHttpSpecRequest.type;
+export type McpHttpSpecRequest = {
+    type: McpHttpSpecRequest.type;
     url: string;
     /**
      * Values may contain ${SECRET:KEY} placeholders.
@@ -19,9 +19,9 @@ export type MCPHttpSpecRequest = {
     /**
      * Optional structured auth. When set, the runtime drives the OAuth flow and ignores any 'Authorization' header here.
      */
-    auth?: (MCPOAuth2AuthRequest | null);
+    auth?: (McpOAuth2AuthRequest | null);
 };
-export namespace MCPHttpSpecRequest {
+export namespace McpHttpSpecRequest {
     export enum type {
         HTTP = 'http',
         SSE = 'sse',

@@ -2,7 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { MCPServerResponse } from './MCPServerResponse';
+import type { McpServerResponse } from './McpServerResponse';
 /**
  * Merged view of both scopes plus the resolved file paths.
  *
@@ -10,9 +10,9 @@ import type { MCPServerResponse } from './MCPServerResponse';
  * would read/write at each scope (whether or not the file currently
  * exists) — useful for UI tooltips like "Edit ~/.molexp/mcp.json".
  */
-export type MCPServerListResponse = {
+export type McpServerListResponse = {
     workspacePath: string;
     userPath: string;
-    servers?: Array<MCPServerResponse>;
+    servers?: Array<McpServerResponse>;
 };
 

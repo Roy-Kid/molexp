@@ -5,7 +5,7 @@
 /**
  * One row in the secrets list — key + which servers reference it.
  */
-export type MCPSecretRefRow = {
+export type McpSecretRefRow = {
     key: string;
     isSet: boolean;
     referencedBy?: Array<string>;

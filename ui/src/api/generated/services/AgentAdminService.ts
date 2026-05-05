@@ -15,15 +15,15 @@ import type { CustomToolCreateRequest } from '../models/CustomToolCreateRequest'
 import type { CustomToolListResponse } from '../models/CustomToolListResponse';
 import type { CustomToolResponse } from '../models/CustomToolResponse';
 import type { CustomToolUpdateRequest } from '../models/CustomToolUpdateRequest';
-import type { MCPOAuthCallbackRequest } from '../models/MCPOAuthCallbackRequest';
-import type { MCPOAuthStartResponse } from '../models/MCPOAuthStartResponse';
-import type { MCPOAuthStatusResponse } from '../models/MCPOAuthStatusResponse';
-import type { MCPSecretListResponse } from '../models/MCPSecretListResponse';
-import type { MCPSecretSetRequest } from '../models/MCPSecretSetRequest';
-import type { MCPServerListResponse } from '../models/MCPServerListResponse';
-import type { MCPServerResponse } from '../models/MCPServerResponse';
-import type { MCPServerTestResponse } from '../models/MCPServerTestResponse';
-import type { MCPServerUpsertRequest } from '../models/MCPServerUpsertRequest';
+import type { McpOAuthCallbackRequest } from '../models/McpOAuthCallbackRequest';
+import type { McpOAuthStartResponse } from '../models/McpOAuthStartResponse';
+import type { McpOAuthStatusResponse } from '../models/McpOAuthStatusResponse';
+import type { McpSecretListResponse } from '../models/McpSecretListResponse';
+import type { McpSecretSetRequest } from '../models/McpSecretSetRequest';
+import type { McpServerListResponse } from '../models/McpServerListResponse';
+import type { McpServerResponse } from '../models/McpServerResponse';
+import type { McpServerTestResponse } from '../models/McpServerTestResponse';
+import type { McpServerUpsertRequest } from '../models/McpServerUpsertRequest';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { SkillCreateRequest } from '../models/SkillCreateRequest';
 import type { SkillListResponse } from '../models/SkillListResponse';
@@ -36,10 +36,10 @@ export class AgentAdminService {
     /**
      * Get Mcp Servers
      * Return merged User+Workspace MCP servers, including shadowed entries.
-     * @returns MCPServerListResponse Successful Response
+     * @returns McpServerListResponse Successful Response
      * @throws ApiError
      */
-    public static getMcpServersApiAgentMcpServersGet(): CancelablePromise<MCPServerListResponse> {
+    public static getMcpServersApiAgentMcpServersGet(): CancelablePromise<McpServerListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent/mcp/servers',
@@ -49,12 +49,12 @@ export class AgentAdminService {
      * Create Mcp Server
      * Create an MCP server entry at ``request.scope``.
      * @param requestBody
-     * @returns MCPServerResponse Successful Response
+     * @returns McpServerResponse Successful Response
      * @throws ApiError
      */
     public static createMcpServerApiAgentMcpServersPost(
-        requestBody: MCPServerUpsertRequest,
-    ): CancelablePromise<MCPServerResponse> {
+        requestBody: McpServerUpsertRequest,
+    ): CancelablePromise<McpServerResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers',
@@ -70,13 +70,13 @@ export class AgentAdminService {
      * Fully replace an MCP server entry. ``request.name`` must match the path.
      * @param name
      * @param requestBody
-     * @returns MCPServerResponse Successful Response
+     * @returns McpServerResponse Successful Response
      * @throws ApiError
      */
     public static replaceMcpServerApiAgentMcpServersNamePut(
         name: string,
-        requestBody: MCPServerUpsertRequest,
-    ): CancelablePromise<MCPServerResponse> {
+        requestBody: McpServerUpsertRequest,
+    ): CancelablePromise<McpServerResponse> {
         return __request(OpenAPI, {
             method: 'PUT',
             url: '/api/agent/mcp/servers/{name}',
@@ -123,13 +123,13 @@ export class AgentAdminService {
      * secret values — only the resolved tool count + connection metrics.
      * @param name
      * @param scope Which scope's entry to probe.
-     * @returns MCPServerTestResponse Successful Response
+     * @returns McpServerTestResponse Successful Response
      * @throws ApiError
      */
     public static testMcpServerApiAgentMcpServersNameTestPost(
         name: string,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<MCPServerTestResponse> {
+    ): CancelablePromise<McpServerTestResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers/{name}/test',
@@ -158,13 +158,13 @@ export class AgentAdminService {
      * twice cancels the older flow rather than queueing).
      * @param name
      * @param scope
-     * @returns MCPOAuthStartResponse Successful Response
+     * @returns McpOAuthStartResponse Successful Response
      * @throws ApiError
      */
     public static startMcpOauthApiAgentMcpServersNameOauthStartPost(
         name: string,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<MCPOAuthStartResponse> {
+    ): CancelablePromise<McpOAuthStartResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers/{name}/oauth/start',
@@ -190,14 +190,14 @@ export class AgentAdminService {
      * @param name
      * @param requestBody
      * @param scope
-     * @returns MCPOAuthStatusResponse Successful Response
+     * @returns McpOAuthStatusResponse Successful Response
      * @throws ApiError
      */
     public static callbackMcpOauthApiAgentMcpServersNameOauthCallbackPost(
         name: string,
-        requestBody: MCPOAuthCallbackRequest,
+        requestBody: McpOAuthCallbackRequest,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<MCPOAuthStatusResponse> {
+    ): CancelablePromise<McpOAuthStatusResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers/{name}/oauth/callback',
@@ -219,13 +219,13 @@ export class AgentAdminService {
      * Whether the named server has a usable OAuth token on disk.
      * @param name
      * @param scope
-     * @returns MCPOAuthStatusResponse Successful Response
+     * @returns McpOAuthStatusResponse Successful Response
      * @throws ApiError
      */
     public static getMcpOauthStatusApiAgentMcpServersNameOauthGet(
         name: string,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<MCPOAuthStatusResponse> {
+    ): CancelablePromise<McpOAuthStatusResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent/mcp/servers/{name}/oauth',
@@ -276,12 +276,12 @@ export class AgentAdminService {
      * Plaintext values are **never** returned. ``isSet`` is the only signal
      * of whether the value exists for a referenced key.
      * @param scope Which secret store to inspect.
-     * @returns MCPSecretListResponse Successful Response
+     * @returns McpSecretListResponse Successful Response
      * @throws ApiError
      */
     public static listMcpSecretsApiAgentMcpSecretsGet(
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<MCPSecretListResponse> {
+    ): CancelablePromise<McpSecretListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent/mcp/secrets',
@@ -303,7 +303,7 @@ export class AgentAdminService {
      */
     public static setMcpSecretApiAgentMcpSecretsKeyPut(
         key: string,
-        requestBody: MCPSecretSetRequest,
+        requestBody: McpSecretSetRequest,
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'PUT',
@@ -468,7 +468,7 @@ export class AgentAdminService {
      * Parse Command
      * Parse a raw chat input into a structured ``CommandParseResponse``.
      *
-     * Mirrors :func:`molexp.plugins.agent_pydanticai.commands.parse`. Errors
+     * Mirrors :func:`molexp.agent.skills.commands.parse`. Errors
      * surface as ``kind="error"`` with a UI-ready message — the route never
      * raises a 4xx for parser-level issues so the client can render the
      * message inline.

@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Mirror of :class:`molexp.plugins.agent_pydanticai.commands.ParsedCommand`.
+ * Mirror of :class:`molexp.agent.skills.commands.ParsedCommand`.
  */
 export type CommandParseResponse = {
     kind: CommandParseResponse.kind;

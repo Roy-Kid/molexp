@@ -11,6 +11,8 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import type { AssetLineageNode } from "@/api/generated/models/AssetLineageNode";
+import type { AssetLineageResponse } from "@/api/generated/models/AssetLineageResponse";
 import {
   EMPTY_COPY,
   EmptyState,
@@ -306,11 +308,61 @@ const ContentPanel = ({ asset }: { asset: ApiAssetResponse }): JSX.Element => {
   }
 };
 
+// ── Lineage column ────────────────────────────────────────────────────────
+
+const LineageColumn = ({
+  title,
+  nodes,
+  onSelect,
+}: {
+  title: string;
+  nodes: AssetLineageNode[];
+  onSelect: (assetId: string) => void;
+}): JSX.Element => {
+  if (nodes.length === 0) {
+    return (
+      <div className="rounded border border-border/70 bg-muted/10 p-3 text-xs text-muted-foreground">
+        <div className="mb-1 font-semibold text-foreground">{title}</div>
+        <div>—</div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded border border-border/70 bg-muted/10 p-3">
+      <div className="mb-2 text-xs font-semibold text-foreground">
+        {title} <span className="text-muted-foreground">({nodes.length})</span>
+      </div>
+      <ul className="space-y-1.5">
+        {nodes.map((node) => {
+          const meta = kindMeta(node.kind);
+          const Icon = meta.icon;
+          return (
+            <li key={node.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(node.id)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-accent"
+              >
+                <Icon className={`h-3.5 w-3.5 shrink-0 ${meta.accent}`} />
+                <span className="flex-1 truncate font-mono">{node.name}</span>
+                <Badge variant="outline" className="text-[10px]">
+                  {meta.label}
+                </Badge>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
+
 // ── Main viewer ────────────────────────────────────────────────────────────
 
 export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const [asset, setAsset] = useState<ApiAssetResponse | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [lineage, setLineage] = useState<AssetLineageResponse | null>(null);
   const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
 
   const assetId = selection.objectId;
@@ -332,6 +384,24 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
       .catch((err) => {
         if (typeof console !== "undefined") console.error("Failed to load asset", err);
         setNotFound(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLineage(null);
+    if (!assetId) return;
+    workspaceApi
+      .getAssetLineage(assetId)
+      .then((res) => {
+        if (cancelled) return;
+        setLineage(res);
+      })
+      .catch((err) => {
+        if (typeof console !== "undefined") console.error("Failed to load lineage", err);
       });
     return () => {
       cancelled = true;
@@ -523,6 +593,31 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                   />
                 </OverviewSection>
               )}
+
+              {asset.content_hash && (
+                <OverviewSection title="Content hash">
+                  <div className="break-all rounded border border-border/70 bg-muted/20 p-2 font-mono text-xs">
+                    {asset.content_hash}
+                  </div>
+                </OverviewSection>
+              )}
+
+              {lineage && (lineage.ancestors?.length || lineage.descendants?.length) ? (
+                <OverviewSection title="Lineage">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <LineageColumn
+                      title="Upstream (ancestors)"
+                      nodes={lineage.ancestors ?? []}
+                      onSelect={(id) => setSelection({ objectType: "asset", objectId: id })}
+                    />
+                    <LineageColumn
+                      title="Downstream (descendants)"
+                      nodes={lineage.descendants ?? []}
+                      onSelect={(id) => setSelection({ objectType: "asset", objectId: id })}
+                    />
+                  </div>
+                </OverviewSection>
+              ) : null}
 
               {asset.extra && Object.keys(asset.extra).length > 0 && (
                 <OverviewSection title="Kind-specific details">

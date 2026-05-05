@@ -2,12 +2,12 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { MCPHttpSpecRequest } from './MCPHttpSpecRequest';
-import type { MCPStdioSpecRequest } from './MCPStdioSpecRequest';
+import type { McpHttpSpecRequest } from './McpHttpSpecRequest';
+import type { McpStdioSpecRequest } from './McpStdioSpecRequest';
 /**
  * Create or replace an MCP server entry at the chosen scope.
  */
-export type MCPServerUpsertRequest = {
+export type McpServerUpsertRequest = {
     /**
      * Server name; lowercase letters, digits, underscore, hyphen; must start with a letter or digit.
      */
@@ -15,10 +15,10 @@ export type MCPServerUpsertRequest = {
     /**
      * VSCode-style scope. Workspace overrides User on name collision.
      */
-    scope?: MCPServerUpsertRequest.scope;
-    spec: (MCPStdioSpecRequest | MCPHttpSpecRequest);
+    scope?: McpServerUpsertRequest.scope;
+    spec: (McpStdioSpecRequest | McpHttpSpecRequest);
 };
-export namespace MCPServerUpsertRequest {
+export namespace McpServerUpsertRequest {
     /**
      * VSCode-style scope. Workspace overrides User on name collision.
      */

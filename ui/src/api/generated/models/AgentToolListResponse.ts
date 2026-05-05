@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AgentToolResponse } from './AgentToolResponse';
-import type { MCPToolGroupResponse } from './MCPToolGroupResponse';
+import type { McpToolGroupResponse } from './McpToolGroupResponse';
 export type AgentToolListResponse = {
     tools?: Array<AgentToolResponse>;
-    mcpGroups?: Array<MCPToolGroupResponse>;
+    mcpGroups?: Array<McpToolGroupResponse>;
 };
 

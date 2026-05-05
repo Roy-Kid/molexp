@@ -14,11 +14,11 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from molexp.workspace.assets import AssetScope, LogAsset
+from molexp.workspace.assets import AssetScope, LogAsset, lineage
 
 from ..dependencies import get_workspace
 from ..exceptions import AssetNotFoundError
-from ..schemas import AssetResponse
+from ..schemas import AssetLineageNode, AssetLineageResponse, AssetResponse
 from ._scope import resolve_scope_dir
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -71,6 +71,31 @@ def list_assets(
 def get_asset(asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:
     asset = _require_asset(workspace, asset_id)
     return AssetResponse.from_model(asset)
+
+
+@router.get("/{asset_id}/lineage", response_model=AssetLineageResponse)
+def get_asset_lineage(asset_id: str, workspace=Depends(get_workspace)) -> AssetLineageResponse:
+    """Return the asset's transitive ancestors and descendants.
+
+    Walks the ``Producer.inputs`` DAG built by run-time tasks that
+    declare ``consumed=[...]`` on artifact / data registration. The
+    starting asset is excluded from both lists.
+    """
+    _require_asset(workspace, asset_id)
+
+    def _node(aid: str) -> AssetLineageNode | None:
+        a = workspace.catalog.get(aid)
+        if a is None:
+            return None
+        return AssetLineageNode(id=a.asset_id, name=a.name, kind=a.kind, scope_kind=a.scope.kind)
+
+    ancestor_ids = sorted(lineage.ancestors(workspace, asset_id))
+    descendant_ids = sorted(lineage.descendants(workspace, asset_id))
+    return AssetLineageResponse(
+        asset_id=asset_id,
+        ancestors=[n for n in (_node(i) for i in ancestor_ids) if n is not None],
+        descendants=[n for n in (_node(i) for i in descendant_ids) if n is not None],
+    )
 
 
 # ── Download / tail / stream ──────────────────────────────────────────────

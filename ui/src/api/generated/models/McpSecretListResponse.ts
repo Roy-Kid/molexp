@@ -2,17 +2,18 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { MCPSecretRefRow } from './MCPSecretRefRow';
+import type { McpSecretRefRow } from './McpSecretRefRow';
 /**
  * Secrets at the requested scope. Plaintext values are never returned.
  */
-export type MCPSecretListResponse = {
-    scope: MCPSecretListResponse.scope;
+export type McpSecretListResponse = {
+    scope: McpSecretListResponse.scope;
     path: string;
-    secrets?: Array<MCPSecretRefRow>;
+    secrets?: Array<McpSecretRefRow>;
 };
-export namespace MCPSecretListResponse {
+export namespace McpSecretListResponse {
     export enum scope {
+        NATIVE = 'native',
         USER = 'user',
         WORKSPACE = 'workspace',
     }

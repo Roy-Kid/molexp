@@ -34,8 +34,10 @@ export namespace CustomToolResponse {
         WORKFLOW = 'workflow',
         CHAT = 'chat',
         CONTROL = 'control',
+        WEB = 'web',
     }
     export enum scope {
+        NATIVE = 'native',
         USER = 'user',
         WORKSPACE = 'workspace',
     }

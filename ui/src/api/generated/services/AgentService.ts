@@ -17,11 +17,7 @@ import { request as __request } from '../core/request';
 export class AgentService {
     /**
      * List Sessions
-     * List all agent sessions — in-memory active + on-disk historical.
-     *
-     * Active sessions take precedence over their on-disk metadata so the
-     * list reflects live status/stats. Historical sessions surviving a
-     * restart appear with whatever final status was flushed at termination.
+     * List every agent session known to the workspace store.
      * @returns AgentSessionListResponse Successful Response
      * @throws ApiError
      */
@@ -33,7 +29,7 @@ export class AgentService {
     }
     /**
      * Create Session
-     * Start a new agent session.
+     * Start a new agent session via :class:`AgentService`.
      * @param requestBody
      * @returns AgentSessionResponse Successful Response
      * @throws ApiError
@@ -53,7 +49,6 @@ export class AgentService {
     }
     /**
      * Get Session
-     * Get a specific agent session — falls back to disk for historicals.
      * @param sessionId
      * @returns AgentSessionResponse Successful Response
      * @throws ApiError
@@ -95,7 +90,6 @@ export class AgentService {
     }
     /**
      * Respond Approval
-     * Respond to a human-in-the-loop approval request.
      * @param sessionId
      * @param requestBody
      * @returns any Successful Response
@@ -120,14 +114,11 @@ export class AgentService {
     }
     /**
      * Respond Plan
-     * Resolve a pending plan handoff emitted by ``exit_plan_mode``.
+     * Resolve a pending plan handoff.
      *
-     * On approval the live session flips ``goal.plan_mode=False``, rebuilds
-     * its agent (so the next continuation sees the unrestricted toolset),
-     * and the agent's ``exit_plan_mode`` tool call returns the user's
-     * decision dict so it can proceed with execution. On rejection the
-     * agent gets the feedback string and is free to revise + call
-     * ``exit_plan_mode`` again from within the same session.
+     * On approval the session flips out of PLAN mode and the runner
+     * proceeds; on rejection the runner injects a synthetic user message
+     * with the feedback (see ``render_reject_feedback``).
      * @param sessionId
      * @param requestBody
      * @returns MessageResponse Successful Response
@@ -152,11 +143,11 @@ export class AgentService {
     }
     /**
      * Post User Message
-     * Deliver a chat message from the user to a running agent session.
+     * Deliver a chat message to a running session.
      *
-     * Either resolves a pending ``UserMessageRequestEvent`` (when
-     * ``request_id`` is supplied and matches) or queues an unsolicited
-     * follow-up that re-prompts the agent with the user's content.
+     * Either resolves a pending :class:`UserMessageRequested` (when
+     * ``request_id`` matches) or queues an unsolicited follow-up onto the
+     * session inbox.
      * @param sessionId
      * @param requestBody
      * @returns MessageResponse Successful Response
@@ -182,10 +173,6 @@ export class AgentService {
     /**
      * Launch Skill
      * Materialize a saved skill into a Goal and start a new session.
-     *
-     * The skill's ``instructions`` are threaded through to the runtime
-     * automatically; ``plan_mode`` defaults to the skill's
-     * ``default_plan_mode`` and may be overridden via the request body.
      * @param skillId
      * @param requestBody
      * @returns AgentSessionResponse Successful Response
@@ -210,12 +197,7 @@ export class AgentService {
     }
     /**
      * Get Session System Prompt
-     * Return the layered system prompt the session was started with.
-     *
-     * Live sessions report what the runtime actually composed (so live
-     * edits to workspace instructions don't drift the displayed value);
-     * historical (disk-only) sessions are re-composed from current
-     * workspace + persisted goal fields, which is a best-effort reflection.
+     * Return the layered system prompt for a session.
      * @param sessionId
      * @returns AgentSystemPromptResponse Successful Response
      * @throws ApiError

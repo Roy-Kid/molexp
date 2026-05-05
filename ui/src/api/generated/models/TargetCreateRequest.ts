@@ -40,7 +40,7 @@ export namespace TargetCreateRequest {
      * Dispatch axis
      */
     export enum scheduler {
-        SHELL = 'shell',
+        LOCAL = 'local',
         SLURM = 'slurm',
         PBS = 'pbs',
         LSF = 'lsf',

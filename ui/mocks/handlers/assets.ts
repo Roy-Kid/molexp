@@ -11,6 +11,64 @@ import { http, HttpResponse } from "msw";
 import { getAllAssets, getAsset, setAsset } from "../db";
 import type { ApiAssetResponse } from "../../src/app/types";
 
+interface LineageNodeShape {
+    id: string;
+    name: string;
+    kind: string;
+    scope_kind: string;
+}
+
+const _node = (a: ApiAssetResponse): LineageNodeShape => ({
+    id: a.id,
+    name: a.name,
+    kind: a.kind,
+    scope_kind: a.scope_kind,
+});
+
+const _ancestorIds = (assetId: string): Set<string> => {
+    const visited = new Set<string>();
+    const frontier = [assetId];
+    while (frontier.length > 0) {
+        const cur = frontier.pop()!;
+        const a = getAsset(cur);
+        if (!a || !a.producer) continue;
+        const inputs = (a.producer as Record<string, unknown>).inputs as
+            | string[]
+            | undefined;
+        for (const upstream of inputs ?? []) {
+            if (upstream === assetId || visited.has(upstream)) continue;
+            visited.add(upstream);
+            frontier.push(upstream);
+        }
+    }
+    return visited;
+};
+
+const _descendantIds = (assetId: string): Set<string> => {
+    const all = getAllAssets();
+    const childrenOf = new Map<string, string[]>();
+    for (const a of all) {
+        const inputs = (a.producer as Record<string, unknown> | undefined)
+            ?.inputs as string[] | undefined;
+        for (const inp of inputs ?? []) {
+            const arr = childrenOf.get(inp) ?? [];
+            arr.push(a.id);
+            childrenOf.set(inp, arr);
+        }
+    }
+    const visited = new Set<string>();
+    const frontier = [assetId];
+    while (frontier.length > 0) {
+        const cur = frontier.pop()!;
+        for (const child of childrenOf.get(cur) ?? []) {
+            if (child === assetId || visited.has(child)) continue;
+            visited.add(child);
+            frontier.push(child);
+        }
+    }
+    return visited;
+};
+
 const API_BASE = "/api";
 
 const applyFilters = (
@@ -46,6 +104,26 @@ export const assetHandlers = [
             return HttpResponse.json({ detail: "Asset not found" }, { status: 404 });
         }
         return HttpResponse.json(asset);
+    }),
+
+    // GET /api/assets/:assetId/lineage - upstream + downstream neighbors
+    http.get(`${API_BASE}/assets/:assetId/lineage`, ({ params }) => {
+        const assetId = params.assetId as string;
+        const target = getAsset(assetId);
+        if (!target) {
+            return HttpResponse.json({ detail: "Asset not found" }, { status: 404 });
+        }
+        const ancestors = [..._ancestorIds(assetId)]
+            .sort()
+            .map((id) => getAsset(id))
+            .filter((a): a is ApiAssetResponse => Boolean(a))
+            .map(_node);
+        const descendants = [..._descendantIds(assetId)]
+            .sort()
+            .map((id) => getAsset(id))
+            .filter((a): a is ApiAssetResponse => Boolean(a))
+            .map(_node);
+        return HttpResponse.json({ asset_id: assetId, ancestors, descendants });
     }),
 
     // GET /api/assets/:assetId/content - download raw bytes

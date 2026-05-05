@@ -241,6 +241,8 @@ export function seed(): void {
                 source_path: "s3://datasets/qm9",
                 import_action: "copy",
             },
+            content_hash:
+                "sha256:9c1185a5c5e9fc54612808977ee8f548b2258d31ddadef7c5e9fc54612808977",
         },
         {
             id: "asset-002",
@@ -273,12 +275,15 @@ export function seed(): void {
                 run_id: "run-001",
                 execution_id: "exec-001",
                 task_id: "train",
+                inputs: ["asset-001"],
             },
             tags: { role: "checkpoint", epoch: "24" },
             extra: {
                 mime: "application/octet-stream",
                 size: 20971520,
             },
+            content_hash:
+                "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         },
         {
             id: "asset-004",
@@ -313,6 +318,7 @@ export function seed(): void {
                 run_id: "run-001",
                 execution_id: "exec-001",
                 task_id: "train",
+                inputs: ["asset-001", "asset-003"],
             },
             tags: {},
             extra: {

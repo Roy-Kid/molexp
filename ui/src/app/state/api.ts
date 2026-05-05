@@ -211,6 +211,9 @@ export const workspaceApi = {
   getRunAssets: async (runId: string): Promise<ApiAssetResponse[]> => {
     return AssetsService.listAssetsApiAssetsGet(undefined, undefined, runId);
   },
+  getAssetLineage: async (assetId: string) => {
+    return AssetsService.getAssetLineageApiAssetsAssetIdLineageGet(assetId);
+  },
   openWorkspace: async (path: string, createIfMissing = false): Promise<void> => {
     await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({
       path,

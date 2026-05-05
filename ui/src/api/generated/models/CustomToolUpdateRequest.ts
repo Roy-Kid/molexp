@@ -11,7 +11,7 @@ export type CustomToolUpdateRequest = {
     description?: (string | null);
     parametersSchema?: (Record<string, any> | null);
     requiresApproval?: (boolean | null);
-    category?: ('workspace' | 'workflow' | 'chat' | 'control' | null);
+    category?: ('workspace' | 'workflow' | 'chat' | 'control' | 'web' | null);
     mutates?: (boolean | null);
     invoker?: (CustomToolHttpInvokerRequest | null);
 };

@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { AssetLineageResponse } from '../models/AssetLineageResponse';
 import type { AssetResponse } from '../models/AssetResponse';
 import type { Body_import_data_asset_api_assets_data_import_post } from '../models/Body_import_data_asset_api_assets_data_import_post';
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -53,6 +54,31 @@ export class AssetsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/assets/{asset_id}',
+            path: {
+                'asset_id': assetId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Asset Lineage
+     * Return the asset's transitive ancestors and descendants.
+     *
+     * Walks the ``Producer.inputs`` DAG built by run-time tasks that
+     * declare ``consumed=[...]`` on artifact / data registration. The
+     * starting asset is excluded from both lists.
+     * @param assetId
+     * @returns AssetLineageResponse Successful Response
+     * @throws ApiError
+     */
+    public static getAssetLineageApiAssetsAssetIdLineageGet(
+        assetId: string,
+    ): CancelablePromise<AssetLineageResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/assets/{asset_id}/lineage',
             path: {
                 'asset_id': assetId,
             },
