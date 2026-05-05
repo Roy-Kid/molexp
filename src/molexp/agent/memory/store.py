@@ -1,29 +1,24 @@
-"""Memory store protocol + initial implementations.
+"""Memory store protocol and initial implementations.
 
-Ships a no-op store plus a JSONL append-only stub; no embeddings or
-vector indexes — those land in a later spec.
+Memory is an append-only stream — :class:`MemoryRecord` lines, no CRUD,
+no three-tier shadowing. This is intentionally distinct from
+:mod:`molexp.agent.persistence` which models named-resource CRUD; the
+storage shape is wrong (JSONL append vs JSON-object map) so the
+generic primitive does not apply.
+
+Ships a no-op store plus a JSONL append-only stub. Embeddings and
+vector indexes are out of scope for this revision.
 """
 
 from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
-from molexp.agent.types import utc_now
-
-
-@dataclass(frozen=True)
-class MemoryRecord:
-    """One stored memory entry."""
-
-    kind: str
-    content: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    ts: datetime = field(default_factory=utc_now)
+from molexp.agent.memory.types import MemoryRecord
 
 
 @runtime_checkable
@@ -61,8 +56,8 @@ class JsonlMemoryStore:
                 "ts": record.ts.isoformat(),
             }
         )
-        # JSONL append is naturally crash-safe for whole-line writes; we
-        # still fsync to keep semantics tight on shared filesystems.
+        # JSONL append is naturally crash-safe for whole-line writes;
+        # we still fsync to keep semantics tight on shared filesystems.
         with self._path.open("a", encoding="utf-8") as f:
             f.write(line + "\n")
             f.flush()
@@ -89,3 +84,6 @@ class JsonlMemoryStore:
                     )
                 )
         return tuple(records)
+
+
+__all__ = ["JsonlMemoryStore", "MemoryStore", "NoopMemoryStore"]

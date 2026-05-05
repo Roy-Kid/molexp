@@ -1,8 +1,9 @@
 """``McpToolSource`` — :class:`molexp.agent.ToolSource` for MCP servers.
 
 Bridges the harness tool-source contract (``list_tools`` + ``call``)
-to the workspace's MCP store. Each MCP tool is exposed under the
-``mcp:<server>.<tool>`` name convention.
+to the workspace-scoped MCP store at :mod:`molexp.agent.mcp.store`.
+Each MCP tool is exposed under the ``mcp:<server>.<tool>`` name
+convention.
 
 The source is intentionally stateless: it re-reads the store each
 ``list_tools`` call so admin-route edits land without restarts. Tool
@@ -16,18 +17,18 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
-from molexp.agent.types import AgentFailure, FailureKind
-from molexp.plugins.tool_mcp.probe import (
+from molexp.agent.mcp.probe import (
     PROBE_TIMEOUT_SECONDS,
     _build_pydantic_ai_server,
 )
-from molexp.plugins.tool_mcp.store import (
+from molexp.agent.mcp.store import (
     McpScope,
     McpServerEntry,
     McpStore,
     UnresolvedSecretError,
 )
+from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
+from molexp.agent.types import AgentFailure, FailureKind
 
 SOURCE_NAME = "mcp"
 

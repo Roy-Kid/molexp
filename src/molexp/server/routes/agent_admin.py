@@ -12,19 +12,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from molexp.agent.model import ModelConfig
-from molexp.agent.state.commands import parse as parse_slash
-from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillScope, SkillStore
-from molexp.agent.tools.admin import describe_native_tools
-from molexp.plugins.model_pydanticai import (
-    DEFAULT_MODELS,
-    SUPPORTED_PROVIDERS,
-    ProviderStore,
-    check_credentials,
-    probe_provider,
-    to_public,
-)
-from molexp.plugins.tool_mcp import (
+from molexp.agent.mcp import (
     START_TIMEOUT_SECONDS,
     McpScope,
     McpStore,
@@ -35,12 +23,24 @@ from molexp.plugins.tool_mcp import (
     session_registry,
     storage_for,
 )
-from molexp.plugins.tool_mcp.resources import tiered_router_factory
-from molexp.plugins.tool_mcp.tool_store import (
+from molexp.agent.mcp.tool_store import (
     HttpInvoker,
     PythonInvoker,
     ToolSpec,
     ToolStore,
+)
+from molexp.agent.model import ModelConfig
+from molexp.agent.persistence import Scope, tiered_router_factory
+from molexp.agent.skills import RESERVED_SLASH_NAMES, SkillStore
+from molexp.agent.skills import parse as parse_slash
+from molexp.agent.tools.admin import describe_native_tools
+from molexp.plugins.model_pydanticai import (
+    DEFAULT_MODELS,
+    SUPPORTED_PROVIDERS,
+    ProviderStore,
+    check_credentials,
+    probe_provider,
+    to_public,
 )
 
 from ..dependencies import get_workspace
@@ -665,22 +665,21 @@ def _to_response(skill) -> SkillResponse:
         allowedTools=list(skill.allowed_tools),
         deniedTools=list(skill.denied_tools),
         requiresExitTool=skill.requires_exit_tool,
-        builtin=skill.builtin,
+        builtin=(skill.scope is Scope.NATIVE),
         scope=skill.scope.value,
         createdAt=skill.created_at,
         updatedAt=skill.updated_at,
     )
 
 
-def _parse_scope(scope: str) -> SkillScope:
+def _parse_scope(scope: str) -> Scope:
     try:
-        return SkillScope(scope)
+        return Scope(scope)
     except ValueError as exc:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unknown scope '{scope}'. Expected one of: "
-                f"{', '.join(s.value for s in SkillScope)}."
+                f"Unknown scope '{scope}'. Expected one of: {', '.join(s.value for s in Scope)}."
             ),
         ) from exc
 
@@ -750,7 +749,7 @@ async def update_skill(
     store = _skill_store(workspace)
     changes = {k: v for k, v in request.model_dump().items() if v is not None}
     try:
-        skill = store.update(skill_id, scope=SkillScope(scope), **changes)
+        skill = store.update(skill_id, scope=Scope(scope), **changes)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -768,7 +767,7 @@ async def delete_skill(
     workspace=Depends(get_workspace),
 ) -> MessageResponse:
     try:
-        deleted = _skill_store(workspace).delete(skill_id, scope=SkillScope(scope))
+        deleted = _skill_store(workspace).delete(skill_id, scope=Scope(scope))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not deleted:
@@ -848,7 +847,7 @@ async def parse_command(
 ) -> CommandParseResponse:
     """Parse a raw chat input into a structured ``CommandParseResponse``.
 
-    Mirrors :func:`molexp.agent.state.commands.parse`. Errors
+    Mirrors :func:`molexp.agent.skills.commands.parse`. Errors
     surface as ``kind="error"`` with a UI-ready message — the route never
     raises a 4xx for parser-level issues so the client can render the
     message inline.

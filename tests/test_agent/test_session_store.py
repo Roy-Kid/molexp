@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from molexp.agent import Goal, Message, SessionStatus
-from molexp.agent.state import SessionMetadata, SessionStore
+from molexp.agent.sessions import SessionMetadata, SessionStore
 
 
 def test_metadata_roundtrip(tmp_path: Path) -> None:

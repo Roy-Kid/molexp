@@ -29,7 +29,7 @@ from typing import ClassVar
 
 import pytest
 
-from molexp.plugins.tool_mcp.resources.base import (
+from molexp.agent.persistence.tiered import (
     ResourceSpec,
     Scope,
     TieredResourceStore,

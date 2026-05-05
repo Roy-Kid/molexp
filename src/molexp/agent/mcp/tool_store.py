@@ -26,7 +26,12 @@ from typing import Annotated, Any, ClassVar, Literal, Union
 
 from pydantic import BaseModel, Discriminator, Field
 
-from .resources.base import ResourceSpec, Scope, TieredResourceStore, _now_iso
+from molexp.agent.persistence.tiered import (
+    ResourceSpec,
+    Scope,
+    TieredResourceStore,
+    _now_iso,
+)
 
 USER_TOOLS_FILENAME = "tools.json"
 WORKSPACE_TOOLS_FILENAME = ".tools.json"
@@ -112,7 +117,7 @@ ToolInvoker = Annotated[
 # ── Tool spec ──────────────────────────────────────────────────────────────
 
 
-ToolCategory = Literal["workspace", "workflow", "chat", "control"]
+ToolCategory = Literal["workspace", "workflow", "chat", "control", "web"]
 
 
 class ToolSpec(ResourceSpec):
@@ -283,7 +288,7 @@ def _register_native_tools() -> None:
             id=tool_name,
             name=tool_name,
             description=native_spec.description,
-            scope=Scope.USER,
+            scope=Scope.NATIVE,
             category=native_spec.category,
             mutates=native_spec.mutates,
             requires_approval=native_spec.requires_approval,

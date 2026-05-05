@@ -9,7 +9,7 @@ session read-only.
 
 Messages are intentionally *not* carried over: the legacy
 ``history.json`` shape diverges enough from
-:mod:`molexp.agent.state.sessions` that copying it would risk
+:mod:`molexp.agent.sessions.store` that copying it would risk
 mis-rendering. Replay across the schema change isn't supported.
 """
 
@@ -19,7 +19,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from molexp.agent.state.sessions import SessionMetadata, SessionStore
+from molexp.agent.sessions.store import SessionStore
+from molexp.agent.sessions.types import SessionMetadata
 from molexp.agent.types import Goal, SessionStatus, utc_now
 
 LEGACY_SESSIONS_DIRNAME = "sessions"

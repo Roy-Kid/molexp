@@ -11,10 +11,13 @@ callers should import:
 - :class:`ModelClient`, :class:`ModelRequest`, :class:`ModelResponse` —
   model boundary contract.
 
-The package is stdlib-only. Importing this module must not pull in
-``pydantic_ai``, MCP SDKs, HTTP clients, or any provider SDK; the
-import-guard test in ``tests/agent/test_import_guard.py`` enforces
-this rule.
+Importing :mod:`molexp.agent` itself must not pull in ``pydantic_ai``,
+HTTP clients, or provider SDKs — the harness core is stdlib-only.
+The :mod:`molexp.agent.mcp` subpackage and the
+:mod:`molexp.agent.tools.native.web` tool are explicit, opt-in
+integration points; importing them is a deliberate choice by the
+caller. The import-guard test in
+``tests/test_agent/test_import_guard.py`` enforces both halves.
 """
 
 from molexp.agent.model import (

@@ -1,20 +1,25 @@
-"""Phase 0 contract: ``molexp.agent`` is stdlib-only.
+"""Phase 0 contract: the harness *core* is stdlib-only.
 
-The harness must not pull in ``pydantic_ai``, MCP SDKs, HTTP clients,
-or any provider SDK. We enforce two ways:
+The agent harness core must not pull in ``pydantic_ai``, HTTP clients,
+or provider SDKs. A handful of subtrees are excluded because they are
+the harness's own integration points with such SDKs:
 
-1. **Static AST sweep** — every ``.py`` file under ``src/molexp/agent/``
-   is parsed and every ``import`` / ``from ... import`` is checked
-   against the forbidden roots. This catches accidental imports even
-   when the optional dependency is installed locally.
+- ``agent/mcp/`` — owns the MCP SDK + OAuth + httpx integration.
+- ``agent/tools/native/web.py`` — uses httpx for the Brave Search tool.
+
+Everything else under ``agent/`` is checked statically and at runtime.
+
+We enforce two ways:
+
+1. **Static AST sweep** — every non-excluded ``.py`` file under
+   ``src/molexp/agent/`` is parsed and every ``import`` /
+   ``from ... import`` is checked against the forbidden roots.
 2. **Runtime sentinel** — after a fresh ``importlib`` import of
    ``molexp.agent``, no forbidden module name appears in
    ``sys.modules`` (apart from anything an unrelated test pre-loaded
    into the interpreter, which we filter against a sentinel snapshot
-   taken at process start).
-
-If a future plugin lives under ``molexp.agent`` (it should not), this
-test must be tightened to walk the import graph as well.
+   taken at process start). This holds even though ``agent/mcp/``
+   exists, because nothing in ``agent/__init__.py`` reaches into it.
 """
 
 from __future__ import annotations
@@ -42,9 +47,25 @@ FORBIDDEN_ROOTS = {
 
 AGENT_PACKAGE_PATH = Path(molexp.agent.__file__).parent
 
+# Subtrees explicitly designed to use SDK / network deps. Listed as
+# POSIX-style relative paths under ``agent/``.
+EXCLUDED_PATHS: frozenset[str] = frozenset(
+    {
+        "tools/native/web.py",
+    }
+)
+EXCLUDED_DIRS: tuple[str, ...] = ("mcp",)
+
+
+def _is_excluded(path: Path) -> bool:
+    rel = path.relative_to(AGENT_PACKAGE_PATH).as_posix()
+    if rel in EXCLUDED_PATHS:
+        return True
+    return any(rel == d or rel.startswith(d + "/") for d in EXCLUDED_DIRS)
+
 
 def _iter_py_files() -> list[Path]:
-    return sorted(AGENT_PACKAGE_PATH.rglob("*.py"))
+    return [p for p in sorted(AGENT_PACKAGE_PATH.rglob("*.py")) if not _is_excluded(p)]
 
 
 def _import_roots(tree: ast.AST) -> set[str]:

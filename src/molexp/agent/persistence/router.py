@@ -31,7 +31,7 @@ from typing import Any, Callable, Literal, TypeVar
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from .base import ResourceSpec, Scope, TieredResourceStore
+from molexp.agent.persistence.tiered import ResourceSpec, Scope, TieredResourceStore
 
 SpecT = TypeVar("SpecT", bound=ResourceSpec)
 ItemResponseT = TypeVar("ItemResponseT", bound=BaseModel)

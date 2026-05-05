@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent.state.commands import parse
-from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillStore
+from molexp.agent.skills import RESERVED_SLASH_NAMES, SkillStore
+from molexp.agent.skills.commands import parse
 
 # ── Builtin commands ─────────────────────────────────────────────────────────
 

@@ -16,7 +16,7 @@ def _isolate_user_dir(tmp_path, monkeypatch):
     user-home tier. Without the ``Path.home`` patch a developer's local
     skills would leak into the test suite (and writes would persist).
     """
-    from molexp.plugins.tool_mcp import store as mcp_mod
+    from molexp.agent.mcp import store as mcp_mod
 
     fake_home_root = tmp_path / "_home"
     fake_user_dir = fake_home_root / ".molexp"
@@ -239,7 +239,7 @@ def test_test_mcp_server_404_when_missing(client):
 
 @pytest.mark.integration
 def test_test_mcp_server_uses_probe_module(client, monkeypatch):
-    from molexp.plugins.tool_mcp import probe as probe_mod
+    from molexp.agent.mcp import probe as probe_mod
 
     async def fake_probe(store, entry):
         return probe_mod.ProbeOutcome(ok=True, latency_ms=42, tool_count=3)
@@ -264,7 +264,7 @@ def test_test_mcp_server_uses_probe_module(client, monkeypatch):
 
 @pytest.mark.integration
 def test_test_mcp_server_reports_missing_secrets(client, monkeypatch):
-    from molexp.plugins.tool_mcp import probe as probe_mod
+    from molexp.agent.mcp import probe as probe_mod
 
     async def fake_probe(store, entry):
         # Real probe would short-circuit on entry.unresolved_secrets;
@@ -395,7 +395,7 @@ def test_get_agent_tools_includes_mcp_groups(monkeypatch, workspace, client):
     }
     (workspace.root / ".mcp.json").write_text(json.dumps(payload))
 
-    from molexp.plugins.tool_mcp.probe import (
+    from molexp.agent.mcp.probe import (
         McpServerToolList,
         McpToolSummary,
     )
@@ -446,7 +446,7 @@ def test_get_agent_tools_surfaces_mcp_failure(monkeypatch, workspace, client):
     }
     (workspace.root / ".mcp.json").write_text(json.dumps(payload))
 
-    from molexp.plugins.tool_mcp.probe import McpServerToolList
+    from molexp.agent.mcp.probe import McpServerToolList
 
     async def fake_list(_store, **_):
         return [
@@ -484,7 +484,7 @@ def test_skill_lifecycle_via_api(client):
     # Builtin /plan skill always present; user list starts empty.
     assert _user_skills(list_resp.json()) == []
     builtin_ids = {s["id"] for s in list_resp.json()["skills"] if s["builtin"]}
-    assert "builtin-plan" in builtin_ids
+    assert "native-plan" in builtin_ids
 
     create_resp = client.post(
         "/api/agent/skills",

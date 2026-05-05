@@ -8,7 +8,7 @@ unwrapping, users would see "unhandled errors in a TaskGroup" for every
 
 from __future__ import annotations
 
-from molexp.plugins.tool_mcp.probe import _format_error, _innermost
+from molexp.agent.mcp.probe import _format_error, _innermost
 
 
 def test_format_error_unwraps_exception_group_to_inner_cause():

@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import secrets
+from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
+from molexp.agent.memory import MemoryStore, NoopMemoryStore
 from molexp.agent.model import ModelClient
 from molexp.agent.orchestration.events import (
     SessionEvent,
@@ -19,16 +21,29 @@ from molexp.agent.orchestration.events import (
 )
 from molexp.agent.orchestration.runner import AgentRunner
 from molexp.agent.orchestration.session import AgentSession
-from molexp.agent.state.config import AgentSettings
-from molexp.agent.state.memory import NoopMemoryStore
-from molexp.agent.state.sessions import SessionMetadata, SessionStore
-from molexp.agent.state.skills import SkillStore
-from molexp.agent.state.store import AgentStateStore
+from molexp.agent.sessions import SessionMetadata, SessionStore
+from molexp.agent.settings import AgentSettings
+from molexp.agent.skills import SkillStore
 from molexp.agent.tools.dispatcher import ToolDispatcher
 from molexp.agent.tools.policy import PERMISSIVE_POLICY, ToolPolicy
 from molexp.agent.tools.registry import ToolRegistry
 from molexp.agent.tools.source import ToolSource
 from molexp.agent.types import Goal, SessionStatus, utc_now
+
+
+@dataclass
+class AgentStateStore:
+    """Aggregate over the per-area stores held by an :class:`AgentService`.
+
+    Bundles :class:`SessionStore`, :class:`SkillStore`, and
+    :class:`MemoryStore` so runners and routes consume one object
+    instead of three positional arguments.
+    """
+
+    sessions: SessionStore
+    skills: SkillStore
+    memory: MemoryStore
+
 
 RunnerFactory = Callable[[AgentSession], AgentRunner]
 

@@ -33,11 +33,14 @@ from pydantic import BaseModel, Field, ValidationError
 class Scope(str, Enum):
     """Where a resource entry physically lives.
 
-    Only file-backed scopes appear here. Registrations contributed by
-    code do not have a :class:`Scope` value — they are exposed through
-    :meth:`TieredResourceStore.list_all` as a third virtual layer.
+    File-backed scopes (:attr:`USER`, :attr:`WORKSPACE`) each carry an
+    on-disk JSON file. :attr:`NATIVE` is the in-process registrations
+    tier — entries contributed in code at import time, never persisted.
+    :meth:`create`, :meth:`update`, :meth:`delete` reject
+    :attr:`NATIVE` because there is no backing file to mutate.
     """
 
+    NATIVE = "native"
     USER = "user"
     WORKSPACE = "workspace"
 

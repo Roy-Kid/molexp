@@ -5,7 +5,7 @@ Two flavours:
 1. **Builtin commands** — handled by the chat client itself, never reach
    the LLM. Reserved names: ``/plan``, ``/clear``, ``/model``, ``/help``.
 
-2. **Skill commands** — invocations of saved :class:`~.skills.Skill`
+2. **Skill commands** — invocations of saved :class:`Skill`
    templates with non-empty ``slash_name``. Arguments are ``key=value``
    pairs (shell-quoted values supported via :mod:`shlex`).
 
@@ -21,7 +21,8 @@ import shlex
 from dataclasses import dataclass, field
 from typing import Literal
 
-from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillStore
+from molexp.agent.skills.store import SkillStore
+from molexp.agent.skills.types import RESERVED_SLASH_NAMES
 
 CommandKind = Literal["skill", "builtin", "error"]
 

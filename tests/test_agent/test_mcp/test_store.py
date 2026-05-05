@@ -7,8 +7,8 @@ import sys
 
 import pytest
 
-from molexp.plugins.tool_mcp import store as mcp_mod
-from molexp.plugins.tool_mcp.store import (
+from molexp.agent.mcp import store as mcp_mod
+from molexp.agent.mcp.store import (
     MCP_CONFIG_FILENAME,
     McpScope,
     McpSecretsStore,

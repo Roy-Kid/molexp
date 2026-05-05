@@ -50,7 +50,7 @@ from molexp.agent.recovery.retry import (
     RecoveryPolicy,
     SimpleRetryPolicy,
 )
-from molexp.agent.state.sessions import SessionMetadata, SessionStore
+from molexp.agent.sessions import SessionMetadata, SessionStore
 from molexp.agent.tools.dispatcher import ToolDispatcher
 from molexp.agent.tools.policy import PERMISSIVE_POLICY, ToolPolicy
 from molexp.agent.tools.registry import ToolRegistry

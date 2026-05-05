@@ -332,7 +332,7 @@ class CustomToolCreateRequest(BaseModel):
         description="JSON Schema describing the tool arguments",
     )
     requiresApproval: bool = False
-    category: Literal["workspace", "workflow", "chat", "control"] = "workspace"
+    category: Literal["workspace", "workflow", "chat", "control", "web"] = "workspace"
     mutates: bool = False
     invoker: CustomToolHttpInvokerRequest = Field(
         ...,
@@ -355,7 +355,7 @@ class CustomToolUpdateRequest(BaseModel):
     description: str | None = None
     parametersSchema: dict[str, Any] | None = None
     requiresApproval: bool | None = None
-    category: Literal["workspace", "workflow", "chat", "control"] | None = None
+    category: Literal["workspace", "workflow", "chat", "control", "web"] | None = None
     mutates: bool | None = None
     invoker: CustomToolHttpInvokerRequest | None = None
 

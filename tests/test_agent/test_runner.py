@@ -446,8 +446,8 @@ async def test_token_budget_caps_session_with_context_overflow(
 def test_legacy_sessions_migration_writes_tombstones(workspace_path: Path) -> None:
     """``migrate_legacy_sessions`` lays down ``status=legacy`` tombstones."""
 
-    from molexp.agent.state.migrate import migrate_legacy_sessions
-    from molexp.agent.state.sessions import SessionStore
+    from molexp.agent.sessions import SessionStore
+    from molexp.agent.sessions.migrate import migrate_legacy_sessions
 
     legacy_dir = workspace_path / "sessions" / "old-1"
     legacy_dir.mkdir(parents=True)

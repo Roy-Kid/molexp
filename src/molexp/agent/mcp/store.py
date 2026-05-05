@@ -31,7 +31,7 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, TypeAdapter, ValidationError
 
-from .resources.base import _format_validation_error, _now_iso
+from molexp.agent.persistence.tiered import _format_validation_error, _now_iso
 
 # ── Constants ──────────────────────────────────────────────────────────────
 

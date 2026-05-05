@@ -10,14 +10,14 @@ import sys
 
 import pytest
 
-from molexp.plugins.tool_mcp import store as mcp_mod
-from molexp.plugins.tool_mcp.oauth import (
+from molexp.agent.mcp import store as mcp_mod
+from molexp.agent.mcp.oauth import (
     FileTokenStorage,
     OAuthFlowSession,
     OAuthSessionRegistry,
     storage_for,
 )
-from molexp.plugins.tool_mcp.store import McpScope, McpStore
+from molexp.agent.mcp.store import McpScope, McpStore
 
 
 @pytest.fixture

@@ -14,25 +14,14 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, dataclass, field, is_dataclass
+from dataclasses import asdict, is_dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
-from molexp.agent.types import Goal, Message, SessionStatus, utc_now
-
-
-@dataclass(frozen=True)
-class SessionMetadata:
-    """Latest summary persisted to ``session.json``."""
-
-    session_id: str
-    goal: Goal
-    status: SessionStatus
-    created_at: datetime = field(default_factory=utc_now)
-    updated_at: datetime = field(default_factory=utc_now)
-    summary: str = ""
+from molexp.agent.sessions.types import SessionMetadata
+from molexp.agent.types import Goal, Message, SessionStatus
 
 
 class SessionStore:

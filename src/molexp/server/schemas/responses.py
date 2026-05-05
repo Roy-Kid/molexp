@@ -452,7 +452,7 @@ class CommandListResponse(BaseModel):
 
 
 class CommandParseResponse(BaseModel):
-    """Mirror of :class:`molexp.agent.state.commands.ParsedCommand`."""
+    """Mirror of :class:`molexp.agent.skills.commands.ParsedCommand`."""
 
     kind: Literal["skill", "builtin", "error"]
     name: str = ""
@@ -779,7 +779,7 @@ class McpToolGroupResponse(BaseModel):
     """
 
     server: str
-    scope: Literal["user", "workspace"]
+    scope: Literal["native", "user", "workspace"]
     ok: bool
     toolCount: int = 0
     error: str | None = None
@@ -823,14 +823,14 @@ class CustomToolResponse(BaseModel):
     id: str
     name: str
     description: str = ""
-    category: Literal["workspace", "workflow", "chat", "control"] = "workspace"
+    category: Literal["workspace", "workflow", "chat", "control", "web"] = "workspace"
     mutates: bool = False
     requiresApproval: bool = False
     parametersSchema: dict[str, object] = Field(default_factory=dict)
     invoker: CustomToolHttpInvokerResponse | CustomToolPythonInvokerResponse = Field(
         discriminator="kind"
     )
-    scope: Literal["user", "workspace"] = "user"
+    scope: Literal["native", "user", "workspace"] = "user"
     shadowed: bool = False
     valid: bool = True
     invalidReason: str = ""
@@ -868,7 +868,7 @@ class McpServerResponse(BaseModel):
     """
 
     name: str
-    scope: Literal["user", "workspace"]
+    scope: Literal["native", "user", "workspace"]
     transport: str = ""
     command: str | None = None
     args: list[str] = Field(default_factory=list)
@@ -901,7 +901,7 @@ class McpServerTestResponse(BaseModel):
 
     ok: bool
     name: str
-    scope: Literal["user", "workspace"]
+    scope: Literal["native", "user", "workspace"]
     transport: str
     latencyMs: int = 0
     toolCount: int = 0
@@ -917,7 +917,7 @@ class McpOAuthStartResponse(BaseModel):
     """
 
     name: str
-    scope: Literal["user", "workspace"]
+    scope: Literal["native", "user", "workspace"]
     authorizeUrl: str
 
 
@@ -929,7 +929,7 @@ class McpOAuthStatusResponse(BaseModel):
     """
 
     name: str
-    scope: Literal["user", "workspace"]
+    scope: Literal["native", "user", "workspace"]
     hasTokens: bool
     scopes: list[str] = Field(default_factory=list)
 
@@ -945,7 +945,7 @@ class McpSecretRefRow(BaseModel):
 class McpSecretListResponse(BaseModel):
     """Secrets at the requested scope. Plaintext values are never returned."""
 
-    scope: Literal["user", "workspace"]
+    scope: Literal["native", "user", "workspace"]
     path: str
     secrets: list[McpSecretRefRow] = Field(default_factory=list)
 

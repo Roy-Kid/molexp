@@ -14,8 +14,8 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from molexp.agent.types import AgentFailure, ArtifactRef
 
 if TYPE_CHECKING:  # pragma: no cover - import guard, used only for typing
+    from molexp.agent.memory import MemoryStore
     from molexp.agent.orchestration.chat import ChatGateway
-    from molexp.agent.state.memory import MemoryStore
 
 
 @dataclass(frozen=True)

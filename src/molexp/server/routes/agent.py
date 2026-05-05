@@ -5,7 +5,7 @@ harness public surface. The session registry and asyncio task
 ownership live entirely on :class:`AgentService`; these handlers do
 not own ``_sessions`` globals.
 
-Skills come from :mod:`molexp.agent.state.skills`, provider credentials
+Skills come from :mod:`molexp.agent.skills`, provider credentials
 and config from :mod:`molexp.plugins.model_pydanticai`, and the system
 prompt from :mod:`molexp.agent.context.prompt`.
 
@@ -81,12 +81,12 @@ def _service_for(workspace) -> AgentService:
 def _resolve_tool_sources():
     """Return every registered :class:`ToolSource` for the harness.
 
-    Importing :mod:`molexp.plugins.tool_mcp` triggers its self-
+    Importing :mod:`molexp.agent.mcp` triggers its self-
     registration; the registry is process-wide, so subsequent
     sessions see the same source list.
     """
 
-    import molexp.plugins.tool_mcp  # noqa: F401 — registers the source
+    import molexp.agent.mcp  # noqa: F401 — registers the source
     from molexp.agent.tools.source import all_tool_sources
 
     return all_tool_sources()
@@ -105,7 +105,7 @@ def _resolve_model_client(root: Path | None):
         return None
     import molexp.plugins.model_pydanticai  # noqa: F401 — registers the factory
     from molexp.agent import AgentService, create_model_client
-    from molexp.agent.state.sessions import SessionStore
+    from molexp.agent.sessions import SessionStore
     from molexp.plugins.model_pydanticai.store import ProviderStore
 
     config = ProviderStore(root).load()
@@ -207,7 +207,7 @@ def _resolve_skill_instructions(workspace, skill_id: str | None) -> str:
     root = getattr(workspace, "root", None)
     if root is None:
         return ""
-    from molexp.agent.state.skills import SkillStore
+    from molexp.agent.skills import SkillStore
 
     skill = SkillStore(root).get(skill_id)
     return skill.instructions if skill is not None else ""
@@ -426,7 +426,7 @@ async def launch_skill(
     root = getattr(workspace, "root", None)
     if root is None:
         raise HTTPException(status_code=500, detail="Workspace has no root path")
-    from molexp.agent.state.skills import SkillStore
+    from molexp.agent.skills import SkillStore
 
     skill = SkillStore(root).get(skill_id)
     if skill is None:
