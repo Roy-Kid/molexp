@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-
 BASE_SYSTEM_PROMPT = """\
 You are a research experiment assistant integrated with the molexp workspace.
 

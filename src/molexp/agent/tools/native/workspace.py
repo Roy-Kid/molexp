@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import Any
 
 from molexp.agent.tools.native._helpers import (
-    err,
     get_experiment,
     get_project,
     ok,
@@ -23,13 +22,15 @@ from molexp.agent.tools.registry import native_tool
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 
 
-@native_tool(ToolSpec(
-    name="native:list_projects",
-    description="List every project in the current workspace.",
-    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    category="workspace",
-    mutates=False,
-))
+@native_tool(
+    ToolSpec(
+        name="native:list_projects",
+        description="List every project in the current workspace.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        category="workspace",
+        mutates=False,
+    )
+)
 async def list_projects(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     ws, failure = workspace(ctx)
     if failure is not None:
@@ -45,17 +46,19 @@ async def list_projects(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     return ok(rows)
 
 
-@native_tool(ToolSpec(
-    name="native:list_experiments",
-    description="List experiments inside a project.",
-    input_schema={
-        "type": "object",
-        "properties": {"project_id": {"type": "string"}},
-        "required": ["project_id"],
-    },
-    category="workspace",
-    mutates=False,
-))
+@native_tool(
+    ToolSpec(
+        name="native:list_experiments",
+        description="List experiments inside a project.",
+        input_schema={
+            "type": "object",
+            "properties": {"project_id": {"type": "string"}},
+            "required": ["project_id"],
+        },
+        category="workspace",
+        mutates=False,
+    )
+)
 async def list_experiments(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     project, failure = get_project(ctx, args["project_id"])
     if failure is not None:
@@ -72,20 +75,22 @@ async def list_experiments(args: dict[str, Any], ctx: ToolContext) -> ToolResult
     return ok(rows)
 
 
-@native_tool(ToolSpec(
-    name="native:list_runs",
-    description="List runs inside a project/experiment.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:list_runs",
+        description="List runs inside a project/experiment.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+            },
+            "required": ["project_id", "experiment_id"],
         },
-        "required": ["project_id", "experiment_id"],
-    },
-    category="workspace",
-    mutates=False,
-))
+        category="workspace",
+        mutates=False,
+    )
+)
 async def list_runs(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
     if failure is not None:
@@ -101,20 +106,22 @@ async def list_runs(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     return ok(rows)
 
 
-@native_tool(ToolSpec(
-    name="native:create_project",
-    description="Create (or get) a project by name. Idempotent.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "name": {"type": "string"},
-            "description": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:create_project",
+        description="Create (or get) a project by name. Idempotent.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "description": {"type": "string"},
+            },
+            "required": ["name"],
         },
-        "required": ["name"],
-    },
-    category="workspace",
-    mutates=True,
-))
+        category="workspace",
+        mutates=True,
+    )
+)
 async def create_project(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     ws, failure = workspace(ctx)
     if failure is not None:

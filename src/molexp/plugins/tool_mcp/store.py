@@ -200,9 +200,7 @@ class UnresolvedSecretError(Exception):
     def __init__(self, server: str, keys: list[str]) -> None:
         self.server = server
         self.keys = keys
-        super().__init__(
-            f"Server '{server}' references unresolved secrets: {', '.join(keys)}"
-        )
+        super().__init__(f"Server '{server}' references unresolved secrets: {', '.join(keys)}")
 
 
 # ── Secrets store (single-file KV) ─────────────────────────────────────────
@@ -302,9 +300,7 @@ class McpStore:
             user_home_dir = USER_DIR
         self._user_dir = Path(user_home_dir)
         self._user_path = self._user_dir / MCP_CONFIG_FILENAME
-        self._workspace_secrets = McpSecretsStore(
-            self._workspace_root / MCP_SECRETS_FILENAME
-        )
+        self._workspace_secrets = McpSecretsStore(self._workspace_root / MCP_SECRETS_FILENAME)
         self._user_secrets = McpSecretsStore(self._user_dir / MCP_SECRETS_FILENAME)
         self._lock = Lock()
 
@@ -315,16 +311,10 @@ class McpStore:
         return self._workspace_root
 
     def config_path(self, scope: McpScope) -> Path:
-        return (
-            self._workspace_path if scope is McpScope.WORKSPACE else self._user_path
-        )
+        return self._workspace_path if scope is McpScope.WORKSPACE else self._user_path
 
     def secrets(self, scope: McpScope) -> McpSecretsStore:
-        return (
-            self._workspace_secrets
-            if scope is McpScope.WORKSPACE
-            else self._user_secrets
-        )
+        return self._workspace_secrets if scope is McpScope.WORKSPACE else self._user_secrets
 
     # ── Read ───────────────────────────────────────────────────────────────
 
@@ -343,9 +333,7 @@ class McpStore:
             shadowed = name in ws_specs
             entries.append(self._build_entry(name, raw, McpScope.USER, shadowed))
         for name, raw in ws_specs.items():
-            entries.append(
-                self._build_entry(name, raw, McpScope.WORKSPACE, shadowed=False)
-            )
+            entries.append(self._build_entry(name, raw, McpScope.WORKSPACE, shadowed=False))
         return entries
 
     def get(self, scope: McpScope, name: str) -> McpServerEntry | None:
@@ -377,9 +365,7 @@ class McpStore:
 
     # ── Mutate ─────────────────────────────────────────────────────────────
 
-    def upsert(
-        self, scope: McpScope, name: str, spec: dict[str, Any]
-    ) -> McpServerEntry:
+    def upsert(self, scope: McpScope, name: str, spec: dict[str, Any]) -> McpServerEntry:
         """Create or replace a server entry at the given scope.
 
         Validates name + spec before touching disk. Empty/invalid input
@@ -397,9 +383,7 @@ class McpStore:
             raise ValueError(f"Invalid spec: {_format_validation_error(exc)}") from exc
 
         if isinstance(validated, HttpSpec) and not _is_http_url(validated.url):
-            raise ValueError(
-                "URL scheme must be http or https for http/sse transports"
-            )
+            raise ValueError("URL scheme must be http or https for http/sse transports")
 
         with self._lock:
             path = self.config_path(scope)
@@ -443,14 +427,11 @@ class McpStore:
         servers = _read_servers(path)
         raw = servers.get(entry.name)
         if not isinstance(raw, dict):
-            raise KeyError(
-                f"Server '{entry.name}' missing at scope {entry.scope.value}"
-            )
+            raise KeyError(f"Server '{entry.name}' missing at scope {entry.scope.value}")
 
         if entry.transport == "stdio":
             env_resolved = {
-                k: self._substitute(entry.name, v)
-                for k, v in (raw.get("env") or {}).items()
+                k: self._substitute(entry.name, v) for k, v in (raw.get("env") or {}).items()
             }
             return ResolvedSpec(
                 transport="stdio",
@@ -462,8 +443,7 @@ class McpStore:
             )
 
         header_resolved = {
-            k: self._substitute(entry.name, v)
-            for k, v in (raw.get("headers") or {}).items()
+            k: self._substitute(entry.name, v) for k, v in (raw.get("headers") or {}).items()
         }
         return ResolvedSpec(
             transport=entry.transport,
@@ -525,9 +505,7 @@ class McpStore:
                 name=name,
                 scope=scope,
                 transport=str(raw.get("type") or ""),
-                command=raw.get("command")
-                if isinstance(raw.get("command"), str)
-                else None,
+                command=raw.get("command") if isinstance(raw.get("command"), str) else None,
                 args=tuple(str(a) for a in (raw.get("args") or []))
                 if isinstance(raw.get("args"), list)
                 else (),
@@ -588,8 +566,7 @@ class McpStore:
 
     def _has_secret(self, key: str) -> bool:
         return (
-            self._workspace_secrets.get(key) is not None
-            or self._user_secrets.get(key) is not None
+            self._workspace_secrets.get(key) is not None or self._user_secrets.get(key) is not None
         )
 
     def _substitute(self, server: str, value: Any) -> str:

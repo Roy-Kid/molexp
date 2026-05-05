@@ -56,17 +56,9 @@ def _task_from_session(
     task_id: str | None = None,
     persisted: PersistedAgentTask | None = None,
 ) -> AgentTaskResponse:
-    updated_at = (
-        session.stats.completedAt
-        or session.stats.startedAt
-        or session.createdAt
-    )
+    updated_at = session.stats.completedAt or session.stats.startedAt or session.createdAt
     return AgentTaskResponse(
-        taskId=(
-            persisted.task_id
-            if persisted is not None
-            else task_id or session.sessionId
-        ),
+        taskId=(persisted.task_id if persisted is not None else task_id or session.sessionId),
         title=(
             persisted.title
             if persisted is not None and persisted.title
@@ -327,8 +319,6 @@ async def post_agent_task_message(
 ) -> MessageResponse:
     """Send a user message to a running agent task."""
     session_id = _session_id_for_task(workspace, task_id)
-    response = await agent_routes.post_user_message(
-        session_id, request, workspace=workspace
-    )
+    response = await agent_routes.post_user_message(session_id, request, workspace=workspace)
     get_agent_task(task_id, workspace)
     return response

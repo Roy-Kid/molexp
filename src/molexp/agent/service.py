@@ -30,7 +30,6 @@ from molexp.agent.tools.registry import ToolRegistry
 from molexp.agent.tools.source import ToolSource
 from molexp.agent.types import Goal, SessionStatus, utc_now
 
-
 RunnerFactory = Callable[[AgentSession], AgentRunner]
 
 
@@ -281,13 +280,9 @@ class AgentService:
                 continue
             history = self.state.sessions.read_messages(meta.session_id)
             replayable = bool(history) and any(m.role == "user" for m in history)
-            new_status = (
-                SessionStatus.RESUMABLE if replayable else SessionStatus.INTERRUPTED
-            )
+            new_status = SessionStatus.RESUMABLE if replayable else SessionStatus.INTERRUPTED
             summary = meta.summary or (
-                "resumable: server restart"
-                if replayable
-                else "interrupted: server restart"
+                "resumable: server restart" if replayable else "interrupted: server restart"
             )
             self.state.sessions.write_metadata(
                 SessionMetadata(

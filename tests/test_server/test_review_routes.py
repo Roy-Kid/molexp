@@ -57,13 +57,11 @@ def test_approve_plan_review_resolves_live_plan(client, workspace):
     same ``respond_plan`` pathway the agent route uses.
     """
     from molexp.agent import AgentMode, Goal
-    from molexp.agent.orchestration import PlanCreated, PlanStateMachine
+    from molexp.agent.orchestration import PlanStateMachine
     from molexp.agent.types import WorkflowPreview
 
     service = agent_route._service_for(workspace)
-    session = service.start_session(
-        Goal(description="Draft workflow", mode=AgentMode.PLAN)
-    )
+    session = service.start_session(Goal(description="Draft workflow", mode=AgentMode.PLAN))
     # Park the session on a plan emission so respond_plan has work to do.
     preview = WorkflowPreview(workflow_ir={"task_configs": []})
     session.plan = (

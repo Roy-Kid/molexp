@@ -9,7 +9,7 @@ them into ``ToolResult``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from molexp.agent.types import AgentFailure, ArtifactRef
 

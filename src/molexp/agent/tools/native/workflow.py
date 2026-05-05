@@ -23,7 +23,6 @@ from molexp.agent.tools.native._templates import TEMPLATES, list_templates
 from molexp.agent.tools.registry import native_tool
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 
-
 _TERMINAL_STATUSES = {"succeeded", "completed", "failed", "cancelled", "error"}
 
 
@@ -55,21 +54,23 @@ def _status_payload(run: Any) -> dict[str, Any]:
 # ── Run lifecycle ────────────────────────────────────────────────────────────
 
 
-@native_tool(ToolSpec(
-    name="native:submit_run",
-    description="Create a new run with parameters in an experiment.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "parameters": {"type": "object"},
+@native_tool(
+    ToolSpec(
+        name="native:submit_run",
+        description="Create a new run with parameters in an experiment.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "parameters": {"type": "object"},
+            },
+            "required": ["project_id", "experiment_id", "parameters"],
         },
-        "required": ["project_id", "experiment_id", "parameters"],
-    },
-    category="workflow",
-    mutates=True,
-))
+        category="workflow",
+        mutates=True,
+    )
+)
 async def submit_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
     if failure is not None:
@@ -85,54 +86,54 @@ async def submit_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     )
 
 
-@native_tool(ToolSpec(
-    name="native:get_run_status",
-    description="Read the current status of a run from on-disk metadata.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "run_id": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:get_run_status",
+        description="Read the current status of a run from on-disk metadata.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "run_id": {"type": "string"},
+            },
+            "required": ["project_id", "experiment_id", "run_id"],
         },
-        "required": ["project_id", "experiment_id", "run_id"],
-    },
-    category="workflow",
-    mutates=False,
-))
-async def get_run_status(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    run, failure = get_run(
-        ctx, args["project_id"], args["experiment_id"], args["run_id"]
+        category="workflow",
+        mutates=False,
     )
+)
+async def get_run_status(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    run, failure = get_run(ctx, args["project_id"], args["experiment_id"], args["run_id"])
     if failure is not None:
         return failure
     return ok(_status_payload(run))
 
 
-@native_tool(ToolSpec(
-    name="native:wait_for_run",
-    description="Poll a run until it reaches a terminal status or timeout.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "run_id": {"type": "string"},
-            "timeout_seconds": {"type": "number"},
-            "poll_interval": {"type": "number"},
+@native_tool(
+    ToolSpec(
+        name="native:wait_for_run",
+        description="Poll a run until it reaches a terminal status or timeout.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "run_id": {"type": "string"},
+                "timeout_seconds": {"type": "number"},
+                "poll_interval": {"type": "number"},
+            },
+            "required": ["project_id", "experiment_id", "run_id"],
         },
-        "required": ["project_id", "experiment_id", "run_id"],
-    },
-    category="workflow",
-    mutates=False,
-))
+        category="workflow",
+        mutates=False,
+    )
+)
 async def wait_for_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     timeout_seconds = float(args.get("timeout_seconds", 300.0))
     poll_interval = max(0.1, float(args.get("poll_interval", 2.0)))
     deadline = time.monotonic() + max(0.0, timeout_seconds)
-    experiment, failure = get_experiment(
-        ctx, args["project_id"], args["experiment_id"]
-    )
+    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
     if failure is not None:
         return failure
     run_id = args["run_id"]
@@ -151,21 +152,23 @@ async def wait_for_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         await asyncio.sleep(poll_interval)
 
 
-@native_tool(ToolSpec(
-    name="native:retry_run",
-    description="Clone an existing run's parameters into a fresh run.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "run_id": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:retry_run",
+        description="Clone an existing run's parameters into a fresh run.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "run_id": {"type": "string"},
+            },
+            "required": ["project_id", "experiment_id", "run_id"],
         },
-        "required": ["project_id", "experiment_id", "run_id"],
-    },
-    category="workflow",
-    mutates=True,
-))
+        category="workflow",
+        mutates=True,
+    )
+)
 async def retry_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
     if failure is not None:
@@ -183,25 +186,25 @@ async def retry_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     )
 
 
-@native_tool(ToolSpec(
-    name="native:get_run_results",
-    description="Read the final ctx.set_result payload of a run.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "run_id": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:get_run_results",
+        description="Read the final ctx.set_result payload of a run.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "run_id": {"type": "string"},
+            },
+            "required": ["project_id", "experiment_id", "run_id"],
         },
-        "required": ["project_id", "experiment_id", "run_id"],
-    },
-    category="workflow",
-    mutates=False,
-))
-async def get_run_results(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    run, failure = get_run(
-        ctx, args["project_id"], args["experiment_id"], args["run_id"]
+        category="workflow",
+        mutates=False,
     )
+)
+async def get_run_results(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    run, failure = get_run(ctx, args["project_id"], args["experiment_id"], args["run_id"])
     if failure is not None:
         return failure
     return ok(
@@ -217,32 +220,36 @@ async def get_run_results(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 # ── Workflow / experiment binding ────────────────────────────────────────────
 
 
-@native_tool(ToolSpec(
-    name="native:list_workflow_templates",
-    description="Return the catalog of built-in workflow templates the agent can attach.",
-    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    category="workflow",
-    mutates=False,
-))
+@native_tool(
+    ToolSpec(
+        name="native:list_workflow_templates",
+        description="Return the catalog of built-in workflow templates the agent can attach.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        category="workflow",
+        mutates=False,
+    )
+)
 async def list_workflow_templates(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     return ok(list_templates())
 
 
-@native_tool(ToolSpec(
-    name="native:create_experiment",
-    description="Create an experiment, optionally binding a built-in workflow template.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "name": {"type": "string"},
-            "template": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:create_experiment",
+        description="Create an experiment, optionally binding a built-in workflow template.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "name": {"type": "string"},
+                "template": {"type": "string"},
+            },
+            "required": ["project_id", "name"],
         },
-        "required": ["project_id", "name"],
-    },
-    category="workflow",
-    mutates=True,
-))
+        category="workflow",
+        mutates=True,
+    )
+)
 async def create_experiment(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     project, failure = get_project(ctx, args["project_id"])
     if failure is not None:
@@ -259,9 +266,7 @@ async def create_experiment(args: dict[str, Any], ctx: ToolContext) -> ToolResul
             }
         )
     if template not in TEMPLATES:
-        return err(
-            f"Unknown workflow template '{template}'. Available: {sorted(TEMPLATES)}"
-        )
+        return err(f"Unknown workflow template '{template}'. Available: {sorted(TEMPLATES)}")
     fn, description, expected_params = TEMPLATES[template]
     experiment = project.experiment(args["name"])
     if experiment.workflow is None:
@@ -277,13 +282,15 @@ async def create_experiment(args: dict[str, Any], ctx: ToolContext) -> ToolResul
     )
 
 
-@native_tool(ToolSpec(
-    name="native:list_task_types",
-    description="Return every task-type slug that can appear in a workflow IR.",
-    input_schema={"type": "object", "properties": {}, "additionalProperties": False},
-    category="workflow",
-    mutates=False,
-))
+@native_tool(
+    ToolSpec(
+        name="native:list_task_types",
+        description="Return every task-type slug that can appear in a workflow IR.",
+        input_schema={"type": "object", "properties": {}, "additionalProperties": False},
+        category="workflow",
+        mutates=False,
+    )
+)
 async def list_task_types(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     from molexp.workflow.registry import default_registry
 
@@ -295,21 +302,23 @@ async def list_task_types(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     )
 
 
-@native_tool(ToolSpec(
-    name="native:set_workflow_from_ir",
-    description="Bind a JSON workflow IR to an experiment and persist it to disk.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "workflow_json": {"type": "object"},
+@native_tool(
+    ToolSpec(
+        name="native:set_workflow_from_ir",
+        description="Bind a JSON workflow IR to an experiment and persist it to disk.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "workflow_json": {"type": "object"},
+            },
+            "required": ["project_id", "experiment_id", "workflow_json"],
         },
-        "required": ["project_id", "experiment_id", "workflow_json"],
-    },
-    category="workflow",
-    mutates=True,
-))
+        category="workflow",
+        mutates=True,
+    )
+)
 async def set_workflow_from_ir(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
     if failure is not None:
@@ -335,21 +344,23 @@ async def set_workflow_from_ir(args: dict[str, Any], ctx: ToolContext) -> ToolRe
     )
 
 
-@native_tool(ToolSpec(
-    name="native:execute_run",
-    description="Run the workflow attached to an experiment against an existing run.",
-    input_schema={
-        "type": "object",
-        "properties": {
-            "project_id": {"type": "string"},
-            "experiment_id": {"type": "string"},
-            "run_id": {"type": "string"},
+@native_tool(
+    ToolSpec(
+        name="native:execute_run",
+        description="Run the workflow attached to an experiment against an existing run.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "string"},
+                "experiment_id": {"type": "string"},
+                "run_id": {"type": "string"},
+            },
+            "required": ["project_id", "experiment_id", "run_id"],
         },
-        "required": ["project_id", "experiment_id", "run_id"],
-    },
-    category="workflow",
-    mutates=True,
-))
+        category="workflow",
+        mutates=True,
+    )
+)
 async def execute_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
     if failure is not None:

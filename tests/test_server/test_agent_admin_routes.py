@@ -244,9 +244,7 @@ def test_test_mcp_server_uses_probe_module(client, monkeypatch):
     async def fake_probe(store, entry):
         return probe_mod.ProbeOutcome(ok=True, latency_ms=42, tool_count=3)
 
-    monkeypatch.setattr(
-        "molexp.server.routes.agent_admin.probe_server", fake_probe
-    )
+    monkeypatch.setattr("molexp.server.routes.agent_admin.probe_server", fake_probe)
     client.post(
         "/api/agent/mcp/servers",
         json={
@@ -279,9 +277,7 @@ def test_test_mcp_server_reports_missing_secrets(client, monkeypatch):
             )
         return probe_mod.ProbeOutcome(ok=True, latency_ms=10, tool_count=1)
 
-    monkeypatch.setattr(
-        "molexp.server.routes.agent_admin.probe_server", fake_probe
-    )
+    monkeypatch.setattr("molexp.server.routes.agent_admin.probe_server", fake_probe)
     client.post(
         "/api/agent/mcp/servers",
         json={
@@ -739,6 +735,7 @@ def test_test_provider_rejects_unknown_provider(client):
     response = client.post("/api/agent/provider/test", json={"provider": "wat"})
     assert response.status_code == 400
 
+
 # ── MCP OAuth flow ──────────────────────────────────────────────────────────
 
 
@@ -767,11 +764,7 @@ def test_oauth_status_returns_404_for_missing_server(client):
 
 @pytest.mark.integration
 def test_oauth_status_returns_400_when_not_oauth(workspace, client):
-    payload = {
-        "mcpServers": {
-            "plain": {"type": "stdio", "command": "echo"}
-        }
-    }
+    payload = {"mcpServers": {"plain": {"type": "stdio", "command": "echo"}}}
     (workspace.root / ".mcp.json").write_text(json.dumps(payload))
     response = client.get("/api/agent/mcp/servers/plain/oauth?scope=workspace")
     assert response.status_code == 400
@@ -956,4 +949,3 @@ def test_custom_tools_delete_default_returns_404(client):
     a writable scope must return 404 rather than silently no-op."""
     response = client.delete("/api/agent/tools/custom/submit_run?scope=workspace")
     assert response.status_code == 404
-

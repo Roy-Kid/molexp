@@ -74,6 +74,7 @@ def _load_agent() -> Any:
     """
 
     import pydantic_ai  # noqa: F401 — availability check
+
     from molexp.agent import AgentService
 
     return AgentService

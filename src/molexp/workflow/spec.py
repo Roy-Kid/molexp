@@ -261,8 +261,7 @@ class WorkflowSpec:
             for endpoint in (link["source"], link["target"]):
                 if endpoint not in known:
                     raise ValueError(
-                        f"Link references unknown task_id {endpoint!r}; "
-                        f"known: {sorted(known)}"
+                        f"Link references unknown task_id {endpoint!r}; known: {sorted(known)}"
                     )
 
         name = data.get("name") or ""

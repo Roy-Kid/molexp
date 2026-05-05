@@ -61,9 +61,7 @@ class DefaultContextManager:
 
         diagnostics: list[str] = []
         if budget.used_chars > self._max_chars:
-            diagnostics.append(
-                f"Context exceeds budget: {budget.used_chars} > {self._max_chars}"
-            )
+            diagnostics.append(f"Context exceeds budget: {budget.used_chars} > {self._max_chars}")
 
         return ContextPacket(
             system=system,

@@ -12,7 +12,6 @@ from typing import Any
 
 from molexp.agent.types import ArtifactRef
 
-
 _ARTIFACT_KINDS = {"plot", "table", "text", "file"}
 
 

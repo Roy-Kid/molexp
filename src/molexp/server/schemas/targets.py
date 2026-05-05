@@ -53,12 +53,8 @@ class TargetResponse(BaseModel):
     identity_file: str | None = Field(default=None, alias="identityFile")
     ssh_opts: list[str] = Field(default_factory=list, alias="sshOpts")
     is_remote: bool = Field(..., alias="isRemote")
-    default_resources: dict[str, Any] = Field(
-        default_factory=dict, alias="defaultResources"
-    )
-    default_scheduling: dict[str, Any] = Field(
-        default_factory=dict, alias="defaultScheduling"
-    )
+    default_resources: dict[str, Any] = Field(default_factory=dict, alias="defaultResources")
+    default_scheduling: dict[str, Any] = Field(default_factory=dict, alias="defaultScheduling")
 
     model_config = {"populate_by_name": True}
 

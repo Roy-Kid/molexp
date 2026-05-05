@@ -114,10 +114,7 @@ class Skill(BaseModel):
                 return False
         if not self.allowed_tools:
             return True
-        return any(
-            fnmatch.fnmatchcase(tool_name, pattern)
-            for pattern in self.allowed_tools
-        )
+        return any(fnmatch.fnmatchcase(tool_name, pattern) for pattern in self.allowed_tools)
 
 
 def _now_iso() -> str:
@@ -248,9 +245,7 @@ class SkillStore:
         scope: SkillScope = SkillScope.WORKSPACE,
     ) -> Skill:
         if scope == SkillScope.BUILTIN:
-            raise ValueError(
-                "Builtin skills are registered in code and cannot be created on disk."
-            )
+            raise ValueError("Builtin skills are registered in code and cannot be created on disk.")
         skill = Skill(
             id=skill_id or f"skill-{uuid.uuid4().hex[:12]}",
             name=name,
@@ -359,20 +354,16 @@ class SkillStore:
             return
         if not _SLASH_NAME_RE.match(slash_name):
             raise ValueError(
-                f"Invalid slash_name '{slash_name}'. Must match "
-                "[a-z0-9][a-z0-9-]{0,31}."
+                f"Invalid slash_name '{slash_name}'. Must match [a-z0-9][a-z0-9-]{{0,31}}."
             )
         if slash_name in RESERVED_SLASH_NAMES:
-            raise ValueError(
-                f"slash_name '{slash_name}' is reserved by the chat input."
-            )
+            raise ValueError(f"slash_name '{slash_name}' is reserved by the chat input.")
         for item in data:
             if exclude_id is not None and item.get("id") == exclude_id:
                 continue
             if item.get("slash_name") == slash_name:
                 raise ValueError(
-                    f"slash_name '{slash_name}' is already used by skill "
-                    f"'{item.get('id')}'."
+                    f"slash_name '{slash_name}' is already used by skill '{item.get('id')}'."
                 )
 
     def _read(self, scope: SkillScope) -> list[dict[str, Any]]:

@@ -9,7 +9,6 @@ and stdlib-only.
 from __future__ import annotations
 
 from threading import Lock
-
 from typing import Any, Callable
 
 from molexp.agent.model import (
@@ -60,9 +59,7 @@ class _ModelProviderRegistry:
             raise UnknownProviderError(provider_name)
         return factory
 
-    def get_validator(
-        self, provider_name: str
-    ) -> ProviderConfigValidator | None:
+    def get_validator(self, provider_name: str) -> ProviderConfigValidator | None:
         with self._lock:
             return self._validators.get(provider_name)
 
@@ -77,8 +74,7 @@ class _ModelProviderRegistry:
             errors = validator.validate(config)
             if errors:
                 raise ValueError(
-                    f"Provider config invalid for '{config.provider_name}': "
-                    + "; ".join(errors)
+                    f"Provider config invalid for '{config.provider_name}': " + "; ".join(errors)
                 )
         factory = self.get_factory(config.provider_name)
         if model_io_sink is None:

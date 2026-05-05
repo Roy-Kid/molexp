@@ -520,9 +520,10 @@ def test_entry_without_type_marked_invalid(tmp_path, isolated_user_dir):
     rows = store.list()
     assert len(rows) == 1
     assert rows[0].valid is False
-    assert "type" in rows[0].invalid_reason.lower() or "discriminator" in rows[
-        0
-    ].invalid_reason.lower()
+    assert (
+        "type" in rows[0].invalid_reason.lower()
+        or "discriminator" in rows[0].invalid_reason.lower()
+    )
 
 
 @pytest.mark.unit

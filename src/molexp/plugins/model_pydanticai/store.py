@@ -19,9 +19,7 @@ from molexp.agent.model import ModelConfig
 PROVIDER_FILENAME = "provider.json"
 AGENT_DIRNAME = ".molexp-agent"
 
-ProviderName = Literal[
-    "anthropic", "openai", "google", "deepseek", "openai-compatible"
-]
+ProviderName = Literal["anthropic", "openai", "google", "deepseek", "openai-compatible"]
 
 SUPPORTED_PROVIDERS: tuple[ProviderName, ...] = (
     "anthropic",
@@ -151,9 +149,7 @@ class ProviderStore:
             next_model = current.model
         next_api_key = api_key if api_key is not None else (current.api_key or "")
         next_base_url = base_url if base_url is not None else (current.base_url or "")
-        next_instructions = (
-            instructions if instructions is not None else current.instructions
-        )
+        next_instructions = instructions if instructions is not None else current.instructions
         updated = ModelConfig(
             provider_name=next_provider,
             model=next_model,

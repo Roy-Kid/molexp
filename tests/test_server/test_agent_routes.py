@@ -12,7 +12,7 @@ import asyncio
 
 import pytest
 
-from molexp.agent import AgentMode, AgentService, Goal, SessionStatus
+from molexp.agent import AgentMode, AgentService, Goal
 from molexp.agent.orchestration import (
     PlanCreated,
     SessionStarted,
@@ -126,22 +126,15 @@ async def test_plan_decision_route_resumes_parked_session(client, workspace) -> 
     """POST /plan-decision must drive the runner past the parked plan state."""
 
     model = FakeModelClient()
-    plan_text = (
-        "Step 1: x\n"
-        '```json\n{"workflow_ir": {"task_configs": [{"task_id": "t1"}]}}\n```'
-    )
+    plan_text = 'Step 1: x\n```json\n{"workflow_ir": {"task_configs": [{"task_id": "t1"}]}}\n```'
     model.queue_text(plan_text)
     model.queue_text("plan executed")
 
     # Build an isolated AgentService backed by FakeModelClient and inject it.
-    isolated = AgentService.from_workspace(
-        workspace.root, model=model, workspace=workspace
-    )
+    isolated = AgentService.from_workspace(workspace.root, model=model, workspace=workspace)
     agent_route._service_cache[str(workspace.root)] = isolated
 
-    session = isolated.start_session(
-        Goal(description="please plan", mode=AgentMode.PLAN)
-    )
+    session = isolated.start_session(Goal(description="please plan", mode=AgentMode.PLAN))
 
     plan_created: list[PlanCreated] = []
 

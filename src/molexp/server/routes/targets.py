@@ -145,9 +145,7 @@ def test_target_endpoint(
     # 2. mkdir scratch.
     try:
         transport.mkdir(target.scratch_root, parents=True, exist_ok=True)
-        checks.append(
-            TargetTestCheck(label=f"mkdir {target.scratch_root}", ok=True)
-        )
+        checks.append(TargetTestCheck(label=f"mkdir {target.scratch_root}", ok=True))
     except Exception as exc:
         checks.append(
             TargetTestCheck(
@@ -156,9 +154,7 @@ def test_target_endpoint(
                 detail=str(exc),
             )
         )
-        return TargetTestResponse(
-            name=name, ok=False, checks=checks, error=f"mkdir failed: {exc}"
-        )
+        return TargetTestResponse(name=name, ok=False, checks=checks, error=f"mkdir failed: {exc}")
 
     # 3. file round-trip.
     probe = f"{target.scratch_root.rstrip('/')}/.molexp-target-test"
@@ -166,9 +162,7 @@ def test_target_endpoint(
         transport.write_text(probe, "x")
         if transport.read_text(probe) != "x":
             checks.append(
-                TargetTestCheck(
-                    label="file round-trip", ok=False, detail="content mismatch"
-                )
+                TargetTestCheck(label="file round-trip", ok=False, detail="content mismatch")
             )
             return TargetTestResponse(
                 name=name, ok=False, checks=checks, error="file round-trip mismatch"
@@ -176,9 +170,7 @@ def test_target_endpoint(
         transport.remove(probe)
         checks.append(TargetTestCheck(label="file round-trip", ok=True))
     except Exception as exc:
-        checks.append(
-            TargetTestCheck(label="file round-trip", ok=False, detail=str(exc))
-        )
+        checks.append(TargetTestCheck(label="file round-trip", ok=False, detail=str(exc)))
         return TargetTestResponse(
             name=name, ok=False, checks=checks, error=f"round-trip failed: {exc}"
         )

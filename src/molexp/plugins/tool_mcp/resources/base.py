@@ -328,9 +328,7 @@ class TieredResourceStore(Generic[T]):
         with self._lock:
             existing = self._read_raw(scope)
             if spec.id in existing:
-                raise ValueError(
-                    f"id {spec.id!r} already exists at scope {scope.value}"
-                )
+                raise ValueError(f"id {spec.id!r} already exists at scope {scope.value}")
             existing[spec.id] = self._spec_to_dict(spec)
             self._write_raw(scope, existing)
         return spec
@@ -441,9 +439,7 @@ class TieredResourceStore(Generic[T]):
         raw_dict = payload.get(self._kind_key)
         if not isinstance(raw_dict, dict):
             return {}
-        return {
-            str(k): v for k, v in raw_dict.items() if isinstance(v, dict)
-        }
+        return {str(k): v for k, v in raw_dict.items() if isinstance(v, dict)}
 
     def _read_scope(self, scope: Scope) -> list[T]:
         """Validate every record in ``scope``, surfacing malformed ones.

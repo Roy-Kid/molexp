@@ -19,9 +19,9 @@ from molexp.plugins.model_pydanticai.credentials import (
     to_public,
 )
 from molexp.plugins.model_pydanticai.provider import (
+    SUPPORTED_PROVIDERS,
     PydanticAIModelClientFactory,
     PydanticAIProviderValidator,
-    SUPPORTED_PROVIDERS,
 )
 from molexp.plugins.model_pydanticai.store import (
     DEFAULT_MODELS,

@@ -80,9 +80,7 @@ class AgentSession:
 
         return await self._inbox.get()
 
-    async def send_user_message(
-        self, content: str, request_id: str | None = None
-    ) -> None:
+    async def send_user_message(self, content: str, request_id: str | None = None) -> None:
         """Deliver a user message to the runner.
 
         If a ``request_id`` is provided and matches an outstanding

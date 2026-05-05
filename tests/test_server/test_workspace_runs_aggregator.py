@@ -9,7 +9,9 @@ from datetime import datetime, timedelta
 from molexp.workspace.models import ExecutionRecord
 
 
-def _seed_run(workspace, *, project_id, experiment_id, parameters, executor_info=None, status="pending"):
+def _seed_run(
+    workspace, *, project_id, experiment_id, parameters, executor_info=None, status="pending"
+):
     project = workspace.project(project_id)
     experiment = project.experiment(experiment_id, workflow_source="train.py", params=parameters)
     run = experiment.run(parameters=parameters)
@@ -20,7 +22,9 @@ def _seed_run(workspace, *, project_id, experiment_id, parameters, executor_info
     return run
 
 
-def _append_execution(run, *, execution_id, status, scheduler_job_id=None, started_at=None, finished_at=None):
+def _append_execution(
+    run, *, execution_id, status, scheduler_job_id=None, started_at=None, finished_at=None
+):
     """Append a synthetic ExecutionRecord to a run's history."""
     started = started_at or datetime.now()
     record = ExecutionRecord(

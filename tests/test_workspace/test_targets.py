@@ -18,7 +18,6 @@ from molexp.workspace import (
     to_transport,
 )
 
-
 # ---------------------------------------------------------------------------
 # ComputeTarget validation
 # ---------------------------------------------------------------------------
@@ -34,7 +33,10 @@ class TestComputeTargetValidation:
 
     def test_remote_target(self) -> None:
         t = ComputeTarget(
-            name="hpc", host="me@host", scheduler="slurm", scratch_root="/scratch",
+            name="hpc",
+            host="me@host",
+            scheduler="slurm",
+            scratch_root="/scratch",
         )
         assert t.is_remote is True
         assert t.scheduler == "slurm"
@@ -84,9 +86,13 @@ class TestRegistry:
         add_target(
             ws,
             ComputeTarget(
-                name="hpc", host="me@cluster", port=2222,
-                identity_file="/k", ssh_opts=["-o", "ServerAliveInterval=30"],
-                scheduler="slurm", scratch_root="/scratch/me",
+                name="hpc",
+                host="me@cluster",
+                port=2222,
+                identity_file="/k",
+                ssh_opts=["-o", "ServerAliveInterval=30"],
+                scheduler="slurm",
+                scratch_root="/scratch/me",
                 default_resources={"cpus": 8, "mem": "16G"},
             ),
         )
@@ -140,8 +146,13 @@ class TestToTransport:
 
     def test_remote_target_yields_ssh_transport(self) -> None:
         t = ComputeTarget(
-            name="x", host="me@h", port=2222, identity_file="/k",
-            ssh_opts=["-o", "X=Y"], scheduler="slurm", scratch_root="/s",
+            name="x",
+            host="me@h",
+            port=2222,
+            identity_file="/k",
+            ssh_opts=["-o", "X=Y"],
+            scheduler="slurm",
+            scratch_root="/s",
         )
         tr = to_transport(t)
         assert isinstance(tr, SshTransport)

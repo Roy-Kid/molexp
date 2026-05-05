@@ -11,7 +11,6 @@ import pytest
 from molexp.agent import (
     AgentService,
     Goal,
-    Message,
     SessionStatus,
     ToolContext,
     ToolResult,
@@ -48,9 +47,7 @@ def workspace_path(tmp_path: Path) -> Path:
 async def test_text_only_turn_persists_messages_and_events(workspace_path: Path) -> None:
     model = FakeModelClient()
     model.queue_text("hello back")
-    service = AgentService.from_workspace(
-        workspace_path, model=model
-    )
+    service = AgentService.from_workspace(workspace_path, model=model)
     session = service.start_session(Goal(description="say hi"))
 
     received = []
@@ -74,7 +71,7 @@ async def test_text_only_turn_persists_messages_and_events(workspace_path: Path)
     events_path = sessions_root / "events.jsonl"
     assert messages_path.exists()
     assert events_path.exists()
-    msgs = [json.loads(l) for l in messages_path.read_text().splitlines() if l.strip()]
+    msgs = [json.loads(line) for line in messages_path.read_text().splitlines() if line.strip()]
     roles = [m["role"] for m in msgs]
     assert roles == ["user", "assistant"]
     assert msgs[0]["content"] == "say hi"
@@ -118,13 +115,9 @@ async def test_tool_call_loop_dispatches_native_tool(workspace_path: Path) -> No
     assert captured["args"] == {"x": 7}
 
     msgs_path = (
-        workspace_path
-        / ".molexp-agent"
-        / "sessions"
-        / session.session_id
-        / "messages.jsonl"
+        workspace_path / ".molexp-agent" / "sessions" / session.session_id / "messages.jsonl"
     )
-    msgs = [json.loads(l) for l in msgs_path.read_text().splitlines() if l.strip()]
+    msgs = [json.loads(line) for line in msgs_path.read_text().splitlines() if line.strip()]
     roles = [m["role"] for m in msgs]
     # user goal, assistant tool-call (no text → no assistant), tool result, assistant final text
     assert "tool" in roles
@@ -135,8 +128,7 @@ async def test_tool_call_loop_dispatches_native_tool(workspace_path: Path) -> No
 async def test_plan_mode_emits_and_resolves(workspace_path: Path) -> None:
     model = FakeModelClient()
     plan_text = (
-        "Step 1: do the thing\n"
-        '```json\n{"workflow_ir": {"task_configs": [{"task_id": "t1"}]}}\n```'
+        'Step 1: do the thing\n```json\n{"workflow_ir": {"task_configs": [{"task_id": "t1"}]}}\n```'
     )
     model.queue_text(plan_text)
     model.queue_text("Plan complete; proceeding.")
@@ -176,13 +168,7 @@ async def test_plan_mode_emits_and_resolves(workspace_path: Path) -> None:
     await asyncio.sleep(0.05)
     await service.cancel(session.session_id)
 
-    ckpt_dir = (
-        workspace_path
-        / ".molexp-agent"
-        / "sessions"
-        / session.session_id
-        / "checkpoints"
-    )
+    ckpt_dir = workspace_path / ".molexp-agent" / "sessions" / session.session_id / "checkpoints"
     assert ckpt_dir.exists()
     files = list(ckpt_dir.glob("*.json"))
     assert files, "plan-decision checkpoint should have been written"
@@ -230,13 +216,9 @@ async def test_plan_rejection_loops_back_with_synthetic_user_message(
     await service.cancel(session.session_id)
 
     msgs_path = (
-        workspace_path
-        / ".molexp-agent"
-        / "sessions"
-        / session.session_id
-        / "messages.jsonl"
+        workspace_path / ".molexp-agent" / "sessions" / session.session_id / "messages.jsonl"
     )
-    msgs = [json.loads(l) for l in msgs_path.read_text().splitlines() if l.strip()]
+    msgs = [json.loads(line) for line in msgs_path.read_text().splitlines() if line.strip()]
     user_msgs = [m for m in msgs if m["role"] == "user"]
     assert any("Plan rejected." in m["content"] for m in user_msgs)
     assert any("be terser" in m["content"] for m in user_msgs)
@@ -336,12 +318,7 @@ async def test_evaluator_records_eval_checkpoint_at_terminal(
     await runner._finalize_session(session, turn_count=3)
 
     eval_path = (
-        workspace_path
-        / ".molexp-agent"
-        / "sessions"
-        / "sess-eval"
-        / "checkpoints"
-        / "eval.json"
+        workspace_path / ".molexp-agent" / "sessions" / "sess-eval" / "checkpoints" / "eval.json"
     )
     assert eval_path.exists()
     record = json.loads(eval_path.read_text())

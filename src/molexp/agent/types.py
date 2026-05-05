@@ -147,6 +147,7 @@ class AgentFailure:
 
 # Helpers --------------------------------------------------------------
 
+
 def utc_now() -> datetime:
     """Return a timezone-aware UTC ``datetime``.
 

@@ -30,9 +30,7 @@ from molq.status import JobState
 
 _PENDING_STATES = frozenset({JobState.CREATED, JobState.SUBMITTED, JobState.QUEUED})
 _RUNNING_STATES = frozenset({JobState.RUNNING})
-_FAILED_STATES = frozenset(
-    {JobState.FAILED, JobState.TIMED_OUT, JobState.CANCELLED, JobState.LOST}
-)
+_FAILED_STATES = frozenset({JobState.FAILED, JobState.TIMED_OUT, JobState.CANCELLED, JobState.LOST})
 _SUCCEEDED_STATES = frozenset({JobState.SUCCEEDED})
 
 # 24h window for avg-wait sample selection.

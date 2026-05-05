@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent import AgentService, Goal, ToolContext
+from molexp.agent import AgentService, Goal
 from molexp.agent.orchestration import (
     ToolCallCompleted,
     UserMessageRequested,

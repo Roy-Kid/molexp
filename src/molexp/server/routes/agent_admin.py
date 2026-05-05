@@ -25,10 +25,9 @@ from molexp.plugins.model_pydanticai import (
     to_public,
 )
 from molexp.plugins.tool_mcp import (
+    START_TIMEOUT_SECONDS,
     McpScope,
     McpStore,
-    OAuthFlowSession,
-    START_TIMEOUT_SECONDS,
     build_oauth_provider,
     default_redirect_uri,
     list_mcp_tools,
@@ -832,8 +831,7 @@ async def list_commands(workspace=Depends(get_workspace)) -> CommandListResponse
                 name=skill.name,
                 description=skill.description,
                 parameters=[
-                    CommandParameterSpec(name=p, required=True)
-                    for p in skill.required_parameters()
+                    CommandParameterSpec(name=p, required=True) for p in skill.required_parameters()
                 ],
                 defaultPlanMode=skill.default_plan_mode,
                 isBuiltin=False,
@@ -956,9 +954,7 @@ def _resolve_probe_config(
     switching provider without an explicit model resets to that
     provider's default so we don't probe with a mismatched model.
     """
-    target_provider = (
-        request.provider if request.provider is not None else stored.provider_name
-    )
+    target_provider = request.provider if request.provider is not None else stored.provider_name
     if request.model is not None:
         target_model = request.model
     elif request.provider is not None and request.provider != stored.provider_name:

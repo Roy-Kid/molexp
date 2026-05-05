@@ -587,13 +587,10 @@ def run(
 ) -> None:
     """Execute the workflow(s) defined by *script*."""
     # ── Backend selection ──────────────────────────────────────────────────
-    backend_flags = sum(
-        1 for f in (local, scheduler is not None, target is not None) if f
-    )
+    backend_flags = sum(1 for f in (local, scheduler is not None, target is not None) if f)
     if backend_flags > 1:
         rprint(
-            "[red]Error:[/red] Specify at most one backend flag "
-            "(--local, --scheduler, --target)."
+            "[red]Error:[/red] Specify at most one backend flag (--local, --scheduler, --target)."
         )
         raise typer.Exit(1)
 
@@ -610,9 +607,7 @@ def run(
             rprint(f"[red]{exc}[/red] — see `molexp target list`.")
             raise typer.Exit(1) from exc
 
-    selected_scheduler = (
-        selected_target.scheduler if selected_target is not None else scheduler
-    )
+    selected_scheduler = selected_target.scheduler if selected_target is not None else scheduler
     is_local = selected_scheduler is None and selected_target is None
 
     if bg and not is_local:

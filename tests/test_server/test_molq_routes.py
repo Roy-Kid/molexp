@@ -27,7 +27,7 @@ def molq_setup(tmp_path, monkeypatch, client):
 [profiles.demo]
 scheduler = "local"
 cluster_name = "demo-local"
-jobs_dir = "{tmp_path / 'jobs'}"
+jobs_dir = "{tmp_path / "jobs"}"
 """.strip()
     )
     (tmp_path / "jobs").mkdir(exist_ok=True)

@@ -59,9 +59,7 @@ def add_target(ws: Workspace, target: ComputeTarget) -> None:
     """
     if has_target(ws, target.name):
         raise ValueError(f"compute target {target.name!r} already exists")
-    ws.metadata = ws.metadata.model_copy(
-        update={"targets": [*ws.metadata.targets, target]}
-    )
+    ws.metadata = ws.metadata.model_copy(update={"targets": [*ws.metadata.targets, target]})
     ws.save()
 
 
@@ -121,6 +119,5 @@ def target_run_dir(target: ComputeTarget, ws: Workspace, run: Run) -> str:
     project = run.experiment.project
     experiment = run.experiment
     return (
-        f"{target.scratch_root.rstrip('/')}/"
-        f"{ws.metadata.id}/{project.id}/{experiment.id}/{run.id}"
+        f"{target.scratch_root.rstrip('/')}/{ws.metadata.id}/{project.id}/{experiment.id}/{run.id}"
     )

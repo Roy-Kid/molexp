@@ -21,6 +21,8 @@ from molexp.agent._serialize import to_jsonable as _jsonable
 from molexp.agent.context.manager import ContextManager, DefaultContextManager
 from molexp.agent.context.packet import ContextBuildRequest, ContextPacket
 from molexp.agent.model import ModelClient, ModelRequest, ModelResponse
+from molexp.agent.observability.evals import Evaluator, NoopEvaluator
+from molexp.agent.observability.usage import UsageAccumulator
 from molexp.agent.orchestration.chat import ChatGateway
 from molexp.agent.orchestration.events import (
     ContextBuilt,
@@ -42,12 +44,9 @@ from molexp.agent.orchestration.plan import (
     PlanState,
     render_reject_feedback,
 )
-from molexp.agent.observability.evals import Evaluator, NoopEvaluator
-from molexp.agent.observability.usage import UsageAccumulator
 from molexp.agent.orchestration.session import AgentSession
 from molexp.agent.recovery.constraints import ConstraintSet
 from molexp.agent.recovery.retry import (
-    NoRetryPolicy,
     RecoveryPolicy,
     SimpleRetryPolicy,
 )
@@ -66,7 +65,6 @@ from molexp.agent.types import (
     WorkflowPreview,
     utc_now,
 )
-
 
 _MISSING: Any = object()
 
@@ -108,16 +106,17 @@ class AgentRunner:
         persisted log instead.
         """
 
-        await self._publish_and_persist(session, SessionStarted(
-            session_id=session.session_id,
-            goal_description=session.goal.description,
-        ))
+        await self._publish_and_persist(
+            session,
+            SessionStarted(
+                session_id=session.session_id,
+                goal_description=session.goal.description,
+            ),
+        )
         turn_count = await self._drive_loop(session, initial_history or [])
         await self._finalize_session(session, turn_count)
 
-    async def _drive_loop(
-        self, session: AgentSession, initial_history: list[Message]
-    ) -> int:
+    async def _drive_loop(self, session: AgentSession, initial_history: list[Message]) -> int:
         """Run turns until cancelled / failed; return the turn count."""
 
         history: list[Message] = list(initial_history)
@@ -140,9 +139,7 @@ class AgentRunner:
                         turn_id="",
                         failure=AgentFailure(
                             kind=FailureKind.INTERNAL_ERROR,
-                            message=(
-                                f"Session exceeded {self.constraints.max_turns} turns"
-                            ),
+                            message=(f"Session exceeded {self.constraints.max_turns} turns"),
                         ),
                     ),
                 )
@@ -283,8 +280,7 @@ class AgentRunner:
                 failure=AgentFailure(
                     kind=FailureKind.INTERNAL_ERROR,
                     message=(
-                        f"Tool-call loop exceeded "
-                        f"{self.constraints.max_tool_calls_per_turn} rounds"
+                        f"Tool-call loop exceeded {self.constraints.max_tool_calls_per_turn} rounds"
                     ),
                 ),
             ),
@@ -470,9 +466,7 @@ class AgentRunner:
         session.status = SessionStatus.RUNNING
         return history
 
-    async def _publish_and_persist(
-        self, session: AgentSession, event: Any
-    ) -> None:
+    async def _publish_and_persist(self, session: AgentSession, event: Any) -> None:
         await session.bus.publish(event)
         self.store.append_event(session.session_id, event)
 
@@ -486,9 +480,7 @@ class AgentRunner:
         )
         self.store.write_metadata(meta)
 
-    async def _finalize_session(
-        self, session: AgentSession, turn_count: int
-    ) -> None:
+    async def _finalize_session(self, session: AgentSession, turn_count: int) -> None:
         """Hand the terminal session to the configured :class:`Evaluator`.
 
         The eval result is persisted as a per-session checkpoint so

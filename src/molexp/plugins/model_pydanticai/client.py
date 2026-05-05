@@ -13,7 +13,6 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
 from molexp.agent.model import (
-    ModelClient,
     ModelEvent,
     ModelRequest,
     ModelResponse,
@@ -72,9 +71,7 @@ class PydanticAIModelClient:
         # Streaming isn't wired through the runner yet; surface a clear
         # error rather than silently degrading so callers know to use
         # complete().
-        raise NotImplementedError(
-            "PydanticAIModelClient.stream is not implemented yet"
-        )
+        raise NotImplementedError("PydanticAIModelClient.stream is not implemented yet")
         if False:  # pragma: no cover — keeps mypy happy on the AsyncIterator return
             yield  # type: ignore[unreachable]
 
@@ -100,7 +97,11 @@ def _harness_to_pai(system: str, messages: tuple[Message, ...]) -> list["PaiMode
 
     from pydantic_ai.messages import (
         ModelRequest as PaiModelRequest,
+    )
+    from pydantic_ai.messages import (
         ModelResponse as PaiModelResponse,
+    )
+    from pydantic_ai.messages import (
         SystemPromptPart,
         TextPart,
         ToolCallPart,

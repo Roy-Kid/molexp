@@ -161,8 +161,7 @@ class PlanDecisionRequest(BaseModel):
     edited_workflow_ir: dict[str, Any] | None = Field(
         None,
         description=(
-            "Optional user edit of the workflow IR. Replaces the agent's "
-            "drafted IR on approval."
+            "Optional user edit of the workflow IR. Replaces the agent's drafted IR on approval."
         ),
     )
     feedback: str = Field(

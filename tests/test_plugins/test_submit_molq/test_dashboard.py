@@ -12,7 +12,6 @@ from molq.status import JobState
 
 from molexp.plugins.submit_molq import dashboard
 
-
 # ── compute_stats ──────────────────────────────────────────────────────────
 
 

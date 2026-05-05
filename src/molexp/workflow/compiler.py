@@ -126,23 +126,15 @@ class WorkflowCompiler:
             try:
                 value = ast.literal_eval(node.value)
             except (ValueError, SyntaxError) as exc:
-                raise ValueError(
-                    f"python_to_ir: WORKFLOW_IR is not a literal: {exc}"
-                ) from exc
+                raise ValueError(f"python_to_ir: WORKFLOW_IR is not a literal: {exc}") from exc
             if not isinstance(value, dict):
-                raise ValueError(
-                    "python_to_ir: WORKFLOW_IR must be a dict literal."
-                )
+                raise ValueError("python_to_ir: WORKFLOW_IR must be a dict literal.")
             return value
-        raise ValueError(
-            "python_to_ir: no top-level WORKFLOW_IR assignment found."
-        )
+        raise ValueError("python_to_ir: no top-level WORKFLOW_IR assignment found.")
 
     # ── IR ↔ WorkflowSpec ───────────────────────────────────────────────
 
-    def ir_to_spec(
-        self, ir: dict[str, Any], *, registry: Any = None
-    ) -> WorkflowSpec:
+    def ir_to_spec(self, ir: dict[str, Any], *, registry: Any = None) -> WorkflowSpec:
         """Build a :class:`WorkflowSpec` from JSON IR.
 
         Thin wrapper over :meth:`WorkflowSpec.from_dict`; exposed here
@@ -204,7 +196,7 @@ class WorkflowCompiler:
                 if ttype
                 else str(tc.get("task_id", "?"))
             )
-            lines.append(f"  {tid}[\"{label}\"]")
+            lines.append(f'  {tid}["{label}"]')
         for link in links:
             src = _mermaid_id(link.get("source", "?"))
             tgt = _mermaid_id(link.get("target", "?"))
@@ -233,10 +225,7 @@ def _safe_literal_repr(value: Any, level: int = 0) -> str:
             return "{}"
         pad = "    " * (level + 1)
         close_pad = "    " * level
-        lines = [
-            f"{pad}{repr(k)}: {_safe_literal_repr(v, level + 1)}"
-            for k, v in value.items()
-        ]
+        lines = [f"{pad}{repr(k)}: {_safe_literal_repr(v, level + 1)}" for k, v in value.items()]
         body = ",\n".join(lines)
         return "{\n" + body + ",\n" + close_pad + "}"
     if isinstance(value, list):
@@ -244,9 +233,7 @@ def _safe_literal_repr(value: Any, level: int = 0) -> str:
             return "[]"
         pad = "    " * (level + 1)
         close_pad = "    " * level
-        lines = [
-            f"{pad}{_safe_literal_repr(v, level + 1)}" for v in value
-        ]
+        lines = [f"{pad}{_safe_literal_repr(v, level + 1)}" for v in value]
         body = ",\n".join(lines)
         return "[\n" + body + ",\n" + close_pad + "]"
     if isinstance(value, tuple):

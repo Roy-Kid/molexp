@@ -122,9 +122,7 @@ class SessionStore:
         path = self.session_dir(session_id) / self.MODEL_IO_FILENAME
         _append_jsonl(path, [payload])
 
-    def write_checkpoint(
-        self, session_id: str, name: str, payload: dict[str, Any]
-    ) -> Path:
+    def write_checkpoint(self, session_id: str, name: str, payload: dict[str, Any]) -> Path:
         """Atomically write a per-session checkpoint JSON file."""
 
         ckpt_dir = self.session_dir(session_id) / self.CHECKPOINTS_DIRNAME
@@ -135,6 +133,7 @@ class SessionStore:
 
 
 # Serialization helpers -------------------------------------------------
+
 
 def _to_json_safe(obj: Any) -> Any:
     if is_dataclass(obj) and not isinstance(obj, type):

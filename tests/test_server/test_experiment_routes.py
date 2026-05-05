@@ -64,9 +64,7 @@ class TestExperimentRoutes:
 
 
 class TestRunCreationWithTarget:
-    def test_create_run_with_known_target(
-        self, client, project, experiment_with_entrypoint
-    ):
+    def test_create_run_with_known_target(self, client, project, experiment_with_entrypoint):
         experiment = experiment_with_entrypoint
         client.post(
             "/api/targets",
@@ -79,9 +77,7 @@ class TestRunCreationWithTarget:
         assert resp.status_code == 201, resp.text
         assert resp.json()["target"] == "hpc"
 
-    def test_create_run_with_unknown_target_returns_422(
-        self, client, project, experiment
-    ):
+    def test_create_run_with_unknown_target_returns_422(self, client, project, experiment):
         resp = client.post(
             f"/api/projects/{project.id}/experiments/{experiment.id}/runs",
             json={"parameters": {}, "target": "ghost"},

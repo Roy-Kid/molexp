@@ -31,8 +31,18 @@ def _ir_constant_add() -> dict:
         "workflow_id": "workflow_00000000",
         "name": "constant_add",
         "task_configs": [
-            {"task_id": "a", "task_type": "core.constant", "config": {"value": 2}, "status": "pending"},
-            {"task_id": "b", "task_type": "core.constant", "config": {"value": 3}, "status": "pending"},
+            {
+                "task_id": "a",
+                "task_type": "core.constant",
+                "config": {"value": 2},
+                "status": "pending",
+            },
+            {
+                "task_id": "b",
+                "task_type": "core.constant",
+                "config": {"value": 3},
+                "status": "pending",
+            },
             {"task_id": "c", "task_type": "core.add", "config": {}, "status": "pending"},
         ],
         "links": [
@@ -60,9 +70,7 @@ class TestFromDict:
 
     def test_dangling_link_raises(self, registry: TaskTypeRegistry) -> None:
         ir = _ir_constant_add()
-        ir["links"].append(
-            {"source": "ghost", "target": "c", "mapping": {}, "status": "pending"}
-        )
+        ir["links"].append({"source": "ghost", "target": "c", "mapping": {}, "status": "pending"})
         with pytest.raises(ValueError, match="ghost"):
             WorkflowSpec.from_dict(ir, registry=registry)
 
@@ -118,9 +126,7 @@ class TestRoundtrip:
 
         wf = Workflow(name="py_built")
         wf.add(_Constant(value=4), name="four", task_type="core.constant", config={"value": 4})
-        wf.add(
-            _Constant(value=6), name="six", task_type="core.constant", config={"value": 6}
-        )
+        wf.add(_Constant(value=6), name="six", task_type="core.constant", config={"value": 6})
         wf.add(
             _Add(),
             name="sum",
@@ -133,9 +139,7 @@ class TestRoundtrip:
         # IR reflects the topology faithfully
         assert ir["name"] == "py_built"
         assert {t["task_id"] for t in ir["task_configs"]} == {"four", "six", "sum"}
-        sources_for_sum = sorted(
-            link["source"] for link in ir["links"] if link["target"] == "sum"
-        )
+        sources_for_sum = sorted(link["source"] for link in ir["links"] if link["target"] == "sum")
         assert sources_for_sum == ["four", "six"]
 
     def test_to_dict_rejects_unslugged_tasks(self) -> None:

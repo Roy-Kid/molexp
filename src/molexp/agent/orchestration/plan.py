@@ -13,7 +13,7 @@ continue.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import Any
 
@@ -86,9 +86,7 @@ class PlanStateMachine:
         return self.state == PlanState.PLAN_EMITTED
 
 
-REJECT_FEEDBACK_TEMPLATE = (
-    "Plan rejected. Feedback: {feedback}. Revise the plan and emit it again."
-)
+REJECT_FEEDBACK_TEMPLATE = "Plan rejected. Feedback: {feedback}. Revise the plan and emit it again."
 """Synthetic user-message wording the runner injects on plan reject."""
 
 

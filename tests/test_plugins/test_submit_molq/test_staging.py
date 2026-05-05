@@ -49,14 +49,10 @@ class FakeTransport:
     def remove(self, path: str, *, recursive: bool = False) -> None:
         return None
 
-    def upload(
-        self, local: str, remote: str, *, recursive: bool = False, exclude=()
-    ) -> None:
+    def upload(self, local: str, remote: str, *, recursive: bool = False, exclude=()) -> None:
         self.uploads.append((local, remote, recursive))
 
-    def download(
-        self, remote: str, local: str, *, recursive: bool = False, exclude=()
-    ) -> None:
+    def download(self, remote: str, local: str, *, recursive: bool = False, exclude=()) -> None:
         if remote in self.raise_on_download:
             raise TransportError("simulated", remote=remote)
         self.downloads.append((remote, local, recursive))
@@ -81,9 +77,6 @@ def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
     """Local target with scratch_root that resolves to run_dir → no rsync."""
     ws, run = _make_run(tmp_path)
     # scratch_root chosen so target_run_dir == run.run_dir
-    workspace = run.experiment.project.workspace
-    project = run.experiment.project
-    experiment = run.experiment
     target = ComputeTarget(
         name="loop",
         scratch_root=str(tmp_path),
@@ -91,10 +84,6 @@ def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
     # The default target_run_dir is scratch_root/<wsid>/<pid>/<eid>/<rid>;
     # the local optimisation only short-circuits when that path equals run.run_dir.
     # Make a target whose computed dir matches by carefully setting scratch_root.
-    expected = (
-        f"{tmp_path}/{workspace.metadata.id}/{project.id}/"
-        f"{experiment.id}/{run.id}"
-    )
     # Compose the local Workspace dir where it actually lives:
     # ws.root/projects/<pid>/experiments/<eid>/runs/<rid>
     # Since we can't easily make those paths match, just assert the no-op
@@ -117,7 +106,10 @@ def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
 def test_stage_in_remote_uploads_run_dir(tmp_path: Path) -> None:
     ws, run = _make_run(tmp_path)
     target = ComputeTarget(
-        name="hpc", host="me@h", scheduler="slurm", scratch_root="/scratch",
+        name="hpc",
+        host="me@h",
+        scheduler="slurm",
+        scratch_root="/scratch",
     )
     transport = FakeTransport()
     stage_in(transport, run, target)
@@ -156,7 +148,10 @@ def test_stage_out_local_is_noop(tmp_path: Path) -> None:
 def test_stage_out_remote_pulls_exec_dir_and_run_json(tmp_path: Path) -> None:
     ws, run = _make_run(tmp_path)
     target = ComputeTarget(
-        name="hpc", host="me@h", scheduler="slurm", scratch_root="/scratch",
+        name="hpc",
+        host="me@h",
+        scheduler="slurm",
+        scratch_root="/scratch",
     )
     transport = FakeTransport()
     stage_out(transport, run, target, "exec-abc")
@@ -171,7 +166,10 @@ def test_stage_out_skips_missing_optional_dirs(tmp_path: Path) -> None:
     """When artifacts/ etc. don't exist remotely, stage_out shouldn't error."""
     ws, run = _make_run(tmp_path)
     target = ComputeTarget(
-        name="hpc", host="me@h", scheduler="slurm", scratch_root="/scratch",
+        name="hpc",
+        host="me@h",
+        scheduler="slurm",
+        scratch_root="/scratch",
     )
     transport = FakeTransport()
     # `existing` is empty so transport.exists() returns False for everything.
@@ -187,7 +185,10 @@ def test_stage_out_is_idempotent(tmp_path: Path) -> None:
     """Calling stage_out twice should not double-register anything observable."""
     ws, run = _make_run(tmp_path)
     target = ComputeTarget(
-        name="hpc", host="me@h", scheduler="slurm", scratch_root="/scratch",
+        name="hpc",
+        host="me@h",
+        scheduler="slurm",
+        scratch_root="/scratch",
     )
     transport = FakeTransport()
     stage_out(transport, run, target, "exec-x")
@@ -203,7 +204,10 @@ def test_stage_out_swallows_transport_errors_for_optional_paths(tmp_path: Path) 
     """If the remote exec dir isn't accessible (early failure), no exception."""
     ws, run = _make_run(tmp_path)
     target = ComputeTarget(
-        name="hpc", host="me@h", scheduler="slurm", scratch_root="/scratch",
+        name="hpc",
+        host="me@h",
+        scheduler="slurm",
+        scratch_root="/scratch",
     )
     transport = FakeTransport(
         raise_on_download={

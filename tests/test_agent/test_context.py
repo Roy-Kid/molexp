@@ -66,9 +66,7 @@ async def test_default_context_manager_builds_packet() -> None:
 @pytest.mark.asyncio
 async def test_tail_compressor_keeps_recent_messages() -> None:
     compressor = TailCompressor()
-    history = tuple(
-        Message(role="user", content=f"msg {i}" * 10) for i in range(50)
-    )
+    history = tuple(Message(role="user", content=f"msg {i}" * 10) for i in range(50))
     out = await compressor.compress(history, max_chars=200)
     # The compressor walks the tail; the result must be a suffix of the
     # original history with at most ~budget characters of content.

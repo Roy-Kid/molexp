@@ -38,7 +38,8 @@ app.add_typer(target_app, name="target")
 @target_app.command("list")
 def list_cmd(
     path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path"),
+        Optional[Path],
+        typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
     """List all compute targets registered on the workspace."""
@@ -67,12 +68,14 @@ def list_cmd(
 def add_cmd(
     name: Annotated[str, typer.Argument(help="Target name (used by --target)")],
     scratch: Annotated[
-        str, typer.Option("--scratch", help="Absolute scratch root on the target's filesystem"),
+        str,
+        typer.Option("--scratch", help="Absolute scratch root on the target's filesystem"),
     ],
     scheduler: Annotated[
         str,
         typer.Option(
-            "--scheduler", help="Dispatch axis: local | slurm | pbs | lsf",
+            "--scheduler",
+            help="Dispatch axis: local | slurm | pbs | lsf",
         ),
     ] = "local",
     host: Annotated[
@@ -80,7 +83,8 @@ def add_cmd(
         typer.Option("--host", help="user@host for SSH transport (omit for local)"),
     ] = None,
     port: Annotated[
-        Optional[int], typer.Option("--port", help="SSH port (default: ssh_config)"),
+        Optional[int],
+        typer.Option("--port", help="SSH port (default: ssh_config)"),
     ] = None,
     identity: Annotated[
         Optional[str],
@@ -94,12 +98,15 @@ def add_cmd(
         ),
     ] = None,
     path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path"),
+        Optional[Path],
+        typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
     """Add a compute target to the workspace."""
     if scheduler not in {"local", "slurm", "pbs", "lsf"}:
-        rprint(f"[red]Invalid scheduler {scheduler!r}[/red] — must be one of: local, slurm, pbs, lsf")
+        rprint(
+            f"[red]Invalid scheduler {scheduler!r}[/red] — must be one of: local, slurm, pbs, lsf"
+        )
         raise typer.Exit(2)
 
     ws = get_workspace(path)
@@ -134,7 +141,8 @@ def add_cmd(
 def remove_cmd(
     name: Annotated[str, typer.Argument(help="Target name to remove")],
     path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path"),
+        Optional[Path],
+        typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
     """Remove a compute target from the workspace."""
@@ -151,7 +159,8 @@ def remove_cmd(
 def test_cmd(
     name: Annotated[str, typer.Argument(help="Target name to verify")],
     path: Annotated[
-        Optional[Path], typer.Option("--path", "-p", help="Workspace path"),
+        Optional[Path],
+        typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
     """Verify connectivity to a target — runs a tiny round-trip via the transport.

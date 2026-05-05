@@ -8,8 +8,6 @@ unwrapping, users would see "unhandled errors in a TaskGroup" for every
 
 from __future__ import annotations
 
-import pytest
-
 from molexp.plugins.tool_mcp.probe import _format_error, _innermost
 
 

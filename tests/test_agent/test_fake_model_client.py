@@ -11,7 +11,6 @@ from molexp.agent import (
     ModelClient,
     ModelRequest,
     ModelResponse,
-    ModelToolCall,
     Usage,
 )
 from molexp.agent.testing import FakeModelClient, ScriptExhausted

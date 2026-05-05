@@ -12,7 +12,11 @@ from typing import Any
 import pytest
 from pydantic_ai.messages import (
     ModelRequest as PaiModelRequest,
+)
+from pydantic_ai.messages import (
     ModelResponse as PaiModelResponse,
+)
+from pydantic_ai.messages import (
     SystemPromptPart,
     TextPart,
     ToolCallPart,
@@ -99,7 +103,11 @@ async def test_complete_emits_tool_calls() -> None:
     out = await client.complete(
         _request(
             (Message(role="user", content="hi"),),
-            tools=(ToolSchema(name="native:list_projects", description="list", input_schema={"type": "object"}),),
+            tools=(
+                ToolSchema(
+                    name="native:list_projects", description="list", input_schema={"type": "object"}
+                ),
+            ),
         )
     )
     assert out.text == "ok"
@@ -138,9 +146,7 @@ async def test_request_translation_groups_alternation() -> None:
 
 def test_validator_flags_provider_mismatch() -> None:
     validator = PydanticAIProviderValidator("anthropic")
-    errors = validator.validate(
-        ModelConfig(provider_name="openai", model="m", api_key="k")
-    )
+    errors = validator.validate(ModelConfig(provider_name="openai", model="m", api_key="k"))
     assert errors and "validator bound to" in errors[0]
 
 
@@ -174,7 +180,10 @@ async def test_model_io_sink_records_request_response_pair() -> None:
     """Per Decision M1 the plugin owns ``model_io.jsonl`` writes."""
 
     response = PaiModelResponse(
-        parts=[TextPart(content="hi"), ToolCallPart(tool_name="t", args={"x": 1}, tool_call_id="c1")],
+        parts=[
+            TextPart(content="hi"),
+            ToolCallPart(tool_name="t", args={"x": 1}, tool_call_id="c1"),
+        ],
         usage=RequestUsage(input_tokens=4, output_tokens=2),
         model_name="stub",
         finish_reason="end_turn",

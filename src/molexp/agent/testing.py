@@ -16,7 +16,6 @@ from dataclasses import asdict, is_dataclass
 from typing import Any, AsyncIterator, Iterable
 
 from molexp.agent.model import (
-    ModelClient,
     ModelEvent,
     ModelRequest,
     ModelResponse,
@@ -66,9 +65,7 @@ class FakeModelClient:
     def stream(self, request: ModelRequest) -> AsyncIterator[ModelEvent]:
         self.calls.append(request)
         if not self._streams:
-            raise ScriptExhausted(
-                "FakeModelClient.stream called but no event lists were scripted"
-            )
+            raise ScriptExhausted("FakeModelClient.stream called but no event lists were scripted")
         events = self._streams.popleft()
         return _replay_events(events, request, self.io_log)
 

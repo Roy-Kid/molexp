@@ -100,10 +100,7 @@ def parse(raw: str, store: SkillStore) -> ParsedCommand:
             kind="error",
             name=name,
             skill_id=skill.id,
-            error=(
-                f"Missing required parameter(s) for /{name}: "
-                + ", ".join(sorted(missing))
-            ),
+            error=(f"Missing required parameter(s) for /{name}: " + ", ".join(sorted(missing))),
         )
 
     return ParsedCommand(
@@ -125,9 +122,7 @@ def _parse_kv_args(tokens: list[str]) -> tuple[dict[str, str], str | None]:
     params: dict[str, str] = {}
     for token in tokens:
         if "=" not in token:
-            return params, (
-                f"Argument '{token}' is missing a value. Use the form key=value."
-            )
+            return params, (f"Argument '{token}' is missing a value. Use the form key=value.")
         key, _, value = token.partition("=")
         key = key.strip()
         if not key:

@@ -78,7 +78,7 @@ class ComputeTarget(BaseModel, frozen=True):
     name: str
 
     # ── Transport axis (where commands run) ─────────────────────────────────
-    host: str | None = None                                  # None → LocalTransport, else SshTransport
+    host: str | None = None  # None → LocalTransport, else SshTransport
     port: int | None = None
     identity_file: str | None = None
     ssh_opts: list[str] = Field(default_factory=list)

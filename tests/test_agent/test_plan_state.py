@@ -21,9 +21,7 @@ def test_request_emit_approve_cycle() -> None:
     machine = PlanStateMachine().request_plan()
     assert machine.state is PlanState.PLAN_REQUESTED
 
-    machine = machine.emit_plan(
-        request_id="req-1", plan_markdown="step 1\nstep 2", preview=preview
-    )
+    machine = machine.emit_plan(request_id="req-1", plan_markdown="step 1\nstep 2", preview=preview)
     assert machine.state is PlanState.PLAN_EMITTED
     assert machine.is_parked()
 

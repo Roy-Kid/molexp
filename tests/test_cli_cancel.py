@@ -311,7 +311,6 @@ class TestRunsCancelMolqIntegration:
 
         assert result.exit_code == 0, result.output
         mock_molq.Submitor.assert_called_once()
-        cluster_arg = mock_molq.Submitor.call_args.args[0]
         mock_molq.Cluster.assert_called_once_with(name="default", scheduler="slurm")
         mock_submitor.cancel_job.assert_called_once_with("molq-uuid-1234")
 

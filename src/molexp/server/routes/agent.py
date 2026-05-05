@@ -27,13 +27,13 @@ from typing import Any, AsyncGenerator
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from molexp.agent._serialize import to_jsonable as _to_jsonable
 from molexp.agent import (
     AgentMode,
     AgentService,
     Goal,
     SessionStatus,
 )
+from molexp.agent._serialize import to_jsonable as _to_jsonable
 from molexp.agent.orchestration import (
     SessionCompleted,
     UserMessageReceived,
@@ -156,8 +156,6 @@ def _serialize_event(event: Any) -> SessionEventResponse:
         ts=(ts or datetime.now(timezone.utc)).isoformat(),
         payload=payload,
     )
-
-
 
 
 def _goal_from_request(request: GoalCreateRequest, skill_instructions: str) -> Goal:
@@ -438,9 +436,7 @@ async def launch_skill(
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    plan_mode = (
-        request.plan_mode if request.plan_mode is not None else skill.default_plan_mode
-    )
+    plan_mode = request.plan_mode if request.plan_mode is not None else skill.default_plan_mode
     goal = Goal(
         description=rendered["description"],
         constraints={"items": rendered["constraints"]} if rendered["constraints"] else {},

@@ -147,9 +147,7 @@ def test_ir_to_mermaid_renders_one_edge_per_link():
 def test_ir_to_mermaid_handles_orphan_tasks():
     """A task with no incoming/outgoing edge still appears as a node."""
     ir = {
-        "task_configs": [
-            {"task_id": "lonely", "task_type": "noop", "config": {}}
-        ],
+        "task_configs": [{"task_id": "lonely", "task_type": "noop", "config": {}}],
         "links": [],
     }
     out = default_compiler.ir_to_mermaid(ir)
@@ -168,9 +166,7 @@ def test_ir_to_mermaid_rejects_non_dict_input():
 def test_ir_to_mermaid_sanitizes_unsafe_ids():
     """Task IDs containing dashes / dots become underscored Mermaid IDs."""
     ir = {
-        "task_configs": [
-            {"task_id": "step-one.v2", "task_type": "x", "config": {}}
-        ],
+        "task_configs": [{"task_id": "step-one.v2", "task_type": "x", "config": {}}],
         "links": [],
     }
     out = default_compiler.ir_to_mermaid(ir)
@@ -194,9 +190,7 @@ def test_ir_to_spec_delegates_to_workflow_spec():
         async def execute(self, ctx):  # noqa: ARG002 — protocol stub
             return None
 
-    default_registry.register(
-        "noop_for_compiler_test", lambda cfg: _Noop()
-    )
+    default_registry.register("noop_for_compiler_test", lambda cfg: _Noop())
     try:
         ir = {
             "name": "demo",

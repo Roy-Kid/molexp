@@ -99,9 +99,7 @@ class TaskTypeRegistry:
             return self._factories[slug]
         except KeyError as exc:
             known = ", ".join(sorted(self._factories)) or "<empty>"
-            raise KeyError(
-                f"Unknown task_type {slug!r}. Registered types: {known}"
-            ) from exc
+            raise KeyError(f"Unknown task_type {slug!r}. Registered types: {known}") from exc
 
     def has(self, slug: str) -> bool:
         return slug in self._factories

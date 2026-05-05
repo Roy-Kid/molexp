@@ -40,6 +40,7 @@ def _read_context_results(run: Run) -> dict[str, Any]:
     results = ctx.get("results") or {}
     return dict(results) if isinstance(results, dict) else {}
 
+
 # ── Project ─────────────────────────────────────────────────────────────────
 
 

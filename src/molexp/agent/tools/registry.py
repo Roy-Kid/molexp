@@ -15,7 +15,6 @@ from molexp.agent.model import ToolSchema
 from molexp.agent.tools.policy import ToolPolicy
 from molexp.agent.tools.spec import RegisteredTool, ToolCallable, ToolSpec
 
-
 _NATIVE_TOOL_ATTR = "__molexp_native_tool_spec__"
 
 
@@ -62,9 +61,7 @@ def iter_native_tools() -> Iterator[tuple[ToolSpec, ToolCallable]]:
 
     from molexp.agent.tools import native as native_pkg
 
-    for module_info in pkgutil.iter_modules(
-        native_pkg.__path__, prefix=f"{native_pkg.__name__}."
-    ):
+    for module_info in pkgutil.iter_modules(native_pkg.__path__, prefix=f"{native_pkg.__name__}."):
         module = importlib.import_module(module_info.name)
         for attr_name in dir(module):
             obj = getattr(module, attr_name)

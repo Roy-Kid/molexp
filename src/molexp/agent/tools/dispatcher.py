@@ -90,9 +90,7 @@ class ToolDispatcher:
     def sources(self) -> tuple[ToolSource, ...]:
         return self._sources
 
-    async def discover(
-        self, workspace: object, policy: ToolPolicy
-    ) -> tuple[ToolSchema, ...]:
+    async def discover(self, workspace: object, policy: ToolPolicy) -> tuple[ToolSchema, ...]:
         """Return every tool schema visible under ``policy``.
 
         Native tools come from the registry; source-contributed tools

@@ -93,9 +93,7 @@ async def probe_server(
             error=f"Missing secrets: {', '.join(exc.keys)}",
         )
     except Exception as exc:
-        return ProbeOutcome(
-            ok=False, latency_ms=0, error=_format_error(exc)
-        )
+        return ProbeOutcome(ok=False, latency_ms=0, error=_format_error(exc))
 
     try:
         server = _build_pydantic_ai_server(resolved, entry.name, entry.scope, store)
@@ -146,11 +144,7 @@ async def list_mcp_tools(
     string. The total wall-clock is bounded by ``timeout``: stragglers
     are reported as timeouts rather than holding the response open.
     """
-    entries = [
-        e
-        for e in store.list()
-        if e.valid and not e.shadowed and not e.unresolved_secrets
-    ]
+    entries = [e for e in store.list() if e.valid and not e.shadowed and not e.unresolved_secrets]
     if not entries:
         return []
     results = await asyncio.gather(
@@ -160,9 +154,7 @@ async def list_mcp_tools(
     return list(results)
 
 
-async def _list_one(
-    store: McpStore, entry: McpServerEntry, timeout: float
-) -> McpServerToolList:
+async def _list_one(store: McpStore, entry: McpServerEntry, timeout: float) -> McpServerToolList:
     """Probe one server and shape the result into :class:`McpServerToolList`."""
     server_name = entry.name
     scope = entry.scope.value
@@ -264,9 +256,7 @@ def _tool_description(tool: Any) -> str:
     return ""
 
 
-def _build_pydantic_ai_server(
-    spec: ResolvedSpec, name: str, scope: McpScope, store: McpStore
-):
+def _build_pydantic_ai_server(spec: ResolvedSpec, name: str, scope: McpScope, store: McpStore):
     """Map the resolved spec onto the right pydantic-ai class.
 
     OAuth-protected HTTP servers get an ``httpx.AsyncClient(auth=...)``

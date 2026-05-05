@@ -13,9 +13,9 @@ from molexp.agent import (
     ToolSpec,
 )
 from molexp.agent.tools import (
+    PERMISSIVE_POLICY,
     AutoApproveGate,
     DenyAllGate,
-    PERMISSIVE_POLICY,
     ToolDispatcher,
     ToolPolicy,
 )

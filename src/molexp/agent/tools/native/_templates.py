@@ -32,7 +32,7 @@ def _cube(ctx: "me.RunContext") -> None:
     """Compute ``y = x ** 3`` from a single numeric parameter ``x``."""
 
     x = float(ctx.params.get("x", 0))
-    y = x ** 3
+    y = x**3
     ctx.set_result("x", x)
     ctx.set_result("y", y)
     ctx.log("compute").append(f"cube({x}) = {y}")

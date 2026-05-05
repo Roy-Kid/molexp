@@ -22,7 +22,6 @@ from pathlib import Path
 from molexp.agent.state.sessions import SessionMetadata, SessionStore
 from molexp.agent.types import Goal, SessionStatus, utc_now
 
-
 LEGACY_SESSIONS_DIRNAME = "sessions"
 LEGACY_METADATA_FILENAME = "metadata.json"
 
@@ -84,16 +83,16 @@ def _to_tombstone(session_id: str, legacy: dict) -> SessionMetadata:
 
     goal_blob = legacy.get("goal") if isinstance(legacy.get("goal"), dict) else {}
     description = str(goal_blob.get("description") or "")
-    constraints = goal_blob.get("constraints") if isinstance(goal_blob.get("constraints"), dict) else {}
+    constraints = (
+        goal_blob.get("constraints") if isinstance(goal_blob.get("constraints"), dict) else {}
+    )
     success_criteria = goal_blob.get("success_criteria") or []
     instructions_override = (
         goal_blob.get("instructions_override")
         if isinstance(goal_blob.get("instructions_override"), str)
         else None
     )
-    skill_id = (
-        goal_blob.get("skill_id") if isinstance(goal_blob.get("skill_id"), str) else None
-    )
+    skill_id = goal_blob.get("skill_id") if isinstance(goal_blob.get("skill_id"), str) else None
     goal = Goal(
         description=description,
         constraints=dict(constraints),

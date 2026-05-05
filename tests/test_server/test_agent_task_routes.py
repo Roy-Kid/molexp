@@ -20,9 +20,7 @@ def _clean_agent_state():
     agent_route.reset_agent_service_cache()
 
 
-@pytest.mark.skip(
-    reason="Legacy `sessions/` disk format; revisit after Phase 5 migration (R4)."
-)
+@pytest.mark.skip(reason="Legacy `sessions/` disk format; revisit after Phase 5 migration (R4).")
 @pytest.mark.integration
 def test_list_agent_tasks_wraps_persisted_sessions_and_writes_metadata(client, workspace):
     from molexp.plugins.agent_pydanticai.sessions_store import write_session_metadata
@@ -60,8 +58,9 @@ def test_list_agent_tasks_wraps_persisted_sessions_and_writes_metadata(client, w
 )
 @pytest.mark.integration
 def test_create_agent_task_starts_session_and_persists_task(client, workspace, monkeypatch):
-    from molexp.plugins import registry
     from molexp.plugins.agent_pydanticai.types import SessionStats
+
+    from molexp.plugins import registry
 
     client.put("/api/agent/provider", json={"api_key": "sk-saved"})
 

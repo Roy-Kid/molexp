@@ -23,9 +23,7 @@ class ToolSource(Protocol):
 
     async def list_tools(self, workspace: Any) -> list[ToolSpec]: ...
 
-    async def call(
-        self, name: str, args: dict[str, Any], ctx: ToolContext
-    ) -> ToolResult: ...
+    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult: ...
 
 
 class UnknownToolSourceError(KeyError):

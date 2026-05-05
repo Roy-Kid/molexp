@@ -88,7 +88,10 @@ def stage_out(
     Path(local_exec).mkdir(parents=True, exist_ok=True)
     try:
         transport.download(
-            remote_exec, local_exec, recursive=True, exclude=_RSYNC_EXCLUDES,
+            remote_exec,
+            local_exec,
+            recursive=True,
+            exclude=_RSYNC_EXCLUDES,
         )
     except TransportError:
         # The exec dir may not exist yet if submit failed before the worker

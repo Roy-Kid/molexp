@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from molq.transport import CommandResult
 
 from molexp.workspace import ComputeTarget, Workspace
@@ -106,8 +105,11 @@ def test_submit_handler_with_target_stages_in_and_uses_transport(
             captured_submitor["transport"] = target.transport
             self._event_bus = type("EB", (), {"on": lambda *_a, **_kw: None})()
 
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
 
         def submit_job(self, *, argv, resources, scheduling, execution, metadata):
             captured_submitor["submit_argv"] = argv
@@ -116,6 +118,7 @@ def test_submit_handler_with_target_stages_in_and_uses_transport(
             return FakeJob()
 
     import molexp.plugins.submit_molq.submit as submit_mod
+
     monkeypatch.setattr(submit_mod, "Submitor", FakeSubmitor, raising=False)
     # The Submitor name is imported lazily inside __call__; patch the import
     # site to ensure our fake gets used.
@@ -169,8 +172,13 @@ def test_submit_handler_without_target_uses_local_transport(
             captured["transport"] = target.transport
             captured["jobs_dir"] = jobs_dir
             self._event_bus = type("EB", (), {"on": lambda *_a, **_kw: None})()
-        def __enter__(self): return self
-        def __exit__(self, *a): return False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
         def submit_job(self, *, argv, resources, scheduling, execution, metadata):
             captured["cwd"] = execution.cwd
             return FakeJob()

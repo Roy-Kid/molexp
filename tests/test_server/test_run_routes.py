@@ -162,9 +162,7 @@ class TestRunSubmissionWiring:
         local_target,
         captured_submits,
     ):
-        src_run = experiment_with_entrypoint.run(
-            parameters={"lr": 1e-4}, target=local_target
-        )
+        src_run = experiment_with_entrypoint.run(parameters={"lr": 1e-4}, target=local_target)
         captured_submits.clear()  # ignore implicit submit on source-run creation
 
         resp = client.post(
@@ -179,15 +177,11 @@ class TestRunSubmissionWiring:
     def test_rerun_without_target_does_not_submit(
         self, client, project, experiment, run, captured_submits
     ):
-        resp = client.post(
-            f"{self._prefix(project, experiment)}/{run.id}/rerun"
-        )
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201
         assert captured_submits == []
 
-    def test_kill_routes_through_try_cancel(
-        self, client, project, experiment, run, monkeypatch
-    ):
+    def test_kill_routes_through_try_cancel(self, client, project, experiment, run, monkeypatch):
         seen: list = []
 
         def fake_try_cancel(r):
@@ -195,9 +189,7 @@ class TestRunSubmissionWiring:
             r.cancel()
             return None
 
-        monkeypatch.setattr(
-            "molexp.server.routes.run.try_cancel", fake_try_cancel
-        )
+        monkeypatch.setattr("molexp.server.routes.run.try_cancel", fake_try_cancel)
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
         assert resp.status_code == 200
         assert seen == [run.id]

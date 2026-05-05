@@ -232,9 +232,7 @@ class OAuthFlowSession:
     async def callback_handler(self) -> tuple[str, str | None]:
         """SDK awaits this to receive ``(code, state)`` from the browser."""
         try:
-            return await asyncio.wait_for(
-                self.callback_future, timeout=CALLBACK_TIMEOUT_SECONDS
-            )
+            return await asyncio.wait_for(self.callback_future, timeout=CALLBACK_TIMEOUT_SECONDS)
         except TimeoutError:
             raise TimeoutError(
                 f"OAuth callback not received within {CALLBACK_TIMEOUT_SECONDS:.0f}s"
@@ -393,7 +391,8 @@ def storage_for(store: McpStore, scope: McpScope, server_name: str) -> FileToken
     points at ``~/.molexp/.mcp_oauth/``. Mirrors the layout of the secrets
     store next to it.
     """
-    from .store import USER_DIR, McpScope as _McpScope
+    from .store import USER_DIR
+    from .store import McpScope as _McpScope
 
     root = store.workspace_root if scope is _McpScope.WORKSPACE else USER_DIR
     return FileTokenStorage(root, server_name)
@@ -423,8 +422,4 @@ def default_redirect_uri() -> str:
     served by ``molexp serve --port 8000`` lives). Override via the
     ``MOLEXP_OAUTH_REDIRECT_URI`` env var for non-default deployments.
     """
-    return os.environ.get(
-        "MOLEXP_OAUTH_REDIRECT_URI", "http://127.0.0.1:8000/oauth-callback"
-    )
-
-
+    return os.environ.get("MOLEXP_OAUTH_REDIRECT_URI", "http://127.0.0.1:8000/oauth-callback")

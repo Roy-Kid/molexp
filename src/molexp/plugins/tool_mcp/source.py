@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from molexp.agent.tools.source import ToolSource
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 from molexp.agent.types import AgentFailure, FailureKind
 from molexp.plugins.tool_mcp.probe import (
@@ -29,7 +28,6 @@ from molexp.plugins.tool_mcp.store import (
     McpStore,
     UnresolvedSecretError,
 )
-
 
 SOURCE_NAME = "mcp"
 
@@ -82,9 +80,7 @@ class McpToolSource:
                 out.append(spec)
         return out
 
-    async def call(
-        self, name: str, args: dict[str, Any], ctx: ToolContext
-    ) -> ToolResult:
+    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         try:
             server_name, tool_name = _split_name(name)
         except ValueError as exc:
@@ -112,9 +108,7 @@ class McpToolSource:
                 tool=name,
             )
         try:
-            server = _build_pydantic_ai_server(
-                resolved, entry.name, entry.scope, store
-            )
+            server = _build_pydantic_ai_server(resolved, entry.name, entry.scope, store)
         except ImportError:
             return _err(
                 FailureKind.TOOL_ERROR,
@@ -148,24 +142,18 @@ class McpToolSource:
             return None
         return McpStore(root)
 
-    async def _list_one(
-        self, store: McpStore, entry: McpServerEntry
-    ) -> list[ToolSpec]:
+    async def _list_one(self, store: McpStore, entry: McpServerEntry) -> list[ToolSpec]:
         try:
             resolved = store.resolve(entry)
         except (UnresolvedSecretError, Exception):  # noqa: BLE001
             return []
         try:
-            server = _build_pydantic_ai_server(
-                resolved, entry.name, entry.scope, store
-            )
+            server = _build_pydantic_ai_server(resolved, entry.name, entry.scope, store)
         except (ImportError, Exception):  # noqa: BLE001
             return []
         try:
             async with server:
-                tools = await asyncio.wait_for(
-                    server.list_tools(), timeout=PROBE_TIMEOUT_SECONDS
-                )
+                tools = await asyncio.wait_for(server.list_tools(), timeout=PROBE_TIMEOUT_SECONDS)
         except (TimeoutError, Exception):  # noqa: BLE001
             return []
 

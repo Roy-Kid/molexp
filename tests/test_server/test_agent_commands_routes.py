@@ -56,9 +56,7 @@ def test_parse_command_skill_args(client):
         },
     )
     skill_id = create.json()["id"]
-    parsed = client.post(
-        "/api/agent/commands/parse", json={"raw": "/greet message=hello"}
-    ).json()
+    parsed = client.post("/api/agent/commands/parse", json={"raw": "/greet message=hello"}).json()
     assert parsed["kind"] == "skill"
     assert parsed["skillId"] == skill_id
     assert parsed["parameters"] == {"message": "hello"}
@@ -66,9 +64,7 @@ def test_parse_command_skill_args(client):
 
 @pytest.mark.integration
 def test_parse_command_unknown_returns_error(client):
-    parsed = client.post(
-        "/api/agent/commands/parse", json={"raw": "/unknownXyz"}
-    ).json()
+    parsed = client.post("/api/agent/commands/parse", json={"raw": "/unknownXyz"}).json()
     assert parsed["kind"] == "error"
     assert "/unknownxyz" in parsed["error"].lower()
 
@@ -83,9 +79,7 @@ def test_parse_command_plan_builtin(client):
 
 @pytest.mark.integration
 def test_provider_instructions_round_trip(client):
-    response = client.put(
-        "/api/agent/provider", json={"instructions": "Always cite sources."}
-    )
+    response = client.put("/api/agent/provider", json={"instructions": "Always cite sources."})
     assert response.status_code == 200
     body = response.json()
     assert body["instructions"] == "Always cite sources."

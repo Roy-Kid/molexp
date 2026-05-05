@@ -88,9 +88,7 @@ class WorkspaceRunRow(BaseModel):
             profile=run.metadata.profile,
             parameters=dict(run.parameters),
             createdAt=run.metadata.created_at.isoformat(),
-            finishedAt=(
-                run.metadata.finished_at.isoformat() if run.metadata.finished_at else None
-            ),
+            finishedAt=(run.metadata.finished_at.isoformat() if run.metadata.finished_at else None),
             executionCount=len(executions),
             latestSchedulerJobId=latest_sched_id,
             executions=executions,
