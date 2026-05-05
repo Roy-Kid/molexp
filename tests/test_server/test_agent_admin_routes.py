@@ -840,3 +840,120 @@ def test_oauth_start_returns_400_when_no_metadata(monkeypatch, client, oauth_ser
     assert "does not advertise OAuth metadata" in detail
     assert "Authentication to None" in detail
 
+
+# ── Custom tools (/api/agent/tools/custom) ─────────────────────────────────
+
+
+@pytest.fixture
+def _tool_payload():
+    return {
+        "name": "lookup_paper",
+        "description": "Search arxiv for a paper",
+        "category": "workflow",
+        "mutates": False,
+        "requiresApproval": False,
+        "parametersSchema": {
+            "type": "object",
+            "properties": {"query": {"type": "string"}},
+            "required": ["query"],
+        },
+        "invoker": {
+            "kind": "http",
+            "url": "https://example.com/tools/lookup_paper",
+            "method": "POST",
+            "headers": {},
+            "bodyTemplate": "",
+        },
+        "scope": "workspace",
+    }
+
+
+@pytest.mark.integration
+def test_custom_tools_list_includes_default_python_tools(client):
+    """Default `@default_tool` registrations show up via list_all."""
+    response = client.get("/api/agent/tools/custom")
+    assert response.status_code == 200
+    body = response.json()
+    names = {t["name"] for t in body["tools"]}
+    # Sample of the package-shipped registrations:
+    assert "submit_run" in names
+    assert "list_projects" in names
+
+
+@pytest.mark.integration
+def test_custom_tools_create_persists_to_workspace_file(client, workspace, _tool_payload):
+    response = client.post("/api/agent/tools/custom", json=_tool_payload)
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["name"] == "lookup_paper"
+    assert body["scope"] == "workspace"
+    assert body["invoker"]["kind"] == "http"
+    assert body["valid"] is True
+
+    # Persisted to disk in the unified dict-of-dicts format
+    raw = json.loads((Path(workspace.root) / ".tools.json").read_text())
+    assert "tools" in raw
+    assert "lookup_paper" in raw["tools"]
+
+
+@pytest.mark.integration
+def test_custom_tools_get_resolves_across_tiers(client, _tool_payload):
+    # Default registrations resolvable via shared GET — confirms shadow chain
+    response = client.get("/api/agent/tools/custom/submit_run")
+    assert response.status_code == 200
+    assert response.json()["invoker"]["kind"] == "python"
+
+    create = client.post("/api/agent/tools/custom", json=_tool_payload)
+    assert create.status_code == 201
+    fetched = client.get("/api/agent/tools/custom/lookup_paper")
+    assert fetched.status_code == 200
+    assert fetched.json()["scope"] == "workspace"
+
+
+@pytest.mark.integration
+def test_custom_tools_update_changes_fields(client, _tool_payload):
+    client.post("/api/agent/tools/custom", json=_tool_payload).raise_for_status()
+    response = client.patch(
+        "/api/agent/tools/custom/lookup_paper?scope=workspace",
+        json={"description": "Search arxiv (refined)"},
+    )
+    assert response.status_code == 200
+    assert response.json()["description"] == "Search arxiv (refined)"
+
+
+@pytest.mark.integration
+def test_custom_tools_delete_removes_record(client, _tool_payload):
+    client.post("/api/agent/tools/custom", json=_tool_payload).raise_for_status()
+    response = client.delete("/api/agent/tools/custom/lookup_paper?scope=workspace")
+    assert response.status_code == 200
+    assert "deleted from workspace" in response.json()["message"]
+    # Subsequent get falls through to absence (no shadow either).
+    miss = client.get("/api/agent/tools/custom/lookup_paper")
+    assert miss.status_code == 404
+
+
+@pytest.mark.integration
+def test_custom_tools_create_rejects_duplicate_within_scope(client, _tool_payload):
+    first = client.post("/api/agent/tools/custom", json=_tool_payload)
+    assert first.status_code == 201
+    dup = client.post("/api/agent/tools/custom", json=_tool_payload)
+    assert dup.status_code == 400
+    assert "already exists" in dup.json()["detail"]
+
+
+@pytest.mark.integration
+def test_custom_tools_update_unknown_id_returns_404(client):
+    response = client.patch(
+        "/api/agent/tools/custom/nope?scope=workspace",
+        json={"description": "won't happen"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_custom_tools_delete_default_returns_404(client):
+    """Default-tier (registration) tools have no file backing — DELETE on
+    a writable scope must return 404 rather than silently no-op."""
+    response = client.delete("/api/agent/tools/custom/submit_run?scope=workspace")
+    assert response.status_code == 404
+

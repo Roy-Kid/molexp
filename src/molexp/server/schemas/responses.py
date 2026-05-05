@@ -789,6 +789,59 @@ class AgentToolListResponse(BaseModel):
     mcpGroups: list[McpToolGroupResponse] = Field(default_factory=list)
 
 
+class CustomToolHttpInvokerResponse(BaseModel):
+    """Read-only view of a user/workspace HTTP-webhook tool's wiring.
+
+    Header values are returned **with secret references intact**
+    (``${SECRET:KEY}``); the actual secret value never leaves the
+    server.
+    """
+
+    kind: Literal["http"] = "http"
+    url: str
+    method: Literal["GET", "POST", "PUT", "DELETE"] = "POST"
+    headers: dict[str, str] = Field(default_factory=dict)
+    bodyTemplate: str = ""
+
+
+class CustomToolPythonInvokerResponse(BaseModel):
+    """Read-only view of a Python-implementation tool reference."""
+
+    kind: Literal["python"] = "python"
+    target: str
+
+
+class CustomToolResponse(BaseModel):
+    """Single user/workspace/registration-tier tool record.
+
+    Mirrors the `AgentToolResponse` shape but adds the persistence
+    metadata (`scope`, `shadowed`, `valid`, `createdAt`, `updatedAt`)
+    needed for tier-aware listing and inline error reporting.
+    """
+
+    id: str
+    name: str
+    description: str = ""
+    category: Literal["workspace", "workflow", "chat", "control"] = "workspace"
+    mutates: bool = False
+    requiresApproval: bool = False
+    parametersSchema: dict[str, object] = Field(default_factory=dict)
+    invoker: CustomToolHttpInvokerResponse | CustomToolPythonInvokerResponse = Field(
+        discriminator="kind"
+    )
+    scope: Literal["user", "workspace"] = "user"
+    shadowed: bool = False
+    valid: bool = True
+    invalidReason: str = ""
+    builtin: bool = False
+    createdAt: str = ""
+    updatedAt: str = ""
+
+
+class CustomToolListResponse(BaseModel):
+    tools: list[CustomToolResponse] = Field(default_factory=list)
+
+
 class McpAuthSummary(BaseModel):
     """Public-safe view of a server's structured auth settings.
 

@@ -9,12 +9,12 @@
  * the SPA the SPA POSTs ``code``+``state`` to the callback endpoint to
  * finish the flow.
  */
-export type McpOAuthStartResponse = {
+export type MCPOAuthStartResponse = {
     name: string;
-    scope: McpOAuthStartResponse.scope;
+    scope: MCPOAuthStartResponse.scope;
     authorizeUrl: string;
 };
-export namespace McpOAuthStartResponse {
+export namespace MCPOAuthStartResponse {
     export enum scope {
         USER = 'user',
         WORKSPACE = 'workspace',

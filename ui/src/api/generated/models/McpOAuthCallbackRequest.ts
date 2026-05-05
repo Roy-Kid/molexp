@@ -8,7 +8,7 @@
  * The SPA owns the redirect-URI route (``/oauth-callback``); it pulls
  * ``code`` and ``state`` from the query string and forwards them here.
  */
-export type McpOAuthCallbackRequest = {
+export type MCPOAuthCallbackRequest = {
     code: string;
     state?: (string | null);
 };

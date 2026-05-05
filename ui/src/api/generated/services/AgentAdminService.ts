@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { _SimpleMessage } from '../models/_SimpleMessage';
 import type { AgentHealthResponse } from '../models/AgentHealthResponse';
 import type { AgentProviderResponse } from '../models/AgentProviderResponse';
 import type { AgentProviderTestResponse } from '../models/AgentProviderTestResponse';
@@ -10,15 +11,19 @@ import type { AgentToolListResponse } from '../models/AgentToolListResponse';
 import type { CommandListResponse } from '../models/CommandListResponse';
 import type { CommandParseRequest } from '../models/CommandParseRequest';
 import type { CommandParseResponse } from '../models/CommandParseResponse';
-import type { McpOAuthCallbackRequest } from '../models/McpOAuthCallbackRequest';
-import type { McpOAuthStartResponse } from '../models/McpOAuthStartResponse';
-import type { McpOAuthStatusResponse } from '../models/McpOAuthStatusResponse';
-import type { McpSecretListResponse } from '../models/McpSecretListResponse';
-import type { McpSecretSetRequest } from '../models/McpSecretSetRequest';
-import type { McpServerListResponse } from '../models/McpServerListResponse';
-import type { McpServerResponse } from '../models/McpServerResponse';
-import type { McpServerTestResponse } from '../models/McpServerTestResponse';
-import type { McpServerUpsertRequest } from '../models/McpServerUpsertRequest';
+import type { CustomToolCreateRequest } from '../models/CustomToolCreateRequest';
+import type { CustomToolListResponse } from '../models/CustomToolListResponse';
+import type { CustomToolResponse } from '../models/CustomToolResponse';
+import type { CustomToolUpdateRequest } from '../models/CustomToolUpdateRequest';
+import type { MCPOAuthCallbackRequest } from '../models/MCPOAuthCallbackRequest';
+import type { MCPOAuthStartResponse } from '../models/MCPOAuthStartResponse';
+import type { MCPOAuthStatusResponse } from '../models/MCPOAuthStatusResponse';
+import type { MCPSecretListResponse } from '../models/MCPSecretListResponse';
+import type { MCPSecretSetRequest } from '../models/MCPSecretSetRequest';
+import type { MCPServerListResponse } from '../models/MCPServerListResponse';
+import type { MCPServerResponse } from '../models/MCPServerResponse';
+import type { MCPServerTestResponse } from '../models/MCPServerTestResponse';
+import type { MCPServerUpsertRequest } from '../models/MCPServerUpsertRequest';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { SkillCreateRequest } from '../models/SkillCreateRequest';
 import type { SkillListResponse } from '../models/SkillListResponse';
@@ -31,10 +36,10 @@ export class AgentAdminService {
     /**
      * Get Mcp Servers
      * Return merged User+Workspace MCP servers, including shadowed entries.
-     * @returns McpServerListResponse Successful Response
+     * @returns MCPServerListResponse Successful Response
      * @throws ApiError
      */
-    public static getMcpServersApiAgentMcpServersGet(): CancelablePromise<McpServerListResponse> {
+    public static getMcpServersApiAgentMcpServersGet(): CancelablePromise<MCPServerListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent/mcp/servers',
@@ -44,12 +49,12 @@ export class AgentAdminService {
      * Create Mcp Server
      * Create an MCP server entry at ``request.scope``.
      * @param requestBody
-     * @returns McpServerResponse Successful Response
+     * @returns MCPServerResponse Successful Response
      * @throws ApiError
      */
     public static createMcpServerApiAgentMcpServersPost(
-        requestBody: McpServerUpsertRequest,
-    ): CancelablePromise<McpServerResponse> {
+        requestBody: MCPServerUpsertRequest,
+    ): CancelablePromise<MCPServerResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers',
@@ -65,13 +70,13 @@ export class AgentAdminService {
      * Fully replace an MCP server entry. ``request.name`` must match the path.
      * @param name
      * @param requestBody
-     * @returns McpServerResponse Successful Response
+     * @returns MCPServerResponse Successful Response
      * @throws ApiError
      */
     public static replaceMcpServerApiAgentMcpServersNamePut(
         name: string,
-        requestBody: McpServerUpsertRequest,
-    ): CancelablePromise<McpServerResponse> {
+        requestBody: MCPServerUpsertRequest,
+    ): CancelablePromise<MCPServerResponse> {
         return __request(OpenAPI, {
             method: 'PUT',
             url: '/api/agent/mcp/servers/{name}',
@@ -118,13 +123,13 @@ export class AgentAdminService {
      * secret values — only the resolved tool count + connection metrics.
      * @param name
      * @param scope Which scope's entry to probe.
-     * @returns McpServerTestResponse Successful Response
+     * @returns MCPServerTestResponse Successful Response
      * @throws ApiError
      */
     public static testMcpServerApiAgentMcpServersNameTestPost(
         name: string,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<McpServerTestResponse> {
+    ): CancelablePromise<MCPServerTestResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers/{name}/test',
@@ -153,13 +158,13 @@ export class AgentAdminService {
      * twice cancels the older flow rather than queueing).
      * @param name
      * @param scope
-     * @returns McpOAuthStartResponse Successful Response
+     * @returns MCPOAuthStartResponse Successful Response
      * @throws ApiError
      */
     public static startMcpOauthApiAgentMcpServersNameOauthStartPost(
         name: string,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<McpOAuthStartResponse> {
+    ): CancelablePromise<MCPOAuthStartResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers/{name}/oauth/start',
@@ -185,14 +190,14 @@ export class AgentAdminService {
      * @param name
      * @param requestBody
      * @param scope
-     * @returns McpOAuthStatusResponse Successful Response
+     * @returns MCPOAuthStatusResponse Successful Response
      * @throws ApiError
      */
     public static callbackMcpOauthApiAgentMcpServersNameOauthCallbackPost(
         name: string,
-        requestBody: McpOAuthCallbackRequest,
+        requestBody: MCPOAuthCallbackRequest,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<McpOAuthStatusResponse> {
+    ): CancelablePromise<MCPOAuthStatusResponse> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/agent/mcp/servers/{name}/oauth/callback',
@@ -214,13 +219,13 @@ export class AgentAdminService {
      * Whether the named server has a usable OAuth token on disk.
      * @param name
      * @param scope
-     * @returns McpOAuthStatusResponse Successful Response
+     * @returns MCPOAuthStatusResponse Successful Response
      * @throws ApiError
      */
     public static getMcpOauthStatusApiAgentMcpServersNameOauthGet(
         name: string,
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<McpOAuthStatusResponse> {
+    ): CancelablePromise<MCPOAuthStatusResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent/mcp/servers/{name}/oauth',
@@ -271,12 +276,12 @@ export class AgentAdminService {
      * Plaintext values are **never** returned. ``isSet`` is the only signal
      * of whether the value exists for a referenced key.
      * @param scope Which secret store to inspect.
-     * @returns McpSecretListResponse Successful Response
+     * @returns MCPSecretListResponse Successful Response
      * @throws ApiError
      */
     public static listMcpSecretsApiAgentMcpSecretsGet(
         scope: 'user' | 'workspace' = 'workspace',
-    ): CancelablePromise<McpSecretListResponse> {
+    ): CancelablePromise<MCPSecretListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent/mcp/secrets',
@@ -298,7 +303,7 @@ export class AgentAdminService {
      */
     public static setMcpSecretApiAgentMcpSecretsKeyPut(
         key: string,
-        requestBody: McpSecretSetRequest,
+        requestBody: MCPSecretSetRequest,
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'PUT',
@@ -550,6 +555,110 @@ export class AgentAdminService {
             url: '/api/agent/provider/test',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Resources
+     * @returns CustomToolListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listResourcesApiAgentToolsCustomGet(): CancelablePromise<CustomToolListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/tools/custom',
+        });
+    }
+    /**
+     * Create Resource
+     * @param requestBody
+     * @returns CustomToolResponse Successful Response
+     * @throws ApiError
+     */
+    public static createResourceApiAgentToolsCustomPost(
+        requestBody: CustomToolCreateRequest,
+    ): CancelablePromise<CustomToolResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/agent/tools/custom',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Resource
+     * @param resourceId
+     * @returns CustomToolResponse Successful Response
+     * @throws ApiError
+     */
+    public static getResourceApiAgentToolsCustomResourceIdGet(
+        resourceId: string,
+    ): CancelablePromise<CustomToolResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/agent/tools/custom/{resource_id}',
+            path: {
+                'resource_id': resourceId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Update Resource
+     * @param resourceId
+     * @param requestBody
+     * @param scope Tier the entry belongs to.
+     * @returns CustomToolResponse Successful Response
+     * @throws ApiError
+     */
+    public static updateResourceApiAgentToolsCustomResourceIdPatch(
+        resourceId: string,
+        requestBody: CustomToolUpdateRequest,
+        scope: 'user' | 'workspace' = 'workspace',
+    ): CancelablePromise<CustomToolResponse> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/agent/tools/custom/{resource_id}',
+            path: {
+                'resource_id': resourceId,
+            },
+            query: {
+                'scope': scope,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Resource
+     * @param resourceId
+     * @param scope Tier to delete from.
+     * @returns _SimpleMessage Successful Response
+     * @throws ApiError
+     */
+    public static deleteResourceApiAgentToolsCustomResourceIdDelete(
+        resourceId: string,
+        scope: 'user' | 'workspace' = 'workspace',
+    ): CancelablePromise<_SimpleMessage> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/agent/tools/custom/{resource_id}',
+            path: {
+                'resource_id': resourceId,
+            },
+            query: {
+                'scope': scope,
+            },
             errors: {
                 422: `Validation Error`,
             },

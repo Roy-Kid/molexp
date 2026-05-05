@@ -295,6 +295,72 @@ class CommandParseRequest(BaseModel):
     raw: str = Field(..., description="The raw chat text, including the leading '/'.")
 
 
+# ── Custom tools (user/workspace-tier tool declarations) ────────────────────
+
+
+class CustomToolHttpInvokerRequest(BaseModel):
+    """HTTP-webhook invoker spec for a user-declared tool."""
+
+    kind: Literal["http"] = "http"
+    url: str = Field(..., min_length=1, max_length=4096)
+    method: Literal["GET", "POST", "PUT", "DELETE"] = "POST"
+    headers: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Outgoing headers; values may carry ${SECRET:KEY} placeholders "
+            "resolved against the workspace secret store at request time."
+        ),
+    )
+    bodyTemplate: str = Field(
+        "",
+        description=(
+            "Optional template for the request body. Empty = send the "
+            "LLM-supplied arguments as JSON."
+        ),
+    )
+
+
+class CustomToolCreateRequest(BaseModel):
+    """Create a user/workspace-tier tool declaration."""
+
+    name: str = Field(..., description="Tool name as the LLM will see it")
+    description: str = Field(
+        "",
+        description="Tool description shown to the LLM during selection",
+    )
+    parametersSchema: dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema describing the tool arguments",
+    )
+    requiresApproval: bool = False
+    category: Literal["workspace", "workflow", "chat", "control"] = "workspace"
+    mutates: bool = False
+    invoker: CustomToolHttpInvokerRequest = Field(
+        ...,
+        description=(
+            "Invocation spec. Initial UI release supports only 'http'; "
+            "package-shipped tools use the 'python' kind via @default_tool."
+        ),
+    )
+    scope: Literal["user", "workspace"] = "workspace"
+    tool_id: str | None = Field(
+        default=None,
+        description="Optional explicit id; defaults to the tool's name.",
+    )
+
+
+class CustomToolUpdateRequest(BaseModel):
+    """Patch a user/workspace-tier tool declaration. Omitted fields stay."""
+
+    name: str | None = None
+    description: str | None = None
+    parametersSchema: dict[str, Any] | None = None
+    requiresApproval: bool | None = None
+    category: Literal["workspace", "workflow", "chat", "control"] | None = None
+    mutates: bool | None = None
+    invoker: CustomToolHttpInvokerRequest | None = None
+
+
 # ── Agent provider config ───────────────────────────────────────────────────
 
 

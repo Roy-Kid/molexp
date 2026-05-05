@@ -10,7 +10,7 @@
  * indicates the token store on disk has at least one persisted token
  * (rough proxy for "user has completed Connect at least once").
  */
-export type McpAuthSummary = {
+export type MCPAuthSummary = {
     type: string;
     scopes?: Array<string>;
     clientId?: (string | null);

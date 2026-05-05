@@ -68,6 +68,71 @@ const _requiredParams = (template: string): string[] => {
 
 const _now = () => new Date().toISOString();
 
+// ── Custom tools (/api/agent/tools/custom) ──────────────────────────────
+
+interface MockCustomTool {
+  id: string;
+  name: string;
+  description: string;
+  category: "workspace" | "workflow" | "chat" | "control";
+  mutates: boolean;
+  requiresApproval: boolean;
+  parametersSchema: Record<string, unknown>;
+  invoker:
+    | { kind: "http"; url: string; method: string; headers: Record<string, string>; bodyTemplate: string }
+    | { kind: "python"; target: string };
+  scope: "user" | "workspace";
+  shadowed: boolean;
+  valid: boolean;
+  invalidReason: string;
+  builtin: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface CustomToolCreateBody {
+  name: string;
+  description?: string;
+  category?: "workspace" | "workflow" | "chat" | "control";
+  mutates?: boolean;
+  requiresApproval?: boolean;
+  parametersSchema?: Record<string, unknown>;
+  invoker: {
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    bodyTemplate: string;
+  };
+  scope?: "user" | "workspace";
+  tool_id?: string;
+}
+
+// Sample registrations layer (default @default_tool entries on the backend)
+const _defaultTools: MockCustomTool[] = [
+  {
+    id: "submit_run",
+    name: "submit_run",
+    description: "Materialize and launch a run for an experiment.",
+    category: "workflow",
+    mutates: true,
+    requiresApproval: false,
+    parametersSchema: {},
+    invoker: {
+      kind: "python",
+      target: "molexp.plugins.agent_pydanticai._pydantic_ai.workspace_tools:submit_run",
+    },
+    scope: "user",
+    shadowed: false,
+    valid: true,
+    invalidReason: "",
+    builtin: true,
+    createdAt: "",
+    updatedAt: "",
+  },
+];
+
+const _customTools: MockCustomTool[] = [];
+
 const _skills: MockSkill[] = [
   {
     id: "skill-energy-vs-temp",
@@ -893,5 +958,104 @@ export const agentAdminHandlers = [
       planMode: skill.defaultPlanMode,
       error: "",
     });
+  }),
+
+  // ── Custom tools (/api/agent/tools/custom) ────────────────────────────
+
+  http.get("/api/agent/tools/custom", () =>
+    HttpResponse.json({ tools: [..._defaultTools, ..._customTools] }),
+  ),
+
+  http.post("/api/agent/tools/custom", async ({ request }) => {
+    const body = (await request.json()) as CustomToolCreateBody;
+    const id = body.tool_id ?? body.name;
+    if (
+      _customTools.some((t) => t.id === id && t.scope === (body.scope ?? "workspace"))
+    ) {
+      return HttpResponse.json(
+        { detail: `id '${id}' already exists at scope ${body.scope ?? "workspace"}` },
+        { status: 400 },
+      );
+    }
+    const now = _now();
+    const created = {
+      id,
+      name: body.name,
+      description: body.description ?? "",
+      category: body.category ?? "workspace",
+      mutates: body.mutates ?? false,
+      requiresApproval: body.requiresApproval ?? false,
+      parametersSchema: body.parametersSchema ?? {},
+      invoker: { ...body.invoker, kind: "http" as const },
+      scope: body.scope ?? "workspace",
+      shadowed: false,
+      valid: true,
+      invalidReason: "",
+      builtin: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    _customTools.push(created);
+    return HttpResponse.json(created, { status: 201 });
+  }),
+
+  http.get("/api/agent/tools/custom/:id", ({ params }) => {
+    const id = params.id as string;
+    // Workspace > user > defaults
+    const ws = _customTools.find((t) => t.id === id && t.scope === "workspace");
+    if (ws) return HttpResponse.json({ ...ws, shadowed: false });
+    const user = _customTools.find((t) => t.id === id && t.scope === "user");
+    if (user) return HttpResponse.json({ ...user, shadowed: false });
+    const def = _defaultTools.find((t) => t.id === id);
+    if (def) return HttpResponse.json({ ...def, shadowed: false });
+    return HttpResponse.json({ detail: `id '${id}' not found` }, { status: 404 });
+  }),
+
+  http.patch("/api/agent/tools/custom/:id", async ({ params, request }) => {
+    const id = params.id as string;
+    const url = new URL(request.url);
+    const scope = (url.searchParams.get("scope") ?? "workspace") as "user" | "workspace";
+    const idx = _customTools.findIndex((t) => t.id === id && t.scope === scope);
+    if (idx < 0) {
+      return HttpResponse.json(
+        { detail: `id '${id}' not found in scope ${scope}` },
+        { status: 404 },
+      );
+    }
+    const patch = (await request.json()) as Partial<CustomToolCreateBody>;
+    const next = {
+      ..._customTools[idx],
+      ...(patch.name !== undefined && { name: patch.name }),
+      ...(patch.description !== undefined && { description: patch.description }),
+      ...(patch.parametersSchema !== undefined && {
+        parametersSchema: patch.parametersSchema,
+      }),
+      ...(patch.requiresApproval !== undefined && {
+        requiresApproval: patch.requiresApproval,
+      }),
+      ...(patch.category !== undefined && { category: patch.category }),
+      ...(patch.mutates !== undefined && { mutates: patch.mutates }),
+      ...(patch.invoker !== undefined && {
+        invoker: { ...patch.invoker, kind: "http" as const },
+      }),
+      updatedAt: _now(),
+    };
+    _customTools[idx] = next;
+    return HttpResponse.json(next);
+  }),
+
+  http.delete("/api/agent/tools/custom/:id", ({ params, request }) => {
+    const id = params.id as string;
+    const url = new URL(request.url);
+    const scope = (url.searchParams.get("scope") ?? "workspace") as "user" | "workspace";
+    const idx = _customTools.findIndex((t) => t.id === id && t.scope === scope);
+    if (idx < 0) {
+      return HttpResponse.json(
+        { detail: `id '${id}' not found at scope '${scope}'.` },
+        { status: 404 },
+      );
+    }
+    _customTools.splice(idx, 1);
+    return HttpResponse.json({ message: `deleted from ${scope}` });
   }),
 ];

@@ -5,7 +5,7 @@
 /**
  * Local subprocess MCP server spec.
  */
-export type McpStdioSpecRequest = {
+export type MCPStdioSpecRequest = {
     type?: string;
     command: string;
     args?: Array<string>;

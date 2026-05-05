@@ -3,16 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import sys
-from pathlib import Path
 
 import pytest
 
 from molexp.plugins.tool_mcp import store as mcp_mod
 from molexp.plugins.tool_mcp.store import (
     MCP_CONFIG_FILENAME,
-    MCP_SECRETS_FILENAME,
     McpScope,
     McpSecretsStore,
     McpStore,

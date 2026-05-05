@@ -10,7 +10,7 @@
  * "let the IdP pick". ``clientId`` is optional and only set when the
  * target IdP doesn't support Dynamic Client Registration.
  */
-export type McpOAuth2AuthRequest = {
+export type MCPOAuth2AuthRequest = {
     type: string;
     scopes?: Array<string>;
     /**

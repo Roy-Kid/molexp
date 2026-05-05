@@ -9,14 +9,14 @@
  * the UI to render *something* under that server's heading — a row with
  * the error keeps users oriented instead of silently dropping the group.
  */
-export type McpToolGroupResponse = {
+export type MCPToolGroupResponse = {
     server: string;
-    scope: McpToolGroupResponse.scope;
+    scope: MCPToolGroupResponse.scope;
     ok: boolean;
     toolCount?: number;
     error?: (string | null);
 };
-export namespace McpToolGroupResponse {
+export namespace MCPToolGroupResponse {
     export enum scope {
         USER = 'user',
         WORKSPACE = 'workspace',

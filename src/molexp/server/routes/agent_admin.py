@@ -16,6 +16,14 @@ from molexp.agent.model import ModelConfig
 from molexp.agent.state.commands import parse as parse_slash
 from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillScope, SkillStore
 from molexp.agent.tools.admin import describe_native_tools
+from molexp.plugins.model_pydanticai import (
+    DEFAULT_MODELS,
+    SUPPORTED_PROVIDERS,
+    ProviderStore,
+    check_credentials,
+    probe_provider,
+    to_public,
+)
 from molexp.plugins.tool_mcp import (
     McpScope,
     McpStore,
@@ -28,13 +36,12 @@ from molexp.plugins.tool_mcp import (
     session_registry,
     storage_for,
 )
-from molexp.plugins.model_pydanticai import (
-    DEFAULT_MODELS,
-    SUPPORTED_PROVIDERS,
-    ProviderStore,
-    check_credentials,
-    probe_provider,
-    to_public,
+from molexp.plugins.tool_mcp.resources import tiered_router_factory
+from molexp.plugins.tool_mcp.tool_store import (
+    HttpInvoker,
+    PythonInvoker,
+    ToolSpec,
+    ToolStore,
 )
 
 from ..dependencies import get_workspace
@@ -50,6 +57,12 @@ from ..schemas import (
     CommandParseRequest,
     CommandParseResponse,
     CommandSpec,
+    CustomToolCreateRequest,
+    CustomToolHttpInvokerResponse,
+    CustomToolListResponse,
+    CustomToolPythonInvokerResponse,
+    CustomToolResponse,
+    CustomToolUpdateRequest,
     McpAuthSummary,
     McpOAuthCallbackRequest,
     McpOAuthStartResponse,
@@ -693,13 +706,9 @@ async def create_skill(
 ) -> SkillResponse:
     store = _skill_store(workspace)
     scope = _parse_scope(request.scope)
-    if scope == SkillScope.BUILTIN:
-        raise HTTPException(
-            status_code=400,
-            detail="Builtin skills are registered in code and cannot be created via API.",
-        )
     try:
         skill = store.create(
+            scope=scope,
             name=request.name,
             goal_template=request.goal_template,
             description=request.description,
@@ -712,7 +721,6 @@ async def create_skill(
             allowed_tools=request.allowed_tools,
             denied_tools=request.denied_tools,
             requires_exit_tool=request.requires_exit_tool,
-            scope=scope,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -994,3 +1002,122 @@ async def test_provider(
         reply=result.reply,
         error=result.error,
     )
+
+
+# ── Custom tools (user/workspace-tier tool declarations) ────────────────────
+
+
+def _tool_store(workspace) -> ToolStore:
+    root = getattr(workspace, "root", None)
+    if root is None:
+        raise HTTPException(status_code=500, detail="Workspace has no root path")
+    return ToolStore(root)
+
+
+def _tool_spec_to_response(spec: ToolSpec) -> CustomToolResponse:
+    """Map a stored :class:`ToolSpec` to its public response shape."""
+    if isinstance(spec.invoker, HttpInvoker):
+        invoker_response = CustomToolHttpInvokerResponse(
+            kind="http",
+            url=spec.invoker.url,
+            method=spec.invoker.method,
+            headers=dict(spec.invoker.headers),
+            bodyTemplate=spec.invoker.body_template,
+        )
+    elif isinstance(spec.invoker, PythonInvoker):
+        invoker_response = CustomToolPythonInvokerResponse(
+            kind="python",
+            target=spec.invoker.target,
+        )
+    else:  # pragma: no cover — discriminated union exhausts here
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unknown tool invoker kind '{type(spec.invoker).__name__}'",
+        )
+    return CustomToolResponse(
+        id=spec.id,
+        name=spec.name,
+        description=spec.description,
+        category=spec.category,
+        mutates=spec.mutates,
+        requiresApproval=spec.requires_approval,
+        parametersSchema=dict(spec.parameters_schema),
+        invoker=invoker_response,
+        scope=spec.scope.value,
+        shadowed=spec.shadowed,
+        valid=spec.valid,
+        invalidReason=spec.invalid_reason,
+        builtin=getattr(spec, "builtin", False),
+        createdAt=spec.created_at,
+        updatedAt=spec.updated_at,
+    )
+
+
+def _tool_create_kwargs(request: CustomToolCreateRequest) -> dict:
+    """Translate a create request into ``ToolStore.create`` kwargs.
+
+    The route only accepts user-declared HTTP-webhook tools at this
+    tier; Python invokers are reserved for ``@default_tool``-registered
+    package tools.
+    """
+    return {
+        "scope": request.scope,
+        "id": request.tool_id or request.name,
+        "name": request.name,
+        "description": request.description,
+        "parameters_schema": dict(request.parametersSchema),
+        "requires_approval": request.requiresApproval,
+        "category": request.category,
+        "mutates": request.mutates,
+        "invoker": HttpInvoker(
+            kind="http",
+            url=request.invoker.url,
+            method=request.invoker.method,
+            headers=dict(request.invoker.headers),
+            body_template=request.invoker.bodyTemplate,
+        ),
+    }
+
+
+def _tool_update_kwargs(request: CustomToolUpdateRequest) -> dict:
+    """Drop ``None`` fields so callers can patch a subset of attributes."""
+    payload: dict = {}
+    if request.name is not None:
+        payload["name"] = request.name
+    if request.description is not None:
+        payload["description"] = request.description
+    if request.parametersSchema is not None:
+        payload["parameters_schema"] = dict(request.parametersSchema)
+    if request.requiresApproval is not None:
+        payload["requires_approval"] = request.requiresApproval
+    if request.category is not None:
+        payload["category"] = request.category
+    if request.mutates is not None:
+        payload["mutates"] = request.mutates
+    if request.invoker is not None:
+        payload["invoker"] = HttpInvoker(
+            kind="http",
+            url=request.invoker.url,
+            method=request.invoker.method,
+            headers=dict(request.invoker.headers),
+            body_template=request.invoker.bodyTemplate,
+        ).model_dump()
+    return payload
+
+
+router.include_router(
+    tiered_router_factory(
+        store_factory=_tool_store,
+        spec_to_response=_tool_spec_to_response,
+        item_response_cls=CustomToolResponse,
+        list_response_cls=CustomToolListResponse,
+        create_request_cls=CustomToolCreateRequest,
+        update_request_cls=CustomToolUpdateRequest,
+        create_kwargs=_tool_create_kwargs,
+        update_kwargs=_tool_update_kwargs,
+        workspace_dependency=get_workspace,
+        prefix="/tools/custom",
+        tags=["agent-admin"],
+        list_field="tools",
+    )
+)

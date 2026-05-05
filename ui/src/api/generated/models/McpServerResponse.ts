@@ -2,7 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { McpAuthSummary } from './McpAuthSummary';
+import type { MCPAuthSummary } from './MCPAuthSummary';
 /**
  * One MCP server entry, possibly merged across scopes.
  *
@@ -11,9 +11,9 @@ import type { McpAuthSummary } from './McpAuthSummary';
  * lists ``${SECRET:KEY}`` references that have no value in either secret
  * store — the runtime skips such entries.
  */
-export type McpServerResponse = {
+export type MCPServerResponse = {
     name: string;
-    scope: McpServerResponse.scope;
+    scope: MCPServerResponse.scope;
     transport?: string;
     command?: (string | null);
     args?: Array<string>;
@@ -25,9 +25,9 @@ export type McpServerResponse = {
     shadowed?: boolean;
     valid?: boolean;
     invalidReason?: string;
-    auth?: (McpAuthSummary | null);
+    auth?: (MCPAuthSummary | null);
 };
-export namespace McpServerResponse {
+export namespace MCPServerResponse {
     export enum scope {
         USER = 'user',
         WORKSPACE = 'workspace',

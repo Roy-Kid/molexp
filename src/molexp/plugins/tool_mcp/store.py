@@ -24,13 +24,14 @@ import json
 import os
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from threading import Lock
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, Discriminator, Field, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, Discriminator, Field, TypeAdapter, ValidationError
+
+from .resources.base import _format_validation_error, _now_iso
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
@@ -119,8 +120,7 @@ _SPEC_ADAPTER: TypeAdapter[StdioSpec | HttpSpec] = TypeAdapter(McpServerSpec)
 # ── Public entry view ──────────────────────────────────────────────────────
 
 
-@dataclass(frozen=True)
-class AuthSummary:
+class AuthSummary(BaseModel):
     """Public-facing description of an HTTP server's auth configuration.
 
     Only fields safe to surface in the UI: the auth type and (for OAuth)
@@ -128,20 +128,36 @@ class AuthSummary:
     never appear here — they live in the OAuth token store.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     type: str  # "oauth2" — extend with new variants here
     scopes: tuple[str, ...] = ()
     client_id: str | None = None
 
 
-@dataclass(frozen=True)
-class McpServerEntry:
+class McpServerEntry(BaseModel):
     """One MCP server, possibly merged across scopes.
 
     Carries enough metadata for the UI to render the row + alert on
-    missing secrets, but never the secret values themselves. ``args`` and
-    ``env_keys`` are stored as tuples so the dataclass stays hashable
-    (frozen=True implies eq=True, which needs hashable fields).
+    missing secrets, but never the secret values themselves. Fields are
+    sourced from the on-disk ``.mcp.json`` plus computed read-time
+    annotations (``shadowed``/``valid``/``unresolved_secrets``).
+
+    Pydantic ``BaseModel`` (replaces the historical
+    ``@dataclass(frozen=True)``): ``model_config`` declares
+    ``frozen=True`` so the entry is immutable after construction —
+    callers that need a copy with adjusted ``shadowed`` flag must use
+    :py:meth:`pydantic.BaseModel.model_copy(update=…)`. Every field is
+    typed; legacy callers that built entries with positional args can
+    instead pass keyword arguments unchanged.
+
+    ``created_at`` / ``updated_at`` are persisted alongside the entry
+    so the settings UI can show "added on" + "last edited" times. They
+    default to empty strings to keep migration of older config files
+    painless — the next write fills them.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     name: str
     scope: McpScope
@@ -157,14 +173,17 @@ class McpServerEntry:
     valid: bool = True
     invalid_reason: str = ""
     auth: AuthSummary | None = None
+    created_at: str = ""
+    updated_at: str = ""
 
 
-@dataclass(frozen=True)
-class ResolvedSpec:
+class ResolvedSpec(BaseModel):
     """Spec with secrets substituted in env/headers, ready for the runtime.
 
     The runtime is the only legitimate consumer; never serialize this.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     transport: str
     command: str | None
@@ -264,16 +283,30 @@ class McpStore:
     name collision. Mutations always target an explicit scope (caller
     chooses where to write). Secret resolution consults Workspace
     secrets first, then User secrets — strict, no env-var fallback.
+
+    Mirrors :class:`SkillStore` / :class:`ToolStore` for parity:
+    accepts an optional ``user_home_dir`` to override the default
+    ``~/.molexp/`` location (testing convenience). All public mutators
+    serialize through ``_lock`` so concurrent route handlers cannot
+    interleave reads/writes against the same file.
     """
 
-    def __init__(self, workspace_root: str | Path) -> None:
+    def __init__(
+        self,
+        workspace_root: str | Path,
+        user_home_dir: str | Path | None = None,
+    ) -> None:
         self._workspace_root = Path(workspace_root)
         self._workspace_path = self._workspace_root / MCP_CONFIG_FILENAME
-        self._user_path = USER_DIR / MCP_CONFIG_FILENAME
+        if user_home_dir is None:
+            user_home_dir = USER_DIR
+        self._user_dir = Path(user_home_dir)
+        self._user_path = self._user_dir / MCP_CONFIG_FILENAME
         self._workspace_secrets = McpSecretsStore(
             self._workspace_root / MCP_SECRETS_FILENAME
         )
-        self._user_secrets = McpSecretsStore(USER_DIR / MCP_SECRETS_FILENAME)
+        self._user_secrets = McpSecretsStore(self._user_dir / MCP_SECRETS_FILENAME)
+        self._lock = Lock()
 
     # ── Path / store accessors ─────────────────────────────────────────────
 
@@ -368,20 +401,30 @@ class McpStore:
                 "URL scheme must be http or https for http/sse transports"
             )
 
-        path = self.config_path(scope)
-        servers = _read_servers(path)
-        servers[name] = validated.model_dump()
-        _write_servers(path, servers)
+        with self._lock:
+            path = self.config_path(scope)
+            servers = _read_servers(path)
+            now = _now_iso()
+            payload = validated.model_dump()
+            existing = servers.get(name)
+            if isinstance(existing, dict):
+                payload["created_at"] = str(existing.get("created_at") or now)
+            else:
+                payload["created_at"] = now
+            payload["updated_at"] = now
+            servers[name] = payload
+            _write_servers(path, servers)
         return self._build_entry(name, servers[name], scope, shadowed=False)
 
     def delete(self, scope: McpScope, name: str) -> bool:
-        path = self.config_path(scope)
-        servers = _read_servers(path)
-        if name not in servers:
-            return False
-        servers.pop(name)
-        _write_servers(path, servers)
-        return True
+        with self._lock:
+            path = self.config_path(scope)
+            servers = _read_servers(path)
+            if name not in servers:
+                return False
+            servers.pop(name)
+            _write_servers(path, servers)
+            return True
 
     # ── Secret substitution (runtime only) ─────────────────────────────────
 
@@ -441,6 +484,12 @@ class McpStore:
         scope: McpScope,
         shadowed: bool,
     ) -> McpServerEntry:
+        created_at = ""
+        updated_at = ""
+        if isinstance(raw, dict):
+            created_at = str(raw.get("created_at", "") or "")
+            updated_at = str(raw.get("updated_at", "") or "")
+
         if not isinstance(raw, dict):
             return McpServerEntry(
                 name=name,
@@ -456,6 +505,8 @@ class McpStore:
                 shadowed=shadowed,
                 valid=False,
                 invalid_reason="entry is not an object",
+                created_at=created_at,
+                updated_at=updated_at,
             )
         try:
             spec = _SPEC_ADAPTER.validate_python(raw)
@@ -488,6 +539,8 @@ class McpStore:
                 shadowed=shadowed,
                 valid=False,
                 invalid_reason=_format_validation_error(exc),
+                created_at=created_at,
+                updated_at=updated_at,
             )
 
         auth_summary: AuthSummary | None = None
@@ -529,6 +582,8 @@ class McpStore:
             valid=True,
             invalid_reason="",
             auth=auth_summary,
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
     def _has_secret(self, key: str) -> bool:
@@ -607,13 +662,3 @@ def _collect_refs(values: Iterable[Any]) -> tuple[str, ...]:
 
 def _is_http_url(url: str) -> bool:
     return url.startswith(("http://", "https://"))
-
-
-def _format_validation_error(exc: ValidationError) -> str:
-    errors = exc.errors()
-    if not errors:
-        return "invalid spec"
-    first = errors[0]
-    loc = ".".join(str(x) for x in first.get("loc", []) if x != "function-after")
-    msg = first.get("msg", "invalid value")
-    return f"{loc}: {msg}" if loc else msg

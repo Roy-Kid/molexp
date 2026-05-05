@@ -7,7 +7,6 @@ import pytest
 from molexp.agent.state.commands import parse
 from molexp.agent.state.skills import RESERVED_SLASH_NAMES, SkillStore
 
-
 # ── Builtin commands ─────────────────────────────────────────────────────────
 
 

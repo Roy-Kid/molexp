@@ -8,13 +8,13 @@
  * ``hasTokens`` is True after a successful Connect; False if the user has
  * never connected, has disconnected, or the token file got corrupted.
  */
-export type McpOAuthStatusResponse = {
+export type MCPOAuthStatusResponse = {
     name: string;
-    scope: McpOAuthStatusResponse.scope;
+    scope: MCPOAuthStatusResponse.scope;
     hasTokens: boolean;
     scopes?: Array<string>;
 };
-export namespace McpOAuthStatusResponse {
+export namespace MCPOAuthStatusResponse {
     export enum scope {
         USER = 'user',
         WORKSPACE = 'workspace',
