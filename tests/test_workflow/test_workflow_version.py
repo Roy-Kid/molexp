@@ -104,3 +104,43 @@ class TestRunRecordsWorkflowVersion:
         meta = _load_metadata(RunMetadata, run.run_dir / "run.json")
         assert meta.workflow_version == "1.0.0"
         assert meta.workflow_id == spec.workflow_id
+
+
+class TestRuntimeAutoBindsWorkflowVersion:
+    def test_execute_auto_registers_version(self, tmp_path):
+        import asyncio
+
+        ws = Workspace(tmp_path / "lab", name="Lab")
+        wf = _make_two_task_workflow(version="3.1.4")
+        spec = wf.build()
+
+        run = ws.project("p").experiment("e").run()
+        result = asyncio.run(spec.execute(run=run))
+        assert result.status == "completed"
+
+        # WorkflowVersion record auto-written by the runtime.
+        version_path = ws.root / ".versions" / "workflows" / f"{spec.workflow_id}.json"
+        assert version_path.exists()
+
+        # RunMetadata stamped on disk without explicit bind_workflow_version().
+        from molexp.workspace.base import _load_metadata
+        from molexp.workspace.models import RunMetadata
+
+        meta = _load_metadata(RunMetadata, run.run_dir / "run.json")
+        assert meta.workflow_id == spec.workflow_id
+        assert meta.workflow_version == "3.1.4"
+
+    def test_runtime_swallows_version_conflict(self, tmp_path, caplog):
+        import asyncio
+
+        ws = Workspace(tmp_path / "lab", name="Lab")
+        spec_v1 = _make_two_task_workflow(version="1.0.0").build()
+        # Pre-register the workflow id under a different version label so the
+        # runtime auto-bind fires the conflict path.
+        spec_v1.register(ws)
+
+        spec_v2 = _make_two_task_workflow(version="2.0.0").build()
+        run = ws.project("p").experiment("e").run()
+        # Should NOT raise — runtime catches the conflict and logs a warning.
+        result = asyncio.run(spec_v2.execute(run=run))
+        assert result.status == "completed"

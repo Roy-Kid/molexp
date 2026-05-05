@@ -121,6 +121,34 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         return deps, run_dir
 
     @staticmethod
+    def _autobind_workflow_version(active_run_context: Any, spec: Any) -> None:
+        """Auto-register *spec*'s :class:`WorkflowVersion` against the
+        run's workspace and stamp ``RunMetadata.workflow_id`` /
+        ``workflow_version``.
+
+        Called once per ``_execution_scope`` entry. Versioning is
+        advisory: a conflict (same ``workflow_id`` already labelled with
+        a different ``version``) logs a warning and proceeds without
+        overwriting the existing on-disk record — the run still gets
+        ``workflow_id`` recorded so lineage tooling can identify the
+        topology, just without a fresh version stamp. Any other failure
+        is also swallowed with a log; bind errors must never block a
+        workflow run.
+        """
+        if active_run_context is None or not hasattr(active_run_context, "bind_workflow_version"):
+            return
+        if spec is None or not hasattr(spec, "workflow_id"):
+            return
+        try:
+            active_run_context.bind_workflow_version(spec)
+        except Exception:  # noqa: BLE001 — versioning is advisory, never block
+            wf_id = getattr(spec, "workflow_id", "?")
+            logger.warning(
+                f"auto-bind workflow version failed for workflow_id={wf_id}; continuing",
+                exc_info=True,
+            )
+
+    @staticmethod
     def _set_run_status(run_context: Any, *, failed: bool, persist: bool) -> None:
         if run_context is None or not hasattr(run_context, "context"):
             return
@@ -210,6 +238,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 profile_config=profile_config,
                 execution_id=execution_id,
             ) as active_run_context:
+                self._autobind_workflow_version(active_run_context, spec)
                 effective_run = active_run_context.run if active_run_context is not None else run
                 deps, run_dir = self._build_deps(
                     compiled,
@@ -326,6 +355,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     profile_config=profile_config,
                     execution_id=execution_id,
                 ) as active_run_context:
+                    self._autobind_workflow_version(active_run_context, spec)
                     effective_run = (
                         active_run_context.run if active_run_context is not None else run
                     )
