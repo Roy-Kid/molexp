@@ -7,56 +7,42 @@ when no provider is configured).
 
 from __future__ import annotations
 
-import importlib
 import inspect
-import pkgutil
 from typing import Any
 
-from molexp.agent.tools import native as native_pkg
-from molexp.agent.tools.registry import get_native_spec, is_native_tool
+from molexp.agent.tools.registry import iter_native_tools
 
 
 def describe_native_tools() -> list[dict[str, Any]]:
-    """Walk ``molexp.agent.tools.native`` and return a row per tagged tool.
+    """Return a row per ``@native_tool`` in :mod:`molexp.agent.tools.native`.
 
-    Each row mirrors the ``@native_tool`` ``ToolSpec`` plus the
-    callable's parameter signature (excluding ``args`` / ``ctx``,
-    which the dispatcher injects).
+    Each row mirrors the tool's ``ToolSpec`` plus the callable's parameter
+    signature (excluding ``args`` / ``ctx``, which the dispatcher injects).
     """
 
     rows: list[dict[str, Any]] = []
-    for module_info in pkgutil.iter_modules(
-        native_pkg.__path__, prefix=f"{native_pkg.__name__}."
-    ):
-        module = importlib.import_module(module_info.name)
-        for attr_name in dir(module):
-            obj = getattr(module, attr_name)
-            if not is_native_tool(obj):
-                continue
-            spec = get_native_spec(obj)
-            sig = inspect.signature(obj)
-            params: list[dict[str, Any]] = []
-            for pname, p in sig.parameters.items():
-                if pname in ("args", "ctx", "context"):
-                    continue
-                params.append(
-                    {
-                        "name": pname,
-                        "annotation": _format_annotation(p.annotation),
-                        "required": p.default is inspect.Parameter.empty,
-                    }
-                )
-            rows.append(
-                {
-                    "name": spec.name,
-                    "description": spec.description,
-                    "parameters": params,
-                    "requires_approval": spec.requires_approval,
-                    "category": spec.category,
-                    "mutates": spec.mutates,
-                    "source": spec.source,
-                }
-            )
+    for spec, fn in iter_native_tools():
+        sig = inspect.signature(fn)
+        params: list[dict[str, Any]] = [
+            {
+                "name": pname,
+                "annotation": _format_annotation(p.annotation),
+                "required": p.default is inspect.Parameter.empty,
+            }
+            for pname, p in sig.parameters.items()
+            if pname not in ("args", "ctx", "context")
+        ]
+        rows.append(
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "parameters": params,
+                "requires_approval": spec.requires_approval,
+                "category": spec.category,
+                "mutates": spec.mutates,
+                "source": spec.source,
+            }
+        )
     return rows
 
 

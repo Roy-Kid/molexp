@@ -86,10 +86,6 @@ class TestRunRoutes:
         assert summary["finished"] is not None
 
 
-def _stub_workflow(ctx):
-    """Module-level callable so ``set_workflow`` can resolve an entrypoint."""
-
-
 @pytest.fixture
 def local_target(workspace):
     add_target(
@@ -97,17 +93,6 @@ def local_target(workspace):
         ComputeTarget(name="laptop", scratch_root=str(workspace.root / "scratch")),
     )
     return "laptop"
-
-
-@pytest.fixture
-def experiment_with_entrypoint(project):
-    exp = project.experiment(
-        "wired-exp",
-        workflow_source="train.py",
-        params={"lr": 1e-4},
-    )
-    exp.set_workflow(_stub_workflow)
-    return exp
 
 
 @pytest.fixture

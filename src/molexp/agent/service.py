@@ -252,21 +252,10 @@ class AgentService:
     def _register_native_tools(self) -> None:
         """Walk ``molexp.agent.tools.native`` and register every tagged tool."""
 
-        from molexp.agent.tools import native as native_pkg
-        from molexp.agent.tools.registry import get_native_spec, is_native_tool
-        import importlib
-        import pkgutil
+        from molexp.agent.tools.registry import iter_native_tools
 
-        for module_info in pkgutil.iter_modules(
-            native_pkg.__path__, prefix=f"{native_pkg.__name__}."
-        ):
-            module = importlib.import_module(module_info.name)
-            for attr_name in dir(module):
-                obj = getattr(module, attr_name)
-                if not is_native_tool(obj):
-                    continue
-                spec = get_native_spec(obj)
-                self.registry.register(spec, obj)
+        for spec, fn in iter_native_tools():
+            self.registry.register(spec, fn)
 
     def _mark_orphaned_sessions_interrupted(self) -> None:
         """Reconcile orphaned persisted sessions on construction.

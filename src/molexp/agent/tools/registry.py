@@ -7,6 +7,8 @@ concurrent services do not contaminate each other.
 
 from __future__ import annotations
 
+import importlib
+import pkgutil
 from typing import Iterator
 
 from molexp.agent.model import ToolSchema
@@ -48,6 +50,26 @@ def get_native_spec(fn: ToolCallable) -> ToolSpec:
     """Return the :class:`ToolSpec` attached by :func:`native_tool`."""
 
     return getattr(fn, _NATIVE_TOOL_ATTR)
+
+
+def iter_native_tools() -> Iterator[tuple[ToolSpec, ToolCallable]]:
+    """Yield ``(spec, fn)`` for every ``@native_tool`` in :mod:`molexp.agent.tools.native`.
+
+    Single source of truth for walking the native package — used by
+    :class:`AgentService` (per-instance registration), the read-only
+    admin introspection helper, and the ToolStore registrations bridge.
+    """
+
+    from molexp.agent.tools import native as native_pkg
+
+    for module_info in pkgutil.iter_modules(
+        native_pkg.__path__, prefix=f"{native_pkg.__name__}."
+    ):
+        module = importlib.import_module(module_info.name)
+        for attr_name in dir(module):
+            obj = getattr(module, attr_name)
+            if is_native_tool(obj):
+                yield get_native_spec(obj), obj
 
 
 class DuplicateToolError(ValueError):
