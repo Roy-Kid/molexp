@@ -20,7 +20,7 @@ def test_create_target_local(client, workspace):
         json={
             "name": "laptop",
             "scratchRoot": "/tmp/molexp",
-            "scheduler": "shell",
+            "scheduler": "local",
         },
     )
     assert resp.status_code == 201, resp.text
@@ -52,7 +52,7 @@ def test_create_target_remote_slurm(client):
 
 @pytest.mark.unit
 def test_create_target_duplicate_name_returns_409(client):
-    payload = {"name": "dup", "scratchRoot": "/tmp/x", "scheduler": "shell"}
+    payload = {"name": "dup", "scratchRoot": "/tmp/x", "scheduler": "local"}
     assert client.post("/api/targets", json=payload).status_code == 201
     resp = client.post("/api/targets", json=payload)
     assert resp.status_code == 409
@@ -66,7 +66,7 @@ def test_create_target_rejects_ssh_opts_without_host(client):
         json={
             "name": "bad",
             "scratchRoot": "/tmp/x",
-            "scheduler": "shell",
+            "scheduler": "local",
             "port": 22,
         },
     )
@@ -90,7 +90,7 @@ def test_create_target_rejects_invalid_scheduler(client):
 def test_list_then_delete(client):
     client.post(
         "/api/targets",
-        json={"name": "tmp", "scratchRoot": "/tmp/x", "scheduler": "shell"},
+        json={"name": "tmp", "scratchRoot": "/tmp/x", "scheduler": "local"},
     )
     listed = client.get("/api/targets").json()
     assert listed["total"] == 1
@@ -116,7 +116,7 @@ def test_test_target_local_succeeds(client, tmp_path):
         json={
             "name": "local-test",
             "scratchRoot": str(scratch),
-            "scheduler": "shell",
+            "scheduler": "local",
         },
     )
     resp = client.post("/api/targets/local-test/test")

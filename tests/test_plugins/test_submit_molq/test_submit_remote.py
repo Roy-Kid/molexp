@@ -99,17 +99,17 @@ def test_submit_handler_with_target_stages_in_and_uses_transport(
         scheduler_job_id = "fake-sched-id"
 
     class FakeSubmitor:
-        def __init__(self, *, cluster_name, scheduler, jobs_dir, transport):
-            captured_submitor["cluster_name"] = cluster_name
-            captured_submitor["scheduler"] = scheduler
+        def __init__(self, target, *, jobs_dir):
+            captured_submitor["cluster_name"] = target.name
+            captured_submitor["scheduler"] = target.scheduler
             captured_submitor["jobs_dir"] = jobs_dir
-            captured_submitor["transport"] = transport
+            captured_submitor["transport"] = target.transport
             self._event_bus = type("EB", (), {"on": lambda *_a, **_kw: None})()
 
         def __enter__(self): return self
         def __exit__(self, *a): return False
 
-        def submit(self, *, argv, resources, scheduling, execution, metadata):
+        def submit_job(self, *, argv, resources, scheduling, execution, metadata):
             captured_submitor["submit_argv"] = argv
             captured_submitor["submit_cwd"] = execution.cwd
             captured_submitor["submit_metadata"] = metadata
@@ -151,10 +151,11 @@ def test_submit_handler_with_target_stages_in_and_uses_transport(
     assert any(a.startswith("/scratch/me/molexp/") for a in argv)
 
 
-def test_submit_handler_without_target_keeps_legacy_path(
+def test_submit_handler_without_target_uses_local_transport(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Legacy path: when target=None, transport stays None and no staging."""
+    """No-target path: transport=None on the handler → Cluster falls back
+    to ``LocalTransport`` and no staging happens."""
     _, project, experiment, run = _make_run(tmp_path)
 
     captured: dict[str, Any] = {}
@@ -164,13 +165,13 @@ def test_submit_handler_without_target_keeps_legacy_path(
         scheduler_job_id = "y"
 
     class FakeSubmitor:
-        def __init__(self, *, cluster_name, scheduler, jobs_dir, transport):
-            captured["transport"] = transport
+        def __init__(self, target, *, jobs_dir):
+            captured["transport"] = target.transport
             captured["jobs_dir"] = jobs_dir
             self._event_bus = type("EB", (), {"on": lambda *_a, **_kw: None})()
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def submit(self, *, argv, resources, scheduling, execution, metadata):
+        def submit_job(self, *, argv, resources, scheduling, execution, metadata):
             captured["cwd"] = execution.cwd
             return FakeJob()
 
@@ -187,8 +188,10 @@ def test_submit_handler_without_target_keeps_legacy_path(
     )
     handler(None, run, experiment, project)
 
-    # transport=None means "let molq use its default LocalTransport" — the
-    # SubmitHandler does not synthesise one, preserving the previous behaviour.
-    assert captured["transport"] is None
+    # No target → SubmitHandler does not synthesise an SshTransport; the
+    # Cluster gets transport=None and falls back to the default LocalTransport.
+    from molq.transport import LocalTransport
+
+    assert isinstance(captured["transport"], LocalTransport)
     # jobs_dir lives under the LOCAL run dir, not on a remote scratch path.
     assert captured["jobs_dir"].startswith(str(run.run_dir))

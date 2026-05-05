@@ -1,7 +1,7 @@
 """API schemas for the workspace ComputeTarget registry.
 
 A :class:`~molexp.workspace.ComputeTarget` is the cross-product of the
-*transport* axis (local vs SSH) and the *scheduler* axis (shell / slurm /
+*transport* axis (local vs SSH) and the *scheduler* axis (local / slurm /
 pbs / lsf).  These models are the wire format for ``/api/targets``.
 """
 
@@ -23,8 +23,8 @@ class TargetCreateRequest(BaseModel):
         alias="scratchRoot",
         description="Absolute scratch root on the target's filesystem",
     )
-    scheduler: Literal["shell", "slurm", "pbs", "lsf"] = Field(
-        default="shell", description="Dispatch axis"
+    scheduler: Literal["local", "slurm", "pbs", "lsf"] = Field(
+        default="local", description="Dispatch axis"
     )
     host: str | None = Field(default=None, description="user@host for SSH; omit for local")
     port: int | None = Field(default=None, description="SSH port")
@@ -47,7 +47,7 @@ class TargetResponse(BaseModel):
 
     name: str
     scratch_root: str = Field(..., alias="scratchRoot")
-    scheduler: Literal["shell", "slurm", "pbs", "lsf"]
+    scheduler: Literal["local", "slurm", "pbs", "lsf"]
     host: str | None = None
     port: int | None = None
     identity_file: str | None = Field(default=None, alias="identityFile")

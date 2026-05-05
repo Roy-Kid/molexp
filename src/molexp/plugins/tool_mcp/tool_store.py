@@ -262,6 +262,54 @@ def default_tool(
     return decorator
 
 
+def _register_native_tools() -> None:
+    """Mirror every ``@native_tool`` in :mod:`molexp.agent.tools.native`
+    into the ``ToolStore`` registrations tier so they appear under
+    ``GET /api/agent/tools/custom`` alongside user/workspace tools.
+
+    Idempotent: re-imports overwrite prior registrations.  The
+    ``"native:"`` prefix on each spec name is stripped — registration
+    listings expose the bare callable name (``submit_run``) so the
+    custom-tools admin surface stays uniform across tiers.
+    """
+
+    import importlib
+    import pkgutil
+
+    from molexp.agent.tools import native as native_pkg
+    from molexp.agent.tools.registry import get_native_spec, is_native_tool
+
+    for module_info in pkgutil.iter_modules(
+        native_pkg.__path__, prefix=f"{native_pkg.__name__}."
+    ):
+        module = importlib.import_module(module_info.name)
+        for attr_name in dir(module):
+            obj = getattr(module, attr_name)
+            if not is_native_tool(obj):
+                continue
+            native_spec = get_native_spec(obj)
+            tool_name = native_spec.name.removeprefix("native:")
+            target = f"{obj.__module__}:{obj.__name__}"
+            now = _now_iso()
+            spec = ToolSpec(
+                id=tool_name,
+                name=tool_name,
+                description=native_spec.description,
+                scope=Scope.USER,
+                category=native_spec.category,
+                mutates=native_spec.mutates,
+                requires_approval=native_spec.requires_approval,
+                invoker=PythonInvoker(kind="python", target=target),
+                created_at=now,
+                updated_at=now,
+            )
+            ToolStore.register(spec)
+            _PYTHON_TOOL_IMPLS[target] = obj
+
+
+_register_native_tools()
+
+
 __all__ = [
     "HttpInvoker",
     "KIND_KEY",

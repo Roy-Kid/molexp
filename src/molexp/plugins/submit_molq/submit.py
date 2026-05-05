@@ -32,8 +32,9 @@ class SubmitHandler:
         scheduling: Sparse dict of scheduling overrides (``None`` values stripped).
         target: When provided, jobs are routed through the target's transport
             and scheduler; the run dir is staged in before submit and staged
-            out on terminal events.  When ``None`` the handler keeps the
-            legacy local/in-process dispatch path.
+            out on terminal events.  When ``None`` the handler dispatches
+            via molq's default ``LocalTransport`` against the workspace's
+            local filesystem (the ``--scheduler X`` CLI path with no target).
     """
 
     def __init__(
@@ -67,6 +68,7 @@ class SubmitHandler:
         project: Any,
     ) -> None:
         from molq import (
+            Cluster,
             Duration,
             JobExecution,
             JobResources,
@@ -95,7 +97,7 @@ class SubmitHandler:
         local_exec_dir.mkdir(parents=True, exist_ok=True)
 
         if target is None:
-            # Legacy path — unchanged.
+            # No-target path: rely on molq's default LocalTransport.
             transport = None
             scheduler_name = self._scheduler
             target_run_dir_ = str(run_dir)
@@ -126,10 +128,12 @@ class SubmitHandler:
             Path(jobs_dir).mkdir(parents=True, exist_ok=True)
 
         with Submitor(
-            cluster_name=self._cluster,
-            scheduler=scheduler_name,
+            Cluster(
+                name=self._cluster,
+                scheduler=scheduler_name,
+                transport=transport,
+            ),
             jobs_dir=jobs_dir,
-            transport=transport,
         ) as submitor:
             if stage_out_cb is not None:
                 from molq.callbacks import EventType
@@ -141,7 +145,7 @@ class SubmitHandler:
                 ):
                     submitor._event_bus.on(evt, stage_out_cb)
 
-            job = submitor.submit(
+            job = submitor.submit_job(
                 argv=[
                     sys.executable,
                     "-m",
@@ -159,7 +163,7 @@ class SubmitHandler:
                     time_limit=Duration.parse(res["time"]) if res.get("time") else None,
                 ),
                 scheduling=JobScheduling(
-                    queue=sched.get("queue"),
+                    partition=sched.get("queue"),
                     account=sched.get("account"),
                     qos=sched.get("qos"),
                 ),

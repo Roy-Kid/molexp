@@ -72,9 +72,9 @@ def add_cmd(
     scheduler: Annotated[
         str,
         typer.Option(
-            "--scheduler", help="Dispatch axis: shell | slurm | pbs | lsf",
+            "--scheduler", help="Dispatch axis: local | slurm | pbs | lsf",
         ),
-    ] = "shell",
+    ] = "local",
     host: Annotated[
         Optional[str],
         typer.Option("--host", help="user@host for SSH transport (omit for local)"),
@@ -98,8 +98,8 @@ def add_cmd(
     ] = None,
 ) -> None:
     """Add a compute target to the workspace."""
-    if scheduler not in {"shell", "slurm", "pbs", "lsf"}:
-        rprint(f"[red]Invalid scheduler {scheduler!r}[/red] — must be one of: shell, slurm, pbs, lsf")
+    if scheduler not in {"local", "slurm", "pbs", "lsf"}:
+        rprint(f"[red]Invalid scheduler {scheduler!r}[/red] — must be one of: local, slurm, pbs, lsf")
         raise typer.Exit(2)
 
     ws = get_workspace(path)

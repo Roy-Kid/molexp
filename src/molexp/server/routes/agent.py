@@ -163,8 +163,8 @@ def _serialize_event(event: Any) -> SessionEventResponse:
 def _goal_from_request(request: GoalCreateRequest, skill_instructions: str) -> Goal:
     """Translate the wire ``GoalCreateRequest`` into a harness ``Goal``.
 
-    ``plan_mode`` (legacy boolean) maps to :class:`AgentMode.PLAN`.
-    ``skill_instructions`` flows into the harness via
+    ``plan_mode=True`` maps to :class:`AgentMode.PLAN`, ``False`` →
+    ``AgentMode.CHAT``.  ``skill_instructions`` flows into the harness via
     ``instructions_override`` when no explicit override is set.
     """
 

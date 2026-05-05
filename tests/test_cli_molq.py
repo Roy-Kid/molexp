@@ -87,18 +87,24 @@ def test_run_cancel_uses_molq_handle(monkeypatch, tmp_path):
 
     calls: list[tuple[str, str, str]] = []
 
-    class FakeSubmitor:
-        def __init__(self, cluster_name: str, scheduler: str) -> None:
-            self.cluster_name = cluster_name
+    class FakeCluster:
+        def __init__(self, *, name: str, scheduler: str, **_kwargs) -> None:
+            self.name = name
             self.scheduler = scheduler
 
-        def cancel(self, job_id: str) -> None:
+    class FakeSubmitor:
+        def __init__(self, target, **_kwargs) -> None:
+            self.cluster_name = target.name
+            self.scheduler = target.scheduler
+
+        def cancel_job(self, job_id: str) -> None:
             calls.append((self.cluster_name, self.scheduler, job_id))
 
         def close(self) -> None:
             return None
 
     fake_molq = ModuleType("molq")
+    fake_molq.Cluster = FakeCluster
     fake_molq.Submitor = FakeSubmitor
     monkeypatch.setitem(sys.modules, "molq", fake_molq)
 
@@ -143,10 +149,15 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
         def __init__(self, **kwargs):
             self.kwargs = kwargs
 
-    class DummySubmitor:
-        def __init__(self, cluster_name: str, scheduler: str, **_kwargs) -> None:
-            self.cluster_name = cluster_name
+    class DummyCluster:
+        def __init__(self, *, name: str, scheduler: str, **_kwargs) -> None:
+            self.name = name
             self.scheduler = scheduler
+
+    class DummySubmitor:
+        def __init__(self, target, **_kwargs) -> None:
+            self.cluster_name = target.name
+            self.scheduler = target.scheduler
 
         def __enter__(self):
             return self
@@ -154,10 +165,11 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
         def __exit__(self, exc_type, exc, tb):
             return False
 
-        def submit(self, **_kwargs):
+        def submit_job(self, **_kwargs):
             return SimpleNamespace(job_id="molq-job-123", scheduler_job_id="sched-456")
 
     fake_molq = ModuleType("molq")
+    fake_molq.Cluster = DummyCluster
     fake_molq.Duration = DummyDuration
     fake_molq.JobExecution = DummyJobExecution
     fake_molq.JobResources = DummyJobResources

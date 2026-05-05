@@ -39,11 +39,11 @@ def test_add_local_target(runner, initialized_ws):
     )
     assert result.exit_code == 0, result.stdout
     assert "Added target laptop" in result.stdout
-    assert "scheduler=shell" in result.stdout
+    assert "scheduler=local" in result.stdout
 
     listing = runner.invoke(app, ["target", "list", "--path", str(initialized_ws)])
     assert "laptop" in listing.stdout
-    assert "shell" in listing.stdout
+    assert "local" in listing.stdout
 
 
 @pytest.mark.integration

@@ -71,7 +71,7 @@ class ComputeTarget(BaseModel, frozen=True):
                       scheduler="slurm", scratch_root="/scratch/me/molexp")
 
         # Run on a remote workstation directly, no batch system.
-        ComputeTarget(name="desk", host="me@desk.lan", scheduler="shell",
+        ComputeTarget(name="desk", host="me@desk.lan", scheduler="local",
                       scratch_root="/home/me/molexp-runs")
     """
 
@@ -84,7 +84,7 @@ class ComputeTarget(BaseModel, frozen=True):
     ssh_opts: list[str] = Field(default_factory=list)
 
     # ── Scheduler axis (how jobs are dispatched) ────────────────────────────
-    scheduler: Literal["shell", "slurm", "pbs", "lsf"] = "shell"
+    scheduler: Literal["local", "slurm", "pbs", "lsf"] = "local"
 
     # ── Working dir + defaults ──────────────────────────────────────────────
     scratch_root: str

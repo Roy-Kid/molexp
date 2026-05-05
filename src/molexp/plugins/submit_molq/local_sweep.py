@@ -41,7 +41,7 @@ async def run_local_sweep(
     if not replicas:
         return {}
 
-    from molq import JobExecution, Submitor
+    from molq import Cluster, JobExecution, Submitor
 
     from molexp.workflow._pydantic_graph.runtime import _make_execution_id
 
@@ -60,11 +60,10 @@ async def run_local_sweep(
         jobs_dir = exec_dir / "jobs"
         jobs_dir.mkdir(parents=True, exist_ok=True)
         with Submitor(
-            cluster_name="local",
-            scheduler="local",
+            Cluster(name="local", scheduler="local"),
             jobs_dir=str(jobs_dir),
         ) as submitor:
-            handle = submitor.submit(
+            handle = submitor.submit_job(
                 argv=[
                     sys.executable,
                     "-m",

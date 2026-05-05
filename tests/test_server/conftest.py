@@ -18,13 +18,34 @@ def project(workspace):
     return workspace.project("test-project")
 
 
+def _noop_workflow(ctx):
+    """Module-level callable so ``set_workflow`` can resolve an entrypoint."""
+
+
 @pytest.fixture
 def experiment(project):
+    """Bare experiment: workflow_source label only, no entrypoint bound.
+
+    Tests that need a dispatch-ready experiment should use
+    :func:`experiment_with_entrypoint` instead.
+    """
     return project.experiment(
         "test-exp",
         workflow_source="train.py",
         params={"lr": 1e-4},
     )
+
+
+@pytest.fixture
+def experiment_with_entrypoint(project):
+    """Experiment with a module-level callable bound — dispatch-ready."""
+    exp = project.experiment(
+        "test-exp",
+        workflow_source="train.py",
+        params={"lr": 1e-4},
+    )
+    exp.set_workflow(_noop_workflow)
+    return exp
 
 
 @pytest.fixture

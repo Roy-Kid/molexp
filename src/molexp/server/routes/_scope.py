@@ -1,9 +1,8 @@
 """Helpers for resolving on-disk scope directories from ``AssetScope``.
 
-The legacy ``_resolve_scope_dir`` in ``asset.py`` makes assumptions that
-do not always match ``Run.run_dir`` (which prefixes ``run-`` to the id).
-This module navigates the workspace via its public API, so it always
-returns the path that actually exists on disk.
+Navigates the workspace via its public API so the path returned always
+matches what's actually on disk (e.g. ``Run.run_dir`` prefixes ``run-``
+to the id, which raw path concatenation would miss).
 """
 
 from __future__ import annotations

@@ -266,7 +266,7 @@ def run_cancel(
             rprint("[dim]Aborted.[/dim]")
             raise typer.Exit(0)
 
-    from molq import Submitor
+    from molq import Cluster, Submitor
 
     submitor_cache: dict[tuple[str, str], Any] = {}
 
@@ -286,10 +286,10 @@ def run_cancel(
                     cache_key = (run_scheduler, run_cluster)
                     submitor = submitor_cache.get(cache_key)
                     if submitor is None:
-                        submitor = Submitor(cluster_name=run_cluster, scheduler=run_scheduler)
+                        submitor = Submitor(Cluster(name=run_cluster, scheduler=run_scheduler))
                         submitor_cache[cache_key] = submitor
                     try:
-                        submitor.cancel(molq_id)
+                        submitor.cancel_job(molq_id)
                     except Exception as exc:
                         rprint(
                             f"  [yellow]Warning:[/yellow] scheduler cancel failed for "
@@ -300,7 +300,7 @@ def run_cancel(
                     cache_key = (run_scheduler, run_cluster)
                     submitor = submitor_cache.get(cache_key)
                     if submitor is None:
-                        submitor = Submitor(cluster_name=run_cluster, scheduler=run_scheduler)
+                        submitor = Submitor(Cluster(name=run_cluster, scheduler=run_scheduler))
                         submitor_cache[cache_key] = submitor
                     try:
                         submitor._scheduler_impl.cancel(scheduler_job_id)

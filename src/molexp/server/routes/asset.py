@@ -19,6 +19,7 @@ from molexp.workspace.assets import AssetScope, LogAsset
 from ..dependencies import get_workspace
 from ..exceptions import AssetNotFoundError
 from ..schemas import AssetResponse
+from ._scope import resolve_scope_dir
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -31,24 +32,10 @@ def _require_asset(workspace, asset_id: str):
 
 
 def _resolve_scope_dir(workspace, scope: AssetScope) -> Path:
-    """Return the on-disk directory for the given scope."""
-    if scope.kind == "workspace":
-        return workspace.root
-    if scope.kind == "project":
-        return workspace.root / "projects" / scope.ids[0]
-    if scope.kind == "experiment":
-        return workspace.root / "projects" / scope.ids[0] / "experiments" / scope.ids[1]
-    if scope.kind == "run":
-        return (
-            workspace.root
-            / "projects"
-            / scope.ids[0]
-            / "experiments"
-            / scope.ids[1]
-            / "runs"
-            / scope.ids[2]
-        )
-    raise HTTPException(400, f"Unknown scope kind: {scope.kind}")
+    path = resolve_scope_dir(workspace, scope)
+    if path is None:
+        raise HTTPException(400, f"Could not resolve scope: {scope!r}")
+    return path
 
 
 # ── Query ────────────────────────────────────────────────────────────────

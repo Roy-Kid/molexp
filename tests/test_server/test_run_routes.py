@@ -143,7 +143,7 @@ class TestRunSubmissionWiring:
         assert resp.status_code == 201, resp.text
         assert len(captured_submits) == 1
         handler, args = captured_submits[0]
-        assert handler._scheduler == "shell"
+        assert handler._scheduler == "local"
         _script, mol_run, exp, proj = args
         assert mol_run.id == resp.json()["id"]
         assert exp.id == experiment_with_entrypoint.id

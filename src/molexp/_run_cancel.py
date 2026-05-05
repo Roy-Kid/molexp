@@ -92,14 +92,11 @@ def try_cancel(run: Run) -> str | None:
         return None
 
     # plan.kind == "molq"
-    try:
-        from molq import Submitor
-    except ImportError:
-        return f"cannot cancel {run.id[:6]}: molq not installed"
+    from molq import Cluster, Submitor
 
     assert plan.job_id is not None
     try:
-        Submitor(plan.detail or "local").cancel(plan.job_id)
+        Submitor(Cluster(name="default", scheduler=plan.detail or "local")).cancel_job(plan.job_id)
     except Exception as exc:  # molq raises a hierarchy, but surface all
         return f"molq cancel failed for {run.id[:6]}: {exc}"
     run.cancel()

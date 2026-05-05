@@ -310,14 +310,16 @@ class TestRunsCancelMolqIntegration:
         )
 
         assert result.exit_code == 0, result.output
-        mock_molq.Submitor.assert_called_once_with(cluster_name="default", scheduler="slurm")
-        mock_submitor.cancel.assert_called_once_with("molq-uuid-1234")
+        mock_molq.Submitor.assert_called_once()
+        cluster_arg = mock_molq.Submitor.call_args.args[0]
+        mock_molq.Cluster.assert_called_once_with(name="default", scheduler="slurm")
+        mock_submitor.cancel_job.assert_called_once_with("molq-uuid-1234")
 
     def test_cancel_updates_workspace_when_molq_fails(self, tmp_path, mocker):
         ws_path, project, exp, run = _make_workspace(tmp_path, job_id="molq-uuid-5678")
 
         mock_submitor = mocker.MagicMock()
-        mock_submitor.cancel.side_effect = RuntimeError("scancel failed")
+        mock_submitor.cancel_job.side_effect = RuntimeError("scancel failed")
         mock_molq = mocker.MagicMock()
         mock_molq.Submitor = mocker.MagicMock(return_value=mock_submitor)
         mocker.patch.dict("sys.modules", {"molq": mock_molq})
@@ -363,7 +365,7 @@ class TestRunsCancelMolqIntegration:
 
         assert result.exit_code == 0
         assert "no molq job metadata" in result.output
-        mock_submitor.cancel.assert_not_called()
+        mock_submitor.cancel_job.assert_not_called()
         reloaded = (
             Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
         )
@@ -417,4 +419,5 @@ class TestRunsCancelMolqIntegration:
         )
 
         assert result.exit_code == 0
-        mock_molq.Submitor.assert_called_once_with(cluster_name="alvis", scheduler="slurm")
+        mock_molq.Submitor.assert_called_once()
+        mock_molq.Cluster.assert_called_once_with(name="alvis", scheduler="slurm")

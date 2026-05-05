@@ -37,7 +37,7 @@ class TestExperimentRoutes:
     def test_create_with_default_target_succeeds(self, client, project):
         client.post(
             "/api/targets",
-            json={"name": "hpc", "scratchRoot": "/tmp/x", "scheduler": "shell"},
+            json={"name": "hpc", "scratchRoot": "/tmp/x", "scheduler": "local"},
         )
         resp = client.post(
             f"/api/projects/{project.id}/experiments",
@@ -64,10 +64,13 @@ class TestExperimentRoutes:
 
 
 class TestRunCreationWithTarget:
-    def test_create_run_with_known_target(self, client, project, experiment):
+    def test_create_run_with_known_target(
+        self, client, project, experiment_with_entrypoint
+    ):
+        experiment = experiment_with_entrypoint
         client.post(
             "/api/targets",
-            json={"name": "hpc", "scratchRoot": "/tmp/x", "scheduler": "shell"},
+            json={"name": "hpc", "scratchRoot": "/tmp/x", "scheduler": "local"},
         )
         resp = client.post(
             f"/api/projects/{project.id}/experiments/{experiment.id}/runs",
@@ -88,7 +91,7 @@ class TestRunCreationWithTarget:
     def test_create_run_inherits_experiment_default_target(self, client, project):
         client.post(
             "/api/targets",
-            json={"name": "hpc", "scratchRoot": "/tmp/x", "scheduler": "shell"},
+            json={"name": "hpc", "scratchRoot": "/tmp/x", "scheduler": "local"},
         )
         exp_resp = client.post(
             f"/api/projects/{project.id}/experiments",

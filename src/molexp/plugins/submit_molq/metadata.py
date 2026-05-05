@@ -6,15 +6,10 @@ from typing import Any
 
 
 def supported_schedulers() -> tuple[str, ...]:
-    """Return scheduler backends supported by the installed ``molq``.
-
-    ``"shell"`` is appended on top of the OPTIONS_TYPE_MAP keys because the
-    transport-aware ``ShellScheduler`` reuses :class:`LocalSchedulerOptions`
-    and so isn't a separate entry there.
-    """
+    """Return scheduler backends supported by the installed ``molq``."""
     from molq.options import OPTIONS_TYPE_MAP
 
-    return (*OPTIONS_TYPE_MAP.keys(), "shell")
+    return tuple(OPTIONS_TYPE_MAP.keys())
 
 
 def build_executor_info(

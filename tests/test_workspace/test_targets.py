@@ -29,7 +29,7 @@ class TestComputeTargetValidation:
         t = ComputeTarget(name="laptop", scratch_root="/tmp/molexp")
         assert t.name == "laptop"
         assert t.host is None
-        assert t.scheduler == "shell"
+        assert t.scheduler == "local"
         assert t.is_remote is False
 
     def test_remote_target(self) -> None:

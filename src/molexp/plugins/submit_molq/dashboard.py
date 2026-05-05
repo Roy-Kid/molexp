@@ -148,7 +148,7 @@ def list_targets(config_path: str | Path | None = None) -> list[TargetSummary]:
         reason: str | None = None
         try:
             submitor = _submitor_for(name, cfg_str)
-            active = sum(1 for _ in submitor.list(include_terminal=False))
+            active = sum(1 for _ in submitor.list_jobs(include_terminal=False))
         except Exception as exc:  # noqa: BLE001 — third-party errors are opaque
             healthy = False
             reason = f"{type(exc).__name__}: {exc}"
@@ -195,7 +195,7 @@ def list_jobs(
     for name in target_names:
         try:
             submitor = _submitor_for(name, cfg_str)
-            records = submitor.list(include_terminal=include_terminal)
+            records = submitor.list_jobs(include_terminal=include_terminal)
         except Exception:  # noqa: BLE001 — keep iterating other targets
             continue
         collected.extend(_to_summary(name, r) for r in records)
@@ -225,7 +225,7 @@ def get_job(
         raise KeyError(f"Unknown molq profile: {target!r}")
 
     submitor = _submitor_for(target, cfg_str)
-    record = submitor.get(job_id)  # raises JobNotFoundError
+    record = submitor.get_job(job_id)  # raises JobNotFoundError
     transitions = submitor.get_transitions(job_id)
 
     upstream_total = upstream_satisfied = downstream_total = 0
@@ -332,7 +332,7 @@ async def tail_log(
 
     cfg_str = str(config_path) if config_path is not None else None
     submitor = _submitor_for(target, cfg_str)
-    record = submitor.get(job_id)  # raises JobNotFoundError
+    record = submitor.get_job(job_id)  # raises JobNotFoundError
 
     log_path = _resolve_log_path(record, stream)
     idle_for = 0.0
@@ -368,7 +368,7 @@ async def tail_log(
 
             # No new bytes. Decide whether to keep waiting or stop.
             try:
-                fresh = submitor.get(job_id)
+                fresh = submitor.get_job(job_id)
             except JobNotFoundError:
                 break
             if JobState(fresh.state).is_terminal:
