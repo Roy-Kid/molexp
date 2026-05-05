@@ -101,9 +101,11 @@ class WorkflowSpec:
         workflow_id: str,
         tasks: list[TaskRegistration],
         mode: str = "batch",
+        version: str = "0",
     ) -> None:
         self.name = name
         self.workflow_id = workflow_id
+        self.version = version
         self._tasks = tasks
         self._mode = mode
         self._runtime: Any = None  # WorkflowRuntime, lazy
@@ -157,6 +159,55 @@ class WorkflowSpec:
             profile_config=profile_config,
             **kwargs,
         )
+
+    # ── Versioning ──────────────────────────────────────────────────────
+
+    def to_workflow_version(self) -> Any:
+        """Build the immutable :class:`~molexp.workflow.version.WorkflowVersion`.
+
+        Returns:
+            A :class:`WorkflowVersion` capturing this spec's
+            ``workflow_id``, ``version``, ``name``, and topology
+            snapshot (one entry per registered task).
+        """
+        from .version import TaskTopologyEntry, WorkflowVersion
+
+        topo: list[TaskTopologyEntry] = []
+        for t in self._tasks:
+            topo.append(
+                TaskTopologyEntry(
+                    name=t.name,
+                    qualname=type(t.fn_or_class).__qualname__,
+                    depends_on=tuple(t.depends_on),
+                    code_hash=_callable_code_hash(t.fn_or_class),
+                )
+            )
+        return WorkflowVersion(
+            workflow_id=self.workflow_id,
+            version=self.version,
+            name=self.name,
+            topology=tuple(topo),
+        )
+
+    def register(self, workspace: Any) -> Any:
+        """Persist this spec's :class:`WorkflowVersion` under the workspace.
+
+        Idempotent on identical ``(workflow_id, version)`` re-registers;
+        raises :class:`~molexp.workflow.version.WorkflowVersionConflictError`
+        when ``workflow_id`` already maps to a different ``version``.
+
+        Args:
+            workspace: A :class:`~molexp.workspace.Workspace` instance.
+
+        Returns:
+            The :class:`WorkflowVersion` record that is now on disk.
+        """
+        from .version import write_record
+
+        record = self.to_workflow_version()
+        workspace._ensure_materialized()
+        write_record(workspace, record)
+        return record
 
     # ── IR serialization (JSON workflow IR) ─────────────────────────────
 
@@ -298,9 +349,10 @@ class Workflow:
         wf.add(ProcessTask(), depends_on=["fetch"])
     """
 
-    def __init__(self, name: str, mode: str = "batch") -> None:
+    def __init__(self, name: str, mode: str = "batch", version: str = "0") -> None:
         self._name = name
         self._mode = mode
+        self._version = version
         self._tasks: list[TaskRegistration] = []
 
     # ── Properties ──────────────────────────────────────────────────────
@@ -312,6 +364,10 @@ class Workflow:
     @property
     def mode(self) -> str:
         return self._mode
+
+    @property
+    def version(self) -> str:
+        return self._version
 
     # ── Decorator: function-as-task ─────────────────────────────────────
 
@@ -488,6 +544,7 @@ class Workflow:
             workflow_id=_stable_workflow_id(self._name, tasks),
             tasks=tasks,
             mode=self._mode,
+            version=self._version,
         )
 
 
@@ -498,6 +555,37 @@ def _to_snake_case(name: str) -> str:
     name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", name)
     return name.lower()
+
+
+def _callable_code_hash(target: Any) -> str | None:
+    """Best-effort AST-normalized code hash for a task callable.
+
+    Mirrors :class:`~molexp.workflow.snapshot.TaskSnapshot`'s code hashing
+    (whitespace and comments are normalized away) but works on bare
+    callables — both decorator-registered async functions and Task /
+    Actor instances. Returns ``None`` when inspection fails (built-ins,
+    lambdas without source, etc.).
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    fn = getattr(target, "execute", None) or getattr(target, "run", None) or target
+    if not callable(fn):
+        return None
+    try:
+        source = inspect.getsource(fn)
+    except (OSError, TypeError):
+        return None
+    try:
+        tree = ast.parse(textwrap.dedent(source))
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            node.decorator_list = []
+    normalized = ast.dump(tree, annotate_fields=True, include_attributes=False)
+    return hashlib.sha256(normalized.encode()).hexdigest()[:32]
 
 
 def _stable_workflow_id(name: str, tasks: list[TaskRegistration]) -> str:

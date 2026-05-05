@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
 from ..utils import compute_content_hash, generate_asset_id
-from .base import Asset, AssetScope
+from .base import Asset, AssetScope, Producer
 
 if TYPE_CHECKING:
     from .catalog import AssetCatalog
@@ -34,7 +34,6 @@ class DataAsset(Asset):
     kind: Literal["data"] = "data"
     source_path: str
     import_action: ImportAction = "copy"
-    content_hash: str | None = None
 
     def payload(self, scope_dir: Path, rel: str = "") -> Path:
         """Return the payload directory (optionally joined with a relative path)."""
@@ -71,8 +70,22 @@ class DataAssetLibrary:
         src: str | Path,
         action: ImportAction = "copy",
         meta: dict[str, Any] | None = None,
+        *,
+        consumed: list[Asset] | tuple[Asset, ...] | None = None,
     ) -> DataAsset:
-        """Import a file or directory as a ``DataAsset``."""
+        """Import a file or directory as a ``DataAsset``.
+
+        Args:
+            name: Asset display name.
+            src: Path to import.
+            action: How to materialize (``copy`` / ``move`` / ``symlink``
+                / ``hardlink``).
+            meta: Free-form tags persisted with the asset.
+            consumed: Optional upstream assets used to build this one.
+                Their ``asset_id``s are recorded in
+                :attr:`Producer.inputs` so lineage queries can trace
+                back through derived data products.
+        """
         source_path = Path(src).resolve()
         if not source_path.exists():
             raise FileNotFoundError(f"Source path does not exist: {src}")
@@ -86,8 +99,12 @@ class DataAssetLibrary:
         now = datetime.now()
         rel_path = Path("assets") / asset_id / "payload"
         content_hash = None
-        if source_path.is_file() and action in ("copy", "move"):
+        if action in ("copy", "move") and payload_dir.exists():
             content_hash = compute_content_hash(payload_dir)
+
+        producer: Producer | None = None
+        if consumed:
+            producer = Producer(inputs=tuple(a.asset_id for a in consumed))
 
         asset = DataAsset(
             asset_id=asset_id,
@@ -96,7 +113,7 @@ class DataAssetLibrary:
             path=rel_path,
             created_at=now,
             updated_at=now,
-            producer=None,
+            producer=producer,
             tags=meta or {},
             source_path=str(source_path),
             import_action=action,

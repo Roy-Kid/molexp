@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 from ..utils import compute_content_hash, generate_asset_id
 from .artifact import ArtifactAsset
-from .base import AssetScope, Producer
+from .base import Asset, AssetScope, Producer
 from .catalog import AssetCatalog
 from .checkpoint import CheckpointAsset
 from .log import LogAsset
@@ -56,7 +56,20 @@ class ArtifactAccessor(_AccessorBase):
         *,
         tags: dict[str, str] | None = None,
         mime: str | None = None,
+        consumed: list[Asset] | tuple[Asset, ...] | None = None,
     ) -> ArtifactAsset:
+        """Persist ``data`` as ``<run_dir>/artifacts/<name>``.
+
+        Args:
+            name: Filename under the run's ``artifacts/`` directory.
+            data: Bytes, ``Path`` (copied), JSON-serializable
+                ``dict``/``list``, or any other value (str-cast).
+            tags: Free-form metadata attached to the asset.
+            mime: Optional MIME type hint.
+            consumed: Optional upstream assets whose ``asset_id``s
+                will be recorded in :attr:`Producer.inputs` to form a
+                lineage edge.
+        """
         target = self._scope_dir / "artifacts" / name
         target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -73,6 +86,9 @@ class ArtifactAccessor(_AccessorBase):
             target.write_text(str(data))
 
         now = datetime.now()
+        producer = self._producer_provider()
+        if consumed:
+            producer = producer.model_copy(update={"inputs": tuple(a.asset_id for a in consumed)})
         asset = ArtifactAsset(
             asset_id=generate_asset_id(),
             name=name,
@@ -80,7 +96,7 @@ class ArtifactAccessor(_AccessorBase):
             path=Path("artifacts") / name,
             created_at=now,
             updated_at=now,
-            producer=self._producer_provider(),
+            producer=producer,
             tags=tags or {},
             mime=mime,
             size=target.stat().st_size,

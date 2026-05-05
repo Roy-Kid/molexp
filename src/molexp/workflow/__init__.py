@@ -37,6 +37,11 @@ from .snapshot import TaskSnapshot
 from .spec import Workflow, WorkflowSpec
 from .task import Actor, Task
 from .types import WorkflowExecution, WorkflowResult
+from .version import (
+    TaskTopologyEntry,
+    WorkflowVersion,
+    WorkflowVersionConflictError,
+)
 
 __all__ = [
     # Protocols (for third-party integration)
@@ -64,4 +69,8 @@ __all__ = [
     # Utilities
     "Caching",
     "TaskSnapshot",
+    # Versioning
+    "TaskTopologyEntry",
+    "WorkflowVersion",
+    "WorkflowVersionConflictError",
 ]

@@ -5,6 +5,7 @@ and workspace-level catalog.  See
 ``docs/development/specs/unified-asset-model.md`` for the design.
 """
 
+from . import lineage
 from ._adapter import ASSET_ADAPTER, AnyAsset, parse_asset
 from .accessors import ArtifactAccessor, CheckpointAccessor, LogAccessor
 from .artifact import ArtifactAsset
@@ -40,5 +41,6 @@ __all__ = [
     "LogAsset",
     "OutputAsset",
     "Producer",
+    "lineage",
     "parse_asset",
 ]

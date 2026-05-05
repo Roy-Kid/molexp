@@ -7,7 +7,6 @@ checkpoints, and asset access during execution.
 
 from __future__ import annotations
 
-import json
 import os
 import platform
 import time
@@ -39,7 +38,6 @@ from .assets import (
 )
 from .assets.manifest import MANIFEST_FILENAME  # noqa: F401 (imported for side effects in tests)
 from .base import (
-    _atomic_write_json,
     _load_metadata,
     _rebuild_container_index,
     _reconstruct,
@@ -289,6 +287,30 @@ class RunContext:
     def get_result(self, key: str) -> Any:
         return self._context.results.get(key)
 
+    def bind_workflow_version(self, spec: Any) -> None:
+        """Pin this run to a versioned :class:`~molexp.workflow.WorkflowSpec`.
+
+        Persists ``workflow_id`` + ``workflow_version`` into
+        ``RunMetadata`` and registers the spec's
+        :class:`~molexp.workflow.WorkflowVersion` record under the
+        workspace's ``.versions/workflows/`` directory. Idempotent on
+        identical re-binds; raises
+        :class:`~molexp.workflow.WorkflowVersionConflictError` when the
+        same ``workflow_id`` is already labelled with a different
+        version.
+
+        Args:
+            spec: The :class:`~molexp.workflow.WorkflowSpec` produced
+                by ``Workflow.build()``.
+        """
+        ws = self.run.experiment.project.workspace
+        spec.register(ws)
+        self.run._update_metadata(
+            workflow_id=spec.workflow_id,
+            workflow_version=spec.version,
+        )
+        self._save_context()
+
     def set_workflow(self, workflow: BaseModel | dict) -> None:
         if isinstance(workflow, BaseModel):
             self._context.workflow = workflow.model_dump()
@@ -409,17 +431,20 @@ class RunContext:
         return self._context
 
     def _load_existing_results(self):
+        from .schema_version import read_versioned_json
+
         run_json = self.work_dir / "run.json"
         if not run_json.exists() or run_json.stat().st_size == 0:
             return
-        with open(run_json) as f:
-            data = json.load(f)
+        data = read_versioned_json(run_json)
         for key, value in data.get("context", {}).get("results", {}).items():
             if key not in self._context.results:
                 self._context.results[key] = value
 
     def _save_context(self):
-        _atomic_write_json(
+        from .schema_version import write_versioned_json
+
+        write_versioned_json(
             self.work_dir / "run.json",
             {
                 **self.run.metadata.model_dump(mode="json"),
@@ -432,18 +457,22 @@ class RunContext:
         return self.work_dir / "executions" / self._execution_id / "execution.json"
 
     def _write_execution_metadata(self, meta: ExecutionMetadata) -> None:
+        from .schema_version import write_versioned_json
+
         target = self._execution_metadata_path()
         target.parent.mkdir(parents=True, exist_ok=True)
-        _atomic_write_json(target, meta.model_dump(mode="json"))
+        write_versioned_json(target, meta.model_dump(mode="json"))
 
     def _update_execution_metadata(self, **updates: Any) -> None:
         """Merge *updates* into the on-disk execution.json (read-modify-write)."""
+        from .schema_version import read_versioned_json, write_versioned_json
+
         target = self._execution_metadata_path()
         if not target.exists():
             return
-        current = ExecutionMetadata.model_validate_json(target.read_text())
+        current = ExecutionMetadata(**read_versioned_json(target))
         merged = current.model_copy(update=updates)
-        _atomic_write_json(target, merged.model_dump(mode="json"))
+        write_versioned_json(target, merged.model_dump(mode="json"))
 
     def _refresh_executions_index(self) -> None:
         _rebuild_container_index(

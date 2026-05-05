@@ -18,7 +18,6 @@ class ArtifactAsset(Asset):
     kind: Literal["artifact"] = "artifact"
     mime: str | None = None
     size: int = 0
-    content_hash: str | None = None
 
     def read_bytes(self, scope_dir: Path) -> bytes:
         return self.absolute_path(scope_dir).read_bytes()

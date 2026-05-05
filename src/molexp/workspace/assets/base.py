@@ -19,6 +19,11 @@ class Producer(BaseModel):
 
     At least one field is set for run-produced assets; ``None`` for
     user-imported ``DataAsset``.
+
+    ``inputs`` is the list of upstream ``asset_id``s that were consumed
+    to produce this asset — together they form the asset-level lineage
+    DAG that :func:`molexp.workspace.assets.lineage.ancestors` and
+    :func:`~molexp.workspace.assets.lineage.descendants` traverse.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -26,6 +31,7 @@ class Producer(BaseModel):
     run_id: str | None = None
     execution_id: str | None = None
     task_id: str | None = None
+    inputs: tuple[str, ...] = ()
 
 
 class AssetScope(BaseModel):
@@ -84,6 +90,15 @@ class Asset(BaseModel):
     updated_at: datetime
     producer: Producer | None = None
     tags: dict[str, str] = Field(default_factory=dict)
+    content_hash: str | None = None
+    """SHA-256 of the asset's payload, prefixed with ``sha256:``.
+
+    Set automatically by :class:`~molexp.workspace.assets.data.DataAssetLibrary`
+    and :class:`~molexp.workspace.assets.accessors.ArtifactAccessor`. Streaming
+    or time-series kinds (``log``, ``checkpoint``, ``error_trace``,
+    ``execution_state``) leave it ``None`` — content addressing of an
+    open-ended stream is ambiguous.
+    """
 
     @property
     def uri(self) -> str:

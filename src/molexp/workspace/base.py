@@ -47,15 +47,26 @@ def _atomic_write_json(path: Path, data: Any) -> None:
 def _save_metadata(metadata: BaseModel, path: Path) -> None:
     """Write a Pydantic metadata model to a JSON file atomically.
 
+    The payload is wrapped with the current ``schema_version`` envelope
+    (see :mod:`molexp.workspace.schema_version`) so older molexp builds
+    can detect and refuse incompatible files.
+
     Args:
         metadata: Pydantic model to serialize.
         path: Destination file path.
     """
-    _atomic_write_json(path, metadata.model_dump(mode="json"))
+    from .schema_version import write_versioned_json
+
+    write_versioned_json(path, metadata.model_dump(mode="json"))
 
 
 def _load_metadata(metadata_cls: type[T], path: Path) -> T:
     """Read a JSON file into a Pydantic metadata model.
+
+    Tolerates legacy files that lack ``schema_version`` (treated as
+    ``v0``); raises
+    :class:`~molexp.workspace.schema_version.IncompatibleSchemaError`
+    for files written by a future molexp.
 
     Args:
         metadata_cls: Target Pydantic model class.
@@ -64,8 +75,9 @@ def _load_metadata(metadata_cls: type[T], path: Path) -> T:
     Returns:
         Deserialized metadata model instance.
     """
-    with open(path, "r") as f:
-        data = json.load(f)
+    from .schema_version import read_versioned_json
+
+    data = read_versioned_json(path)
     return metadata_cls(**data)
 
 
@@ -140,8 +152,10 @@ def _rebuild_container_index(
                     entry[f] = data[f]
             items.append(entry)
 
+    from .schema_version import write_versioned_json
+
     index_path = container_dir.parent / index_filename
-    _atomic_write_json(
+    write_versioned_json(
         index_path,
         {
             "updated_at": datetime.now().isoformat(),

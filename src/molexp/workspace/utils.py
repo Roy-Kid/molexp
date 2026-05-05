@@ -51,20 +51,35 @@ def slugify(text: str, max_len: int = 50) -> str:
 
 
 def compute_content_hash(path: Path, algorithm: str = "sha256") -> str:
-    """Compute hash of file content.
+    """Compute hash of a file's bytes or a directory tree.
+
+    For files, returns the digest of the byte stream. For directories,
+    walks every contained file in sorted-relative-path order and hashes
+    ``relpath\\0bytes\\0`` per file, so the result is invariant to
+    filesystem walk order but sensitive to filenames.
 
     Args:
-        path: Path to file
-        algorithm: Hash algorithm (default: sha256)
+        path: File or directory to hash.
+        algorithm: Hash algorithm name (default: ``sha256``).
 
     Returns:
-        Hash string with algorithm prefix, e.g., 'sha256:a3b4c5d6...'
+        Hash string with algorithm prefix, e.g.,
+        ``"sha256:a3b4c5d6..."``.
     """
     hasher = hashlib.new(algorithm)
 
-    with open(path, "rb") as f:
-        # Read in chunks for large files
-        while chunk := f.read(8192):
-            hasher.update(chunk)
+    if path.is_dir():
+        for entry in sorted(path.rglob("*")):
+            if entry.is_file():
+                rel = entry.relative_to(path).as_posix().encode()
+                hasher.update(rel + b"\0")
+                with open(entry, "rb") as f:
+                    while chunk := f.read(8192):
+                        hasher.update(chunk)
+                hasher.update(b"\0")
+    else:
+        with open(path, "rb") as f:
+            while chunk := f.read(8192):
+                hasher.update(chunk)
 
     return f"{algorithm}:{hasher.hexdigest()}"

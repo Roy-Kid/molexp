@@ -237,3 +237,10 @@ class RunMetadata(BaseModel):
     # actual submitter can pick the right SubmitHandler later.  Distinct from
     # ``executor_info.cluster_name`` which is populated post-submit by molq.
     target: str | None = None
+
+    # Workflow versioning — populated by RunContext.bind_workflow_version().
+    # ``workflow_id`` is the deterministic topology hash; ``workflow_version``
+    # is the user-declared label.  Both are ``None`` when the run was started
+    # without a bound WorkflowSpec (legacy / ad-hoc runs).
+    workflow_id: str | None = None
+    workflow_version: str | None = None
