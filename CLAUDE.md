@@ -17,6 +17,14 @@ mol_project:
     required: false
   ci:
     config: .github/workflows/ci.yml
+  dev:
+    # /mol:web reads this to auto-start the frontend before evaluating
+    # ui_runtime acceptance criteria.
+    command: "cd ui && npm run dev:mock"
+    url: "http://localhost:5173"
+    ready_pattern: "Local:"
+    url_pattern: "Local:\\s+(https?://\\S+)"
+    ready_timeout: 90
   notes_path: .agent/notes.md
   specs_path: .claude/specs/
 ---

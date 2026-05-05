@@ -16,14 +16,7 @@
  */
 
 import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
-import {
-  Background,
-  Controls,
-  Handle,
-  MarkerType,
-  Position,
-  ReactFlow,
-} from "@xyflow/react";
+import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 // xyflow's stylesheet is imported once at the app entry (see index.tsx).
 import { type JSX, useMemo } from "react";
 
@@ -54,20 +47,10 @@ type PlanFlowNode = Node<PlanNodeData, "planNode">;
 
 const PlanNode = ({ data }: NodeProps<PlanFlowNode>): JSX.Element => (
   <div className="rounded-md border border-violet-300 bg-card px-3 py-2 shadow-sm min-w-[140px] dark:border-violet-700">
-    <Handle
-      type="target"
-      position={Position.Top}
-      className="h-2 w-2 bg-violet-400"
-    />
+    <Handle type="target" position={Position.Top} className="h-2 w-2 bg-violet-400" />
     <p className="text-xs font-semibold text-foreground truncate">{data.taskId}</p>
-    <p className="font-mono text-[10px] text-muted-foreground truncate">
-      [{data.taskType}]
-    </p>
-    <Handle
-      type="source"
-      position={Position.Bottom}
-      className="h-2 w-2 bg-violet-400"
-    />
+    <p className="font-mono text-[10px] text-muted-foreground truncate">[{data.taskType}]</p>
+    <Handle type="source" position={Position.Bottom} className="h-2 w-2 bg-violet-400" />
   </div>
 );
 
@@ -80,11 +63,7 @@ interface WorkflowGraphProps {
   className?: string;
 }
 
-export const WorkflowGraph = ({
-  ir,
-  height = 280,
-  className,
-}: WorkflowGraphProps): JSX.Element => {
+export const WorkflowGraph = ({ ir, height = 280, className }: WorkflowGraphProps): JSX.Element => {
   const { nodes, edges, invalidLinks } = useMemo(() => buildElements(ir), [ir]);
 
   if (nodes.length === 0) {
@@ -102,10 +81,7 @@ export const WorkflowGraph = ({
 
   return (
     <div className={className}>
-      <div
-        className="overflow-hidden rounded-md border border-border/60"
-        style={{ height }}
-      >
+      <div className="overflow-hidden rounded-md border border-border/60" style={{ height }}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -127,9 +103,8 @@ export const WorkflowGraph = ({
       {invalidLinks.length > 0 && (
         <p className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
           {invalidLinks.length} link
-          {invalidLinks.length === 1 ? "" : "s"} reference{" "}
-          {invalidLinks.length === 1 ? "an" : ""} unknown task{" "}
-          {invalidLinks.length === 1 ? "id" : "ids"} and were skipped.
+          {invalidLinks.length === 1 ? "" : "s"} reference {invalidLinks.length === 1 ? "an" : ""}{" "}
+          unknown task {invalidLinks.length === 1 ? "id" : "ids"} and were skipped.
         </p>
       )}
     </div>
@@ -193,10 +168,7 @@ export const buildElements = (ir: WorkflowIR): BuiltElements => {
 const RANK_SEP = 110;
 const NODE_SEP = 170;
 
-const layoutByLevel = (
-  ids: string[],
-  links: Link[],
-): Record<string, { x: number; y: number }> => {
+const layoutByLevel = (ids: string[], links: Link[]): Record<string, { x: number; y: number }> => {
   const adj: Record<string, string[]> = {};
   const inDegree: Record<string, number> = {};
   for (const id of ids) {

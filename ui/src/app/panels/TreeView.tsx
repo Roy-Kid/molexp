@@ -68,8 +68,7 @@ const TreeRow = ({
   const isActive = activeId === node.id;
   const Icon = node.icon;
   const actions = node.actions ?? [];
-  const childrenReserveChevron =
-    node.children?.some((c) => c.children !== undefined) ?? false;
+  const childrenReserveChevron = node.children?.some((c) => c.children !== undefined) ?? false;
 
   const rowButton = (
     <button

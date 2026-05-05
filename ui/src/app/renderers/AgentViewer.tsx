@@ -1,20 +1,14 @@
 import {
-  BarChart3,
   Bot,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleUser,
   HelpCircle,
   Loader2,
-  MessageCircle,
-  RotateCcw,
   Send,
   Settings,
   ShieldAlert,
   Sparkles,
-  Terminal,
-  Workflow,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -44,43 +38,13 @@ import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import {
   type ConversationTurn,
   derivePendingUserRequest,
+  EVENT_META,
   groupEventsIntoTurns,
 } from "./agentEvents";
 
 // ---------------------------------------------------------------------------
 // Event row
 // ---------------------------------------------------------------------------
-
-const EVENT_META: Record<string, { icon: typeof Bot; label: string; colorClass: string }> = {
-  // Phase 2 spec §6.5 names — emitted by the new harness.
-  SessionStarted: { icon: Sparkles, label: "Session started", colorClass: "text-violet-400" },
-  TurnStarted: { icon: CircleUser, label: "Turn started", colorClass: "text-muted-foreground" },
-  ContextBuilt: { icon: Bot, label: "Context built", colorClass: "text-muted-foreground" },
-  ModelRequested: { icon: Bot, label: "Model requested", colorClass: "text-muted-foreground" },
-  ModelResponded: { icon: Bot, label: "Model responded", colorClass: "text-muted-foreground" },
-  PlanCreated: { icon: Sparkles, label: "Plan created", colorClass: "text-violet-500" },
-  PlanDecided: { icon: CheckCircle2, label: "Plan decided", colorClass: "text-violet-400" },
-  ToolCallRequested: { icon: Terminal, label: "Tool call", colorClass: "text-blue-500" },
-  ToolCallCompleted: { icon: CheckCircle2, label: "Tool result", colorClass: "text-green-600" },
-  ToolApprovalRequested: {
-    icon: ShieldAlert,
-    label: "Approval needed",
-    colorClass: "text-orange-500",
-  },
-  FailureRecorded: { icon: XCircle, label: "Failure", colorClass: "text-red-500" },
-  SessionCompleted: { icon: CheckCircle2, label: "Completed", colorClass: "text-emerald-500" },
-  UserMessageRequested: {
-    icon: HelpCircle,
-    label: "Question",
-    colorClass: "text-fuchsia-500",
-  },
-  UserMessageReceived: { icon: MessageCircle, label: "You", colorClass: "text-blue-400" },
-  // Legacy names retained so historical session JSON still renders.
-  WorkflowStartedEvent: { icon: Workflow, label: "Workflow started", colorClass: "text-sky-500" },
-  ObservationEvent: { icon: Bot, label: "Observation", colorClass: "text-muted-foreground" },
-  ReplanEvent: { icon: RotateCcw, label: "Replanning", colorClass: "text-amber-500" },
-  ResultArtifactEvent: { icon: BarChart3, label: "Artifact", colorClass: "text-indigo-500" },
-};
 
 const formatTs = (ts: string): string => {
   try {
@@ -159,27 +123,6 @@ const EventRow = ({
           <PlanCard sessionId={sessionId} event={event} onResolved={onPlanResolved} />
         )}
 
-        {event.type === "ObservationEvent" && Boolean(payload.content) && (
-          <p className="text-xs text-muted-foreground">{String(payload.content)}</p>
-        )}
-
-        {event.type === "ReplanEvent" && (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950/30">
-            {Boolean(payload.reason) && (
-              <p className="text-xs text-amber-700 dark:text-amber-400">{String(payload.reason)}</p>
-            )}
-            {Array.isArray(payload.new_plan) &&
-              (payload.new_plan as string[]).map((step, stepNum) => (
-                <p
-                  key={`replan-step-${step.slice(0, 40)}`}
-                  className="text-xs text-amber-700 dark:text-amber-400"
-                >
-                  {stepNum + 1}. {step}
-                </p>
-              ))}
-          </div>
-        )}
-
         {event.type === "SessionCompleted" && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
             {Boolean(payload.summary) && (
@@ -217,7 +160,7 @@ const EventRow = ({
           </div>
         )}
 
-        {event.type === "ResultArtifactEvent" && <ArtifactBody payload={payload} />}
+        {event.type === "ToolCallCompleted" && <ToolResultArtifacts payload={payload} />}
 
         {event.type === "UserMessageRequested" && Boolean(payload.prompt) && (
           <div className="rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 dark:border-fuchsia-800 dark:bg-fuchsia-950/30">
@@ -379,14 +322,46 @@ const TurnAnswer = ({
     );
   }
 
-  if (result.type === "ResultArtifactEvent") {
-    return <ArtifactBody payload={payload} />;
+  if (result.type === "ToolCallCompleted") {
+    return <ToolResultArtifacts payload={payload} />;
   }
 
   return (
     <pre className="overflow-x-auto rounded-md bg-muted/40 px-3 py-2 text-xs">
       {JSON.stringify(payload, null, 2)}
     </pre>
+  );
+};
+
+/**
+ * Renders artifacts folded inside a ToolCallCompleted payload (§6.5).
+ *
+ * Reads `result.artifacts` (canonical) or `payload.artifacts` (loose mock)
+ * and dispatches each entry to ArtifactBody. Falls back silently when the
+ * tool call carried no inline artifacts.
+ */
+const ToolResultArtifacts = ({
+  payload,
+}: {
+  payload: Record<string, unknown>;
+}): JSX.Element | null => {
+  const result = (payload.result as Record<string, unknown> | undefined) ?? payload;
+  const artifacts = Array.isArray(result.artifacts)
+    ? (result.artifacts as Record<string, unknown>[])
+    : [];
+  if (artifacts.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      {artifacts.map((artifact) => {
+        // Artifacts inside a single ToolCallCompleted are append-only —
+        // identity is `kind:title`, falling back to a JSON fingerprint
+        // so two identical-kind artifacts still get distinct keys.
+        const title = typeof artifact.title === "string" && artifact.title ? artifact.title : "";
+        const fingerprint = title || JSON.stringify(artifact.payload ?? artifact);
+        const key = `${String(artifact.kind ?? "?")}:${fingerprint}`;
+        return <ArtifactBody key={key} payload={artifact} />;
+      })}
+    </div>
   );
 };
 
@@ -558,7 +533,7 @@ const ChatBox = ({
   return (
     <div className="bg-gradient-to-t from-background via-background to-background/0 px-4 pb-4 pt-3 md:px-8 md:pb-6">
       {awaitingRequestId && (
-        <div className="mx-auto mb-2 flex max-w-3xl items-start gap-2 rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-xs text-fuchsia-700 dark:border-fuchsia-800 dark:bg-fuchsia-950/30 dark:text-fuchsia-300">
+        <div className="mx-auto mb-2 flex max-w-5xl items-start gap-2 rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-xs text-fuchsia-700 dark:border-fuchsia-800 dark:bg-fuchsia-950/30 dark:text-fuchsia-300">
           <HelpCircle className="mt-0.5 h-3.5 w-3.5 flex-none" />
           <p className="flex-1">
             <span className="font-semibold">Agent is waiting</span>
@@ -566,7 +541,7 @@ const ChatBox = ({
           </p>
         </div>
       )}
-      <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-md focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/30">
+      <div className="mx-auto flex max-w-5xl items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-md focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/30">
         <textarea
           rows={1}
           className="max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
@@ -806,17 +781,17 @@ const GoalInput = ({
   return (
     <div className="bg-gradient-to-t from-background via-background to-background/0 px-4 pb-4 pt-3 md:px-8 md:pb-6">
       {info && (
-        <div className="mx-auto mb-2 max-w-3xl rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs">
+        <div className="mx-auto mb-2 max-w-5xl rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs">
           <pre className="whitespace-pre-wrap font-mono">{info}</pre>
         </div>
       )}
       {error && (
-        <div className="mx-auto mb-2 max-w-3xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+        <div className="mx-auto mb-2 max-w-5xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
           {error}
         </div>
       )}
       {showAdvanced && (
-        <div className="mx-auto mb-2 max-w-3xl rounded-xl border border-border/60 bg-card/60 p-3">
+        <div className="mx-auto mb-2 max-w-5xl rounded-xl border border-border/60 bg-card/60 p-3">
           <label
             htmlFor="prompt-override"
             className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
@@ -834,7 +809,7 @@ const GoalInput = ({
           />
         </div>
       )}
-      <div className="relative mx-auto max-w-3xl">
+      <div className="relative mx-auto max-w-5xl">
         <div
           ref={anchorRef}
           className="flex items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-md focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/30"
@@ -865,7 +840,7 @@ const GoalInput = ({
         </div>
         <CommandPalette state={palette} anchorRef={anchorRef} onPick={handlePaletteSelect} />
       </div>
-      <div className="mx-auto mt-1.5 flex max-w-3xl items-center gap-2 text-[11px] text-muted-foreground">
+      <div className="mx-auto mt-1.5 flex max-w-5xl items-center gap-2 text-[11px] text-muted-foreground">
         {providerLabel ? (
           <button
             type="button"
@@ -1231,7 +1206,7 @@ const AgentSessionViewer = ({
       <div className="flex h-full flex-col bg-background">
         <NewSessionHeader snapshot={snapshot} onOpenSettings={openSettings} />
         <div className="flex flex-1 flex-col overflow-auto">
-          <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
+          <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
             {notReady && health && (
               <AgentHealthBanner health={health} onOpenSettings={openSettings} />
             )}
@@ -1329,7 +1304,7 @@ const AgentSessionViewer = ({
       <SessionHeader session={session} snapshot={snapshot} />
 
       <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
-        <div className="mx-auto flex max-w-3xl flex-col gap-4 px-4 pb-6 pt-4 md:px-8">
+        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 pb-6 pt-4 md:px-8">
           {turns.map((turn, turnIdx) => (
             <TurnCard
               key={turn.key}

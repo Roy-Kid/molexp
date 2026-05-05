@@ -310,12 +310,18 @@ export const agentHandlers = [
             planMode: body.approved ? false : session.planMode,
             events: [
                 ...(session.events ?? []),
+                // §6.3 plan rejection — surfaced as PlanDecided (a kept
+                // event) until the synthetic-user-message machinery from
+                // Decision O2 lands in the real backend.
                 {
-                    type: body.approved ? "SessionCompleted" : "ObservationEvent",
+                    type: body.approved ? "SessionCompleted" : "PlanDecided",
                     ts,
                     payload: body.approved
                         ? { summary: "Plan approved and completed." }
-                        : { content: `User rejected the plan: ${body.feedback || "(no feedback)"}` },
+                        : {
+                              decision: "rejected",
+                              feedback: body.feedback || "(no feedback)",
+                          },
                 },
             ],
             stats: {
@@ -402,26 +408,36 @@ export const agentHandlers = [
             const session = getAgentSession(sessionId);
             if (!session) return;
             const completedAt = new Date().toISOString();
+            // Per spec §6.5 the legacy `ResultArtifactEvent` folded into
+            // `ToolCallCompleted` — artifacts ride on `result.artifacts`.
             const sampleArtifact = {
-                type: "ResultArtifactEvent",
+                type: "ToolCallCompleted",
                 ts: completedAt,
                 payload: {
-                    kind: "plot",
-                    title: "Sample: total_energy vs temperature",
-                    payload: {
-                        data: [
+                    tool_name: "plot_metric",
+                    result: {
+                        ok: true,
+                        artifacts: [
                             {
-                                type: "scatter",
-                                mode: "lines+markers",
-                                x: [200, 300, 400, 500, 600],
-                                y: [-10.4, -10.1, -9.8, -9.4, -9.0],
-                                name: "energy",
+                                kind: "plot",
+                                title: "Sample: total_energy vs temperature",
+                                payload: {
+                                    data: [
+                                        {
+                                            type: "scatter",
+                                            mode: "lines+markers",
+                                            x: [200, 300, 400, 500, 600],
+                                            y: [-10.4, -10.1, -9.8, -9.4, -9.0],
+                                            name: "energy",
+                                        },
+                                    ],
+                                    layout: {
+                                        xaxis: { title: "temperature (K)" },
+                                        yaxis: { title: "total_energy (eV)" },
+                                    },
+                                },
                             },
                         ],
-                        layout: {
-                            xaxis: { title: "temperature (K)" },
-                            yaxis: { title: "total_energy (eV)" },
-                        },
                     },
                 },
             };
@@ -486,10 +502,12 @@ export const agentHandlers = [
                       },
                   ]
                 : [
+                      // Per §6.5 ObservationEvent is dropped — represent
+                      // intermediate progress as ContextBuilt (a kept event).
                       {
-                          type: "ObservationEvent",
+                          type: "ContextBuilt",
                           ts: completedAt,
-                          payload: { content: "All steps completed successfully." },
+                          payload: { note: "All steps completed successfully." },
                       },
                       sampleArtifact,
                       {
@@ -661,12 +679,11 @@ export const agentHandlers = [
                     events: [
                         ...(session.events ?? []),
                         {
-                            type: "ObservationEvent",
+                            type: "PlanDecided",
                             ts: decisionTs,
                             payload: {
-                                content:
-                                    "User rejected the plan: " +
-                                    (body.feedback || "(no feedback)"),
+                                decision: "rejected",
+                                feedback: body.feedback || "(no feedback)",
                             },
                         },
                     ],
@@ -727,7 +744,9 @@ export const agentHandlers = [
         };
         setAgentSession(updated);
 
-        // After 500 ms, append a synthetic assistant observation acknowledging the message.
+        // After 500 ms, append a synthetic assistant acknowledgement.
+        // §6.5 dropped ObservationEvent; we use ContextBuilt to convey
+        // intermediate progress between user turns.
         setTimeout(() => {
             const current = getAgentSession(sessionId);
             if (!current) return;
@@ -736,9 +755,9 @@ export const agentHandlers = [
                 events: [
                     ...(current.events ?? []),
                     {
-                        type: "ObservationEvent",
+                        type: "ContextBuilt",
                         ts: new Date().toISOString(),
-                        payload: { content: `Got it: "${body.content}". Continuing…` },
+                        payload: { note: `Got it: "${body.content}". Continuing…` },
                     },
                 ],
             };

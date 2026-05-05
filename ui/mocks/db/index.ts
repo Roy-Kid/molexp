@@ -641,14 +641,35 @@ outputs:
                     payload: { tool_name: "create_run", result: { run_id: "run-001", status: "pending" } },
                 },
                 {
-                    type: "ToolCallCompleted",
-                    ts: isoAt(-176),
-                    payload: { run_id: "run-001", workflow_id: "exp-001" },
+                    type: "ToolCallRequested",
+                    ts: isoAt(-121),
+                    payload: { tool_name: "get_run_results", args: { run_id: "run-001" } },
                 },
                 {
-                    type: "ObservationEvent",
+                    type: "ToolCallCompleted",
                     ts: isoAt(-120),
-                    payload: { content: "Run run-001 completed successfully. Output model saved to asset-003." },
+                    payload: {
+                        tool_name: "get_run_results",
+                        result: {
+                            value: "Run run-001 completed; final val_loss=0.032, checkpoint=asset-003 (20 MB).",
+                            metadata: { run_id: "run-001", workflow_id: "exp-001" },
+                            artifacts: [
+                                {
+                                    kind: "table",
+                                    title: "AlphaFold baseline metrics",
+                                    payload: {
+                                        columns: ["epoch", "train_loss", "val_loss"],
+                                        rows: [
+                                            [1, 0.184, 0.151],
+                                            [5, 0.094, 0.071],
+                                            [10, 0.041, 0.038],
+                                            [15, 0.034, 0.032],
+                                        ],
+                                    },
+                                },
+                            ],
+                        },
+                    },
                 },
                 {
                     type: "SessionCompleted",
@@ -755,11 +776,10 @@ outputs:
                     },
                 },
                 {
-                    type: "ObservationEvent",
+                    type: "ContextBuilt",
                     ts: isoAt(-3),
                     payload: {
-                        content:
-                            "Reconnaissance complete. Investigation steps will live in the IR as inspect_dataset; the rest as standard pipeline tasks.",
+                        note: "Reconnaissance complete. Investigation steps will live in the IR as inspect_dataset; the rest as standard pipeline tasks.",
                     },
                 },
                 // The unified plan: investigation steps are nodes too.

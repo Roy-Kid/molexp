@@ -197,3 +197,8 @@ src/molexp/dist/*
 # Workspace-level agent secrets — never commit
 .mcp_secrets.json
 .agent_provider.json
+
+# Claude Code workflow scratch — in-flight specs, runtime artifacts, worktrees
+.claude/specs/
+.claude/worktrees/
+.playwright-mcp/

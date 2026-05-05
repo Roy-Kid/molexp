@@ -1,11 +1,15 @@
 /**
  * AgentSettingsViewer — read/write management for the agent runtime.
  *
- * Tabs:
- *   - Provider: LLM provider/model + API key (workspace-scoped, key never returned)
- *   - Skills:   saved goal templates (CRUD + launch)
- *   - Tools:    native tools registered with the catalog (read-only)
- *   - MCP:      .mcp.json server entries (read-only)
+ * Three top-level tabs (per agent-harness UI lockstep spec §8):
+ *
+ *   - Agent          — agent-core configuration: instructions, slash
+ *                      commands, native tools (stacked sections).
+ *   - Model providers — LLM provider/model + API key (registry-driven).
+ *   - Tool sources    — pluggable tool sources (today: MCP servers).
+ *
+ * The tab descriptors live in `agent_settings/tabs.ts` so they can be
+ * unit-tested without pulling in the full component graph.
  */
 
 import {
@@ -28,6 +32,14 @@ import type { JSX } from "react";
 import { useCallback, useEffect, useState } from "react";
 import { EntityPage } from "@/app/components/entity";
 import { McpServersTab } from "@/app/renderers/agent_settings/McpServersTab";
+import {
+  baseUrlPlaceholder,
+  DEFAULT_PROVIDER_REGISTRY,
+  findRegistryEntry,
+  type ProviderRegistryResponse,
+  supportsBaseUrl,
+} from "@/app/renderers/agent_settings/providerRegistry";
+import { AGENT_SETTINGS_TABS, type AgentSettingsTabDef } from "@/app/renderers/agent_settings/tabs";
 import {
   type ApiAgentProvider,
   type ApiAgentProviderTestResult,
@@ -137,11 +149,43 @@ interface AgentSettingsViewerProps {
   onLaunchSession?: (sessionId: string) => void;
 }
 
+const TAB_ICON: Record<AgentSettingsTabDef["value"], typeof Settings> = {
+  agent: Settings,
+  providers: Cpu,
+  "tool-sources": Database,
+};
+
+const renderTabContent = (
+  contentKey: AgentSettingsTabDef["contentKey"],
+  onLaunchSession?: (sessionId: string) => void,
+): JSX.Element => {
+  switch (contentKey) {
+    case "agent-core":
+      return <AgentCoreTab onLaunchSession={onLaunchSession} />;
+    case "providers-form":
+      return <ProviderTab />;
+    case "mcp-servers":
+      return <McpServersTab />;
+  }
+};
+
 export const AgentSettingsViewer = ({
   snapshot,
   onLaunchSession,
 }: AgentSettingsViewerProps): JSX.Element => {
   const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const tabs = AGENT_SETTINGS_TABS.map((def) => {
+    const Icon = TAB_ICON[def.value];
+    return {
+      value: def.value,
+      label: (
+        <span className="flex items-center">
+          <Icon className="mr-2 h-4 w-4" /> {def.label}
+        </span>
+      ),
+      content: renderTabContent(def.contentKey, onLaunchSession),
+    };
+  });
   return (
     <EntityPage
       breadcrumbs={breadcrumbs}
@@ -149,88 +193,74 @@ export const AgentSettingsViewer = ({
       onNavigateUp={navigateUp}
       icon={Settings}
       title="Agent settings"
-      subtitle="Provider, instructions, commands, tools, MCP servers"
-      tabs={[
-        {
-          value: "provider",
-          label: (
-            <span className="flex items-center">
-              <Cpu className="mr-2 h-4 w-4" /> Provider
-            </span>
-          ),
-          content: <ProviderTab />,
-        },
-        {
-          value: "instructions",
-          label: (
-            <span className="flex items-center">
-              <FileText className="mr-2 h-4 w-4" /> Instructions
-            </span>
-          ),
-          content: <InstructionsTab />,
-        },
-        {
-          value: "commands",
-          label: (
-            <span className="flex items-center">
-              <Slash className="mr-2 h-4 w-4" /> Commands
-            </span>
-          ),
-          content: <CommandsTab onLaunchSession={onLaunchSession} />,
-        },
-        {
-          value: "tools",
-          label: (
-            <span className="flex items-center">
-              <Wrench className="mr-2 h-4 w-4" /> Tools
-            </span>
-          ),
-          content: <ToolsTab />,
-        },
-        {
-          value: "mcp",
-          label: (
-            <span className="flex items-center">
-              <Database className="mr-2 h-4 w-4" /> MCP servers
-            </span>
-          ),
-          content: <McpServersTab />,
-        },
-      ]}
+      subtitle="Agent core, model providers, tool sources"
+      tabs={tabs}
     />
   );
 };
 
+// ─── Agent core tab (instructions + commands + native tools, stacked) ──────
+
+interface AgentCoreTabProps {
+  onLaunchSession?: (sessionId: string) => void;
+}
+
+const AgentCoreTab = ({ onLaunchSession }: AgentCoreTabProps): JSX.Element => {
+  return (
+    <div className="space-y-6">
+      <section aria-labelledby="agent-core-instructions">
+        <div className="mb-2 flex items-center gap-2">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <h2 id="agent-core-instructions" className="text-base font-semibold">
+            Instructions
+          </h2>
+        </div>
+        <InstructionsTab />
+      </section>
+
+      <section aria-labelledby="agent-core-commands">
+        <div className="mb-2 flex items-center gap-2">
+          <Slash className="h-4 w-4 text-muted-foreground" />
+          <h2 id="agent-core-commands" className="text-base font-semibold">
+            Commands
+          </h2>
+        </div>
+        <CommandsTab onLaunchSession={onLaunchSession} />
+      </section>
+
+      <section aria-labelledby="agent-core-tools">
+        <div className="mb-2 flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-muted-foreground" />
+          <h2 id="agent-core-tools" className="text-base font-semibold">
+            Native tools
+          </h2>
+        </div>
+        <ToolsTab />
+      </section>
+    </div>
+  );
+};
+
 // ─── Provider tab ──────────────────────────────────────────────────────────
+//
+// Field schema, labels, and per-provider hints are owned by
+// `providerRegistry.ts` (registry-driven per spec §7.1 / ac-005). This
+// file holds no provider-name literals as switching keys; new providers
+// are introduced by shipping a model plugin and updating the registry,
+// not by editing this component.
 
-const PROVIDER_LABELS: Record<ApiProviderName, string> = {
-  anthropic: "Anthropic (Claude)",
-  openai: "OpenAI",
-  google: "Google (Gemini)",
-  deepseek: "DeepSeek",
-  "openai-compatible": "OpenAI-compatible (proxy / Ollama / vLLM)",
-};
+const providerLabel = (registry: ProviderRegistryResponse, name: string): string =>
+  findRegistryEntry(registry, name)?.label ?? name;
 
-const PROVIDER_HELP: Record<ApiProviderName, string> = {
-  anthropic: "e.g. claude-sonnet-4-6, claude-opus-4-5",
-  openai: "e.g. gpt-4o, gpt-4o-mini, o1-preview",
-  google: "e.g. gemini-2.0-flash, gemini-1.5-pro",
-  deepseek: "e.g. deepseek-chat, deepseek-reasoner",
-  "openai-compatible": "Any model exposed by the configured base_url endpoint",
-};
-
-const baseUrlPlaceholder = (provider: ApiProviderName): string => {
-  switch (provider) {
-    case "openai-compatible":
-      return "http://localhost:11434/v1";
-    case "deepseek":
-      return "https://api.deepseek.com/v1 (leave blank for default)";
-    default:
-      return "https://api.openai.com/v1 (leave blank for default)";
-  }
-};
+const providerModelHint = (registry: ProviderRegistryResponse, name: string): string =>
+  findRegistryEntry(registry, name)?.modelHint ?? "";
 
 const ProviderTab = (): JSX.Element => {
+  // Until backend Phase 3 ships `/api/agent/admin/providers`, the UI
+  // bootstraps from the bundled defaults. Once the route is live and
+  // wired through `agentAdminApi`, this becomes the fallback while the
+  // network response is in flight.
+  const registry = DEFAULT_PROVIDER_REGISTRY;
   const [config, setConfig] = useState<ApiAgentProvider | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -240,7 +270,15 @@ const ProviderTab = (): JSX.Element => {
     baseUrl: string;
     apiKey: string;
     revealKey: boolean;
-  }>({ provider: "anthropic", model: "", baseUrl: "", apiKey: "", revealKey: false });
+  }>({
+    // Initial provider comes from the registry, not a literal — adding a
+    // new provider in the registry shifts the default automatically.
+    provider: DEFAULT_PROVIDER_REGISTRY.providers[0].name as ApiProviderName,
+    model: "",
+    baseUrl: "",
+    apiKey: "",
+    revealKey: false,
+  });
   const [saving, setSaving] = useState(false);
   const [saveOk, setSaveOk] = useState(false);
   const [testing, setTesting] = useState(false);
@@ -348,18 +386,11 @@ const ProviderTab = (): JSX.Element => {
     );
   }
 
-  const supported = config?.supportedProviders ?? [
-    "anthropic",
-    "openai",
-    "google",
-    "openai-compatible",
-  ];
-  // OpenAI-flavored providers may need a custom endpoint (proxy, mirror,
-  // self-hosted gateway). Anthropic/Google have fixed endpoints in their SDKs.
-  const showBaseUrl =
-    draft.provider === "openai" ||
-    draft.provider === "openai-compatible" ||
-    draft.provider === "deepseek";
+  const supported =
+    config?.supportedProviders ?? (registry.providers.map((p) => p.name) as ApiProviderName[]);
+  // The registry's field schema decides whether a provider exposes a
+  // base URL field (e.g. proxy / mirror / self-hosted gateway).
+  const showBaseUrl = supportsBaseUrl(registry, draft.provider);
 
   return (
     <ScrollArea className="h-full">
@@ -402,7 +433,7 @@ const ProviderTab = (): JSX.Element => {
                 <SelectContent>
                   {supported.map((p) => (
                     <SelectItem key={p} value={p}>
-                      {PROVIDER_LABELS[p as ApiProviderName] ?? p}
+                      {providerLabel(registry, p)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -414,10 +445,10 @@ const ProviderTab = (): JSX.Element => {
               <Input
                 value={draft.model}
                 onChange={(e) => setDraft({ ...draft, model: e.target.value })}
-                placeholder={PROVIDER_HELP[draft.provider]}
+                placeholder={providerModelHint(registry, draft.provider)}
               />
               <p className="mt-1 text-[10px] text-muted-foreground">
-                {PROVIDER_HELP[draft.provider]}
+                {providerModelHint(registry, draft.provider)}
               </p>
             </div>
 
@@ -427,7 +458,7 @@ const ProviderTab = (): JSX.Element => {
                 <Input
                   value={draft.baseUrl}
                   onChange={(e) => setDraft({ ...draft, baseUrl: e.target.value })}
-                  placeholder={baseUrlPlaceholder(draft.provider)}
+                  placeholder={baseUrlPlaceholder(registry, draft.provider)}
                 />
               </div>
             )}
@@ -531,7 +562,7 @@ const SavedProviderList = ({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium">
-                    {PROVIDER_LABELS[provider] ?? provider}
+                    {providerLabel(DEFAULT_PROVIDER_REGISTRY, provider)}
                   </span>
                   {isActive && (
                     <Badge variant="outline" className="h-4 text-[10px]">
@@ -1249,6 +1280,10 @@ const ToolsTab = (): JSX.Element => {
   // so users don't have to flip tabs to see new tools after editing a server.
   useEffect(() => onMcpConfigChanged(() => setReloadTick((t) => t + 1)), []);
 
+  // reloadTick is a deliberate re-fetch trigger (incremented by
+  // onMcpConfigChanged); the effect body doesn't read it but its
+  // identity change drives the re-run.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deliberate trigger
   useEffect(() => {
     let cancelled = false;
     setLoading(true);

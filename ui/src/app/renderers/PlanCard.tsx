@@ -11,22 +11,14 @@
  * for the agent-side contract.
  */
 
-import {
-  CheckCircle2,
-  Code2,
-  FilePen,
-  Network,
-  PlayCircle,
-  Terminal,
-  X,
-} from "lucide-react";
+import { CheckCircle2, Code2, FilePen, Network, PlayCircle, Terminal, X } from "lucide-react";
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
-import { renderPythonFromIr } from "@/lib/workflow-python";
 import { agentApi } from "@/app/state/api";
 import type { ApiSessionEvent } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { renderPythonFromIr } from "@/lib/workflow-python";
 import { WorkflowGraph, type WorkflowIR } from "./WorkflowGraph";
 
 // ─── Step parser ────────────────────────────────────────────────────────────
@@ -210,8 +202,8 @@ const WorkflowPlanCard = ({
           {graphIr ? (
             <Badge variant="outline" className="text-[10px]">
               {graphIr.task_configs.length} task
-              {graphIr.task_configs.length === 1 ? "" : "s"} ·{" "}
-              {graphIr.links.length} link{graphIr.links.length === 1 ? "" : "s"}
+              {graphIr.task_configs.length === 1 ? "" : "s"} · {graphIr.links.length} link
+              {graphIr.links.length === 1 ? "" : "s"}
             </Badge>
           ) : (
             <Badge variant="outline" className="text-[10px] text-amber-600">
@@ -240,17 +232,15 @@ const WorkflowPlanCard = ({
           </div>
         </header>
 
-        {viewMode === "graph" && (
-          graphIr ? (
+        {viewMode === "graph" &&
+          (graphIr ? (
             <WorkflowGraph ir={graphIr} className="mb-2" />
           ) : (
             <p className="mb-2 rounded-md border border-dashed border-amber-300 bg-amber-50/40 px-3 py-2 text-[11px] text-amber-700 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
-              The agent's IR did not parse as a valid workflow (need
-              ``task_configs`` and ``links``). Switch to the IR view to
-              repair the JSON before approving.
+              The agent's IR did not parse as a valid workflow (need ``task_configs`` and
+              ``links``). Switch to the IR view to repair the JSON before approving.
             </p>
-          )
-        )}
+          ))}
 
         {viewMode === "ir" && (
           <div>
@@ -295,18 +285,17 @@ const WorkflowPlanCard = ({
           </div>
         )}
 
-        {viewMode === "python" && (
-          pythonText ? (
+        {viewMode === "python" &&
+          (pythonText ? (
             <pre className="max-h-72 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2 font-mono text-[11px]">
               {pythonText}
             </pre>
           ) : (
             <p className="mb-2 rounded-md border border-dashed border-border bg-muted/20 px-3 py-2 text-[11px] text-muted-foreground">
-              The IR is not valid JSON — fix it in the IR tab and the
-              Python preview will regenerate automatically.
+              The IR is not valid JSON — fix it in the IR tab and the Python preview will regenerate
+              automatically.
             </p>
-          )
-        )}
+          ))}
 
         {interventionPoints.length > 0 && (
           <div className="mt-2 rounded-md bg-muted/20 px-3 py-2">
@@ -416,8 +405,7 @@ const usePlanDecision = (args: UsePlanDecisionArgs): PlanDecisionState => {
     setIrError(null);
   }, [initialIr]);
 
-  const irEdited =
-    initialIr !== null && irText.trim() !== (initialIr ?? "").trim();
+  const irEdited = initialIr !== null && irText.trim() !== (initialIr ?? "").trim();
 
   const approve = useCallback(async (): Promise<void> => {
     setError(null);
@@ -495,11 +483,7 @@ interface StepPlanSectionProps {
   planText: string;
 }
 
-const StepPlanSection = ({
-  accentClass,
-  steps,
-  planText,
-}: StepPlanSectionProps): JSX.Element => (
+const StepPlanSection = ({ accentClass, steps, planText }: StepPlanSectionProps): JSX.Element => (
   <section className="mb-3 rounded-lg border border-border/60 bg-background p-3 shadow-sm">
     <header className="mb-2 flex items-center gap-2">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -529,9 +513,7 @@ const StepPlanSection = ({
                 <div className="flex items-center gap-1.5 font-mono text-[11px]">
                   <Terminal className="h-3 w-3 text-blue-500" />
                   <span>{step.toolName}</span>
-                  {step.args && (
-                    <span className="text-muted-foreground">({step.args})</span>
-                  )}
+                  {step.args && <span className="text-muted-foreground">({step.args})</span>}
                 </div>
               )}
               {step.rationale && (
@@ -586,9 +568,7 @@ const DecisionPanel = ({
           className="text-[11px]"
           disabled={decision.submitting}
         />
-        {decision.error && (
-          <p className="mt-2 text-[11px] text-destructive">{decision.error}</p>
-        )}
+        {decision.error && <p className="mt-2 text-[11px] text-destructive">{decision.error}</p>}
         <div className="mt-2 flex justify-end gap-2">
           <Button
             size="sm"
@@ -659,9 +639,7 @@ const MalformedPlanEvent = ({
 }): JSX.Element => (
   <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
     <p className="font-semibold">Malformed plan event</p>
-    <p className="mt-1 text-muted-foreground">
-      {reason}. Raw payload:
-    </p>
+    <p className="mt-1 text-muted-foreground">{reason}. Raw payload:</p>
     <pre className="mt-2 max-h-40 overflow-auto rounded bg-muted/60 p-2 font-mono text-[10px] text-foreground">
       {JSON.stringify(payload, null, 2)}
     </pre>

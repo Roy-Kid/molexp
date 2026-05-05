@@ -1,9 +1,57 @@
+import {
+  Bot,
+  CheckCircle2,
+  CircleUser,
+  HelpCircle,
+  MessageCircle,
+  ShieldAlert,
+  Sparkles,
+  Terminal,
+  XCircle,
+} from "lucide-react";
+import type { ComponentType } from "react";
 import type { ApiSessionEvent } from "@/app/types";
 
 export interface PendingUserRequest {
   requestId: string;
   prompt: string | null;
 }
+
+export interface EventMeta {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  colorClass: string;
+}
+
+/**
+ * Icon + label dispatcher for harness event types (§6.5).
+ *
+ * Only canonical (kept) names appear here. Legacy names like
+ * `ObservationEvent`, `ReplanEvent`, `ResultArtifactEvent`, and
+ * `WorkflowStartedEvent` are intentionally absent — `AgentViewer` falls
+ * back to a neutral row when an event type is unknown, so mixed-log
+ * sessions from before the §6.5 rename still render without crashing.
+ */
+export const EVENT_META: Record<string, EventMeta> = {
+  SessionStarted: { icon: Sparkles, label: "Session started", colorClass: "text-violet-400" },
+  TurnStarted: { icon: CircleUser, label: "Turn started", colorClass: "text-muted-foreground" },
+  ContextBuilt: { icon: Bot, label: "Context built", colorClass: "text-muted-foreground" },
+  ModelRequested: { icon: Bot, label: "Model requested", colorClass: "text-muted-foreground" },
+  ModelResponded: { icon: Bot, label: "Model responded", colorClass: "text-muted-foreground" },
+  PlanCreated: { icon: Sparkles, label: "Plan created", colorClass: "text-violet-500" },
+  PlanDecided: { icon: CheckCircle2, label: "Plan decided", colorClass: "text-violet-400" },
+  ToolCallRequested: { icon: Terminal, label: "Tool call", colorClass: "text-blue-500" },
+  ToolCallCompleted: { icon: CheckCircle2, label: "Tool result", colorClass: "text-green-600" },
+  ToolApprovalRequested: {
+    icon: ShieldAlert,
+    label: "Approval needed",
+    colorClass: "text-orange-500",
+  },
+  FailureRecorded: { icon: XCircle, label: "Failure", colorClass: "text-red-500" },
+  SessionCompleted: { icon: CheckCircle2, label: "Completed", colorClass: "text-emerald-500" },
+  UserMessageRequested: { icon: HelpCircle, label: "Question", colorClass: "text-fuchsia-500" },
+  UserMessageReceived: { icon: MessageCircle, label: "You", colorClass: "text-blue-400" },
+};
 
 /**
  * Walks an event log backwards to detect whether the agent is currently

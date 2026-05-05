@@ -7,10 +7,11 @@
  * cluttering the main workspace.
  */
 
-import { Bot, ChevronRight, FileText, Slash } from "lucide-react";
+import { Bot, ChevronRight, FileText, Lock, Slash } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { SessionStatsResponse } from "@/api/generated";
+import { isLegacySession, legacyBadgeMeta } from "@/app/renderers/agent_session/inspectorHelpers";
 import { type ApiAgentSystemPrompt, agentApi, planApi } from "@/app/state/api";
 import type { ApiAgentSession, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -150,17 +151,28 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
   const statsRows: DetailRow[] = stats ? buildStatRows(stats, isRunning, liveDuration) : [];
   const sessionRows: DetailRow[] = session ? buildSessionRows(session) : [];
 
+  const legacy = isLegacySession(session);
+  const legacyMeta = legacy ? legacyBadgeMeta() : null;
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex items-center justify-between border-b border-border/70 bg-muted/20 px-3 py-1.5">
         <h2 className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           <Bot className="h-3.5 w-3.5" /> Task details
         </h2>
-        {session?.status && (
+        {legacyMeta ? (
+          <Badge
+            variant="outline"
+            className="h-5 gap-1 px-1.5 text-[10px] uppercase tracking-wide"
+            title={legacyMeta.tooltip}
+          >
+            <Lock className="h-3 w-3" /> {legacyMeta.label}
+          </Badge>
+        ) : session?.status ? (
           <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
             {session.status}
           </Badge>
-        )}
+        ) : null}
       </div>
 
       <div className="flex-1 overflow-auto">

@@ -400,6 +400,43 @@ export const agentAdminHandlers = [
 
   http.get("/api/agent/provider", () => HttpResponse.json(_provider)),
 
+  // Provider plugin registry (spec §7.1) — lights up the registry-driven
+  // ProviderTab. The shape mirrors `ProviderRegistryResponse` in
+  // `ui/src/app/renderers/agent_settings/providerRegistry.ts`. Until the
+  // backend Phase 3 cutover lands a real plugin registry the mock just
+  // re-emits the bundled DEFAULT_PROVIDER_REGISTRY shape.
+  http.get("/api/agent/admin/providers", () =>
+    HttpResponse.json({
+      providers: [
+        {
+          name: "anthropic",
+          label: "Anthropic (Claude)",
+          modelHint: "e.g. claude-sonnet-4-6, claude-opus-4-5",
+          fields: [
+            { key: "api_key", label: "API key", kind: "secret", required: true },
+            { key: "model", label: "Model", kind: "text", required: true },
+          ],
+        },
+        {
+          name: "openai-compatible",
+          label: "OpenAI-compatible (proxy / Ollama / vLLM)",
+          modelHint: "Any model exposed by the configured base_url endpoint",
+          fields: [
+            { key: "api_key", label: "API key", kind: "secret", required: true },
+            { key: "model", label: "Model", kind: "text", required: true },
+            {
+              key: "base_url",
+              label: "Base URL",
+              kind: "url",
+              required: true,
+              placeholder: "http://localhost:11434/v1",
+            },
+          ],
+        },
+      ],
+    }),
+  ),
+
   // Test connection mock — the real backend probes the actual provider, but
   // here we cannot reach the network. Always return ok=false with a clear
   // "[MOCK]" prefix so users running `dev:mock` aren't tricked into thinking
