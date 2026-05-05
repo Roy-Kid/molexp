@@ -54,6 +54,20 @@ class TestPluginRegistry:
     def test_capability_enum_values(self):
         assert Capability.AGENT == "agent"
 
+    def test_coding_agent_caps_registered(self):
+        """Both coding-agent providers (Claude CLI, Codex) are registered as
+        independent capability slots, peers of ``Capability.AGENT``."""
+        assert Capability.CODING_AGENT_CLAUDE == "coding_agent_claude"
+        assert Capability.CODING_AGENT_CODEX == "coding_agent_codex"
+
+        reg = PluginRegistry()
+        # Both must be probable. Underlying CLI binaries may not be installed
+        # on the dev machine, so we only assert that the capability slot is
+        # *known* (probe runs without raising), not that it's available.
+        for cap in (Capability.CODING_AGENT_CLAUDE, Capability.CODING_AGENT_CODEX):
+            available = reg.is_available(cap)
+            assert isinstance(available, bool)
+
     def test_discover_ui_plugins_always_includes_core(self):
         plugins = discover_ui_plugins()
         assert [plugin.id for plugin in plugins][0] == "core"

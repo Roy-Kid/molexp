@@ -8,6 +8,9 @@ Plugin naming convention: ``{category}_{implementation}``
 
 - ``submit_molq`` — Job submission via molq schedulers
 - ``model_pydanticai`` — Model boundary backed by PydanticAI
+- ``agent_claude`` — Coding-agent boundary backed by the Claude CLI
+- ``agent_codex`` — Coding-agent boundary backed by the Codex app-server
+- ``coding_agent`` — Shared contract (Protocol + types) for the agent_* plugins
 - ``tool_mcp`` — MCP tool sources
 
 Usage::
@@ -31,6 +34,8 @@ class Capability(str, Enum):
     """Extension points that plugins can provide."""
 
     AGENT = "agent"
+    CODING_AGENT_CLAUDE = "coding_agent_claude"
+    CODING_AGENT_CODEX = "coding_agent_codex"
 
 
 class CapabilityNotAvailable(RuntimeError):
@@ -62,6 +67,8 @@ class UiPluginDescriptor:
 
 _INSTALL_HINTS: dict[Capability, str] = {
     Capability.AGENT: "Install with: pip install molexp[agent]",
+    Capability.CODING_AGENT_CLAUDE: "Requires the `claude` CLI on PATH.",
+    Capability.CODING_AGENT_CODEX: "Requires the `codex` app-server on PATH.",
 }
 
 
@@ -80,8 +87,33 @@ def _load_agent() -> Any:
     return AgentService
 
 
+def _load_coding_agent_claude() -> Any:
+    """Return the Claude CLI ``CodingAgentClient`` class.
+
+    Loading itself does not validate the underlying ``claude`` binary —
+    that check happens at :meth:`ClaudeCliClient.start` time. The plugin
+    is "available" as long as the Python module imports cleanly.
+    """
+    from molexp.plugins.agent_claude import ClaudeCliClient
+
+    return ClaudeCliClient
+
+
+def _load_coding_agent_codex() -> Any:
+    """Return the Codex app-server ``CodingAgentClient`` class.
+
+    The underlying ``codex app-server`` binary is verified at
+    :meth:`CodexAppServerClient.start` time, not at plugin load.
+    """
+    from molexp.plugins.agent_codex import CodexAppServerClient
+
+    return CodexAppServerClient
+
+
 _LOADERS: dict[Capability, Any] = {
     Capability.AGENT: _load_agent,
+    Capability.CODING_AGENT_CLAUDE: _load_coding_agent_claude,
+    Capability.CODING_AGENT_CODEX: _load_coding_agent_codex,
 }
 
 
