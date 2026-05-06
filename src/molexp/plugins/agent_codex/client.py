@@ -152,9 +152,7 @@ class CodexAppServerClient:
         if self.config.model is not None:
             params["model"] = self.config.model
         self._active_turn = asyncio.get_running_loop().create_future()
-        response = await self.request(
-            "turn/start", params, timeout_ms=self.config.read_timeout_ms
-        )
+        response = await self.request("turn/start", params, timeout_ms=self.config.read_timeout_ms)
         turn = response.get("turn") or {}
         turn_id = turn.get("id")
         if not turn_id:
@@ -301,12 +299,11 @@ class CodexAppServerClient:
                 "contentItems": [
                     {
                         "type": "inputText",
-                        "text": json.dumps(
-                            {"error": "tool_handler_failure", "detail": str(exc)}
-                        ),
+                        "text": json.dumps({"error": "tool_handler_failure", "detail": str(exc)}),
                     }
                 ],
             }
+
 
 def _unsupported_tool_response(tool: Any) -> dict[str, Any]:
     return {

@@ -136,9 +136,7 @@ async def test_run_turn_happy_path(
         proc.stdout.feed({"id": ts["id"], "result": {"thread": {"id": "thr-1"}}})
         tsn = await _reply_when(proc.stdin, "turn/start")
         proc.stdout.feed({"id": tsn["id"], "result": {"turn": {"id": "turn-1"}}})
-        proc.stdout.feed(
-            {"method": "turn/completed", "params": {"turn": {"status": "completed"}}}
-        )
+        proc.stdout.feed({"method": "turn/completed", "params": {"turn": {"status": "completed"}}})
 
     driver_task = asyncio.create_task(driver())
 

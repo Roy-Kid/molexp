@@ -30,12 +30,8 @@ def _make_remote(tmp_path: Path) -> Path:
     (seed / "f.txt").write_text("hello")
     subprocess.run(["git", "-C", str(seed), "add", "f.txt"], check=True)
     subprocess.run(["git", "-C", str(seed), "commit", "-q", "-m", "init"], check=True)
-    subprocess.run(
-        ["git", "-C", str(seed), "remote", "add", "origin", str(upstream)], check=True
-    )
-    subprocess.run(
-        ["git", "-C", str(seed), "push", "-q", "origin", "main"], check=True
-    )
+    subprocess.run(["git", "-C", str(seed), "remote", "add", "origin", str(upstream)], check=True)
+    subprocess.run(["git", "-C", str(seed), "push", "-q", "origin", "main"], check=True)
     return upstream
 
 

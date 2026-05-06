@@ -111,9 +111,7 @@ async def test_run_turn_happy_path(
 
 
 @pytest.mark.asyncio
-async def test_strips_anthropic_env_vars(
-    workspace: Path, on_event, fake_subprocess, monkeypatch
-):
+async def test_strips_anthropic_env_vars(workspace: Path, on_event, fake_subprocess, monkeypatch):
     from molexp.plugins.agent_claude import ClaudeCliClient, ClaudeCliConfig
 
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):

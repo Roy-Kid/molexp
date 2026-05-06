@@ -9,10 +9,6 @@ details. Each plugin has its own integration tests.
 
 from __future__ import annotations
 
-from typing import Any, get_type_hints
-
-import pytest
-
 
 def test_coding_agent_module_importable():
     import molexp.plugins.coding_agent as ca
@@ -55,10 +51,12 @@ def test_coding_agent_client_protocol_is_runtime_checkable():
         async def start(self) -> None: ...
         async def start_thread(self) -> str:
             return ""
+
         async def run_turn(self, thread_id: str, prompt: str):
             from molexp.plugins.coding_agent import TurnResult
 
             return TurnResult(thread_id="", turn_id="", status="")
+
         async def close(self) -> None: ...
 
     assert isinstance(_Impl(), CodingAgentClient)
@@ -71,6 +69,7 @@ def test_protocol_rejects_missing_methods():
         pid: int | None = None
 
         async def start(self) -> None: ...
+
         # missing start_thread / run_turn / close
 
     assert not isinstance(_Partial(), CodingAgentClient)

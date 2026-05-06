@@ -7,7 +7,6 @@ the async manager API. ``git`` binary on PATH is required.
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
 from pathlib import Path
 
@@ -23,16 +22,20 @@ def _init_seed_repo(tmp_path: Path) -> Path:
     seed = tmp_path / "seed"
     seed.mkdir()
     subprocess.run(["git", "init", "-q", "-b", "main", str(seed)], check=True)
-    subprocess.run(
-        ["git", "-C", str(seed), "config", "user.email", "test@example.com"], check=True
-    )
+    subprocess.run(["git", "-C", str(seed), "config", "user.email", "test@example.com"], check=True)
     subprocess.run(["git", "-C", str(seed), "config", "user.name", "Test"], check=True)
     (seed / "README.md").write_text("seed\n")
     subprocess.run(["git", "-C", str(seed), "add", "README.md"], check=True)
     subprocess.run(
         ["git", "-C", str(seed), "commit", "-q", "-m", "seed"],
         check=True,
-        env={"GIT_AUTHOR_NAME": "T", "GIT_AUTHOR_EMAIL": "t@x", "GIT_COMMITTER_NAME": "T", "GIT_COMMITTER_EMAIL": "t@x", "PATH": "/usr/bin:/bin:/usr/local/bin"},
+        env={
+            "GIT_AUTHOR_NAME": "T",
+            "GIT_AUTHOR_EMAIL": "t@x",
+            "GIT_COMMITTER_NAME": "T",
+            "GIT_COMMITTER_EMAIL": "t@x",
+            "PATH": "/usr/bin:/bin:/usr/local/bin",
+        },
     )
     return seed
 

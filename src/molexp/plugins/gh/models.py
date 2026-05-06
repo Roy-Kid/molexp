@@ -9,7 +9,6 @@ GitHub's GraphQL camelCase mapped to Python snake_case via
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 

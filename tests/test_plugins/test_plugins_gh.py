@@ -189,9 +189,7 @@ async def test_write_mutations_typed():
     )
     assert pr.number == 9
 
-    comment = await client.add_issue_comment(
-        AddIssueCommentInput(subject_id="I_1", body="hi")
-    )
+    comment = await client.add_issue_comment(AddIssueCommentInput(subject_id="I_1", body="hi"))
     assert comment.body == "hi"
     await client.close()
 

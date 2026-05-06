@@ -6,12 +6,10 @@ subprocess; rather than redefine those per test module, they live here.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import Any
 
 import pytest
-
 
 # ── event capture ──────────────────────────────────────────────────────────
 

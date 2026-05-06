@@ -77,7 +77,7 @@ class SubmitHandler:
             Submitor,
         )
 
-        from molexp.workflow._pydantic_graph.runtime import _make_execution_id
+        from molexp.workflow import make_execution_id
 
         res = self._res
         sched = self._sched
@@ -92,7 +92,7 @@ class SubmitHandler:
         # worker will write.  When running on a remote target the staging
         # step takes care of mirror-creating the equivalent directory on
         # the transport's filesystem.
-        execution_id = _make_execution_id(mol_run.id, run_dir)
+        execution_id = make_execution_id(mol_run.id, run_dir)
         local_exec_dir = run_dir / "executions" / execution_id
         local_exec_dir.mkdir(parents=True, exist_ok=True)
 

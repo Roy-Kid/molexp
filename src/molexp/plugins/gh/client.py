@@ -122,9 +122,7 @@ class GitHubClient:
             raise GitHubGraphQLError(body["errors"])
         return body.get("data") or {}
 
-    async def rest(
-        self, method: str, path: str, **kwargs: Any
-    ) -> httpx.Response:
+    async def rest(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         """Execute one REST request; return the raw httpx Response.
 
         Used as the escape hatch for endpoints GraphQL does not cover
@@ -197,13 +195,11 @@ class GitHubClient:
                 "{ projectV2(number: $n) { id } } }",
                 {"login": owner, "n": project_number},
             )
-            project = ((data.get(root) or {}).get("projectV2") or {})
+            project = (data.get(root) or {}).get("projectV2") or {}
             if project.get("id"):
                 self._project_id_cache[key] = project["id"]
                 return project["id"]
-        raise GitHubGraphQLError(
-            [{"message": f"projectV2 not found for {owner}/{project_number}"}]
-        )
+        raise GitHubGraphQLError([{"message": f"projectV2 not found for {owner}/{project_number}"}])
 
     async def fetch_pr_for_issue(
         self, *, owner: str, repo: str, issue_number: int
@@ -216,12 +212,9 @@ class GitHubClient:
             queries.FETCH_PR_FOR_ISSUE,
             {"owner": owner, "repo": repo, "number": issue_number},
         )
-        nodes = (
-            ((data.get("repository") or {}).get("issue") or {})
-            .get("closedByPullRequestsReferences", {})
-            .get("nodes")
-            or []
-        )
+        nodes = ((data.get("repository") or {}).get("issue") or {}).get(
+            "closedByPullRequestsReferences", {}
+        ).get("nodes") or []
         if not nodes:
             return None
         # Prefer an OPEN PR; fall back to first listed (GitHub orders most recent first).
@@ -236,12 +229,9 @@ class GitHubClient:
             queries.FETCH_PR_STATUS_CHECKS,
             {"owner": owner, "repo": repo, "number": pr_number},
         )
-        commits = (
-            ((data.get("repository") or {}).get("pullRequest") or {})
-            .get("commits", {})
-            .get("nodes")
-            or []
-        )
+        commits = ((data.get("repository") or {}).get("pullRequest") or {}).get("commits", {}).get(
+            "nodes"
+        ) or []
         if not commits:
             return []
         rollup = (commits[0].get("commit") or {}).get("statusCheckRollup") or {}
@@ -270,12 +260,9 @@ class GitHubClient:
             queries.FETCH_ISSUE_COMMENTS,
             {"owner": owner, "repo": repo, "number": issue_number},
         )
-        nodes = (
-            ((data.get("repository") or {}).get("issue") or {})
-            .get("comments", {})
-            .get("nodes")
-            or []
-        )
+        nodes = ((data.get("repository") or {}).get("issue") or {}).get("comments", {}).get(
+            "nodes"
+        ) or []
         out: list[Comment] = []
         for n in nodes:
             author = (n.get("author") or {}).get("login")
@@ -290,13 +277,9 @@ class GitHubClient:
             )
         return out
 
-    async def fetch_workflow_run_failed_log(
-        self, *, owner: str, repo: str, run_id: int
-    ) -> str:
+    async def fetch_workflow_run_failed_log(self, *, owner: str, repo: str, run_id: int) -> str:
         """Fetch failed log text for a workflow run (REST — GraphQL has no equivalent)."""
-        response = await self.rest(
-            "GET", f"/repos/{owner}/{repo}/actions/runs/{run_id}/logs"
-        )
+        response = await self.rest("GET", f"/repos/{owner}/{repo}/actions/runs/{run_id}/logs")
         response.raise_for_status()
         return response.text
 
@@ -311,9 +294,7 @@ class GitHubClient:
     async def add_issue_comment(self, input: AddIssueCommentInput) -> Comment:
         """Post a comment; return the created :class:`Comment`."""
         data = await self.graphql(queries.ADD_ISSUE_COMMENT, input)
-        node = (
-            ((data.get("addComment") or {}).get("commentEdge") or {}).get("node") or {}
-        )
+        node = ((data.get("addComment") or {}).get("commentEdge") or {}).get("node") or {}
         return Comment.model_validate(node)
 
     async def update_project_field(self, input: UpdateProjectFieldInput) -> dict[str, Any]:

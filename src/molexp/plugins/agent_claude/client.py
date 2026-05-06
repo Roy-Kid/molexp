@@ -419,9 +419,7 @@ def _extract_tool_uses(message: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(content, list):
         return []
     return [
-        block
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "tool_use"
+        block for block in content if isinstance(block, dict) and block.get("type") == "tool_use"
     ]
 
 
