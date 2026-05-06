@@ -21,7 +21,6 @@ import uuid
 from pathlib import Path
 from typing import Any, Literal
 
-from molexp.plugins.agent_claude.config import ClaudeCliConfig, SubagentDef
 from molexp.agent.coding_protocol import (
     AgentError,
     AgentEventCallback,
@@ -30,6 +29,7 @@ from molexp.agent.coding_protocol import (
     emit_event,
     terminate_subprocess,
 )
+from molexp.plugins.agent_claude.config import ClaudeCliConfig, SubagentDef
 
 ENV_VARS_TO_STRIP_FOR_SUBSCRIPTION = (
     "ANTHROPIC_API_KEY",

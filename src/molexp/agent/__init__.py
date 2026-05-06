@@ -21,7 +21,6 @@ caller. The import-guard test in
 """
 
 from molexp.agent.factory import Agent
-from molexp.agent.replan import replan
 from molexp.agent.model import (
     ModelClient,
     ModelClientFactory,
@@ -40,6 +39,7 @@ from molexp.agent.model_registry import (
     register_model_provider,
 )
 from molexp.agent.orchestration.session import AgentSession
+from molexp.agent.replan import replan
 from molexp.agent.service import AgentService
 from molexp.agent.tools.registry import (
     DuplicateToolError,

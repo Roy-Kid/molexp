@@ -17,7 +17,6 @@ import json
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from molexp.plugins.agent_codex.config import CodexConfig
 from molexp.agent.coding_protocol import (
     AgentError,
     AgentEventCallback,
@@ -27,6 +26,7 @@ from molexp.agent.coding_protocol import (
     emit_event,
     terminate_subprocess,
 )
+from molexp.plugins.agent_codex.config import CodexConfig
 
 
 @runtime_checkable

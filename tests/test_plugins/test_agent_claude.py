@@ -142,8 +142,8 @@ async def test_strips_anthropic_env_vars(workspace: Path, on_event, fake_subproc
 
 @pytest.mark.asyncio
 async def test_thread_id_mismatch_raises(workspace: Path, on_event, fake_subprocess):
-    from molexp.plugins.agent_claude import ClaudeCliClient, ClaudeCliConfig
     from molexp.agent.coding_protocol import AgentError
+    from molexp.plugins.agent_claude import ClaudeCliClient, ClaudeCliConfig
 
     fake_subprocess["proc"] = _FakeProcess(b"")
     client = ClaudeCliClient(
