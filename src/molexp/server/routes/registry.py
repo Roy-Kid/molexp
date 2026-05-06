@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from molexp.plugins import discover_ui_plugins
+from molexp.plugins import discover_ui_plugin_dirs
 from molexp.workflow.registry import default_registry
 
 from ..schemas import (
@@ -40,5 +40,19 @@ def get_task_type(slug: str) -> TaskTypeResponse:
 
 @router.get("/plugins", response_model=UiPluginListResponse, tags=["plugins"])
 def list_plugins() -> UiPluginListResponse:
-    plugins = [UiPluginResponse.from_descriptor(plugin) for plugin in discover_ui_plugins()]
+    """List entry-point–discovered UI bundles.
+
+    Built-in plugins (``core``, ``metrics``, ``molq``, ``molvis``) are
+    statically imported by the frontend and do **not** appear here. The
+    response carries no UI semantics — those live in each bundle's own
+    ``manifest.json``, fetched by the browser-side loader.
+    """
+    plugins = [
+        UiPluginResponse(
+            id=plugin_id,
+            manifestUrl=f"/api/plugins/{plugin_id}/manifest.json",
+            entryUrl=f"/api/plugins/{plugin_id}/index.js",
+        )
+        for plugin_id in discover_ui_plugin_dirs()
+    ]
     return UiPluginListResponse(plugins=plugins, total=len(plugins))

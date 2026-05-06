@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import { bootPlugins } from "@/plugins/runtime";
 import "./styles/tailwind.css";
 // xyflow's stylesheet is loaded once at the app entry so individual
 // renderer modules can stay CSS-free — this matters for the node-side
@@ -27,6 +28,10 @@ async function enableMocking() {
 }
 
 enableMocking().then(() => {
+  // Service worker (in dev:mock mode) is now in control of the page —
+  // safe to fire plugin discovery without racing MSW activation.
+  bootPlugins();
+
   const root = ReactDOM.createRoot(rootElement);
   root.render(
     <React.StrictMode>

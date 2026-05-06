@@ -15,7 +15,6 @@ const sectionRootByView: Record<LeftPanelView, string> = {
   workflow: "/workflows",
   asset: "/assets",
   agent: "/agent-tasks",
-  review: "/reviews",
   settings: "/settings",
 };
 
@@ -58,9 +57,6 @@ export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   }
   if (pathname.startsWith("/agent-tasks")) {
     return "agent";
-  }
-  if (pathname.startsWith("/reviews")) {
-    return "review";
   }
   if (pathname.startsWith("/settings")) {
     return "settings";
@@ -146,14 +142,6 @@ const buildSelectionFromLocation = (
     };
   }
 
-  const reviewMatch = pathname.match(/^\/reviews\/([^/]+)$/);
-  if (reviewMatch) {
-    return {
-      objectType: "review",
-      objectId: decodeURIComponent(reviewMatch[1]),
-    };
-  }
-
   if (pathname.startsWith("/workspace")) {
     return buildWorkspaceFileSelection(searchParams);
   }
@@ -196,8 +184,6 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
       return selection.objectId === "new"
         ? "/agent-tasks/new"
         : `/agent-tasks/${encodeURIComponent(selection.objectId)}`;
-    case "review":
-      return `/reviews/${encodeURIComponent(selection.objectId)}`;
     case "workspace-file": {
       const params = new URLSearchParams({
         file: selection.filePath,
@@ -228,9 +214,6 @@ const buildBreadcrumbs = (
     }
     if (leftPanelView === "agent") {
       return [{ label: "Agent Tasks" }];
-    }
-    if (leftPanelView === "review") {
-      return [{ label: "Reviews" }];
     }
     if (leftPanelView === "settings") {
       return [{ label: "Settings" }];
@@ -316,10 +299,6 @@ const buildBreadcrumbs = (
         { label: session?.goalDescription ?? selection.objectId },
       ];
     }
-    case "review": {
-      const review = snapshot.reviews.find((item) => item.id === selection.objectId);
-      return [{ label: "Reviews", to: "/reviews" }, { label: review?.title ?? selection.objectId }];
-    }
     case "workspace-file":
       return [
         { label: "Workspace", to: "/workspace" },
@@ -364,11 +343,6 @@ const buildContextMeta = (
         return {
           title: "Agent Tasks",
           subtitle: "Current goals and task history.",
-        };
-      case "review":
-        return {
-          title: "Reviews",
-          subtitle: "Plans, permissions, and patches waiting for a decision.",
         };
       case "settings":
         return {
@@ -437,14 +411,6 @@ const buildContextMeta = (
             ? "Create a new agent task."
             : `${session?.eventCount ?? 0} events`,
         statusLabel: session?.status,
-      };
-    }
-    case "review": {
-      const review = snapshot.reviews.find((item) => item.id === selection.objectId);
-      return {
-        title: review?.title ?? selection.objectId,
-        subtitle: review?.description || "Review details",
-        statusLabel: review?.status,
       };
     }
     case "workspace-file":

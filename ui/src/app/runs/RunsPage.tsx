@@ -1,6 +1,6 @@
 import { LayoutGrid, ListChecks, RefreshCw } from "lucide-react";
 import type { JSX, ReactNode } from "react";
-import { Fragment, useCallback, useEffect, useMemo } from "react";
+import { Fragment, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { EntityHeader } from "@/app/components/entity";
 import type { WorkspaceSnapshot } from "@/app/types";
@@ -17,7 +17,6 @@ import {
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { formatRelative } from "@/lib/format-time";
 import { cn } from "@/lib/utils";
-import { ensureLazyPlugin } from "@/plugins/runtime";
 
 import {
   applyFilters,
@@ -108,10 +107,6 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
     DASHBOARD_LAYOUT_STORAGE_KEY,
     DASHBOARD_PANEL_IDS,
   );
-
-  useEffect(() => {
-    void ensureLazyPlugin("molq");
-  }, []);
 
   const { rows, truncated, loading, error, lastSyncedAt, refresh } = useWorkspaceRuns();
 

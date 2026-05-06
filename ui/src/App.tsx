@@ -8,7 +8,6 @@ import { workspaceApi } from "@/app/state/api";
 import { getLeftPanelViewFromPath, useNavigationState } from "@/app/state/useNavigationState";
 import { useWorkspaceState } from "@/app/state/useWorkspaceState";
 import type { InspectorTarget, Selection } from "@/app/types";
-import "@/plugins/runtime";
 
 const buildDefaultInspectorTarget = (selection: Selection | null): InspectorTarget => {
   if (!selection) {

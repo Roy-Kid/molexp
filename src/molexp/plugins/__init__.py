@@ -24,11 +24,15 @@ Usage::
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from molexp.plugins.submit_molq.metadata import supported_schedulers
+from molexp.plugins.cli import (
+    CLI_PLUGIN_API_VERSION,
+    CliPlugin,
+    discover_cli_plugins,
+)
+from molexp.plugins.ui import discover_ui_plugin_dirs
 
 
 class Capability(str, Enum):
@@ -49,18 +53,6 @@ class CapabilityNotAvailable(RuntimeError):
             msg += f" {hint}"
         super().__init__(msg)
         self.capability = cap
-
-
-@dataclass(frozen=True)
-class UiPluginDescriptor:
-    """Descriptor for frontend-facing plugin manifests."""
-
-    id: str
-    title: str
-    description: str = ""
-    ui_module: str | None = None
-    capabilities: tuple[str, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 # ── Lazy loaders ────────────────────────────────────────────────────────────
@@ -178,52 +170,13 @@ class PluginRegistry:
 registry = PluginRegistry()
 
 
-def discover_ui_plugins() -> list[UiPluginDescriptor]:
-    """Return frontend plugin manifests for all available UI integrations."""
-    plugins = [
-        UiPluginDescriptor(
-            id="core",
-            title="Core Workspace UI",
-            description="Built-in Molexp workspace renderers and previews.",
-            ui_module="core",
-            capabilities=("workspace", "renderers", "file_previews"),
-        ),
-        UiPluginDescriptor(
-            id="metrics",
-            title="Metrics",
-            description="Run-scoped metrics recording and monitoring views.",
-            ui_module="metrics",
-            capabilities=("metrics", "run_metrics"),
-        ),
-    ]
-
-    schedulers = supported_schedulers()
-    if schedulers:
-        plugins.append(
-            UiPluginDescriptor(
-                id="molq",
-                title="Molq",
-                description="Scheduler-aware run viewers and monitor surfaces for molq-backed runs.",
-                ui_module="molq",
-                capabilities=(
-                    "submit",
-                    "monitor",
-                    "scheduler_inspector",
-                    "execution_columns",
-                    "execution_detail",
-                ),
-                metadata={"schedulers": list(schedulers)},
-            )
-        )
-
-    return plugins
-
-
 __all__ = [
+    "CLI_PLUGIN_API_VERSION",
     "Capability",
     "CapabilityNotAvailable",
+    "CliPlugin",
     "PluginRegistry",
-    "UiPluginDescriptor",
-    "discover_ui_plugins",
+    "discover_cli_plugins",
+    "discover_ui_plugin_dirs",
     "registry",
 ]

@@ -3,7 +3,6 @@ import {
   Ban,
   Blocks,
   Bot,
-  ClipboardCheck,
   Copy,
   ExternalLink,
   FilePlus,
@@ -80,7 +79,6 @@ const viewOptions: ViewOption[] = [
   { id: "asset", label: "Asset", icon: Archive },
   { id: "workflow", label: "Workflow", icon: Workflow },
   { id: "agent", label: "Agent Tasks", icon: Bot },
-  { id: "review", label: "Reviews", icon: ClipboardCheck },
 ];
 
 const listHeaderByView: Record<LeftPanelView, string> = {
@@ -90,7 +88,6 @@ const listHeaderByView: Record<LeftPanelView, string> = {
   asset: "Assets",
   workflow: "Workflows",
   agent: "Agent Tasks",
-  review: "Reviews",
   settings: "Settings",
 };
 
@@ -621,36 +618,6 @@ const buildAgentNodes = (
   });
 };
 
-const buildReviewNodes = (
-  snapshot: WorkspaceSnapshot,
-  onSelect: (selection: Selection) => void,
-  onCopyText: (text: string) => void,
-): TreeNode[] => {
-  return snapshot.reviews.map((review) => ({
-    id: review.id,
-    label: review.title,
-    icon: ClipboardCheck,
-    iconClassName: review.status === "pending" ? "text-warning" : "text-muted-foreground",
-    right: <StatusBadge status={review.status} size="sm" dot showLabel={false} />,
-    meta: review.description ? <span className="truncate">{review.description}</span> : undefined,
-    onSelect: () => onSelect({ objectType: "review", objectId: review.id }),
-    actions: [
-      {
-        id: "open",
-        label: "Open review",
-        icon: ExternalLink,
-        onSelect: () => onSelect({ objectType: "review", objectId: review.id }),
-      },
-      {
-        id: "copy-id",
-        label: "Copy review ID",
-        icon: Copy,
-        onSelect: () => onCopyText(review.id),
-      },
-    ],
-  }));
-};
-
 const buildProjectExpandPath = (
   snapshot: WorkspaceSnapshot,
   activeId: string | undefined,
@@ -899,7 +866,6 @@ export const LeftPanel = ({
   const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const agentNodes = buildAgentNodes(snapshot, onSelect, handleCopyText);
-  const reviewNodes = buildReviewNodes(snapshot, onSelect, handleCopyText);
 
   const projectExpandPath = useMemo(
     () => buildProjectExpandPath(snapshot, activeId, searchQuery),
@@ -952,15 +918,6 @@ export const LeftPanel = ({
         emptyIcon={<Sparkles className="h-8 w-8" />}
         emptyTitle={EMPTY_COPY.agentSessions.title}
         emptyDescription={EMPTY_COPY.agentSessions.description}
-      />
-    ),
-    review: (
-      <TreeView
-        nodes={reviewNodes}
-        activeId={activeId}
-        emptyIcon={<ClipboardCheck className="h-8 w-8" />}
-        emptyTitle={EMPTY_COPY.reviews.title}
-        emptyDescription={EMPTY_COPY.reviews.description}
       />
     ),
     settings: (

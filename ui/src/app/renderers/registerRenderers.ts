@@ -6,7 +6,6 @@ import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
 import { ImageViewer } from "@/app/renderers/ImageViewer";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
 import { ProjectViewer } from "@/app/renderers/ProjectViewer";
-import { ReviewViewer } from "@/app/renderers/ReviewViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
 import { TextEditor } from "@/app/renderers/TextEditor";
 import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
@@ -220,27 +219,4 @@ export const registerDefaultRenderers = (): void => {
     Component: AgentSessionInspector,
   });
 
-  registerRenderer({
-    key: {
-      objectType: "review",
-      fileKind: "json",
-      contentType: "metadata",
-      panelKind: "viewer",
-    },
-    title: "Review",
-    panelSlot: "center",
-    Component: ReviewViewer,
-  });
-
-  registerRenderer({
-    key: {
-      objectType: "review",
-      fileKind: "json",
-      contentType: "metadata",
-      panelKind: "inspector",
-    },
-    title: "Review Inspector",
-    panelSlot: "right",
-    Component: MetadataInspector,
-  });
 };

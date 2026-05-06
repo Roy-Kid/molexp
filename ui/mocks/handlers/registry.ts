@@ -1,43 +1,87 @@
 /**
- * Mock handlers for Registry API endpoints
+ * Mock handlers for Registry API endpoints.
+ *
+ * After spec 07: ``GET /api/plugins`` returns only third-party UI
+ * bundles, each as ``{id, manifestUrl, entryUrl}``. Built-in plugins
+ * (``core``, ``metrics``, ``molq``, ``molvis``) are statically imported
+ * on the frontend and do NOT appear here. Per-plugin
+ * ``manifest.json`` files are served from
+ * ``GET /api/plugins/<id>/manifest.json``.
  */
 
 import { http, HttpResponse } from "msw";
 
 const API_BASE = "/api";
 
+interface MockBundle {
+  id: string;
+  name: string;
+  version: string;
+  capabilities?: string[];
+}
+
+const MOCK_BUNDLES: MockBundle[] = [
+  {
+    id: "example",
+    name: "Example Plugin",
+    version: "0.0.1",
+    capabilities: ["example_renderer"],
+  },
+];
+
 export const registryHandlers = [
   http.get(`${API_BASE}/plugins`, () => {
     return HttpResponse.json({
-      plugins: [
-        {
-          id: "core",
-          title: "Core Workspace UI",
-          description: "Built-in Molexp workspace renderers and previews.",
-          uiModule: "core",
-          capabilities: ["workspace", "renderers", "file_previews"],
-          metadata: {},
-        },
-        {
-          id: "molq",
-          title: "Molq",
-          description: "Scheduler-aware run viewers and monitor surfaces for molq-backed runs.",
-          uiModule: "molq",
-          capabilities: ["submit", "monitor", "scheduler_inspector"],
-          metadata: {
-            schedulers: ["local", "slurm"],
-          },
-        },
-        {
-          id: "metrics",
-          title: "Metrics",
-          description: "Run-scoped metrics recording and monitoring views.",
-          uiModule: "metrics",
-          capabilities: ["metrics", "run_metrics"],
-          metadata: {},
-        },
-      ],
-      total: 3,
+      plugins: MOCK_BUNDLES.map((b) => ({
+        id: b.id,
+        manifestUrl: `${API_BASE}/plugins/${b.id}/manifest.json`,
+        entryUrl: `${API_BASE}/plugins/${b.id}/index.js`,
+      })),
+      total: MOCK_BUNDLES.length,
+    });
+  }),
+
+  http.get(`${API_BASE}/plugins/:id/manifest.json`, ({ params }) => {
+    const id = params.id as string;
+    const bundle = MOCK_BUNDLES.find((b) => b.id === id);
+    if (!bundle) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    return HttpResponse.json({
+      id: bundle.id,
+      name: bundle.name,
+      version: bundle.version,
+      api_version: "1",
+      entry: "index.js",
+      capabilities: bundle.capabilities ?? [],
+    });
+  }),
+
+  http.get(`${API_BASE}/plugins/:id/index.js`, ({ params }) => {
+    const id = params.id as string;
+    const bundle = MOCK_BUNDLES.find((b) => b.id === id);
+    if (!bundle) {
+      return new HttpResponse(null, { status: 404 });
+    }
+    // Minimal ESM module that satisfies UiPluginModule shape and bumps a
+    // global flag the runtime evaluator can assert on. dev:mock has no
+    // real bundle file behind the URL, so we synthesize one here.
+    const source = `
+const plugin = {
+  id: ${JSON.stringify(bundle.id)},
+  register() {
+    if (typeof globalThis !== "undefined") {
+      const w = globalThis;
+      w.__molexpMockPluginRegistered ??= [];
+      w.__molexpMockPluginRegistered.push(${JSON.stringify(bundle.id)});
+    }
+  },
+};
+export default plugin;
+`;
+    return new HttpResponse(source, {
+      status: 200,
+      headers: { "Content-Type": "application/javascript" },
     });
   }),
 

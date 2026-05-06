@@ -1,0 +1,25 @@
+# Example third-party plugin packaging metadata.
+#
+# This file is **documentation only**: the molexp test suite injects the
+# fixture plugin via a fake `importlib.metadata.entry_points` return
+# value rather than installing it. The shape below is what a real
+# downstream plugin author would write in their own pyproject.toml to
+# contribute through the **two independent** channels introduced in
+# spec 07.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "molexp-plugin-example"
+version = "0.0.1"
+description = "Example third-party molexp plugin (test fixture)."
+requires-python = ">=3.12"
+dependencies = ["molexp", "typer"]
+
+[project.entry-points."molexp.cli_plugins"]
+example = "example_plugin:cli_plugin"
+
+[project.entry-points."molexp.ui_plugins"]
+example = "example_plugin:bundle_dir"

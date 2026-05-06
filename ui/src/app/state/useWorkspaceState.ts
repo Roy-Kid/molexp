@@ -6,11 +6,9 @@ import {
   mapAssets,
   mapExperiments,
   mapProjects,
-  mapReviews,
   mapRuns,
   mapWorkflows,
   mapWorkspaceTree,
-  reviewsApi,
   workspaceApi,
 } from "@/app/state/api";
 import type {
@@ -41,8 +39,7 @@ type SnapshotSlice =
   | "projectsList"
   | "experimentsTree" // experiments + runs + workflows (workflows derive from experiments)
   | "assets"
-  | "agentSessions"
-  | "reviews";
+  | "agentSessions";
 
 const ALL_SLICES: readonly SnapshotSlice[] = [
   "workspaceTree",
@@ -50,7 +47,6 @@ const ALL_SLICES: readonly SnapshotSlice[] = [
   "experimentsTree",
   "assets",
   "agentSessions",
-  "reviews",
 ];
 
 // Per-view polling profile. Empty array = no polling for that view.
@@ -67,7 +63,6 @@ const VIEW_POLL_SLICES: Record<LeftPanelView, readonly SnapshotSlice[]> = {
   asset: ["projectsList", "assets"],
   runs: [],
   agent: [],
-  review: ["reviews"],
   settings: [],
 };
 
@@ -155,15 +150,6 @@ const fetchAgentSessionsList = async (): Promise<WorkspaceSnapshot["agentSession
   }
 };
 
-const fetchReviewsList = async (): Promise<WorkspaceSnapshot["reviews"]> => {
-  try {
-    return mapReviews(await reviewsApi.list());
-  } catch (err) {
-    console.warn("Reviews unavailable:", err);
-    return [];
-  }
-};
-
 const applySlicePatch = async (
   current: WorkspaceSnapshot,
   slice: SnapshotSlice,
@@ -179,8 +165,6 @@ const applySlicePatch = async (
       return { assets: await fetchAllAssets(current.projects) };
     case "agentSessions":
       return { agentSessions: await fetchAgentSessionsList() };
-    case "reviews":
-      return { reviews: await fetchReviewsList() };
   }
 };
 

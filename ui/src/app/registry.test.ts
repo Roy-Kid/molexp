@@ -168,7 +168,6 @@ describe("resolveRenderer", () => {
       assets: [],
       workflows: [],
       agentSessions: [],
-      reviews: [],
       workspaceRoot: null,
       consoleEntries: [],
     } satisfies WorkspaceSnapshot;

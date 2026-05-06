@@ -6,7 +6,6 @@ from molexp.plugins import (
     Capability,
     CapabilityNotAvailable,
     PluginRegistry,
-    discover_ui_plugins,
 )
 
 
@@ -66,23 +65,3 @@ class TestPluginRegistry:
             assert reg.is_available(Capability.GH)
         except ImportError:
             assert not reg.is_available(Capability.GH)
-
-    def test_discover_ui_plugins_always_includes_core(self):
-        plugins = discover_ui_plugins()
-        assert [plugin.id for plugin in plugins][0] == "core"
-
-    def test_discover_ui_plugins_includes_metrics(self):
-        plugins = discover_ui_plugins()
-        metrics = next(plugin for plugin in plugins if plugin.id == "metrics")
-
-        assert metrics.ui_module == "metrics"
-        assert metrics.capabilities == ("metrics", "run_metrics")
-
-    def test_discover_ui_plugins_includes_molq_when_supported(self, monkeypatch):
-        monkeypatch.setattr("molexp.plugins.supported_schedulers", lambda: ("slurm", "pbs"))
-
-        plugins = discover_ui_plugins()
-        molq = next(plugin for plugin in plugins if plugin.id == "molq")
-
-        assert molq.ui_module == "molq"
-        assert molq.metadata == {"schedulers": ["slurm", "pbs"]}

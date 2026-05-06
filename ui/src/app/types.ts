@@ -5,7 +5,6 @@ export type LeftPanelView =
   | "asset"
   | "workflow"
   | "agent"
-  | "review"
   | "settings";
 
 export type SemanticObjectType =
@@ -15,8 +14,7 @@ export type SemanticObjectType =
   | "asset"
   | "workflow"
   | "workspace-file"
-  | "agent"
-  | "review";
+  | "agent";
 
 export type BaseObjectType = "project" | "experiment" | "run" | "asset";
 
@@ -173,19 +171,6 @@ export interface AgentSessionSummary {
   eventCount: number;
 }
 
-export interface ReviewSummary {
-  id: string;
-  kind: string;
-  title: string;
-  description: string;
-  status: SemanticStatus;
-  riskLevel: "low" | "medium" | "high";
-  createdAt: string;
-  resolvedAt: string | null;
-  taskId: string | null;
-  sessionId: string | null;
-}
-
 export interface WorkflowNodeMetadata {
   nodeId: string;
   label: string;
@@ -236,7 +221,6 @@ export interface WorkspaceSnapshot {
   assets: AssetSummary[];
   workflows: WorkflowSummary[];
   agentSessions: AgentSessionSummary[];
-  reviews: ReviewSummary[];
   workspaceRoot: WorkspaceTreeNode | null;
   consoleEntries: ConsoleEntry[];
 }
@@ -267,17 +251,11 @@ export interface AgentSelection {
   objectId: string; // task_id, or "new" for the goal-input state
 }
 
-export interface ReviewSelection {
-  objectType: "review";
-  objectId: string;
-}
-
 export type Selection =
   | ObjectSelection
   | WorkflowSelection
   | WorkspaceFileSelection
-  | AgentSelection
-  | ReviewSelection;
+  | AgentSelection;
 
 export type InspectorTarget =
   | {

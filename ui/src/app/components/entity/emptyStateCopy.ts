@@ -31,8 +31,4 @@ export const EMPTY_COPY = {
     title: "No agent tasks yet.",
     description: "Start a task goal to create one.",
   },
-  reviews: {
-    title: "No reviews.",
-    description: "Plan, permission, and patch approvals will appear here.",
-  },
 } as const;

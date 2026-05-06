@@ -8,6 +8,6 @@
 export type WorkflowStepInfo = {
     index: number;
     status: string;
-    step_outputs?: Record<string, any>;
+    outputs?: Record<string, any>;
 };
 

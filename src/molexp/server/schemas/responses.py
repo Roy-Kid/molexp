@@ -482,23 +482,17 @@ class AgentSystemPromptResponse(BaseModel):
 
 
 class UiPluginResponse(BaseModel):
-    id: str
-    title: str
-    description: str = ""
-    uiModule: str | None = None
-    capabilities: list[str] = Field(default_factory=list)
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    """Per-bundle entry returned by ``GET /api/plugins``.
 
-    @classmethod
-    def from_descriptor(cls, descriptor) -> "UiPluginResponse":
-        return cls(
-            id=descriptor.id,
-            title=descriptor.title,
-            description=descriptor.description,
-            uiModule=descriptor.ui_module,
-            capabilities=list(descriptor.capabilities),
-            metadata=descriptor.metadata,
-        )
+    Carries no UI semantics — those live in each bundle's own
+    ``manifest.json`` (fetched by the browser-side loader). The shape
+    is deliberately minimal: a stable ``id``, plus the two URLs the
+    frontend needs to fetch the manifest and dynamic-import the entry.
+    """
+
+    id: str
+    manifestUrl: str
+    entryUrl: str
 
 
 class UiPluginListResponse(BaseModel):
@@ -601,7 +595,7 @@ class WorkflowStepInfo(BaseModel):
 
     index: int
     status: str  # pending | running | success | error
-    step_outputs: dict[str, Any] = Field(default_factory=dict)
+    outputs: dict[str, Any] = Field(default_factory=dict)
 
 
 class RunExecutionResponse(BaseModel):

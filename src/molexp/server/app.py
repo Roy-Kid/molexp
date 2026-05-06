@@ -16,6 +16,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from mollog import get_logger
 
+from molexp.plugins import discover_ui_plugin_dirs
+
 from .handlers import register_exception_handlers
 from .routes import create_api_router
 from .schemas import HealthResponse
@@ -96,6 +98,30 @@ def _mount_webapp(app: FastAPI, webapp_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Plugin static-asset mounting
+# ---------------------------------------------------------------------------
+
+
+def _mount_plugin_static_dirs(app: FastAPI) -> None:
+    """Mount one ``StaticFiles`` route per third-party UI bundle.
+
+    Each discovered bundle is mounted at ``/api/plugins/{id}/`` so the
+    browser can fetch ``manifest.json`` and the ESM entry from there.
+    Built-in plugins (``core``, ``metrics``, ``molq``, ``molvis``) ship
+    their UI inside the main bundle; only third-party plugins need this
+    out-of-band mount.
+    """
+    from starlette.staticfiles import StaticFiles
+
+    for plugin_id, path in discover_ui_plugin_dirs().items():
+        app.mount(
+            f"/api/plugins/{plugin_id}",
+            StaticFiles(directory=str(path)),
+            name=f"plugin_static_{plugin_id}",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Application factory
 # ---------------------------------------------------------------------------
 
@@ -144,6 +170,9 @@ def create_app(
     # 3. API Routes (all under /api prefix)
     api_router = create_api_router()
     app.include_router(api_router, prefix="/api")
+
+    # 3.5 Per-plugin static-asset mounts (third-party only)
+    _mount_plugin_static_dirs(app)
 
     # 4. System Routes (Health Check)
     @app.get("/api/health", response_model=HealthResponse, tags=["system"])

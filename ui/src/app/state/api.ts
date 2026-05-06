@@ -19,7 +19,6 @@ import type {
   ExperimentSummary,
   ProjectCreateRequest,
   ProjectSummary,
-  ReviewSummary,
   RunCreateRequest,
   RunSummary,
   WorkflowSummary,
@@ -431,7 +430,6 @@ export const buildEmptySnapshot = (): WorkspaceSnapshot => {
     assets: [],
     workflows: [],
     agentSessions: [],
-    reviews: [],
     workspaceRoot: null,
     consoleEntries: [],
   };
@@ -599,40 +597,6 @@ export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSumma
     status: s.status as AgentSessionSummary["status"],
     createdAt: s.createdAt,
     eventCount: s.events?.length ?? 0,
-  }));
-};
-
-interface ApiReviewItem {
-  id: string;
-  kind: string;
-  title: string;
-  description?: string | null;
-  riskLevel: "low" | "medium" | "high";
-  status: string;
-  targetRef: {
-    type: string;
-    id: string;
-    taskId?: string | null;
-    sessionId?: string | null;
-  };
-  createdAt: string;
-  resolvedAt?: string | null;
-  resolutionComment?: string | null;
-  metadata?: Record<string, unknown>;
-}
-
-export const mapReviews = (reviews: ApiReviewItem[]): ReviewSummary[] => {
-  return reviews.map((review) => ({
-    id: review.id,
-    kind: review.kind,
-    title: review.title,
-    description: review.description ?? "",
-    status: review.status as ReviewSummary["status"],
-    riskLevel: review.riskLevel,
-    createdAt: review.createdAt,
-    resolvedAt: review.resolvedAt ?? null,
-    taskId: review.targetRef.taskId ?? null,
-    sessionId: review.targetRef.sessionId ?? null,
   }));
 };
 
@@ -810,40 +774,6 @@ export const agentApi = {
       }),
     });
     if (!response.ok) throw new Error(`Failed to respond plan: ${response.statusText}`);
-  },
-};
-
-export const reviewsApi = {
-  list: async (status?: string): Promise<ApiReviewItem[]> => {
-    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-    const response = await fetch(`/api/reviews${qs}`);
-    if (!response.ok) throw new Error(`Failed to fetch reviews: ${response.statusText}`);
-    const data = await response.json();
-    return data.reviews ?? [];
-  },
-
-  get: async (reviewId: string): Promise<ApiReviewItem> => {
-    const response = await fetch(`/api/reviews/${reviewId}`);
-    if (!response.ok) throw new Error(`Failed to fetch review: ${response.statusText}`);
-    return response.json();
-  },
-
-  approve: async (reviewId: string, comment = ""): Promise<void> => {
-    const response = await fetch(`/api/reviews/${reviewId}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ comment }),
-    });
-    if (!response.ok) throw new Error(`Failed to approve review: ${response.statusText}`);
-  },
-
-  reject: async (reviewId: string, comment = ""): Promise<void> => {
-    const response = await fetch(`/api/reviews/${reviewId}/reject`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ comment }),
-    });
-    if (!response.ok) throw new Error(`Failed to reject review: ${response.statusText}`);
   },
 };
 
