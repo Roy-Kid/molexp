@@ -48,11 +48,17 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
           "execution_id": "exec-abc12345",
           "status": "running",
           "steps": [
-            {"index": 1, "status": "success", "step_outputs": {...}},
-            {"index": 2, "status": "running", "step_outputs": {...}}
+            {"index": 1, "status": "success", "outputs": {...}},
+            {"index": 2, "status": "running", "outputs": {...}}
           ],
           "end": null
         }
+
+    Spec 04 §7 — the ``outputs`` field name is the canonical one and
+    matches :attr:`WorkflowResult.outputs`. Per CLAUDE.md, per-execution
+    artifacts are not subject to the long-term workspace BC promise; old
+    per-attempt ``workflow.json`` files written by earlier versions are
+    not parsed.
 
     Args:
         run_dir: Path to the run's directory (``run.run_dir`` or equivalent).
@@ -103,7 +109,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
                     "_snapshot_id": self._last_snapshot.id,
                     "index": level_index + 1,  # 1-indexed for human display
                     "status": "pending",
-                    "step_outputs": {k: _safe_serialize(v) for k, v in state.step_outputs.items()},
+                    "outputs": {k: _safe_serialize(v) for k, v in state.results.items()},
                 }
             )
             self._write_workflow()
@@ -122,7 +128,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         self._last_snapshot = EndSnapshot(state=state, result=end)
         self._state["status"] = "completed"
         self._state["end"] = {
-            "step_outputs": {k: _safe_serialize(v) for k, v in state.step_outputs.items()},
+            "outputs": {k: _safe_serialize(v) for k, v in state.results.items()},
         }
         self._write_workflow()
 

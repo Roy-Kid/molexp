@@ -27,6 +27,7 @@ via its methods. Three equivalent styles share the same class:
        wf = Workflow(name="pipeline").add(ExternalProcessor())
 """
 
+from ._pydantic_graph.runtime import make_execution_id
 from .cache import Caching
 from .compiler import WorkflowCompiler, default_compiler
 from .context import ActorContext, TaskContext
@@ -36,7 +37,26 @@ from .runtime import WorkflowRuntime
 from .snapshot import TaskSnapshot
 from .spec import Workflow, WorkflowSpec
 from .task import Actor, Task
-from .types import WorkflowExecution, WorkflowResult
+from .types import (
+    BranchEdges,
+    CycleError,
+    EdgeShapeError,
+    End,
+    EntryAmbiguousError,
+    LoopMaxItersExceeded,
+    MissingRouteError,
+    Next,
+    OutEdges,
+    ParallelExecutionError,
+    UnconditionalEdges,
+    UnknownRouteError,
+    UnknownTaskError,
+    UnreachableTaskError,
+    WorkflowDeadlockError,
+    WorkflowError,
+    WorkflowExecution,
+    WorkflowResult,
+)
 from .version import (
     TaskTopologyEntry,
     WorkflowVersion,
@@ -69,6 +89,27 @@ __all__ = [
     # Utilities
     "Caching",
     "TaskSnapshot",
+    "make_execution_id",
+    # Route selection sentinels (spec 03 — control edges + routes)
+    "Next",
+    "End",
+    # Edge sum types
+    "UnconditionalEdges",
+    "BranchEdges",
+    "OutEdges",
+    # Errors
+    "WorkflowError",
+    "CycleError",
+    "EdgeShapeError",
+    "EntryAmbiguousError",
+    "UnknownTaskError",
+    "UnreachableTaskError",
+    "UnknownRouteError",
+    "MissingRouteError",
+    "WorkflowDeadlockError",
+    "ParallelExecutionError",
+    # Warnings (non-fatal)
+    "LoopMaxItersExceeded",
     # Versioning
     "TaskTopologyEntry",
     "WorkflowVersion",

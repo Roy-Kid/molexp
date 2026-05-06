@@ -351,7 +351,7 @@ def get_run_execution(
         WorkflowStepInfo(
             index=s["index"],
             status=s.get("status", "pending"),
-            step_outputs=s.get("step_outputs", {}),
+            outputs=s.get("outputs", {}),
         )
         for s in data.get("steps", [])
     ]

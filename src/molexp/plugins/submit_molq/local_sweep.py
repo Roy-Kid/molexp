@@ -43,7 +43,7 @@ async def run_local_sweep(
 
     from molq import Cluster, JobExecution, Submitor
 
-    from molexp.workflow._pydantic_graph.runtime import _make_execution_id
+    from molexp.workflow import make_execution_id
 
     sem = asyncio.Semaphore(max(1, jobs))
     failures: dict[str, Exception] = {}
@@ -90,7 +90,7 @@ async def run_local_sweep(
         mol_run = replica.mol_run
         rid = str(getattr(mol_run, "id", id(mol_run)))
         run_dir = Path(mol_run.run_dir)
-        execution_id = _make_execution_id(mol_run.id, run_dir)
+        execution_id = make_execution_id(mol_run.id, run_dir)
         exec_dir = run_dir / "executions" / execution_id
 
         async with sem:

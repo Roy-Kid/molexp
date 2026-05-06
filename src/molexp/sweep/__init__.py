@@ -1,29 +1,11 @@
-"""Sweep-level orchestration built on pydantic-graph.
+"""Sweep-level fan-out — run replicas concurrently under a semaphore.
 
-Phase-1 scope: a single-node graph that fans out replicas
-(``experiment × mol_run``) concurrently, bounded by a ``jobs`` semaphore.
-Every replica currently executes *in-process* via
-``experiment.workflow.execute(...)``.
-
-Future phases (see ``docs/development/specs/unified-pydantic-graph-dispatch.md``):
-
-* **Phase 2** — replace the local-only body with backend-aware dispatch
-  (``local`` / ``slurm`` / ``pbs`` / ``lsf``) routed through molq.
-* **Phase 3** — expose per-node ``backend=`` on inner ``@wf.task``.
+The fan-out is bounded by a ``jobs`` semaphore; replicas execute
+in-process via ``experiment.workflow.execute(...)``. Spec 05 will
+replace this with the workflow-level ``wf.parallel(...)`` primitive,
+at which point sweeps are expressed as workflows.
 """
 
-from .graph import (
-    SweepDeps,
-    SweepReplica,
-    SweepRoot,
-    SweepState,
-    run_sweep,
-)
+from .graph import SweepReplica, SweepState, run_sweep
 
-__all__ = [
-    "SweepDeps",
-    "SweepReplica",
-    "SweepRoot",
-    "SweepState",
-    "run_sweep",
-]
+__all__ = ["SweepReplica", "SweepState", "run_sweep"]

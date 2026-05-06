@@ -14,12 +14,11 @@ through its methods. Decorator and builder styles share the same class::
     # OOP style — add Task / Actor instances
     wf.add(ProcessTask(), depends_on=["validate"])
 
-    # Control flow
-    @wf.parallel_map(fan_out_over="items", depends_on=["fetch"])
-    async def process_item(ctx): ...
-
-    @wf.join(reducer="sum", depends_on=["process_item"])
-    async def collect(ctx): ...
+    # Control flow primitives (spec 04 / 05)
+    wf.control(src="validate", to="emit")
+    wf.branch(src="emit", routes={"ok": "publish", "fail": "rollback"})
+    wf.loop(body=["compute"], until="check_done", max_iters=100)
+    wf.parallel(map_over="items", body="process", join="reduce", max_concurrency=8)
 
     spec = wf.build()
     result = await spec.execute(run=run)
@@ -29,7 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from molexp.config import ProfileConfig
@@ -46,6 +45,65 @@ def _callable_name(f: Callable, fallback: str = "anonymous") -> str:
     free of more specific protocols.
     """
     return getattr(f, "__name__", None) or fallback
+
+
+class LoopDecl:
+    """User-declared loop topology compiled by the CFG compiler.
+
+    Spec 04 §4 ``wf.loop`` primitive. The compiler synthesises:
+
+    * a control edge ``body[-1] → until`` (if not already declared), and
+    * branch edges on ``until``: ``{"continue": body[0], "exit": on_exit}``.
+
+    ``max_iters`` is enforced by the runtime: when ``until`` dispatches
+    ``Next("continue")`` ``max_iters`` times, the runtime forces
+    ``Next("exit")`` and emits :class:`LoopMaxItersExceeded`.
+    """
+
+    __slots__ = ("body", "until", "max_iters", "on_exit")
+
+    def __init__(
+        self,
+        body: tuple[str, ...],
+        until: str,
+        max_iters: int,
+        on_exit: str,
+    ) -> None:
+        self.body = body
+        self.until = until
+        self.max_iters = max_iters
+        self.on_exit = on_exit
+
+
+class ParallelDecl:
+    """User-declared parallel fan-out / map-reduce topology.
+
+    Spec 05 §4 ``wf.parallel`` primitive. The compiler synthesises two
+    unconditional control edges per decl:
+
+    * ``map_over → body`` (fan-out trigger), and
+    * ``body → join`` (fan-in trigger).
+
+    The runtime ``WorkflowStep`` recognises ``body`` as a parallel
+    head, reads ``state.results[map_over]``, and invokes the body's
+    ``run`` once per element under ``Semaphore(max_concurrency)``.
+    Per-element exceptions are captured into
+    :class:`~molexp.workflow.ParallelExecutionError`.
+    """
+
+    __slots__ = ("map_over", "body", "join", "max_concurrency")
+
+    def __init__(
+        self,
+        map_over: str,
+        body: str,
+        join: str,
+        max_concurrency: int,
+    ) -> None:
+        self.map_over = map_over
+        self.body = body
+        self.join = join
+        self.max_concurrency = max_concurrency
 
 
 class TaskRegistration:
@@ -102,12 +160,25 @@ class WorkflowSpec:
         tasks: list[TaskRegistration],
         mode: str = "batch",
         version: str = "0",
+        *,
+        entries: tuple[str, ...] = (),
+        control_edges: tuple[tuple[str, str], ...] = (),
+        branch_edges: tuple[tuple[str, str, str], ...] = (),
+        loops: tuple[LoopDecl, ...] = (),
+        parallels: tuple[ParallelDecl, ...] = (),
     ) -> None:
         self.name = name
         self.workflow_id = workflow_id
         self.version = version
         self._tasks = tasks
         self._mode = mode
+        # Raw control-flow declarations from the Workflow builder.
+        # Compiled into ``out_edges`` + ``entry_frontier`` by the CFG compiler.
+        self._entries = entries
+        self._control_edges = control_edges
+        self._branch_edges = branch_edges
+        self._loops = loops
+        self._parallels = parallels
         self._runtime: Any = None  # WorkflowRuntime, lazy
 
     def _get_runtime(self) -> Any:
@@ -229,6 +300,17 @@ class WorkflowSpec:
                 "or build the spec from IR via WorkflowSpec.from_dict()."
             )
 
+        # Spec 03 — IR currently models data edges only. Workflows that declare
+        # control edges (`wf.control` / `wf.branch`) or explicit entries must
+        # refuse serialization rather than silently dropping the loop topology.
+        if self._control_edges or self._branch_edges or self._entries:
+            raise ValueError(
+                "Cannot serialize workflow to IR: spec contains a control edge / "
+                "explicit entry (wf.control / wf.branch / wf.entry). IR "
+                "serialization of cyclic / branch topology is out of scope for "
+                "spec 03; keep this workflow in-process or rewrite as a pure DAG."
+            )
+
         task_configs = [
             {
                 "task_id": t.name,
@@ -331,8 +413,9 @@ class Workflow:
     """OOP workflow definition. Supports decorator and builder styles.
 
     Instantiate once, then register tasks via the decorators
-    (:meth:`task`, :meth:`actor`, :meth:`parallel_map`, :meth:`join`)
-    or the OOP method :meth:`add`. Call :meth:`build` to produce a
+    (:meth:`task`, :meth:`actor`) or the OOP method :meth:`add`. Wire
+    control flow with :meth:`control` / :meth:`branch` / :meth:`loop`
+    / :meth:`parallel`. Call :meth:`build` to produce a
     :class:`WorkflowSpec`.
 
     Example (decorator)::
@@ -349,11 +432,29 @@ class Workflow:
         wf.add(ProcessTask(), depends_on=["fetch"])
     """
 
-    def __init__(self, name: str, mode: str = "batch", version: str = "0") -> None:
+    def __init__(
+        self,
+        name: str,
+        mode: str = "batch",
+        version: str = "0",
+        *,
+        entry: str | list[str] | tuple[str, ...] | None = None,
+    ) -> None:
         self._name = name
         self._mode = mode
         self._version = version
         self._tasks: list[TaskRegistration] = []
+        self._entries: list[str] = []
+        self._control_edges: list[tuple[str, str]] = []
+        self._branch_edges: list[tuple[str, str, str]] = []
+        self._loops: list[LoopDecl] = []
+        self._parallels: list[ParallelDecl] = []
+        if entry is not None:
+            if isinstance(entry, str):
+                self.entry(entry)
+            else:
+                for name_ in entry:
+                    self.entry(name_)
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -378,8 +479,15 @@ class Workflow:
         depends_on: list[str] | None = None,
         name: str | None = None,
         remote: Any = None,
+        routes: Mapping[str, str] | None = None,
+        next_: str | None = None,
     ) -> Callable:
         """Register a function as a batch workflow task.
+
+        ``routes={label: target}`` declares branch (label-routed) outgoing
+        control edges; the task body must return ``Next(label)`` (see
+        spec 03 §3, §5). ``next_=target`` declares a single unconditional
+        control edge. The two are mutually exclusive.
 
         Usage::
 
@@ -388,7 +496,18 @@ class Workflow:
 
             @wf.task(depends_on=["fetch"])
             async def validate(ctx): ...
+
+            @wf.task(routes={"ok": "emit", "fail": "rollback"})
+            async def classify(ctx) -> Next: ...
+
+            @wf.task(next_="emit")
+            async def normalize(ctx) -> Doc: ...
         """
+        if routes is not None and next_ is not None:
+            raise TypeError(
+                "Workflow.task: routes= and next_= are mutually exclusive "
+                "(spec 03 §3 — pick branch or unconditional, not both)."
+            )
 
         def decorator(f: Callable) -> Callable:
             task_name = name or _callable_name(f)
@@ -401,6 +520,7 @@ class Workflow:
                     remote=remote,
                 )
             )
+            self._record_decorator_edges(task_name, routes=routes, next_=next_)
             return f
 
         if fn is not None:
@@ -413,8 +533,17 @@ class Workflow:
         *,
         depends_on: list[str] | None = None,
         name: str | None = None,
+        routes: Mapping[str, str] | None = None,
+        next_: str | None = None,
     ) -> Callable:
-        """Register an async generator as a streaming actor."""
+        """Register an async generator as a streaming actor.
+
+        Same ``routes=`` / ``next_=`` semantics as :meth:`task`; the
+        actor's terminating ``yield`` may be ``Next(label)`` / ``End()`` /
+        ``(value, Next(label))`` / ``(value, End())`` (spec 03 §5).
+        """
+        if routes is not None and next_ is not None:
+            raise TypeError("Workflow.actor: routes= and next_= are mutually exclusive.")
 
         def decorator(f: Callable) -> Callable:
             actor_name = name or _callable_name(f)
@@ -426,6 +555,7 @@ class Workflow:
                     is_actor=True,
                 )
             )
+            self._record_decorator_edges(actor_name, routes=routes, next_=next_)
             return f
 
         if fn is not None:
@@ -443,6 +573,8 @@ class Workflow:
         remote: Any = None,
         task_type: str | None = None,
         config: dict[str, Any] | None = None,
+        routes: Mapping[str, str] | None = None,
+        next_: str | None = None,
     ) -> Workflow:
         """Register a Task / Actor instance (or any Runnable/Streamable).
 
@@ -457,9 +589,15 @@ class Workflow:
         :data:`~molexp.workflow.registry.default_registry` and you want
         the resulting spec to be serializable via :meth:`WorkflowSpec.to_dict`.
 
+        ``routes=`` / ``next_=`` mirror :meth:`task` — sugar for declaring
+        outgoing control edges on the task being added (spec 03 §3, §7).
+
         Returns ``self`` to support chaining.
         """
         from .protocols import Streamable
+
+        if routes is not None and next_ is not None:
+            raise TypeError("Workflow.add: routes= and next_= are mutually exclusive.")
 
         task_name = name or _to_snake_case(type(task).__name__)
         for suffix in ("_task", "_actor"):
@@ -478,74 +616,227 @@ class Workflow:
                 config=config,
             )
         )
+        self._record_decorator_edges(task_name, routes=routes, next_=next_)
         return self
 
-    # ── Control-flow decorators ─────────────────────────────────────────
+    # ── Control-flow declarations (spec 03) ─────────────────────────────
 
-    def parallel_map(
+    def entry(self, name: str) -> Workflow:
+        """Declare *name* as a workflow entry point.
+
+        Multiple calls add multiple entries (multi-entry workflows are run in
+        parallel from frontier 0). Duplicate names raise :class:`ValueError`.
+        Validation that *name* refers to a registered task is deferred to
+        :meth:`build` so entries can be declared before tasks.
+        """
+        if name in self._entries:
+            raise ValueError(f"Workflow {self._name!r}: entry {name!r} declared multiple times")
+        self._entries.append(name)
+        return self
+
+    def control(self, src: str, to: str) -> Workflow:
+        """Declare an unconditional control edge ``src → to``.
+
+        Multiple calls per *src* fan out to multiple unconditional successors.
+        Mixing with :meth:`branch` on the same *src* is rejected at compile
+        time (``EdgeShapeError``, spec 03 §3).
+        """
+        self._control_edges.append((src, to))
+        return self
+
+    def branch(
+        self,
+        src: str,
+        label: str | None = None,
+        to: str | None = None,
+        *,
+        routes: Mapping[str, str] | None = None,
+    ) -> Workflow:
+        """Declare branch (label-routed) outgoing control edges on *src*.
+
+        Two equivalent calling forms (spec 03 §7):
+
+        * ``wf.branch("src", "label", "target")`` — single edge.
+        * ``wf.branch("src", routes={"l1": "t1", "l2": "t2"})`` — bulk dict.
+
+        The two forms are mutually exclusive; passing both raises
+        :class:`TypeError`. The task body of *src* must return ``Next(label)``
+        selecting one of the declared labels (otherwise compile / runtime
+        error per spec 03 §3, §5).
+        """
+        if routes is not None:
+            if label is not None or to is not None:
+                raise TypeError(
+                    "Workflow.branch: pass either positional (src, label, to) "
+                    "or keyword routes={...}, not both."
+                )
+            for lbl, target in routes.items():
+                self._branch_edges.append((src, lbl, target))
+            return self
+        if label is None or to is None:
+            raise TypeError(
+                "Workflow.branch: pass (src, label, to) or routes={...}; "
+                "received a partial single-edge form."
+            )
+        self._branch_edges.append((src, label, to))
+        return self
+
+    def loop(
         self,
         *,
-        fan_out_over: str,
-        depends_on: list[str] | None = None,
-        name: str | None = None,
-    ) -> Callable:
-        """Decorator for fan-out parallel tasks."""
+        body: list[str] | tuple[str, ...],
+        until: str,
+        max_iters: int,
+        on_exit: str = "_end",
+    ) -> Workflow:
+        """Declare a loop: ``body`` runs repeatedly until ``until`` exits.
 
-        def decorator(fn: Callable) -> Callable:
-            task_name = name or _callable_name(fn)
-            self._tasks.append(
-                TaskRegistration(
-                    name=task_name,
-                    fn_or_class=fn,
-                    depends_on=depends_on or [],
-                    is_actor=False,
-                )
+        Spec 04 §4. The loop's ``until`` task is a normal task whose body
+        returns ``Next("continue")`` to re-enter ``body[0]`` or
+        ``Next("exit")`` to leave the loop and proceed to ``on_exit``
+        (default: terminate the workflow).
+
+        The compiler expands this into:
+
+        * a control edge ``body[-1] → until`` (added only if no equivalent
+          edge already exists from data deps or :meth:`control`), and
+        * branch edges on ``until``:
+          ``{"continue": body[0], "exit": on_exit}``.
+
+        Both expansions live in the static graph — the runtime never adds
+        new edges; it only picks among the declared ones.
+
+        Args:
+            body: Ordered task names that form the loop body. Each task
+                must be registered. ``body[0]`` is the loop head;
+                ``body[-1]`` is the tail.
+            until: Name of the task that decides ``continue`` vs ``exit``.
+                Must be a registered task that returns
+                :class:`~molexp.workflow.Next`.
+            max_iters: Cap on the number of loop iterations. The runtime
+                forces ``Next("exit")`` and emits
+                :class:`~molexp.workflow.LoopMaxItersExceeded` when
+                reached. Must be ``>= 1``.
+            on_exit: Target task that runs after the loop exits. Defaults
+                to the special sentinel ``"_end"``, which terminates the
+                workflow.
+
+        Returns ``self`` to support chaining.
+        """
+        if not body:
+            raise ValueError(
+                f"Workflow.loop: body must contain at least one task name; got {body!r}"
             )
-            # Stash the fan-out config on the function object; consumed by the
-            # graph compiler. ``setattr`` keeps the static checker happy without
-            # an ignore directive whose placement is fragile under autoformat.
-            setattr(fn, "_parallel_map_config", {"fan_out_over": fan_out_over})
-            return fn
+        if max_iters < 1:
+            raise ValueError(f"Workflow.loop: max_iters must be >= 1; got {max_iters!r}")
+        self._loops.append(
+            LoopDecl(
+                body=tuple(body),
+                until=until,
+                max_iters=max_iters,
+                on_exit=on_exit,
+            )
+        )
+        return self
 
-        return decorator
-
-    def join(
+    def parallel(
         self,
         *,
-        reducer: str | Callable | None = None,
-        depends_on: list[str] | None = None,
-        name: str | None = None,
-    ) -> Callable:
-        """Decorator for collecting and reducing parallel outputs."""
+        map_over: str,
+        body: str,
+        join: str,
+        max_concurrency: int = 1,
+    ) -> Workflow:
+        """Declare a parallel fan-out: run *body* once per element of *map_over*.
 
-        def decorator(fn: Callable) -> Callable:
-            task_name = name or _callable_name(fn)
-            self._tasks.append(
-                TaskRegistration(
-                    name=task_name,
-                    fn_or_class=fn,
-                    depends_on=depends_on or [],
-                    is_actor=False,
-                )
+        Spec 05 §4. ``map_over`` is the name of an upstream task whose
+        output is an iterable; ``body`` is the per-element worker task
+        (single name, not a chain — see Out of scope D1); ``join`` is
+        the reducer that receives ``ctx.inputs == [out_0, out_1, …]``
+        in element-iteration order.
+
+        The compiler expands this into:
+
+        * an unconditional control edge ``map_over → body``, and
+        * an unconditional control edge ``body → join``.
+
+        Both expansions live in the static graph — the runtime spawns
+        N body call coroutines but never grows the node set.
+
+        Args:
+            map_over: Name of the upstream task whose output (a
+                materialised iterable) supplies the per-element inputs.
+                Must be a registered task.
+            body: Name of the worker task invoked once per element.
+                Must be a registered task; may not have explicit
+                ``depends_on``, ``wf.control``, ``wf.branch``,
+                ``routes=``, or ``next_=`` declarations (the parallel
+                primitive owns its wiring).
+            join: Name of the reducer task. Receives the aggregated
+                ``list[per_element_output]`` via ``ctx.inputs``.
+            max_concurrency: Cap on concurrent in-flight body
+                invocations. Must be ``>= 1``.
+
+        Returns ``self`` to support chaining.
+        """
+        if max_concurrency < 1:
+            raise ValueError(
+                f"Workflow.parallel: max_concurrency must be >= 1; got {max_concurrency!r}"
             )
-            # See ``parallel_map`` for the rationale behind ``setattr``.
-            setattr(fn, "_join_config", {"reducer": reducer})
-            return fn
+        self._parallels.append(
+            ParallelDecl(
+                map_over=map_over,
+                body=body,
+                join=join,
+                max_concurrency=max_concurrency,
+            )
+        )
+        return self
 
-        return decorator
+    def _record_decorator_edges(
+        self,
+        task_name: str,
+        *,
+        routes: Mapping[str, str] | None,
+        next_: str | None,
+    ) -> None:
+        """Translate decorator-side ``routes=`` / ``next_=`` into edge declarations."""
+        if next_ is not None:
+            self._control_edges.append((task_name, next_))
+        if routes is not None:
+            for lbl, target in routes.items():
+                self._branch_edges.append((task_name, lbl, target))
 
     # ── Compile ─────────────────────────────────────────────────────────
 
     def build(self) -> WorkflowSpec:
-        """Compile the registered tasks into a :class:`WorkflowSpec`."""
+        """Compile the registered tasks into a :class:`WorkflowSpec`.
+
+        Runs the CFG compiler eagerly so the spec arrives validated:
+        data-DAG / edge-shape / entry / reachability errors raise here
+        rather than at first execute (spec 03 §8). The compiled
+        per-task BaseNode classes are surfaced on
+        :attr:`WorkflowSpec._compiled_node_classes` for tooling.
+        """
         tasks = list(self._tasks)
-        return WorkflowSpec(
+        spec = WorkflowSpec(
             name=self._name,
             workflow_id=_stable_workflow_id(self._name, tasks),
             tasks=tasks,
             mode=self._mode,
             version=self._version,
+            entries=tuple(self._entries),
+            control_edges=tuple(self._control_edges),
+            branch_edges=tuple(self._branch_edges),
+            loops=tuple(self._loops),
+            parallels=tuple(self._parallels),
         )
+        # Compile eagerly — surfaces CFG validation errors at build time.
+        from ._pydantic_graph.compiler import WorkflowGraphCompiler
+
+        compiled = WorkflowGraphCompiler().compile(spec)
+        spec._cached_compiled = compiled  # type: ignore[attr-defined]
+        return spec
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────

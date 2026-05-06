@@ -20,7 +20,7 @@ from mollog import get_logger
 from molexp.config import ProfileConfig
 
 from ..runtime import WorkflowRuntime
-from ..types import WorkflowExecution, WorkflowResult
+from ..types import WorkflowError, WorkflowExecution, WorkflowResult
 from .compiler import CompiledWorkflow, WorkflowGraphCompiler
 from .node import WorkflowStep
 from .persistence import RunStorePersistence
@@ -49,13 +49,18 @@ def _get_run_id(run: Any) -> str | None:
     return getattr(run, "id", getattr(run, "run_id", None))
 
 
-def _make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
+def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
     """Build an execution ID derived from run_id.
 
     First execution: ``exec-{run_id}``
     Retries:         ``exec-{run_id}-2``, ``exec-{run_id}-3``, …
 
-    Falls back to a random ID when *run_id* is not available.
+    Falls back to a random ``exec-{8 hex}`` when *run_id* is unavailable.
+
+    Spec 04 §6 — promoted to the public API. Re-exported as
+    :func:`molexp.workflow.make_execution_id`. ``submit_molq`` plugins
+    must use the public name; reaching into ``_pydantic_graph`` for
+    this helper is rejected by ``test_submit_molq_plugins_do_not_reach_into_pydantic_graph``.
     """
     if run_id is None:
         return f"exec-{uuid.uuid4().hex[:8]}"
@@ -228,7 +233,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
         # bypasses derivation so the worker reuses the slot the submitter
         # pre-allocated.
         explicit_exec_id = kwargs.pop("execution_id", None)
-        execution_id = explicit_exec_id or _make_execution_id(_early_run_id, _early_run_dir)
+        execution_id = explicit_exec_id or make_execution_id(_early_run_id, _early_run_dir)
         owner_supplied_context = run_context
 
         try:
@@ -279,7 +284,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     )
                     return WorkflowResult(
                         status="failed",
-                        outputs=result_state.step_outputs,
+                        outputs=result_state.results,
                         run_id=run_id,
                         execution_id=execution_id,
                     )
@@ -291,10 +296,22 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 )
                 return WorkflowResult(
                     status="completed",
-                    outputs=result_state.step_outputs,
+                    outputs=result_state.results,
                     run_id=run_id,
                     execution_id=execution_id,
                 )
+        except WorkflowError:
+            # WorkflowError subclasses (CycleError, UnknownRouteError,
+            # MissingRouteError, WorkflowDeadlockError, …) signal a
+            # programming error in the workflow definition or task body.
+            # Surface them to the caller rather than masking them as a
+            # generic "failed" result.
+            self._set_run_status(
+                owner_supplied_context,
+                failed=True,
+                persist=owner_supplied_context is not None,
+            )
+            raise
         except Exception:
             self._set_run_status(
                 owner_supplied_context,
@@ -339,7 +356,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
             Path(run_context.work_dir) if run_context is not None else _get_run_dir(effective_run)
         )
         explicit_exec_id = kwargs.pop("execution_id", None)
-        execution_id = explicit_exec_id or _make_execution_id(run_id, _early_run_dir)
+        execution_id = explicit_exec_id or make_execution_id(run_id, _early_run_dir)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
@@ -376,7 +393,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     )
                     handle._result = WorkflowResult(
                         status="failed" if result_state.failed else "completed",
-                        outputs=result_state.step_outputs,
+                        outputs=result_state.results,
                         run_id=_get_run_id(effective_run),
                         execution_id=execution_id,
                     )
@@ -450,7 +467,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
 
                 handle._result = WorkflowResult(
                     status="failed" if result_state.failed else "completed",
-                    outputs=result_state.step_outputs,
+                    outputs=result_state.results,
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )

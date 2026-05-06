@@ -150,3 +150,24 @@ class TestRoundtrip:
         spec = wf.build()
         with pytest.raises(ValueError, match="task_type slug"):
             spec.to_dict()
+
+    def test_cyclic_spec_to_dict_rejected(self) -> None:
+        """IR (`to_dict`) does not yet model control edges — cyclic specs must
+        reject serialization rather than silently dropping the loop topology.
+
+        Spec: .claude/specs/03-molexp-workflow-cycles.md "Out of scope" — IR
+        serialization of control edges is deferred. Until then, attempting to
+        round-trip a workflow that uses `wf.control` / `wf.branch` / `wf.entry`
+        must raise — better than corrupting the persisted IR.
+        """
+        from molexp.workflow.registry import _Constant
+
+        wf = Workflow(name="cyclic-ir")
+        wf.add(_Constant(value=1), name="head", task_type="core.constant", config={"value": 1})
+        wf.add(_Constant(value=2), name="tail", task_type="core.constant", config={"value": 2})
+        wf.entry("head")
+        wf.control("head", "tail")
+        wf.branch("tail", "back", "head")  # cyclic — control edge loop
+        spec = wf.build()
+        with pytest.raises(ValueError, match="control edge"):
+            spec.to_dict()
