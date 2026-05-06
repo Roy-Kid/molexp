@@ -29,8 +29,25 @@ via its methods. Three equivalent styles share the same class:
 
 from ._pydantic_graph.runtime import make_execution_id
 from .cache import Caching
-from .compiler import WorkflowCompiler, default_compiler
+from .compiler import (
+    CompileError,
+    WorkflowCompiler,
+    compile_proposal,
+    default_compiler,
+)
 from .context import ActorContext, TaskContext
+from .preview import WorkflowPreviewView
+from .proposal import (
+    BranchSpec,
+    InterventionPoint,
+    LoopSpec,
+    ParallelSpec,
+    ParameterizedWorkflowSpec,
+    PlanProposal,
+    SanitySpec,
+    SweepSpec,
+    TaskProposal,
+)
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .runtime import WorkflowRuntime
@@ -76,9 +93,22 @@ __all__ = [
     # Workflow building (unified OOP API)
     "Workflow",
     "WorkflowSpec",
-    # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec)
+    # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec; PlanProposal ↔ ParameterizedWorkflowSpec)
     "WorkflowCompiler",
     "default_compiler",
+    "CompileError",
+    "compile_proposal",
+    # Plan-side data contracts (Part A.1)
+    "PlanProposal",
+    "TaskProposal",
+    "SanitySpec",
+    "ParallelSpec",
+    "LoopSpec",
+    "BranchSpec",
+    "SweepSpec",
+    "InterventionPoint",
+    "WorkflowPreviewView",
+    "ParameterizedWorkflowSpec",
     # Execution
     "WorkflowRuntime",
     "WorkflowResult",

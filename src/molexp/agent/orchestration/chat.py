@@ -13,17 +13,26 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 
-@dataclass
 class PendingUserMessage:
-    """Outstanding ``ask_user`` prompt the session is parked on."""
+    """Outstanding ``ask_user`` prompt the session is parked on.
 
-    request_id: str
-    prompt: str
-    future: "asyncio.Future[str]"
+    Plain class because it carries a live ``asyncio.Future`` runtime ref.
+    """
+
+    __slots__ = ("request_id", "prompt", "future")
+
+    def __init__(
+        self,
+        request_id: str,
+        prompt: str,
+        future: "asyncio.Future[str]",
+    ) -> None:
+        self.request_id = request_id
+        self.prompt = prompt
+        self.future = future
 
 
 class UserMessageRegistry:

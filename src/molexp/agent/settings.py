@@ -7,20 +7,21 @@ factory + validator implementations.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.model import ModelConfig
 
 
-@dataclass(frozen=True)
-class AgentSettings:
+class AgentSettings(BaseModel):
     """Workspace-scoped agent configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     base_system_prompt: str = ""
     workspace_addendum: str = ""
     default_provider: str | None = None
     max_context_chars: int = 200_000
-    extras: dict[str, object] = field(default_factory=dict)
+    extras: dict[str, object] = Field(default_factory=dict)
 
 
 # Re-export for convenience: the harness treats ``ProviderConfig`` and

@@ -8,21 +8,32 @@ view of consumption.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from molexp.agent.types import Usage
 
 
-@dataclass
 class UsageAccumulator:
-    """Mutable running totals; safe for single-session use."""
+    """Mutable running totals; safe for single-session use.
 
-    input_tokens: int = 0
-    output_tokens: int = 0
-    cache_read_tokens: int = 0
-    cache_write_tokens: int = 0
-    total_tokens: int = 0
-    requests: int = 0
+    A plain Python class (not BaseModel, not a stdlib dataclass) because it is a
+    runtime-mutating accumulator. The :class:`Usage` snapshots it returns
+    are pydantic ``BaseModel(frozen=True)`` data.
+    """
+
+    def __init__(
+        self,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        total_tokens: int = 0,
+        requests: int = 0,
+    ) -> None:
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
+        self.cache_read_tokens = cache_read_tokens
+        self.cache_write_tokens = cache_write_tokens
+        self.total_tokens = total_tokens
+        self.requests = requests
 
     def add(self, usage: Usage) -> None:
         self.input_tokens += usage.input_tokens

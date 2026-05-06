@@ -61,13 +61,11 @@ from molexp.agent.tools.spec import (
 from molexp.agent.types import (
     AgentFailure,
     AgentMode,
-    ArtifactRef,
     FailureKind,
     Goal,
     Message,
     SessionStatus,
     Usage,
-    WorkflowPreview,
 )
 
 __all__ = [
@@ -76,7 +74,6 @@ __all__ = [
     "AgentMode",
     "AgentService",
     "AgentSession",
-    "ArtifactRef",
     "DuplicateToolError",
     "FailureKind",
     "Goal",
@@ -100,7 +97,6 @@ __all__ = [
     "UnknownProviderError",
     "UnknownToolSourceError",
     "Usage",
-    "WorkflowPreview",
     "create_model_client",
     "list_providers",
     "list_tool_sources",

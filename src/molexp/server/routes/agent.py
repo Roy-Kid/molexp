@@ -39,6 +39,7 @@ from molexp.agent.orchestration import (
     UserMessageReceived,
 )
 from molexp.agent.tools import ApprovalDecision
+from molexp.workflow import PlanProposal
 
 from ..dependencies import get_workspace
 from ..schemas import (
@@ -132,17 +133,27 @@ def _now_iso() -> str:
 
 
 def _serialize_event(event: Any) -> SessionEventResponse:
-    """Convert a harness event dataclass into the wire response shape.
+    """Convert a harness event into the wire response shape.
 
-    The event ``type`` is the dataclass class name; everything else
-    flattens into ``payload`` (timestamps rendered ISO 8601). UI
-    consumers use ``type`` to dispatch to the matching renderer.
+    The event ``type`` is the BaseModel class name; everything else
+    flattens into ``payload`` via ``model_dump(mode="json")`` with
+    ``ts`` lifted to the top-level wire field. UI consumers use
+    ``type`` to dispatch to the matching renderer.
     """
+
+    from pydantic import BaseModel
 
     cls_name = type(event).__name__
     payload: dict[str, Any] = {}
     ts: datetime | None = None
-    if dataclasses.is_dataclass(event):
+    if isinstance(event, BaseModel):
+        dumped = event.model_dump(mode="python")
+        for key, value in dumped.items():
+            if key == "ts" and isinstance(value, datetime):
+                ts = value
+                continue
+            payload[key] = _to_jsonable(value)
+    elif dataclasses.is_dataclass(event):
         for f in dataclasses.fields(event):
             value = getattr(event, f.name)
             if f.name == "ts" and isinstance(value, datetime):
@@ -372,11 +383,14 @@ async def respond_plan(
     session = service.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    edited_proposal_obj: PlanProposal | None = None
+    if request.edited_proposal is not None:
+        edited_proposal_obj = PlanProposal.model_validate(request.edited_proposal)
     ok = await session.respond_plan(
         request_id=request.request_id,
         approved=request.approved,
         edited_plan=request.edited_plan,
-        edited_workflow_ir=request.edited_workflow_ir,
+        edited_proposal=edited_proposal_obj,
         feedback=request.feedback,
     )
     if not ok:

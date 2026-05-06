@@ -30,8 +30,9 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Literal, Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict
 
 __all__ = [
     "AgentError",
@@ -50,8 +51,7 @@ AgentEventCallback = Callable[[dict[str, Any]], Awaitable[None] | None]
 with an ``"event"`` key plus provider-specific fields."""
 
 
-@dataclass(frozen=True)
-class TurnResult:
+class TurnResult(BaseModel):
     """Outcome of one coding-agent turn, normalized across providers.
 
     Attributes:
@@ -61,6 +61,8 @@ class TurnResult:
         status: ``"completed"`` on success, ``"failed"`` on provider-side
             failure.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     thread_id: str
     turn_id: str

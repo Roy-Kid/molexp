@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import secrets
-from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator, Callable
 
@@ -31,18 +30,26 @@ from molexp.agent.tools.source import ToolSource
 from molexp.agent.types import Goal, SessionStatus, utc_now
 
 
-@dataclass
 class AgentStateStore:
     """Aggregate over the per-area stores held by an :class:`AgentService`.
 
     Bundles :class:`SessionStore`, :class:`SkillStore`, and
     :class:`MemoryStore` so runners and routes consume one object
     instead of three positional arguments.
+
+    A plain Python class because it holds live runtime store instances,
+    not pydantic data.
     """
 
-    sessions: SessionStore
-    skills: SkillStore
-    memory: MemoryStore
+    def __init__(
+        self,
+        sessions: SessionStore,
+        skills: SkillStore,
+        memory: MemoryStore,
+    ) -> None:
+        self.sessions = sessions
+        self.skills = skills
+        self.memory = memory
 
 
 RunnerFactory = Callable[[AgentSession], AgentRunner]

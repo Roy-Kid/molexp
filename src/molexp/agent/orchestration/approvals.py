@@ -7,19 +7,29 @@ route layers can resolve a pending approval by id.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 
 from molexp.agent.tools.policy import ApprovalDecision
 
 
-@dataclass
 class PendingApproval:
-    """Outstanding approval request the session is parked on."""
+    """Outstanding approval request the session is parked on.
 
-    request_id: str
-    tool_name: str
-    arguments: dict
-    future: "asyncio.Future[ApprovalDecision]"
+    Plain class because it carries a live ``asyncio.Future`` runtime ref.
+    """
+
+    __slots__ = ("request_id", "tool_name", "arguments", "future")
+
+    def __init__(
+        self,
+        request_id: str,
+        tool_name: str,
+        arguments: dict,
+        future: "asyncio.Future[ApprovalDecision]",
+    ) -> None:
+        self.request_id = request_id
+        self.tool_name = tool_name
+        self.arguments = arguments
+        self.future = future
 
 
 class ApprovalRegistry:

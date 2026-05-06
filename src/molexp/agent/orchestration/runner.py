@@ -11,10 +11,8 @@ proposed plan; the runner emits :class:`PlanCreated` and parks on
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import secrets
-from dataclasses import dataclass, field
 from typing import Any
 
 from molexp.agent._serialize import to_jsonable as _jsonable
@@ -62,34 +60,54 @@ from molexp.agent.types import (
     Goal,
     Message,
     SessionStatus,
-    WorkflowPreview,
     utc_now,
 )
+from molexp.workflow import WorkflowPreviewView
 
 _MISSING: Any = object()
 
 
-@dataclass
 class AgentRunner:
-    """Run one turn end-to-end: context → model → tools → state."""
+    """Run one turn end-to-end: context → model → tools → state.
 
-    model: ModelClient
-    registry: ToolRegistry
-    store: SessionStore
-    workspace: Any = None
-    dispatcher: ToolDispatcher | None = None
-    context_manager: ContextManager = field(default_factory=DefaultContextManager)
-    policy: ToolPolicy = PERMISSIVE_POLICY
-    constraints: ConstraintSet = field(default_factory=ConstraintSet)
-    recovery: RecoveryPolicy = field(default_factory=SimpleRetryPolicy)
-    evaluator: Evaluator = field(default_factory=NoopEvaluator)
-    usage: UsageAccumulator = field(default_factory=UsageAccumulator)
-    base_system_prompt: str = ""
-    workspace_addendum: str = ""
+    A plain Python class (not BaseModel, not a stdlib dataclass) because
+    it holds live runtime references — model client, registry, dispatcher,
+    session store, recovery policy, callable evaluators — none of which
+    are pydantic data contracts. The pydantic "arbitrary types" escape
+    hatch is explicitly forbidden in the agent layer.
+    """
 
-    def __post_init__(self) -> None:
-        if self.dispatcher is None:
-            self.dispatcher = ToolDispatcher(self.registry)
+    def __init__(
+        self,
+        model: ModelClient,
+        registry: ToolRegistry,
+        store: SessionStore,
+        workspace: Any = None,
+        dispatcher: ToolDispatcher | None = None,
+        context_manager: ContextManager | None = None,
+        policy: ToolPolicy = PERMISSIVE_POLICY,
+        constraints: ConstraintSet | None = None,
+        recovery: RecoveryPolicy | None = None,
+        evaluator: Evaluator | None = None,
+        usage: UsageAccumulator | None = None,
+        base_system_prompt: str = "",
+        workspace_addendum: str = "",
+    ) -> None:
+        self.model = model
+        self.registry = registry
+        self.store = store
+        self.workspace = workspace
+        self.dispatcher = dispatcher if dispatcher is not None else ToolDispatcher(registry)
+        self.context_manager = (
+            context_manager if context_manager is not None else DefaultContextManager()
+        )
+        self.policy = policy
+        self.constraints = constraints if constraints is not None else ConstraintSet()
+        self.recovery = recovery if recovery is not None else SimpleRetryPolicy()
+        self.evaluator = evaluator if evaluator is not None else NoopEvaluator()
+        self.usage = usage if usage is not None else UsageAccumulator()
+        self.base_system_prompt = base_system_prompt
+        self.workspace_addendum = workspace_addendum
 
     # ---------------------------------------------------------------- driver
 
@@ -449,7 +467,7 @@ class AgentRunner:
             approved=approved,
             feedback=plan_state.last_feedback,
             edited_plan=plan_state.edited_plan,
-            edited_workflow_ir=plan_state.edited_workflow_ir,
+            edited_proposal=plan_state.edited_proposal,
         )
         await self._publish_and_persist(session, decided)
         self._write_plan_checkpoint(session, turn_id, plan_state, decided)
@@ -528,7 +546,9 @@ class AgentRunner:
                 "approved": decided.approved,
                 "feedback": decided.feedback,
                 "edited_plan": decided.edited_plan,
-                "edited_workflow_ir": decided.edited_workflow_ir,
+                "edited_proposal": decided.edited_proposal.model_dump(mode="json")
+                if decided.edited_proposal is not None
+                else None,
                 "ts": decided.ts.isoformat(),
             },
         )
@@ -584,32 +604,33 @@ def _render_tool_payload(result: ToolResult, value_jsonable: Any = _MISSING) -> 
     )
 
 
-def _extract_plan(text: str) -> tuple[str, WorkflowPreview]:
+def _extract_plan(text: str) -> tuple[str, WorkflowPreviewView]:
     """Pull plan markdown + workflow preview from a model response.
 
     The model is expected to return either pure markdown (empty
     preview) or markdown plus a fenced ``json`` block carrying
-    ``{"workflow_ir", "python_script", "mermaid", "intervention_points"}``.
-    A malformed JSON block raises :class:`json.JSONDecodeError`; the
+    ``{"python_script", "mermaid", "intervention_points"}``. Any
+    other JSON keys are ignored — the IR belongs to
+    :class:`PlanProposal`, not to the derived preview view. A
+    malformed JSON block raises :class:`json.JSONDecodeError`; the
     runner surfaces that as a ``FailureRecorded`` for the turn.
     """
 
     plan = text.strip()
     if "```json" not in plan:
-        return plan, WorkflowPreview(workflow_ir={})
+        return plan, WorkflowPreviewView()
     head, _, rest = plan.partition("```json")
     body, _, tail = rest.partition("```")
     data = json.loads(body)
-    preview = WorkflowPreview(workflow_ir={})
+    preview = WorkflowPreviewView()
     if isinstance(data, dict):
-        preview = WorkflowPreview(
-            workflow_ir=data.get("workflow_ir", {}) or {},
+        preview = WorkflowPreviewView(
             python_script=str(data.get("python_script", "")),
             mermaid=str(data.get("mermaid", "")),
-            intervention_points=list(data.get("intervention_points", []) or []),
+            intervention_points=tuple(data.get("intervention_points", []) or ()),
         )
     return (head + tail).strip(), preview
 
 
 def _goal_in_mode(goal: Goal, mode: AgentMode) -> Goal:
-    return dataclasses.replace(goal, mode=mode)
+    return goal.model_copy(update={"mode": mode})

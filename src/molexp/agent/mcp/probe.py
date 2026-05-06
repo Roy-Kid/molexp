@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass
 from typing import Any
 
 from mollog import get_logger
+from pydantic import BaseModel, ConfigDict
 
 from .store import (
     McpScope,
@@ -32,9 +32,13 @@ logger = get_logger(__name__)
 PROBE_TIMEOUT_SECONDS = 10.0
 
 
-@dataclass(frozen=True)
-class ProbeOutcome:
+_FROZEN = ConfigDict(frozen=True)
+
+
+class ProbeOutcome(BaseModel):
     """Result of probing one MCP server."""
+
+    model_config = _FROZEN
 
     ok: bool
     latency_ms: int
@@ -42,9 +46,10 @@ class ProbeOutcome:
     error: str | None = None
 
 
-@dataclass(frozen=True)
-class McpToolSummary:
+class McpToolSummary(BaseModel):
     """Public-safe view of one tool exposed by an MCP server."""
+
+    model_config = _FROZEN
 
     name: str
     description: str
@@ -52,14 +57,15 @@ class McpToolSummary:
     scope: str  # "user" / "workspace"
 
 
-@dataclass(frozen=True)
-class McpServerToolList:
+class McpServerToolList(BaseModel):
     """Result of enumerating one MCP server's tools.
 
     Used for the Tools panel — empty ``tools`` + non-null ``error`` means
     the server is misconfigured / offline; the UI renders it as a broken
     group instead of silently dropping it.
     """
+
+    model_config = _FROZEN
 
     server: str
     scope: str

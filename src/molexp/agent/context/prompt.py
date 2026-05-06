@@ -15,7 +15,7 @@ prompts are stable across runs and trivially diffable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict
 
 BASE_SYSTEM_PROMPT = """\
 You are a research experiment assistant integrated with the molexp workspace.
@@ -73,52 +73,37 @@ Plan mode does NOT restrict your tool surface — you may freely call
 ``list_task_types``, ``list_workflow_templates``, ``list_projects``,
 inspect runs, read assets, etc. as needed to compose a competent plan.
 The constraint is on your **output**: this turn ends with a plan
-emission. The harness routes the structured plan + workflow preview
-to the user's UI for approve / reject; on rejection the user feedback
+emission. The harness routes the structured plan preview to the
+user's UI for approve / reject; on rejection the user feedback
 returns as a synthetic user message.
 
-## Every plan is a workflow
+## Plan output
 
-There is ONE kind of plan: a runnable workflow. Every numbered step
-in your plan corresponds to ONE node in
-``workflow_preview.workflow_ir.task_configs``. The two views are kept
-in lockstep — same count, same order, same names.
+Emit two things this turn:
 
-This includes investigation-style steps. If your plan starts with
-"1. inspect the qm9.h5 schema", that is a node in the workflow whose
-``task_type`` is an investigation slug (e.g. ``inspect_dataset``,
-``list_runs``, ``read_asset``, ``grep_codebase``, ``query_metric``).
-Call ``list_task_types`` to discover the available slugs — including
-investigation tasks — before authoring the IR.
+1. A numbered, human-readable plan (markdown).
+2. Optionally, a fenced ``json`` block carrying any of:
+   - ``python_script``: a Python molexp script rendering the plan,
+     suitable for the user to read or edit.
+   - ``mermaid``: a Mermaid flowchart of the plan's task graph.
+   - ``intervention_points``: a list of names for explicit user-input
+     anchors in the plan.
 
-The workflow IR and a Python molexp script are bidirectionally
-convertible: at execution time the server runs the script directly.
-You may attach the rendered script as ``workflow_preview.python_script``
-for the user to read or edit, but it is optional — the IR alone is
-the source of truth.
-
-Hard rules for ``workflow_ir``:
-
-- ``task_configs`` MUST contain at least one entry — empty workflows
-  are not valid plans. If you cannot yet commit to a topology, the
-  fix is to author investigation-task nodes (``inspect_dataset``,
-  ``read_asset``, …) as the first steps — not to skip the IR.
-- Omit ``workflow_id`` — molexp auto-derives it from the topology.
-- Every ``task_type`` MUST be a slug returned by ``list_task_types``.
-- Every ``links[]`` endpoint MUST reference a known
-  ``task_configs[].task_id``.
-- ``task_id`` values are unique within the workflow.
+These three fields populate the derived ``WorkflowPreviewView`` that
+the UI surfaces alongside the markdown. They are advisory; the plan
+itself is the source of truth.
 
 On approval the session flips out of plan mode and you proceed to
-bind / execute the (possibly user-edited) workflow. On rejection you
+bind / execute the (possibly user-edited) plan. On rejection you
 receive the user's feedback as a synthetic user message and should
 revise + emit the plan again.\
 """
 
 
-@dataclass(frozen=True)
-class PromptLayer:
+class PromptLayer(BaseModel):
     """One labeled section of the assembled system prompt."""
+
+    model_config = ConfigDict(frozen=True)
 
     title: str
     body: str
@@ -148,9 +133,9 @@ class PromptComposer:
             return override.strip()
 
         layers = [
-            PromptLayer("Base", base),
-            PromptLayer("Workspace", workspace),
-            PromptLayer("Skill", skill),
+            PromptLayer(title="Base", body=base),
+            PromptLayer(title="Workspace", body=workspace),
+            PromptLayer(title="Skill", body=skill),
         ]
         sections = [self._render(layer) for layer in layers if layer.body.strip()]
         return "\n\n".join(sections).strip()

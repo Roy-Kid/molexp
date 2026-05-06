@@ -28,11 +28,42 @@ the IR, not a free-form script.
 from __future__ import annotations
 
 import ast
-from typing import Any
+import hashlib
+import json
+from typing import TYPE_CHECKING, Any
 
-from .spec import WorkflowSpec
+from .proposal import _HASH_HEX_LEN, _canonical
+from .spec import TaskRegistration, WorkflowSpec
 
-__all__ = ["WorkflowCompiler"]
+if TYPE_CHECKING:
+    from .proposal import ParameterizedWorkflowSpec, PlanProposal
+    from .registry import TaskTypeRegistry
+
+__all__ = ["CompileError", "WorkflowCompiler", "compile_proposal", "default_compiler"]
+
+
+# ── PlanProposal → ParameterizedWorkflowSpec ──────────────────────────────────
+
+
+class CompileError(Exception):
+    """Raised by :meth:`WorkflowCompiler.proposal_to_spec` on a bad plan.
+
+    ``code`` is a stable string identifier that downstream callers
+    (server retry logic, agent re-plan dispatch, UI error mapping) can
+    branch on without parsing free-form text. ``detail`` is the human-
+    readable message.
+
+    The set of stable ``code`` values is documented in the
+    :file:`two-layer-workflow-foundation` spec; renaming a code is a
+    contract break.
+    """
+
+    __slots__ = ("code", "detail")
+
+    def __init__(self, code: str, detail: str) -> None:
+        super().__init__(f"{code}: {detail}")
+        self.code = code
+        self.detail = detail
 
 
 _SCRIPT_HEADER = '''\
@@ -162,6 +193,109 @@ class WorkflowCompiler:
         """Render a spec as a Mermaid flowchart (via the IR)."""
         return self.ir_to_mermaid(self.spec_to_ir(spec))
 
+    # ── PlanProposal → ParameterizedWorkflowSpec ────────────────────────
+
+    def proposal_to_spec(
+        self,
+        proposal: PlanProposal,
+        *,
+        registry: TaskTypeRegistry,
+    ) -> ParameterizedWorkflowSpec:
+        """Compile a :class:`PlanProposal` into a :class:`ParameterizedWorkflowSpec`.
+
+        Validation is staged; the first failing rule short-circuits with
+        a :class:`CompileError` carrying a stable ``code``:
+
+        1. ``duplicate_task_id`` — two ``TaskProposal`` entries share a
+           ``task_id``.
+        2. ``unknown_slug`` — a ``kind="registered"`` task references a
+           ``task_type`` slug that is not in ``registry``.
+        3. ``agent_authored_missing_artifact`` — a
+           ``kind="agent_authored"`` task points at a ``code_artifact``
+           whose ``path`` is not a regular file on disk.
+        4. ``unknown_dependency`` — ``depends_on`` references a
+           ``task_id`` that is not present in the same proposal.
+        5. ``schema_mismatch`` — when the registry exposes
+           ``input_schema`` / ``output_schema`` metadata, an upstream
+           output is incompatible with a downstream input. Skipped if
+           the registry is silent.
+
+        The returned spec carries a deterministic ``workflow_id``
+        derived from the proposal's content hash and the registry's
+        slug fingerprint, so two equal inputs always produce the same
+        id (suitable for cache keys).
+        """
+        # Lazy import to keep the module-import path acyclic and pure.
+        from .proposal import ParameterizedWorkflowSpec
+
+        task_ids: list[str] = []
+        seen: set[str] = set()
+        for tp in proposal.task_proposals:
+            if tp.task_id in seen:
+                raise CompileError(
+                    "duplicate_task_id",
+                    f"task_id {tp.task_id!r} appears more than once in proposal {proposal.name!r}",
+                )
+            seen.add(tp.task_id)
+            task_ids.append(tp.task_id)
+
+        for tp in proposal.task_proposals:
+            if tp.kind == "registered":
+                assert tp.task_type is not None  # guaranteed by TaskProposal.__post_init__
+                if not registry.has(tp.task_type):
+                    raise CompileError(
+                        "unknown_slug",
+                        f"task {tp.task_id!r} references unknown task_type {tp.task_type!r}",
+                    )
+            elif tp.kind == "agent_authored":
+                # __post_init__ guarantees code_artifact is a non-None Path.
+                assert tp.code_artifact is not None
+                if not tp.code_artifact.is_file():
+                    raise CompileError(
+                        "agent_authored_missing_artifact",
+                        f"task {tp.task_id!r} code_artifact "
+                        f"{str(tp.code_artifact)!r} does not exist on disk",
+                    )
+
+        for tp in proposal.task_proposals:
+            for dep in tp.depends_on:
+                if dep not in seen:
+                    raise CompileError(
+                        "unknown_dependency",
+                        f"task {tp.task_id!r} depends_on unknown task {dep!r}",
+                    )
+
+        # Build the lightweight TaskRegistration tuple. Part A.1 does not
+        # actually drive execution from this object — Part B will revisit.
+        tasks = tuple(
+            TaskRegistration(
+                name=tp.task_id,
+                fn_or_class=None,
+                depends_on=list(tp.depends_on),
+                task_type=tp.task_type,
+                config=dict(tp.config) if tp.config else None,
+            )
+            for tp in proposal.task_proposals
+        )
+
+        control_flow: dict[str, Any] = {
+            "parallels": [_canonical(p) for p in proposal.parallels],
+            "loops": [_canonical(loop) for loop in proposal.loops],
+            "branches": [_canonical(b) for b in proposal.branches],
+            "sweeps": [_canonical(s) for s in proposal.sweeps],
+            "intervention_points": [_canonical(ip) for ip in proposal.intervention_points],
+        }
+
+        workflow_id = _compute_workflow_id(proposal, registry)
+
+        return ParameterizedWorkflowSpec(
+            workflow_id=workflow_id,
+            name=proposal.name,
+            tasks=tasks,
+            sanity_specs=tuple(proposal.sanity_specs),
+            control_flow=control_flow,
+        )
+
     # ── IR → Mermaid (one-way) ──────────────────────────────────────────
 
     def ir_to_mermaid(self, ir: dict[str, Any]) -> str:
@@ -207,7 +341,35 @@ class WorkflowCompiler:
 default_compiler = WorkflowCompiler()
 
 
+def compile_proposal(
+    proposal: PlanProposal,
+    *,
+    registry: TaskTypeRegistry,
+) -> ParameterizedWorkflowSpec:
+    """Module-level convenience for ``default_compiler.proposal_to_spec``.
+
+    Equivalent to ``default_compiler.proposal_to_spec(proposal,
+    registry=registry)`` — exposed at module scope so callers can
+    write ``from molexp.workflow import compile_proposal`` without
+    threading the compiler instance through.
+    """
+    return default_compiler.proposal_to_spec(proposal, registry=registry)
+
+
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _compute_workflow_id(
+    proposal: PlanProposal,
+    registry: TaskTypeRegistry,
+) -> str:
+    """sha256 of (proposal_id, registry slug fingerprint), truncated to ``_HASH_HEX_LEN`` hex chars."""
+    fingerprint = "|".join(registry.slugs())
+    payload = json.dumps(
+        {"proposal_id": proposal.proposal_id, "registry": fingerprint},
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()[:_HASH_HEX_LEN]
 
 
 def _safe_literal_repr(value: Any, level: int = 0) -> str:

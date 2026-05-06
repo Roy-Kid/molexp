@@ -7,16 +7,18 @@ stays consistent regardless of whether evaluation is configured.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+from pydantic import BaseModel, ConfigDict, Field
 
-@dataclass(frozen=True)
-class EvalResult:
+
+class EvalResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     name: str
     score: float = 0.0
     passed: bool = True
-    details: dict[str, Any] = field(default_factory=dict)
+    details: dict[str, Any] = Field(default_factory=dict)
 
 
 @runtime_checkable

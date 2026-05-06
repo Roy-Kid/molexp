@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from molexp.agent import WorkflowPreview
 from molexp.agent.orchestration import (
     PlanState,
     PlanStateMachine,
@@ -17,7 +16,7 @@ def test_initial_state_is_chat() -> None:
 
 
 def test_request_emit_approve_cycle() -> None:
-    preview = WorkflowPreview(workflow_ir={"nodes": []})
+    preview: dict = {"workflow_ir": {"nodes": []}}
     machine = PlanStateMachine().request_plan()
     assert machine.state is PlanState.PLAN_REQUESTED
 
@@ -31,7 +30,7 @@ def test_request_emit_approve_cycle() -> None:
 
 
 def test_reject_carries_feedback() -> None:
-    preview = WorkflowPreview(workflow_ir={"nodes": []})
+    preview: dict = {"workflow_ir": {"nodes": []}}
     machine = (
         PlanStateMachine()
         .request_plan()

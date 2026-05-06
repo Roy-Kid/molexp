@@ -26,7 +26,6 @@ from __future__ import annotations
 import functools
 import importlib.metadata as importlib_metadata
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from mollog import get_logger
@@ -45,9 +44,13 @@ ENTRY_POINT_GROUP = "molexp.cli_plugins"
 logger = get_logger(__name__)
 
 
-@dataclass(frozen=True)
 class CliPlugin:
     """Public descriptor for a third-party molexp CLI extension.
+
+    Plain Python class with explicit ``__init__`` (not a stdlib dataclass,
+    not a pydantic ``BaseModel``) because it carries a live ``register``
+    callable. Treated as logically immutable by convention; ``__slots__``
+    blocks attribute assignment after construction.
 
     Attributes:
         id: Globally unique short identifier (kebab-case recommended).
@@ -62,11 +65,25 @@ class CliPlugin:
             only ``"1"`` is accepted; mismatches are skipped.
     """
 
-    id: str
-    name: str
-    version: str
-    register: Callable[["typer.Typer"], None]
-    api_version: str = CLI_PLUGIN_API_VERSION
+    __slots__ = ("id", "name", "version", "register", "api_version")
+
+    def __init__(
+        self,
+        *,
+        id: str,
+        name: str,
+        version: str,
+        register: Callable[["typer.Typer"], None],
+        api_version: str = CLI_PLUGIN_API_VERSION,
+    ) -> None:
+        object.__setattr__(self, "id", id)
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "version", version)
+        object.__setattr__(self, "register", register)
+        object.__setattr__(self, "api_version", api_version)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"{type(self).__name__} is immutable; cannot assign to {name!r}")
 
 
 @functools.cache

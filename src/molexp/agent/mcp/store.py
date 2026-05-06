@@ -144,7 +144,7 @@ class McpServerEntry(BaseModel):
     annotations (``shadowed``/``valid``/``unresolved_secrets``).
 
     Pydantic ``BaseModel`` (replaces the historical
-    ``@dataclass(frozen=True)``): ``model_config`` declares
+    stdlib ``dataclass(frozen=True)``): ``model_config`` declares
     ``frozen=True`` so the entry is immutable after construction —
     callers that need a copy with adjusted ``shadowed`` flag must use
     :py:meth:`pydantic.BaseModel.model_copy(update=…)`. Every field is

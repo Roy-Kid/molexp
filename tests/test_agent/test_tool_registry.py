@@ -73,7 +73,7 @@ def test_schemas_returns_model_facing_subset() -> None:
     assert schemas[0].name == "native:read"
     # ToolSchema only carries name/description/input_schema — no
     # harness-internal flags like ``mutates`` or ``requires_approval``.
-    schema_fields = {f for f in schemas[0].__dataclass_fields__}
+    schema_fields = set(type(schemas[0]).model_fields)
     assert schema_fields == {"name", "description", "input_schema"}
     assert isinstance(schemas[0].input_schema, dict)
 

@@ -1,158 +1,184 @@
 """Session event types + in-memory event bus.
 
 The harness emits a fixed set of event categories. Each event is a
-frozen dataclass; the bus is async-iterable so server SSE routes can
-stream straight from it.
+frozen ``BaseModel`` carrying a ``kind: Literal[...]`` discriminator;
+the bus is async-iterable so server SSE routes can stream straight
+from it. ``SESSION_EVENT_ADAPTER`` round-trips events through JSON
+without manual dispatch.
 """
 
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Annotated, Any, AsyncIterator, Literal, Union
+
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from molexp.agent.types import (
     AgentFailure,
-    ArtifactRef,
     Usage,
-    WorkflowPreview,
     utc_now,
 )
+from molexp.workflow import PlanProposal, WorkflowPreviewView
+
+_FROZEN = ConfigDict(frozen=True)
 
 
-@dataclass(frozen=True)
-class SessionStarted:
+class SessionStarted(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["session_started"] = "session_started"
     session_id: str
     goal_description: str
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class TurnStarted:
+class TurnStarted(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["turn_started"] = "turn_started"
     session_id: str
     turn_id: str
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class ContextBuilt:
+class ContextBuilt(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["context_built"] = "context_built"
     turn_id: str
     used_chars: int
     diagnostics: tuple[str, ...] = ()
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class ModelRequested:
+class ModelRequested(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["model_requested"] = "model_requested"
     turn_id: str
     model_name: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    ts: datetime = field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class ModelResponded:
+class ModelResponded(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["model_responded"] = "model_responded"
     turn_id: str
     finish_reason: str
     usage: Usage
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class ToolCallRequested:
+class ToolCallRequested(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["tool_call_requested"] = "tool_call_requested"
     turn_id: str
     call_id: str
     tool_name: str
     arguments: dict[str, Any]
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class ToolApprovalRequested:
+class ToolApprovalRequested(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["tool_approval_requested"] = "tool_approval_requested"
     turn_id: str
     request_id: str
     tool_name: str
     arguments: dict[str, Any]
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class ToolCallCompleted:
+class ToolCallCompleted(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["tool_call_completed"] = "tool_call_completed"
     turn_id: str
     call_id: str
     tool_name: str
     ok: bool
     value: Any = None
     error: AgentFailure | None = None
-    artifacts: tuple[ArtifactRef, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
-    ts: datetime = field(default_factory=utc_now)
+    artifacts: tuple[str, ...] = ()
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class PlanCreated:
+class PlanCreated(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["plan_created"] = "plan_created"
     turn_id: str
     request_id: str
     plan_markdown: str
-    workflow_preview: WorkflowPreview
-    ts: datetime = field(default_factory=utc_now)
+    workflow_preview: WorkflowPreviewView
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class PlanDecided:
+class PlanDecided(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["plan_decided"] = "plan_decided"
     request_id: str
     approved: bool
     feedback: str = ""
     edited_plan: str | None = None
-    edited_workflow_ir: dict[str, Any] | None = None
-    ts: datetime = field(default_factory=utc_now)
+    edited_proposal: PlanProposal | None = None
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class UserMessageRequested:
+class UserMessageRequested(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["user_message_requested"] = "user_message_requested"
     request_id: str
     prompt: str
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class UserMessageReceived:
+class UserMessageReceived(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["user_message_received"] = "user_message_received"
     content: str
     request_id: str | None = None
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class FailureRecorded:
+class FailureRecorded(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["failure_recorded"] = "failure_recorded"
     turn_id: str
     failure: AgentFailure
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-@dataclass(frozen=True)
-class SessionCompleted:
+class SessionCompleted(BaseModel):
+    model_config = _FROZEN
+    kind: Literal["session_completed"] = "session_completed"
     session_id: str
     summary: str
-    ts: datetime = field(default_factory=utc_now)
+    ts: datetime = Field(default_factory=utc_now)
 
 
-SessionEvent = (
-    SessionStarted
-    | TurnStarted
-    | ContextBuilt
-    | ModelRequested
-    | ModelResponded
-    | ToolCallRequested
-    | ToolApprovalRequested
-    | ToolCallCompleted
-    | PlanCreated
-    | PlanDecided
-    | UserMessageRequested
-    | UserMessageReceived
-    | FailureRecorded
-    | SessionCompleted
-)
+SessionEvent = Annotated[
+    Union[
+        SessionStarted,
+        TurnStarted,
+        ContextBuilt,
+        ModelRequested,
+        ModelResponded,
+        ToolCallRequested,
+        ToolApprovalRequested,
+        ToolCallCompleted,
+        PlanCreated,
+        PlanDecided,
+        UserMessageRequested,
+        UserMessageReceived,
+        FailureRecorded,
+        SessionCompleted,
+    ],
+    Field(discriminator="kind"),
+]
+"""Discriminated union of every session event the harness emits."""
+
+
+SESSION_EVENT_ADAPTER: TypeAdapter[SessionEvent] = TypeAdapter(SessionEvent)
+"""Module-level TypeAdapter for round-tripping events through JSON."""
 
 
 class EventBus:

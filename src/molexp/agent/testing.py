@@ -12,9 +12,9 @@ import it from outside the test suite.
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import asdict, is_dataclass
 from typing import Any, AsyncIterator, Iterable
 
+from molexp.agent._serialize import to_jsonable
 from molexp.agent.model import (
     ModelEvent,
     ModelRequest,
@@ -128,11 +128,11 @@ def _io_record(request: ModelRequest, response: ModelResponse) -> dict[str, Any]
 
 
 def _request_to_dict(request: ModelRequest) -> dict[str, Any]:
-    return _safe(asdict(request))
+    return to_jsonable(request)
 
 
 def _response_to_dict(response: ModelResponse) -> dict[str, Any]:
-    payload = _safe(asdict(response))
+    payload = to_jsonable(response)
     # ``raw`` is opaque to the harness — drop it to keep the JSONL
     # writer round-trip-clean. Plugins that want to preserve raw
     # provider payloads write them out under provider_blobs/ instead.
@@ -140,18 +140,8 @@ def _response_to_dict(response: ModelResponse) -> dict[str, Any]:
     return payload
 
 
-def _safe(value: Any) -> Any:
-    if is_dataclass(value) and not isinstance(value, type):
-        return _safe(asdict(value))
-    if isinstance(value, dict):
-        return {k: _safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_safe(v) for v in value]
-    return value
-
-
 def _event_to_dict(event: ModelEvent) -> dict[str, Any]:
-    payload = _safe(asdict(event))
+    payload = to_jsonable(event)
     payload["raw"] = None
     return payload
 

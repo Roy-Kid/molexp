@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.types import AgentFailure, FailureKind
 
 
-@dataclass(frozen=True)
-class RetryDecision:
+class RetryDecision(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     retry: bool
     delay_seconds: float = 0.0
     reason: str = ""

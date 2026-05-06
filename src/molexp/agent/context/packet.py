@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.types import Message
 
+_FROZEN = ConfigDict(frozen=True)
 
-@dataclass(frozen=True)
-class ContextRef:
+
+class ContextRef(BaseModel):
     """Pointer into a workspace artifact included in the context.
 
     The harness records what was included so debugging tools can show
@@ -17,13 +19,14 @@ class ContextRef:
     list, only the rendered system prompt + messages.
     """
 
+    model_config = _FROZEN
+
     kind: str
     path: str
     excerpt: str = ""
 
 
-@dataclass(frozen=True)
-class ContextBudget:
+class ContextBudget(BaseModel):
     """Soft caps tracked by the context manager.
 
     All values are character counts; the manager does not tokenize.
@@ -31,15 +34,18 @@ class ContextBudget:
     plugin if needed.
     """
 
+    model_config = _FROZEN
+
     max_chars: int = 200_000
     used_chars: int = 0
     history_chars: int = 0
     system_chars: int = 0
 
 
-@dataclass(frozen=True)
-class ContextBuildRequest:
+class ContextBuildRequest(BaseModel):
     """Inputs to :meth:`molexp.agent.context.ContextManager.build`."""
+
+    model_config = _FROZEN
 
     session_id: str
     turn_id: str
@@ -49,12 +55,13 @@ class ContextBuildRequest:
     instructions_override: str | None
     history: tuple[Message, ...]
     extra_refs: tuple[ContextRef, ...] = ()
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class ContextPacket:
+class ContextPacket(BaseModel):
     """Final material handed to the model for one turn."""
+
+    model_config = _FROZEN
 
     system: str
     messages: tuple[Message, ...]

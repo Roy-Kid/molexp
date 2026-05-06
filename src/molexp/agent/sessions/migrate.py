@@ -16,8 +16,9 @@ mis-rendering. Replay across the schema change isn't supported.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.sessions.store import SessionStore
 from molexp.agent.sessions.types import SessionMetadata
@@ -27,8 +28,9 @@ LEGACY_SESSIONS_DIRNAME = "sessions"
 LEGACY_METADATA_FILENAME = "metadata.json"
 
 
-@dataclass(frozen=True)
-class MigrationResult:
+class MigrationResult(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     migrated: tuple[str, ...]
     skipped: tuple[str, ...]
 

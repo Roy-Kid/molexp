@@ -18,8 +18,9 @@ endpoint, keeping a single source of truth for grammar and errors.
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass, field
 from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.skills.store import SkillStore
 from molexp.agent.skills.types import RESERVED_SLASH_NAMES
@@ -27,8 +28,7 @@ from molexp.agent.skills.types import RESERVED_SLASH_NAMES
 CommandKind = Literal["skill", "builtin", "error"]
 
 
-@dataclass(frozen=True)
-class ParsedCommand:
+class ParsedCommand(BaseModel):
     """Outcome of :func:`parse` for a single chat input.
 
     ``kind`` discriminates the union:
@@ -40,10 +40,12 @@ class ParsedCommand:
       the slash name when known.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     kind: CommandKind
     name: str = ""
     skill_id: str = ""
-    parameters: dict[str, str] = field(default_factory=dict)
+    parameters: dict[str, str] = Field(default_factory=dict)
     plan_mode: bool = False
     error: str = ""
 

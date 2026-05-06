@@ -13,11 +13,11 @@ continue.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
 from enum import Enum
-from typing import Any
 
-from molexp.agent.types import WorkflowPreview
+from pydantic import BaseModel, ConfigDict
+
+from molexp.workflow import PlanProposal, WorkflowPreviewView
 
 
 class PlanState(str, Enum):
@@ -28,55 +28,59 @@ class PlanState(str, Enum):
     PLAN_REJECTED = "plan_rejected"
 
 
-@dataclass(frozen=True)
-class PlanStateMachine:
+class PlanStateMachine(BaseModel):
     """Immutable snapshot of plan-mode progress.
 
     Transitions return a *new* machine; nothing mutates in place.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     state: PlanState = PlanState.CHAT
     last_request_id: str | None = None
     last_plan_markdown: str = ""
-    last_preview: WorkflowPreview | None = None
+    last_preview: WorkflowPreviewView | None = None
     last_feedback: str = ""
     edited_plan: str | None = None
-    edited_workflow_ir: dict[str, Any] | None = None
+    edited_proposal: PlanProposal | None = None
 
     def request_plan(self) -> "PlanStateMachine":
-        return replace(self, state=PlanState.PLAN_REQUESTED)
+        return self.model_copy(update={"state": PlanState.PLAN_REQUESTED})
 
     def emit_plan(
         self,
         request_id: str,
         plan_markdown: str,
-        preview: WorkflowPreview,
+        preview: WorkflowPreviewView,
     ) -> "PlanStateMachine":
-        return replace(
-            self,
-            state=PlanState.PLAN_EMITTED,
-            last_request_id=request_id,
-            last_plan_markdown=plan_markdown,
-            last_preview=preview,
+        return self.model_copy(
+            update={
+                "state": PlanState.PLAN_EMITTED,
+                "last_request_id": request_id,
+                "last_plan_markdown": plan_markdown,
+                "last_preview": preview,
+            }
         )
 
     def approve(
         self,
         edited_plan: str | None = None,
-        edited_workflow_ir: dict[str, Any] | None = None,
+        edited_proposal: PlanProposal | None = None,
     ) -> "PlanStateMachine":
-        return replace(
-            self,
-            state=PlanState.PLAN_APPROVED,
-            edited_plan=edited_plan,
-            edited_workflow_ir=edited_workflow_ir,
+        return self.model_copy(
+            update={
+                "state": PlanState.PLAN_APPROVED,
+                "edited_plan": edited_plan,
+                "edited_proposal": edited_proposal,
+            }
         )
 
     def reject(self, feedback: str) -> "PlanStateMachine":
-        return replace(
-            self,
-            state=PlanState.PLAN_REJECTED,
-            last_feedback=feedback,
+        return self.model_copy(
+            update={
+                "state": PlanState.PLAN_REJECTED,
+                "last_feedback": feedback,
+            }
         )
 
     def reset_to_chat(self) -> "PlanStateMachine":

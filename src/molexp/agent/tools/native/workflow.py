@@ -339,7 +339,7 @@ async def set_workflow_from_ir(args: dict[str, Any], ctx: ToolContext) -> ToolRe
             "experiment_id": experiment.id,
             "workflow_id": spec.workflow_id if spec is not None else None,
             "task_count": len(workflow_json.get("task_configs", [])),
-            "persisted_to": str(experiment.workflow_ir_path),
+            "persisted_to": str(experiment.workflow_path),
         }
     )
 

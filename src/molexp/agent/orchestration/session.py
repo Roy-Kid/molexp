@@ -16,8 +16,9 @@ The session owns:
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 from typing import AsyncIterator
+
+from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.orchestration.approvals import ApprovalRegistry
 from molexp.agent.orchestration.chat import UserMessageRegistry
@@ -25,10 +26,12 @@ from molexp.agent.orchestration.events import EventBus, SessionEvent
 from molexp.agent.orchestration.plan import PlanStateMachine
 from molexp.agent.tools.policy import ApprovalDecision
 from molexp.agent.types import Goal, SessionStatus
+from molexp.workflow import PlanProposal
 
 
-@dataclass(frozen=True)
-class _InboundMessage:
+class _InboundMessage(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     content: str
     request_id: str | None = None
 
@@ -112,13 +115,13 @@ class AgentSession:
         request_id: str,
         approved: bool,
         edited_plan: str | None = None,
-        edited_workflow_ir: dict | None = None,
+        edited_proposal: PlanProposal | None = None,
         feedback: str = "",
     ) -> bool:
         if not self.plan.is_parked() or self.plan.last_request_id != request_id:
             return False
         self.plan = (
-            self.plan.approve(edited_plan, edited_workflow_ir)
+            self.plan.approve(edited_plan, edited_proposal)
             if approved
             else self.plan.reject(feedback)
         )

@@ -1,41 +1,65 @@
-"""Shared JSON-coercion helper used by runner, routes, and storage."""
+"""Shared JSON-coercion helper.
+
+One typed-union helper coerces values into JSON-friendly Python
+primitives. ``BaseModel`` instances flatten via ``model_dump(mode="json")``;
+unsupported types raise ``TypeError`` rather than fall back to ``repr``.
+"""
 
 from __future__ import annotations
 
-from dataclasses import fields, is_dataclass
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from pathlib import Path
+from typing import TypeAliasType, Union
 
-from molexp.agent.types import ArtifactRef
+from pydantic import BaseModel
+
+JsonScalar = Union[None, bool, int, float, str]
+JsonValue = TypeAliasType(
+    "JsonValue",
+    Union[JsonScalar, list["JsonValue"], dict[str, "JsonValue"]],
+)
+"""Recursive JSON-shaped value type. Pydantic-compatible via TypeAliasType."""
+
+JsonInput = Union[
+    BaseModel,
+    Mapping,
+    Sequence,
+    str,
+    int,
+    float,
+    bool,
+    None,
+    datetime,
+    Enum,
+    Path,
+]
 
 
-def to_jsonable(value: Any) -> Any:
+def to_jsonable(value: JsonInput) -> JsonValue:
     """Coerce ``value`` into JSON-friendly Python primitives.
 
-    Dataclass instances flatten into bare ``{field: value}`` dicts (no
-    ``__type__`` tag — that lives in the storage layer's wire format).
-    Unknown objects fall back to ``repr(value)`` rather than raising,
-    so this is safe to call on tool payloads of arbitrary shape.
+    Supports BaseModel (via ``model_dump(mode="json")``), Mapping (recursed
+    with stringified keys), Sequence / list / tuple (recursed), ``datetime``
+    (isoformat), ``Enum`` (value), ``Path`` (str), and scalars. Unsupported
+    types raise ``TypeError`` — there is no ``repr`` fallback.
     """
-
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
-    if isinstance(value, dict):
+    if isinstance(value, BaseModel):
+        return value.model_dump(mode="json")
+    if isinstance(value, Mapping):
         return {str(k): to_jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [to_jsonable(v) for v in value]
-    if isinstance(value, ArtifactRef):
-        return {
-            "kind": value.kind,
-            "title": value.title,
-            "payload": to_jsonable(value.payload),
-            "path": value.path,
-        }
     if isinstance(value, datetime):
         return value.isoformat()
     if isinstance(value, Enum):
         return value.value
-    if is_dataclass(value) and not isinstance(value, type):
-        return {f.name: to_jsonable(getattr(value, f.name)) for f in fields(value)}
-    return repr(value)
+    if isinstance(value, Path):
+        return str(value)
+    raise TypeError(
+        f"to_jsonable: unsupported type {type(value).__name__!r}; "
+        f"extend the JsonInput union or convert at the call site"
+    )

@@ -8,14 +8,17 @@ outside the plugin.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Literal, Protocol, runtime_checkable
 
+from pydantic import BaseModel, ConfigDict, Field
+
+from molexp.agent._serialize import JsonValue
 from molexp.agent.types import Message, Usage
 
+_FROZEN = ConfigDict(frozen=True)
 
-@dataclass(frozen=True)
-class ToolSchema:
+
+class ToolSchema(BaseModel):
     """Tool description as the model sees it.
 
     Distinct from ``ToolSpec`` (which carries harness-internal policy
@@ -23,13 +26,14 @@ class ToolSchema:
     tool declarations; the harness never edits a plugin's tool format.
     """
 
+    model_config = _FROZEN
+
     name: str
     description: str
     input_schema: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class ModelBudget:
+class ModelBudget(BaseModel):
     """Per-request budget caps applied by the model plugin if it can.
 
     All fields are advisory. The harness enforces hard limits via the
@@ -37,13 +41,14 @@ class ModelBudget:
     cheap to do so.
     """
 
+    model_config = _FROZEN
+
     max_output_tokens: int | None = None
     max_input_tokens: int | None = None
     timeout_seconds: float | None = None
 
 
-@dataclass(frozen=True)
-class ModelToolCall:
+class ModelToolCall(BaseModel):
     """A single tool invocation requested by the model.
 
     ``id`` correlates request/result rounds in providers that require
@@ -51,14 +56,17 @@ class ModelToolCall:
     must preserve that correlation in ``model_io.jsonl``.
     """
 
+    model_config = _FROZEN
+
     id: str
     name: str
     arguments: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class ModelRequest:
+class ModelRequest(BaseModel):
     """Inputs to one model turn."""
+
+    model_config = _FROZEN
 
     session_id: str
     turn_id: str
@@ -67,27 +75,29 @@ class ModelRequest:
     tools: tuple[ToolSchema, ...] = ()
     response_format: dict[str, Any] | None = None
     budget: ModelBudget | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-@dataclass(frozen=True)
-class ModelResponse:
+class ModelResponse(BaseModel):
     """Outputs of one (non-streaming) model turn."""
+
+    model_config = _FROZEN
 
     text: str = ""
     tool_calls: tuple[ModelToolCall, ...] = ()
-    usage: Usage = field(default_factory=Usage)
+    usage: Usage = Field(default_factory=Usage)
     finish_reason: str = ""
-    raw: Any = None
+    raw: JsonValue | None = None
 
 
-@dataclass(frozen=True)
-class ModelEvent:
+class ModelEvent(BaseModel):
     """Streaming model event.
 
     ``kind`` is intentionally narrow; new providers should map their
     SDK events into one of these tags rather than introduce variants.
     """
+
+    model_config = _FROZEN
 
     kind: Literal["text-delta", "tool-call", "usage", "finish", "error"]
     text: str = ""
@@ -95,7 +105,7 @@ class ModelEvent:
     usage: Usage | None = None
     finish_reason: str = ""
     error: str = ""
-    raw: Any = None
+    raw: JsonValue | None = None
 
 
 @runtime_checkable
@@ -122,8 +132,7 @@ class ModelClientFactory(Protocol):
     def create(self, config: "ModelConfig") -> ModelClient: ...
 
 
-@dataclass(frozen=True)
-class ModelConfig:
+class ModelConfig(BaseModel):
     """Generic provider config.
 
     Carried as core state so the UI and admin routes can render or
@@ -131,12 +140,14 @@ class ModelConfig:
     validation is delegated to ``ProviderConfigValidator``.
     """
 
+    model_config = _FROZEN
+
     provider_name: str
     model: str
     api_key: str | None = None
     base_url: str | None = None
     instructions: str = ""
-    extras: dict[str, Any] = field(default_factory=dict)
+    extras: dict[str, Any] = Field(default_factory=dict)
 
 
 @runtime_checkable

@@ -5,14 +5,14 @@ Pure data + pure functions: no I/O, no logging, no model imports.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.tools.spec import ToolSpec
 
 
-@dataclass(frozen=True)
-class ToolPolicy:
+class ToolPolicy(BaseModel):
     """Filter applied when listing tools or before dispatch.
 
     ``allow`` and ``deny`` are tuples of fnmatch-compatible patterns
@@ -22,9 +22,11 @@ class ToolPolicy:
     vice versa.
     """
 
+    model_config = ConfigDict(frozen=True)
+
     allow: tuple[str, ...] = ()
     deny: tuple[str, ...] = ()
-    approval_overrides: dict[str, bool] = field(default_factory=dict)
+    approval_overrides: dict[str, bool] = Field(default_factory=dict)
 
     def visible(self, spec: ToolSpec) -> bool:
         """Return True if ``spec`` should be exposed under this policy."""
@@ -43,9 +45,10 @@ class ToolPolicy:
         return spec.requires_approval or spec.mutates
 
 
-@dataclass(frozen=True)
-class ApprovalDecision:
+class ApprovalDecision(BaseModel):
     """Result of a human-in-the-loop approval prompt."""
+
+    model_config = ConfigDict(frozen=True)
 
     request_id: str
     approved: bool

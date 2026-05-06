@@ -158,10 +158,11 @@ class PlanDecisionRequest(BaseModel):
             "instead of its own draft."
         ),
     )
-    edited_workflow_ir: dict[str, Any] | None = Field(
+    edited_proposal: dict[str, Any] | None = Field(
         None,
         description=(
-            "Optional user edit of the workflow IR. Replaces the agent's drafted IR on approval."
+            "Optional user edit of the plan proposal (PlanProposal-shaped JSON). "
+            "Replaces the agent's drafted proposal on approval."
         ),
     )
     feedback: str = Field(
@@ -181,9 +182,9 @@ class ReviewDecisionRequest(BaseModel):
         None,
         description="Optional edited plan markdown when approving a plan review.",
     )
-    edited_workflow_ir: dict[str, Any] | None = Field(
+    edited_proposal: dict[str, Any] | None = Field(
         None,
-        description="Optional edited workflow IR when approving a plan review.",
+        description="Optional edited plan proposal (PlanProposal-shaped) when approving a plan review.",
     )
 
 

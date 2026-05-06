@@ -7,7 +7,6 @@ and session lifecycle (per §7.1: "the plugin must not execute tools").
 
 from __future__ import annotations
 
-import dataclasses
 import json
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
@@ -200,8 +199,26 @@ def _pai_to_harness(response: Any) -> ModelResponse:
         tool_calls=tuple(tool_calls),
         usage=usage,
         finish_reason=str(finish_reason),
-        raw=response,
+        raw=_coerce_raw(response),
     )
+
+
+def _coerce_raw(obj: Any) -> Any:
+    """Render a provider-side object into a JsonValue.
+
+    pydantic_ai represents messages as stdlib dataclasses (not pydantic
+    BaseModels) — we flatten them via ``dataclasses.asdict`` and let
+    :func:`molexp.agent._serialize.to_jsonable` finish the JSON
+    coercion so the harness's ``raw: JsonValue | None`` field accepts
+    them. Other shapes pass through ``to_jsonable`` directly.
+    """
+    import dataclasses as _dc
+
+    from molexp.agent._serialize import to_jsonable
+
+    if _dc.is_dataclass(obj) and not isinstance(obj, type):
+        return to_jsonable(_dc.asdict(obj))
+    return to_jsonable(obj)
 
 
 def _coerce_args(args: Any) -> dict[str, Any]:
@@ -252,7 +269,7 @@ def _model_io_record(
                 {"id": c.id, "name": c.name, "arguments": c.arguments}
                 for c in harness_response.tool_calls
             ],
-            "usage": dataclasses.asdict(harness_response.usage),
+            "usage": harness_response.usage.model_dump(mode="json"),
             "finish_reason": harness_response.finish_reason,
             "provider_response_id": getattr(raw_response, "provider_response_id", "") or "",
         },

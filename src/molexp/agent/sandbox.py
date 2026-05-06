@@ -29,8 +29,9 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-from dataclasses import dataclass
 from pathlib import Path
+
+from pydantic import BaseModel, ConfigDict
 
 
 class SandboxError(RuntimeError):
@@ -45,9 +46,10 @@ class SandboxTimeoutError(SandboxError):
     """Sandboxed script exceeded the configured wall-clock timeout."""
 
 
-@dataclass(frozen=True)
-class SandboxResult:
+class SandboxResult(BaseModel):
     """Outcome of a single :func:`run_in_sandbox` invocation."""
+
+    model_config = ConfigDict(frozen=True)
 
     returncode: int
     stdout: str

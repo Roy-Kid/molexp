@@ -102,7 +102,7 @@ async def approve_review(
                 request_id=item.target_id,
                 approved=True,
                 edited_plan=request.edited_plan,
-                edited_workflow_ir=request.edited_workflow_ir,
+                edited_proposal=request.edited_proposal,
                 feedback=request.comment,
             ),
             workspace=workspace,

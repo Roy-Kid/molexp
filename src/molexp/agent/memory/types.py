@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.types import utc_now
 
 
-@dataclass(frozen=True)
-class MemoryRecord:
+class MemoryRecord(BaseModel):
     """One stored memory entry."""
+
+    model_config = ConfigDict(frozen=True)
 
     kind: str
     content: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    ts: datetime = field(default_factory=utc_now)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    ts: datetime = Field(default_factory=utc_now)
 
 
 __all__ = ["MemoryRecord"]

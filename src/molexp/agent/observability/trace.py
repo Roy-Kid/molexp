@@ -8,19 +8,21 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
+from pydantic import BaseModel, ConfigDict, Field
+
 from molexp.agent.types import utc_now
 
 
-@dataclass(frozen=True)
-class TraceRecord:
+class TraceRecord(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     kind: str
-    payload: dict[str, Any] = field(default_factory=dict)
-    ts: datetime = field(default_factory=utc_now)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    ts: datetime = Field(default_factory=utc_now)
 
 
 @runtime_checkable

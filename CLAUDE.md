@@ -338,6 +338,26 @@ tests/
 
 Each test directory has `conftest.py` for shared fixtures. Use `conftest.py` at directory level, not standalone fixture files.
 
+## Data type ownership
+
+Each conceptual data category lives in **one** layer. Cross-layer references go through URI / asset_id / string id, never through `from <other_layer> import SomeType`. If two layers need the same type, the type belongs in the downstream common layer (or a shared root); duplicating the type in the upper layer is the bug pattern that produced this rule.
+
+| Concept | Owning module | Notes |
+|---|---|---|
+| asset / artifact | `molexp.workspace.assets` | `Asset` / `ArtifactAsset` / `DataAsset` — content-hashed, scoped catalog |
+| workflow plan / preview | `molexp.workflow.proposal` + `molexp.workflow.preview` | `PlanProposal` (source of truth, holds IR) + `WorkflowPreviewView` (derived view) |
+| session metadata + persistence | `molexp.agent.sessions` | `SessionMetadata`, `SessionStore` |
+| tool result / event payload | `molexp.agent.orchestration.events` + `molexp.agent.tools.spec` | `SessionEvent` discriminated union, `ToolResult` |
+| model boundary types | `molexp.agent.model` | `ModelRequest` / `ModelResponse` / `ModelEvent` / `ModelToolCall` / `ModelConfig` |
+| context packet | `molexp.agent.context` | `ContextPacket`, `ContextBuildRequest` |
+| sandbox result | `molexp.agent.sandbox` | `SandboxResult` |
+
+**Rule (cross-layer-data-reference)**: cross-layer references go through URI / asset_id / string id. Never `from <upstream> import SomeType` to define a shape in `<downstream>`; either move the type to the downstream layer or accept the cross-layer dependency consciously and document why.
+
+**Counter-example (already corrected)**: `molexp.workflow.proposal` historically imported `molexp.agent.types.ArtifactRef`. That coupled the workflow layer to the agent layer for an artifact concept that already lived in `molexp.workspace.assets`. The reference was removed in the agent-layer-rectification spec; `code_artifact: Path | None` replaced it.
+
+**Pydantic vs plain class**: pure data types (events, configs, results, lineage records, IR nodes) are `pydantic.BaseModel(frozen=True)`. Runtime containers carrying live runtime instances (callables, asyncio objects, service instances, non-pydantic types) are plain Python classes with explicit `__init__`. **`arbitrary_types_allowed=True` is forbidden in `src/molexp/agent/`** — anything that needs it is a runtime container by definition.
+
 ## Skills
 
 This repository delegates its workflow to the generic `mol` plugin

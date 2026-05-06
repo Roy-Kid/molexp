@@ -307,16 +307,16 @@ class Experiment:
     # ── Workflow IR persistence ─────────────────────────────────────────
 
     @property
-    def workflow_ir_path(self) -> Path:
+    def workflow_path(self) -> Path:
         """Path to the on-disk workflow IR file (may not exist)."""
         return self.experiment_dir / "workflow.json"
 
     def _persist_workflow_ir(self, ir: dict[str, Any]) -> None:
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_json(self.workflow_ir_path, ir)
+        _atomic_write_json(self.workflow_path, ir)
 
     def _read_workflow_ir_from_disk(self) -> dict[str, Any] | None:
-        path = self.workflow_ir_path
+        path = self.workflow_path
         if not path.exists():
             return None
         try:

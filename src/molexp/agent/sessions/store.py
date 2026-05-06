@@ -14,14 +14,12 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import asdict, is_dataclass
-from datetime import datetime
-from enum import Enum
 from pathlib import Path
 from typing import Any, Iterable
 
+from molexp.agent._serialize import to_jsonable
 from molexp.agent.sessions.types import SessionMetadata
-from molexp.agent.types import Goal, Message, SessionStatus
+from molexp.agent.types import Message
 
 
 class SessionStore:
@@ -51,8 +49,7 @@ class SessionStore:
 
     def write_metadata(self, meta: SessionMetadata) -> None:
         path = self.session_dir(meta.session_id) / self.METADATA_FILENAME
-        payload = _to_json_safe(meta)
-        _atomic_write_json(path, payload)
+        _atomic_write_json(path, to_jsonable(meta))
 
     def read_metadata(self, session_id: str) -> SessionMetadata | None:
         path = self.session_dir(session_id) / self.METADATA_FILENAME
@@ -60,7 +57,7 @@ class SessionStore:
             return None
         with path.open("r", encoding="utf-8") as f:
             payload = json.load(f)
-        return _metadata_from_json(payload)
+        return SessionMetadata.model_validate(payload)
 
     def list_sessions(self) -> tuple[SessionMetadata, ...]:
         if not self._root.exists():
@@ -78,7 +75,7 @@ class SessionStore:
 
     def append_messages(self, session_id: str, messages: Iterable[Message]) -> None:
         path = self.session_dir(session_id) / self.MESSAGES_FILENAME
-        _append_jsonl(path, (_to_json_safe(m) for m in messages))
+        _append_jsonl(path, (to_jsonable(m) for m in messages))
 
     def read_messages(self, session_id: str) -> tuple[Message, ...]:
         path = self.session_dir(session_id) / self.MESSAGES_FILENAME
@@ -90,20 +87,12 @@ class SessionStore:
                 raw = raw.strip()
                 if not raw:
                     continue
-                payload = json.loads(raw)
-                out.append(
-                    Message(
-                        role=payload["role"],
-                        content=payload["content"],
-                        name=payload.get("name"),
-                        metadata=payload.get("metadata", {}),
-                    )
-                )
+                out.append(Message.model_validate_json(raw))
         return tuple(out)
 
     def append_event(self, session_id: str, event: Any) -> None:
         path = self.session_dir(session_id) / self.EVENTS_FILENAME
-        _append_jsonl(path, [_to_json_safe(event)])
+        _append_jsonl(path, [to_jsonable(event)])
 
     def append_model_io(self, session_id: str, payload: dict[str, Any]) -> None:
         """Plugin-only entry point for the raw model_io layer."""
@@ -117,27 +106,8 @@ class SessionStore:
         ckpt_dir = self.session_dir(session_id) / self.CHECKPOINTS_DIRNAME
         ckpt_dir.mkdir(parents=True, exist_ok=True)
         path = ckpt_dir / f"{name}.json"
-        _atomic_write_json(path, _to_json_safe(payload))
+        _atomic_write_json(path, to_jsonable(payload))
         return path
-
-
-# Serialization helpers -------------------------------------------------
-
-
-def _to_json_safe(obj: Any) -> Any:
-    if is_dataclass(obj) and not isinstance(obj, type):
-        payload = asdict(obj)
-        payload["__type__"] = type(obj).__name__
-        return _to_json_safe(payload)
-    if isinstance(obj, dict):
-        return {k: _to_json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_to_json_safe(v) for v in obj]
-    if isinstance(obj, datetime):
-        return obj.isoformat()
-    if isinstance(obj, Enum):
-        return obj.value
-    return obj
 
 
 def _atomic_write_json(path: Path, payload: Any) -> None:
@@ -156,22 +126,3 @@ def _append_jsonl(path: Path, lines: Iterable[Any]) -> None:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
         f.flush()
         os.fsync(f.fileno())
-
-
-def _metadata_from_json(payload: dict[str, Any]) -> SessionMetadata:
-    goal_payload = payload["goal"]
-    goal = Goal(
-        description=goal_payload["description"],
-        constraints=goal_payload.get("constraints", {}),
-        success_criteria=goal_payload.get("success_criteria", []),
-        instructions_override=goal_payload.get("instructions_override"),
-        skill_id=goal_payload.get("skill_id"),
-    )
-    return SessionMetadata(
-        session_id=payload["session_id"],
-        goal=goal,
-        status=SessionStatus(payload["status"]),
-        created_at=datetime.fromisoformat(payload["created_at"]),
-        updated_at=datetime.fromisoformat(payload["updated_at"]),
-        summary=payload.get("summary", ""),
-    )

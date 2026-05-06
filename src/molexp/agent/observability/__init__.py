@@ -1,9 +1,5 @@
 """Evaluation + observability layer."""
 
-from molexp.agent.observability.artifacts import (
-    normalize_artifact,
-    normalize_artifacts,
-)
 from molexp.agent.observability.evals import EvalResult, Evaluator, NoopEvaluator
 from molexp.agent.observability.trace import (
     JsonlTraceSink,
@@ -22,6 +18,4 @@ __all__ = [
     "TraceRecord",
     "TraceSink",
     "UsageAccumulator",
-    "normalize_artifact",
-    "normalize_artifacts",
 ]

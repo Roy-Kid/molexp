@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.agent.types import Goal, SessionStatus, utc_now
 
 
-@dataclass(frozen=True)
-class SessionMetadata:
+class SessionMetadata(BaseModel):
     """Latest summary persisted to ``session.json``."""
+
+    model_config = ConfigDict(frozen=True)
 
     session_id: str
     goal: Goal
     status: SessionStatus
-    created_at: datetime = field(default_factory=utc_now)
-    updated_at: datetime = field(default_factory=utc_now)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
     summary: str = ""
 
 

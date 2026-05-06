@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from pydantic import BaseModel, ConfigDict
 
 
-@dataclass(frozen=True)
-class ConstraintSet:
+class ConstraintSet(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
     """Hard caps enforced by the orchestration layer.
 
     Soft hints to the model travel as :class:`ModelBudget`; this set

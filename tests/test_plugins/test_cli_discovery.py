@@ -18,7 +18,6 @@ Implementation is scheduled for Step 5 of the spec.
 
 from __future__ import annotations
 
-import dataclasses
 from typing import Iterable
 
 import pytest
@@ -35,9 +34,12 @@ from molexp.plugins.cli import (  # type: ignore[import-not-found]
 
 
 class TestCliPluginContract:
-    def test_is_frozen_dataclass(self) -> None:
-        assert dataclasses.is_dataclass(CliPlugin)
-        assert CliPlugin.__dataclass_params__.frozen is True
+    def test_is_immutable_plain_class(self) -> None:
+        """CliPlugin is a plain Python class with explicit __init__; it carries
+        a live ``register`` callable so it is not a pydantic BaseModel."""
+        from pydantic import BaseModel
+
+        assert not issubclass(CliPlugin, BaseModel)
 
     def test_required_fields(self) -> None:
         def reg(app: typer.Typer) -> None:
@@ -63,7 +65,7 @@ class TestCliPluginContract:
             version="0.0.1",
             register=lambda app: None,
         )
-        with pytest.raises(dataclasses.FrozenInstanceError):
+        with pytest.raises(AttributeError):
             plugin.id = "y"  # type: ignore[misc]
 
     def test_api_version_constant(self) -> None:
