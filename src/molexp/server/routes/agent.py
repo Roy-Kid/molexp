@@ -6,7 +6,7 @@ ownership live entirely on :class:`AgentService`; these handlers do
 not own ``_sessions`` globals.
 
 Skills come from :mod:`molexp.agent.skills`, provider credentials
-and config from :mod:`molexp.plugins.model_pydanticai`, and the system
+and config from :mod:`molexp.plugins.agent_pydanticai`, and the system
 prompt from :mod:`molexp.agent.context.prompt`.
 
 Handlers take ``workspace`` as their only injected dependency and
@@ -103,10 +103,10 @@ def _resolve_model_client(root: Path | None):
 
     if root is None:
         return None
-    import molexp.plugins.model_pydanticai  # noqa: F401 — registers the factory
+    import molexp.plugins.agent_pydanticai  # noqa: F401 — registers the factory
     from molexp.agent import AgentService, create_model_client
     from molexp.agent.sessions import SessionStore
-    from molexp.plugins.model_pydanticai.store import ProviderStore
+    from molexp.plugins.agent_pydanticai.store import ProviderStore
 
     config = ProviderStore(root).load()
     if not config.api_key:
@@ -219,7 +219,7 @@ def _require_credentials(workspace) -> None:
     root = getattr(workspace, "root", None)
     if root is None:
         return
-    from molexp.plugins.model_pydanticai import ProviderStore, check_credentials
+    from molexp.plugins.agent_pydanticai import ProviderStore, check_credentials
 
     config = ProviderStore(root).load()
     status = check_credentials(config)
@@ -469,7 +469,7 @@ def get_session_system_prompt(
     workspace_instructions = ""
     root = getattr(workspace, "root", None)
     if root is not None:
-        from molexp.plugins.model_pydanticai.store import ProviderStore
+        from molexp.plugins.agent_pydanticai.store import ProviderStore
 
         workspace_instructions = ProviderStore(root).load().instructions
 

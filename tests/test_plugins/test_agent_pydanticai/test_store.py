@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from molexp.plugins.model_pydanticai.store import (
+from molexp.plugins.agent_pydanticai.store import (
     DEFAULT_MODELS,
     ProviderStore,
     default_config,

@@ -8,8 +8,8 @@ import time
 from dataclasses import dataclass
 
 from molexp.agent.model import ModelConfig
-from molexp.plugins.model_pydanticai.provider import build_model
-from molexp.plugins.model_pydanticai.store import (
+from molexp.plugins.agent_pydanticai.provider import build_model
+from molexp.plugins.agent_pydanticai.store import (
     ENV_VAR_FOR_PROVIDER,
     SUPPORTED_PROVIDERS,
     mask_api_key,

@@ -1,6 +1,6 @@
 """Codex app-server JSON-RPC adapter.
 
-Implements :class:`molexp.plugins.coding_agent.CodingAgentClient` by spawning
+Implements :class:`molexp.agent.coding_protocol.CodingAgentClient` by spawning
 ``codex app-server`` as a long-lived subprocess and exchanging JSON-RPC frames
 over stdio. One client instance manages one app-server process.
 
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from molexp.plugins.agent_codex.config import CodexConfig
-from molexp.plugins.coding_agent import (
+from molexp.agent.coding_protocol import (
     AgentError,
     AgentEventCallback,
     AgentTurnInputRequiredError,

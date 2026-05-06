@@ -20,6 +20,8 @@ caller. The import-guard test in
 ``tests/test_agent/test_import_guard.py`` enforces both halves.
 """
 
+from molexp.agent.factory import Agent
+from molexp.agent.replan import replan
 from molexp.agent.model import (
     ModelClient,
     ModelClientFactory,
@@ -69,6 +71,7 @@ from molexp.agent.types import (
 )
 
 __all__ = [
+    "Agent",
     "AgentFailure",
     "AgentMode",
     "AgentService",
@@ -104,4 +107,5 @@ __all__ = [
     "native_tool",
     "register_model_provider",
     "register_tool_source",
+    "replan",
 ]

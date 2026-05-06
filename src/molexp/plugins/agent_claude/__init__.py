@@ -2,7 +2,7 @@
 
 Importing this package exposes :class:`ClaudeCliClient`, which spawns the
 ``claude`` CLI per turn and translates its ``--output-format stream-json``
-event stream into normalized :class:`molexp.plugins.coding_agent.TurnResult`
+event stream into normalized :class:`molexp.agent.coding_protocol.TurnResult`
 plus an event callback the orchestrator consumes.
 
 Multi-turn continuation is achieved by reusing one v4 UUID across turns:

@@ -645,7 +645,7 @@ def test_test_provider_returns_no_key_error_when_unconfigured(client):
 @pytest.mark.integration
 def test_test_provider_uses_draft_key_without_persisting(client, monkeypatch):
     """Probing with an inline api_key must not save it."""
-    from molexp.plugins import model_pydanticai as provider_mod
+    from molexp.plugins import agent_pydanticai as provider_mod
 
     captured: dict[str, str] = {}
 
@@ -683,7 +683,7 @@ def test_test_provider_uses_draft_key_without_persisting(client, monkeypatch):
 @pytest.mark.integration
 def test_test_provider_falls_back_to_stored_key(client, monkeypatch):
     """If api_key is omitted, probe should use the persisted key."""
-    from molexp.plugins import model_pydanticai as provider_mod
+    from molexp.plugins import agent_pydanticai as provider_mod
 
     client.put(
         "/api/agent/provider",
@@ -710,7 +710,7 @@ def test_test_provider_falls_back_to_stored_key(client, monkeypatch):
 
 @pytest.mark.integration
 def test_test_provider_propagates_failure(client, monkeypatch):
-    from molexp.plugins import model_pydanticai as provider_mod
+    from molexp.plugins import agent_pydanticai as provider_mod
 
     async def fake_probe(config):
         return provider_mod.ProbeResult(ok=False, latency_ms=200, error="401: bad key")

@@ -34,7 +34,7 @@ from molexp.agent.persistence import Scope, tiered_router_factory
 from molexp.agent.skills import RESERVED_SLASH_NAMES, SkillStore
 from molexp.agent.skills import parse as parse_slash
 from molexp.agent.tools.admin import describe_native_tools
-from molexp.plugins.model_pydanticai import (
+from molexp.plugins.agent_pydanticai import (
     DEFAULT_MODELS,
     SUPPORTED_PROVIDERS,
     ProviderStore,

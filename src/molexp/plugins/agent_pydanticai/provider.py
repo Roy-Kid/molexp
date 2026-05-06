@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable
 
 from molexp.agent.model import ModelClient, ModelConfig
-from molexp.plugins.model_pydanticai.store import (
+from molexp.plugins.agent_pydanticai.store import (
     DEEPSEEK_DEFAULT_BASE_URL,
     SUPPORTED_PROVIDERS,
 )
@@ -61,7 +61,7 @@ class PydanticAIModelClientFactory:
         *,
         model_io_sink: ModelIoSink | None = None,
     ) -> ModelClient:
-        from molexp.plugins.model_pydanticai.client import PydanticAIModelClient
+        from molexp.plugins.agent_pydanticai.client import PydanticAIModelClient
 
         model = build_model(config)
         return PydanticAIModelClient(

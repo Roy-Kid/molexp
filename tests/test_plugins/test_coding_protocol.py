@@ -11,13 +11,13 @@ from __future__ import annotations
 
 
 def test_coding_agent_module_importable():
-    import molexp.plugins.coding_agent as ca
+    import molexp.agent.coding_protocol as ca
 
     assert ca is not None
 
 
 def test_turn_result_dataclass_shape():
-    from molexp.plugins.coding_agent import TurnResult
+    from molexp.agent.coding_protocol import TurnResult
 
     result = TurnResult(thread_id="t1", turn_id="u1", status="completed")
     assert result.thread_id == "t1"
@@ -26,7 +26,7 @@ def test_turn_result_dataclass_shape():
 
 
 def test_agent_error_is_runtime_error():
-    from molexp.plugins.coding_agent import AgentError
+    from molexp.agent.coding_protocol import AgentError
 
     assert issubclass(AgentError, RuntimeError)
     err = AgentError("nope")
@@ -34,14 +34,14 @@ def test_agent_error_is_runtime_error():
 
 
 def test_agent_event_callback_alias_exists():
-    from molexp.plugins.coding_agent import AgentEventCallback
+    from molexp.agent.coding_protocol import AgentEventCallback
 
     # AgentEventCallback is a typing alias; merely importable + non-None is fine.
     assert AgentEventCallback is not None
 
 
 def test_coding_agent_client_protocol_is_runtime_checkable():
-    from molexp.plugins.coding_agent import CodingAgentClient
+    from molexp.agent.coding_protocol import CodingAgentClient
 
     # CodingAgentClient must be a runtime-checkable Protocol so plugins can
     # be type-checked dynamically.
@@ -53,7 +53,7 @@ def test_coding_agent_client_protocol_is_runtime_checkable():
             return ""
 
         async def run_turn(self, thread_id: str, prompt: str):
-            from molexp.plugins.coding_agent import TurnResult
+            from molexp.agent.coding_protocol import TurnResult
 
             return TurnResult(thread_id="", turn_id="", status="")
 
@@ -63,7 +63,7 @@ def test_coding_agent_client_protocol_is_runtime_checkable():
 
 
 def test_protocol_rejects_missing_methods():
-    from molexp.plugins.coding_agent import CodingAgentClient
+    from molexp.agent.coding_protocol import CodingAgentClient
 
     class _Partial:
         pid: int | None = None

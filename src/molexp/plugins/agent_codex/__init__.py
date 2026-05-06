@@ -3,7 +3,7 @@
 Importing this package exposes :class:`CodexAppServerClient`, which spawns
 ``codex app-server`` as a long-lived subprocess and drives it via JSON-RPC
 over stdio. Translates Codex protocol messages into normalized
-:class:`molexp.plugins.coding_agent.TurnResult` plus an event callback.
+:class:`molexp.agent.coding_protocol.TurnResult` plus an event callback.
 
 Reverse-RPC tool calls (where the Codex agent invokes a callback into the
 host) are dispatched through a caller-supplied :class:`ToolHandler` —

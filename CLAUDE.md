@@ -172,24 +172,33 @@ Internal `_pydantic_graph/` compiles specs into pydantic-graph IR with topologic
 
 Supporting modules: `cache.py` (LRU content-addressed), `snapshot.py` (AST-normalized code hashing), `protocols.py` (structural `Runnable` / `Streamable` protocols for zero-import third-party integration).
 
-#### 2. Agent Layer (`src/molexp/plugins/agent_pydanticai/`)
+#### 2. Agent Layer (`src/molexp/agent/`)
 
-Goal-driven autonomous execution built on PydanticAI, exposed as an **optional plugin** (loaded lazily via `molexp.plugins.registry`). Install with `pip install molexp[agent]`. Public API:
+Top-level package owning the agent surface. Three independent concerns sit here:
+
+1. **LLM-driven harness** — `AgentService`, `AgentSession`, `Goal`, `ModelClient`. The model boundary is provider-agnostic; the PydanticAI implementation lives in `plugins/agent_pydanticai/` and registers itself via `register_model_provider`.
+2. **Coding-agent protocol** — `coding_protocol.py` defines `CodingAgentClient` / `TurnResult` / `AgentError`. CLI providers (`plugins/agent_claude/`, `plugins/agent_codex/`) implement this protocol.
+3. **Unified factory + research-orchestration primitives**:
+   - `Agent(provider="claude" | "codex" | "pydanticai", **kwargs)` — single resolver. `resolve_only=True` returns the class without spawning.
+   - `replan(run, modifier, reason=...)` — sibling-Run authoring driven by a sanity-check verdict; pairs with `Workflow.sanity_check(on_fail='replan')`.
+   - `sandbox.run_in_sandbox(script, cwd, allowed_read_roots, allowed_write_roots, timeout)` — subprocess sandbox for agent-authored Task code, with a chdir + path-prefix shim.
 
 ```python
-from molexp.plugins.agent_pydanticai import AgentService, Goal
+from molexp.agent import Agent, AgentService, replan
+from molexp.agent.sandbox import run_in_sandbox
 
+# Coding-agent CLI client.
+client = Agent(provider="claude", config=cfg)
+
+# LLM-driven harness.
 service = AgentService.from_workspace("./lab")
 session = await service.run(Goal(description="...", constraints=[...]))
+
+# Replanned-from sibling run.
+new_run = replan(failed_run, modifier=lambda p: {**p, "charge_strength": p["charge_strength"] / 2})
 ```
 
-- `AgentService` — Entry point, creates sessions from workspace
-- `AgentRuntime` — Abstract runtime (PydanticAI implementation in `_pydantic_ai/`)
-- `Tool` / `@agent_tool` — Tool definitions with approval levels
-- `ApprovalPolicy` — Glob-pattern-based tool approval control
-- Session events: `PlanCreatedEvent`, `ToolCallEvent`, `ObservationEvent`, etc.
-
-Internal `_pydantic_ai/` handles PydanticAI integration. Never import directly.
+Importing `molexp.agent` itself does not pull in `pydantic_ai`, HTTP clients, or provider SDKs — providers are loaded lazily through the factory.
 
 #### 3. Workspace Layer (`src/molexp/workspace/`)
 

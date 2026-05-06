@@ -9,8 +9,8 @@ either layer.
 from __future__ import annotations
 
 from molexp.agent.model_registry import register_model_provider
-from molexp.plugins.model_pydanticai.client import PydanticAIModelClient
-from molexp.plugins.model_pydanticai.credentials import (
+from molexp.plugins.agent_pydanticai.client import PydanticAIModelClient
+from molexp.plugins.agent_pydanticai.credentials import (
     CredentialStatus,
     ProbeResult,
     ProviderConfigPublic,
@@ -18,12 +18,12 @@ from molexp.plugins.model_pydanticai.credentials import (
     probe_provider,
     to_public,
 )
-from molexp.plugins.model_pydanticai.provider import (
+from molexp.plugins.agent_pydanticai.provider import (
     SUPPORTED_PROVIDERS,
     PydanticAIModelClientFactory,
     PydanticAIProviderValidator,
 )
-from molexp.plugins.model_pydanticai.store import (
+from molexp.plugins.agent_pydanticai.store import (
     DEFAULT_MODELS,
     ProviderStore,
     mask_api_key,

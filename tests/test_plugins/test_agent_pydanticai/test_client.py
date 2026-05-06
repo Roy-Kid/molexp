@@ -33,7 +33,7 @@ from molexp.agent import (
     list_providers,
 )
 from molexp.agent.types import Message
-from molexp.plugins.model_pydanticai import (  # noqa: F401 — registers the plugin
+from molexp.plugins.agent_pydanticai import (  # noqa: F401 — registers the plugin
     PydanticAIModelClient,
     PydanticAIModelClientFactory,
     PydanticAIProviderValidator,

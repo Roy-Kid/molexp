@@ -1,6 +1,6 @@
 """Claude Code CLI subprocess adapter.
 
-Implements :class:`molexp.plugins.coding_agent.CodingAgentClient` by spawning
+Implements :class:`molexp.agent.coding_protocol.CodingAgentClient` by spawning
 ``claude -p`` once per turn, piping the rendered prompt through stdin, and
 parsing the ``--output-format stream-json`` event stream into normalized
 events plus a single :class:`TurnResult` per turn.
@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from molexp.plugins.agent_claude.config import ClaudeCliConfig, SubagentDef
-from molexp.plugins.coding_agent import (
+from molexp.agent.coding_protocol import (
     AgentError,
     AgentEventCallback,
     TurnResult,
