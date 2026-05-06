@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import warnings
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -473,11 +474,17 @@ async def _task_run(
         )
 
     inputs = _collect_upstream_outputs(registration, ctx.state)
+    effective_config = _resolve_dependent_params(
+        registration=registration,
+        state=ctx.state,
+        run_context=ctx.deps.run_context,
+        base_config=ctx.deps.config,
+    )
     task_ctx = TaskContext(
         state=ctx.state,
         deps=ctx.deps.user_deps,
         inputs=inputs,
-        config=ctx.deps.config,
+        config=effective_config,
         run_context=ctx.deps.run_context,
     )
 
@@ -493,7 +500,70 @@ async def _task_run(
                 run_dir=run_dir,
             )
 
-    return await _invoke_body_with_ctx(self, registration, task_ctx)
+    output = await _invoke_body_with_ctx(self, registration, task_ctx)
+    # Sanity hooks fire after the task body returns but before its output is
+    # recorded into state.results — the predicate sees state up to (but not
+    # including) this task. To make the predicate observe THIS task's output,
+    # pre-record into a transient view so hooks compose naturally.
+    transient = ctx.state.record(registration.name, output)
+    _run_sanity_hooks(
+        task_name=registration.name,
+        state=transient,
+        deps=ctx.deps,
+    )
+    return output
+
+
+def _run_sanity_hooks(*, task_name: str, state: WorkflowState, deps: WorkflowDeps) -> None:
+    """Evaluate every ``Workflow.sanity_check`` hook attached to *task_name*.
+
+    Hooks fire in declaration order. ``on_fail='halt'`` raises
+    :class:`SanityCheckFailed` so the runtime surfaces a failed
+    ``WorkflowResult``; ``'replan'`` records a structured event on
+    ``state.sanity_events`` and continues; ``'continue'`` is a no-op.
+    """
+    hooks = deps.sanity_hooks_by_task.get(task_name) if deps.sanity_hooks_by_task else None
+    if not hooks:
+        return
+
+    from ..types import SanityCheckFailed
+
+    for hook in hooks:
+        try:
+            passed = bool(hook.predicate(state))
+        except Exception as exc:  # predicate is user code — surface failures cleanly
+            state.sanity_events.append(
+                {
+                    "task": task_name,
+                    "on_fail": hook.on_fail,
+                    "passed": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
+            if hook.on_fail == "halt":
+                raise SanityCheckFailed(
+                    task=task_name,
+                    message=f"Sanity predicate raised: {exc}",
+                    sanity_events=list(state.sanity_events),
+                ) from exc
+            continue
+
+        if passed:
+            continue
+
+        state.sanity_events.append(
+            {
+                "task": task_name,
+                "on_fail": hook.on_fail,
+                "passed": False,
+            }
+        )
+        if hook.on_fail == "halt":
+            raise SanityCheckFailed(
+                task=task_name,
+                sanity_events=list(state.sanity_events),
+            )
+        # 'replan' / 'continue' — event recorded; do not interrupt the run.
 
 
 async def _invoke_body_with_ctx(
@@ -606,6 +676,90 @@ def _collect_upstream_outputs(registration: Any, state: WorkflowState) -> Any:
     if len(deps) == 1:
         return state.results.get(deps[0])
     return {dep: state.results.get(dep) for dep in deps}
+
+
+class _UpstreamView:
+    """Per-upstream view passed to ``dependent_params(prev)``.
+
+    Exposes ``.output`` (the upstream task's return value, as recorded in
+    :attr:`WorkflowState.results`) and ``.assets`` (an
+    :class:`~molexp.workspace.assets.AssetsView` filtered to the upstream
+    task's producer entries when a workspace ``RunContext`` is attached;
+    ``None`` otherwise).
+    """
+
+    __slots__ = ("output", "assets")
+
+    def __init__(self, output: Any, assets: Any) -> None:
+        self.output = output
+        self.assets = assets
+
+
+def _resolve_dependent_params(
+    *,
+    registration: Any,
+    state: WorkflowState,
+    run_context: Any,
+    base_config: Any,
+) -> Any:
+    """If the task declares ``dependent_params=fn``, resolve and overlay onto config.
+
+    ``fn`` receives ``dict[str, _UpstreamView]`` keyed by upstream task name.
+    Its return mapping is overlayed onto a fresh
+    :class:`~molexp.config.ProfileConfig` and the result replaces the task's
+    base config. The base config is returned unchanged when no
+    ``dependent_params`` is declared.
+    """
+    fn = getattr(registration, "dependent_params", None)
+    if fn is None:
+        return base_config
+
+    from molexp.config import ProfileConfig
+
+    prev: dict[str, _UpstreamView] = {}
+    for dep in registration.depends_on:
+        upstream_assets = None
+        if run_context is not None:
+            assets_view = getattr(run_context, "assets", None)
+            if assets_view is not None and hasattr(assets_view, "query"):
+                upstream_assets = _UpstreamAssetsView(assets_view, producer_task=dep)
+        prev[dep] = _UpstreamView(
+            output=state.results.get(dep),
+            assets=upstream_assets,
+        )
+
+    overlay = fn(prev)
+    if overlay is None:
+        return base_config
+    if not isinstance(overlay, Mapping):
+        raise TypeError(
+            f"dependent_params for task {registration.name!r} must return a Mapping; "
+            f"got {type(overlay).__name__}"
+        )
+    merged: dict[str, Any] = dict(base_config) if base_config is not None else {}
+    merged.update(overlay)
+    return ProfileConfig(merged, name=getattr(base_config, "name", None))
+
+
+class _UpstreamAssetsView:
+    """Lazy ``query()`` proxy that pre-binds ``producer_task=<dep>``.
+
+    Avoids importing :class:`AssetsView` at module top to keep the
+    workspace dependency optional for non-workspace runs.
+    """
+
+    __slots__ = ("_inner", "_producer_task")
+
+    def __init__(self, assets_view: Any, producer_task: str) -> None:
+        self._inner = assets_view
+        self._producer_task = producer_task
+
+    def query(self, **kwargs: Any) -> Any:
+        kwargs.setdefault("producer_task", self._producer_task)
+        return self._inner.query(**kwargs)
+
+    def list(self) -> Any:
+        return self.query()
 
 
 def _python_safe_ident(name: str) -> str:

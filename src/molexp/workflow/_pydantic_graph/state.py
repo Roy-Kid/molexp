@@ -36,6 +36,10 @@ class WorkflowState:
     parallel_runs: dict[str, int] = field(default_factory=dict)
     failed: bool = False
     error: str | None = None
+    # Sanity-check events emitted while the workflow ran. Mutated in-place by
+    # ``_task_run`` after each ``Workflow.sanity_check`` hook fires; surfaced
+    # on :class:`WorkflowResult.sanity_events`.
+    sanity_events: list[dict[str, Any]] = field(default_factory=list)
 
     def record(self, step_name: str, output: Any) -> "WorkflowState":
         """Return a new state with the given task's output recorded.
@@ -51,6 +55,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            sanity_events=self.sanity_events,
         )
 
     def mark_completed(self, names: Iterable[str]) -> "WorkflowState":
@@ -63,6 +68,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            sanity_events=self.sanity_events,
         )
 
     def set_pending(self, targets: Iterable[str]) -> "WorkflowState":
@@ -75,6 +81,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            sanity_events=self.sanity_events,
         )
 
     def with_loop_counter(self, until_name: str, count: int) -> "WorkflowState":
@@ -87,6 +94,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            sanity_events=self.sanity_events,
         )
 
     def with_parallel_run(self, body_name: str, count: int) -> "WorkflowState":
@@ -99,6 +107,7 @@ class WorkflowState:
             parallel_runs={**self.parallel_runs, body_name: count},
             failed=self.failed,
             error=self.error,
+            sanity_events=self.sanity_events,
         )
 
     def fail(self, step_name: str, exc: Exception) -> "WorkflowState":
@@ -111,6 +120,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=True,
             error=f"Step '{step_name}' failed: {exc}",
+            sanity_events=self.sanity_events,
         )
 
     def _sync_from(self, other: "WorkflowState") -> None:
@@ -128,6 +138,7 @@ class WorkflowState:
         self.parallel_runs = other.parallel_runs
         self.failed = other.failed
         self.error = other.error
+        self.sanity_events = other.sanity_events
 
 
 @dataclass
@@ -169,3 +180,6 @@ class WorkflowDeps:
     # WorkflowStep recognises body tasks present here and dispatches them
     # via a fan-out scheduler instead of a singleton invocation.
     parallel_decls: Mapping[str, Any] = field(default_factory=dict)
+    # Spec ``molexp-research-orchestration`` — Workflow.sanity_check hooks
+    # indexed by ``after`` task name.  Empty when no hooks were declared.
+    sanity_hooks_by_task: Mapping[str, Any] = field(default_factory=dict)

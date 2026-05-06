@@ -106,6 +106,34 @@ class ParallelDecl:
         self.max_concurrency = max_concurrency
 
 
+class SanityHook:
+    """A post-task predicate hook.
+
+    See :meth:`Workflow.sanity_check`.  ``predicate`` is called with the
+    workflow ``WorkflowState`` after the task named in ``after`` has
+    completed; on a falsy return value the runtime acts according to
+    :attr:`on_fail`.
+    """
+
+    __slots__ = ("after", "predicate", "on_fail")
+
+    def __init__(
+        self,
+        *,
+        after: str,
+        predicate: Callable[[Any], bool],
+        on_fail: str,
+    ) -> None:
+        if on_fail not in ("halt", "replan", "continue"):
+            raise ValueError(
+                f"sanity_check.on_fail must be one of "
+                f"'halt' / 'replan' / 'continue'; got {on_fail!r}"
+            )
+        self.after = after
+        self.predicate = predicate
+        self.on_fail = on_fail
+
+
 class TaskRegistration:
     """Internal record of a registered task or actor.
 
@@ -123,6 +151,7 @@ class TaskRegistration:
         "remote",
         "task_type",
         "config",
+        "dependent_params",
     )
 
     def __init__(
@@ -134,6 +163,7 @@ class TaskRegistration:
         remote: Any = None,
         task_type: str | None = None,
         config: dict[str, Any] | None = None,
+        dependent_params: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> None:
         self.name = name
         self.fn_or_class = fn_or_class
@@ -142,6 +172,7 @@ class TaskRegistration:
         self.remote = remote
         self.task_type = task_type
         self.config = dict(config) if config else None
+        self.dependent_params = dependent_params
 
 
 # ── WorkflowSpec ────────────────────────────────────────────────────────────
@@ -180,6 +211,10 @@ class WorkflowSpec:
         self._loops = loops
         self._parallels = parallels
         self._runtime: Any = None  # WorkflowRuntime, lazy
+        # Sweep-level cross-replicate reducer (set by Workflow.build()).
+        self._reducer: tuple[str, Callable[..., Any]] | None = None
+        # Sanity-check hooks (set by Workflow.build()).
+        self._sanity_hooks: tuple[SanityHook, ...] = ()
 
     def _get_runtime(self) -> Any:
         if self._runtime is None:
@@ -187,6 +222,31 @@ class WorkflowSpec:
 
             self._runtime = create_default_runtime()
         return self._runtime
+
+    # ── Sweep-level reducer ─────────────────────────────────────────────
+
+    @property
+    def reducer_dimension(self) -> str | None:
+        """Dimension declared on ``@wf.reduce(over=...)``; ``None`` if no reducer."""
+        return self._reducer[0] if self._reducer is not None else None
+
+    def run_reducer(self, replicate_outputs: list[Any]) -> Any:
+        """Invoke the registered ``@wf.reduce`` on a list of replicate outputs.
+
+        Raises ``LookupError`` if no reducer was registered. Callers attach
+        the return value to the experiment-scope asset library; this method
+        does not write anywhere itself.
+        """
+        if self._reducer is None:
+            raise LookupError(
+                f"WorkflowSpec {self.name!r}: no reducer registered (call @wf.reduce(over=...))"
+            )
+        return self._reducer[1](replicate_outputs)
+
+    @property
+    def sanity_hooks(self) -> tuple[SanityHook, ...]:
+        """Frozen view of the sanity-check hooks declared on the parent ``Workflow``."""
+        return self._sanity_hooks
 
     async def execute(
         self,
@@ -449,6 +509,9 @@ class Workflow:
         self._branch_edges: list[tuple[str, str, str]] = []
         self._loops: list[LoopDecl] = []
         self._parallels: list[ParallelDecl] = []
+        self._reducer: tuple[str, Callable[..., Any]] | None = None
+        self._task_path_registry: dict[str, type] = {}
+        self._sanity_hooks: list[SanityHook] = []
         if entry is not None:
             if isinstance(entry, str):
                 self.entry(entry)
@@ -481,6 +544,7 @@ class Workflow:
         remote: Any = None,
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
+        dependent_params: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> Callable:
         """Register a function as a batch workflow task.
 
@@ -518,6 +582,7 @@ class Workflow:
                     depends_on=depends_on or [],
                     is_actor=False,
                     remote=remote,
+                    dependent_params=dependent_params,
                 )
             )
             self._record_decorator_edges(task_name, routes=routes, next_=next_)
@@ -575,6 +640,7 @@ class Workflow:
         config: dict[str, Any] | None = None,
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
+        dependent_params: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
     ) -> Workflow:
         """Register a Task / Actor instance (or any Runnable/Streamable).
 
@@ -614,6 +680,7 @@ class Workflow:
                 remote=remote,
                 task_type=task_type,
                 config=config,
+                dependent_params=dependent_params,
             )
         )
         self._record_decorator_edges(task_name, routes=routes, next_=next_)
@@ -793,6 +860,130 @@ class Workflow:
         )
         return self
 
+    # ── Cross-replicate reducer (sweep-level fan-in) ────────────────────
+
+    def reduce(
+        self,
+        *,
+        over: str = "replicate",
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a cross-replicate reducer for sweep-level fan-in.
+
+        The reducer is *not* part of the workflow DAG; it is invoked by the
+        sweep runner (or any caller of :meth:`WorkflowSpec.run_reducer`)
+        after all replicate runs of this workflow complete. Output is
+        intended for the experiment-level asset library — callers attach
+        it to the experiment scope, not the run.
+
+        Args:
+            over: Name of the dimension being reduced over (typically
+                ``"replicate"``). Recorded on the spec via
+                :attr:`WorkflowSpec.reducer_dimension`.
+        """
+
+        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+            if self._reducer is not None:
+                raise ValueError(
+                    f"Workflow {self._name!r}: reducer already registered "
+                    f"({self._reducer[1].__name__!r}); only one reducer per workflow."
+                )
+            self._reducer = (over, fn)
+            return fn
+
+        return decorator
+
+    # ── Agent-authored Task hot-load ────────────────────────────────────
+
+    def register_task_path(self, path: Any) -> Workflow:
+        """Load a Python file and register every ``Task`` / ``Actor`` subclass.
+
+        Discovered classes are stored in this workflow's local registry and
+        can later be resolved by :meth:`resolve_task_class`. Scope is
+        per-workflow — sibling :class:`Workflow` instances do not see each
+        other's loaded classes (acceptance ac-003 / ac-009).
+
+        The caller is responsible for keeping ``path`` inside whatever
+        sandboxed scratch directory the agent service uses (e.g.
+        ``workspace_root/.scratch/agent_tasks/``); this method does not
+        enforce that boundary itself.
+        """
+        import importlib.util
+        from inspect import isclass
+        from pathlib import Path
+
+        from .protocols import Runnable, Streamable
+        from .task import Actor
+        from .task import Task as _Task
+
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            raise FileNotFoundError(f"register_task_path: {p} is not a file")
+
+        # Build a unique module name so repeated loads do not clobber sys.modules
+        # entries from sibling workflows.
+        module_name = f"_molexp_agent_task_{abs(hash((self._name, str(p.resolve()))))}"
+        spec_obj = importlib.util.spec_from_file_location(module_name, p)
+        if spec_obj is None or spec_obj.loader is None:
+            raise OSError(f"register_task_path: cannot load module spec for {p}")
+
+        module = importlib.util.module_from_spec(spec_obj)
+        spec_obj.loader.exec_module(module)
+
+        for attr_name in dir(module):
+            obj = getattr(module, attr_name)
+            if not isclass(obj):
+                continue
+            # Skip the imported base classes themselves.
+            if obj in (_Task, Actor):
+                continue
+            if (
+                issubclass(obj, _Task)
+                or issubclass(obj, Actor)
+                or isinstance(obj, type)
+                and (issubclass(obj, Runnable) or issubclass(obj, Streamable))
+            ):
+                self._task_path_registry[attr_name] = obj
+        return self
+
+    def resolve_task_class(self, class_name: str) -> type:
+        """Look up an agent-loaded Task class by name.
+
+        Raises ``KeyError`` when the class was not loaded into *this*
+        workflow's registry (sibling workflows are isolated).
+        """
+        try:
+            return self._task_path_registry[class_name]
+        except KeyError as exc:
+            raise KeyError(
+                f"Workflow {self._name!r}: task class {class_name!r} not loaded; "
+                f"call register_task_path() first."
+            ) from exc
+
+    # ── Sanity-check hook ───────────────────────────────────────────────
+
+    def sanity_check(
+        self,
+        *,
+        after: str,
+        predicate: Callable[[Any], bool],
+        on_fail: str = "halt",
+    ) -> Workflow:
+        """Register a post-task predicate hook.
+
+        After the task named ``after`` completes, the runtime calls
+        ``predicate(state)`` with the live :class:`WorkflowState`. A truthy
+        return passes; a falsy return triggers ``on_fail``:
+
+        - ``"halt"`` — raise :class:`SanityCheckFailed`, which the runtime
+          surfaces as ``WorkflowResult.status == "failed"``.
+        - ``"replan"`` — record a structured event on
+          ``WorkflowResult.sanity_events`` and continue (the agent service
+          consumes the event to drive a replan turn).
+        - ``"continue"`` — log only; no halt, no event.
+        """
+        self._sanity_hooks.append(SanityHook(after=after, predicate=predicate, on_fail=on_fail))
+        return self
+
     def _record_decorator_edges(
         self,
         task_name: str,
@@ -831,6 +1022,10 @@ class Workflow:
             loops=tuple(self._loops),
             parallels=tuple(self._parallels),
         )
+        # Sweep-level reducer + sanity hooks — not part of the compiled DAG;
+        # carried as side-data on the spec for the runtime / sweep runner.
+        spec._reducer = self._reducer
+        spec._sanity_hooks = tuple(self._sanity_hooks)
         # Compile eagerly — surfaces CFG validation errors at build time.
         from ._pydantic_graph.compiler import WorkflowGraphCompiler
 

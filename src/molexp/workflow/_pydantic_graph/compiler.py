@@ -66,6 +66,7 @@ class CompiledWorkflow:
         entry_frontier: tuple[str, ...],
         loop_max_iters: dict[str, int],
         parallel_decls: dict[str, ParallelDecl],
+        sanity_hooks_by_task: dict[str, tuple[Any, ...]] | None = None,
     ) -> None:
         self.graph = graph
         self.node_classes = node_classes
@@ -75,6 +76,7 @@ class CompiledWorkflow:
         self.entry_frontier = entry_frontier
         self.loop_max_iters = loop_max_iters
         self.parallel_decls = parallel_decls
+        self.sanity_hooks_by_task = sanity_hooks_by_task or {}
 
     def make_deps(
         self,
@@ -97,6 +99,7 @@ class CompiledWorkflow:
             entry_frontier=self.entry_frontier,
             loop_max_iters=dict(self.loop_max_iters),
             parallel_decls=dict(self.parallel_decls),
+            sanity_hooks_by_task=dict(self.sanity_hooks_by_task),
         )
 
 
@@ -139,6 +142,10 @@ class WorkflowGraphCompiler:
 
         loop_max_iters = {loop.until: loop.max_iters for loop in spec._loops}
         parallel_decls = {par.body: par for par in spec._parallels}
+        sanity_hooks_by_task: dict[str, tuple[Any, ...]] = {}
+        for hook in getattr(spec, "_sanity_hooks", ()):
+            sanity_hooks_by_task.setdefault(hook.after, []).append(hook)
+        sanity_hooks_by_task = {k: tuple(v) for k, v in sanity_hooks_by_task.items()}
 
         compiled = CompiledWorkflow(
             graph=graph,
@@ -149,6 +156,7 @@ class WorkflowGraphCompiler:
             entry_frontier=entry_frontier,
             loop_max_iters=loop_max_iters,
             parallel_decls=parallel_decls,
+            sanity_hooks_by_task=sanity_hooks_by_task,
         )
         # Surface the compiled node classes back on the spec so tests and
         # tooling can introspect (``test_no_trampoline_node``).

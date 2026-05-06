@@ -287,6 +287,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                         outputs=result_state.results,
                         run_id=run_id,
                         execution_id=execution_id,
+                        sanity_events=list(result_state.sanity_events),
                     )
 
                 self._set_run_status(
@@ -299,6 +300,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     outputs=result_state.results,
                     run_id=run_id,
                     execution_id=execution_id,
+                    sanity_events=list(result_state.sanity_events),
                 )
         except WorkflowError:
             # WorkflowError subclasses (CycleError, UnknownRouteError,
@@ -312,13 +314,14 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                 persist=owner_supplied_context is not None,
             )
             raise
-        except Exception:
+        except Exception as exc:
             self._set_run_status(
                 owner_supplied_context,
                 failed=True,
                 persist=owner_supplied_context is not None,
             )
             logger.exception(f"Workflow {spec.name!r} execution failed")
+            sanity_events = getattr(exc, "sanity_events", None) or []
             return WorkflowResult(
                 status="failed",
                 outputs={},
@@ -326,6 +329,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
                     owner_supplied_context.run if owner_supplied_context is not None else run
                 ),
                 execution_id=execution_id,
+                sanity_events=list(sanity_events),
             )
 
     # ── start ────────────────────────────────────────────────────────────────

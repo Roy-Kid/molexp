@@ -116,6 +116,32 @@ class WorkflowDeadlockError(WorkflowError):
     """Frontier exhausted but pending targets remain with unsatisfied data deps."""
 
 
+class SanityCheckFailed(Exception):
+    """A ``Workflow.sanity_check(..., on_fail='halt')`` predicate returned false.
+
+    Subclasses :class:`Exception` rather than :class:`WorkflowError` because
+    sanity failure is a *runtime data condition*, not a workflow-graph
+    structural error.  The runtime catches it as a failed-task exception
+    and surfaces a ``WorkflowResult(status='failed')``, while bona-fide
+    :class:`WorkflowError` subclasses (cycle / edge / route bugs) keep
+    propagating to the caller.
+
+    ``sanity_events`` carries a snapshot of the sanity event log up to and
+    including the offending event so the runtime can preserve it on the
+    failed :class:`WorkflowResult` even when the WorkflowState is unwound.
+    """
+
+    def __init__(
+        self,
+        task: str,
+        message: str | None = None,
+        sanity_events: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.task = task
+        self.sanity_events = list(sanity_events or [])
+        super().__init__(message or f"Sanity check failed after task {task!r}")
+
+
 class ParallelExecutionError(WorkflowError):
     """One or more elements in a ``wf.parallel`` body raised.
 
@@ -176,11 +202,13 @@ class WorkflowResult:
         outputs: dict[str, Any],
         run_id: str | None = None,
         execution_id: str | None = None,
+        sanity_events: list[dict[str, Any]] | None = None,
     ) -> None:
         self.status = status
         self.outputs = outputs
         self.run_id = run_id
         self.execution_id = execution_id
+        self.sanity_events: list[dict[str, Any]] = list(sanity_events or [])
 
     def __repr__(self) -> str:
         return f"WorkflowResult(status={self.status!r}, tasks={list(self.outputs.keys())})"
