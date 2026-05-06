@@ -98,18 +98,25 @@ class AssetCatalog:
         producer_task: str | None = None,
         tag: tuple[str, str] | None = None,
         limit: int | None = None,
+        recursive: bool = False,
     ) -> list[Asset]:
+        """Query assets matching the given filters.
+
+        When ``recursive`` is ``True`` and ``scope`` is given, the scope
+        match also includes any sub-scope whose ids start with the given
+        scope's ids — i.e. an experiment scope sees all assets in its
+        runs, a project scope sees all assets in its experiments + runs.
+        Default (``recursive=False``) preserves the historic exact-scope
+        match.
+        """
         data = self._load()
         kind_str = _kind_value(kind)
         out: list[Asset] = []
         for entry in data["assets"].values():
             if kind_str and entry.get("kind") != kind_str:
                 continue
-            if scope is not None:
-                if entry.get("scope", {}).get("kind") != scope.kind:
-                    continue
-                if tuple(entry.get("scope", {}).get("ids", ())) != scope.ids:
-                    continue
+            if scope is not None and not _scope_matches(entry, scope, recursive):
+                continue
             if producer_run:
                 producer = entry.get("producer") or {}
                 if producer.get("run_id") != producer_run:
@@ -406,6 +413,38 @@ class AssetCatalog:
 
 def _dump_asset(asset: Asset) -> dict:
     return ASSET_ADAPTER.dump_python(asset, mode="json")
+
+
+_SCOPE_KIND_RANK: dict[str, int] = {
+    "workspace": 0,
+    "project": 1,
+    "experiment": 2,
+    "run": 3,
+}
+
+
+def _scope_matches(entry: dict, scope: AssetScope, recursive: bool) -> bool:
+    """Return True if *entry*'s recorded scope satisfies the query scope.
+
+    Default (``recursive=False``) is the historic exact-scope behaviour.
+    With ``recursive=True``, an entry whose scope is *underneath* the
+    queried scope also matches — i.e. its ids start with the queried
+    ids and its kind is at the same or deeper level in the hierarchy.
+    """
+    entry_scope = entry.get("scope") or {}
+    entry_kind = entry_scope.get("kind")
+    entry_ids = tuple(entry_scope.get("ids", ()))
+
+    if not recursive:
+        return entry_kind == scope.kind and entry_ids == scope.ids
+
+    if entry_kind not in _SCOPE_KIND_RANK or scope.kind not in _SCOPE_KIND_RANK:
+        return False
+    if _SCOPE_KIND_RANK[entry_kind] < _SCOPE_KIND_RANK[scope.kind]:
+        return False
+    if len(entry_ids) < len(scope.ids):
+        return False
+    return entry_ids[: len(scope.ids)] == scope.ids
 
 
 def _kind_value(kind: str | type[Asset] | None) -> str | None:

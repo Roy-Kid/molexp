@@ -52,7 +52,15 @@ class AssetsView:
         producer_task: str | None = None,
         tag: tuple[str, str] | None = None,
         limit: int | None = None,
+        recursive: bool = False,
     ) -> AssetList:
+        """Filtered asset query against the catalog at this scope.
+
+        When ``recursive`` is ``True``, matches assets in any sub-scope
+        underneath this view's scope — for instance an
+        ``experiment.assets.query(recursive=True)`` returns assets
+        produced by every run in the experiment.
+        """
         return self._catalog.query_assets(
             kind=kind,
             scope=self._scope,
@@ -60,4 +68,5 @@ class AssetsView:
             producer_task=producer_task,
             tag=tag,
             limit=limit,
+            recursive=recursive,
         )

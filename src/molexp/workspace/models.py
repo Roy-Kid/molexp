@@ -244,3 +244,9 @@ class RunMetadata(BaseModel):
     # without a bound WorkflowSpec (legacy / ad-hoc runs).
     workflow_id: str | None = None
     workflow_version: str | None = None
+
+    # Walltime chunking — last completed step recorded by
+    # ``RunContext.checkpoint_step``.  ``None`` for runs that don't use
+    # step-based chunking.  ``RunContext.resumed_step`` reads this to
+    # decide where the next chunk picks up.
+    last_step: int | None = None

@@ -108,6 +108,10 @@ class RunContext:
         self._channels: dict[str, Any] = {}
         # Active task id (set via set_active_task) used for Producer.task_id
         self._active_task_id: str | None = None
+        # Walltime chunking — set by ``suspend()`` so ``__exit__`` keeps the
+        # run resumable instead of marking it SUCCEEDED.
+        self._suspended: bool = False
+        self._suspended_at_step: int | None = None
 
         # Asset plumbing
         self._scope = AssetScope(
@@ -198,7 +202,18 @@ class RunContext:
         now = datetime.now()
         labels = self._labels_without_ownership()
         error_info: ErrorInfo | None = None
-        if exc_type is None:
+        if exc_type is None and self._suspended:
+            # Walltime chunking — keep the run resume-eligible (PENDING) so
+            # the next ``with run.start()`` picks up at ``last_step``. The
+            # current attempt is still recorded as a finished execution
+            # entry so the execution_history reflects every chunk.
+            final = RunStatus.PENDING
+            self.run._update_metadata(
+                status=final,
+                labels=labels,
+                execution_history=self._close_execution_record("suspended", now),
+            )
+        elif exc_type is None:
             workflow_status = self._context.status.get("run")
             final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
             self.run._update_metadata(
@@ -286,6 +301,46 @@ class RunContext:
 
     def get_result(self, key: str) -> Any:
         return self._context.results.get(key)
+
+    # ── Walltime chunking ──────────────────────────────────────────────
+
+    @property
+    def resumed_step(self) -> int:
+        """Step number to resume iteration from.
+
+        Reads ``RunMetadata.last_step`` recorded by previous executions of
+        this run (chunks); ``0`` for a fresh run.  Used together with
+        :meth:`checkpoint_step` and :meth:`suspend` to drive walltime
+        chunking under a single ``run.json``.
+        """
+        return self.run.metadata.last_step or 0
+
+    def checkpoint_step(self, step: int, *, data: dict[str, Any] | None = None) -> None:
+        """Record the latest completed step on the run metadata.
+
+        ``step`` is the *next* step to start at — i.e. after completing
+        steps 0..N-1, callers pass ``N``.  Optional ``data`` is forwarded
+        into the run's checkpoint JSON for diagnostic snapshotting; it
+        does not influence resumption.
+        """
+        self.run._update_metadata(last_step=int(step))
+        # Persist results/context so set_result data isn't lost on suspend
+        self._save_context()
+        if data is not None:
+            self.checkpoint(name=f"step_{step}", data=data)
+
+    def suspend(self, *, at_step: int | None = None) -> None:
+        """Mark the run for resumption rather than completion.
+
+        Subsequent ``__exit__`` (without an exception) leaves the run in
+        :class:`RunStatus.PENDING` instead of :class:`RunStatus.SUCCEEDED`.
+        The caller is expected to ``return`` after this call so the
+        ``with`` block exits normally.
+        """
+        self._suspended = True
+        if at_step is not None:
+            self._suspended_at_step = int(at_step)
+            self.run._update_metadata(last_step=int(at_step))
 
     def bind_workflow_version(self, spec: Any) -> None:
         """Pin this run to a versioned :class:`~molexp.workflow.WorkflowSpec`.
@@ -628,6 +683,39 @@ class Run:
     @property
     def run_dir(self) -> Path:
         return self.experiment.experiment_dir / "runs" / f"run-{self.id}"
+
+    @property
+    def scope(self):
+        from .assets import AssetScope
+
+        return AssetScope(
+            kind="run",
+            ids=(self.experiment.project.id, self.experiment.id, self.id),
+        )
+
+    @property
+    def assets(self):
+        """Scope-filtered catalog view (read-only queries) for this run."""
+        from .assets import AssetsView
+
+        return AssetsView(self.experiment.project.workspace.catalog, self.scope)
+
+    def get_result(self, key: str) -> Any:
+        """Read a result value persisted by ``RunContext.set_result``.
+
+        Returns ``None`` when the run has not been executed yet, when the
+        key is absent, or when ``run.json`` does not exist on disk.
+        """
+        from .schema_version import read_versioned_json
+
+        run_json = self.run_dir / "run.json"
+        if not run_json.exists() or run_json.stat().st_size == 0:
+            return None
+        try:
+            data = read_versioned_json(run_json)
+        except (OSError, ValueError):
+            return None
+        return data.get("context", {}).get("results", {}).get(key)
 
     # ── Persistence ─────────────────────────────────────────────────────
 

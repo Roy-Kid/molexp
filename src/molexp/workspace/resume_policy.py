@@ -6,7 +6,7 @@ whether to resume from a checkpoint or start fresh.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from .run import RunStatus
 
@@ -15,11 +15,54 @@ if TYPE_CHECKING:
     from .run import Run
 
 
+class WalltimeChunk:
+    """Step-budget tracker for walltime-aware chunking.
+
+    Used together with :meth:`RunContext.checkpoint_step` and
+    :meth:`RunContext.suspend` to break long step iterations across
+    multiple executions of the same run.  See
+    :meth:`ResumePolicy.chunk_at`.
+
+    Usage::
+
+        with run.start() as ctx:
+            budget = ResumePolicy.chunk_at(step_budget=400)
+            for s in range(ctx.resumed_step, target_steps):
+                if budget.exhausted():
+                    ctx.suspend(at_step=s)
+                    return
+                # ... work ...
+                budget.tick()
+                ctx.checkpoint_step(s + 1)
+    """
+
+    __slots__ = ("budget", "consumed")
+
+    def __init__(self, budget: int) -> None:
+        if budget < 1:
+            raise ValueError(f"chunk_at: step_budget must be >= 1; got {budget!r}")
+        self.budget = int(budget)
+        self.consumed = 0
+
+    def tick(self) -> None:
+        """Record one step consumed against the budget."""
+        self.consumed += 1
+
+    def exhausted(self) -> bool:
+        """Return True once the budget is fully consumed."""
+        return self.consumed >= self.budget
+
+
+@runtime_checkable
 class ResumePolicy(Protocol):
     """Interface for checkpoint resume policies.
 
     Policies determine whether a run should resume from a checkpoint
     or start fresh based on run state and checkpoint properties.
+
+    The ``chunk_at`` static helper sits on this class as the canonical
+    entry point for walltime-aware chunking, even though it is not part
+    of the structural protocol — it does not accept a ``self`` argument.
     """
 
     def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:
@@ -33,6 +76,15 @@ class ResumePolicy(Protocol):
             True if should resume from checkpoint, False to start fresh
         """
         ...
+
+    @staticmethod
+    def chunk_at(*, step_budget: int) -> WalltimeChunk:
+        """Build a :class:`WalltimeChunk` budget tracker for this chunk.
+
+        The returned object is used by user code inside the run body to
+        decide when to call :meth:`RunContext.suspend`.
+        """
+        return WalltimeChunk(step_budget)
 
 
 class AlwaysResumePolicy:
