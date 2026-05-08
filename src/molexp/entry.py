@@ -19,6 +19,7 @@ Example (user script)::
 Example (CLI internal)::
 
     from molexp.entry import load_workspaces
+
     workspaces = load_workspaces(Path("train.py"))
 """
 
@@ -27,15 +28,17 @@ from __future__ import annotations
 import importlib.util
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from molexp.workflow.spec import WorkflowSpec
+    from molexp.workspace.run import Run
     from molexp.workspace.workspace import Workspace
 
-_registry: list["Workspace"] = []
+_registry: list[Workspace] = []
 
 
-def entry(workspace: "Workspace") -> None:
+def entry(workspace: Workspace) -> None:
     """Register a workspace as a CLI entry point.
 
     When a script is imported by ``molexp run``, this call populates
@@ -49,7 +52,7 @@ def entry(workspace: "Workspace") -> None:
     _registry.append(workspace)
 
 
-def load_workspaces(script: Path) -> list["Workspace"]:
+def load_workspaces(script: Path) -> list[Workspace]:
     """Import a user script and return all registered workspaces.
 
     Args:
@@ -66,7 +69,7 @@ def load_workspaces(script: Path) -> list["Workspace"]:
     return list(_registry)
 
 
-def find_workflow_for_run(workspaces: list["Workspace"], run: Any) -> Any | None:
+def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> WorkflowSpec | None:
     """Return the workflow object matching *run*'s project and experiment IDs.
 
     Searches all registered workspaces returned by :func:`load_workspaces` for
@@ -127,7 +130,7 @@ def _import_script(script: Path) -> None:
     spec.loader.exec_module(module)  # type: ignore[union-attr]
 
 
-def load_workflow_from_entrypoint(entrypoint: str) -> Any:
+def load_workflow_from_entrypoint(entrypoint: str) -> WorkflowSpec:
     """Import the workflow object referenced by *entrypoint*.
 
     *entrypoint* is the colon-separated form
@@ -170,6 +173,17 @@ def load_workflow_from_entrypoint(entrypoint: str) -> Any:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     try:
-        return functools.reduce(getattr, qualname.split("."), module)
+        # ``functools.reduce`` walks dotted attributes; the resolved value
+        # is the user's bound workflow object — promised to be a
+        # ``WorkflowSpec`` by ``set_workflow``'s contract.
+        from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
+
+        resolved = functools.reduce(getattr, qualname.split("."), module)
     except AttributeError as exc:
         raise AttributeError(f"Cannot resolve {qualname!r} in {file_path}: {exc}") from exc
+    if not isinstance(resolved, _WorkflowSpec):
+        raise TypeError(
+            f"Entrypoint {entrypoint!r} resolved to {type(resolved).__name__}, "
+            "expected a molexp.workflow.WorkflowSpec instance."
+        )
+    return resolved

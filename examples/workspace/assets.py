@@ -59,7 +59,8 @@ async def main() -> None:
     exp.set_workflow(train)
 
     run = exp.run()
-    await exp.workflow.execute(run=run)
+    with run.start() as ctx:
+        await exp.workflow.execute(run_context=ctx)
 
     # 6. Catalog queries — flat view over the whole workspace.
     catalog = ws.catalog

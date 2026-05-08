@@ -21,9 +21,14 @@ from ._adapter import ASSET_ADAPTER, parse_asset
 from .base import Asset, AssetScope
 from .manifest import MANIFEST_FILENAME, AssetManifest
 
-CATALOG_SCHEMA_VERSION = 1
+CATALOG_SCHEMA_VERSION = 2
 CATALOG_DIRNAME = ".catalog"
 CATALOG_FILENAME = "index.json"
+
+# Mirrors molexp.workspace.subsystem.SUBSYSTEMS_DIRNAME without importing it
+# (subsystem.py is part of the same layer, but catalog.py is reachable from
+# more places and we keep its dependencies maximally tight).
+SESSIONS_SUBSYSTEM_DIRNAME = ".subsystems/agent.sessions"
 
 _EMPTY_CATALOG: dict[str, Any] = {
     "schema_version": CATALOG_SCHEMA_VERSION,
@@ -32,6 +37,7 @@ _EMPTY_CATALOG: dict[str, Any] = {
     "experiments": {},
     "runs": {},
     "executions": {},
+    "sessions": {},
     "assets": {},
     "consumes": [],
 }
@@ -46,6 +52,7 @@ class RebuildReport:
     experiments: int = 0
     runs: int = 0
     executions: int = 0
+    sessions: int = 0
     assets: int = 0
     errors: list[str] = field(default_factory=list)
 
@@ -151,6 +158,19 @@ class AssetCatalog:
     def upsert_execution(self, record: dict) -> None:
         self._upsert("executions", record["execution_id"], record)
 
+    def upsert_session(self, record: dict) -> None:
+        """Insert or replace a session row in the ``sessions`` section.
+
+        The row schema is a flat dict — the workspace catalog never
+        imports ``molexp.agent.sessions`` types; the caller (typically
+        the agent layer) is responsible for projecting any structured
+        ``SessionMetadata`` into a plain mapping with
+        ``session_id`` / ``workspace_id`` / ``status`` / ``goal_summary``
+        / ``created_at`` / ``updated_at`` / ``run_id`` keys. ``run_id``
+        is a soft FK and does not participate in any cascade.
+        """
+        self._upsert("sessions", record["session_id"], record)
+
     def _upsert(self, section: str, key: str, record: dict) -> None:
         with self._lock:
             data = self._load()
@@ -221,6 +241,18 @@ class AssetCatalog:
             ]
             self._save(data)
 
+    def remove_session(self, session_id: str) -> None:
+        """Drop a session row.
+
+        The session's ``run_id`` (when set) is a soft FK — removing the
+        session never cascades to runs / experiments / projects, and
+        removing a run never cascades back to its sessions.
+        """
+        with self._lock:
+            data = self._load()
+            data["sessions"].pop(session_id, None)
+            self._save(data)
+
     # ── Scope queries ────────────────────────────────────────────────────
 
     def query_runs(
@@ -252,6 +284,33 @@ class AssetCatalog:
         out: list[dict] = []
         for entry in data["executions"].values():
             if run_id and entry.get("run_id") != run_id:
+                continue
+            out.append(entry)
+            if limit is not None and len(out) >= limit:
+                break
+        return out
+
+    def query_sessions(
+        self,
+        *,
+        workspace_id: str | None = None,
+        run_id: str | None = None,
+        status: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Filtered view of the sessions section.
+
+        ``run_id`` matches the soft FK on the session row. All filters
+        compose with AND semantics, like :meth:`query_runs`.
+        """
+        data = self._load()
+        out: list[dict] = []
+        for entry in data["sessions"].values():
+            if workspace_id and entry.get("workspace_id") != workspace_id:
+                continue
+            if status and entry.get("status") != status:
+                continue
+            if run_id is not None and entry.get("run_id") != run_id:
                 continue
             out.append(entry)
             if limit is not None and len(out) >= limit:
@@ -363,6 +422,31 @@ class AssetCatalog:
                                         **exec_record,
                                     }
                                     report.executions += 1
+
+        # Sessions — scan <workspace_root>/.subsystems/agent.sessions/*/session.json
+        sessions_dir = self.workspace_root / SESSIONS_SUBSYSTEM_DIRNAME
+        if sessions_dir.exists():
+            for session_dir in sessions_dir.iterdir():
+                if not session_dir.is_dir():
+                    continue
+                session_record = _read_json(session_dir / "session.json")
+                if session_record is None:
+                    continue
+                sid = session_record.get("session_id") or session_dir.name
+                if not sid:
+                    continue
+                goal = session_record.get("goal") or {}
+                goal_summary = (goal.get("description") if isinstance(goal, dict) else "") or ""
+                fresh["sessions"][sid] = {
+                    "session_id": sid,
+                    "workspace_id": fresh["workspaces"] and next(iter(fresh["workspaces"])),
+                    "status": session_record.get("status") or "",
+                    "goal_summary": goal_summary,
+                    "created_at": session_record.get("created_at"),
+                    "updated_at": session_record.get("updated_at"),
+                    "run_id": session_record.get("run_id"),
+                }
+                report.sessions += 1
 
         # Assets — scan every scope's manifest that exists
         for manifest_path in _iter_manifest_paths(self.workspace_root):
@@ -498,4 +582,4 @@ def _iter_manifest_paths(workspace_root: Path):
 
 # Also expose AssetManifest here for convenience when scope entities
 # want to construct their own local manifest:
-__all__ = ["AssetCatalog", "AssetManifest", "CATALOG_FILENAME", "RebuildReport"]
+__all__ = ["CATALOG_FILENAME", "AssetCatalog", "AssetManifest", "RebuildReport"]

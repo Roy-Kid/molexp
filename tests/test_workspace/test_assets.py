@@ -244,10 +244,9 @@ class TestConcurrentWrites:
         ws = Workspace(tmp_path / "lab", name="Test")
         run = ws.project("p").experiment("e").run()
         N = 20
-        with run.start() as ctx:
-            with ThreadPoolExecutor(max_workers=4) as pool:
-                futs = [pool.submit(ctx.artifact.save, f"a{i}.json", {"i": i}) for i in range(N)]
-                results = [f.result() for f in as_completed(futs)]
+        with run.start() as ctx, ThreadPoolExecutor(max_workers=4) as pool:
+            futs = [pool.submit(ctx.artifact.save, f"a{i}.json", {"i": i}) for i in range(N)]
+            results = [f.result() for f in as_completed(futs)]
 
         assert len(results) == N
         catalog_assets = ws.catalog.query_assets(kind="artifact", producer_run=run.id)

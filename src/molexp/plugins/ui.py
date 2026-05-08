@@ -69,7 +69,7 @@ def _safe_resolve(ep) -> Path | None:
     name = getattr(ep, "name", "<unknown>")
     try:
         obj = ep.load()
-    except Exception as exc:  # noqa: BLE001 — must isolate any failure
+    except Exception as exc:
         logger.warning(f"failed to load UI plugin entry point '{name}': {exc}")
         return None
 
@@ -78,7 +78,7 @@ def _safe_resolve(ep) -> Path | None:
     elif callable(obj):
         try:
             path = obj()
-        except Exception as exc:  # noqa: BLE001 — must isolate any failure
+        except Exception as exc:
             logger.warning(f"UI plugin '{name}' callable raised: {exc}")
             return None
     else:

@@ -8,7 +8,8 @@ from dataclasses import dataclass
 import pydantic_graph
 import pytest
 
-from molexp.workflow import Actor, End, Next, Task, Workflow
+from molexp.workflow import Actor, End, Task, Workflow
+from molexp.workflow.types import Next
 
 # ── Sentinel imports ────────────────────────────────────────────────────────
 
@@ -19,41 +20,20 @@ def test_next_and_end_importable():
     assert End is not None
     # Both are sentinel types (frozen dataclasses); instantiation works.
     assert Next("ok").label == "ok"
-    assert isinstance(End(), End)
+    assert isinstance(End(None), End)
 
 
-def test_end_is_molexp_owned_sentinel():
-    """`molexp.workflow.End` is molexp's own sentinel — NOT pydantic_graph.End."""
-    assert End is not pydantic_graph.End
-    # Distinct identity is the contract; structural similarity is fine.
+def test_end_is_pydantic_graph_end():
+    """`molexp.workflow.End` is a re-export of `pydantic_graph.End` — single
+    source of truth, no duplicate sentinel (workflow-rectification §2)."""
+    assert End is pydantic_graph.End
 
 
-def test_task_inherits_basenode():
-    """`Task` (and `Actor`) publicly inherit `pydantic_graph.BaseNode`."""
-    assert issubclass(Task, pydantic_graph.BaseNode)
-    assert issubclass(Actor, pydantic_graph.BaseNode)
-
-
-def test_no_trampoline_node():
-    """Compiled workflow contains per-task BaseNode subclasses, no `WorkflowFrontier` trampoline."""
-    wf = Workflow(name="no-trampoline")
-
-    @wf.task
-    async def alpha(ctx) -> int:
-        return 1
-
-    @wf.task(depends_on=["alpha"])
-    async def beta(ctx) -> int:
-        return 2
-
-    spec = wf.build()
-    nodes = spec._compiled_node_classes  # type: ignore[attr-defined]
-
-    # No node class should be the rejected trampoline.
-    assert all("WorkflowFrontier" not in n.__name__ for n in nodes)
-    # One BaseNode subclass per registered task.
-    task_names = {"alpha", "beta"}
-    assert {n._molexp_task_name for n in nodes} == task_names  # type: ignore[attr-defined]
+def test_task_does_not_inherit_basenode():
+    """After the rectification, `Task` and `Actor` are plain abstract classes;
+    only `WorkflowStep` inherits `pydantic_graph.BaseNode` (single-track)."""
+    assert not issubclass(Task, pydantic_graph.BaseNode)
+    assert not issubclass(Actor, pydantic_graph.BaseNode)
 
 
 # ── Unconditional control edge ──────────────────────────────────────────────
@@ -149,9 +129,9 @@ async def test_self_loop_entry_accepted():
         n = (prev.n + 1) if prev else 1
         if n < 2:
             return _Counter(n=n), Next("again")
-        return _Counter(n=n), End()
+        return _Counter(n=n), End(None)
 
-    # `routes` references "_end" sentinel target. We accept End() return short-circuiting it.
+    # `routes` references "_end" sentinel target. We accept End(None) return short-circuiting it.
     # Compile must succeed even with self-loop entry.
     spec = wf.build()
     assert spec is not None  # compile didn't reject self-loop entry
@@ -188,12 +168,12 @@ async def test_loop_back_to_entry_accepted():
     assert result.outputs["implement"] == "implemented"
 
 
-# ── End() semantics ─────────────────────────────────────────────────────────
+# ── End(None) semantics ─────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
 async def test_end_is_frame_scoped():
-    """`End()` is frame-scoped: same-frontier siblings still record their outputs."""
+    """`End(None)` is frame-scoped: same-frontier siblings still record their outputs."""
     wf = Workflow(name="frame-end", entry="seed")
 
     @wf.task
@@ -203,7 +183,7 @@ async def test_end_is_frame_scoped():
     # Two siblings on the next frontier (parallel via control fan-out from seed).
     @wf.task(depends_on=["seed"])
     async def quitter(ctx) -> tuple[str, End]:
-        return "quitter-out", End()
+        return "quitter-out", End(None)
 
     @wf.task(depends_on=["seed"])
     async def survivor(ctx) -> str:
@@ -259,12 +239,12 @@ async def test_value_then_next():
 
 @pytest.mark.asyncio
 async def test_value_then_end():
-    """Returning `(value, End())` records the value AND terminates the workflow."""
+    """Returning `(value, End(None))` records the value AND terminates the workflow."""
     wf = Workflow(name="value-and-end", entry="src")
 
     @wf.task
     async def src(ctx) -> tuple[int, End]:
-        return 99, End()
+        return 99, End(None)
 
     @wf.task
     async def never(ctx) -> str:  # dangling — should never execute

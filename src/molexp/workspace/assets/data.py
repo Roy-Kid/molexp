@@ -57,7 +57,7 @@ class DataAssetLibrary:
         self,
         scope_dir: Path,
         scope: AssetScope,
-        catalog: "AssetCatalog | None" = None,
+        catalog: AssetCatalog | None = None,
     ) -> None:
         self.scope_dir = scope_dir
         self.scope = scope

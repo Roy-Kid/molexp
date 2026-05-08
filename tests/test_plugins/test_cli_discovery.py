@@ -18,7 +18,7 @@ Implementation is scheduled for Step 5 of the spec.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import pytest
 import typer

@@ -158,9 +158,8 @@ class TestGetDataDir:
             assert isinstance(data_dir, Path)
 
     def test_no_fallback_raises(self, run):
-        with run.start() as ctx:
-            with pytest.raises(FileNotFoundError, match="not found"):
-                ctx.get_data_dir("nonexistent")
+        with run.start() as ctx, pytest.raises(FileNotFoundError, match="not found"):
+            ctx.get_data_dir("nonexistent")
 
 
 class TestErrorTraceAsset:

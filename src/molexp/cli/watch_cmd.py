@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated, Any
 
 import typer
 
@@ -29,15 +29,15 @@ def _logical_cwd() -> Path:
 @app.command()
 def watch(
     workspace: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Argument(help="Workspace root (default: current directory)."),
     ] = None,
     project: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--project", "-p", help="Filter by project name or ID."),
     ] = None,
     experiment: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--experiment", "-e", help="Filter by experiment name or ID."),
     ] = None,
     refresh: Annotated[

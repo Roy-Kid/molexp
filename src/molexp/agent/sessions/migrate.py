@@ -84,18 +84,17 @@ def _load_legacy_metadata(path: Path) -> dict | None:
 def _to_tombstone(session_id: str, legacy: dict) -> SessionMetadata:
     """Translate a legacy metadata blob into a ``status="legacy"`` tombstone."""
 
-    goal_blob = legacy.get("goal") if isinstance(legacy.get("goal"), dict) else {}
+    raw_goal = legacy.get("goal")
+    goal_blob: dict = raw_goal if isinstance(raw_goal, dict) else {}
     description = str(goal_blob.get("description") or "")
-    constraints = (
-        goal_blob.get("constraints") if isinstance(goal_blob.get("constraints"), dict) else {}
-    )
-    success_criteria = goal_blob.get("success_criteria") or []
-    instructions_override = (
-        goal_blob.get("instructions_override")
-        if isinstance(goal_blob.get("instructions_override"), str)
-        else None
-    )
-    skill_id = goal_blob.get("skill_id") if isinstance(goal_blob.get("skill_id"), str) else None
+    raw_constraints = goal_blob.get("constraints")
+    constraints: dict = raw_constraints if isinstance(raw_constraints, dict) else {}
+    raw_success = goal_blob.get("success_criteria")
+    success_criteria = raw_success if isinstance(raw_success, list) else []
+    raw_override = goal_blob.get("instructions_override")
+    instructions_override = raw_override if isinstance(raw_override, str) else None
+    raw_skill_id = goal_blob.get("skill_id")
+    skill_id = raw_skill_id if isinstance(raw_skill_id, str) else None
     goal = Goal(
         description=description,
         constraints=dict(constraints),

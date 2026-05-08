@@ -88,7 +88,7 @@ class ExperimentResponse(BaseModel):
     defaultTarget: str | None = None
     created: str
     runCount: int | None = None
-    runs: list["RunSummary"] = Field(default_factory=list)
+    runs: list[RunSummary] = Field(default_factory=list)
 
     @classmethod
     def from_model(
@@ -688,7 +688,7 @@ class RunFileNode(BaseModel):
     assetId: str | None = None
     assetKind: str | None = None
     taskId: str | None = None
-    children: list["RunFileNode"] = Field(default_factory=list)
+    children: list[RunFileNode] = Field(default_factory=list)
 
 
 RunFileNode.model_rebuild()
@@ -719,7 +719,7 @@ class ComparisonRunRow(BaseModel):
 
 
 class ExperimentComparisonResponse(BaseModel):
-    """Sweep matrix: parameter columns x run rows + metric columns."""
+    """Comparison matrix: parameter columns x run rows + metric columns."""
 
     experimentId: str
     projectId: str

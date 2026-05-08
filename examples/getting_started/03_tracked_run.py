@@ -2,9 +2,6 @@
 
 Matches ``docs/getting-started/tracked-runs.md``.
 
-Runs a tiny workflow under a materialised workspace, then prints the
-relevant on-disk paths and the persisted ``run.json`` fields.
-
 Run directly::
 
     python examples/getting_started/03_tracked_run.py
@@ -36,9 +33,9 @@ async def main() -> None:
     exp.set_workflow(experiment_body)
 
     run = exp.run(parameters={"seed": 42})
-    await exp.workflow.execute(run=run)
+    with run.start() as ctx:
+        await exp.workflow.execute(run_context=ctx)
 
-    # Layout that ``molexp run`` would produce.
     for path in sorted(root.rglob("*")):
         if path.is_file():
             print(path.relative_to(root))

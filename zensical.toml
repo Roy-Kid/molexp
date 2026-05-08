@@ -39,14 +39,17 @@ nav = [
             { "Molq Plugin" = "guide/molq.md" }
         ]}
     ]},
+    { "Architecture" = [
+        { "Overview" = "architecture/index.md" },
+        { "Plan Mode" = "architecture/plan-mode.md" },
+        { "Workflow Layer" = "architecture/workflow-layer.md" },
+        { "Experiment and Runner Boundary" = "architecture/experiment-runner-boundary.md" }
+    ]},
     { "Development" = [
         { "Index" = "development/index.md" },
         { "Compiler" = "development/compiler.md" },
         { "Task Protocols" = "development/task-protocols.md" },
-        { "Spec: molcfg + Profiles" = "development/specs/molcfg-profiles.md" },
-        { "Spec: Agent Harness Architecture" = "development/specs/agent-harness-architecture.md" },
-        { "Spec: Unified Sweep Dispatch" = "development/specs/unified-pydantic-graph-dispatch.md" },
-        { "Spec: Full-screen Monitor" = "development/specs/fullscreen-monitor.md" }
+        { "Spec: Refactor Plan Mode" = "development/specs/refactor-plan-mode-around-molexp-workflow.md" }
     ]}
 ]
 

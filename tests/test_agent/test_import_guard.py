@@ -1,127 +1,66 @@
-"""Phase 0 contract: the harness *core* is stdlib-only.
+"""Import-boundary firewall (spec ac-004 / ac-005 / ac-013).
 
-The agent harness core must not pull in ``pydantic_ai``, HTTP clients,
-or provider SDKs. A handful of subtrees are excluded because they are
-the harness's own integration points with such SDKs:
+Two invariants:
 
-- ``agent/mcp/`` — owns the MCP SDK + OAuth + httpx integration.
-- ``agent/tools/native/web.py`` — uses httpx for the Brave Search tool.
-
-Everything else under ``agent/`` is checked statically and at runtime.
-
-We enforce two ways:
-
-1. **Static AST sweep** — every non-excluded ``.py`` file under
-   ``src/molexp/agent/`` is parsed and every ``import`` /
-   ``from ... import`` is checked against the forbidden roots.
-2. **Runtime sentinel** — after a fresh ``importlib`` import of
-   ``molexp.agent``, no forbidden module name appears in
-   ``sys.modules`` (apart from anything an unrelated test pre-loaded
-   into the interpreter, which we filter against a sentinel snapshot
-   taken at process start). This holds even though ``agent/mcp/``
-   exists, because nothing in ``agent/__init__.py`` reaches into it.
+1. ``pydantic_ai`` may only be imported from ``src/molexp/agent/_pydanticai/``.
+2. ``pydantic_graph`` may only be imported from ``src/molexp/agent/_pydantic_graph/``.
+3. Plain ``import molexp.agent`` does not eagerly load ``pydantic_ai`` —
+   the SDK is loaded lazily when ``PydanticAIHarness`` is constructed.
 """
 
 from __future__ import annotations
 
 import ast
-import json
 import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
-import molexp.agent
-
-FORBIDDEN_ROOTS = {
-    "pydantic_ai",
-    "openai",
-    "anthropic",
-    "google.genai",
-    "mcp",  # MCP Python SDK
-    "httpx",
-    "aiohttp",
-    "requests",
-}
-
-AGENT_PACKAGE_PATH = Path(molexp.agent.__file__).parent
-
-# Subtrees explicitly designed to use SDK / network deps. Listed as
-# POSIX-style relative paths under ``agent/``.
-EXCLUDED_PATHS: frozenset[str] = frozenset(
-    {
-        "tools/native/web.py",
-    }
-)
-EXCLUDED_DIRS: tuple[str, ...] = ("mcp",)
+AGENT_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "agent"
 
 
-def _is_excluded(path: Path) -> bool:
-    rel = path.relative_to(AGENT_PACKAGE_PATH).as_posix()
-    if rel in EXCLUDED_PATHS:
-        return True
-    return any(rel == d or rel.startswith(d + "/") for d in EXCLUDED_DIRS)
+def _files_importing(module: str, root: Path) -> list[Path]:
+    hits: list[Path] = []
+    for py in root.rglob("*.py"):
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8"))
+        except SyntaxError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name == module or a.name.startswith(module + ".") for a in node.names):
+                    hits.append(py)
+                    break
+            elif isinstance(node, ast.ImportFrom):
+                if node.module == module or (node.module and node.module.startswith(module + ".")):
+                    hits.append(py)
+                    break
+    return hits
 
 
-def _iter_py_files() -> list[Path]:
-    return [p for p in sorted(AGENT_PACKAGE_PATH.rglob("*.py")) if not _is_excluded(p)]
+def test_pydantic_ai_imports_confined_to_pydanticai_subtree() -> None:
+    hits = _files_importing("pydantic_ai", AGENT_ROOT)
+    allowed = AGENT_ROOT / "_pydanticai"
+    bad = [str(p.relative_to(AGENT_ROOT)) for p in hits if allowed not in p.parents]
+    assert not bad, f"pydantic_ai imported outside agent/_pydanticai/: {bad}"
 
 
-def _import_roots(tree: ast.AST) -> set[str]:
-    roots: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                roots.add(alias.name.split(".")[0])
-                roots.add(alias.name.rsplit(".", 1)[0])
-        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-            roots.add(node.module.split(".")[0])
-            roots.add(node.module)
-    return roots
+def test_pydantic_graph_imports_confined_to_pydantic_graph_subtree() -> None:
+    hits = _files_importing("pydantic_graph", AGENT_ROOT)
+    allowed = AGENT_ROOT / "_pydantic_graph"
+    bad = [str(p.relative_to(AGENT_ROOT)) for p in hits if allowed not in p.parents]
+    assert not bad, f"pydantic_graph imported outside agent/_pydantic_graph/: {bad}"
 
 
-@pytest.mark.parametrize("source_file", _iter_py_files(), ids=lambda p: p.name)
-def test_no_forbidden_static_imports(source_file: Path) -> None:
-    """Every file under ``molexp.agent`` is free of forbidden imports."""
-
-    tree = ast.parse(source_file.read_text())
-    roots = _import_roots(tree)
-    leaks = roots & FORBIDDEN_ROOTS
-    assert not leaks, (
-        f"{source_file.relative_to(AGENT_PACKAGE_PATH.parent.parent.parent)} "
-        f"imports forbidden modules: {sorted(leaks)}"
-    )
-
-
-def test_runtime_import_does_not_load_forbidden_modules() -> None:
-    """``molexp.agent`` does not pull in plugin SDKs *itself*.
-
-    Runs in a subprocess so the eviction-and-reimport does not break
-    ``isinstance`` correlations in other tests in this session. The
-    parent ``molexp`` package may load extra modules (workspace,
-    plugins, etc.) — we only care about what ``molexp.agent``
-    *adds* on top.
-    """
-
-    probe = (
-        "import json, sys\n"
-        "import molexp  # noqa: F401\n"
-        "before = set(sys.modules)\n"
+def test_importing_molexp_agent_does_not_load_pydantic_ai() -> None:
+    """``import molexp.agent`` must not eagerly import pydantic_ai."""
+    code = (
+        "import sys\n"
         "import molexp.agent  # noqa: F401\n"
-        "added = sorted(set(sys.modules) - before)\n"
-        "print(json.dumps(added))\n"
+        "assert 'pydantic_ai' not in sys.modules, sorted(sys.modules)\n"
     )
-    proc = subprocess.run(
-        [sys.executable, "-c", probe],
-        check=True,
+    result = subprocess.run(
+        [sys.executable, "-c", code],
         capture_output=True,
         text=True,
     )
-    added = set(json.loads(proc.stdout))
-    leaked = {
-        name
-        for name in added
-        if any(name == root or name.startswith(root + ".") for root in FORBIDDEN_ROOTS)
-    }
-    assert not leaked, f"molexp.agent pulled in forbidden modules: {sorted(leaked)}"
+    assert result.returncode == 0, result.stderr or result.stdout

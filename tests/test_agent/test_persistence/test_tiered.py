@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import ClassVar
 
@@ -41,7 +41,7 @@ from molexp.agent.persistence.tiered import (
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class DummySpec(ResourceSpec):
@@ -314,7 +314,7 @@ def test_concurrent_creates_lock_serializes(tmp_path: Path) -> None:
         try:
             barrier.wait(timeout=5)
             store.create(scope=Scope.WORKSPACE, id=f"id-{idx}", name=f"name-{idx}")
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=worker, args=(i,)) for i in range(n)]

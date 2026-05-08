@@ -58,7 +58,7 @@ class GridSpace(ParamSpace):
 
     def __iter__(self) -> Generator[Params, None, None]:
         for combination in product(*self._param_values):
-            yield dict(zip(self._param_names, combination))
+            yield dict(zip(self._param_names, combination, strict=False))
 
     def __len__(self) -> int:
         return self._total

@@ -6,9 +6,10 @@ import copy
 import hashlib
 import json
 from collections.abc import Iterator, Mapping
-from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
+from molexp._typing import JSONValue
 
 
 def normalize_profile_name(name: str) -> str:
@@ -22,7 +23,7 @@ def normalize_profile_name(name: str) -> str:
     return name.strip().replace("-", "_")
 
 
-class ProfileConfig(Mapping[str, Any]):
+class ProfileConfig(Mapping[str, JSONValue]):
     """Immutable merged configuration for one profile.
 
     Behaves like a read-only mapping of user-defined fields.  Carries:
@@ -36,18 +37,18 @@ class ProfileConfig(Mapping[str, Any]):
     the user's YAML / JSON.
     """
 
-    __slots__ = ("_name", "_data")
+    __slots__ = ("_data", "_name")
 
-    def __init__(self, data: Mapping[str, Any], *, name: str | None) -> None:
+    def __init__(self, data: Mapping[str, JSONValue], *, name: str | None) -> None:
         self._name = normalize_profile_name(name) if name is not None else None
         # deep-copy so callers cannot mutate internal state post-construction
-        self._data: dict[str, Any] = copy.deepcopy(dict(data))
+        self._data: dict[str, JSONValue] = copy.deepcopy(dict(data))
 
     @property
     def name(self) -> str | None:
         return self._name
 
-    def __getitem__(self, key: str) -> Any:
+    def __getitem__(self, key: str) -> JSONValue:
         return self._data[key]
 
     def __iter__(self) -> Iterator[str]:
@@ -62,7 +63,7 @@ class ProfileConfig(Mapping[str, Any]):
     def __repr__(self) -> str:
         return f"ProfileConfig(name={self._name!r}, keys={list(self._data)!r})"
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, JSONValue]:
         """Return a fresh mutable copy of the merged data."""
         return copy.deepcopy(self._data)
 
@@ -87,14 +88,14 @@ class MolCfg(BaseModel):
     """
 
     version: int = 1
-    defaults: dict[str, Any] = Field(default_factory=dict)
-    profiles: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    defaults: dict[str, JSONValue] = Field(default_factory=dict)
+    profiles: dict[str, dict[str, JSONValue]] = Field(default_factory=dict)
 
     model_config = {"frozen": True}
 
     @field_validator("profiles", mode="before")
     @classmethod
-    def _normalize_profile_keys(cls, value: Any) -> Any:
+    def _normalize_profile_keys(cls, value: JSONValue) -> JSONValue:
         if not isinstance(value, dict):
             return value
         return {normalize_profile_name(str(k)): v for k, v in value.items()}
@@ -124,7 +125,7 @@ class MolCfg(BaseModel):
         chain = self._resolve_chain(norm)
         # Apply profiles in order by successively merging; ProfileLoader
         # only applies one profile overlay per load, so we chain manually.
-        merged: dict[str, Any] = dict(self.defaults)
+        merged: dict[str, JSONValue] = dict(self.defaults)
         from molcfg import MergeStrategy, merge
 
         for pname in chain:
@@ -155,5 +156,5 @@ class MolCfg(BaseModel):
         return chain
 
     @staticmethod
-    def _strip_extends(profile: dict[str, Any]) -> dict[str, Any]:
+    def _strip_extends(profile: dict[str, JSONValue]) -> dict[str, JSONValue]:
         return {k: v for k, v in profile.items() if k != "extends"}

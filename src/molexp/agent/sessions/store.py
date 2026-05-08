@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Iterable
 
-from molexp.agent._serialize import to_jsonable
+from molexp._typing import HashablePayload, JSONValue
+from molexp.agent._legacy_types import to_jsonable
 from molexp.agent.sessions.types import SessionMetadata
 from molexp.agent.types import Message
 
@@ -90,17 +91,17 @@ class SessionStore:
                 out.append(Message.model_validate_json(raw))
         return tuple(out)
 
-    def append_event(self, session_id: str, event: Any) -> None:
+    def append_event(self, session_id: str, event: HashablePayload) -> None:
         path = self.session_dir(session_id) / self.EVENTS_FILENAME
         _append_jsonl(path, [to_jsonable(event)])
 
-    def append_model_io(self, session_id: str, payload: dict[str, Any]) -> None:
+    def append_model_io(self, session_id: str, payload: dict[str, JSONValue]) -> None:
         """Plugin-only entry point for the raw model_io layer."""
 
         path = self.session_dir(session_id) / self.MODEL_IO_FILENAME
         _append_jsonl(path, [payload])
 
-    def write_checkpoint(self, session_id: str, name: str, payload: dict[str, Any]) -> Path:
+    def write_checkpoint(self, session_id: str, name: str, payload: dict[str, JSONValue]) -> Path:
         """Atomically write a per-session checkpoint JSON file."""
 
         ckpt_dir = self.session_dir(session_id) / self.CHECKPOINTS_DIRNAME
@@ -110,7 +111,7 @@ class SessionStore:
         return path
 
 
-def _atomic_write_json(path: Path, payload: Any) -> None:
+def _atomic_write_json(path: Path, payload: JSONValue) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
@@ -119,7 +120,7 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
     os.replace(tmp, path)
 
 
-def _append_jsonl(path: Path, lines: Iterable[Any]) -> None:
+def _append_jsonl(path: Path, lines: Iterable[JSONValue]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as f:
         for line in lines:

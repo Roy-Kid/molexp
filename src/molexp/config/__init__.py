@@ -20,9 +20,9 @@ from molexp.config.loader import DEFAULT_CONFIG_FILENAMES, load_molcfg
 from molexp.config.models import MolCfg, ProfileConfig, normalize_profile_name
 
 __all__ = [
+    "DEFAULT_CONFIG_FILENAMES",
     "MolCfg",
     "ProfileConfig",
     "load_molcfg",
     "normalize_profile_name",
-    "DEFAULT_CONFIG_FILENAMES",
 ]

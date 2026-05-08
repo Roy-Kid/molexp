@@ -20,23 +20,26 @@ invalid rather than silently inferred.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
+from builtins import list as _list
 from collections.abc import Iterable
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from threading import Lock
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, TypeAdapter, ValidationError
 
+from molexp._typing import JSONValue
 from molexp.agent.persistence.tiered import _format_validation_error, _now_iso
 
 # ── Constants ──────────────────────────────────────────────────────────────
 
-MCP_CONFIG_FILENAME = ".mcp.json"
-MCP_SECRETS_FILENAME = ".mcp_secrets.json"
+MCP_CONFIG_FILENAME = "mcp.json"
+MCP_SECRETS_FILENAME = "mcp_secrets.json"
 USER_DIR = Path.home() / ".molexp"
 
 # ``${SECRET:KEY_NAME}`` — only env/header *values* may carry these.
@@ -53,7 +56,7 @@ ALL_TRANSPORTS: tuple[str, ...] = ("stdio", *HTTP_TRANSPORTS)
 # ── Scope enum ─────────────────────────────────────────────────────────────
 
 
-class McpScope(str, Enum):
+class McpScope(StrEnum):
     """Two-tier scope mirroring VSCode User vs Workspace settings."""
 
     USER = "user"
@@ -113,7 +116,7 @@ class HttpSpec(BaseModel):
     auth: OAuth2AuthSpec | None = None
 
 
-McpServerSpec = Annotated[Union[StdioSpec, HttpSpec], Discriminator("type")]
+McpServerSpec = Annotated[StdioSpec | HttpSpec, Discriminator("type")]
 _SPEC_ADAPTER: TypeAdapter[StdioSpec | HttpSpec] = TypeAdapter(McpServerSpec)
 
 
@@ -264,10 +267,8 @@ class McpSecretsStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"secrets": secrets}, indent=2, ensure_ascii=False))
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(tmp, 0o600)
-        except OSError:
-            pass
         os.replace(tmp, self._path)
 
 
@@ -318,7 +319,7 @@ class McpStore:
 
     # ── Read ───────────────────────────────────────────────────────────────
 
-    def list(self) -> list[McpServerEntry]:
+    def list(self) -> _list[McpServerEntry]:
         """Return merged view of both scopes, with shadowing info.
 
         User entries shadowed by a Workspace entry of the same name are
@@ -342,7 +343,7 @@ class McpStore:
             return None
         return self._build_entry(name, servers[name], scope, shadowed=False)
 
-    def secret_references(self, scope: McpScope) -> dict[str, list[str]]:
+    def secret_references(self, scope: McpScope) -> dict[str, _list[str]]:
         """Map of secret-key → list of server names that reference it.
 
         Computed only over the requested scope's config so the UI can
@@ -354,7 +355,7 @@ class McpStore:
         for name, raw in servers.items():
             if not isinstance(raw, dict):
                 continue
-            values: Iterable[Any] = []
+            values: Iterable[JSONValue] = []
             if isinstance(raw.get("env"), dict):
                 values = list(values) + list(raw["env"].values())
             if isinstance(raw.get("headers"), dict):
@@ -365,7 +366,7 @@ class McpStore:
 
     # ── Mutate ─────────────────────────────────────────────────────────────
 
-    def upsert(self, scope: McpScope, name: str, spec: dict[str, Any]) -> McpServerEntry:
+    def upsert(self, scope: McpScope, name: str, spec: dict[str, JSONValue]) -> McpServerEntry:
         """Create or replace a server entry at the given scope.
 
         Validates name + spec before touching disk. Empty/invalid input
@@ -460,7 +461,7 @@ class McpStore:
     def _build_entry(
         self,
         name: str,
-        raw: Any,
+        raw: JSONValue,
         scope: McpScope,
         shadowed: bool,
     ) -> McpServerEntry:
@@ -491,25 +492,20 @@ class McpStore:
         try:
             spec = _SPEC_ADAPTER.validate_python(raw)
         except ValidationError as exc:
-            env_keys = (
-                tuple(sorted((raw.get("env") or {}).keys()))
-                if isinstance(raw.get("env"), dict)
-                else ()
-            )
-            header_keys = (
-                tuple(sorted((raw.get("headers") or {}).keys()))
-                if isinstance(raw.get("headers"), dict)
-                else ()
-            )
+            raw_env = raw.get("env")
+            env_keys = tuple(sorted(raw_env.keys())) if isinstance(raw_env, dict) else ()
+            raw_headers = raw.get("headers")
+            header_keys = tuple(sorted(raw_headers.keys())) if isinstance(raw_headers, dict) else ()
+            raw_command = raw.get("command")
+            raw_url = raw.get("url")
+            raw_args = raw.get("args")
             return McpServerEntry(
                 name=name,
                 scope=scope,
                 transport=str(raw.get("type") or ""),
-                command=raw.get("command") if isinstance(raw.get("command"), str) else None,
-                args=tuple(str(a) for a in (raw.get("args") or []))
-                if isinstance(raw.get("args"), list)
-                else (),
-                url=raw.get("url") if isinstance(raw.get("url"), str) else None,
+                command=raw_command if isinstance(raw_command, str) else None,
+                args=(tuple(str(a) for a in raw_args) if isinstance(raw_args, list) else ()),
+                url=raw_url if isinstance(raw_url, str) else None,
                 env_keys=env_keys,
                 header_keys=header_keys,
                 secret_refs=(),
@@ -569,7 +565,7 @@ class McpStore:
             self._workspace_secrets.get(key) is not None or self._user_secrets.get(key) is not None
         )
 
-    def _substitute(self, server: str, value: Any) -> str:
+    def _substitute(self, server: str, value: JSONValue) -> str:
         if not isinstance(value, str):
             return ""
         missing: list[str] = []
@@ -593,7 +589,7 @@ class McpStore:
 # ── Module-level helpers ───────────────────────────────────────────────────
 
 
-def _read_servers(path: Path) -> dict[str, Any]:
+def _read_servers(path: Path) -> dict[str, JSONValue]:
     """Return the ``mcpServers`` map from ``path``, or empty dict on error.
 
     Performs a one-shot normalization for legacy values: ``streamable-http``
@@ -611,7 +607,7 @@ def _read_servers(path: Path) -> dict[str, Any]:
     raw = content.get("mcpServers") if isinstance(content, dict) else None
     if not isinstance(raw, dict):
         return {}
-    out: dict[str, Any] = {}
+    out: dict[str, JSONValue] = {}
     for name, spec in raw.items():
         if isinstance(spec, dict) and spec.get("type") == "streamable-http":
             spec = {**spec, "type": "http"}
@@ -619,7 +615,7 @@ def _read_servers(path: Path) -> dict[str, Any]:
     return out
 
 
-def _write_servers(path: Path, servers: dict[str, Any]) -> None:
+def _write_servers(path: Path, servers: dict[str, JSONValue]) -> None:
     """Atomically write ``{mcpServers: ...}`` to ``path``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -627,7 +623,7 @@ def _write_servers(path: Path, servers: dict[str, Any]) -> None:
     os.replace(tmp, path)
 
 
-def _collect_refs(values: Iterable[Any]) -> tuple[str, ...]:
+def _collect_refs(values: Iterable[JSONValue]) -> tuple[str, ...]:
     found: set[str] = set()
     for v in values:
         if not isinstance(v, str):

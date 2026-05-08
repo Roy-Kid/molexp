@@ -18,13 +18,47 @@ import hashlib
 import inspect
 import json
 import textwrap
-from datetime import datetime, timezone
-from typing import Any
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Protocol
 
 from mollog import get_logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+
+from .._typing import JSONValue
 
 logger = get_logger(__name__)
+
+
+class _PydanticDumpable(Protocol):
+    """Anything with a pydantic-style ``model_dump()`` accessor."""
+
+    def model_dump(self) -> dict[str, JSONValue]: ...
+
+
+class _SnapshotableTask(Protocol):
+    """Duck-typed contract for ``TaskSnapshot.create``.
+
+    A snapshotable task exposes a stable ``task_id`` plus an awaitable
+    ``execute`` callable whose source is hashed for cache identity.
+    Optional ``config`` (a pydantic-style model) is reached for via
+    :func:`getattr` inside the body — declaring it on the Protocol would
+    force every task to expose one, which is not the contract.
+    """
+
+    task_id: str
+    execute: Callable[..., object]
+
+
+def _maybe_dump_config(task: _SnapshotableTask) -> dict[str, JSONValue]:
+    """Return ``task.config.model_dump()`` when available, ``{}`` otherwise."""
+    cfg = getattr(task, "config", None)
+    dumper = getattr(cfg, "model_dump", None) if cfg is not None else None
+    if callable(dumper):
+        result = dumper()
+        if isinstance(result, dict):
+            return result
+    return {}
 
 
 def _normalize_ast(source: str) -> str:
@@ -57,22 +91,21 @@ class TaskSnapshot(BaseModel):
     config_hash: str
     code_source: str = ""
     created_at: datetime
-    config_data: dict[str, Any] = Field(default_factory=dict)
+    config_data: dict[str, JSONValue] = Field(default_factory=dict)
 
-    model_config = {"frozen": True}
+    model_config = ConfigDict(frozen=True)
 
     @classmethod
-    def create(cls, task: Any) -> TaskSnapshot:
+    def create(cls, task: _SnapshotableTask) -> TaskSnapshot:
         """Create a snapshot from a live Task instance."""
-        config_data = task.config.model_dump() if hasattr(task.config, "model_dump") else {}
         return cls(
             task_id=task.task_id,
             task_type=f"{type(task).__module__}.{type(task).__qualname__}",
             code_hash=cls._compute_code_hash(task),
             config_hash=cls._compute_config_hash(task),
             code_source=cls._get_code_source(task),
-            created_at=datetime.now(timezone.utc),
-            config_data=config_data,
+            created_at=datetime.now(UTC),
+            config_data=_maybe_dump_config(task),
         )
 
     @property
@@ -81,14 +114,14 @@ class TaskSnapshot(BaseModel):
         return f"{self.code_hash}:{self.config_hash}"
 
     @staticmethod
-    def _get_code_source(task: Any) -> str:
+    def _get_code_source(task: _SnapshotableTask) -> str:
         try:
             return inspect.getsource(task.execute)
         except (OSError, TypeError):
             return ""
 
     @staticmethod
-    def _compute_code_hash(task: Any) -> str:
+    def _compute_code_hash(task: _SnapshotableTask) -> str:
         """Hash execute() using AST normalization (whitespace/comment insensitive)."""
         try:
             source = inspect.getsource(task.execute)
@@ -99,12 +132,17 @@ class TaskSnapshot(BaseModel):
         except SyntaxError:
             pass
 
-        try:
-            code_obj = task.execute.__code__
+        # Function objects expose ``__code__``; bound methods expose it via
+        # ``__func__.__code__``. Reach for either via ``getattr`` so the
+        # static type of ``task.execute`` (``Callable[..., object]``) does
+        # not need to claim attributes only present on the function-object
+        # subset of callables.
+        code_obj = getattr(task.execute, "__code__", None) or getattr(
+            getattr(task.execute, "__func__", None), "__code__", None
+        )
+        if code_obj is not None:
             bytecode_data = code_obj.co_code + repr(code_obj.co_consts).encode()
             return hashlib.sha256(bytecode_data).hexdigest()[:32]
-        except AttributeError:
-            pass
 
         logger.warning(
             f"Cannot compute reliable code hash for task {task.task_id} "
@@ -114,11 +152,8 @@ class TaskSnapshot(BaseModel):
         return hashlib.sha256(identity.encode()).hexdigest()[:32]
 
     @staticmethod
-    def _compute_config_hash(task: Any) -> str:
+    def _compute_config_hash(task: _SnapshotableTask) -> str:
         """Hash the task's serialized configuration."""
-        if hasattr(task.config, "model_dump"):
-            data = task.config.model_dump()
-        else:
-            data = {}
+        data = _maybe_dump_config(task)
         raw = json.dumps(data, sort_keys=True, default=str)
         return hashlib.sha256(raw.encode()).hexdigest()[:32]

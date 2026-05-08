@@ -21,17 +21,18 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
 
 from mollog import get_logger
 from pydantic import BaseModel
 
+from .._typing import HashablePayload, JSONValue
 from .snapshot import TaskSnapshot
 
 logger = get_logger(__name__)
@@ -40,7 +41,7 @@ logger = get_logger(__name__)
 CACHE_FORMAT_VERSION = 1
 
 
-def _robust_json_default(obj: Any) -> Any:
+def _robust_json_default(obj: HashablePayload) -> JSONValue:
     """Type-aware JSON serializer for cache input hashing.
 
     Large array-like objects (>10 000 elements) are hashed rather than
@@ -77,7 +78,7 @@ class CacheEntry(BaseModel):
     cache_key: str
     task_id: str
     task_type: str
-    result: dict[str, Any]
+    result: dict[str, JSONValue]
     created_at: datetime
 
 
@@ -101,7 +102,7 @@ class Caching:
         self._store_dir.mkdir(parents=True, exist_ok=True)
 
     @property
-    def stats(self) -> dict[str, Any]:
+    def stats(self) -> dict[str, JSONValue]:
         """Cache statistics: entry_count, total_size_bytes, max_entries."""
         if not self._store_dir.exists():
             return {"entry_count": 0, "total_size_bytes": 0, "max_entries": self._max_entries}
@@ -113,7 +114,9 @@ class Caching:
             "max_entries": self._max_entries,
         }
 
-    def get(self, snapshot: TaskSnapshot, inputs: dict[str, Any]) -> dict[str, Any] | None:
+    def get(
+        self, snapshot: TaskSnapshot, inputs: dict[str, JSONValue]
+    ) -> dict[str, JSONValue] | None:
         """Look up a cached result. Returns None on miss, version mismatch, or corruption."""
         cache_key = self._compute_cache_key(snapshot.key, self._compute_input_hash(inputs))
         path = self._key_path(cache_key)
@@ -141,8 +144,8 @@ class Caching:
     def put(
         self,
         snapshot: TaskSnapshot,
-        inputs: dict[str, Any],
-        result: dict[str, Any],
+        inputs: dict[str, JSONValue],
+        result: dict[str, JSONValue],
     ) -> None:
         """Store a result in the cache. Triggers LRU eviction if limit exceeded."""
         input_hash = self._compute_input_hash(inputs)
@@ -155,14 +158,14 @@ class Caching:
             task_id=snapshot.task_id,
             task_type=snapshot.task_type,
             result=result,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
         )
         self._store_dir.mkdir(parents=True, exist_ok=True)
         self._atomic_write(self._key_path(cache_key), entry.model_dump_json(indent=2))
         if self._max_entries > 0:
             self._evict_if_needed()
 
-    def invalidate(self, snapshot: TaskSnapshot, inputs: dict[str, Any]) -> bool:
+    def invalidate(self, snapshot: TaskSnapshot, inputs: dict[str, JSONValue]) -> bool:
         """Remove a single cache entry. Returns True if the entry existed."""
         cache_key = self._compute_cache_key(snapshot.key, self._compute_input_hash(inputs))
         path = self._key_path(cache_key)
@@ -195,16 +198,15 @@ class Caching:
 
     @staticmethod
     def _atomic_write(path: Path, content: str) -> None:
-        fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
+        fd, tmp_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
+        tmp_path = Path(tmp_str)
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(content)
-            os.replace(tmp_path, path)
+            tmp_path.replace(path)
         except BaseException:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
+            with contextlib.suppress(OSError):
+                tmp_path.unlink()
             raise
 
     @staticmethod
@@ -213,6 +215,6 @@ class Caching:
         return hashlib.sha256(combined.encode()).hexdigest()
 
     @staticmethod
-    def _compute_input_hash(inputs: dict[str, Any]) -> str:
+    def _compute_input_hash(inputs: dict[str, JSONValue]) -> str:
         raw = json.dumps(inputs, sort_keys=True, default=_robust_json_default)
         return hashlib.sha256(raw.encode()).hexdigest()

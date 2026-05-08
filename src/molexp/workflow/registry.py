@@ -17,10 +17,12 @@ Register a task type::
     from molexp.workflow.registry import default_registry
     from molexp.workflow.task import Task
 
+
     class Add(Task):
         async def execute(self, ctx) -> float:
             inputs = ctx.inputs or {}
             return sum(float(v) for v in inputs.values())
+
 
     default_registry.register("core.add", Add)
 
@@ -33,14 +35,18 @@ Look it up::
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, Protocol
+from typing import overload
+
+from .protocols import JSONMapping, TaskBody, TaskInput, TaskOutput
 
 # A factory takes a config dict and returns a Runnable / Streamable / callable.
-TaskFactory = Callable[[dict[str, Any]], Any]
+type TaskFactory = Callable[[JSONMapping], TaskBody]
 
-
-class _Constructor(Protocol):
-    def __call__(self, **kwargs: Any) -> Any: ...
+# Either a ready-made factory or a class whose ``__init__`` accepts the
+# config dict's keys as kwargs. The class branch is wrapped on registration
+# into a factory via ``lambda cfg: cls(**cfg)``. ``type`` matches any class
+# at the static-typing level; the runtime narrows via ``isinstance(_, type)``.
+type RegistrableTarget = TaskFactory | type
 
 
 class TaskTypeRegistry:
@@ -59,13 +65,31 @@ class TaskTypeRegistry:
         self._factories: dict[str, TaskFactory] = {}
         self._descriptions: dict[str, str] = {}
 
+    @overload
     def register(
         self,
         slug: str,
-        factory: TaskFactory | _Constructor | None = None,
+        factory: None = None,
         *,
         description: str = "",
-    ) -> Callable[[Any], Any]:
+    ) -> Callable[[RegistrableTarget], RegistrableTarget]: ...
+
+    @overload
+    def register(
+        self,
+        slug: str,
+        factory: RegistrableTarget,
+        *,
+        description: str = "",
+    ) -> RegistrableTarget: ...
+
+    def register(
+        self,
+        slug: str,
+        factory: RegistrableTarget | None = None,
+        *,
+        description: str = "",
+    ) -> Callable[[RegistrableTarget], RegistrableTarget] | RegistrableTarget:
         """Register ``slug`` → ``factory``.
 
         ``factory`` may be:
@@ -79,19 +103,23 @@ class TaskTypeRegistry:
         works.
         """
 
-        def _wrap(target: Any) -> Any:
+        def _wrap(target: RegistrableTarget) -> RegistrableTarget:
             if isinstance(target, type):
-                self._factories[slug] = lambda cfg, _cls=target: _cls(**(cfg or {}))
+                cls = target
+
+                def _from_class(cfg: JSONMapping) -> TaskBody:
+                    return cls(**(cfg or {}))
+
+                self._factories[slug] = _from_class
             else:
-                self._factories[slug] = target  # already a factory
+                self._factories[slug] = target
             if description:
                 self._descriptions[slug] = description
             return target
 
         if factory is None:
             return _wrap
-        _wrap(factory)
-        return factory  # type: ignore[return-value]
+        return _wrap(factory)
 
     def get(self, slug: str) -> TaskFactory:
         """Return the factory for ``slug``, raising on unknown slugs."""
@@ -133,10 +161,10 @@ from .task import Task  # noqa: E402
 class _Constant(Task):
     """Emit a fixed value. Useful as a graph root in tests / demos."""
 
-    def __init__(self, value: Any = 0) -> None:
+    def __init__(self, value: TaskOutput = 0) -> None:
         self.value = value
 
-    async def execute(self, ctx: TaskContext) -> Any:
+    async def execute(self, ctx: TaskContext) -> TaskOutput:  # noqa: ARG002
         return self.value
 
 
@@ -163,7 +191,7 @@ class _Multiply(Task):
         return float(ctx.inputs) * self.factor
 
 
-def _coerce_sum(inputs: Any) -> float:
+def _coerce_sum(inputs: TaskInput) -> float:
     if inputs is None:
         return 0.0
     if isinstance(inputs, dict):

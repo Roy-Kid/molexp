@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from molexp.plugins.metrics import read_run_metrics
+from molexp.workspace.metrics import read_run_metrics
 
 
 class TestRunMetrics:
@@ -79,6 +79,5 @@ class TestRunMetrics:
         assert result.next_line == 3
 
     def test_invalid_scalar_rejected(self, run):
-        with run.start() as ctx:
-            with pytest.raises(ValueError, match="scalar metric value"):
-                ctx.metrics.scalar("train/loss", float("nan"), step=1)
+        with run.start() as ctx, pytest.raises(ValueError, match="scalar metric value"):
+            ctx.metrics.scalar("train/loss", float("nan"), step=1)

@@ -7,8 +7,8 @@ Usage (from CLI or programmatic code)::
 
     from molexp.monitor import RunMonitor
 
-    monitor = RunMonitor(title="my-sweep")
-    monitor.watch(runs)           # blocks until user presses 'q'
+    monitor = RunMonitor(title="my-experiment")
+    monitor.watch(runs)  # blocks until user presses 'q'
     # jobs keep running after this returns
 """
 
@@ -153,11 +153,16 @@ class RunMonitor:
                     (("profile", profile_name),) if profile_name else ()
                 )
 
+                # ``run_name`` is folded into ``extras`` because molq's
+                # ``JobRow`` has no dedicated name field — the dashboard
+                # already groups by ``run_id`` and surfaces ``extras`` in
+                # the row's secondary line.
+                if run_name and run_name != run_id:
+                    extras = (*extras, ("name", run_name))
                 rows.append(
                     JobRow(
                         state=status,
                         run_id=run_id,
-                        name=run_name,
                         cluster=executor_info.get("cluster_name"),
                         scheduler_id=sched_id,
                         elapsed=elapsed,

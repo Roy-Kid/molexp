@@ -14,7 +14,17 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any
+from typing import TYPE_CHECKING, TypeAlias
+
+if TYPE_CHECKING:
+    import httpx
+
+# pydantic-ai's MCP tool wrapper has shifted between version-specific shapes
+# (top-level ``name`` / ``description`` vs nested ``tool_def`` /
+# ``definition``). The probe accesses fields defensively via ``getattr``, so
+# we accept the boundary type as opaque at the static-typing level. An alias
+# (rather than bare ``Any``) marks this position as intentional.
+McpToolObject: TypeAlias = "object"
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
@@ -237,7 +247,7 @@ async def _list_one(store: McpStore, entry: McpServerEntry, timeout: float) -> M
     )
 
 
-def _tool_name(tool: Any) -> str:
+def _tool_name(tool: McpToolObject) -> str:
     """Extract a tool's logical name across pydantic-ai/MCP version drift."""
     name = getattr(tool, "name", None)
     if isinstance(name, str):
@@ -250,7 +260,7 @@ def _tool_name(tool: Any) -> str:
     return repr(tool)
 
 
-def _tool_description(tool: Any) -> str:
+def _tool_description(tool: McpToolObject) -> str:
     desc = getattr(tool, "description", None)
     if isinstance(desc, str):
         return desc
@@ -263,52 +273,30 @@ def _tool_description(tool: Any) -> str:
 
 
 def _build_pydantic_ai_server(spec: ResolvedSpec, name: str, scope: McpScope, store: McpStore):
-    """Map the resolved spec onto the right pydantic-ai class.
+    """Map the resolved spec onto the right pydantic-ai MCP transport.
 
-    OAuth-protected HTTP servers get an ``httpx.AsyncClient(auth=...)``
-    wrapping :class:`OAuthClientProvider`; non-OAuth servers stay on the
-    simple headers-only path. The probe runs in a non-interactive context
-    (no UI session bound), so OAuth here only succeeds when stored tokens
-    can be refreshed silently — a fresh authorization will raise and the
-    error message tells the user to click Connect.
+    Wraps :func:`molexp.agent._pydanticai.mcp.build_mcp_server` so this
+    module never imports ``pydantic_ai`` directly — the import-boundary
+    firewall keeps the SDK confined to ``agent/_pydanticai/``.
     """
-    from pydantic_ai.mcp import (
-        MCPServerSSE,
-        MCPServerStdio,
-        MCPServerStreamableHTTP,
-    )
-
-    if spec.transport == "stdio":
-        return MCPServerStdio(
-            command=spec.command or "",
-            args=list(spec.args),
-            env=spec.env or None,
-            tool_prefix=name,
-        )
+    from molexp.agent._pydanticai.mcp import build_mcp_server
 
     http_client = _maybe_oauth_http_client(spec, name, scope, store)
-    # Claude Code .mcp.json convention: ``http`` is streamable HTTP (the
-    # modern MCP wire format). ``sse`` is the legacy long-poll transport.
-    if spec.transport == "http":
-        kwargs = _http_kwargs(spec, http_client)
-        return MCPServerStreamableHTTP(url=spec.url or "", tool_prefix=name, **kwargs)
-    if spec.transport == "sse":
-        kwargs = _http_kwargs(spec, http_client)
-        return MCPServerSSE(url=spec.url or "", tool_prefix=name, **kwargs)
-    raise ValueError(f"Unknown MCP transport: {spec.transport!r}")
-
-
-def _http_kwargs(spec: ResolvedSpec, http_client: Any) -> dict[str, Any]:
-    """pydantic-ai forbids passing both ``headers`` and ``http_client``;
-    pick exactly one based on whether OAuth wrapping is in play."""
-    if http_client is not None:
-        return {"http_client": http_client}
-    return {"headers": spec.headers or None}
+    return build_mcp_server(
+        transport=spec.transport,
+        name=name,
+        command=spec.command or "",
+        args=tuple(spec.args),
+        env=spec.env or None,
+        url=spec.url or "",
+        http_client=http_client,
+        headers=spec.headers or None,
+    )
 
 
 def _maybe_oauth_http_client(
     spec: ResolvedSpec, name: str, scope: McpScope, store: McpStore
-) -> Any:
+) -> httpx.AsyncClient | None:
     """Build an OAuth-equipped httpx client when the spec requests OAuth.
 
     Returns ``None`` for non-OAuth specs so the caller falls back to plain

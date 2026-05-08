@@ -6,27 +6,37 @@ and child listing for Workspace, Project, Experiment, and Run.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from pydantic import BaseModel
+
+from molexp._typing import JSONValue
 
 T = TypeVar("T")
 
 
-def _atomic_write_json(path: Path, data: Any) -> None:
+def _atomic_write_json(path: Path, data: object) -> None:
     """Write JSON data to a file atomically via write-to-temp + rename.
 
     On POSIX systems, os.replace is atomic — if the process crashes mid-write,
     the original file remains intact. This prevents data corruption for
     critical files like run.json and metadata files.
 
+    The ``data`` parameter is the structural top-type ``object`` rather
+    than ``JSONValue`` because :func:`json.dumps` is invoked with
+    ``default=str``, which accepts anything that has a string repr.
+    Callers are responsible for ensuring the value is meaningful as
+    JSON; ``json.dumps`` raises at write time if not.
+
     Args:
         path: Destination file path.
-        data: JSON-serializable data to write.
+        data: JSON-serializable value (or anything ``str()``-coercible).
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     # Write to a temp file in the same directory (same filesystem for atomic rename)
@@ -37,10 +47,8 @@ def _atomic_write_json(path: Path, data: Any) -> None:
         os.replace(tmp_path, path)
     except BaseException:
         # Clean up temp file on any failure (including KeyboardInterrupt)
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 
@@ -60,7 +68,7 @@ def _save_metadata(metadata: BaseModel, path: Path) -> None:
     write_versioned_json(path, metadata.model_dump(mode="json"))
 
 
-def _load_metadata(metadata_cls: type[T], path: Path) -> T:
+def _load_metadata[T](metadata_cls: type[T], path: Path) -> T:
     """Read a JSON file into a Pydantic metadata model.
 
     Tolerates legacy files that lack ``schema_version`` (treated as
@@ -81,11 +89,16 @@ def _load_metadata(metadata_cls: type[T], path: Path) -> T:
     return metadata_cls(**data)
 
 
-def _reconstruct(
+def _reconstruct[T](
     cls: type[T],
-    attrs: dict[str, Any],
+    attrs: dict[str, object],
 ) -> T:
     """Reconstruct a hierarchy object without calling ``__init__``.
+
+    The attribute values are heterogeneous — pydantic metadata models,
+    parent containers (``Workspace`` / ``Project`` / ``Experiment``),
+    paths — so the parameter type is the structural top-type ``object``.
+    Each call site already knows the concrete shape it is reconstituting.
 
     Args:
         cls: Target class.
@@ -133,7 +146,7 @@ def _rebuild_container_index(
     """
     from datetime import datetime
 
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, JSONValue]] = []
     if container_dir.exists():
         for child_dir in sorted(container_dir.iterdir(), key=lambda p: p.name):
             if not child_dir.is_dir():
@@ -142,11 +155,11 @@ def _rebuild_container_index(
             if not mfile.exists():
                 continue
             try:
-                with open(mfile, "r") as fh:
+                with open(mfile) as fh:
                     data = json.load(fh)
             except (OSError, json.JSONDecodeError):
                 continue
-            entry: dict[str, Any] = {"path": child_dir.name}
+            entry: dict[str, JSONValue] = {"path": child_dir.name}
             for f in fields:
                 if f in data:
                     entry[f] = data[f]
@@ -164,12 +177,12 @@ def _rebuild_container_index(
     )
 
 
-def _list_children(
+def _list_children[T](
     children_dir: Path,
     metadata_filename: str,
     metadata_cls: type[BaseModel],
     child_cls: type[T],
-    attrs_factory: Any,
+    attrs_factory: Callable[[BaseModel], dict[str, object]],
 ) -> list[T]:
     """List child nodes by scanning a directory for metadata files.
 

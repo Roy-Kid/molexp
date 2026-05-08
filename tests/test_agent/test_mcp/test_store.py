@@ -420,7 +420,7 @@ def test_legacy_streamable_http_normalized_to_http(store, tmp_path):
     """Older configs with type='streamable-http' load as type='http'."""
     import json
 
-    config = tmp_path / "workspace" / ".mcp.json"
+    config = tmp_path / "workspace" / MCP_CONFIG_FILENAME
     config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text(
         json.dumps(

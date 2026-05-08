@@ -12,7 +12,7 @@ so the in-process registrations tier (``Scope.NATIVE``) is populated.
 """
 
 # Side-effect: register every native skill on SkillStore at import time.
-from molexp.agent.skills import native as _native  # noqa: F401
+from molexp.agent.skills import native as _native
 from molexp.agent.skills.commands import (
     CommandKind,
     ParsedCommand,
@@ -31,14 +31,14 @@ from molexp.agent.skills.types import (
 )
 
 __all__ = [
-    "CommandKind",
-    "ParsedCommand",
     "RESERVED_SLASH_NAMES",
     "SKILLS_FILE",
     "SLASH_NAME_RE",
-    "Skill",
-    "SkillStore",
     "USER_HOME_DIR_NAME",
     "USER_HOME_SKILLS_FILE",
+    "CommandKind",
+    "ParsedCommand",
+    "Skill",
+    "SkillStore",
     "parse",
 ]

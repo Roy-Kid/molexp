@@ -1,37 +1,30 @@
 """Execution contexts for workflow tasks and actors.
 
 ``TaskContext`` is the **single object** every user-defined task receives.
-It bridges the workflow type system (state, deps, inputs) with optional
-workspace capabilities (artifacts, assets, checkpoints).
-
-When a workflow runs outside a workspace (pure computation mode), the
-workspace methods gracefully return ``None`` instead of raising.
+It carries five attributes — ``state``, ``deps``, ``inputs``, ``config``,
+``run_context`` — and nothing else. Workspace plumbing (artifacts, logs,
+checkpoints, named results) is no longer the workflow layer's concern;
+callers attach those capabilities through the opaque duck-typed
+``run_context`` payload and reach into them directly when needed.
 """
 
 from __future__ import annotations
 
-from typing import Any, Generic
-
-from molexp.config import ProfileConfig
-
-from .types import DepsT, InputT, StateT
+from .protocols import JSONMapping, RunContextLike, TaskOutput
 
 
-class TaskContext(Generic[StateT, DepsT, InputT]):
+class TaskContext[StateT, DepsT, InputT]:
     """Context passed to every ``Task.execute()``.
 
-    Workflow-side (always available):
-        - ``state``   — shared mutable workflow state
-        - ``deps``    — injected dependencies
-        - ``inputs``  — typed output from the upstream task
-        - ``config``  — active :class:`~molexp.config.ProfileConfig`
-
-    Workspace-side (available when a run is attached):
-        - ``artifact.save(name, data)``     — write an ``ArtifactAsset``
-        - ``log(name).append(line)``        — append to a ``LogAsset``
-        - ``checkpoint(name, data=...)``    — save a ``CheckpointAsset``
-        - ``find_asset(name)``              — look up a ``DataAsset``
-        - ``set_result(key, value)`` / ``get_result(key)``
+    Attributes:
+        state: Shared mutable workflow state visible to all tasks.
+        deps: Injected dependencies (any user object).
+        inputs: Typed output from the upstream task (``None`` for root tasks).
+        config: JSON-shaped mapping exposed to the task body (defaults to ``{}``).
+        run_context: Duck-typed run context (``RunContextLike``) supplied by
+            the caller of ``WorkflowSpec.execute(run_context=...)``. Tasks
+            that need workspace capabilities reach for them through this
+            object; the workflow layer holds it via the structural Protocol.
     """
 
     def __init__(
@@ -39,16 +32,14 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
         state: StateT,
         deps: DepsT,
         inputs: InputT,
-        config: ProfileConfig | None = None,
-        run_context: Any | None = None,
+        config: JSONMapping | None = None,
+        run_context: RunContextLike | None = None,
     ) -> None:
         self._state = state
         self._deps = deps
         self._inputs = inputs
-        self._config = config if config is not None else ProfileConfig({}, name=None)
-        self._run_ctx = run_context  # workspace.run.RunContext or None
-
-    # ── Workflow-side properties ─────────────────────────────────────────
+        self._config: JSONMapping = config if config is not None else {}
+        self._run_ctx = run_context
 
     @property
     def state(self) -> StateT:
@@ -57,7 +48,7 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
 
     @property
     def deps(self) -> DepsT:
-        """Injected dependencies (workspace, external services, …)."""
+        """Injected dependencies (any user object)."""
         return self._deps
 
     @property
@@ -66,83 +57,39 @@ class TaskContext(Generic[StateT, DepsT, InputT]):
         return self._inputs
 
     @property
-    def run_context(self) -> Any:
-        """Access the underlying RunContext (``None`` if no run attached)."""
+    def run_context(self) -> RunContextLike | None:
+        """Duck-typed run-context payload supplied by the caller (or ``None``)."""
         return self._run_ctx
 
     @property
-    def config(self) -> ProfileConfig:
-        """Active molcfg profile configuration (read-only mapping)."""
+    def config(self) -> JSONMapping:
+        """Read-only mapping of user-supplied configuration."""
         return self._config
 
-    # ── Workspace-side helpers ───────────────────────────────────────────
-    # These return None / no-op when running without a workspace Run.
 
-    @property
-    def artifact(self) -> Any:
-        """``ArtifactAccessor`` for writing artifact files.
-
-        Returns ``None`` when no run is attached.
-        """
-        if self._run_ctx is None:
-            return None
-        return self._run_ctx.artifact
-
-    def log(self, name: str) -> Any:
-        """Return a bound ``LogAsset`` handle for append/tail.
-
-        Returns ``None`` when no run is attached.
-        """
-        if self._run_ctx is None:
-            return None
-        return self._run_ctx.log(name)
-
-    def find_asset(self, name: str) -> Any:
-        """Search for a ``DataAsset`` up the scope hierarchy.
-
-        Order: experiment -> project -> workspace.
-        Returns ``None`` if not found or no run is attached.
-        """
-        if self._run_ctx is None:
-            return None
-        return self._run_ctx.find_asset(name)
-
-    def checkpoint(self, name: str | None = None, *, data: dict | None = None) -> Any:
-        """Save a ``CheckpointAsset``.
-
-        Returns the created asset, or ``None`` if no run is attached.
-        """
-        if self._run_ctx is None:
-            return None
-        return self._run_ctx.checkpoint(name, data=data)
-
-    def set_result(self, key: str, value: Any) -> None:
-        """Store a named result in the run context."""
-        if self._run_ctx is not None:
-            self._run_ctx.set_result(key, value)
-
-    def get_result(self, key: str) -> Any:
-        """Retrieve a previously stored result."""
-        if self._run_ctx is None:
-            return None
-        return self._run_ctx.get_result(key)
-
-
-class ActorContext(TaskContext[StateT, DepsT, InputT]):
+class ActorContext[StateT, DepsT, InputT](TaskContext[StateT, DepsT, InputT]):
     """Extended context for streaming ``Actor`` tasks.
 
     Adds async message-passing primitives on top of ``TaskContext``.
     """
 
     async def receive(self) -> InputT:
-        """Wait for the next message from upstream."""
+        """Wait for the next message from upstream.
+
+        Requires the ``run_context`` payload to expose a ``receive(name)``
+        coroutine; otherwise raises :class:`NotImplementedError`.
+        """
         if self._run_ctx is not None and hasattr(self._run_ctx, "receive"):
             return await self._run_ctx.receive("input")
-        raise NotImplementedError("receive() requires a connected run context")
+        raise NotImplementedError("receive() requires a run_context with .receive(name)")
 
-    async def send(self, output: Any) -> None:
-        """Send a message to downstream actors."""
+    async def send(self, output: TaskOutput) -> None:
+        """Send a message to downstream actors.
+
+        Requires the ``run_context`` payload to expose an ``emit(name, value)``
+        coroutine; otherwise raises :class:`NotImplementedError`.
+        """
         if self._run_ctx is not None and hasattr(self._run_ctx, "emit"):
             await self._run_ctx.emit("output", output)
             return
-        raise NotImplementedError("send() requires a connected run context")
+        raise NotImplementedError("send() requires a run_context with .emit(name, value)")

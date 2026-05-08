@@ -5,11 +5,14 @@ through its methods. Decorator and builder styles share the same class::
 
     wf = Workflow(name="pipeline")
 
+
     @wf.task
     async def fetch(ctx: TaskContext) -> FetchResult: ...
 
+
     @wf.task(depends_on=["fetch"])
     async def validate(ctx: TaskContext) -> ValidateResult: ...
+
 
     # OOP style — add Task / Actor instances
     wf.add(ProcessTask(), depends_on=["validate"])
@@ -29,11 +32,29 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Callable, Mapping
-from typing import Any
+from typing import TYPE_CHECKING
 
-from molexp.config import ProfileConfig
-
+from .protocols import (
+    JSONMapping,
+    JSONValue,
+    RunContextLike,
+    Streamable,
+    TaskBody,
+    TaskOutput,
+    UpstreamViewLike,
+    UserDeps,
+)
 from .types import WorkflowExecution, WorkflowResult
+
+if TYPE_CHECKING:
+    from ._pydantic_graph.runtime import GraphWorkflowRuntime
+    from .registry import TaskTypeRegistry
+    from .version import WorkflowVersion
+
+# Callback shape for ``dependent_params`` — receives a mapping of upstream
+# task name → :class:`UpstreamViewLike` and returns an overlay applied on
+# top of the task's base config.
+type DependentParamsFn = Callable[[Mapping[str, UpstreamViewLike]], JSONMapping]
 
 
 def _callable_name(f: Callable, fallback: str = "anonymous") -> str:
@@ -60,7 +81,7 @@ class LoopDecl:
     ``Next("exit")`` and emits :class:`LoopMaxItersExceeded`.
     """
 
-    __slots__ = ("body", "until", "max_iters", "on_exit")
+    __slots__ = ("body", "max_iters", "on_exit", "until")
 
     def __init__(
         self,
@@ -91,7 +112,7 @@ class ParallelDecl:
     :class:`~molexp.workflow.ParallelExecutionError`.
     """
 
-    __slots__ = ("map_over", "body", "join", "max_concurrency")
+    __slots__ = ("body", "join", "map_over", "max_concurrency")
 
     def __init__(
         self,
@@ -106,34 +127,6 @@ class ParallelDecl:
         self.max_concurrency = max_concurrency
 
 
-class SanityHook:
-    """A post-task predicate hook.
-
-    See :meth:`Workflow.sanity_check`.  ``predicate`` is called with the
-    workflow ``WorkflowState`` after the task named in ``after`` has
-    completed; on a falsy return value the runtime acts according to
-    :attr:`on_fail`.
-    """
-
-    __slots__ = ("after", "predicate", "on_fail")
-
-    def __init__(
-        self,
-        *,
-        after: str,
-        predicate: Callable[[Any], bool],
-        on_fail: str,
-    ) -> None:
-        if on_fail not in ("halt", "replan", "continue"):
-            raise ValueError(
-                f"sanity_check.on_fail must be one of "
-                f"'halt' / 'replan' / 'continue'; got {on_fail!r}"
-            )
-        self.after = after
-        self.predicate = predicate
-        self.on_fail = on_fail
-
-
 class TaskRegistration:
     """Internal record of a registered task or actor.
 
@@ -144,26 +137,26 @@ class TaskRegistration:
     """
 
     __slots__ = (
-        "name",
-        "fn_or_class",
-        "depends_on",
-        "is_actor",
-        "remote",
-        "task_type",
         "config",
         "dependent_params",
+        "depends_on",
+        "fn_or_class",
+        "is_actor",
+        "name",
+        "remote",
+        "task_type",
     )
 
     def __init__(
         self,
         name: str,
-        fn_or_class: Any,
+        fn_or_class: TaskBody,
         depends_on: list[str],
         is_actor: bool = False,
-        remote: Any = None,
+        remote: UserDeps = None,
         task_type: str | None = None,
-        config: dict[str, Any] | None = None,
-        dependent_params: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        config: JSONMapping | None = None,
+        dependent_params: DependentParamsFn | None = None,
     ) -> None:
         self.name = name
         self.fn_or_class = fn_or_class
@@ -200,7 +193,7 @@ class WorkflowSpec:
     ) -> None:
         self.name = name
         self.workflow_id = workflow_id
-        self.version = version
+        self.version_label = version
         self._tasks = tasks
         self._mode = mode
         # Raw control-flow declarations from the Workflow builder.
@@ -210,27 +203,25 @@ class WorkflowSpec:
         self._branch_edges = branch_edges
         self._loops = loops
         self._parallels = parallels
-        self._runtime: Any = None  # WorkflowRuntime, lazy
-        # Sweep-level cross-replicate reducer (set by Workflow.build()).
-        self._reducer: tuple[str, Callable[..., Any]] | None = None
-        # Sanity-check hooks (set by Workflow.build()).
-        self._sanity_hooks: tuple[SanityHook, ...] = ()
+        self._runtime: GraphWorkflowRuntime | None = None
+        # Cross-replicate reducer (set by Workflow.build()).
+        self._reducer: tuple[str, Callable[..., TaskOutput]] | None = None
 
-    def _get_runtime(self) -> Any:
+    def _get_runtime(self) -> GraphWorkflowRuntime:
         if self._runtime is None:
-            from .runtime import create_default_runtime
+            from ._pydantic_graph.runtime import GraphWorkflowRuntime
 
-            self._runtime = create_default_runtime()
+            self._runtime = GraphWorkflowRuntime()
         return self._runtime
 
-    # ── Sweep-level reducer ─────────────────────────────────────────────
+    # ── Cross-replicate reducer ─────────────────────────────────────────
 
     @property
     def reducer_dimension(self) -> str | None:
         """Dimension declared on ``@wf.reduce(over=...)``; ``None`` if no reducer."""
         return self._reducer[0] if self._reducer is not None else None
 
-    def run_reducer(self, replicate_outputs: list[Any]) -> Any:
+    def run_reducer(self, replicate_outputs: list[TaskOutput]) -> TaskOutput:
         """Invoke the registered ``@wf.reduce`` on a list of replicate outputs.
 
         Raises ``LookupError`` if no reducer was registered. Callers attach
@@ -243,62 +234,67 @@ class WorkflowSpec:
             )
         return self._reducer[1](replicate_outputs)
 
-    @property
-    def sanity_hooks(self) -> tuple[SanityHook, ...]:
-        """Frozen view of the sanity-check hooks declared on the parent ``Workflow``."""
-        return self._sanity_hooks
-
     async def execute(
         self,
-        run: Any = None,
-        run_context: Any = None,
         *,
-        profile_config: ProfileConfig | None = None,
-        **kwargs: Any,
+        run_context: RunContextLike | None = None,
+        run_dir: str | None = None,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+        execution_id: str | None = None,
     ) -> WorkflowResult:
         """Run the workflow to completion and return the result.
 
         Args:
-            run: A workspace ``Run`` object (runtime creates RunContext).
-            run_context: An existing ``RunContext`` (used directly).
-                Mutually exclusive with *run*.
-            profile_config: Active :class:`~molexp.config.ProfileConfig`
-                for this execution.  When *run_context* is passed, the
-                context's own config takes precedence.
+            run_context: Opaque duck-typed run-context payload (anything
+                exposing ``.work_dir`` / ``.config`` / ``.run`` is accepted;
+                forwarded as-is to ``TaskContext.run_context``).
+            run_dir: Optional path under which ``executions/<id>/`` is
+                created. Mutually exclusive with *run_context* (which
+                supplies its own ``.work_dir``).
+            config: JSON-shaped mapping exposed as ``ctx.config``.
+                When *run_context* is passed, the context's ``.config``
+                takes precedence.
+            deps: Optional user dependencies forwarded to ``TaskContext.deps``.
+            execution_id: Optional explicit ID for the execution
+                (defaults to a fresh ``exec-<…>`` derived from run_id).
         """
         return await self._get_runtime().execute(
             self,
-            run=run,
             run_context=run_context,
-            profile_config=profile_config,
-            **kwargs,
+            run_dir=run_dir,
+            config=config,
+            deps=deps,
+            execution_id=execution_id,
         )
 
     async def start(
         self,
-        run: Any = None,
-        run_context: Any = None,
         *,
-        profile_config: ProfileConfig | None = None,
-        **kwargs: Any,
+        run_context: RunContextLike | None = None,
+        run_dir: str | None = None,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+        execution_id: str | None = None,
     ) -> WorkflowExecution:
         """Start the workflow asynchronously and return a handle."""
         return await self._get_runtime().start(
             self,
-            run=run,
             run_context=run_context,
-            profile_config=profile_config,
-            **kwargs,
+            run_dir=run_dir,
+            config=config,
+            deps=deps,
+            execution_id=execution_id,
         )
 
     # ── Versioning ──────────────────────────────────────────────────────
 
-    def to_workflow_version(self) -> Any:
+    def version(self) -> WorkflowVersion:
         """Build the immutable :class:`~molexp.workflow.version.WorkflowVersion`.
 
         Returns:
             A :class:`WorkflowVersion` capturing this spec's
-            ``workflow_id``, ``version``, ``name``, and topology
+            ``workflow_id``, ``version_label``, ``name``, and topology
             snapshot (one entry per registered task).
         """
         from .version import TaskTopologyEntry, WorkflowVersion
@@ -315,34 +311,14 @@ class WorkflowSpec:
             )
         return WorkflowVersion(
             workflow_id=self.workflow_id,
-            version=self.version,
+            version=self.version_label,
             name=self.name,
             topology=tuple(topo),
         )
 
-    def register(self, workspace: Any) -> Any:
-        """Persist this spec's :class:`WorkflowVersion` under the workspace.
-
-        Idempotent on identical ``(workflow_id, version)`` re-registers;
-        raises :class:`~molexp.workflow.version.WorkflowVersionConflictError`
-        when ``workflow_id`` already maps to a different ``version``.
-
-        Args:
-            workspace: A :class:`~molexp.workspace.Workspace` instance.
-
-        Returns:
-            The :class:`WorkflowVersion` record that is now on disk.
-        """
-        from .version import write_record
-
-        record = self.to_workflow_version()
-        workspace._ensure_materialized()
-        write_record(workspace, record)
-        return record
-
     # ── IR serialization (JSON workflow IR) ─────────────────────────────
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, JSONValue]:
         """Serialize this spec to the JSON IR shape (see ``schema/workflow.json``).
 
         Every task must have been registered with a ``task_type`` slug
@@ -371,7 +347,7 @@ class WorkflowSpec:
                 "spec 03; keep this workflow in-process or rewrite as a pure DAG."
             )
 
-        task_configs = [
+        task_configs: list[JSONValue] = [
             {
                 "task_id": t.name,
                 "task_type": t.task_type,
@@ -380,30 +356,31 @@ class WorkflowSpec:
             }
             for t in self._tasks
         ]
-        links = [
+        links: list[JSONValue] = [
             {"source": dep, "target": t.name, "mapping": {}, "status": "pending"}
             for t in self._tasks
             for dep in t.depends_on
         ]
+        metadata: dict[str, JSONValue] = {
+            "label": None,
+            "description": None,
+            "tags": [],
+            "custom": {},
+        }
         return {
             "workflow_id": f"workflow_{self.workflow_id[:8]}",
             "name": self.name,
             "task_configs": task_configs,
             "links": links,
-            "metadata": {
-                "label": None,
-                "description": None,
-                "tags": [],
-                "custom": {},
-            },
+            "metadata": metadata,
         }
 
     @classmethod
     def from_dict(
         cls,
-        data: dict[str, Any],
+        data: Mapping[str, JSONValue],
         *,
-        registry: Any = None,
+        registry: TaskTypeRegistry | None = None,
     ) -> WorkflowSpec:
         """Build a :class:`WorkflowSpec` from JSON IR.
 
@@ -422,26 +399,32 @@ class WorkflowSpec:
         topology hash; the IR's ``workflow_id`` field is informational.
         """
         if registry is None:
-            from .registry import default_registry as registry  # type: ignore[no-redef]
+            from .registry import default_registry
 
-        from .protocols import Streamable
+            registry = default_registry
+
+        links_raw = _ir_object_list(data.get("links"))
+        task_configs_raw = _ir_object_list(data.get("task_configs"))
 
         deps_by_target: dict[str, list[str]] = {}
-        for link in data.get("links", []):
-            target = link["target"]
-            deps_by_target.setdefault(target, []).append(link["source"])
+        for link in links_raw:
+            target = _require_str(link, "target")
+            source = _require_str(link, "source")
+            deps_by_target.setdefault(target, []).append(source)
 
         tasks: list[TaskRegistration] = []
-        for tc in data.get("task_configs", []):
-            slug = tc["task_type"]
-            config = dict(tc.get("config") or {})
+        for tc in task_configs_raw:
+            slug = _require_str(tc, "task_type")
+            task_id = _require_str(tc, "task_id")
+            cfg_raw = tc.get("config")
+            config: dict[str, JSONValue] = dict(cfg_raw) if isinstance(cfg_raw, dict) else {}
             factory = registry.get(slug)
             instance = factory(config)
             tasks.append(
                 TaskRegistration(
-                    name=tc["task_id"],
+                    name=task_id,
                     fn_or_class=instance,
-                    depends_on=deps_by_target.get(tc["task_id"], []),
+                    depends_on=deps_by_target.get(task_id, []),
                     is_actor=isinstance(instance, Streamable),
                     task_type=slug,
                     config=config,
@@ -450,14 +433,18 @@ class WorkflowSpec:
 
         # Validate every link target / source is a known task_id
         known = {t.name for t in tasks}
-        for link in data.get("links", []):
-            for endpoint in (link["source"], link["target"]):
+        for link in links_raw:
+            for endpoint in (
+                _require_str(link, "source"),
+                _require_str(link, "target"),
+            ):
                 if endpoint not in known:
                     raise ValueError(
                         f"Link references unknown task_id {endpoint!r}; known: {sorted(known)}"
                     )
 
-        name = data.get("name") or ""
+        name_raw = data.get("name")
+        name = name_raw if isinstance(name_raw, str) else ""
         return cls(
             name=name,
             workflow_id=_stable_workflow_id(name, tasks),
@@ -481,6 +468,7 @@ class Workflow:
     Example (decorator)::
 
         wf = Workflow(name="pipeline")
+
 
         @wf.task
         async def fetch(ctx: TaskContext) -> dict: ...
@@ -509,9 +497,7 @@ class Workflow:
         self._branch_edges: list[tuple[str, str, str]] = []
         self._loops: list[LoopDecl] = []
         self._parallels: list[ParallelDecl] = []
-        self._reducer: tuple[str, Callable[..., Any]] | None = None
-        self._task_path_registry: dict[str, type] = {}
-        self._sanity_hooks: list[SanityHook] = []
+        self._reducer: tuple[str, Callable[..., TaskOutput]] | None = None
         if entry is not None:
             if isinstance(entry, str):
                 self.entry(entry)
@@ -530,7 +516,7 @@ class Workflow:
         return self._mode
 
     @property
-    def version(self) -> str:
+    def version_label(self) -> str:
         return self._version
 
     # ── Decorator: function-as-task ─────────────────────────────────────
@@ -541,10 +527,10 @@ class Workflow:
         *,
         depends_on: list[str] | None = None,
         name: str | None = None,
-        remote: Any = None,
+        remote: UserDeps = None,
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
-        dependent_params: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        dependent_params: DependentParamsFn | None = None,
     ) -> Callable:
         """Register a function as a batch workflow task.
 
@@ -558,11 +544,14 @@ class Workflow:
             @wf.task
             async def fetch(ctx): ...
 
+
             @wf.task(depends_on=["fetch"])
             async def validate(ctx): ...
 
+
             @wf.task(routes={"ok": "emit", "fail": "rollback"})
             async def classify(ctx) -> Next: ...
+
 
             @wf.task(next_="emit")
             async def normalize(ctx) -> Doc: ...
@@ -631,16 +620,16 @@ class Workflow:
 
     def add(
         self,
-        task: Any,
+        task: TaskBody,
         *,
         depends_on: list[str] | None = None,
         name: str | None = None,
-        remote: Any = None,
+        remote: UserDeps = None,
         task_type: str | None = None,
-        config: dict[str, Any] | None = None,
+        config: JSONMapping | None = None,
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
-        dependent_params: Callable[[Mapping[str, Any]], Mapping[str, Any]] | None = None,
+        dependent_params: DependentParamsFn | None = None,
     ) -> Workflow:
         """Register a Task / Actor instance (or any Runnable/Streamable).
 
@@ -660,7 +649,6 @@ class Workflow:
 
         Returns ``self`` to support chaining.
         """
-        from .protocols import Streamable
 
         if routes is not None and next_ is not None:
             raise TypeError("Workflow.add: routes= and next_= are mutually exclusive.")
@@ -860,20 +848,20 @@ class Workflow:
         )
         return self
 
-    # ── Cross-replicate reducer (sweep-level fan-in) ────────────────────
+    # ── Cross-replicate reducer ─────────────────────────────────────────
 
     def reduce(
         self,
         *,
         over: str = "replicate",
-    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        """Register a cross-replicate reducer for sweep-level fan-in.
+    ) -> Callable[[Callable[..., TaskOutput]], Callable[..., TaskOutput]]:
+        """Register a cross-replicate reducer.
 
-        The reducer is *not* part of the workflow DAG; it is invoked by the
-        sweep runner (or any caller of :meth:`WorkflowSpec.run_reducer`)
-        after all replicate runs of this workflow complete. Output is
-        intended for the experiment-level asset library — callers attach
-        it to the experiment scope, not the run.
+        The reducer is *not* part of the workflow DAG; it is invoked by any
+        caller of :meth:`WorkflowSpec.run_reducer` after all replicate runs
+        of this workflow complete. Output is intended for the
+        experiment-level asset library — callers attach it to the
+        experiment scope, not the run.
 
         Args:
             over: Name of the dimension being reduced over (typically
@@ -881,108 +869,17 @@ class Workflow:
                 :attr:`WorkflowSpec.reducer_dimension`.
         """
 
-        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+        def decorator(fn: Callable[..., TaskOutput]) -> Callable[..., TaskOutput]:
             if self._reducer is not None:
                 raise ValueError(
                     f"Workflow {self._name!r}: reducer already registered "
-                    f"({self._reducer[1].__name__!r}); only one reducer per workflow."
+                    f"({_callable_name(self._reducer[1])!r}); "
+                    "only one reducer per workflow."
                 )
             self._reducer = (over, fn)
             return fn
 
         return decorator
-
-    # ── Agent-authored Task hot-load ────────────────────────────────────
-
-    def register_task_path(self, path: Any) -> Workflow:
-        """Load a Python file and register every ``Task`` / ``Actor`` subclass.
-
-        Discovered classes are stored in this workflow's local registry and
-        can later be resolved by :meth:`resolve_task_class`. Scope is
-        per-workflow — sibling :class:`Workflow` instances do not see each
-        other's loaded classes (acceptance ac-003 / ac-009).
-
-        The caller is responsible for keeping ``path`` inside whatever
-        sandboxed scratch directory the agent service uses (e.g.
-        ``workspace_root/.scratch/agent_tasks/``); this method does not
-        enforce that boundary itself.
-        """
-        import importlib.util
-        from inspect import isclass
-        from pathlib import Path
-
-        from .protocols import Runnable, Streamable
-        from .task import Actor
-        from .task import Task as _Task
-
-        p = Path(path)
-        if not p.exists() or not p.is_file():
-            raise FileNotFoundError(f"register_task_path: {p} is not a file")
-
-        # Build a unique module name so repeated loads do not clobber sys.modules
-        # entries from sibling workflows.
-        module_name = f"_molexp_agent_task_{abs(hash((self._name, str(p.resolve()))))}"
-        spec_obj = importlib.util.spec_from_file_location(module_name, p)
-        if spec_obj is None or spec_obj.loader is None:
-            raise OSError(f"register_task_path: cannot load module spec for {p}")
-
-        module = importlib.util.module_from_spec(spec_obj)
-        spec_obj.loader.exec_module(module)
-
-        for attr_name in dir(module):
-            obj = getattr(module, attr_name)
-            if not isclass(obj):
-                continue
-            # Skip the imported base classes themselves.
-            if obj in (_Task, Actor):
-                continue
-            if (
-                issubclass(obj, _Task)
-                or issubclass(obj, Actor)
-                or isinstance(obj, type)
-                and (issubclass(obj, Runnable) or issubclass(obj, Streamable))
-            ):
-                self._task_path_registry[attr_name] = obj
-        return self
-
-    def resolve_task_class(self, class_name: str) -> type:
-        """Look up an agent-loaded Task class by name.
-
-        Raises ``KeyError`` when the class was not loaded into *this*
-        workflow's registry (sibling workflows are isolated).
-        """
-        try:
-            return self._task_path_registry[class_name]
-        except KeyError as exc:
-            raise KeyError(
-                f"Workflow {self._name!r}: task class {class_name!r} not loaded; "
-                f"call register_task_path() first."
-            ) from exc
-
-    # ── Sanity-check hook ───────────────────────────────────────────────
-
-    def sanity_check(
-        self,
-        *,
-        after: str,
-        predicate: Callable[[Any], bool],
-        on_fail: str = "halt",
-    ) -> Workflow:
-        """Register a post-task predicate hook.
-
-        After the task named ``after`` completes, the runtime calls
-        ``predicate(state)`` with the live :class:`WorkflowState`. A truthy
-        return passes; a falsy return triggers ``on_fail``:
-
-        - ``"halt"`` — raise :class:`SanityCheckFailed`, which the runtime
-          surfaces as ``WorkflowResult.status == "failed"``.
-        - ``"replan"`` — record a structured event on
-          ``WorkflowResult.sanity_events`` and continue (the agent service
-          consumes the event to drive a replan turn).
-        - ``"continue"`` — log only; no halt, no event.
-        """
-        self._sanity_hooks.append(SanityHook(after=after, predicate=predicate, on_fail=on_fail))
-        return self
 
     def _record_decorator_edges(
         self,
@@ -1022,15 +919,15 @@ class Workflow:
             loops=tuple(self._loops),
             parallels=tuple(self._parallels),
         )
-        # Sweep-level reducer + sanity hooks — not part of the compiled DAG;
-        # carried as side-data on the spec for the runtime / sweep runner.
+        # Cross-replicate reducer — not part of the compiled DAG;
+        # carried as side-data on the spec for downstream callers.
         spec._reducer = self._reducer
-        spec._sanity_hooks = tuple(self._sanity_hooks)
         # Compile eagerly — surfaces CFG validation errors at build time.
+        # The compiled artifact is intentionally discarded: the runtime
+        # caches its own compilation result keyed by ``workflow_id``.
         from ._pydantic_graph.compiler import WorkflowGraphCompiler
 
-        compiled = WorkflowGraphCompiler().compile(spec)
-        spec._cached_compiled = compiled  # type: ignore[attr-defined]
+        WorkflowGraphCompiler().compile(spec)
         return spec
 
 
@@ -1043,7 +940,7 @@ def _to_snake_case(name: str) -> str:
     return name.lower()
 
 
-def _callable_code_hash(target: Any) -> str | None:
+def _callable_code_hash(target: TaskBody) -> str | None:
     """Best-effort AST-normalized code hash for a task callable.
 
     Mirrors :class:`~molexp.workflow.snapshot.TaskSnapshot`'s code hashing
@@ -1082,3 +979,25 @@ def _stable_workflow_id(name: str, tasks: list[TaskRegistration]) -> str:
         parts.append(f"{t.name}:{type(t.fn_or_class).__qualname__}:[{dep_str}]")
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _ir_object_list(value: JSONValue | None) -> list[dict[str, JSONValue]]:
+    """Narrow a ``JSONValue`` IR field expected to hold a list of JSON objects.
+
+    Accepts ``None`` / non-list / list-with-non-dict entries by returning
+    only the dict entries. Used by :meth:`WorkflowSpec.from_dict` so the
+    rest of the parser can rely on a homogeneous shape.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _require_str(obj: dict[str, JSONValue], key: str) -> str:
+    """Read a string field from an IR object, raising on absent / wrong type."""
+    value = obj.get(key)
+    if not isinstance(value, str):
+        raise ValueError(
+            f"IR object is missing required string field {key!r} (got {type(value).__name__})"
+        )
+    return value

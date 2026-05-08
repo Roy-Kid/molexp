@@ -39,10 +39,6 @@ The second and third forms should not be mixed. If you already have a live `RunC
 
 When execution runs through the background handle returned by `spec.start(...)`, cancellation flows through that handle. A cancelled execution closes the run context and marks the run accordingly. A failed execution records structured error information and closes the same lifecycle. In other words, cancellation and failure are not special side channels; they are part of the same run history model as successful completion.
 
-## Sweeps
-
-When the real problem is not one workflow run but a whole collection of `(experiment, run)` pairs, MolExp provides `molexp.sweep.run_sweep`. That utility owns the outer loop while still delegating each replica to the same underlying workflow execution path. One failed replica does not automatically cancel the others. Instead, sweep state collects outputs and failures separately so the caller can inspect the whole batch after execution finishes.
-
 ## The Useful Boundary
 
 The most useful way to think about the runtime is that it is responsible for turning a compiled workflow definition into one concrete execution, possibly under a persistent run record. It is not where you should model research structure, scheduler policy, or asset scoping. Those remain separate concerns, which is why the runtime can stay small even as the rest of the system grows around it.

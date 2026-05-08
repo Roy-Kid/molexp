@@ -21,7 +21,8 @@ import asyncio
 
 import pytest
 
-from molexp.workflow import Next, Workflow
+from molexp.workflow import Workflow
+from molexp.workflow.types import Next
 
 # ── T1 / ac-002, ac-003: encapsulation invariants ───────────────────────────
 
@@ -34,9 +35,17 @@ def test_parallel_execution_error_importable() -> None:
 
 
 def test_no_per_element_node_growth() -> None:
-    """ac-003 — compiled spec has one BaseNode subclass per registered task,
+    """ac-003 — compiled spec carries one task entry per registered task,
     independent of how many elements the parallel section will fan out over.
+
+    After the single-track rectification, the compiler no longer emits per-task
+    pg ``BaseNode`` subclasses; it stores the user's registered Task /
+    Actor / callable directly under ``compiled.task_by_name``. The fan-out
+    width is decided at run time from ``state.results[map_over]`` and never
+    grows the compile-time entry set.
     """
+    from molexp.workflow._pydantic_graph.compiler import WorkflowGraphCompiler
+
     wf = Workflow(name="no-per-elem-growth", entry="enumerate")
 
     @wf.task
@@ -53,19 +62,12 @@ def test_no_per_element_node_growth() -> None:
 
     wf.parallel(map_over="enumerate", body="square", join="sum_results", max_concurrency=2)
 
-    spec = wf.build()
-    nodes = spec._compiled_node_classes  # type: ignore[attr-defined]
+    compiled = WorkflowGraphCompiler().compile(wf.build())
 
-    assert len(nodes) == 3, (
-        f"Expected exactly 3 BaseNode subclasses (enumerate + square + sum_results), "
-        f"got {len(nodes)}: {[n.__name__ for n in nodes]}"
+    assert set(compiled.task_by_name.keys()) == {"enumerate", "square", "sum_results"}, (
+        f"Expected exactly 3 entries (enumerate + square + sum_results), "
+        f"got {sorted(compiled.task_by_name.keys())}"
     )
-    names = {n._molexp_task_name for n in nodes}  # type: ignore[attr-defined]
-    assert names == {"enumerate", "square", "sum_results"}
-    for n in nodes:
-        assert "WorkflowFrontier" not in n.__name__
-        # No per-element subclass synthesis — class names contain no element index.
-        assert "elem" not in n.__name__.lower()
 
 
 # ── T2 / ac-004: happy path ─────────────────────────────────────────────────

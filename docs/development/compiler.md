@@ -163,10 +163,6 @@ if hit is None:
     cache.put(snapshot, inputs, result)
 ```
 
-## Sweep-Level Graph
-
-`molexp.sweep.graph.SweepRoot` is a second, even simpler pydantic-graph node used at the outer level: one node per `run_sweep` call, fanning out replicas with a bounded `asyncio.Semaphore(jobs)`. It catches per-replica exceptions and records them in `SweepState.failures` instead of cancelling peers. Future phases (see [Unified pydantic-graph dispatch](specs/unified-pydantic-graph-dispatch.md)) will specialize the single-node graph to one-node-per-replica to unlock per-replica backend routing.
-
 ## What the Compiler Does Not Do
 
 - **It does not serialize workflows.** There is no JSON IR or `Workflow.load(...)` path. Workflows are authored in Python and re-imported on each execution. Use `workflow_id` + `WorkflowSnapshotRef` + the bound `workflow_source` for traceability.

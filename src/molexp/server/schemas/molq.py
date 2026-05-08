@@ -25,7 +25,7 @@ class MolqTargetSummary(BaseModel):
     activeJobs: int
 
     @classmethod
-    def from_dataclass(cls, target: TargetSummary) -> "MolqTargetSummary":
+    def from_dataclass(cls, target: TargetSummary) -> MolqTargetSummary:
         return cls(
             name=target.name,
             scheduler=target.scheduler,
@@ -58,7 +58,7 @@ class MolqJobSummary(BaseModel):
     cwd: str | None = None
 
     @classmethod
-    def from_dataclass(cls, job: JobSummary) -> "MolqJobSummary":
+    def from_dataclass(cls, job: JobSummary) -> MolqJobSummary:
         return cls(
             target=job.target,
             jobId=job.job_id,
@@ -84,7 +84,7 @@ class MolqQueueStats(BaseModel):
     avgWaitSeconds: float | None = None
 
     @classmethod
-    def from_dataclass(cls, stats: QueueStats) -> "MolqQueueStats":
+    def from_dataclass(cls, stats: QueueStats) -> MolqQueueStats:
         return cls(
             running=stats.running,
             pending=stats.pending,
@@ -100,7 +100,7 @@ class MolqJobsResponse(BaseModel):
     total: int
 
     @classmethod
-    def from_page(cls, page: JobsPage) -> "MolqJobsResponse":
+    def from_page(cls, page: JobsPage) -> MolqJobsResponse:
         jobs = [MolqJobSummary.from_dataclass(j) for j in page.jobs]
         return cls(
             jobs=jobs,
@@ -126,7 +126,7 @@ class MolqJobDetailResponse(MolqJobSummary):
     downstreamTotal: int = 0
 
     @classmethod
-    def from_dataclass(cls, detail: JobDetail) -> "MolqJobDetailResponse":  # type: ignore[override]
+    def from_dataclass(cls, detail: JobDetail) -> MolqJobDetailResponse:  # ty: ignore[invalid-method-override]
         base = MolqJobSummary.from_dataclass(detail.summary).model_dump()
         return cls(
             **base,
@@ -149,11 +149,11 @@ class MolqJobDetailResponse(MolqJobSummary):
 
 
 __all__ = [
-    "MolqTargetSummary",
-    "MolqTargetListResponse",
-    "MolqJobSummary",
-    "MolqQueueStats",
-    "MolqJobsResponse",
-    "MolqJobTransition",
     "MolqJobDetailResponse",
+    "MolqJobSummary",
+    "MolqJobTransition",
+    "MolqJobsResponse",
+    "MolqQueueStats",
+    "MolqTargetListResponse",
+    "MolqTargetSummary",
 ]

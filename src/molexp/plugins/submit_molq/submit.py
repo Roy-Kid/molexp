@@ -4,25 +4,79 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeAlias
+
+from molexp._typing import JSONValue
 
 from .metadata import build_executor_info
 
+# molq dispatches event callbacks with ``StatusChange | JobRecord | None``
+# payloads. The exact dataclass is internal to molq and not re-exported on
+# its public surface, so we accept the cross-package boundary as opaque.
+MolqEventPayload: TypeAlias = "object"
+
 if TYPE_CHECKING:
+    from molq import Duration, JobExecution, Memory, Submitor
+
     from molexp.workspace import ComputeTarget
+    from molexp.workspace.experiment import Experiment
+    from molexp.workspace.project import Project
+    from molexp.workspace.run import Run
 
 
-def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
+def _strip_none(d: dict[str, JSONValue]) -> dict[str, JSONValue]:
     """Return a copy with ``None`` values removed."""
     return {k: v for k, v in d.items() if v is not None}
+
+
+def _as_int(value: JSONValue) -> int | None:
+    """Read a ``JSONValue`` cell as ``int | None`` for molq resource fields."""
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        return int(value)
+    return None
+
+
+def _as_str(value: JSONValue) -> str | None:
+    """Read a ``JSONValue`` cell as ``str | None`` for molq scheduling fields."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _parse_memory(value: JSONValue) -> Memory | None:
+    """Parse a ``JSONValue`` cell as a molq ``Memory`` literal (e.g. ``'8GB'``)."""
+    text = _as_str(value)
+    if text is None:
+        return None
+    from molq import Memory as _Memory
+
+    return _Memory.parse(text)
+
+
+def _parse_duration(value: JSONValue) -> Duration | None:
+    """Parse a ``JSONValue`` cell as a molq ``Duration`` literal (e.g. ``'1h'``)."""
+    text = _as_str(value)
+    if text is None:
+        return None
+    from molq import Duration as _Duration
+
+    return _Duration.parse(text)
 
 
 class SubmitHandler:
     """Stateful run handler that submits jobs via molq.
 
     Accumulates all submitted :class:`~molexp.workspace.run.Run` objects in
-    :attr:`submitted_runs` so the caller can pass them to a monitor after the
-    sweep completes.
+    :attr:`submitted_runs` so the caller can pass them to a monitor after
+    dispatch completes.
 
     Args:
         scheduler: molq scheduler backend name. Ignored when *target* is set
@@ -42,8 +96,8 @@ class SubmitHandler:
         *,
         scheduler: str,
         cluster: str | None,
-        resources: dict[str, Any],
-        scheduling: dict[str, Any],
+        resources: dict[str, JSONValue],
+        scheduling: dict[str, JSONValue],
         block: bool = False,
         target: ComputeTarget | None = None,
     ) -> None:
@@ -53,27 +107,28 @@ class SubmitHandler:
         self._sched = _strip_none(scheduling)
         self._block = block
         self._target = target
-        self._handles: list[Any] = []
-        self._submitor: Any = None
-        self.submitted_runs: list[Any] = []
+        # ``_handles`` stores molq ``JobExecution`` handles; ``_submitor`` is the
+        # active molq ``Submitor`` context. Typed via TYPE_CHECKING string refs
+        # so import order stays clean.
+        self._handles: list[JobExecution] = []
+        self._submitor: Submitor | None = None
+        self.submitted_runs: list[Run] = []
 
     # ------------------------------------------------------------------
     # Callable protocol
 
     def __call__(
         self,
-        _script: Any,
-        mol_run: Any,
-        experiment: Any,
-        project: Any,
+        _script: str | Path | None,
+        mol_run: Run,
+        experiment: Experiment,
+        project: Project,
     ) -> None:
         from molq import (
             Cluster,
-            Duration,
             JobExecution,
             JobResources,
             JobScheduling,
-            Memory,
             Submitor,
         )
 
@@ -115,7 +170,7 @@ class SubmitHandler:
             transport.mkdir(target_exec_dir, parents=True, exist_ok=True)
             stage_in(transport, mol_run, target)
 
-            def stage_out_cb(_event: Any) -> None:
+            def stage_out_cb(_event: MolqEventPayload) -> None:
                 stage_out(transport, mol_run, target, execution_id)  # type: ignore[arg-type]
 
         jobs_dir = f"{target_exec_dir}/jobs"
@@ -156,16 +211,16 @@ class SubmitHandler:
                     execution_id,
                 ],
                 resources=JobResources(
-                    cpu_count=res.get("cpus"),
-                    memory=Memory.parse(res["mem"]) if res.get("mem") else None,
-                    gpu_count=res.get("gpus"),
-                    gpu_type=res.get("gpu_type"),
-                    time_limit=Duration.parse(res["time"]) if res.get("time") else None,
+                    cpu_count=_as_int(res.get("cpus")),
+                    memory=_parse_memory(res.get("mem")),
+                    gpu_count=_as_int(res.get("gpus")),
+                    gpu_type=_as_str(res.get("gpu_type")),
+                    time_limit=_parse_duration(res.get("time")),
                 ),
                 scheduling=JobScheduling(
-                    partition=sched.get("queue"),
-                    account=sched.get("account"),
-                    qos=sched.get("qos"),
+                    partition=_as_str(sched.get("queue")),
+                    account=_as_str(sched.get("account")),
+                    qos=_as_str(sched.get("qos")),
                 ),
                 execution=JobExecution(
                     job_name=job_name,
@@ -195,15 +250,15 @@ def make_submit_handler(
     *,
     scheduler: str,
     cluster: str | None,
-    resources: dict[str, Any],
-    scheduling: dict[str, Any],
+    resources: dict[str, JSONValue],
+    scheduling: dict[str, JSONValue],
     target: ComputeTarget | None = None,
 ) -> SubmitHandler:
     """Return a :class:`SubmitHandler` configured for the given scheduler.
 
     The handler is callable with the standard ``(script, mol_run, experiment,
-    project)`` signature used by :func:`~molexp.cli._execute_sweep`.  The
-    leading ``script`` is accepted for uniformity with the local dispatcher
+    project)`` signature used by :func:`~molexp.cli._dispatch_runs`.  The
+    leading ``script`` is accepted for uniformity with the dispatcher
     and intentionally ignored; the worker rebuilds the run from ``run_dir``.
 
     All ``None`` values in *resources* and *scheduling* are stripped so that

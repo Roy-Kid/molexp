@@ -6,8 +6,9 @@ Shows how the same context object delivers all of:
 
 * ``ctx.inputs``  — typed output from the upstream task
 * ``ctx.deps``    — runtime-injected dependencies (passed via ``deps=`` kwarg)
-* ``ctx.config``  — active ``ProfileConfig`` (read-only mapping)
+* ``ctx.config``  — active ``ProfileConfig`` exposed as a read-only mapping
 * ``ctx.artifact`` / ``ctx.log`` / ``ctx.set_result`` — workspace helpers
+  (available because the workflow is driven inside ``with run.start()``)
 
 Run directly::
 
@@ -49,11 +50,16 @@ class Record(Task):
         scale = ctx.config.get("scale", 1)
         value = ctx.inputs * scale
 
-        # Workspace helpers — no-ops if no Run is attached.
-        ctx.artifact.save(f"{label}.json", {"value": value})
-        ctx.log("record").append(label)
-        ctx.set_result(label, value)
+        rc = ctx.run_context
+        if rc is not None:
+            rc.artifact.save(f"{label}.json", {"value": value})
+            rc.log("record").append(label)
+            rc.set_result(label, value)
         return value
+
+
+# Module-scope so ``Experiment.set_workflow`` can capture an entrypoint.
+spec = Workflow(name="counter").add(Seed()).add(Record(), depends_on=["seed"]).build()
 
 
 async def main() -> None:
@@ -61,16 +67,12 @@ async def main() -> None:
     ws = me.Workspace(root, name="ctx-demo")
     project = ws.project("demo")
     exp = project.experiment("counter")
-
-    spec = Workflow(name="counter").add(Seed()).add(Record(), depends_on=["seed"]).build()
     exp.set_workflow(spec)
 
     run = exp.run()
-    result = await spec.execute(
-        run=run,
-        profile_config=ProfileConfig({"scale": 10}, name="smoke"),
-        deps=Deps(prefix="step"),
-    )
+    cfg = ProfileConfig({"scale": 10}, name="smoke")
+    with run.start(profile_config=cfg) as ctx:
+        result = await spec.execute(run_context=ctx, deps=Deps(prefix="step"))
 
     run_json = json.loads((run.run_dir / "run.json").read_text())
     print(f"status:  {result.status}")

@@ -30,6 +30,7 @@ with a warning printed after the dialog closes.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import select
@@ -38,10 +39,22 @@ import termios
 import threading
 import time
 import tty
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Literal, TypeAlias
+
+from molexp._typing import JSONValue
+from molexp.workspace import Experiment, Project, Run, Workspace
+
+# Per-node back-pointer used by the delete / detail flows. Each kind of
+# tree node carries a different concrete type — workspace nodes hold a
+# ``Workspace``, project nodes a ``Project``, etc. Execution nodes pack
+# both the run and the execution id into a tuple. The detail / delete
+# helpers narrow via ``isinstance`` (or the canonical destructuring for
+# the tuple variant).
+TreeNodeRef: TypeAlias = Workspace | Project | Experiment | Run | tuple[Run, str] | None
 
 from rich.console import Console, Group, RenderableType
 from rich.layout import Layout
@@ -80,12 +93,29 @@ class TreeNode:
     elapsed: str | None = None
     note: str | None = None  # error message or short info
     count_hint: str | None = None  # e.g. "2 exp, 4 runs"
-    children: list["TreeNode"] = field(default_factory=list)
+    children: list[TreeNode] = field(default_factory=list)
     # Opaque reference used by the delete flow.  Never inspected by UI.
-    ref: Any = None
+    ref: TreeNodeRef = None
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+def _as_str(value: JSONValue) -> str | None:
+    """Narrow a ``JSONValue`` cell to ``str | None`` for status / timestamp fields."""
+    return value if isinstance(value, str) else None
+
+
+def _as_dict(value: JSONValue) -> dict[str, JSONValue] | None:
+    """Narrow a ``JSONValue`` cell to a JSON-shaped dict (or ``None``)."""
+    return value if isinstance(value, dict) else None
+
+
+def _as_str_dict(value: JSONValue) -> dict[str, str] | None:
+    """Narrow a ``JSONValue`` cell to ``dict[str, str]`` (label / tag maps)."""
+    if not isinstance(value, dict):
+        return None
+    return {str(k): v for k, v in value.items() if isinstance(v, str)}
 
 
 def _short_id(full: str) -> str:
@@ -128,7 +158,7 @@ def _elapsed(started: str | None, finished: str | None) -> str | None:
         return None
 
 
-def _read_run_json(run_dir: Path) -> dict[str, Any]:
+def _read_run_json(run_dir: Path) -> dict[str, JSONValue]:
     p = run_dir / "run.json"
     if not p.exists():
         return {}
@@ -207,42 +237,51 @@ def _build_experiment_node(exp: Experiment, project_id: str) -> TreeNode:
 
 def _build_run_node(run: Run, project_id: str, exp_id: str) -> TreeNode:
     data = _read_run_json(run.run_dir)
-    status = data.get("status", run.metadata.status or "pending")
-    info = normalize_executor_info(data.get("executor_info"), data.get("labels"))
-    note = None
+    status_raw = data.get("status")
+    status = status_raw if isinstance(status_raw, str) else (run.metadata.status or "pending")
+    info = normalize_executor_info(
+        _as_dict(data.get("executor_info")), _as_str_dict(data.get("labels"))
+    )
+    note: str | None = None
     err = data.get("error")
     if isinstance(err, dict):
-        note = err.get("message")
+        note_raw = err.get("message")
+        note = note_raw if isinstance(note_raw, str) else None
 
     node = TreeNode(
         kind="run",
         node_id=("project", project_id, "experiment", exp_id, "run", run.id),
         display_label=_short_id(run.id),
         status=status,
-        elapsed=_elapsed(data.get("created_at"), data.get("finished_at")),
+        elapsed=_elapsed(_as_str(data.get("created_at")), _as_str(data.get("finished_at"))),
         note=note,
         ref=run,
     )
 
-    history = data.get("execution_history") or []
+    history_raw = data.get("execution_history")
+    history = history_raw if isinstance(history_raw, list) else []
     attempts = len(history)
     node.count_hint = f"{attempts} attempts" if attempts else None
     for rec in history:
-        node.children.append(_build_execution_node(rec, project_id, exp_id, run, info))
+        if isinstance(rec, dict):
+            node.children.append(_build_execution_node(rec, project_id, exp_id, run, info))
     return node
 
 
 def _build_execution_node(
-    rec: dict[str, Any],
+    rec: dict[str, JSONValue],
     project_id: str,
     exp_id: str,
     run: Run,
     run_executor_info: dict[str, str],
 ) -> TreeNode:
-    exec_id = rec.get("execution_id") or ""
-    status = rec.get("status", "unknown")
-    elapsed = _elapsed(rec.get("started_at"), rec.get("finished_at"))
-    sched = rec.get("scheduler_job_id") or run_executor_info.get("scheduler_job_id")
+    exec_id_raw = rec.get("execution_id")
+    exec_id = exec_id_raw if isinstance(exec_id_raw, str) else ""
+    status_raw = rec.get("status")
+    status = status_raw if isinstance(status_raw, str) else "unknown"
+    elapsed = _elapsed(_as_str(rec.get("started_at")), _as_str(rec.get("finished_at")))
+    sched_raw = rec.get("scheduler_job_id")
+    sched = sched_raw if isinstance(sched_raw, str) else run_executor_info.get("scheduler_job_id")
     note = f"sched={sched}" if sched else None
     return TreeNode(
         kind="execution",
@@ -315,9 +354,9 @@ def node_path_str(root: TreeNode, target: NodePath) -> str:
 
     def walk(n: TreeNode, acc: list[str]) -> list[str] | None:
         if n.node_id == target:
-            return acc + [n.display_label]
+            return [*acc, n.display_label]
         for c in n.children:
-            got = walk(c, acc + [n.display_label])
+            got = walk(c, [*acc, n.display_label])
             if got is not None:
                 return got
         return None
@@ -338,7 +377,7 @@ class _UIState:
         self._visible_count = 0
         self._expanded: set[NodePath] = set()
         self._multi: set[NodePath] = set()
-        self._dialog: "_DeleteDialog | None" = None
+        self._dialog: _DeleteDialog | None = None
         self._detail_open = False
         self._quit = False
         self._stale_warnings: list[str] = []
@@ -426,7 +465,7 @@ class _UIState:
             self._detail_open = False
 
     # ── Dialog / quit / warnings ──
-    def open_dialog(self, dialog: "_DeleteDialog") -> None:
+    def open_dialog(self, dialog: _DeleteDialog) -> None:
         with self._lock:
             self._dialog = dialog
 
@@ -434,7 +473,7 @@ class _UIState:
         with self._lock:
             self._dialog = None
 
-    def current_dialog(self) -> "_DeleteDialog | None":
+    def current_dialog(self) -> _DeleteDialog | None:
         with self._lock:
             return self._dialog
 
@@ -502,6 +541,7 @@ def _prepare_dialog(targets: list[TreeNode]) -> _DeleteDialog:
     for node in targets:
         running = (node.status or "").lower() in ("running", "pending")
         if node.kind == "run" and running:
+            assert isinstance(node.ref, Run)
             from molexp._run_cancel import classify
 
             plan = classify(node.ref)
@@ -511,7 +551,8 @@ def _prepare_dialog(targets: list[TreeNode]) -> _DeleteDialog:
                 lines.append(("⟳", _describe_target(node), f"cancel via {plan.kind}"))
         elif node.kind == "execution" and running:
             # Executions share cancel path with their parent run.
-            run, _exec_id = node.ref
+            assert isinstance(node.ref, tuple) and isinstance(node.ref[0], Run)
+            run = node.ref[0]
             from molexp._run_cancel import classify
 
             plan = classify(run)
@@ -532,6 +573,7 @@ def _execute_delete(dialog: _DeleteDialog) -> list[str]:
         running = status_lower in ("running", "pending")
         try:
             if node.kind == "run":
+                assert isinstance(node.ref, Run)
                 run = node.ref
                 if running:
                     msg = try_cancel(run)
@@ -540,7 +582,13 @@ def _execute_delete(dialog: _DeleteDialog) -> list[str]:
                         continue  # do NOT delete if cancel failed
                 run.experiment.delete_run(run.id)
             elif node.kind == "execution":
-                run, exec_id = node.ref
+                assert (
+                    isinstance(node.ref, tuple)
+                    and isinstance(node.ref[0], Run)
+                    and isinstance(node.ref[1], str)
+                )
+                run = node.ref[0]
+                exec_id = node.ref[1]
                 if running:
                     msg = try_cancel(run)
                     if msg is not None:
@@ -548,9 +596,11 @@ def _execute_delete(dialog: _DeleteDialog) -> list[str]:
                         continue
                 run.delete_execution(exec_id)
             elif node.kind == "experiment":
+                assert isinstance(node.ref, Experiment)
                 exp = node.ref
                 exp.project.delete_experiment(exp.id)
             elif node.kind == "project":
+                assert isinstance(node.ref, Project)
                 proj = node.ref
                 proj.workspace.delete_project(proj.id)
         except Exception as exc:  # pragma: no cover - surface anything unexpected
@@ -654,7 +704,7 @@ def _render_tree(rows: list[VisibleRow], selected: int, multi: set[NodePath]) ->
     )
 
 
-def _fmt_iso(value: Any) -> str:
+def _fmt_iso(value: JSONValue | datetime) -> str:
     if value is None:
         return ""
     try:
@@ -671,7 +721,7 @@ def _kv_table() -> Table:
     return t
 
 
-def _json_snippet(obj: Any, *, max_lines: int = 12) -> RenderableType:
+def _json_snippet(obj: JSONValue, *, max_lines: int = 12) -> RenderableType:
     try:
         text = json.dumps(obj, indent=2, default=str, sort_keys=True)
     except Exception:
@@ -696,8 +746,9 @@ def _json_snippet(obj: Any, *, max_lines: int = 12) -> RenderableType:
     return syntax
 
 
-def _detail_workspace(node: TreeNode) -> list[Any]:
-    ws = node.ref  # Workspace
+def _detail_workspace(node: TreeNode) -> list[RenderableType]:
+    assert isinstance(node.ref, Workspace), "workspace-kind node must hold a Workspace"
+    ws = node.ref
     kv = _kv_table()
     kv.add_row("name", str(ws.name))
     kv.add_row("root", str(ws.root))
@@ -706,7 +757,8 @@ def _detail_workspace(node: TreeNode) -> list[Any]:
     return [kv]
 
 
-def _detail_project(node: TreeNode) -> list[Any]:
+def _detail_project(node: TreeNode) -> list[RenderableType]:
+    assert isinstance(node.ref, Project), "project-kind node must hold a Project"
     proj = node.ref
     meta = proj.metadata
     kv = _kv_table()
@@ -724,7 +776,8 @@ def _detail_project(node: TreeNode) -> list[Any]:
     return [kv]
 
 
-def _detail_experiment(node: TreeNode) -> list[Any]:
+def _detail_experiment(node: TreeNode) -> list[RenderableType]:
+    assert isinstance(node.ref, Experiment), "experiment-kind node must hold an Experiment"
     exp = node.ref
     meta = exp.metadata
     kv = _kv_table()
@@ -752,40 +805,47 @@ def _detail_experiment(node: TreeNode) -> list[Any]:
     return [kv]
 
 
-def _detail_run(node: TreeNode) -> list[Any]:
+def _detail_run(node: TreeNode) -> list[RenderableType]:
+    assert isinstance(node.ref, Run), "run-kind node must hold a Run"
     run = node.ref
     data = _read_run_json(run.run_dir)
     kv = _kv_table()
     kv.add_row("id", str(run.id))
-    kv.add_row("status", (data.get("status") or node.status or "").upper())
-    if data.get("profile"):
-        kv.add_row("profile", str(data["profile"]))
-    if data.get("config_hash"):
-        kv.add_row("config_hash", str(data["config_hash"])[:16])
-    if data.get("script"):
-        kv.add_row("script", str(data["script"]))
-    if data.get("created_at"):
-        kv.add_row("created_at", _fmt_iso(data["created_at"]))
-    if data.get("finished_at"):
-        kv.add_row("finished_at", _fmt_iso(data["finished_at"]))
+    status_str = _as_str(data.get("status")) or node.status or ""
+    kv.add_row("status", status_str.upper())
+    if profile := _as_str(data.get("profile")):
+        kv.add_row("profile", profile)
+    if config_hash := _as_str(data.get("config_hash")):
+        kv.add_row("config_hash", config_hash[:16])
+    if script := _as_str(data.get("script")):
+        kv.add_row("script", script)
+    created_at = data.get("created_at")
+    if created_at:
+        kv.add_row("created_at", _fmt_iso(created_at))
+    finished_at = data.get("finished_at")
+    if finished_at:
+        kv.add_row("finished_at", _fmt_iso(finished_at))
     if node.elapsed:
         kv.add_row("elapsed", node.elapsed)
     err = data.get("error")
-    if isinstance(err, dict) and err.get("message"):
-        kv.add_row("error", str(err["message"]))
-    exec_info = data.get("executor_info") or {}
-    if exec_info:
-        norm = normalize_executor_info(exec_info, data.get("labels"))
+    if isinstance(err, dict):
+        msg = err.get("message")
+        if msg:
+            kv.add_row("error", str(msg))
+    exec_info_dict = _as_dict(data.get("executor_info"))
+    if exec_info_dict:
+        norm = normalize_executor_info(exec_info_dict, _as_str_dict(data.get("labels")))
         for key in ("backend", "scheduler", "cluster", "job_id", "scheduler_job_id"):
             if norm.get(key):
                 kv.add_row(key, str(norm[key]))
-    history = data.get("execution_history") or []
+    history_raw = data.get("execution_history")
+    history = history_raw if isinstance(history_raw, list) else []
     if history:
         kv.add_row("attempts", str(len(history)))
     kv.add_row("run_dir", str(run.run_dir))
 
-    cfg = data.get("config") or {}
-    body: list[Any] = [kv]
+    cfg = _as_dict(data.get("config"))
+    body: list[RenderableType] = [kv]
     if cfg:
         body.append(Text(""))
         body.append(Text("config:", style="bold cyan"))
@@ -793,14 +853,22 @@ def _detail_run(node: TreeNode) -> list[Any]:
     return body
 
 
-def _detail_execution(node: TreeNode) -> list[Any]:
-    run, exec_id = node.ref
+def _detail_execution(node: TreeNode) -> list[RenderableType]:
+    assert (
+        isinstance(node.ref, tuple)
+        and isinstance(node.ref[0], Run)
+        and isinstance(node.ref[1], str)
+    ), "execution-kind node must hold a (Run, exec_id) tuple"
+    run = node.ref[0]
+    exec_id = node.ref[1]
     data = _read_run_json(run.run_dir)
-    rec: dict[str, Any] | None = None
-    for item in data.get("execution_history") or []:
-        if item.get("execution_id") == exec_id:
-            rec = item
-            break
+    rec: dict[str, JSONValue] | None = None
+    history = data.get("execution_history")
+    if isinstance(history, list):
+        for item in history:
+            if isinstance(item, dict) and item.get("execution_id") == exec_id:
+                rec = item
+                break
     kv = _kv_table()
     kv.add_row("execution_id", str(exec_id))
     kv.add_row("run_id", str(run.id))
@@ -832,7 +900,7 @@ def _detail_execution(node: TreeNode) -> list[Any]:
 
 def _render_detail(node: TreeNode | None) -> Panel:
     if node is None:
-        body: list[Any] = [Text("(select a node to see details)", style="dim")]
+        body: list[RenderableType] = [Text("(select a node to see details)", style="dim")]
         title = "Details"
     else:
         try:
@@ -930,7 +998,7 @@ class TreeMonitor:
             ui.set_visible_count(len(rows))
             return tree, rows
 
-        def render(tree: TreeNode, rows: list[VisibleRow]) -> Any:
+        def render(tree: TreeNode, rows: list[VisibleRow]) -> Layout:
             dialog = ui.current_dialog()
             crumb = _render_breadcrumb(tree, rows, ui.selected)
             tree_panel = _render_tree(rows, ui.selected, ui.multi_snapshot())
@@ -938,7 +1006,7 @@ class TreeMonitor:
             if ui.detail_open():
                 current = rows[ui.selected].node if rows else None
                 detail_panel = _render_detail(current)
-                body: Any = Layout(name="body")
+                body: Layout = Layout(name="body")
                 body.split_row(
                     Layout(tree_panel, name="tree", ratio=3),
                     Layout(detail_panel, name="detail", ratio=2),
@@ -1074,10 +1142,8 @@ class TreeMonitor:
                     if targets:
                         ui.open_dialog(_prepare_dialog(targets))
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-            except Exception:
-                pass
 
 
 __all__ = [

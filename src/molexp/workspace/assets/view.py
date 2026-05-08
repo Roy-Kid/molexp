@@ -9,7 +9,7 @@ For importing ``DataAsset`` inputs, use ``{scope}.data_assets`` instead.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING
 
 from .base import Asset, AssetScope
 
@@ -19,13 +19,13 @@ if TYPE_CHECKING:
 
 # Alias avoids the static-checker confusion where the ``list`` method name
 # shadows the ``list`` builtin in return-type expressions.
-AssetList: TypeAlias = list[Asset]
+type AssetList = list[Asset]
 
 
 class AssetsView:
     """Read-only, scope-filtered view of the workspace catalog."""
 
-    def __init__(self, catalog: "AssetCatalog", scope: AssetScope) -> None:
+    def __init__(self, catalog: AssetCatalog, scope: AssetScope) -> None:
         self._catalog = catalog
         self._scope = scope
 

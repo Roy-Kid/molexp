@@ -10,23 +10,43 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
+from molexp._typing import JSONMapping, JSONValue
 from molexp.agent.tools.native._helpers import (
     err,
     get_experiment,
     get_project,
     get_run,
     ok,
+    require_str_arg,
 )
 from molexp.agent.tools.native._templates import TEMPLATES, list_templates
 from molexp.agent.tools.registry import native_tool
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 
+if TYPE_CHECKING:
+    from molexp.workflow.protocols import RunContextLike
+    from molexp.workspace.run import Run
+
 _TERMINAL_STATUSES = {"succeeded", "completed", "failed", "cancelled", "error"}
 
 
-def _read_run_results(run: Any) -> dict[str, Any]:
+def _coerce_float(value: JSONValue, *, default: float) -> float:
+    """Read a numeric tool-arg cell as ``float``, falling back to *default*.
+
+    Tool ``args`` is a JSON-shaped mapping; numeric cells arrive as
+    ``int`` or ``float``. ``None`` and non-numeric cells fall back to
+    the caller-supplied default.
+    """
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default
+
+
+def _read_run_results(run: Run) -> dict[str, JSONValue]:
     """Pull ``context.results`` off the on-disk ``run.json`` for a freshly-loaded Run."""
 
     payload = json.loads((run.run_dir / "run.json").read_text())
@@ -37,9 +57,9 @@ def _read_run_results(run: Any) -> dict[str, Any]:
     return dict(results) if isinstance(results, dict) else {}
 
 
-def _status_payload(run: Any) -> dict[str, Any]:
+def _status_payload(run: Run) -> dict[str, JSONValue]:
     meta = run.metadata
-    error_payload: dict[str, str] | None = None
+    error_payload: dict[str, JSONValue] | None = None
     if meta.error is not None:
         error_payload = {"type": meta.error.type, "message": meta.error.message}
     return {
@@ -71,11 +91,20 @@ def _status_payload(run: Any) -> dict[str, Any]:
         mutates=True,
     )
 )
-async def submit_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
-    if failure is not None:
-        return failure
-    parameters = dict(args.get("parameters") or {})
+async def submit_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    experiment, failure = get_experiment(ctx, project_id, experiment_id)
+    if failure is not None or experiment is None:
+        return failure or err("experiment lookup failed")
+    parameters_raw = args.get("parameters") or {}
+    parameters: dict[str, JSONValue] = (
+        dict(parameters_raw) if isinstance(parameters_raw, dict) else {}
+    )
     run = experiment.run(parameters=parameters)
     return ok(
         {
@@ -103,10 +132,19 @@ async def submit_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=False,
     )
 )
-async def get_run_status(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    run, failure = get_run(ctx, args["project_id"], args["experiment_id"], args["run_id"])
-    if failure is not None:
-        return failure
+async def get_run_status(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    run_id, fail = require_str_arg(args, "run_id")
+    if fail is not None or run_id is None:
+        return fail or err("missing run_id")
+    run, failure = get_run(ctx, project_id, experiment_id, run_id)
+    if failure is not None or run is None:
+        return failure or err("run lookup failed")
     return ok(_status_payload(run))
 
 
@@ -129,20 +167,29 @@ async def get_run_status(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=False,
     )
 )
-async def wait_for_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    timeout_seconds = float(args.get("timeout_seconds", 300.0))
-    poll_interval = max(0.1, float(args.get("poll_interval", 2.0)))
+async def wait_for_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    timeout_seconds = _coerce_float(args.get("timeout_seconds"), default=300.0)
+    poll_interval = max(0.1, _coerce_float(args.get("poll_interval"), default=2.0))
     deadline = time.monotonic() + max(0.0, timeout_seconds)
-    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
-    if failure is not None:
-        return failure
-    run_id = args["run_id"]
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    run_id, fail = require_str_arg(args, "run_id")
+    if fail is not None or run_id is None:
+        return fail or err("missing run_id")
+    experiment, failure = get_experiment(ctx, project_id, experiment_id)
+    if failure is not None or experiment is None:
+        return failure or err("experiment lookup failed")
     while True:
         run = experiment.get_run(run_id)
         if run is None:
             return err(f"Run '{run_id}' not found")
         payload = _status_payload(run)
-        status = payload["status"].lower()
+        status_raw = payload["status"]
+        status = status_raw.lower() if isinstance(status_raw, str) else ""
         if status in _TERMINAL_STATUSES:
             payload["timed_out"] = False
             return ok(payload)
@@ -169,13 +216,22 @@ async def wait_for_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=True,
     )
 )
-async def retry_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
-    if failure is not None:
-        return failure
-    run = experiment.get_run(args["run_id"])
+async def retry_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    run_id, fail = require_str_arg(args, "run_id")
+    if fail is not None or run_id is None:
+        return fail or err("missing run_id")
+    experiment, failure = get_experiment(ctx, project_id, experiment_id)
+    if failure is not None or experiment is None:
+        return failure or err("experiment lookup failed")
+    run = experiment.get_run(run_id)
     if run is None:
-        return err(f"Run '{args['run_id']}' not found")
+        return err(f"Run '{run_id}' not found")
     new_run = experiment.run(parameters=dict(run.parameters or {}))
     return ok(
         {
@@ -203,10 +259,19 @@ async def retry_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=False,
     )
 )
-async def get_run_results(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    run, failure = get_run(ctx, args["project_id"], args["experiment_id"], args["run_id"])
-    if failure is not None:
-        return failure
+async def get_run_results(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    run_id, fail = require_str_arg(args, "run_id")
+    if fail is not None or run_id is None:
+        return fail or err("missing run_id")
+    run, failure = get_run(ctx, project_id, experiment_id, run_id)
+    if failure is not None or run is None:
+        return failure or err("run lookup failed")
     return ok(
         {
             "run_id": run.id,
@@ -229,7 +294,7 @@ async def get_run_results(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=False,
     )
 )
-async def list_workflow_templates(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+async def list_workflow_templates(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     return ok(list_templates())
 
 
@@ -250,13 +315,19 @@ async def list_workflow_templates(args: dict[str, Any], ctx: ToolContext) -> Too
         mutates=True,
     )
 )
-async def create_experiment(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    project, failure = get_project(ctx, args["project_id"])
-    if failure is not None:
-        return failure
-    template = args.get("template")
-    if template is None:
-        experiment = project.experiment(args["name"])
+async def create_experiment(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    name, fail = require_str_arg(args, "name")
+    if fail is not None or name is None:
+        return fail or err("missing name")
+    project, failure = get_project(ctx, project_id)
+    if failure is not None or project is None:
+        return failure or err("project lookup failed")
+    template_raw = args.get("template")
+    if template_raw is None:
+        experiment = project.experiment(name)
         return ok(
             {
                 "experiment_id": experiment.id,
@@ -265,10 +336,13 @@ async def create_experiment(args: dict[str, Any], ctx: ToolContext) -> ToolResul
                 "has_workflow": experiment.workflow is not None,
             }
         )
+    if not isinstance(template_raw, str):
+        return err(f"template must be a string; got {type(template_raw).__name__}")
+    template = template_raw
     if template not in TEMPLATES:
         return err(f"Unknown workflow template '{template}'. Available: {sorted(TEMPLATES)}")
     fn, description, expected_params = TEMPLATES[template]
-    experiment = project.experiment(args["name"])
+    experiment = project.experiment(name)
     if experiment.workflow is None:
         experiment.set_workflow(fn)
     return ok(
@@ -291,7 +365,7 @@ async def create_experiment(args: dict[str, Any], ctx: ToolContext) -> ToolResul
         mutates=False,
     )
 )
-async def list_task_types(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+async def list_task_types(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     from molexp.workflow.registry import default_registry
 
     return ok(
@@ -319,26 +393,37 @@ async def list_task_types(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=True,
     )
 )
-async def set_workflow_from_ir(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
-    if failure is not None:
-        return failure
+async def set_workflow_from_ir(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    experiment, failure = get_experiment(ctx, project_id, experiment_id)
+    if failure is not None or experiment is None:
+        return failure or err("experiment lookup failed")
     if experiment.workflow is not None:
         return err(
-            f"Experiment '{args['experiment_id']}' already has a workflow bound. "
+            f"Experiment '{experiment_id}' already has a workflow bound. "
             "Delete the experiment to rebind."
         )
-    workflow_json = args["workflow_json"]
+    workflow_json_raw = args.get("workflow_json")
+    if not isinstance(workflow_json_raw, dict):
+        return err(f"workflow_json must be a JSON object; got {type(workflow_json_raw).__name__}")
+    workflow_json = workflow_json_raw
     try:
         experiment.set_workflow(workflow_json)
     except (KeyError, ValueError) as exc:
         return err(f"Invalid workflow IR: {exc}")
     spec = experiment.workflow
+    task_configs = workflow_json.get("task_configs")
+    task_count = len(task_configs) if isinstance(task_configs, list) else 0
     return ok(
         {
             "experiment_id": experiment.id,
             "workflow_id": spec.workflow_id if spec is not None else None,
-            "task_count": len(workflow_json.get("task_configs", [])),
+            "task_count": task_count,
             "persisted_to": str(experiment.workflow_path),
         }
     )
@@ -361,23 +446,37 @@ async def set_workflow_from_ir(args: dict[str, Any], ctx: ToolContext) -> ToolRe
         mutates=True,
     )
 )
-async def execute_run(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
-    if failure is not None:
-        return failure
-    run = experiment.get_run(args["run_id"])
+async def execute_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    run_id, fail = require_str_arg(args, "run_id")
+    if fail is not None or run_id is None:
+        return fail or err("missing run_id")
+    experiment, failure = get_experiment(ctx, project_id, experiment_id)
+    if failure is not None or experiment is None:
+        return failure or err("experiment lookup failed")
+    run = experiment.get_run(run_id)
     if run is None:
-        return err(f"Run '{args['run_id']}' not found")
+        return err(f"Run '{run_id}' not found")
     workflow = experiment.workflow
     if workflow is None:
         return err(
-            f"Experiment '{args['experiment_id']}' has no workflow attached "
+            f"Experiment '{experiment_id}' has no workflow attached "
             "(server may have restarted). Re-call create_experiment with the "
             "same name and template to rebind."
         )
     try:
-        await workflow.execute(run=run)
-    except Exception as exc:  # noqa: BLE001 — surface any failure to the agent
+        with run.start() as run_ctx:
+            # ty does not always promote a stored attribute (``_context: Context``)
+            # to the structurally-equivalent ``_StatusContextLike`` Protocol when
+            # checking ``RunContextLike`` assignment; the cast acknowledges the
+            # cross-layer duck-typed contract that the test suite exercises.
+            await workflow.execute(run_context=cast("RunContextLike", run_ctx))
+    except Exception as exc:
         return err(f"Execution failed: {exc!r}", run_id=run.id)
     return ok(
         {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any, List, Optional
+from typing import Annotated, Any
 
 import typer
 from rich.table import Table
@@ -32,11 +32,11 @@ def run_create(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
     params: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--params", help="Parameters JSON string or file path"),
     ] = None,
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
@@ -85,7 +85,7 @@ def run_create(
 def run_list(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """List all runs in an experiment."""
     ws = get_workspace(path)
@@ -130,17 +130,17 @@ def run_list(
 @run_app.command("cancel")
 def run_cancel(
     run_ids: Annotated[
-        Optional[List[str]],
+        list[str] | None,
         typer.Argument(
             help="Run IDs to cancel. Omit to use --project/--experiment with --all or --status."
         ),
     ] = None,
     project_id: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--project", "-p", help="Project ID (required in experiment-scope mode)."),
     ] = None,
     experiment_id: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--experiment", "-e", help="Experiment ID (required in experiment-scope mode)."
         ),
@@ -150,7 +150,7 @@ def run_cancel(
         typer.Option("--all", help="Cancel all non-terminal runs in the experiment."),
     ] = False,
     status_filter: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--status", help="Comma-separated statuses to filter (e.g. 'pending,running')."
         ),
@@ -163,7 +163,7 @@ def run_cancel(
         ),
     ] = "slurm",
     cluster: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--cluster", help="molq cluster name (default: 'default')."),
     ] = None,
     yes: Annotated[
@@ -171,7 +171,7 @@ def run_cancel(
         typer.Option("--yes", "-y", help="Skip confirmation prompt."),
     ] = False,
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", help="Workspace path."),
     ] = None,
 ) -> None:
@@ -335,7 +335,7 @@ def run_info(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
     run_id: Annotated[str, typer.Argument(help="Run ID")],
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Show run information."""
     ws = get_workspace(path)

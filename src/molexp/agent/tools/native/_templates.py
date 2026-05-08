@@ -16,33 +16,54 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import molexp as me
+from molexp._typing import JSONValue
 
 
-def _square(ctx: "me.RunContext") -> None:
+def _param_float(ctx: me.RunContext, key: str, default: float = 0.0) -> float:
+    """Read a numeric parameter as ``float``, falling back to *default*.
+
+    Mirrors the JSON-shaped runtime: ``ctx.params`` is ``dict[str, JSONValue]``
+    and we know each template's required parameter is numeric. Returns
+    *default* for missing / non-numeric cells so the helper is total.
+    """
+    value: JSONValue = ctx.params.get(key, default)
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return default
+    return default
+
+
+def _square(ctx: me.RunContext) -> None:
     """Compute ``y = x ** 2`` from a single numeric parameter ``x``."""
 
-    x = float(ctx.params.get("x", 0))
+    x = _param_float(ctx, "x")
     y = x * x
     ctx.set_result("x", x)
     ctx.set_result("y", y)
     ctx.log("compute").append(f"square({x}) = {y}")
 
 
-def _cube(ctx: "me.RunContext") -> None:
+def _cube(ctx: me.RunContext) -> None:
     """Compute ``y = x ** 3`` from a single numeric parameter ``x``."""
 
-    x = float(ctx.params.get("x", 0))
+    x = _param_float(ctx, "x")
     y = x**3
     ctx.set_result("x", x)
     ctx.set_result("y", y)
     ctx.log("compute").append(f"cube({x}) = {y}")
 
 
-def _add(ctx: "me.RunContext") -> None:
+def _add(ctx: me.RunContext) -> None:
     """Compute ``z = a + b`` from two numeric parameters."""
 
-    a = float(ctx.params.get("a", 0))
-    b = float(ctx.params.get("b", 0))
+    a = _param_float(ctx, "a")
+    b = _param_float(ctx, "b")
     z = a + b
     ctx.set_result("a", a)
     ctx.set_result("b", b)

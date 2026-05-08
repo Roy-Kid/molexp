@@ -187,7 +187,7 @@ def test_ir_to_spec_delegates_to_workflow_spec():
     # The registry expects either a factory callable taking ``config`` or
     # a class whose ``__init__`` accepts ``**config``.
     class _Noop:
-        async def execute(self, ctx):  # noqa: ARG002 — protocol stub
+        async def execute(self, ctx):
             return None
 
     default_registry.register("noop_for_compiler_test", lambda cfg: _Noop())

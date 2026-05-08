@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import os
 import signal
 import subprocess
@@ -9,13 +10,13 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator
 
 try:
-    import psutil
+    import psutil  # ty: ignore[unresolved-import]  — optional dev dependency
 except ImportError:
-    psutil = None  # ty: ignore[invalid-assignment]
+    psutil = None
 
 
 class ServerManager:
@@ -180,7 +181,7 @@ class ServerManager:
 
         if follow:
             # Follow mode - tail -f style
-            with open(log_file, "r") as f:
+            with open(log_file) as f:
                 # Seek to end minus N lines
                 f.seek(0, 2)  # Go to end
                 file_size = f.tell()
@@ -215,7 +216,7 @@ class ServerManager:
                         time.sleep(0.1)
         else:
             # Just read last N lines
-            with open(log_file, "r") as f:
+            with open(log_file) as f:
                 all_lines = f.readlines()
                 for line in all_lines[-lines:]:
                     yield line.rstrip()
@@ -263,10 +264,9 @@ class ServerManager:
                     start_new_session=(not kill_on_exit),
                 )
             return process.pid
-        else:
-            # Run in foreground
-            process = subprocess.Popen(cmd)
-            return process.pid
+        # Run in foreground
+        process = subprocess.Popen(cmd)
+        return process.pid
 
     def _start_ui_server(self, background: bool, kill_on_exit: bool = False) -> int:
         """Start UI dev server process.
@@ -297,9 +297,8 @@ class ServerManager:
                     start_new_session=(not kill_on_exit),
                 )
             return process.pid
-        else:
-            process = subprocess.Popen(cmd, cwd=ui_dir)
-            return process.pid
+        process = subprocess.Popen(cmd, cwd=ui_dir)
+        return process.pid
 
     def _create_sample_data(self) -> None:
         """Create sample data using create_sample_data.py."""
@@ -439,7 +438,7 @@ class ServerManager:
         atexit.register(self._cleanup_background_processes)
 
         # Also handle signals for graceful shutdown
-        def signal_handler(signum, frame):
+        def signal_handler(signum, frame) -> None:
             self._cleanup_background_processes()
             sys.exit(0)
 
@@ -450,8 +449,6 @@ class ServerManager:
         """Clean up tracked background processes."""
         for pid in self._background_pids:
             if self._is_process_running(pid):
-                try:
+                with contextlib.suppress(Exception):
                     self._stop_process(pid, timeout=5)
-                except Exception:
-                    pass
         self._background_pids.clear()

@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import os
 from collections import deque
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Literal
 
 from .base import Asset
 

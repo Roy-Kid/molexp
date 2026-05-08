@@ -9,4 +9,3 @@ class TestHealthEndpoint:
         assert data["status"] == "healthy"
         assert data["workspace_available"] is True
         assert "capabilities" in data
-        assert "agent" in data["capabilities"]

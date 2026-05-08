@@ -9,10 +9,15 @@ SDK details into core.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from threading import Lock
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from molexp._typing import JSONMapping
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
+
+if TYPE_CHECKING:
+    from molexp.workspace.workspace import Workspace
 
 
 @runtime_checkable
@@ -21,9 +26,9 @@ class ToolSource(Protocol):
 
     source_name: str
 
-    async def list_tools(self, workspace: Any) -> list[ToolSpec]: ...
+    async def list_tools(self, workspace: Workspace) -> list[ToolSpec]: ...
 
-    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult: ...
+    async def call(self, name: str, args: JSONMapping, ctx: ToolContext) -> ToolResult: ...
 
 
 class UnknownToolSourceError(KeyError):
@@ -83,7 +88,7 @@ def all_tool_sources() -> tuple[ToolSource, ...]:
 
 
 async def discover_source_tools(
-    workspace: Any,
+    workspace: Workspace,
 ) -> AsyncIterator[tuple[str, ToolSpec]]:
     """Yield ``(source_name, spec)`` for every tool from every source.
 

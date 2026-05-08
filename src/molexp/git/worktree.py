@@ -8,6 +8,7 @@ per issue.
 
 from __future__ import annotations
 
+from builtins import list as _list
 from pathlib import Path
 
 from molexp.git._subprocess import run_git
@@ -56,7 +57,7 @@ class GitWorktreeManager:
             args.append("--force")
         await run_git(args, cwd=self.root)
 
-    async def list(self) -> list[Path]:
+    async def list(self) -> _list[Path]:
         """Return the paths of all worktrees attached to ``root``.
 
         The main checkout itself is included as the first entry.

@@ -8,22 +8,28 @@ when no provider is configured).
 from __future__ import annotations
 
 import inspect
-from typing import Any
+from typing import TypeAlias
 
+from molexp._typing import JSONValue
 from molexp.agent.tools.registry import iter_native_tools
 
+# ``annotation`` carried by ``inspect.Parameter`` can be any Python type
+# object or ``inspect.Parameter.empty``. We accept it opaquely and
+# stringify in :func:`_format_annotation`.
+ParameterAnnotation: TypeAlias = "object"
 
-def describe_native_tools() -> list[dict[str, Any]]:
+
+def describe_native_tools() -> list[dict[str, JSONValue]]:
     """Return a row per ``@native_tool`` in :mod:`molexp.agent.tools.native`.
 
     Each row mirrors the tool's ``ToolSpec`` plus the callable's parameter
     signature (excluding ``args`` / ``ctx``, which the dispatcher injects).
     """
 
-    rows: list[dict[str, Any]] = []
+    rows: list[dict[str, JSONValue]] = []
     for spec, fn in iter_native_tools():
         sig = inspect.signature(fn)
-        params: list[dict[str, Any]] = [
+        params: list[dict[str, JSONValue]] = [
             {
                 "name": pname,
                 "annotation": _format_annotation(p.annotation),
@@ -46,7 +52,7 @@ def describe_native_tools() -> list[dict[str, Any]]:
     return rows
 
 
-def _format_annotation(annotation: Any) -> str:
+def _format_annotation(annotation: ParameterAnnotation) -> str:
     if annotation is inspect.Parameter.empty:
         return "Any"
     return getattr(annotation, "__name__", repr(annotation))

@@ -12,11 +12,11 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from molexp.agent import (
+from molexp.agent.types import (
     AgentFailure,
-    AgentMode,
     FailureKind,
     Goal,
+    GoalMode,
     Message,
     Usage,
 )
@@ -25,7 +25,7 @@ from molexp.agent import (
 def test_goal_defaults_are_immutable() -> None:
     goal = Goal(description="do the thing")
     assert goal.description == "do the thing"
-    assert goal.mode is AgentMode.CHAT
+    assert goal.mode is GoalMode.CHAT
     with pytest.raises(ValidationError):
         goal.description = "changed"  # type: ignore[misc]
 

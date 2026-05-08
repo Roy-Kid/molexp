@@ -40,7 +40,7 @@ class TestContentHash:
         run = ws.project("p").experiment("e").run()
         with run.start() as ctx:
             ctx.log("train").append("hi")
-            log_assets = [a for a in run.experiment.list_runs()[0].run_dir.iterdir()]
+            log_assets = list(run.experiment.list_runs()[0].run_dir.iterdir())
             assert log_assets  # placeholder — actual log retrieval below
             from molexp.workspace.assets import LogAsset
 

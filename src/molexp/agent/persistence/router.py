@@ -26,7 +26,9 @@ own dedicated routes — this factory is for the resource-shape CRUD
 that's *common* across kinds.
 """
 
-from typing import Any, Callable, Literal, TypeVar
+from collections.abc import Callable
+from enum import Enum
+from typing import Any, Literal, TypeVar
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -46,7 +48,13 @@ class _SimpleMessage(BaseModel):
     message: str
 
 
-def tiered_router_factory(
+def tiered_router_factory[
+    SpecT: ResourceSpec,
+    ItemResponseT: BaseModel,
+    ListResponseT: BaseModel,
+    CreateRequestT: BaseModel,
+    UpdateRequestT: BaseModel,
+](
     *,
     store_factory: Callable[[Any], TieredResourceStore[SpecT]],
     spec_to_response: Callable[[SpecT], ItemResponseT],
@@ -92,7 +100,10 @@ def tiered_router_factory(
         Fully-formed :class:`APIRouter` ready to mount via
         :meth:`include_router` on the agent admin router.
     """
-    router = APIRouter(prefix=prefix, tags=tags)
+    # FastAPI's ``tags`` accepts ``list[str | Enum] | None``; widen the
+    # caller's plain ``list[str]`` to match the SDK's invariant generic.
+    router_tags: list[str | Enum] = list(tags)
+    router = APIRouter(prefix=prefix, tags=router_tags)
 
     @router.get("", response_model=list_response_cls)
     async def list_resources(
@@ -104,7 +115,7 @@ def tiered_router_factory(
 
     @router.post("", response_model=item_response_cls, status_code=201)
     async def create_resource(
-        request: create_request_cls,
+        request: CreateRequestT,
         workspace=Depends(workspace_dependency),
     ) -> ItemResponseT:
         store = store_factory(workspace)
@@ -134,7 +145,7 @@ def tiered_router_factory(
     @router.patch("/{resource_id}", response_model=item_response_cls)
     async def update_resource(
         resource_id: str,
-        request: update_request_cls,
+        request: UpdateRequestT,
         scope: Literal["user", "workspace"] = Query(
             "workspace",
             description="Tier the entry belongs to.",

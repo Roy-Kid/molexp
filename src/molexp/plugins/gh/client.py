@@ -64,7 +64,7 @@ class GitHubClient:
         *,
         base_url: str = DEFAULT_BASE_URL,
         timeout: float = 30.0,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         self._client = httpx.AsyncClient(
             base_url=base_url,
@@ -122,13 +122,13 @@ class GitHubClient:
             raise GitHubGraphQLError(body["errors"])
         return body.get("data") or {}
 
-    async def rest(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    async def rest(self, method: str, path: str) -> httpx.Response:
         """Execute one REST request; return the raw httpx Response.
 
         Used as the escape hatch for endpoints GraphQL does not cover
         (currently: ``GET /repos/{o}/{r}/actions/runs/{id}/logs``).
         """
-        return await self._client.request(method, path, **kwargs)
+        return await self._client.request(method, path)
 
     # ── high-level reads ──────────────────────────────────────────────
 

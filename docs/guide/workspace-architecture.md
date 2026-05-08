@@ -41,7 +41,7 @@ import molexp as me
 ws = me.Workspace("./lab")                                # lightweight object; no files yet
 project = ws.project("MD Simulations")                    # materializes workspace.json and project.json
 exp = project.experiment(
-    "temperature-sweep",
+    "temperature-300K",
     params={"T": 300, "pressure": 1.0},
     n_replicas=3,
     seeds=[42, 43, 44],
@@ -50,13 +50,13 @@ exp = project.experiment(
 )
 run = exp.run(
     parameters={"T": 300, "pressure": 1.0},
-    id="temperature-sweep-seed-42",
+    id="temperature-300K-seed-42",
 )                                                         # materializes run.json
 ```
 
 Re-calling the project or experiment factory with the same name or id returns the same in-memory object within the current process and loads from disk when needed. Runs only behave that way when the run id is stable.
 
-## Parameter Sweeps
+## Parameter Combinations
 
 `GridSpace` and `UniformSpace` generate parameter combinations. One combination = one `Experiment`:
 

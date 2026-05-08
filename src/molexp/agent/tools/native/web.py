@@ -12,10 +12,10 @@ source.
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import httpx
 
+from molexp._typing import JSONValue
 from molexp.agent.tools.native._helpers import err, ok
 from molexp.agent.tools.registry import native_tool
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
@@ -70,8 +70,9 @@ DEFAULT_TIMEOUT = 15.0
         mutates=False,
     )
 )
-async def web_search(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    query = (args.get("query") or "").strip()
+async def web_search(args: dict[str, JSONValue], ctx: ToolContext) -> ToolResult:
+    query_raw = args.get("query")
+    query = query_raw.strip() if isinstance(query_raw, str) else ""
     if not query:
         return err("web_search requires a non-empty 'query'")
 
@@ -83,10 +84,14 @@ async def web_search(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         )
 
     count = _clamp_count(args.get("count"))
-    params: dict[str, Any] = {"q": query, "count": count}
-    if freshness := args.get("freshness"):
+    # httpx ``params`` accepts a ``Mapping[str, str | int | float | bool | None]``.
+    # The web-search wire format only sends scalars so we mirror that shape.
+    params: dict[str, str | int | float | bool | None] = {"q": query, "count": count}
+    freshness = args.get("freshness")
+    if isinstance(freshness, (str, int, float, bool)):
         params["freshness"] = freshness
-    if country := args.get("country"):
+    country = args.get("country")
+    if isinstance(country, (str, int, float, bool)):
         params["country"] = country
 
     headers = {
@@ -120,20 +125,28 @@ async def web_search(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
             kind=FailureKind.TOOL_ERROR,
         )
 
+    if not isinstance(payload, dict):
+        return err("web_search response was not a JSON object")
     rows = _extract_rows(payload, count)
-    metadata = {
+    payload_query = payload.get("query")
+    more_results = (
+        bool(payload_query.get("more_results_available", False))
+        if isinstance(payload_query, dict)
+        else False
+    )
+    metadata: dict[str, JSONValue] = {
         "endpoint": BRAVE_SEARCH_ENDPOINT,
         "query": query,
         "count": count,
-        "more_results_available": bool(
-            payload.get("query", {}).get("more_results_available", False)
-        ),
+        "more_results_available": more_results,
     }
     return ok(rows, **metadata)
 
 
-def _clamp_count(raw: Any) -> int:
+def _clamp_count(raw: JSONValue) -> int:
     if raw is None:
+        return DEFAULT_COUNT
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
         return DEFAULT_COUNT
     try:
         value = int(raw)
@@ -146,9 +159,11 @@ def _clamp_count(raw: Any) -> int:
     return value
 
 
-def _extract_rows(payload: dict[str, Any], limit: int) -> list[dict[str, str]]:
-    web = payload.get("web") or {}
-    raw_results = web.get("results") or []
+def _extract_rows(payload: dict[str, JSONValue], limit: int) -> list[dict[str, str]]:
+    web_raw = payload.get("web")
+    web = web_raw if isinstance(web_raw, dict) else {}
+    results_raw = web.get("results")
+    raw_results = results_raw if isinstance(results_raw, list) else []
     rows: list[dict[str, str]] = []
     for item in raw_results[:limit]:
         if not isinstance(item, dict):

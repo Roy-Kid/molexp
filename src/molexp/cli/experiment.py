@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.table import Table
@@ -19,7 +19,7 @@ app.add_typer(experiment_app, name="experiment")
 def experiment_create(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     name: Annotated[str, typer.Option("--name", "-n", help="Experiment name")],
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Create a new experiment."""
     ws = get_workspace(path)
@@ -44,7 +44,7 @@ def experiment_create(
 @experiment_app.command("list")
 def experiment_list(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """List all experiments in a project."""
     ws = get_workspace(path)

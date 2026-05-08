@@ -16,54 +16,35 @@ The workflow has four equivalent surfaces:
 :class:`WorkflowCompiler` provides pairwise converters between these
 surfaces and round-trip guarantees where they apply::
 
-    ir = compiler.python_to_ir(compiler.ir_to_python(ir))         # exact
-    ir = compiler.spec_to_ir(compiler.ir_to_spec(ir))             # exact (slugged tasks)
-    text = compiler.ir_to_mermaid(ir)                             # one-way
+    ir = compiler.python_to_ir(compiler.ir_to_python(ir))  # exact
+    ir = compiler.spec_to_ir(compiler.ir_to_spec(ir))  # exact (slugged tasks)
+    text = compiler.ir_to_mermaid(ir)  # one-way
 
 Every conversion is **AST-based / template-based** — we never ``exec``
 user-supplied Python. The Python surface is a structured carrier for
 the IR, not a free-form script.
+
+Plan-side compilation (``PlanProposal`` → ``ParameterizedWorkflowSpec``
+or → ``WorkflowSpec``) is not part of this module. It belongs to the
+agent layer and lives in ``molexp.agent.planning.proposal_compiler``;
+the workflow layer is unaware of plans.
 """
 
 from __future__ import annotations
 
 import ast
-import hashlib
-import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from .proposal import _HASH_HEX_LEN, _canonical
-from .spec import TaskRegistration, WorkflowSpec
+from .._typing import JSONMapping, JSONValue
+from .spec import WorkflowSpec
 
 if TYPE_CHECKING:
-    from .proposal import ParameterizedWorkflowSpec, PlanProposal
     from .registry import TaskTypeRegistry
 
-__all__ = ["CompileError", "WorkflowCompiler", "compile_proposal", "default_compiler"]
-
-
-# ── PlanProposal → ParameterizedWorkflowSpec ──────────────────────────────────
-
-
-class CompileError(Exception):
-    """Raised by :meth:`WorkflowCompiler.proposal_to_spec` on a bad plan.
-
-    ``code`` is a stable string identifier that downstream callers
-    (server retry logic, agent re-plan dispatch, UI error mapping) can
-    branch on without parsing free-form text. ``detail`` is the human-
-    readable message.
-
-    The set of stable ``code`` values is documented in the
-    :file:`two-layer-workflow-foundation` spec; renaming a code is a
-    contract break.
-    """
-
-    __slots__ = ("code", "detail")
-
-    def __init__(self, code: str, detail: str) -> None:
-        super().__init__(f"{code}: {detail}")
-        self.code = code
-        self.detail = detail
+__all__ = [
+    "WorkflowCompiler",
+    "default_compiler",
+]
 
 
 _SCRIPT_HEADER = '''\
@@ -91,7 +72,7 @@ class WorkflowCompiler:
 
     # ── IR ↔ Python script ─────────────────────────────────────────────
 
-    def ir_to_python(self, ir: dict[str, Any]) -> str:
+    def ir_to_python(self, ir: JSONMapping) -> str:
         """Render a workflow IR dict as a runnable Python script.
 
         The script assigns the IR to a top-level ``WORKFLOW_IR`` literal
@@ -99,29 +80,20 @@ class WorkflowCompiler:
         the script with :meth:`python_to_ir` yields back the same IR
         (modulo dict ordering and Python repr quirks of
         :func:`ast.literal_eval`).
-
-        Args:
-            ir: A workflow IR dict matching ``schema/workflow.json`` —
-                ``{name, task_configs[], links[], metadata?}``.
-
-        Returns:
-            A Python source string. Always ends with a single trailing
-            newline.
-
-        Raises:
-            ValueError: ``ir`` is not a dict, or contains values that
-                are not :func:`ast.literal_eval`-safe (e.g. callables).
         """
         if not isinstance(ir, dict):
             raise ValueError("ir_to_python: ir must be a dict.")
-        literal = _safe_literal_repr(ir)
+        # ``ir`` is a Mapping; ``_safe_literal_repr`` accepts ``JSONValue``
+        # which includes the concrete ``dict[str, JSONValue]`` arm. Convert
+        # so the static-typing narrowing matches the dict arm explicitly.
+        literal = _safe_literal_repr(dict(ir))
         return (
             f"{_SCRIPT_HEADER}\n"
             f"WORKFLOW_IR = {literal}\n\n"
             f"spec = WorkflowSpec.from_dict(WORKFLOW_IR)\n"
         )
 
-    def python_to_ir(self, script: str) -> dict[str, Any]:
+    def python_to_ir(self, script: str) -> JSONMapping:
         """Extract the IR literal from a Python script.
 
         Walks the module AST looking for a top-level
@@ -129,18 +101,6 @@ class WorkflowCompiler:
         :func:`ast.literal_eval`. Anything else in the script (imports,
         comments, the trailing ``WorkflowSpec.from_dict`` call) is
         ignored — we never execute user-supplied code.
-
-        Args:
-            script: A Python source string previously rendered by
-                :meth:`ir_to_python`, optionally hand-edited.
-
-        Returns:
-            The IR dict.
-
-        Raises:
-            ValueError: the script has a syntax error, lacks a top-level
-                ``WORKFLOW_IR`` assignment, or the value is not a
-                literal dict.
         """
         try:
             tree = ast.parse(script)
@@ -165,7 +125,9 @@ class WorkflowCompiler:
 
     # ── IR ↔ WorkflowSpec ───────────────────────────────────────────────
 
-    def ir_to_spec(self, ir: dict[str, Any], *, registry: Any = None) -> WorkflowSpec:
+    def ir_to_spec(
+        self, ir: JSONMapping, *, registry: TaskTypeRegistry | None = None
+    ) -> WorkflowSpec:
         """Build a :class:`WorkflowSpec` from JSON IR.
 
         Thin wrapper over :meth:`WorkflowSpec.from_dict`; exposed here
@@ -174,13 +136,8 @@ class WorkflowCompiler:
         """
         return WorkflowSpec.from_dict(ir, registry=registry)
 
-    def spec_to_ir(self, spec: WorkflowSpec) -> dict[str, Any]:
-        """Serialize a :class:`WorkflowSpec` to JSON IR.
-
-        Thin wrapper over :meth:`WorkflowSpec.to_dict`. Every task in
-        ``spec`` must have been registered with a ``task_type`` slug;
-        decorator-style functions are not serializable.
-        """
+    def spec_to_ir(self, spec: WorkflowSpec) -> JSONMapping:
+        """Serialize a :class:`WorkflowSpec` to JSON IR."""
         return spec.to_dict()
 
     # ── Spec → Python / Mermaid (composition) ───────────────────────────
@@ -193,143 +150,28 @@ class WorkflowCompiler:
         """Render a spec as a Mermaid flowchart (via the IR)."""
         return self.ir_to_mermaid(self.spec_to_ir(spec))
 
-    # ── PlanProposal → ParameterizedWorkflowSpec ────────────────────────
-
-    def proposal_to_spec(
-        self,
-        proposal: PlanProposal,
-        *,
-        registry: TaskTypeRegistry,
-    ) -> ParameterizedWorkflowSpec:
-        """Compile a :class:`PlanProposal` into a :class:`ParameterizedWorkflowSpec`.
-
-        Validation is staged; the first failing rule short-circuits with
-        a :class:`CompileError` carrying a stable ``code``:
-
-        1. ``duplicate_task_id`` — two ``TaskProposal`` entries share a
-           ``task_id``.
-        2. ``unknown_slug`` — a ``kind="registered"`` task references a
-           ``task_type`` slug that is not in ``registry``.
-        3. ``agent_authored_missing_artifact`` — a
-           ``kind="agent_authored"`` task points at a ``code_artifact``
-           whose ``path`` is not a regular file on disk.
-        4. ``unknown_dependency`` — ``depends_on`` references a
-           ``task_id`` that is not present in the same proposal.
-        5. ``schema_mismatch`` — when the registry exposes
-           ``input_schema`` / ``output_schema`` metadata, an upstream
-           output is incompatible with a downstream input. Skipped if
-           the registry is silent.
-
-        The returned spec carries a deterministic ``workflow_id``
-        derived from the proposal's content hash and the registry's
-        slug fingerprint, so two equal inputs always produce the same
-        id (suitable for cache keys).
-        """
-        # Lazy import to keep the module-import path acyclic and pure.
-        from .proposal import ParameterizedWorkflowSpec
-
-        task_ids: list[str] = []
-        seen: set[str] = set()
-        for tp in proposal.task_proposals:
-            if tp.task_id in seen:
-                raise CompileError(
-                    "duplicate_task_id",
-                    f"task_id {tp.task_id!r} appears more than once in proposal {proposal.name!r}",
-                )
-            seen.add(tp.task_id)
-            task_ids.append(tp.task_id)
-
-        for tp in proposal.task_proposals:
-            if tp.kind == "registered":
-                assert tp.task_type is not None  # guaranteed by TaskProposal.__post_init__
-                if not registry.has(tp.task_type):
-                    raise CompileError(
-                        "unknown_slug",
-                        f"task {tp.task_id!r} references unknown task_type {tp.task_type!r}",
-                    )
-            elif tp.kind == "agent_authored":
-                # __post_init__ guarantees code_artifact is a non-None Path.
-                assert tp.code_artifact is not None
-                if not tp.code_artifact.is_file():
-                    raise CompileError(
-                        "agent_authored_missing_artifact",
-                        f"task {tp.task_id!r} code_artifact "
-                        f"{str(tp.code_artifact)!r} does not exist on disk",
-                    )
-
-        for tp in proposal.task_proposals:
-            for dep in tp.depends_on:
-                if dep not in seen:
-                    raise CompileError(
-                        "unknown_dependency",
-                        f"task {tp.task_id!r} depends_on unknown task {dep!r}",
-                    )
-
-        # Build the lightweight TaskRegistration tuple. Part A.1 does not
-        # actually drive execution from this object — Part B will revisit.
-        tasks = tuple(
-            TaskRegistration(
-                name=tp.task_id,
-                fn_or_class=None,
-                depends_on=list(tp.depends_on),
-                task_type=tp.task_type,
-                config=dict(tp.config) if tp.config else None,
-            )
-            for tp in proposal.task_proposals
-        )
-
-        control_flow: dict[str, Any] = {
-            "parallels": [_canonical(p) for p in proposal.parallels],
-            "loops": [_canonical(loop) for loop in proposal.loops],
-            "branches": [_canonical(b) for b in proposal.branches],
-            "sweeps": [_canonical(s) for s in proposal.sweeps],
-            "intervention_points": [_canonical(ip) for ip in proposal.intervention_points],
-        }
-
-        workflow_id = _compute_workflow_id(proposal, registry)
-
-        return ParameterizedWorkflowSpec(
-            workflow_id=workflow_id,
-            name=proposal.name,
-            tasks=tasks,
-            sanity_specs=tuple(proposal.sanity_specs),
-            control_flow=control_flow,
-        )
-
     # ── IR → Mermaid (one-way) ──────────────────────────────────────────
 
-    def ir_to_mermaid(self, ir: dict[str, Any]) -> str:
+    def ir_to_mermaid(self, ir: JSONMapping) -> str:
         """Render a workflow IR as a ``flowchart LR`` Mermaid block.
 
         The renderer emits one node per ``task_configs`` entry (label =
         ``task_id`` + ``task_type``) and one edge per ``links`` entry.
         Tasks with no incoming or outgoing edge still appear as
         standalone nodes so the diagram surfaces orphans.
-
-        Args:
-            ir: A workflow IR dict.
-
-        Returns:
-            A Mermaid source string starting with ``flowchart LR``.
-            Always ends with a single trailing newline.
-
-        Raises:
-            ValueError: ``ir`` is not a dict.
         """
         if not isinstance(ir, dict):
             raise ValueError("ir_to_mermaid: ir must be a dict.")
-        task_configs = ir.get("task_configs") or []
-        links = ir.get("links") or []
+        task_configs = _as_object_list(ir.get("task_configs"))
+        links = _as_object_list(ir.get("links"))
 
         lines = ["flowchart LR"]
         for tc in task_configs:
             tid = _mermaid_id(tc.get("task_id", "?"))
-            ttype = tc.get("task_type", "")
-            label = (
-                f"{tc.get('task_id', '?')}<br/><i>{ttype}</i>"
-                if ttype
-                else str(tc.get("task_id", "?"))
-            )
+            ttype_raw = tc.get("task_type", "")
+            ttype = ttype_raw if isinstance(ttype_raw, str) else ""
+            task_id_text = str(tc.get("task_id", "?"))
+            label = f"{task_id_text}<br/><i>{ttype}</i>" if ttype else task_id_text
             lines.append(f'  {tid}["{label}"]')
         for link in links:
             src = _mermaid_id(link.get("source", "?"))
@@ -341,38 +183,10 @@ class WorkflowCompiler:
 default_compiler = WorkflowCompiler()
 
 
-def compile_proposal(
-    proposal: PlanProposal,
-    *,
-    registry: TaskTypeRegistry,
-) -> ParameterizedWorkflowSpec:
-    """Module-level convenience for ``default_compiler.proposal_to_spec``.
-
-    Equivalent to ``default_compiler.proposal_to_spec(proposal,
-    registry=registry)`` — exposed at module scope so callers can
-    write ``from molexp.workflow import compile_proposal`` without
-    threading the compiler instance through.
-    """
-    return default_compiler.proposal_to_spec(proposal, registry=registry)
-
-
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _compute_workflow_id(
-    proposal: PlanProposal,
-    registry: TaskTypeRegistry,
-) -> str:
-    """sha256 of (proposal_id, registry slug fingerprint), truncated to ``_HASH_HEX_LEN`` hex chars."""
-    fingerprint = "|".join(registry.slugs())
-    payload = json.dumps(
-        {"proposal_id": proposal.proposal_id, "registry": fingerprint},
-        sort_keys=True,
-    ).encode("utf-8")
-    return hashlib.sha256(payload).hexdigest()[:_HASH_HEX_LEN]
-
-
-def _safe_literal_repr(value: Any, level: int = 0) -> str:
+def _safe_literal_repr(value: JSONValue, level: int = 0) -> str:
     """Pretty-print a literal-safe value with two-space indentation per level.
 
     Reuses :func:`repr` for scalars and recurses into lists / dicts so
@@ -387,7 +201,7 @@ def _safe_literal_repr(value: Any, level: int = 0) -> str:
             return "{}"
         pad = "    " * (level + 1)
         close_pad = "    " * level
-        lines = [f"{pad}{repr(k)}: {_safe_literal_repr(v, level + 1)}" for k, v in value.items()]
+        lines = [f"{pad}{k!r}: {_safe_literal_repr(v, level + 1)}" for k, v in value.items()]
         body = ",\n".join(lines)
         return "{\n" + body + ",\n" + close_pad + "}"
     if isinstance(value, list):
@@ -399,7 +213,6 @@ def _safe_literal_repr(value: Any, level: int = 0) -> str:
         body = ",\n".join(lines)
         return "[\n" + body + ",\n" + close_pad + "]"
     if isinstance(value, tuple):
-        # IR uses lists; tuples don't round-trip cleanly through JSON.
         return _safe_literal_repr(list(value), level)
     raise ValueError(
         f"ir_to_python: value of type {type(value).__name__!r} is not "
@@ -407,13 +220,20 @@ def _safe_literal_repr(value: Any, level: int = 0) -> str:
     )
 
 
-def _mermaid_id(raw: Any) -> str:
-    """Coerce a task_id into a Mermaid-safe identifier.
-
-    Mermaid node IDs can contain alphanumerics and underscores; anything
-    else is replaced with ``_``. We also prefix with ``n_`` so an ID
-    starting with a digit doesn't trip the parser.
-    """
+def _mermaid_id(raw: JSONValue) -> str:
+    """Coerce a task_id into a Mermaid-safe identifier."""
     s = str(raw)
     safe = "".join(ch if ch.isalnum() or ch == "_" else "_" for ch in s)
     return f"n_{safe}" if safe else "n_unnamed"
+
+
+def _as_object_list(value: JSONValue | None) -> list[dict[str, JSONValue]]:
+    """Narrow a ``JSONValue`` field expected to hold a list of JSON objects.
+
+    Accepts ``None`` / non-list / list-of-non-dict by returning an empty
+    list, since the IR Mermaid renderer treats those as "no entries"
+    rather than an error condition.
+    """
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]

@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .assets import AssetCatalog, AssetScope, AssetsView, DataAssetLibrary
+
+if TYPE_CHECKING:
+    from .sessions import SessionLibrary
 from .base import (
     _list_children,
     _load_metadata,
@@ -23,6 +27,7 @@ from .base import (
 )
 from .models import ProjectMetadata, WorkspaceMetadata
 from .project import Project
+from .subsystem import SubsystemStore
 from .utils import slugify
 
 # CLI-level root override: set by ``molexp run -w PATH`` before executing the
@@ -70,6 +75,8 @@ class Workspace:
         self._data_assets: DataAssetLibrary | None = None
         self._catalog: AssetCatalog | None = None
         self._projects_cache: dict[str, Project] = {}
+        self._subsystem_stores: dict[str, SubsystemStore] = {}
+        self._sessions: SessionLibrary | None = None
 
     def _ensure_materialized(self) -> None:
         if not (self.root / "workspace.json").exists():
@@ -115,6 +122,34 @@ class Workspace:
             self._catalog = AssetCatalog(self.root)
         return self._catalog
 
+    def subsystem_store(self, kind: str) -> SubsystemStore:
+        """Vend a private :class:`SubsystemStore` for ``kind``.
+
+        Same kind returns the same instance per workspace. Construction
+        is side-effect-free; the directory is created on first
+        :meth:`SubsystemStore.dir` / :meth:`SubsystemStore.file` call.
+        """
+        cached = self._subsystem_stores.get(kind)
+        if cached is not None:
+            return cached
+        store = SubsystemStore(self.root, kind)
+        self._subsystem_stores[kind] = store
+        return store
+
+    @property
+    def sessions(self) -> SessionLibrary:
+        """Workspace-scoped session library (catalog + on-disk metadata).
+
+        Lazily constructed. Mediates session-metadata writes and the
+        catalog's ``sessions`` section so the agent layer never touches
+        either directly.
+        """
+        if self._sessions is None:
+            from .sessions import SessionLibrary
+
+            self._sessions = SessionLibrary(self)
+        return self._sessions
+
     # ── Persistence ─────────────────────────────────────────────────────
 
     def materialize(self) -> None:
@@ -157,6 +192,8 @@ class Workspace:
                 "_data_assets": None,
                 "_catalog": None,
                 "_projects_cache": {},
+                "_subsystem_stores": {},
+                "_sessions": None,
             },
         )
 

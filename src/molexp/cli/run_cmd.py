@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import traceback
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any, Callable, Optional
+from typing import TYPE_CHECKING, Annotated, cast
 
 import typer
 
+from molexp._typing import JSONValue
 from molexp.config import MolCfg, ProfileConfig, load_molcfg
 from molexp.config.loader import find_default_config
 
@@ -20,13 +21,19 @@ from ._common import (
     rprint,
 )
 
-RunHandler = Callable[[Any, Any, Any, Any], None]
+if TYPE_CHECKING:
+    from molexp.workflow.protocols import RunContextLike
+    from molexp.workspace.experiment import Experiment
+    from molexp.workspace.project import Project
+    from molexp.workspace.run import Run
+
+RunHandler = Callable[["Path", "Run", "Experiment", "Project"], None]
 
 
 # ── Config / profile resolution ─────────────────────────────────────────────
 
 
-def _coerce_value(raw: str) -> Any:
+def _coerce_value(raw: str) -> JSONValue:
     """Coerce a string CLI value to int, float, bool, or str."""
     if raw.lower() == "true":
         return True
@@ -43,14 +50,24 @@ def _coerce_value(raw: str) -> Any:
     return raw
 
 
-def _set_nested(d: dict[str, Any], key_path: str, value: Any) -> None:
-    """Set a nested dict value using dot-notation key path (mutates *d*)."""
+def _set_nested(d: dict[str, JSONValue], key_path: str, value: JSONValue) -> None:
+    """Set a nested dict value using dot-notation key path (mutates *d*).
+
+    Walks the dot-separated path, creating intermediate ``dict`` cells when
+    a level is absent or holds a non-dict value (a leaf scalar / list).
+    The narrowing dance via ``isinstance`` keeps ty happy under
+    ``JSONValue``'s recursive shape.
+    """
     parts = key_path.split(".")
-    node = d
+    node: dict[str, JSONValue] = d
     for part in parts[:-1]:
-        if part not in node or not isinstance(node[part], dict):
-            node[part] = {}
-        node = node[part]
+        existing = node.get(part)
+        if isinstance(existing, dict):
+            node = existing
+            continue
+        new_child: dict[str, JSONValue] = {}
+        node[part] = new_child
+        node = new_child
     node[parts[-1]] = value
 
 
@@ -120,26 +137,10 @@ def _resolve_profile(config_path: Path | None, profile: str | None) -> ProfileCo
         raise typer.Exit(1)
 
 
-# ── Sweep driver ────────────────────────────────────────────────────────────
+# ── Replica dispatch ────────────────────────────────────────────────────────
 
 
-def _resolve_jobs(cli_jobs: int | None, profile_cfg: ProfileConfig) -> int:
-    """Resolve effective sweep concurrency.
-
-    CLI ``-j`` wins when provided; otherwise fall back to the profile's
-    ``jobs:`` field; default to ``1`` (serial, backwards compatible).
-    Values ``<= 0`` are clamped to ``1`` (``Semaphore(0)`` would deadlock).
-    """
-    if cli_jobs is not None:
-        return max(1, cli_jobs)
-    raw = profile_cfg.get("jobs", 1) if hasattr(profile_cfg, "get") else 1
-    try:
-        return max(1, int(raw))
-    except (TypeError, ValueError):
-        return 1
-
-
-def _watch_path_for(workspace_arg: Path | None, submitted: list[Any]) -> str:
+def _watch_path_for(workspace_arg: Path | None, submitted: list[Run]) -> str:
     """Pick the argument to suggest for ``molexp explore`` reopen messages.
 
     Prefers an explicit ``--workspace`` value; otherwise derives the
@@ -167,18 +168,16 @@ def _watch_path_for(workspace_arg: Path | None, submitted: list[Any]) -> str:
         return str(root)
 
 
-def _execute_sweep(
+def _dispatch_runs(
     *,
     script: Path,
     profile_cfg: ProfileConfig,
     resume: bool,
     workspace: Path | None,
-    run_handler: RunHandler | None,
+    run_handler: RunHandler,
     mode_label: str,
     suppress_ok: bool = False,
-    jobs: int = 1,
-    use_sweep_graph: bool = False,
-) -> tuple[int, list[Any]]:
+) -> tuple[int, list[Run]]:
     """Walk each workspace's experiments and dispatch one run per replica.
 
     Idempotent: re-running with the same script produces deterministic
@@ -209,8 +208,8 @@ def _execute_sweep(
         raise typer.Exit(1)
 
     total_dispatched = 0
-    dispatched_runs: list[Any] = []
-    all_replicas: list[tuple[Any, Any, Any]] = []
+    dispatched_runs: list[Run] = []
+    all_replicas: list[tuple[Run, Experiment, Project]] = []
 
     for ws in workspaces:
         if override_path is not None and ws.root == override_path:
@@ -239,7 +238,7 @@ def _execute_sweep(
                     f"\n  Mode:      {label}"
                 )
 
-                created_runs: list[tuple[Any, int]] = []
+                created_runs: list[tuple[Run, int]] = []
 
                 for replica_idx, seed in enumerate(seeds):
                     run_params = {**exp.params, "seed": seed, "replica": replica_idx}
@@ -316,83 +315,15 @@ def _execute_sweep(
 
                 total_dispatched += len(created_runs)
 
-    if use_sweep_graph:
-        # ``--local`` and the cluster backends share the same dispatch model:
-        # each replica is a ``molexp execute`` subprocess submitted through
-        # molq with ``cwd=exec_dir``.  This gives ``--local`` per-attempt
-        # isolation (cwd-relative output like ``logs/...`` lands inside
-        # ``executions/<exec_id>/``) and a single job-state model across
-        # backends so ``molexp watch`` / ``molexp explore`` work uniformly.
-        from molexp.plugins.submit_molq.local_sweep import run_local_sweep
-        from molexp.sweep import SweepReplica
-
-        replicas = [
-            SweepReplica(mol_run=mol_run, experiment=exp) for mol_run, exp, _project in all_replicas
-        ]
-        if replicas:
-            failures = asyncio.run(run_local_sweep(replicas, jobs=jobs))
-            for rid, exc in failures.items():
-                rprint(f"[red]Run {rid} failed:[/red] {exc}")
-        dispatched_runs.extend(mol_run for mol_run, _, _ in all_replicas)
-        if not suppress_ok:
-            verb = "resumed" if resume else "completed"
-            rprint(f"\n[green]OK[/green] {total_dispatched} runs {verb}.")
-    else:
-        if run_handler is None:
-            raise RuntimeError("run_handler must be provided when use_sweep_graph=False")
-        for mol_run, exp, project in all_replicas:
-            run_handler(script, mol_run, exp, project)
-            dispatched_runs.append(mol_run)
-            rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  run={mol_run.id}")
-        if not suppress_ok:
-            verb = "resumed" if resume else "completed"
-            rprint(f"\n[green]OK[/green] {total_dispatched} runs {verb}.")
+    for mol_run, exp, project in all_replicas:
+        run_handler(script, mol_run, exp, project)
+        dispatched_runs.append(mol_run)
+        rprint(f"  [cyan]>[/cyan] dispatched {exp.id}  run={mol_run.id}")
+    if not suppress_ok:
+        verb = "resumed" if resume else "completed"
+        rprint(f"\n[green]OK[/green] {total_dispatched} runs {verb}.")
 
     return total_dispatched, dispatched_runs
-
-
-# ── Background launcher ─────────────────────────────────────────────────────
-
-
-def _launch_bg(
-    *,
-    script: Path,
-    config_path: Path | None,
-    profile: str | None,
-    overrides: list[str],
-    resume: bool,
-    workspace: Path | None,
-) -> None:
-    """Fork a detached subprocess that re-runs the sweep without ``--bg``."""
-    import subprocess
-    import sys
-
-    cmd = [sys.executable, "-m", "molexp.cli", "run", str(script), "--local"]
-    if config_path is not None:
-        cmd.extend(["--config", str(config_path)])
-    if profile is not None:
-        cmd.extend(["--profile", profile])
-    for override in overrides:
-        cmd.extend(["--override", override])
-    if resume:
-        cmd.append("--resume")
-    if workspace is not None:
-        cmd.extend(["--workspace", str(workspace)])
-
-    ws_root = Path(workspace).resolve() if workspace else Path.cwd()
-    ws_root.mkdir(parents=True, exist_ok=True)
-
-    proc = subprocess.Popen(
-        cmd,
-        stdout=open(ws_root / "molexp_bg.log", "a"),
-        stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-    rprint(
-        f"[green]OK[/green] Launched in background (pid={proc.pid}). "
-        f"Logs: [bold]{ws_root / 'molexp_bg.log'}[/bold]"
-    )
 
 
 # ── Typer argument / option aliases ─────────────────────────────────────────
@@ -413,6 +344,32 @@ _SCRIPT_ARG = Annotated[
 # ── Command ─────────────────────────────────────────────────────────────────
 
 
+def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
+    """Build an in-process replica handler — no scheduler, no subprocess.
+
+    Used by ``molexp run --local`` so the workflow runs in the parent
+    Python process. Each replica opens its own :class:`RunContext` (with
+    the active profile config so ``run.metadata.profile`` is preserved)
+    and awaits :meth:`WorkflowSpec.execute`; failures bubble up as
+    exceptions and are caught by the dispatcher.
+    """
+    import asyncio
+
+    from molexp.workspace.run import RunContext
+
+    def _handler(_script: Path, mol_run: Run, experiment: Experiment, _project: Project) -> None:
+        spec = experiment.workflow
+        if spec is None:
+            raise RuntimeError(f"Experiment {experiment.name!r} has no workflow attached.")
+        with RunContext(mol_run, profile_config=profile_cfg) as ctx:
+            # ``RunContext`` structurally satisfies ``RunContextLike``;
+            # ty's protocol-attribute matching is conservative, so the
+            # cross-layer cast acknowledges the duck-typed boundary.
+            asyncio.run(spec.execute(run_context=cast("RunContextLike", ctx)))
+
+    return _handler
+
+
 @app.command()
 def run(
     script: _SCRIPT_ARG,
@@ -421,12 +378,12 @@ def run(
         bool,
         typer.Option(
             "--local",
-            help="Run locally, sequentially (default).",
+            help="Run replicas in-process, sequentially (no scheduler).",
             rich_help_panel="Execution Backend",
         ),
     ] = False,
     scheduler: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--scheduler",
             help="Submit via a molq scheduler backend (e.g. local, slurm, pbs, lsf).",
@@ -435,7 +392,7 @@ def run(
     ] = None,
     # ── Config / profile ───────────────────────────────────────────────────
     config: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--config",
             "-c",
@@ -451,7 +408,7 @@ def run(
         ),
     ] = None,
     profile: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--profile",
             help=(
@@ -461,7 +418,7 @@ def run(
         ),
     ] = None,
     overrides: Annotated[
-        Optional[list[str]],
+        list[str] | None,
         typer.Option(
             "--override",
             help=(
@@ -473,18 +430,6 @@ def run(
         ),
     ] = None,
     # ── Common options ─────────────────────────────────────────────────────
-    jobs: Annotated[
-        Optional[int],
-        typer.Option(
-            "--jobs",
-            "-j",
-            help=(
-                "Maximum number of replicas to run concurrently (local backend "
-                "only). If omitted, falls back to the active profile's "
-                "``jobs:`` field, or ``1`` (serial) when unset."
-            ),
-        ),
-    ] = None,
     resume: Annotated[
         bool,
         typer.Option(
@@ -494,29 +439,23 @@ def run(
             ),
         ),
     ] = False,
-    bg: Annotated[
-        bool,
-        typer.Option(
-            "--bg", help="Run in background (local only). Logs to <workspace>/molexp_bg.log."
-        ),
-    ] = False,
     workspace: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--workspace", "-w", help="Workspace root (overrides project config)."),
     ] = None,
     # ── HPC options (slurm / pbs / lsf) ───────────────────────────────────
     cpus: Annotated[
-        Optional[int],
+        int | None,
         typer.Option("--cpus", help="CPU cores per job.", rich_help_panel="HPC Options"),
     ] = None,
     mem: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--mem", help="Memory per job (e.g. 8G, 512M).", rich_help_panel="HPC Options"
         ),
     ] = None,
     time: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--time",
             "-t",
@@ -525,27 +464,27 @@ def run(
         ),
     ] = None,
     gpus: Annotated[
-        Optional[int],
+        int | None,
         typer.Option("--gpus", help="GPUs per job.", rich_help_panel="HPC Options"),
     ] = None,
     gpu_type: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--gpu-type", help="GPU type constraint (e.g. a100).", rich_help_panel="HPC Options"
         ),
     ] = None,
     account: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--account", "-A", help="Account / project name.", rich_help_panel="HPC Options"
         ),
     ] = None,
     cluster: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--cluster", help="molq cluster name.", rich_help_panel="HPC Options"),
     ] = None,
     target: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--target",
             help=(
@@ -558,16 +497,16 @@ def run(
     ] = None,
     # ── SLURM-specific ─────────────────────────────────────────────────────
     partition: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--partition", "-p", help="SLURM partition.", rich_help_panel="SLURM Options"),
     ] = None,
     qos: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--qos", help="SLURM QOS.", rich_help_panel="SLURM Options"),
     ] = None,
     # ── PBS / LSF-specific ─────────────────────────────────────────────────
     queue: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--queue", "-q", help="PBS/LSF queue name.", rich_help_panel="PBS / LSF Options"
         ),
@@ -610,48 +549,26 @@ def run(
     selected_scheduler = selected_target.scheduler if selected_target is not None else scheduler
     is_local = selected_scheduler is None and selected_target is None
 
-    if bg and not is_local:
-        rprint("[red]Error:[/red] --bg is only valid with --local.")
-        raise typer.Exit(1)
-
     profile_cfg = _resolve_profile(config, profile)
     profile_cfg = _apply_overrides(profile_cfg, overrides or [])
 
-    # ── Local execution ────────────────────────────────────────────────────
+    # ── In-process execution (default / --local) ──────────────────────────
     if is_local:
-        if bg:
-            _launch_bg(
-                script=script,
-                config_path=config,
-                profile=profile,
-                overrides=overrides or [],
-                resume=resume,
-                workspace=workspace,
-            )
-            return
-
         profile_label = (
             f"[cyan]{profile_cfg.name}[/cyan]" if profile_cfg.name else "[dim](defaults)[/dim]"
         )
-        label = f"[green]local[/green] profile={profile_label}"
-
-        effective_jobs = _resolve_jobs(jobs, profile_cfg)
-        _execute_sweep(
+        mode_label = f"[green]local[/green] profile={profile_label}"
+        _dispatch_runs(
             script=script,
             profile_cfg=profile_cfg,
             resume=resume,
             workspace=workspace,
-            run_handler=None,
-            mode_label=label,
-            jobs=effective_jobs,
-            use_sweep_graph=True,
+            run_handler=_make_local_inprocess_handler(profile_cfg),
+            mode_label=mode_label,
         )
         return
 
     # ── Cluster backends ───────────────────────────────────────────────────
-    # The local branch above returned, so a scheduler must have been selected
-    # to reach this point. Narrow `selected_scheduler` for the type checker.
-    assert selected_scheduler is not None
     from molexp.plugins.submit_molq.metadata import supported_schedulers
     from molexp.plugins.submit_molq.submit import make_submit_handler
 
@@ -665,6 +582,9 @@ def run(
         raise typer.Exit(1)
 
     selected_queue = partition if partition is not None else queue
+    # Past the ``is_local`` early-return above, ``selected_scheduler`` is
+    # guaranteed non-None — narrow ``str | None → str`` for the call.
+    assert selected_scheduler is not None
     handler = make_submit_handler(
         scheduler=selected_scheduler,
         cluster=cluster,
@@ -677,7 +597,7 @@ def run(
     )
     mode_label = f"[magenta]{selected_scheduler}[/magenta] profile={profile_label}"
 
-    n, submitted = _execute_sweep(
+    n, submitted = _dispatch_runs(
         script=script,
         profile_cfg=profile_cfg,
         resume=resume,
@@ -751,7 +671,6 @@ def execute(
     import asyncio
     import os
 
-    from molexp.config import ProfileConfig
     from molexp.entry import load_workflow_from_entrypoint
     from molexp.workflow.spec import WorkflowSpec
     from molexp.workspace.experiment import _promote_to_workflow
@@ -806,14 +725,13 @@ def execute(
         )
         raise typer.Exit(1)
 
-    profile_config = ProfileConfig(run.metadata.config, name=run.metadata.profile)
-    asyncio.run(
-        workflow.execute(
-            run=run,
-            profile_config=profile_config,
-            execution_id=execution_id,
+    with ctx:
+        asyncio.run(
+            workflow.execute(
+                run_context=cast("RunContextLike", ctx),
+                execution_id=execution_id,
+            )
         )
-    )
 
 
 # Silence unused-import lint (console is re-exported for other modules).

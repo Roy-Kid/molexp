@@ -22,7 +22,6 @@ async def train(ctx: me.RunContext) -> None:
     lr = ctx.config.get("lr", 1e-3)
     epochs = ctx.config.get("epochs", 3)
 
-    # Imaginary training loop; persist a lightweight metric.
     final_loss = 1.0 / (epochs * (lr * 1000 + 1))
     ctx.set_result("final_loss", final_loss)
     ctx.artifact.save("metrics.json", {"lr": lr, "epochs": epochs, "loss": final_loss})
@@ -39,9 +38,9 @@ async def main() -> None:
     experiment.set_workflow(train)
 
     run = experiment.run(parameters={"seed": 0})
-    result = await experiment.workflow.execute(run=run)
+    with run.start() as ctx:
+        result = await experiment.workflow.execute(run_context=ctx)
 
-    # Results live under ``context.results`` inside run.json.
     run_json = json.loads((run.run_dir / "run.json").read_text())
     print(f"status:     {result.status}")
     print(f"final_loss: {run_json['context']['results']['final_loss']}")

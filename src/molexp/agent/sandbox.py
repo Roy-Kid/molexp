@@ -24,6 +24,7 @@ deployment concern outside this module's contract.
 
 from __future__ import annotations
 
+import contextlib
 import os
 import subprocess
 import sys
@@ -111,7 +112,7 @@ def run_in_sandbox(
 
     try:
         try:
-            completed = subprocess.run(  # noqa: S603 — script + shim are framework-controlled
+            completed = subprocess.run(
                 [sys.executable, shim_path],
                 cwd=str(cwd_resolved),
                 env={**os.environ, **(env or {})},
@@ -123,10 +124,8 @@ def run_in_sandbox(
         except subprocess.TimeoutExpired as exc:
             raise SandboxTimeoutError(f"sandbox script exceeded timeout={timeout}s") from exc
     finally:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(shim_path)
-        except OSError:
-            pass
 
     if "SandboxPermissionError:" in completed.stderr:
         raise SandboxPermissionError(completed.stderr.strip())

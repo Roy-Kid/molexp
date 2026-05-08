@@ -41,8 +41,11 @@ class Preprocess(Task):
         self._spec = spec
 
     async def execute(self, ctx: TaskContext) -> list[float]:
-        inner_run = ctx.run_context.run if ctx.run_context is not None else None
-        result = await self._spec.execute(run=inner_run)
+        # Forward the outer ``run_context`` (when present) so inner-task
+        # workspace helpers continue to work; otherwise the inner spec
+        # runs with no workspace attached, just like the outer when you
+        # call ``spec.execute()`` from a notebook.
+        result = await self._spec.execute(run_context=ctx.run_context)
         return result.outputs["normalize"]
 
 

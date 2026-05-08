@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.table import Table
@@ -18,7 +18,7 @@ app.add_typer(project_app, name="project")
 @project_app.command("create")
 def project_create(
     name: Annotated[str, typer.Argument(help="Project name")],
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Create a new project."""
     ws = get_workspace(path)
@@ -34,7 +34,7 @@ def project_create(
 
 @project_app.command("list")
 def project_list(
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """List all projects."""
     ws = get_workspace(path)
@@ -66,7 +66,7 @@ def project_list(
 @project_app.command("info")
 def project_info(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Show project information."""
     ws = get_workspace(path)

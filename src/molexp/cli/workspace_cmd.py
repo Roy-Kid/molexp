@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
@@ -16,7 +16,7 @@ from ._common import get_workspace, rprint, status_color
 @app.command()
 def init(
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Argument(help="Workspace path (default: current directory)"),
     ] = None,
 ) -> None:
@@ -41,7 +41,7 @@ def init(
 @app.command()
 def info(
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:

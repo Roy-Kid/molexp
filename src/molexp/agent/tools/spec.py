@@ -8,11 +8,24 @@ them into ``ToolResult``.
 
 from __future__ import annotations
 
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from molexp._typing import JSONMapping, JSONValue, TaskOutput
+from molexp.agent.memory.store import MemoryStore
 from molexp.agent.types import AgentFailure
+
+if TYPE_CHECKING:
+    from molexp.workspace.run import RunContext
+    from molexp.workspace.workspace import Workspace
+
+
+class _ChatGatewayLike(Protocol):
+    """Mid-turn user-prompt gateway used by ``native:ask_user``-style tools."""
+
+    async def ask(self, prompt: str) -> str: ...
 
 
 class ToolSpec(BaseModel):
@@ -27,7 +40,7 @@ class ToolSpec(BaseModel):
 
     name: str
     description: str
-    input_schema: dict[str, Any]
+    input_schema: JSONMapping
     source: str = "native"
     category: str = "workspace"
     mutates: bool = False
@@ -49,13 +62,13 @@ class ToolResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     ok: bool
-    value: Any = None
+    value: TaskOutput = None
     error: AgentFailure | None = None
     artifacts: tuple[str, ...] = ()
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    metadata: dict[str, JSONValue] = Field(default_factory=dict)
 
 
-ToolCallable = Callable[[dict[str, Any], "ToolContext"], Awaitable[ToolResult]]
+ToolCallable = Callable[[JSONMapping, "ToolContext"], Awaitable[ToolResult]]
 """Signature every tool implementation must satisfy."""
 
 
@@ -79,12 +92,12 @@ class ToolContext:
 
     def __init__(
         self,
-        workspace: Any,
+        workspace: Workspace | None,
         session_id: str,
         turn_id: str,
-        run: Any | None = None,
-        memory: Any | None = None,
-        chat: Any | None = None,
+        run: RunContext | None = None,
+        memory: MemoryStore | None = None,
+        chat: _ChatGatewayLike | None = None,
     ) -> None:
         self.workspace = workspace
         self.session_id = session_id
@@ -102,7 +115,7 @@ class RegisteredTool:
     convention — the registry never mutates after insert.
     """
 
-    __slots__ = ("spec", "fn")
+    __slots__ = ("fn", "spec")
 
     def __init__(self, spec: ToolSpec, fn: ToolCallable) -> None:
         self.spec = spec

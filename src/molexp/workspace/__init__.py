@@ -52,22 +52,44 @@ from .targets import (
 from .workspace import Workspace
 
 __all__ = [
-    # Entities
-    "Workspace",
-    "Project",
+    "ArtifactAsset",
+    # Assets
+    "Asset",
+    "AssetCatalog",
+    "AssetManifest",
+    "AssetScope",
+    "AssetsView",
+    "CheckpointAsset",
+    "ComputeTarget",
+    # Context
+    "Context",
+    "DataAsset",
+    "DataAssetLibrary",
+    "ErrorInfo",
+    "ErrorTraceAsset",
+    "ExecutionRecord",
+    "ExecutionStateAsset",
     "Experiment",
+    "ExperimentMetadata",
+    "GridSpace",
+    "LogAsset",
+    "OutputAsset",
+    # Parameters
+    "ParamSpace",
+    "Params",
+    "Producer",
+    "Project",
+    "ProjectMetadata",
     "Run",
     "RunContext",
+    "RunMetadata",
     "RunStatus",
+    "UniformSpace",
+    "WorkflowSnapshotRef",
+    # Entities
+    "Workspace",
     # Metadata models
     "WorkspaceMetadata",
-    "ProjectMetadata",
-    "ExperimentMetadata",
-    "RunMetadata",
-    "ExecutionRecord",
-    "ErrorInfo",
-    "WorkflowSnapshotRef",
-    "ComputeTarget",
     # Compute target helpers
     "add_target",
     "get_target",
@@ -76,26 +98,4 @@ __all__ = [
     "remove_target",
     "target_run_dir",
     "to_transport",
-    # Assets
-    "Asset",
-    "ArtifactAsset",
-    "AssetCatalog",
-    "AssetManifest",
-    "AssetScope",
-    "AssetsView",
-    "CheckpointAsset",
-    "DataAsset",
-    "DataAssetLibrary",
-    "ErrorTraceAsset",
-    "ExecutionStateAsset",
-    "LogAsset",
-    "OutputAsset",
-    "Producer",
-    # Parameters
-    "ParamSpace",
-    "Params",
-    "GridSpace",
-    "UniformSpace",
-    # Context
-    "Context",
 ]

@@ -1,52 +1,94 @@
-"""GraphWorkflowRuntime: concrete WorkflowRuntime backed by pydantic-graph.
+"""GraphWorkflowRuntime: pydantic-graph-backed workflow runtime.
 
-Implements the WorkflowRuntime interface for all three modes:
-- execute(): run to completion, return WorkflowResult
-- start(): launch in background, return WorkflowExecution handle
-- resume(): continue from persisted snapshot
-- stream()/iter(): async step-by-step iteration
+The single concrete runtime; molexp does not abstract over runtime
+backends because there is only one. All three execution modes are
+methods on this class:
+
+- ``execute()`` — run to completion, return :class:`WorkflowResult`.
+- ``start()`` — launch in background, return :class:`WorkflowExecution`.
+- ``resume()`` — continue from persisted snapshot.
+- ``stream()`` / ``iter()`` — async step-by-step iteration.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING
 
 from mollog import get_logger
+from pydantic_graph import Graph, GraphRun
 
-from molexp.config import ProfileConfig
-
-from ..runtime import WorkflowRuntime
+from ..protocols import JSONMapping, RunContextLike, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
 from .compiler import CompiledWorkflow, WorkflowGraphCompiler
 from .node import WorkflowStep
 from .persistence import RunStorePersistence
 from .state import WorkflowDeps, WorkflowState
 
+if TYPE_CHECKING:
+    from ..spec import WorkflowSpec
+
 logger = get_logger(__name__)
 
 _compiler = WorkflowGraphCompiler()
 
+# Single-track: ``WorkflowStep`` is the only pg BaseNode molexp exposes;
+# pg drives ``WorkflowStep(0) → WorkflowStep(1) → … → End`` and gives us
+# snapshot/resume bookkeeping for free.
+_GRAPH: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(
+    nodes=[WorkflowStep],
+    state_type=WorkflowState,
+    run_end_type=WorkflowState,
+)
 
-def _get_run_dir(run: Any) -> Path | None:
-    """Extract run directory from a molexp Run object if available."""
-    if run is None:
+
+def _resolve_run_dir(
+    run_context: RunContextLike | None, explicit_run_dir: str | Path | None
+) -> Path | None:
+    """Pick the run directory: explicit ``run_dir=`` wins, else duck-type
+    ``run_context.work_dir``."""
+    if explicit_run_dir is not None:
+        return Path(explicit_run_dir)
+    if run_context is None:
         return None
-    for attr in ("run_dir", "path", "root"):
-        val = getattr(run, attr, None)
-        if val is not None:
-            return Path(val)
+    work_dir = getattr(run_context, "work_dir", None)
+    if work_dir is not None:
+        return Path(work_dir)
     return None
 
 
-def _get_run_id(run: Any) -> str | None:
-    """Extract a stable run identifier from a molexp Run-like object."""
+def _get_run_id(run_context: RunContextLike | None) -> str | None:
+    """Extract a stable run identifier from a duck-typed run_context."""
+    if run_context is None:
+        return None
+    run = getattr(run_context, "run", None)
     if run is None:
         return None
     return getattr(run, "id", getattr(run, "run_id", None))
+
+
+def _record_run_failure(run_context: RunContextLike | None, error: str | None) -> None:
+    """Mark task-failure on a duck-typed run_context's ``_context.status`` dict.
+
+    The workspace's :class:`molexp.workspace.run.RunContext` reads
+    ``self._context.status.get("run")`` from ``__exit__`` to decide whether
+    the run finished as ``succeeded`` or ``failed``. The runtime writes to
+    that dict here so the CLI's exception-free ``with ctx:`` exit still
+    surfaces task-body failures as a failed run-status.
+    """
+    inner = getattr(run_context, "_context", None)
+    if inner is None:
+        return
+    status = getattr(inner, "status", None)
+    if status is None or not hasattr(status, "__setitem__"):
+        return
+    status["run"] = "failed"
+    if error and hasattr(inner, "errors") and isinstance(inner.errors, dict):
+        inner.errors.setdefault("run", {"message": error})
 
 
 def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
@@ -79,7 +121,7 @@ def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
     return f"{base}-{len(existing) + 1}"
 
 
-class GraphWorkflowRuntime(WorkflowRuntime):
+class GraphWorkflowRuntime:
     """Workflow runtime powered by pydantic-graph.
 
     Caches compiled graphs by workflow_id so repeated executions of the
@@ -89,7 +131,7 @@ class GraphWorkflowRuntime(WorkflowRuntime):
     def __init__(self) -> None:
         self._compiled: dict[str, CompiledWorkflow] = {}
 
-    def _get_compiled(self, spec: Any) -> CompiledWorkflow:
+    def _get_compiled(self, spec: WorkflowSpec) -> CompiledWorkflow:
         wf_id = spec.workflow_id
         if wf_id not in self._compiled:
             self._compiled[wf_id] = _compiler.compile(spec)
@@ -99,268 +141,132 @@ class GraphWorkflowRuntime(WorkflowRuntime):
     def _build_deps(
         compiled: CompiledWorkflow,
         *,
-        run: Any,
-        run_context: Any,
-        profile_config: ProfileConfig | None,
-        kwargs: dict[str, Any],
-    ) -> tuple[WorkflowDeps, Path | None]:
-        """Build WorkflowDeps with optional remote executor from kwargs.
+        run_context: RunContextLike | None,
+        run_dir: Path | None,
+        config: JSONMapping | None,
+        deps: UserDeps,
+    ) -> WorkflowDeps:
+        """Build WorkflowDeps from the duck-typed run_context payload.
 
-        When *run_context* is provided, its attached :attr:`config`
-        takes precedence over *profile_config* — the context was
-        constructed with a fixed ``ProfileConfig`` and must be honoured.
+        When *run_context* is provided, its attached ``.config`` takes
+        precedence over the explicit *config* kwarg.
         """
-        user_deps = kwargs.get("deps")
-        run_dir = Path(run_context.work_dir) if run_context is not None else _get_run_dir(run)
+        if run_context is not None:
+            ctx_config = getattr(run_context, "config", None)
+            effective_config = ctx_config if ctx_config is not None else config
+        else:
+            effective_config = config
 
-        effective_config = run_context.config if run_context is not None else profile_config
+        run_for_deps = getattr(run_context, "run", None) if run_context is not None else None
 
-        deps = compiled.make_deps(
-            run=run,
+        return compiled.make_deps(
+            run=run_for_deps,
             run_context=run_context,
             config=effective_config,
-            user_deps=user_deps,
+            user_deps=deps,
             remote_executor=None,
             run_dir=run_dir,
         )
-        return deps, run_dir
-
-    @staticmethod
-    def _autobind_workflow_version(active_run_context: Any, spec: Any) -> None:
-        """Auto-register *spec*'s :class:`WorkflowVersion` against the
-        run's workspace and stamp ``RunMetadata.workflow_id`` /
-        ``workflow_version``.
-
-        Called once per ``_execution_scope`` entry. Versioning is
-        advisory: a conflict (same ``workflow_id`` already labelled with
-        a different ``version``) logs a warning and proceeds without
-        overwriting the existing on-disk record — the run still gets
-        ``workflow_id`` recorded so lineage tooling can identify the
-        topology, just without a fresh version stamp. Any other failure
-        is also swallowed with a log; bind errors must never block a
-        workflow run.
-        """
-        if active_run_context is None or not hasattr(active_run_context, "bind_workflow_version"):
-            return
-        if spec is None or not hasattr(spec, "workflow_id"):
-            return
-        try:
-            active_run_context.bind_workflow_version(spec)
-        except Exception:  # noqa: BLE001 — versioning is advisory, never block
-            wf_id = getattr(spec, "workflow_id", "?")
-            logger.warning(
-                f"auto-bind workflow version failed for workflow_id={wf_id}; continuing",
-                exc_info=True,
-            )
-
-    @staticmethod
-    def _set_run_status(run_context: Any, *, failed: bool, persist: bool) -> None:
-        if run_context is None or not hasattr(run_context, "context"):
-            return
-
-        from molexp.workspace.run import RunStatus
-
-        status = RunStatus.FAILED if failed else RunStatus.SUCCEEDED
-
-        run_context.context.status["run"] = status
-        if persist and hasattr(run_context, "_save_context"):
-            run_context._save_context()
-
-    @asynccontextmanager
-    async def _execution_scope(
-        self,
-        *,
-        run: Any,
-        run_context: Any,
-        profile_config: ProfileConfig | None,
-        execution_id: str | None = None,
-    ) -> AsyncGenerator[Any, None]:
-        if run is not None and run_context is not None:
-            raise ValueError("Pass either run or run_context, not both")
-
-        if run_context is not None:
-            if profile_config is not None:
-                raise ValueError(
-                    "Cannot combine run_context with profile_config.  "
-                    "The profile must be fixed on the RunContext at construction "
-                    "time — late-binding is not permitted."
-                )
-            yield run_context
-            return
-
-        if run is not None:
-            from molexp.workspace.run import RunContext as WorkspaceRunContext
-
-            managed_ctx = WorkspaceRunContext(
-                run,
-                profile_config=profile_config,
-                execution_id=execution_id,
-            )
-            with managed_ctx:
-                yield managed_ctx
-            return
-
-        yield None
 
     # ── execute ──────────────────────────────────────────────────────────────
 
     async def execute(
         self,
-        spec: Any,
-        run: Any = None,
-        run_context: Any = None,
+        spec: WorkflowSpec,
         *,
-        profile_config: ProfileConfig | None = None,
-        **kwargs: Any,
+        run_context: RunContextLike | None = None,
+        run_dir: str | Path | None = None,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+        execution_id: str | None = None,
     ) -> WorkflowResult:
         """Run the workflow to completion and return a WorkflowResult."""
-        if run is not None and run_context is not None:
-            raise ValueError("Pass either run or run_context, not both")
-        if run_context is not None and profile_config is not None:
-            raise ValueError(
-                "Cannot combine run_context with profile_config.  "
-                "The profile must be fixed on the RunContext at construction time."
-            )
-
         compiled = self._get_compiled(spec)
-        # Derive execution_id from run_id so all layers share the same base ID.
-        _early_run = run_context.run if run_context is not None else run
-        _early_run_id = _get_run_id(_early_run)
-        _early_run_dir = (
-            Path(run_context.work_dir) if run_context is not None else _get_run_dir(_early_run)
-        )
-        # An explicit execution_id (e.g. from `molexp execute --execution-id`)
-        # bypasses derivation so the worker reuses the slot the submitter
-        # pre-allocated.
-        explicit_exec_id = kwargs.pop("execution_id", None)
-        execution_id = explicit_exec_id or make_execution_id(_early_run_id, _early_run_dir)
-        owner_supplied_context = run_context
+
+        resolved_run_dir = _resolve_run_dir(run_context, run_dir)
+        run_id = _get_run_id(run_context)
+
+        execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
 
         try:
-            async with self._execution_scope(
-                run=run,
+            workflow_deps = self._build_deps(
+                compiled,
                 run_context=run_context,
-                profile_config=profile_config,
-                execution_id=execution_id,
-            ) as active_run_context:
-                self._autobind_workflow_version(active_run_context, spec)
-                effective_run = active_run_context.run if active_run_context is not None else run
-                deps, run_dir = self._build_deps(
-                    compiled,
-                    run=effective_run,
-                    run_context=active_run_context,
-                    profile_config=profile_config,
-                    kwargs=kwargs,
-                )
-                state = WorkflowState()
-                run_id = _get_run_id(deps.run)
-
-                persistence = (
-                    RunStorePersistence(run_dir=run_dir, execution_id=execution_id)
-                    if run_dir is not None
-                    else None
-                )
-
-                if persistence is not None:
-                    run_result = await compiled.graph.run(
-                        WorkflowStep(0),
-                        state=state,
-                        deps=deps,
-                        persistence=persistence,
-                    )
-                else:
-                    run_result = await compiled.graph.run(
-                        WorkflowStep(0),
-                        state=state,
-                        deps=deps,
-                    )
-                result_state = run_result.output
-
-                if result_state.failed:
-                    self._set_run_status(
-                        active_run_context,
-                        failed=True,
-                        persist=owner_supplied_context is not None,
-                    )
-                    return WorkflowResult(
-                        status="failed",
-                        outputs=result_state.results,
-                        run_id=run_id,
-                        execution_id=execution_id,
-                        sanity_events=list(result_state.sanity_events),
-                    )
-
-                self._set_run_status(
-                    active_run_context,
-                    failed=False,
-                    persist=owner_supplied_context is not None,
-                )
-                return WorkflowResult(
-                    status="completed",
-                    outputs=result_state.results,
-                    run_id=run_id,
-                    execution_id=execution_id,
-                    sanity_events=list(result_state.sanity_events),
-                )
-        except WorkflowError:
-            # WorkflowError subclasses (CycleError, UnknownRouteError,
-            # MissingRouteError, WorkflowDeadlockError, …) signal a
-            # programming error in the workflow definition or task body.
-            # Surface them to the caller rather than masking them as a
-            # generic "failed" result.
-            self._set_run_status(
-                owner_supplied_context,
-                failed=True,
-                persist=owner_supplied_context is not None,
+                run_dir=resolved_run_dir,
+                config=config,
+                deps=deps,
             )
+            state = WorkflowState()
+
+            persistence = (
+                RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
+                if resolved_run_dir is not None
+                else None
+            )
+
+            if persistence is not None:
+                run_result = await _GRAPH.run(
+                    WorkflowStep(0),
+                    state=state,
+                    deps=workflow_deps,
+                    persistence=persistence,
+                )
+            else:
+                run_result = await _GRAPH.run(
+                    WorkflowStep(0),
+                    state=state,
+                    deps=workflow_deps,
+                )
+            result_state = run_result.output
+
+            # Propagate task-failure to the workspace's RunContext so it can
+            # tag the final run.status as failed when the caller's
+            # ``with run.start() as ctx: workflow.execute(run_context=ctx)``
+            # block exits cleanly. Without this back-channel the failure
+            # only surfaces in WorkflowResult.status — which the CLI does
+            # not consult — and run.status defaults to ``succeeded``.
+            if result_state.failed and run_context is not None:
+                _record_run_failure(run_context, result_state.error)
+
+            return WorkflowResult(
+                status="failed" if result_state.failed else "completed",
+                outputs=result_state.results,
+                run_id=run_id,
+                execution_id=execution_id,
+            )
+        except WorkflowError:
+            # Programming errors in the workflow definition / task body
+            # (CycleError, UnknownRouteError, MissingRouteError,
+            # WorkflowDeadlockError, …) propagate to the caller.
             raise
         except Exception as exc:
-            self._set_run_status(
-                owner_supplied_context,
-                failed=True,
-                persist=owner_supplied_context is not None,
-            )
             logger.exception(f"Workflow {spec.name!r} execution failed")
-            sanity_events = getattr(exc, "sanity_events", None) or []
+            if run_context is not None:
+                _record_run_failure(run_context, str(exc))
             return WorkflowResult(
                 status="failed",
                 outputs={},
-                run_id=_get_run_id(
-                    owner_supplied_context.run if owner_supplied_context is not None else run
-                ),
+                run_id=run_id,
                 execution_id=execution_id,
-                sanity_events=list(sanity_events),
             )
 
     # ── start ────────────────────────────────────────────────────────────────
 
     async def start(
         self,
-        spec: Any,
-        run: Any = None,
-        run_context: Any = None,
+        spec: WorkflowSpec,
         *,
-        profile_config: ProfileConfig | None = None,
-        **kwargs: Any,
+        run_context: RunContextLike | None = None,
+        run_dir: str | Path | None = None,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+        execution_id: str | None = None,
     ) -> WorkflowExecution:
         """Launch workflow as background asyncio task."""
-        if run is not None and run_context is not None:
-            raise ValueError("Pass either run or run_context, not both")
-        if run_context is not None and profile_config is not None:
-            raise ValueError(
-                "Cannot combine run_context with profile_config.  "
-                "The profile must be fixed on the RunContext at construction time."
-            )
-
         compiled = self._get_compiled(spec)
-        owner_supplied_context = run_context
-        effective_run = run_context.run if run_context is not None else run
-        run_id = _get_run_id(effective_run)
-        _early_run_dir = (
-            Path(run_context.work_dir) if run_context is not None else _get_run_dir(effective_run)
-        )
-        explicit_exec_id = kwargs.pop("execution_id", None)
-        execution_id = explicit_exec_id or make_execution_id(run_id, _early_run_dir)
+        resolved_run_dir = _resolve_run_dir(run_context, run_dir)
+        run_id = _get_run_id(run_context)
+        execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
@@ -370,43 +276,23 @@ class GraphWorkflowRuntime(WorkflowRuntime):
 
         async def _bg() -> None:
             try:
-                async with self._execution_scope(
-                    run=run,
+                workflow_deps = self._build_deps(
+                    compiled,
                     run_context=run_context,
-                    profile_config=profile_config,
-                    execution_id=execution_id,
-                ) as active_run_context:
-                    self._autobind_workflow_version(active_run_context, spec)
-                    effective_run = (
-                        active_run_context.run if active_run_context is not None else run
-                    )
-                    deps, _ = self._build_deps(
-                        compiled,
-                        run=effective_run,
-                        run_context=active_run_context,
-                        profile_config=profile_config,
-                        kwargs=kwargs,
-                    )
-                    state = WorkflowState()
-                    run_result = await compiled.graph.run(WorkflowStep(0), state=state, deps=deps)
-                    result_state = run_result.output
-                    self._set_run_status(
-                        active_run_context,
-                        failed=result_state.failed,
-                        persist=owner_supplied_context is not None,
-                    )
-                    handle._result = WorkflowResult(
-                        status="failed" if result_state.failed else "completed",
-                        outputs=result_state.results,
-                        run_id=_get_run_id(effective_run),
-                        execution_id=execution_id,
-                    )
-            except Exception:
-                self._set_run_status(
-                    owner_supplied_context,
-                    failed=True,
-                    persist=owner_supplied_context is not None,
+                    run_dir=resolved_run_dir,
+                    config=config,
+                    deps=deps,
                 )
+                state = WorkflowState()
+                run_result = await _GRAPH.run(WorkflowStep(0), state=state, deps=workflow_deps)
+                result_state = run_result.output
+                handle._result = WorkflowResult(
+                    status="failed" if result_state.failed else "completed",
+                    outputs=result_state.results,
+                    run_id=run_id,
+                    execution_id=execution_id,
+                )
+            except Exception:
                 handle._result = WorkflowResult(
                     status="failed",
                     outputs={},
@@ -423,43 +309,47 @@ class GraphWorkflowRuntime(WorkflowRuntime):
     # ── resume ───────────────────────────────────────────────────────────────
 
     async def resume(
-        self, spec: Any, run: Any, execution_id: str, **kwargs: Any
+        self,
+        spec: WorkflowSpec,
+        *,
+        run_dir: str | Path,
+        execution_id: str,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+        run_context: RunContextLike | None = None,
     ) -> WorkflowExecution:
-        """Resume a workflow from persisted state."""
-        run_dir = _get_run_dir(run)
+        """Resume a workflow from persisted state.
+
+        Caller supplies *run_dir* explicitly (workflow layer no longer
+        knows about ``Workspace.Run``); *config* / *deps* are forwarded
+        as-is. *run_context* is optional — when present it is the duck-
+        typed payload exposed at ``TaskContext.run_context``.
+        """
         if run_dir is None:
             raise ValueError("Cannot resume workflow without a run directory")
 
         compiled = self._get_compiled(spec)
-        # On resume we rebuild the ProfileConfig from the persisted
-        # run.metadata so user tasks see the same ctx.config data.
-        profile_cfg: ProfileConfig | None = None
-        meta = getattr(run, "metadata", None)
-        if meta is not None:
-            profile_cfg = ProfileConfig(
-                getattr(meta, "config", {}) or {},
-                name=getattr(meta, "profile", None),
-            )
-        deps, _ = self._build_deps(
+        resolved_run_dir = Path(run_dir)
+        workflow_deps = self._build_deps(
             compiled,
-            run=run,
-            run_context=None,
-            profile_config=profile_cfg,
-            kwargs=kwargs,
+            run_context=run_context,
+            run_dir=resolved_run_dir,
+            config=config,
+            deps=deps,
         )
-        persistence = RunStorePersistence(run_dir=run_dir, execution_id=execution_id)
+        persistence = RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
             workflow_id=spec.workflow_id,
-            run_id=_get_run_id(run),
+            run_id=_get_run_id(run_context),
         )
 
         async def _bg() -> None:
             try:
-                async with compiled.graph.iter_from_persistence(
+                async with _GRAPH.iter_from_persistence(
                     persistence=persistence,
-                    deps=deps,
+                    deps=workflow_deps,
                 ) as run_ctx:
                     async for _node in run_ctx:
                         pass
@@ -491,29 +381,47 @@ class GraphWorkflowRuntime(WorkflowRuntime):
 
     # ── iter ─────────────────────────────────────────────────────────────────
 
-    def iter(self, spec: Any, run: Any = None, **kwargs: Any) -> Any:
+    def iter(
+        self,
+        spec: WorkflowSpec,
+        *,
+        run_context: RunContextLike | None = None,
+        run_dir: str | Path | None = None,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+    ) -> AbstractAsyncContextManager[GraphRun[WorkflowState, WorkflowDeps, WorkflowState]]:
         """Return an async context manager for step-by-step iteration."""
-        effective_run_context = kwargs.get("run_context")
-        if run is not None and effective_run_context is not None:
-            raise ValueError("Pass either run or run_context, not both")
-
         compiled = self._get_compiled(spec)
-        effective_run = effective_run_context.run if effective_run_context is not None else run
-        deps, _ = self._build_deps(
+        resolved_run_dir = _resolve_run_dir(run_context, run_dir)
+        workflow_deps = self._build_deps(
             compiled,
-            run=effective_run,
-            run_context=effective_run_context,
-            profile_config=kwargs.get("profile_config"),
-            kwargs=kwargs,
+            run_context=run_context,
+            run_dir=resolved_run_dir,
+            config=config,
+            deps=deps,
         )
         state = WorkflowState()
-        return compiled.graph.iter(WorkflowStep(0), state=state, deps=deps)
+        return _GRAPH.iter(WorkflowStep(0), state=state, deps=workflow_deps)
 
     # ── stream ───────────────────────────────────────────────────────────────
 
-    def stream(self, spec: Any, run: Any = None, **kwargs: Any) -> Any:
+    def stream(
+        self,
+        spec: WorkflowSpec,
+        *,
+        run_context: RunContextLike | None = None,
+        run_dir: str | Path | None = None,
+        config: JSONMapping | None = None,
+        deps: UserDeps = None,
+    ) -> AbstractAsyncContextManager[GraphRun[WorkflowState, WorkflowDeps, WorkflowState]]:
         """Alias for iter() — streaming Actor support in a future phase."""
-        return self.iter(spec, run=run, **kwargs)
+        return self.iter(
+            spec,
+            run_context=run_context,
+            run_dir=run_dir,
+            config=config,
+            deps=deps,
+        )
 
 
 class _GraphWorkflowExecution(WorkflowExecution):
@@ -539,8 +447,6 @@ class _GraphWorkflowExecution(WorkflowExecution):
         """Cancel the background task."""
         if self._task is not None and not self._task.done():
             self._task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._task
-            except asyncio.CancelledError:
-                pass
         self._done_event.set()

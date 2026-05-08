@@ -14,7 +14,7 @@ If you are evaluating the design rather than trying to run code immediately, beg
 
 [Concepts](concept/index.md) is for the mental model. Those pages explain what remains stable across scripts, profiles, runs, and transport layers. They are meant to clarify the system boundary, not enumerate every method.
 
-[Guide](guide/index.md) is for deeper topics once the first-run path is already familiar. It is organized by theme: authoring workflows, working with persistent records and assets, and operating the server or scheduler bridge. [Development](development/index.md) remains the contributor-facing section for compiler internals, protocol design, and active specifications.
+[Guide](guide/index.md) is for deeper topics once the first-run path is already familiar. It is organized by theme: authoring workflows, working with persistent records and assets, and operating the server or scheduler bridge. [Architecture](architecture/index.md) records the layer boundaries that code must preserve. [Development](development/index.md) remains the contributor-facing section for compiler internals, protocol design, and active specifications.
 
 ## Reading Path
 

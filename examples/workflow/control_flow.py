@@ -7,7 +7,7 @@ shape of ``depends_on`` and by Python inside tasks. This example runs three
 patterns back to back:
 
 1. Diamond — ``parse`` and ``validate`` run in parallel after ``fetch``.
-2. Conditional — ``maybe_clean`` short-circuits based on a profile field.
+2. Conditional — ``maybe_clean`` short-circuits based on a config field.
 3. Build-time fan-out — two sibling tasks reduce into a third.
 
 Run directly::
@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.config import ProfileConfig
 from molexp.workflow import TaskContext, Workflow
 
 
@@ -41,7 +40,6 @@ async def diamond_demo() -> None:
 
     @wf.task(depends_on=["parse", "validate"])
     async def merge(ctx: TaskContext) -> dict:
-        # With multiple upstreams, ``inputs`` is a dict keyed by task name.
         return {"parsed": ctx.inputs["parse"], "ok": ctx.inputs["validate"]}
 
     result = await wf.build().execute()
@@ -62,18 +60,12 @@ async def conditional_demo(skip: bool) -> None:
             return ctx.inputs
         return [x for x in ctx.inputs if x >= 0]
 
-    cfg = ProfileConfig({"skip_cleaning": skip}, name=None)
-    result = await wf.build().execute(profile_config=cfg)
+    result = await wf.build().execute(config={"skip_cleaning": skip})
     tag = "raw    " if skip else "cleaned"
     print(f"conditional {tag}: {result.outputs['maybe_clean']}")
 
 
 # ── 3. Build-time fan-out ──────────────────────────────────────────────────
-# When the fan-out count is known at authoring time, the idiomatic pattern
-# is N tasks with identical ``depends_on``. They run on the same level and
-# pydantic-graph dispatches them concurrently. For runtime-sized fan-out
-# the library exposes ``wf.parallel_map`` / ``wf.join`` decorators — see the
-# guide for their current status.
 async def fanout_demo() -> None:
     wf = Workflow(name="fanout")
 

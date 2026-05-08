@@ -1,515 +1,114 @@
-"""Agent routes for MolExp API — backed by ``molexp.agent.AgentService``.
+"""Agent routes — Slice 1 stub.
 
-The route layer is a thin translator between FastAPI schemas and the
-harness public surface. The session registry and asyncio task
-ownership live entirely on :class:`AgentService`; these handlers do
-not own ``_sessions`` globals.
+The original endpoints depended on ``AgentService`` / ``ModelClient`` /
+``Goal`` / ``coding_protocol`` — all removed by spec
+``agent-pydanticai-as-core``. Server-side routing is rebuilt around
+``AgentRunner`` in a follow-up spec (``server-routes-agent-rectification``).
 
-Skills come from :mod:`molexp.agent.skills`, provider credentials
-and config from :mod:`molexp.plugins.agent_pydanticai`, and the system
-prompt from :mod:`molexp.agent.context.prompt`.
-
-Handlers take ``workspace`` as their only injected dependency and
-derive the workspace-scoped :class:`AgentService` via
-:func:`_service_for`. That way external callers (e.g. the
-``/agent-tasks`` route layer) can invoke a handler with a real
-workspace object instead of going through FastAPI's dependency chain.
+This stub keeps ``from molexp.server.routes.agent import router`` working
+so the rest of the API surface still mounts; every agent-route call
+returns 503. The stub helpers below preserve the call-site signatures
+that ``agent_tasks.py`` reaches for so static analysis stays clean
+until the rebuild lands.
 """
 
 from __future__ import annotations
 
-import dataclasses
-from datetime import datetime, timezone
-from pathlib import Path
-from threading import Lock
-from typing import Any, AsyncGenerator
+from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 
-from molexp.agent import (
-    AgentMode,
-    AgentService,
-    Goal,
-    SessionStatus,
-)
-from molexp.agent._serialize import to_jsonable as _to_jsonable
-from molexp.agent.orchestration import (
-    SessionCompleted,
-    UserMessageReceived,
-)
-from molexp.agent.tools import ApprovalDecision
-from molexp.workflow import PlanProposal
+if TYPE_CHECKING:
+    from molexp.workspace.workspace import Workspace
 
-from ..dependencies import get_workspace
-from ..schemas import (
-    AgentSessionListResponse,
-    AgentSessionResponse,
-    AgentSystemPromptResponse,
-    ApprovalRespondRequest,
-    GoalCreateRequest,
-    MessageResponse,
-    PlanDecisionRequest,
-    SessionEventResponse,
-    SessionStatsResponse,
-    SkillLaunchRequest,
-    UserMessageCreateRequest,
+    from ..schemas import (
+        AgentSessionListResponse,
+        AgentSessionResponse,
+        ApprovalRespondRequest,
+        GoalCreateRequest,
+        MessageResponse,
+        PlanDecisionRequest,
+        UserMessageCreateRequest,
+    )
+
+router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+
+_GONE_DETAIL = (
+    "Agent HTTP routes are temporarily disabled while the layer is rebuilt "
+    "around AgentRunner; restoration is tracked by the server-routes-agent-"
+    "rectification spec."
 )
 
-router = APIRouter(prefix="/agent", tags=["agent"])
 
-
-_service_cache: dict[str, AgentService] = {}
-_service_cache_lock = Lock()
-
-
-def _service_for(workspace) -> AgentService:
-    root = getattr(workspace, "root", None)
-    key = str(root) if root is not None else "<no-root>"
-    with _service_cache_lock:
-        existing = _service_cache.get(key)
-        if existing is None:
-            existing = AgentService.from_workspace(
-                workspace_path=root or Path("."),
-                workspace=workspace,
-                model=_resolve_model_client(root),
-                tool_sources=_resolve_tool_sources(),
-            )
-            _service_cache[key] = existing
-    return existing
-
-
-def _resolve_tool_sources():
-    """Return every registered :class:`ToolSource` for the harness.
-
-    Importing :mod:`molexp.agent.mcp` triggers its self-
-    registration; the registry is process-wide, so subsequent
-    sessions see the same source list.
-    """
-
-    import molexp.agent.mcp  # noqa: F401 — registers the source
-    from molexp.agent.tools.source import all_tool_sources
-
-    return all_tool_sources()
-
-
-def _resolve_model_client(root: Path | None):
-    """Build a :class:`ModelClient` from the workspace's provider config.
-
-    Returns ``None`` when no API key is configured — sessions then run
-    in metadata-only mode (no background turn-loop task). When a
-    client is built, the plugin is wired with a ``model_io.jsonl``
-    sink so each request/response pair lands on disk (Decision M1).
-    """
-
-    if root is None:
-        return None
-    import molexp.plugins.agent_pydanticai  # noqa: F401 — registers the factory
-    from molexp.agent import AgentService, create_model_client
-    from molexp.agent.sessions import SessionStore
-    from molexp.plugins.agent_pydanticai.store import ProviderStore
-
-    config = ProviderStore(root).load()
-    if not config.api_key:
-        return None
-    sessions_root = root / AgentService.AGENT_DIRNAME / "sessions"
-    store = SessionStore(sessions_root)
-    return create_model_client(config, model_io_sink=store.append_model_io)
-
-
-def get_agent_service(workspace=Depends(get_workspace)) -> AgentService:
-    return _service_for(workspace)
-
-
-def reset_agent_service_cache() -> None:
-    """Drop every cached :class:`AgentService` (used by tests)."""
-
-    with _service_cache_lock:
-        _service_cache.clear()
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def _serialize_event(event: Any) -> SessionEventResponse:
-    """Convert a harness event into the wire response shape.
-
-    The event ``type`` is the BaseModel class name; everything else
-    flattens into ``payload`` via ``model_dump(mode="json")`` with
-    ``ts`` lifted to the top-level wire field. UI consumers use
-    ``type`` to dispatch to the matching renderer.
-    """
-
-    from pydantic import BaseModel
-
-    cls_name = type(event).__name__
-    payload: dict[str, Any] = {}
-    ts: datetime | None = None
-    if isinstance(event, BaseModel):
-        dumped = event.model_dump(mode="python")
-        for key, value in dumped.items():
-            if key == "ts" and isinstance(value, datetime):
-                ts = value
-                continue
-            payload[key] = _to_jsonable(value)
-    elif dataclasses.is_dataclass(event):
-        for f in dataclasses.fields(event):
-            value = getattr(event, f.name)
-            if f.name == "ts" and isinstance(value, datetime):
-                ts = value
-                continue
-            payload[f.name] = _to_jsonable(value)
-    else:
-        payload = {"value": str(event)}
-    return SessionEventResponse(
-        type=cls_name,
-        ts=(ts or datetime.now(timezone.utc)).isoformat(),
-        payload=payload,
+def _gone() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=_GONE_DETAIL,
     )
 
 
-def _goal_from_request(request: GoalCreateRequest, skill_instructions: str) -> Goal:
-    """Translate the wire ``GoalCreateRequest`` into a harness ``Goal``.
-
-    ``plan_mode=True`` maps to :class:`AgentMode.PLAN`, ``False`` →
-    ``AgentMode.CHAT``.  ``skill_instructions`` flows into the harness via
-    ``instructions_override`` when no explicit override is set.
-    """
-
-    return Goal(
-        description=request.description,
-        constraints=dict(request.constraints),
-        success_criteria=list(request.success_criteria),
-        mode=AgentMode.PLAN if request.plan_mode else AgentMode.CHAT,
-        instructions_override=request.instructions_override or (skill_instructions or None),
-        skill_id=request.skill_id,
-    )
+@router.api_route(
+    "/{path:path}",
+    methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    name="agent_disabled",
+)
+async def agent_disabled(path: str) -> None:
+    raise _gone()
 
 
-def _session_response(
-    *,
-    session_id: str,
-    goal: Goal,
-    status: SessionStatus | str,
-    created_at: str | None = None,
-    completed_at: str | None = None,
-) -> AgentSessionResponse:
-    status_str = status.value if isinstance(status, SessionStatus) else status
-    stats = SessionStatsResponse(
-        startedAt=created_at,
-        completedAt=completed_at,
-    )
-    return AgentSessionResponse(
-        sessionId=session_id,
-        status=status_str,
-        goalDescription=goal.description,
-        createdAt=created_at or _now_iso(),
-        events=[],
-        stats=stats,
-        planMode=goal.mode is AgentMode.PLAN,
-        skillId=goal.skill_id,
-    )
+# ── Stub call-site helpers ──────────────────────────────────────────────────
+#
+# ``agent_tasks.py`` calls these as if the legacy session router were still
+# wired up. Each one raises 503 so the runtime behaviour is consistent with
+# the catch-all route above; the explicit signatures keep the static type-
+# checker happy until the rebuild lands.
 
 
-def _resolve_skill_instructions(workspace, skill_id: str | None) -> str:
-    if not skill_id:
-        return ""
-    root = getattr(workspace, "root", None)
-    if root is None:
-        return ""
-    from molexp.agent.skills import SkillStore
-
-    skill = SkillStore(root).get(skill_id)
-    return skill.instructions if skill is not None else ""
-
-
-def _require_credentials(workspace) -> None:
-    """Pre-flight: refuse to start a session when no API key is reachable."""
-
-    root = getattr(workspace, "root", None)
-    if root is None:
-        return
-    from molexp.plugins.agent_pydanticai import ProviderStore, check_credentials
-
-    config = ProviderStore(root).load()
-    status = check_credentials(config)
-    if status.ready:
-        return
-    raise HTTPException(
-        status_code=400,
-        detail={
-            "code": "agent_not_configured",
-            "message": status.reason,
-            "provider": status.provider,
-            "model": status.model,
-            "envVar": status.env_var,
-        },
-    )
-
-
-@router.post("/sessions", response_model=AgentSessionResponse)
 async def create_session(
-    request: GoalCreateRequest,
-    workspace=Depends(get_workspace),
+    request: GoalCreateRequest, *, workspace: Workspace
 ) -> AgentSessionResponse:
-    """Start a new agent session via :class:`AgentService`."""
-
-    skill_instructions = _resolve_skill_instructions(workspace, request.skill_id)
-    goal = _goal_from_request(request, skill_instructions)
-
-    _require_credentials(workspace)
-
-    service = _service_for(workspace)
-    session = service.start_session(goal)
-    return _session_response(
-        session_id=session.session_id,
-        goal=goal,
-        status=session.status,
-    )
+    raise _gone()
 
 
-@router.get("/sessions", response_model=AgentSessionListResponse)
-def list_sessions(workspace=Depends(get_workspace)) -> AgentSessionListResponse:
-    """List every agent session known to the workspace store."""
-
-    service = _service_for(workspace)
-    rows = []
-    for meta in service.list_sessions():
-        completed_at = (
-            meta.updated_at.isoformat()
-            if meta.status in {SessionStatus.COMPLETED, SessionStatus.FAILED}
-            else None
-        )
-        rows.append(
-            _session_response(
-                session_id=meta.session_id,
-                goal=meta.goal,
-                status=meta.status,
-                created_at=meta.created_at.isoformat(),
-                completed_at=completed_at,
-            )
-        )
-    return AgentSessionListResponse(sessions=rows, total=len(rows))
+def list_sessions(*, workspace: Workspace) -> AgentSessionListResponse:
+    raise _gone()
 
 
-@router.get("/sessions/{session_id}", response_model=AgentSessionResponse)
-def get_session(
-    session_id: str,
-    workspace=Depends(get_workspace),
-) -> AgentSessionResponse:
-    service = _service_for(workspace)
-    live = service.get_session(session_id)
-    if live is not None:
-        return _session_response(
-            session_id=live.session_id,
-            goal=live.goal,
-            status=live.status,
-        )
-    meta = service.state.sessions.read_metadata(session_id)
-    if meta is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    return _session_response(
-        session_id=meta.session_id,
-        goal=meta.goal,
-        status=meta.status,
-        created_at=meta.created_at.isoformat(),
-    )
+def get_session(session_id: str, *, workspace: Workspace) -> AgentSessionResponse:
+    raise _gone()
 
 
-@router.get("/sessions/{session_id}/events")
-async def stream_events(
-    session_id: str,
-    workspace=Depends(get_workspace),
-) -> StreamingResponse:
-    """Stream agent session events via Server-Sent Events."""
-
-    service = _service_for(workspace)
-    session = service.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-
-    iterator = session.stream_events()
-
-    async def generate() -> AsyncGenerator[str, None]:
-        async for event in iterator:
-            wire = _serialize_event(event)
-            yield f"data: {wire.model_dump_json()}\n\n"
-            if isinstance(event, SessionCompleted):
-                break
-        yield 'data: {"type": "done"}\n\n'
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingResponse:
+    raise _gone()
 
 
-@router.post("/sessions/{session_id}/approve")
 async def respond_approval(
-    session_id: str,
-    request: ApprovalRespondRequest,
-    workspace=Depends(get_workspace),
-) -> dict:
-    service = _service_for(workspace)
-    session = service.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    applied = await session.respond_approval(
-        ApprovalDecision(request_id=request.request_id, approved=request.approved)
-    )
-    return {
-        "request_id": request.request_id,
-        "approved": request.approved,
-        "applied": applied,
-    }
+    session_id: str, request: ApprovalRespondRequest, *, workspace: Workspace
+) -> dict[str, object]:
+    raise _gone()
 
 
-@router.post("/sessions/{session_id}/plan-decision", response_model=MessageResponse)
 async def respond_plan(
-    session_id: str,
-    request: PlanDecisionRequest,
-    workspace=Depends(get_workspace),
+    session_id: str, request: PlanDecisionRequest, *, workspace: Workspace
 ) -> MessageResponse:
-    """Resolve a pending plan handoff.
-
-    On approval the session flips out of PLAN mode and the runner
-    proceeds; on rejection the runner injects a synthetic user message
-    with the feedback (see ``render_reject_feedback``).
-    """
-
-    service = _service_for(workspace)
-    session = service.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    edited_proposal_obj: PlanProposal | None = None
-    if request.edited_proposal is not None:
-        edited_proposal_obj = PlanProposal.model_validate(request.edited_proposal)
-    ok = await session.respond_plan(
-        request_id=request.request_id,
-        approved=request.approved,
-        edited_plan=request.edited_plan,
-        edited_proposal=edited_proposal_obj,
-        feedback=request.feedback,
-    )
-    if not ok:
-        raise HTTPException(
-            status_code=409,
-            detail="No matching pending plan; the request id may be stale.",
-        )
-    return MessageResponse(message="approved" if request.approved else "rejected")
+    raise _gone()
 
 
-@router.post("/sessions/{session_id}/messages", response_model=MessageResponse)
 async def post_user_message(
-    session_id: str,
-    request: UserMessageCreateRequest,
-    workspace=Depends(get_workspace),
+    session_id: str, request: UserMessageCreateRequest, *, workspace: Workspace
 ) -> MessageResponse:
-    """Deliver a chat message to a running session.
-
-    Either resolves a pending :class:`UserMessageRequested` (when
-    ``request_id`` matches) or queues an unsolicited follow-up onto the
-    session inbox.
-    """
-
-    service = _service_for(workspace)
-    session = service.get_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-    await session.send_user_message(request.content, request.request_id)
-    # Echo to the bus so the UI can render the inbound message inline.
-    await session.bus.publish(
-        UserMessageReceived(
-            content=request.content,
-            request_id=request.request_id,
-        )
-    )
-    return MessageResponse(message="queued")
+    raise _gone()
 
 
-@router.post("/skills/{skill_id}/launch", response_model=AgentSessionResponse)
-async def launch_skill(
-    skill_id: str,
-    request: SkillLaunchRequest,
-    workspace=Depends(get_workspace),
-) -> AgentSessionResponse:
-    """Materialize a saved skill into a Goal and start a new session."""
-
-    root = getattr(workspace, "root", None)
-    if root is None:
-        raise HTTPException(status_code=500, detail="Workspace has no root path")
-    from molexp.agent.skills import SkillStore
-
-    skill = SkillStore(root).get(skill_id)
-    if skill is None:
-        raise HTTPException(status_code=404, detail=f"Skill '{skill_id}' not found")
-    try:
-        rendered = skill.materialize(request.parameters)
-    except KeyError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    plan_mode = request.plan_mode if request.plan_mode is not None else skill.default_plan_mode
-    goal = Goal(
-        description=rendered["description"],
-        constraints={"items": rendered["constraints"]} if rendered["constraints"] else {},
-        success_criteria=list(rendered["success_criteria"]),
-        mode=AgentMode.PLAN if plan_mode else AgentMode.CHAT,
-        instructions_override=skill.instructions or None,
-        skill_id=skill.id,
-    )
-    service = _service_for(workspace)
-    session = service.start_session(goal)
-    return _session_response(
-        session_id=session.session_id,
-        goal=goal,
-        status=session.status,
-    )
-
-
-@router.get(
-    "/sessions/{session_id}/system-prompt",
-    response_model=AgentSystemPromptResponse,
-)
-def get_session_system_prompt(
-    session_id: str,
-    workspace=Depends(get_workspace),
-) -> AgentSystemPromptResponse:
-    """Return the layered system prompt for a session."""
-
-    from molexp.agent.context.prompt import BASE_SYSTEM_PROMPT, compose_system_prompt
-
-    workspace_instructions = ""
-    root = getattr(workspace, "root", None)
-    if root is not None:
-        from molexp.plugins.agent_pydanticai.store import ProviderStore
-
-        workspace_instructions = ProviderStore(root).load().instructions
-
-    service = _service_for(workspace)
-    live = service.get_session(session_id)
-    if live is not None:
-        goal = live.goal
-    else:
-        meta = service.state.sessions.read_metadata(session_id)
-        if meta is None:
-            raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
-        goal = meta.goal
-
-    plan_mode = goal.mode is AgentMode.PLAN
-    effective = compose_system_prompt(
-        base=BASE_SYSTEM_PROMPT,
-        workspace_instructions=workspace_instructions,
-        skill_instructions="",
-        session_override=goal.instructions_override,
-        plan_mode=plan_mode,
-    )
-    return AgentSystemPromptResponse(
-        base=BASE_SYSTEM_PROMPT,
-        workspaceInstructions=workspace_instructions,
-        skillInstructions="",
-        sessionOverride=goal.instructions_override,
-        planMode=plan_mode,
-        effective=effective,
-    )
+__all__ = [
+    "create_session",
+    "get_session",
+    "list_sessions",
+    "post_user_message",
+    "respond_approval",
+    "respond_plan",
+    "router",
+    "stream_events",
+]

@@ -5,7 +5,7 @@ Aligned with workspace.models — field names match domain models.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Discriminator, Field
 
@@ -456,7 +456,7 @@ class McpOAuthCallbackRequest(BaseModel):
 
 
 McpSpecRequest = Annotated[
-    Union[McpStdioSpecRequest, McpHttpSpecRequest],
+    McpStdioSpecRequest | McpHttpSpecRequest,
     Discriminator("type"),
 ]
 

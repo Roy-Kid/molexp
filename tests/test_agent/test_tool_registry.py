@@ -4,19 +4,15 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent import (
-    DuplicateToolError,
-    ToolContext,
-    ToolRegistry,
-    ToolResult,
-    ToolSpec,
-    native_tool,
-)
 from molexp.agent.tools.policy import ToolPolicy
 from molexp.agent.tools.registry import (
+    DuplicateToolError,
+    ToolRegistry,
     get_native_spec,
     is_native_tool,
+    native_tool,
 )
+from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 
 
 def _spec(name: str, **kwargs) -> ToolSpec:

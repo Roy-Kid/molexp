@@ -24,10 +24,17 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "molexp"
 
-ALLOWED_PREFIXES: tuple[Path, ...] = (SRC_ROOT / "workflow" / "_pydantic_graph",)
+ALLOWED_PREFIXES: tuple[Path, ...] = (
+    SRC_ROOT / "workflow" / "_pydantic_graph",
+    SRC_ROOT / "agent" / "_pydantic_graph",
+)
+# After the workflow-rectification spec:
+# - ``task.py`` no longer imports pydantic_graph (Task / Actor are plain ABCs).
+# - ``types.py`` re-exports ``pydantic_graph.End`` so molexp.workflow.End is
+#   pg.End — the single sentinel source of truth.
 ALLOWED_FILES: frozenset[Path] = frozenset(
     {
-        SRC_ROOT / "workflow" / "task.py",
+        SRC_ROOT / "workflow" / "types.py",
     }
 )
 

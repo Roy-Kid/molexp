@@ -28,7 +28,6 @@ async def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="molexp-ws-api-"))
     print(f"workspace root: {root}\n")
 
-    # Materialise the hierarchy.
     ws = me.Workspace(root, name="ws-api-demo")
     project = ws.project("demo")
     exp = project.experiment("baseline", params={"lr": 1e-3})
@@ -36,8 +35,9 @@ async def main() -> None:
     r1 = exp.run(parameters={"seed": 0})
     r2 = exp.run(parameters={"seed": 1})
 
-    await exp.workflow.execute(run=r1)
-    await exp.workflow.execute(run=r2)
+    for run in (r1, r2):
+        with run.start() as ctx:
+            await exp.workflow.execute(run_context=ctx)
 
     # Idempotent factories: calling them again returns the same entity.
     same_project = ws.project("demo")

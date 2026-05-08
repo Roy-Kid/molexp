@@ -21,17 +21,19 @@ module deliberately does **not** define a parallel artifact type.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class AgentMode(str, Enum):
-    """High-level mode the harness operates in for one session.
+class GoalMode(StrEnum):
+    """Legacy enum tagging a :class:`Goal`'s intended runtime mode.
 
-    ``REVIEW`` is reserved and has no semantics yet.
+    Retained on :class:`Goal` for in-flight session metadata; the runtime
+    ``AgentMode`` ABC (in :mod:`molexp.agent.mode`) is the post-refactor
+    successor for *strategy* selection at the runner layer.
     """
 
     CHAT = "chat"
@@ -39,7 +41,7 @@ class AgentMode(str, Enum):
     REVIEW = "review"
 
 
-class SessionStatus(str, Enum):
+class SessionStatus(StrEnum):
     """Terminal and live session states.
 
     On server restart any non-terminal session is flipped to
@@ -59,7 +61,7 @@ class SessionStatus(str, Enum):
     LEGACY = "legacy"
 
 
-class FailureKind(str, Enum):
+class FailureKind(StrEnum):
     """Typed failure taxonomy."""
 
     MODEL_ERROR = "model_error"
@@ -91,7 +93,7 @@ class Goal(BaseModel):
     description: str
     constraints: dict[str, Any] = Field(default_factory=dict)
     success_criteria: list[str] = Field(default_factory=list)
-    mode: AgentMode = AgentMode.CHAT
+    mode: GoalMode = GoalMode.CHAT
     instructions_override: str | None = None
     skill_id: str | None = None
 
@@ -146,4 +148,4 @@ def utc_now() -> datetime:
     monkeypatch a single import site.
     """
 
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)

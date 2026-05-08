@@ -12,9 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from molexp._run_cancel import try_cancel
-from molexp.plugins.metrics import read_run_metrics
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workspace import RunStatus
+from molexp.workspace.metrics import read_run_metrics
 from molexp.workspace.targets import get_target
 
 from ..dependencies import get_workspace
@@ -221,7 +221,10 @@ def get_run_metrics(
     return RunMetricsResponse(
         nextLine=result.next_line,
         records=result.records,
-        series=[MetricSeriesResponse(**entry) for entry in result.series],
+        # ``entry`` is ``dict[str, JSONValue]``; ``model_validate`` runs
+        # pydantic's per-field coercion / validation rather than the
+        # static-typed positional constructor.
+        series=[MetricSeriesResponse.model_validate(entry) for entry in result.series],
         parseErrors=result.parse_errors,
     )
 

@@ -167,7 +167,7 @@ Fan-out / fan-in is supported through the `parallel_map` and `join` decorators:
 ```python
 from molexp.workflow import workflow, parallel_map, join, TaskContext
 
-wf = workflow(name="sweep")
+wf = workflow(name="fan-out")
 
 @wf.task
 async def scatter(ctx: TaskContext) -> list[int]:

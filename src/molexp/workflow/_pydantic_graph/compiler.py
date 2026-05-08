@@ -1,4 +1,4 @@
-"""WorkflowGraphCompiler — single-path CFG compiler (spec 03 §8).
+"""WorkflowGraphCompiler — single-path CFG compiler (single-track edition).
 
 Pipeline:
 
@@ -8,29 +8,30 @@ Pipeline:
 2. **Edge-set construction** — explicit ``wf.control`` / ``wf.branch``
    declarations are bucketed by source; tasks with no explicit control
    declarations get a default :class:`UnconditionalEdges` synthesised from
-   the reverse data edges (§2). Mixing branch + unconditional on the same
+   the reverse data edges. Mixing branch + unconditional on the same
    source raises :class:`EdgeShapeError`.
 3. **Entry resolution** — explicit ``wf.entry(...)`` wins; otherwise
    workflows with any explicit control edge raise
-   :class:`EntryAmbiguousError` (§4); pure-data DAGs use the data-zero
-   tasks as the entry frontier.
+   :class:`EntryAmbiguousError`; pure-data DAGs use the data-zero tasks
+   as the entry frontier.
 4. **Reachability check** — every registered task must be reachable from
    the entry frontier through control + reverse-data edges; orphans raise
-   :class:`UnreachableTaskError` (§8 step 4).
-5. **Codegen + Graph construction** — produce one :class:`pydantic_graph.BaseNode`
-   subclass per task via :func:`make_task_node_class`, instantiate them, and
-   build a ``Graph(nodes=[*all_task_node_classes])`` for IR / snapshot use
-   (the runtime drives the frontier itself; ``Graph.run`` is **not** invoked).
+   :class:`UnreachableTaskError`.
+5. **Result** — produce a :class:`CompiledWorkflow` carrying the
+   per-name ``Task`` / ``Actor`` / callable references along with the
+   compiled out-edges, entry frontier, and ``wf.loop`` /
+   ``wf.parallel`` decls. **No** per-task pg ``BaseNode`` codegen and
+   no dead-track pg-graph construction — the molexp scheduler
+   ``WorkflowStep`` is the single pg node, instantiated by the runtime.
 """
 
 from __future__ import annotations
 
 import graphlib
 from collections import defaultdict
-from typing import Any
+from pathlib import Path
 
-from pydantic_graph import BaseNode, Graph
-
+from ..protocols import JSONMapping, RunContextLike, RunLike, TaskBody, UserDeps
 from ..spec import ParallelDecl, TaskRegistration, WorkflowSpec
 from ..types import (
     BranchEdges,
@@ -42,50 +43,49 @@ from ..types import (
     UnknownTaskError,
     UnreachableTaskError,
 )
-from .node import END_TARGET, WorkflowStep, make_task_node_class
-from .state import WorkflowDeps, WorkflowState
+from .node import END_TARGET
+from .state import WorkflowDeps
 
 
 class CompiledWorkflow:
     """Output of :meth:`WorkflowGraphCompiler.compile`.
 
-    Carries the per-task BaseNode classes/instances, the compiled
-    out-edge map, the resolved entry frontier, and a Graph object
-    used solely for IR / snapshot dumps. Callers obtain a fresh
-    :class:`WorkflowDeps` per execution via :meth:`make_deps`.
+    Carries the per-name task references (the user's :class:`Task` /
+    :class:`Actor` instances, plain callables, or ``Runnable`` /
+    ``Streamable`` objects), the compiled out-edge map, the resolved
+    entry frontier, and the ``wf.loop`` / ``wf.parallel`` decls.
+    Callers obtain a fresh :class:`WorkflowDeps` per execution via
+    :meth:`make_deps`.
+
+    No pg ``Graph`` is constructed here; the runtime instantiates the
+    single ``WorkflowStep`` BaseNode against pg's state machine.
     """
 
     def __init__(
         self,
         *,
-        graph: Graph[WorkflowState, WorkflowDeps, WorkflowState],
-        node_classes: list[type[BaseNode[WorkflowState, WorkflowDeps, WorkflowState]]],
-        task_by_name: dict[str, BaseNode[WorkflowState, WorkflowDeps, WorkflowState]],
+        task_by_name: dict[str, TaskBody],
         registration_by_name: dict[str, TaskRegistration],
         out_edges: dict[str, OutEdges],
         entry_frontier: tuple[str, ...],
         loop_max_iters: dict[str, int],
         parallel_decls: dict[str, ParallelDecl],
-        sanity_hooks_by_task: dict[str, tuple[Any, ...]] | None = None,
     ) -> None:
-        self.graph = graph
-        self.node_classes = node_classes
         self.task_by_name = task_by_name
         self.registration_by_name = registration_by_name
         self.out_edges = out_edges
         self.entry_frontier = entry_frontier
         self.loop_max_iters = loop_max_iters
         self.parallel_decls = parallel_decls
-        self.sanity_hooks_by_task = sanity_hooks_by_task or {}
 
     def make_deps(
         self,
-        run: Any = None,
-        run_context: Any = None,
-        config: Any = None,
-        user_deps: Any = None,
-        remote_executor: Any = None,
-        run_dir: Any = None,
+        run: RunLike | None = None,
+        run_context: RunContextLike | None = None,
+        config: JSONMapping | None = None,
+        user_deps: UserDeps = None,
+        remote_executor: UserDeps = None,
+        run_dir: Path | None = None,
     ) -> WorkflowDeps:
         return WorkflowDeps(
             run=run,
@@ -95,11 +95,11 @@ class CompiledWorkflow:
             remote_executor=remote_executor,
             run_dir=run_dir,
             task_by_name=dict(self.task_by_name),
+            registration_by_name=dict(self.registration_by_name),
             out_edges=dict(self.out_edges),
             entry_frontier=self.entry_frontier,
             loop_max_iters=dict(self.loop_max_iters),
             parallel_decls=dict(self.parallel_decls),
-            sanity_hooks_by_task=dict(self.sanity_hooks_by_task),
         )
 
 
@@ -112,56 +112,26 @@ class WorkflowGraphCompiler:
         entry_frontier = self._resolve_entry_frontier(spec, out_edges)
         self._check_reachability(spec, out_edges, entry_frontier)
 
-        node_classes: list[type[BaseNode[WorkflowState, WorkflowDeps, WorkflowState]]] = []
-        task_by_name: dict[str, BaseNode[WorkflowState, WorkflowDeps, WorkflowState]] = {}
+        # Single-track: stash each user-registered Task / Actor / callable
+        # directly. No per-task pg BaseNode codegen, and the pg graph itself
+        # is constructed by the runtime, not here.
+        task_by_name: dict[str, TaskBody] = {}
         registration_by_name: dict[str, TaskRegistration] = {}
         for reg in spec._tasks:
-            edge_set = out_edges[reg.name]
-            cls = make_task_node_class(name=reg.name, registration=reg, edge_set=edge_set)
-            node_classes.append(cls)
-            task_by_name[reg.name] = _instantiate_task_node(reg, cls)
+            task_by_name[reg.name] = reg.fn_or_class
             registration_by_name[reg.name] = reg
-
-        # Only ``WorkflowStep`` needs registration in the pydantic-graph
-        # Graph: it is the per-frame frontier scheduler that pydantic-graph
-        # drives (``WorkflowStep(0) → WorkflowStep(1) → … → End``). The
-        # per-task BaseNode subclasses are invoked via ``await node.run(ctx)``
-        # from inside ``WorkflowStep`` and never appear in pydantic-graph's
-        # node chain, so they are *not* registered here — registration would
-        # trigger pydantic-graph's strict ``run`` return-type check, which
-        # cannot accept the loose ``Any`` shape the user-facing ``Task.run``
-        # uses by design (see ``workflow/task.py``).
-        graph_nodes: list[type[BaseNode[WorkflowState, WorkflowDeps, WorkflowState]]] = (
-            [WorkflowStep] if node_classes else [_PlaceholderEnd]
-        )
-        graph: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(
-            nodes=graph_nodes,
-            state_type=WorkflowState,
-            run_end_type=WorkflowState,
-        )
 
         loop_max_iters = {loop.until: loop.max_iters for loop in spec._loops}
         parallel_decls = {par.body: par for par in spec._parallels}
-        sanity_hooks_by_task: dict[str, tuple[Any, ...]] = {}
-        for hook in getattr(spec, "_sanity_hooks", ()):
-            sanity_hooks_by_task.setdefault(hook.after, []).append(hook)
-        sanity_hooks_by_task = {k: tuple(v) for k, v in sanity_hooks_by_task.items()}
 
-        compiled = CompiledWorkflow(
-            graph=graph,
-            node_classes=node_classes,
+        return CompiledWorkflow(
             task_by_name=task_by_name,
             registration_by_name=registration_by_name,
             out_edges=out_edges,
             entry_frontier=entry_frontier,
             loop_max_iters=loop_max_iters,
             parallel_decls=parallel_decls,
-            sanity_hooks_by_task=sanity_hooks_by_task,
         )
-        # Surface the compiled node classes back on the spec so tests and
-        # tooling can introspect (``test_no_trampoline_node``).
-        spec._compiled_node_classes = list(node_classes)  # type: ignore[attr-defined]
-        return compiled
 
     # ── Stage 1 ─ data DAG ──────────────────────────────────────────────
 
@@ -310,7 +280,7 @@ class WorkflowGraphCompiler:
     def _resolve_entry_frontier(
         self,
         spec: WorkflowSpec,
-        out_edges: dict[str, OutEdges],
+        out_edges: dict[str, OutEdges],  # noqa: ARG002  — kept for API symmetry with _check_reachability
     ) -> tuple[str, ...]:
         names = {t.name for t in spec._tasks}
 
@@ -380,42 +350,3 @@ class WorkflowGraphCompiler:
                 f"{unreachable}. Entry frontier: {list(entry_frontier)}. "
                 "Either remove the orphans or add a control edge reaching them."
             )
-
-
-def _instantiate_task_node(
-    reg: TaskRegistration,
-    cls: type[BaseNode[WorkflowState, WorkflowDeps, WorkflowState]],
-) -> BaseNode[WorkflowState, WorkflowDeps, WorkflowState]:
-    """Pick the right runtime instance for a task.
-
-    Decorator-style (``@wf.task``) uses a synthesised
-    :class:`_CallableTask` / :class:`_StreamableTask` subclass with no
-    required init args, so a fresh ``cls()`` is fine.
-
-    OOP-style (user's own ``class FetchTask(Task)`` with a custom
-    ``__init__``) cannot be re-instantiated without their args. We reuse
-    the original instance and stamp the per-registration metadata onto
-    it so :func:`_task_run` finds it via ``getattr(self, ...)``.
-    """
-    from ..task import Task as _UserTask
-
-    if isinstance(reg.fn_or_class, _UserTask):
-        instance = reg.fn_or_class
-        # The per-registration subclass make_task_node_class returned has
-        # ``_molexp_*`` stamped via ``type(name, bases, namespace)``. Type
-        # checkers don't see dynamic-namespace attributes, so read them
-        # via ``getattr`` (and write to the instance via ``setattr``) —
-        # this keeps ty silent without sprinkling per-line ignores.
-        for attr in ("_molexp_task_name", "_molexp_registration", "_molexp_edge_set"):
-            setattr(instance, attr, getattr(cls, attr))
-        return instance
-    return cls()
-
-
-class _PlaceholderEnd(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
-    """Inserted only when the workflow registers zero tasks — keeps Graph happy."""
-
-    async def run(self, ctx: Any) -> Any:
-        from pydantic_graph import End
-
-        return End(ctx.state)

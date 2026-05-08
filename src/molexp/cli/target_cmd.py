@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Literal
 
 import typer
 
@@ -38,7 +38,7 @@ app.add_typer(target_app, name="target")
 @target_app.command("list")
 def list_cmd(
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
@@ -79,31 +79,41 @@ def add_cmd(
         ),
     ] = "local",
     host: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--host", help="user@host for SSH transport (omit for local)"),
     ] = None,
     port: Annotated[
-        Optional[int],
+        int | None,
         typer.Option("--port", help="SSH port (default: ssh_config)"),
     ] = None,
     identity: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--identity", help="SSH identity file (default: ssh-agent / ssh_config)"),
     ] = None,
     ssh_opt: Annotated[
-        Optional[list[str]],
+        list[str] | None,
         typer.Option(
             "--ssh-opt",
             help="Extra ssh argv (repeatable, e.g. --ssh-opt -o --ssh-opt ServerAliveInterval=30)",
         ),
     ] = None,
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
     """Add a compute target to the workspace."""
-    if scheduler not in {"local", "slurm", "pbs", "lsf"}:
+    # Narrow the free-form ``str`` to the Literal arm expected by
+    # ``ComputeTarget.scheduler`` so ty can prove the call site.
+    if scheduler == "local":
+        narrowed_scheduler: Literal["local", "slurm", "pbs", "lsf"] = "local"
+    elif scheduler == "slurm":
+        narrowed_scheduler = "slurm"
+    elif scheduler == "pbs":
+        narrowed_scheduler = "pbs"
+    elif scheduler == "lsf":
+        narrowed_scheduler = "lsf"
+    else:
         rprint(
             f"[red]Invalid scheduler {scheduler!r}[/red] — must be one of: local, slurm, pbs, lsf"
         )
@@ -117,7 +127,7 @@ def add_cmd(
             port=port,
             identity_file=identity,
             ssh_opts=list(ssh_opt or []),
-            scheduler=scheduler,  # type: ignore[arg-type]
+            scheduler=narrowed_scheduler,
             scratch_root=scratch,
         )
     except ValueError as exc:
@@ -141,7 +151,7 @@ def add_cmd(
 def remove_cmd(
     name: Annotated[str, typer.Argument(help="Target name to remove")],
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:
@@ -159,7 +169,7 @@ def remove_cmd(
 def test_cmd(
     name: Annotated[str, typer.Argument(help="Target name to verify")],
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path"),
     ] = None,
 ) -> None:

@@ -18,7 +18,7 @@ import asyncio
 from molexp.workflow import TaskContext, Workflow
 
 
-def build_slow_workflow() -> "object":
+def build_slow_workflow() -> object:
     wf = Workflow(name="slow")
 
     @wf.task

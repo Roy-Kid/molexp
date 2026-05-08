@@ -86,7 +86,7 @@ class TargetTestResponse(BaseModel):
 
     name: str
     ok: bool
-    checks: list["TargetTestCheck"]
+    checks: list[TargetTestCheck]
     error: str | None = None
 
 

@@ -6,11 +6,11 @@ table where each run row expands to show its execution attempts.
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
+from molexp._typing import JSONValue
 from molexp.workspace import Run
+from molexp.workspace.models import ExecutionRecord
 
 from .molq import MolqJobSummary  # noqa: F401  (preserve import surface)
 
@@ -44,7 +44,7 @@ class WorkspaceRunRow(BaseModel):
     scheduler: str | None = None
     target: str | None = None
     profile: str | None = None
-    parameters: dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, JSONValue] = Field(default_factory=dict)
     createdAt: str
     finishedAt: str | None = None
     executionCount: int = 0
@@ -59,7 +59,13 @@ class WorkspaceRunRow(BaseModel):
         project_name: str,
         experiment_name: str,
     ) -> WorkspaceRunRow:
-        executor = dict(run.metadata.executor_info or {})
+        # ``executor_info`` is a JSON-shaped mapping (``dict[str, JSONValue]``);
+        # the metadata fields we surface are always string-valued at runtime,
+        # so narrow each cell to ``str | None`` at this boundary.
+        executor: dict[str, str | None] = {
+            k: v if isinstance(v, str) else None
+            for k, v in (run.metadata.executor_info or {}).items()
+        }
         backend = executor.get("backend")
         cluster = executor.get("cluster_name")
         scheduler = executor.get("scheduler")
@@ -97,8 +103,8 @@ class WorkspaceRunRow(BaseModel):
 
 def _build_execution_row(
     run_id: str,
-    record: Any,
-    executor_info: dict[str, Any],
+    record: ExecutionRecord,
+    executor_info: dict[str, str | None],
 ) -> WorkspaceExecutionRow:
     started = record.started_at
     finished = record.finished_at
@@ -166,7 +172,7 @@ def compute_workspace_runs_stats(rows: list[WorkspaceRunRow]) -> WorkspaceRunsSt
 __all__ = [
     "WorkspaceExecutionRow",
     "WorkspaceRunRow",
-    "WorkspaceRunsStats",
     "WorkspaceRunsResponse",
+    "WorkspaceRunsStats",
     "compute_workspace_runs_stats",
 ]

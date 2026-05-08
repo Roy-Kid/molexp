@@ -19,18 +19,21 @@ subclass and a stable ``kind_key`` used as the JSON file's top-level
 wrapper.
 """
 
+import contextlib
 import json
 import os
 import threading
-from datetime import datetime, timezone
-from enum import Enum
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import ClassVar, TypeVar
 
 from pydantic import BaseModel, Field, ValidationError
 
+from molexp._typing import JSONValue
 
-class Scope(str, Enum):
+
+class Scope(StrEnum):
     """Where a resource entry physically lives.
 
     File-backed scopes (:attr:`USER`, :attr:`WORKSPACE`) each carry an
@@ -69,7 +72,7 @@ T = TypeVar("T", bound=ResourceSpec)
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _format_validation_error(exc: ValidationError) -> str:
@@ -85,7 +88,7 @@ def _format_validation_error(exc: ValidationError) -> str:
     return f"{loc}: {msg}" if loc else msg
 
 
-class TieredResourceStore(Generic[T]):
+class TieredResourceStore[T: ResourceSpec]:
     """File-backed three-layer store with shadow-merge semantics.
 
     Layers, ordered from highest to lowest priority:
@@ -110,7 +113,7 @@ class TieredResourceStore(Generic[T]):
 
     _registrations: ClassVar[list] = []
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)
         # Force every concrete subclass to own a fresh registrations
         # list, even if it didn't redeclare ``_registrations`` in its
@@ -270,7 +273,7 @@ class TieredResourceStore(Generic[T]):
                 return entry
         return None
 
-    def find_by(self, **fields: Any) -> T | None:
+    def find_by(self, **fields: JSONValue) -> T | None:
         """Return the first entry whose fields all match (shadow-resolved).
 
         Walks the same priority chain as :meth:`list_all` so the
@@ -293,7 +296,7 @@ class TieredResourceStore(Generic[T]):
 
     # ── Public writes ─────────────────────────────────────────────────
 
-    def create(self, scope: Scope, **fields: Any) -> T:
+    def create(self, scope: Scope, **fields: JSONValue) -> T:
         """Create a new entry at ``scope``.
 
         ``fields`` must include ``id`` and any kind-specific required
@@ -318,7 +321,7 @@ class TieredResourceStore(Generic[T]):
         if scope not in (Scope.USER, Scope.WORKSPACE):
             raise ValueError(f"Cannot create at scope {scope!r}: not file-backed")
         now = _now_iso()
-        payload: dict[str, Any] = {
+        payload: dict[str, JSONValue] = {
             "scope": scope,
             "shadowed": False,
             "valid": True,
@@ -336,7 +339,7 @@ class TieredResourceStore(Generic[T]):
             self._write_raw(scope, existing)
         return spec
 
-    def update(self, id: str, scope: Scope, **changes: Any) -> T:
+    def update(self, id: str, scope: Scope, **changes: JSONValue) -> T:
         """Update an existing entry at ``scope``.
 
         Args:
@@ -407,7 +410,7 @@ class TieredResourceStore(Generic[T]):
     def _path_for(self, scope: Scope) -> Path:
         return self._workspace_path if scope is Scope.WORKSPACE else self._user_path
 
-    def _read_raw(self, scope: Scope) -> dict[str, dict[str, Any]]:
+    def _read_raw(self, scope: Scope) -> dict[str, dict[str, JSONValue]]:
         """Return the raw ``{id: dict}`` map for ``scope``.
 
         Tolerant of legacy list-of-records files (Skill's old format) —
@@ -468,7 +471,7 @@ class TieredResourceStore(Generic[T]):
     def _build_invalid_spec(
         self,
         entry_id: str,
-        raw: dict[str, Any],
+        raw: dict[str, JSONValue],
         scope: Scope,
         exc: ValidationError,
     ) -> T:
@@ -492,11 +495,13 @@ class TieredResourceStore(Generic[T]):
             preserved so subclasses can still inspect them.
         """
         now = _now_iso()
-        fields: dict[str, Any] = {
+        raw_tags = raw.get("tags", [])
+        tags: list[JSONValue] = list(raw_tags) if isinstance(raw_tags, list) else []
+        fields: dict[str, JSONValue] = {
             "id": str(entry_id),
             "name": str(raw.get("name", "")),
             "description": str(raw.get("description", "")),
-            "tags": list(raw.get("tags", [])) if isinstance(raw.get("tags"), list) else [],
+            "tags": tags,
             "scope": scope,
             "shadowed": False,
             "valid": False,
@@ -508,12 +513,16 @@ class TieredResourceStore(Generic[T]):
         # see, even if they are themselves invalid.
         for key, value in raw.items():
             fields.setdefault(key, value)
-        return self._spec_cls.model_construct(**fields)
+        # ``model_construct`` reserves ``_fields_set`` as a positional-only
+        # bookkeeping arg with type ``set[str] | None``; the rest of
+        # ``**values`` is plain ``Any``. We never include that key in
+        # ``fields``, but ty cannot prove it from the dict's declared type.
+        return self._spec_cls.model_construct(None, **fields)
 
-    def _spec_to_dict(self, spec: T) -> dict[str, Any]:
+    def _spec_to_dict(self, spec: T) -> dict[str, JSONValue]:
         return spec.model_dump(mode="json")
 
-    def _write_raw(self, scope: Scope, entries: dict[str, dict[str, Any]]) -> None:
+    def _write_raw(self, scope: Scope, entries: dict[str, dict[str, JSONValue]]) -> None:
         """Persist ``entries`` to ``scope``'s backing file atomically.
 
         Writes go through a sibling ``.tmp`` file followed by
@@ -539,8 +548,6 @@ class TieredResourceStore(Generic[T]):
             tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
             os.replace(str(tmp), str(path))
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
             raise

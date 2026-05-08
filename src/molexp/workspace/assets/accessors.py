@@ -12,9 +12,11 @@ that task-scoped producer info can be set when running inside a task.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+
+from molexp._typing import TaskOutput
 
 from ..utils import compute_content_hash, generate_asset_id
 from .artifact import ArtifactAsset
@@ -52,7 +54,7 @@ class ArtifactAccessor(_AccessorBase):
     def save(
         self,
         name: str,
-        data: Any,
+        data: TaskOutput,
         *,
         tags: dict[str, str] | None = None,
         mime: str | None = None,
@@ -211,8 +213,15 @@ class LogAccessor(_AccessorBase):
 class CheckpointAccessor(_AccessorBase):
     """Save JSON checkpoints to ``<run_dir>/.ckpt/<ckpt_id>.json``."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        scope_dir: Path,
+        scope: AssetScope,
+        manifest: AssetManifest,
+        catalog: AssetCatalog | None,
+        producer_provider: Callable[[], Producer],
+    ) -> None:
+        super().__init__(scope_dir, scope, manifest, catalog, producer_provider)
         self._last_ckpt_id: str | None = None
 
     def __call__(

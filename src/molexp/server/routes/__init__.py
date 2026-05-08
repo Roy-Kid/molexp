@@ -50,19 +50,19 @@ def create_api_router() -> APIRouter:
 
 
 __all__ = [
-    "create_api_router",
     "agent",
     "agent_admin",
     "agent_tasks",
-    "project",
-    "experiment",
-    "run",
     "asset",
     "catalog",
-    "workspace",
+    "create_api_router",
+    "execution",
+    "experiment",
+    "molq",
+    "project",
     "registry",
     "reviews",
-    "execution",
-    "molq",
+    "run",
     "targets",
+    "workspace",
 ]

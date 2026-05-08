@@ -36,11 +36,11 @@ implementation. We provide:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING
 
 from mcp.client.auth import OAuthClientProvider, TokenStorage
 from mcp.shared.auth import (
@@ -50,8 +50,7 @@ from mcp.shared.auth import (
 )
 from mollog import get_logger
 
-if TYPE_CHECKING:
-    from .store import McpScope, McpStore
+from .store import McpScope, McpStore
 
 logger = get_logger(__name__)
 
@@ -160,10 +159,8 @@ class FileTokenStorage(TokenStorage):
         self._path.parent.mkdir(parents=True, exist_ok=True)
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-        try:
+        with contextlib.suppress(OSError):
             os.chmod(tmp, 0o600)
-        except OSError:
-            pass
         os.replace(tmp, self._path)
 
 
@@ -283,8 +280,13 @@ def build_client_metadata(
     """Construct the ``OAuthClientMetadata`` payload sent to the IdP during
     Dynamic Client Registration. Scopes are joined with spaces per RFC 6749.
     """
+    # ``OAuthClientMetadata.redirect_uris`` expects ``list[AnyUrl] | None`` —
+    # pydantic will coerce the string at runtime, but the static signature
+    # rejects ``list[str]``; build a ``pydantic.AnyUrl`` to satisfy ty.
+    from pydantic import AnyUrl
+
     return OAuthClientMetadata(
-        redirect_uris=[redirect_uri],  # type: ignore[arg-type]
+        redirect_uris=[AnyUrl(redirect_uri)],
         token_endpoint_auth_method="none",
         grant_types=["authorization_code", "refresh_token"],
         response_types=["code"],
@@ -347,7 +349,7 @@ class OAuthSessionRegistry:
         self._lock = Lock()
 
     def _key(self, scope: McpScope | str, name: str) -> tuple[str, str]:
-        scope_str = scope.value if hasattr(scope, "value") else str(scope)
+        scope_str = scope.value if isinstance(scope, McpScope) else str(scope)
         return (scope_str, name)
 
     def create(self, scope: McpScope | str, name: str) -> OAuthFlowSession:

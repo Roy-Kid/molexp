@@ -48,7 +48,7 @@ class TestPersistence:
 
         path = experiment.experiment_dir / "workflow.json"
         assert path.exists()
-        with open(path, "r") as fh:
+        with open(path) as fh:
             on_disk = json.load(fh)
         assert on_disk == ir
 

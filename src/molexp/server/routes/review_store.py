@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
+
+from molexp._typing import JSONValue
 
 REVIEWS_DIR_NAME = "reviews"
 METADATA_FILE = "metadata.json"
@@ -32,7 +34,7 @@ class PersistedReviewItem:
     risk_level: RiskLevel = "medium"
     resolved_at: str | None = None
     resolution_comment: str | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, JSONValue] = field(default_factory=dict)
 
 
 def reviews_dir(workspace_root: str | Path) -> Path:
@@ -99,7 +101,7 @@ def write_review_metadata(
 ) -> None:
     target_dir = Path(workspace_root) / REVIEWS_DIR_NAME / item.review_id
     target_dir.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = {
+    payload: dict[str, JSONValue] = {
         "review_id": item.review_id,
         "kind": item.kind,
         "title": item.title,
@@ -133,7 +135,7 @@ def ensure_plan_review(
     task_title: str,
     request_id: str,
     plan_markdown: str,
-    workflow_preview: dict[str, Any] | None = None,
+    workflow_preview: dict[str, JSONValue] | None = None,
     created_at: str | None = None,
 ) -> PersistedReviewItem:
     review_id = plan_review_id(task_id, request_id)
@@ -200,23 +202,41 @@ def _safe_id(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "-_" else "-" for ch in value)
 
 
-def _coerce_kind(value: Any) -> ReviewKind:
-    if value in {"plan", "patch", "permission", "run_submission", "dangerous_action"}:
-        return value
+def _coerce_kind(value: JSONValue) -> ReviewKind:
+    if value == "plan":
+        return "plan"
+    if value == "patch":
+        return "patch"
+    if value == "permission":
+        return "permission"
+    if value == "run_submission":
+        return "run_submission"
+    if value == "dangerous_action":
+        return "dangerous_action"
     return "plan"
 
 
-def _coerce_status(value: Any) -> ReviewStatus:
-    if value in {"pending", "approved", "rejected", "expired"}:
-        return value
+def _coerce_status(value: JSONValue) -> ReviewStatus:
+    if value == "pending":
+        return "pending"
+    if value == "approved":
+        return "approved"
+    if value == "rejected":
+        return "rejected"
+    if value == "expired":
+        return "expired"
     return "pending"
 
 
-def _coerce_risk(value: Any) -> RiskLevel:
-    if value in {"low", "medium", "high"}:
-        return value
+def _coerce_risk(value: JSONValue) -> RiskLevel:
+    if value == "low":
+        return "low"
+    if value == "medium":
+        return "medium"
+    if value == "high":
+        return "high"
     return "medium"
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()

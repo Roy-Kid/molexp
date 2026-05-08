@@ -19,8 +19,8 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, TypeAlias
 
 from ._adapter import ASSET_ADAPTER, parse_asset
 from .base import Asset
@@ -30,7 +30,7 @@ MANIFEST_FILENAME = "assets.json"
 
 # Alias avoids the static-checker confusion where ``list`` (the method) shadows
 # ``list`` (the builtin) in return annotations.
-AssetList: TypeAlias = list[Asset]
+type AssetList = list[Asset]
 
 
 class AssetManifest:

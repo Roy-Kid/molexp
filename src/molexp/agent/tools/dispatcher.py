@@ -10,14 +10,18 @@ exceptions into typed :class:`AgentFailure` results.
 
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Protocol, Sequence, runtime_checkable
+from collections.abc import Awaitable, Callable, Sequence
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from molexp.agent.model import ModelToolCall, ToolSchema
+from molexp.agent._legacy_types import ModelToolCall, ToolSchema
 from molexp.agent.tools.policy import ApprovalDecision, ToolPolicy
 from molexp.agent.tools.registry import ToolRegistry
 from molexp.agent.tools.source import ToolSource
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 from molexp.agent.types import AgentFailure, FailureKind
+
+if TYPE_CHECKING:
+    from molexp.workspace.workspace import Workspace
 
 
 @runtime_checkable
@@ -90,7 +94,7 @@ class ToolDispatcher:
     def sources(self) -> tuple[ToolSource, ...]:
         return self._sources
 
-    async def discover(self, workspace: object, policy: ToolPolicy) -> tuple[ToolSchema, ...]:
+    async def discover(self, workspace: Workspace, policy: ToolPolicy) -> tuple[ToolSchema, ...]:
         """Return every tool schema visible under ``policy``.
 
         Native tools come from the registry; source-contributed tools
@@ -158,7 +162,7 @@ class ToolDispatcher:
         await self._emit("tool.call", {"tool": call.name, "id": call.id})
         try:
             result = await registered.fn(call.arguments, ctx)
-        except Exception as exc:  # noqa: BLE001 — normalize all callable errors
+        except Exception as exc:
             return _tool_error(call.name, exc)
         await self._emit("tool.result", {"tool": call.name, "ok": result.ok})
         return result
@@ -182,7 +186,7 @@ class ToolDispatcher:
         )
         try:
             result = await source.call(call.name, dict(call.arguments), ctx)
-        except Exception as exc:  # noqa: BLE001 — normalize all callable errors
+        except Exception as exc:
             return _tool_error(call.name, exc, source=source.source_name)
         await self._emit(
             "tool.result",

@@ -21,37 +21,41 @@ from pathlib import Path
 import molexp as me
 from molexp.config import ProfileConfig
 
+# Module-level marker so the body is importable as a fresh callable on
+# every attempt — ``Experiment.set_workflow`` captures an entrypoint.
+_FAIL_ONCE_MARKER: Path | None = None
 
-def flaky_train(fail_once_path: Path):
-    """Build a task that fails the first attempt, succeeds the second."""
 
-    async def run_body(ctx: me.RunContext) -> None:
-        if not fail_once_path.exists():
-            fail_once_path.touch()
-            raise RuntimeError("first attempt boom")
-        ctx.set_result("epochs", ctx.config["epochs"])
-
-    return run_body
+async def flaky_train(ctx: me.RunContext) -> None:
+    assert _FAIL_ONCE_MARKER is not None
+    if not _FAIL_ONCE_MARKER.exists():
+        _FAIL_ONCE_MARKER.touch()
+        raise RuntimeError("first attempt boom")
+    ctx.set_result("epochs", ctx.config["epochs"])
 
 
 async def main() -> None:
+    global _FAIL_ONCE_MARKER
+
     root = Path(tempfile.mkdtemp(prefix="molexp-persist-"))
-    marker = root / "fail-once"
+    _FAIL_ONCE_MARKER = root / "fail-once"
 
     ws = me.Workspace(root, name="persist-demo")
     project = ws.project("demo")
     exp = project.experiment("train")
-    exp.set_workflow(flaky_train(marker))
+    exp.set_workflow(flaky_train)
 
     cfg = ProfileConfig({"epochs": 5}, name="smoke")
     run = exp.run(parameters={"seed": 0})
 
-    # Attempt 1 — fails.
-    result = await exp.workflow.execute(run=run, profile_config=cfg)
+    # ``execute()`` captures task failures and records them on the run
+    # without re-raising — inspect ``result.status`` instead.
+    with run.start(profile_config=cfg) as ctx:
+        result = await exp.workflow.execute(run_context=ctx)
     print(f"attempt 1: status={result.status}")
 
-    # Attempt 2 — same run, re-opened via ``Run.open`` semantics.
-    result = await exp.workflow.execute(run=run, profile_config=cfg)
+    with run.start(profile_config=cfg) as ctx:
+        result = await exp.workflow.execute(run_context=ctx)
     print(f"attempt 2: status={result.status}")
 
     run_json = json.loads((run.run_dir / "run.json").read_text())

@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import ClassVar
 
+from molexp._typing import JSONValue
 from molexp.agent.persistence import Scope, TieredResourceStore
 from molexp.agent.skills.types import (
     RESERVED_SLASH_NAMES,
@@ -25,7 +26,7 @@ from molexp.agent.skills.types import (
     Skill,
 )
 
-SKILLS_FILE = ".skills.json"
+SKILLS_FILE = "skills.json"
 USER_HOME_DIR_NAME = ".molexp"
 USER_HOME_SKILLS_FILE = "skills.json"
 KIND_KEY = "skills"
@@ -41,6 +42,19 @@ class SkillStore(TieredResourceStore[Skill]):
         root: str | Path,
         user_home_dir: str | Path | None = None,
     ) -> None:
+        """Bind the skill store to a workspace directory.
+
+        Args:
+            root: Subsystem directory for agent skills — typically
+                ``workspace.subsystem_store("agent.skills").dir()``. The
+                store's workspace-tier file is ``<root>/skills.json``.
+                A bare file path is also accepted for direct wiring; in
+                that case the path is used verbatim as the workspace-tier
+                file.
+            user_home_dir: Override for the user-tier directory. ``None``
+                resolves to ``~/.molexp/`` so the user-tier file is
+                ``~/.molexp/skills.json``.
+        """
         if user_home_dir is None:
             user_home_dir = Path.home() / USER_HOME_DIR_NAME
         super().__init__(
@@ -66,7 +80,7 @@ class SkillStore(TieredResourceStore[Skill]):
                 return entry
         return None
 
-    def create(  # type: ignore[override]
+    def create(  # ty: ignore[invalid-method-override]
         self,
         scope: Scope = Scope.WORKSPACE,
         *,
@@ -84,6 +98,14 @@ class SkillStore(TieredResourceStore[Skill]):
         requires_exit_tool: str = "",
         skill_id: str | None = None,
     ) -> Skill:
+        """Skill-specific ``create`` override.
+
+        Parent's ``create(scope, **fields)`` is the structural contract;
+        skills declare every field explicitly so callers get IDE
+        completion / static checks, at the cost of an LSP override
+        warning the type-checker correctly identifies but which is the
+        intended (narrower) public surface.
+        """
         if scope is Scope.NATIVE:
             raise ValueError("Native skills are registered in code; use SkillStore.register().")
         self._validate_slash_name(slash_name, exclude_id=None)
@@ -104,11 +126,11 @@ class SkillStore(TieredResourceStore[Skill]):
             requires_exit_tool=requires_exit_tool,
         )
 
-    def update(  # type: ignore[override]
+    def update(  # ty: ignore[invalid-method-override]
         self,
         skill_id: str,
         scope: Scope = Scope.WORKSPACE,
-        **changes: Any,
+        **changes: JSONValue,
     ) -> Skill:
         if scope is Scope.NATIVE:
             raise ValueError("Native skills are immutable.")
@@ -136,7 +158,7 @@ class SkillStore(TieredResourceStore[Skill]):
             skill_id, scope, **{k: v for k, v in changes.items() if v is not None}
         )
 
-    def delete(  # type: ignore[override]
+    def delete(  # ty: ignore[invalid-method-override]
         self,
         skill_id: str,
         scope: Scope = Scope.WORKSPACE,
@@ -171,7 +193,7 @@ class SkillStore(TieredResourceStore[Skill]):
 __all__ = [
     "KIND_KEY",
     "SKILLS_FILE",
-    "SkillStore",
     "USER_HOME_DIR_NAME",
     "USER_HOME_SKILLS_FILE",
+    "SkillStore",
 ]

@@ -10,7 +10,7 @@ from . import SCHEMA_DIR, get_schema
 class ValidationError(Exception):
     """Schema validation error."""
 
-    def __init__(self, message: str, errors: list[dict[str, Any]]):
+    def __init__(self, message: str, errors: list[dict[str, Any]]) -> None:
         super().__init__(message)
         self.errors = errors
 
@@ -26,7 +26,7 @@ class SchemaValidator:
         >>> validator.validate(workflow_data, "workflow")
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize validator with schema resolver."""
         # Create resolver for $ref support
         self.resolver = RefResolver(

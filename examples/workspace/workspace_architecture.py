@@ -34,7 +34,8 @@ async def main() -> None:
     exp = project.experiment("baseline")
     exp.set_workflow(task)
     run = exp.run()
-    await exp.workflow.execute(run=run)
+    with run.start() as ctx:
+        await exp.workflow.execute(run_context=ctx)
 
     print(f"workspace root: {root}\n")
     for path in sorted(root.rglob("*")):

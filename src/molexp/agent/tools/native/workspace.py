@@ -10,12 +10,13 @@ them up at construction time.
 
 from __future__ import annotations
 
-from typing import Any
-
+from molexp._typing import JSONMapping
 from molexp.agent.tools.native._helpers import (
+    err,
     get_experiment,
     get_project,
     ok,
+    require_str_arg,
     workspace,
 )
 from molexp.agent.tools.registry import native_tool
@@ -31,10 +32,10 @@ from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
         mutates=False,
     )
 )
-async def list_projects(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+async def list_projects(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     ws, failure = workspace(ctx)
-    if failure is not None:
-        return failure
+    if failure is not None or ws is None:
+        return failure or err("workspace lookup failed")
     rows = [
         {
             "id": project.id,
@@ -59,10 +60,13 @@ async def list_projects(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=False,
     )
 )
-async def list_experiments(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    project, failure = get_project(ctx, args["project_id"])
-    if failure is not None:
-        return failure
+async def list_experiments(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    project, failure = get_project(ctx, project_id)
+    if failure is not None or project is None:
+        return failure or err("project lookup failed")
     rows = [
         {
             "id": exp.id,
@@ -91,10 +95,16 @@ async def list_experiments(args: dict[str, Any], ctx: ToolContext) -> ToolResult
         mutates=False,
     )
 )
-async def list_runs(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
-    experiment, failure = get_experiment(ctx, args["project_id"], args["experiment_id"])
-    if failure is not None:
-        return failure
+async def list_runs(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    project_id, fail = require_str_arg(args, "project_id")
+    if fail is not None or project_id is None:
+        return fail or err("missing project_id")
+    experiment_id, fail = require_str_arg(args, "experiment_id")
+    if fail is not None or experiment_id is None:
+        return fail or err("missing experiment_id")
+    experiment, failure = get_experiment(ctx, project_id, experiment_id)
+    if failure is not None or experiment is None:
+        return failure or err("experiment lookup failed")
     rows = [
         {
             "id": run.id,
@@ -122,15 +132,20 @@ async def list_runs(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         mutates=True,
     )
 )
-async def create_project(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+async def create_project(args: JSONMapping, ctx: ToolContext) -> ToolResult:
+    name, fail = require_str_arg(args, "name")
+    if fail is not None or name is None:
+        return fail or err("missing name")
     ws, failure = workspace(ctx)
-    if failure is not None:
-        return failure
-    project = ws.project(args["name"])
+    if failure is not None or ws is None:
+        return failure or err("workspace lookup failed")
+    description_raw = args.get("description", "")
+    description = description_raw if isinstance(description_raw, str) else ""
+    project = ws.project(name)
     return ok(
         {
             "project_id": project.id,
             "name": project.name,
-            "description": args.get("description", ""),
+            "description": description,
         }
     )

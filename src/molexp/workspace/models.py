@@ -7,9 +7,11 @@ The server, CLI, and Python API all derive from these models.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field, model_validator
+
+from molexp._typing import JSONValue
 
 # ── Shared value objects ────────────────────────────────────────────────────
 
@@ -67,12 +69,17 @@ class ComputeTarget(BaseModel, frozen=True):
         ComputeTarget(name="laptop", scratch_root="/tmp/molexp")
 
         # Remote SLURM cluster — the canonical HPC use case.
-        ComputeTarget(name="hpc1", host="me@cluster.example.org",
-                      scheduler="slurm", scratch_root="/scratch/me/molexp")
+        ComputeTarget(
+            name="hpc1",
+            host="me@cluster.example.org",
+            scheduler="slurm",
+            scratch_root="/scratch/me/molexp",
+        )
 
         # Run on a remote workstation directly, no batch system.
-        ComputeTarget(name="desk", host="me@desk.lan", scheduler="local",
-                      scratch_root="/home/me/molexp-runs")
+        ComputeTarget(
+            name="desk", host="me@desk.lan", scheduler="local", scratch_root="/home/me/molexp-runs"
+        )
     """
 
     name: str
@@ -88,8 +95,8 @@ class ComputeTarget(BaseModel, frozen=True):
 
     # ── Working dir + defaults ──────────────────────────────────────────────
     scratch_root: str
-    default_resources: dict[str, Any] = Field(default_factory=dict)
-    default_scheduling: dict[str, Any] = Field(default_factory=dict)
+    default_resources: dict[str, JSONValue] = Field(default_factory=dict)
+    default_scheduling: dict[str, JSONValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _validate_axes(self) -> ComputeTarget:
@@ -123,7 +130,7 @@ class ProjectMetadata(BaseModel, frozen=True):
     description: str = ""
     owner: str = ""
     tags: list[str] = Field(default_factory=list)
-    config: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, JSONValue] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
 
 
@@ -131,10 +138,11 @@ class ExperimentMetadata(BaseModel, frozen=True):
     """Repeatable experiment definition bound to a workflow.
 
     An Experiment carries a concrete parameter dict (`parameter_space`)
-    plus replica configuration (`n_replicas`, `seeds`).  Parameter sweeps
-    are expanded by the user at script level (e.g. via ``for p in GridSpace(...)``);
-    each combination becomes a distinct Experiment.  Replicas under a
-    single Experiment share parameters but differ in random seed.
+    plus replica configuration (`n_replicas`, `seeds`).  Parameter
+    combinations are expanded by the user at script level (e.g. via
+    ``for p in GridSpace(...)``); each combination becomes a distinct
+    Experiment.  Replicas under a single Experiment share parameters
+    but differ in random seed.
     """
 
     id: str
@@ -146,7 +154,7 @@ class ExperimentMetadata(BaseModel, frozen=True):
     # Workflow binding — what makes an Experiment more than just a folder
     workflow_source: str | None = None
     workflow_type: str | None = None
-    parameter_space: dict[str, Any] = Field(default_factory=dict)
+    parameter_space: dict[str, JSONValue] = Field(default_factory=dict)
     git_commit: str | None = None
 
     # Replica configuration
@@ -189,7 +197,7 @@ class ExecutionMetadata(BaseModel):
     finished_at: datetime | None = None
     status: str = "running"
     scheduler_job_id: str | None = None
-    executor_info: dict[str, Any] = Field(default_factory=dict)
+    executor_info: dict[str, JSONValue] = Field(default_factory=dict)
     error: ErrorInfo | None = None
 
 
@@ -218,7 +226,7 @@ class RunMetadata(BaseModel):
 
     id: str
     status: str = "pending"
-    parameters: dict[str, Any] = Field(default_factory=dict)
+    parameters: dict[str, JSONValue] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
     finished_at: datetime | None = None
     error: ErrorInfo | None = None
@@ -226,10 +234,10 @@ class RunMetadata(BaseModel):
     script: str | None = None
     submit_cwd: str | None = None
     profile: str | None = None
-    config: dict[str, Any] = Field(default_factory=dict)
+    config: dict[str, JSONValue] = Field(default_factory=dict)
     config_hash: str | None = None
     labels: dict[str, str] = Field(default_factory=dict)
-    executor_info: dict[str, Any] = Field(default_factory=dict)
+    executor_info: dict[str, JSONValue] = Field(default_factory=dict)
     execution_history: list[ExecutionRecord] = Field(default_factory=list)
 
     # Intended compute target name (matches a ComputeTarget in the workspace

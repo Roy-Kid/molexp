@@ -1,11 +1,36 @@
-"""Tests for workflow execution through pydantic-graph runtime."""
+"""Tests for workflow execution through the molexp scheduler.
 
-import json
+After the rectification, the runtime takes an opaque duck-typed
+``run_context`` payload and a ``Mapping[str, Any]`` config — never a
+``Workspace.Run`` or ``ProfileConfig``. The legacy ``run=`` kwarg is
+gone; ``run_dir=`` accepts a path directly.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 
 from molexp.workflow import Task, TaskContext, Workflow
-from molexp.workspace import Workspace
+
+
+class _RunContextStub:
+    """Minimal duck-typed ``run_context`` — what the runtime now requires.
+
+    Exposes ``.work_dir`` / ``.config`` / ``.run`` so the runtime can
+    extract a run dir and forward the value to ``TaskContext.run_context``.
+    No ``Workspace`` import.
+    """
+
+    def __init__(self, *, work_dir: Path, config: dict | None = None, run_id: str | None = None):
+        self.work_dir = work_dir
+        self.config = config or {}
+        self.run = type(
+            "RunStub",
+            (),
+            {"id": run_id or "stub-run", "run_dir": work_dir},
+        )()
 
 
 @pytest.mark.asyncio
@@ -46,123 +71,90 @@ class TestFunctionalExecution:
         assert result.status == "failed"
 
     async def test_run_context_is_forwarded_to_tasks(self, tmp_path):
-        from molexp.config import ProfileConfig
-
         wf = Workflow(name="with-run-context")
 
-        class RunContextStub:
-            """Minimal stub — profile fixed at construction, no late-bind."""
-
-            def __init__(self, *, config: ProfileConfig | None = None):
-                self.run = None
-                self.work_dir = tmp_path / "run"
-                self.config = config or ProfileConfig({}, name=None)
-                self.context = type("ContextStub", (), {"status": {}})()
-
-            def _save_context(self) -> None:
-                return None
-
-        run_ctx = RunContextStub(config=ProfileConfig({"epochs": 1}, name="smoke"))
+        run_ctx = _RunContextStub(
+            work_dir=tmp_path / "run",
+            config={"epochs": 1, "dataset": "md17"},
+        )
 
         @wf.task
         async def inspect(ctx: TaskContext) -> bool:
             assert ctx.run_context is run_ctx
-            assert ctx.config.name == "smoke"
-            assert ctx.config["epochs"] == 1
             return True
 
         result = await wf.build().execute(run_context=run_ctx)
         assert result.status == "completed"
         assert result.outputs["inspect"] is True
 
-    async def test_run_context_with_profile_config_raises(self, tmp_path):
-        """Passing run_context and profile_config is a hard error — no late-bind."""
-        from molexp.config import ProfileConfig
+    async def test_runtime_runs_with_duck_typed_run_context_no_workspace(self, tmp_path):
+        """Critical: runtime drives a workflow with a stub run_context that
+        has no Workspace ancestry whatsoever, and writes workflow.json under
+        run_dir/executions/<execution_id>/."""
+        wf = Workflow(name="duck")
 
-        wf = Workflow(name="no-late-bind")
+        run_ctx = _RunContextStub(work_dir=tmp_path / "stub-run")
 
-        class RunContextStub:
-            def __init__(self):
-                self.run = None
-                self.work_dir = tmp_path / "run"
-                self.config = ProfileConfig({}, name=None)
-                self.context = type("ContextStub", (), {"status": {}})()
+        @wf.task
+        async def step(ctx: TaskContext) -> str:
+            return "ok"
+
+        result = await wf.build().execute(run_context=run_ctx)
+        assert result.status == "completed"
+        assert result.outputs["step"] == "ok"
+
+        executions = run_ctx.work_dir / "executions"
+        assert executions.exists(), "runtime must materialize executions/ under run_dir"
+        # Find the workflow.json under the single execution.
+        wf_jsons = list(executions.rglob("workflow.json"))
+        assert wf_jsons, "workflow.json must be written under run_dir/executions/<id>/"
+
+    async def test_legacy_run_kwarg_is_rejected(self, tmp_path):
+        """The runtime no longer accepts ``run=``. Use ``run_dir=`` or
+        ``run_context=``."""
+        wf = Workflow(name="no-run-kwarg")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
             return None
 
-        with pytest.raises(ValueError, match="Cannot combine run_context"):
-            await wf.build().execute(
-                run_context=RunContextStub(),
-                profile_config=ProfileConfig({"x": 1}, name="smoke"),
-            )
+        with pytest.raises(TypeError):
+            await wf.build().execute(run=object())
 
-    async def test_run_is_managed_by_runtime(self, tmp_path):
+    async def test_legacy_profile_config_kwarg_is_rejected(self, tmp_path):
+        """The runtime no longer accepts ``profile_config=``. Use ``config=``."""
         from molexp.config import ProfileConfig
 
-        workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        project = workspace.project("demo")
-        experiment = project.experiment("runtime")
-        run = experiment.run(parameters={"seed": 42})
-
-        wf = Workflow(name="managed-run")
-
-        @wf.task
-        async def inspect(ctx: TaskContext) -> str:
-            assert ctx.run_context is not None
-            assert ctx.run_context.run is run
-            assert ctx.run_context.config.name == "smoke"
-            assert ctx.config["epochs"] == 1
-            ctx.set_result("epochs", ctx.config["epochs"])
-            return "ok"
-
-        profile_cfg = ProfileConfig({"epochs": 1}, name="smoke")
-        result = await wf.build().execute(run=run, profile_config=profile_cfg)
-
-        assert result.status == "completed"
-        assert result.outputs["inspect"] == "ok"
-        # Profile is orthogonal to status — run succeeded.
-        assert run.status == "succeeded"
-        assert run.metadata.profile == "smoke"
-        assert run.metadata.config["epochs"] == 1
-
-        run_json = json.loads((run.run_dir / "run.json").read_text())
-        assert run_json["context"]["results"]["epochs"] == 1
-
-    async def test_default_profile_is_empty_config(self, tmp_path):
-        workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        project = workspace.project("demo")
-        experiment = project.experiment("runtime")
-        run = experiment.run(parameters={"seed": 42})
-
-        wf = Workflow(name="no-profile")
-
-        @wf.task
-        async def inspect(ctx: TaskContext) -> str:
-            assert ctx.config.name is None
-            assert len(ctx.config) == 0
-            return "ok"
-
-        result = await wf.build().execute(run=run)
-        assert result.status == "completed"
-        assert run.metadata.profile is None
-
-    async def test_run_and_run_context_are_mutually_exclusive(self, tmp_path):
-        workspace = Workspace(root=tmp_path / "lab", name="Test Lab")
-        project = workspace.project("demo")
-        experiment = project.experiment("runtime")
-        run = experiment.run(parameters={})
-
-        wf = Workflow(name="exclusive")
+        wf = Workflow(name="no-profile-config-kwarg")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
             return None
 
-        with run.start() as ctx:
-            with pytest.raises(ValueError, match="either run or run_context"):
-                await wf.build().execute(run=run, run_context=ctx)
+        with pytest.raises(TypeError):
+            await wf.build().execute(profile_config=ProfileConfig({}, name=None))
+
+    async def test_run_dir_kwarg_writes_workflow_json(self, tmp_path):
+        wf = Workflow(name="run-dir-only")
+
+        @wf.task
+        async def step(ctx: TaskContext) -> int:
+            return 7
+
+        result = await wf.build().execute(run_dir=tmp_path / "rd")
+        assert result.status == "completed"
+        wf_jsons = list((tmp_path / "rd" / "executions").rglob("workflow.json"))
+        assert wf_jsons
+
+    async def test_config_is_plain_mapping(self, tmp_path):
+        wf = Workflow(name="plain-config")
+
+        @wf.task
+        async def inspect(ctx: TaskContext) -> int:
+            return ctx.config["epochs"]
+
+        result = await wf.build().execute(config={"epochs": 42})
+        assert result.outputs["inspect"] == 42
 
 
 @pytest.mark.asyncio

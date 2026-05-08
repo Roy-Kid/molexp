@@ -22,7 +22,7 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, Any, ClassVar, Literal, Union
+from typing import Annotated, Any, ClassVar, Literal
 
 from pydantic import BaseModel, Discriminator, Field
 
@@ -34,7 +34,7 @@ from molexp.agent.persistence.tiered import (
 )
 
 USER_TOOLS_FILENAME = "tools.json"
-WORKSPACE_TOOLS_FILENAME = ".tools.json"
+WORKSPACE_TOOLS_FILENAME = "tools.json"
 USER_HOME_DIR_NAME = ".molexp"
 KIND_KEY = "tools"
 
@@ -109,7 +109,7 @@ class HttpInvoker(BaseModel):
 
 
 ToolInvoker = Annotated[
-    Union[PythonInvoker, HttpInvoker],
+    PythonInvoker | HttpInvoker,
     Discriminator("kind"),
 ]
 
@@ -118,6 +118,27 @@ ToolInvoker = Annotated[
 
 
 ToolCategory = Literal["workspace", "workflow", "chat", "control", "web"]
+_VALID_CATEGORIES: frozenset[str] = frozenset(("workspace", "workflow", "chat", "control", "web"))
+
+
+def _coerce_category(value: str) -> ToolCategory:
+    """Narrow a free-form ``str`` (from ``ToolSpec.category``) into the Literal.
+
+    ``ToolSpec`` carries ``category: str`` so plugins are not forced to
+    update with each new category; this entry-point validates at the
+    catalog boundary, defaulting to ``"workspace"`` for unknown values.
+    """
+    if value == "workspace":
+        return "workspace"
+    if value == "workflow":
+        return "workflow"
+    if value == "chat":
+        return "chat"
+    if value == "control":
+        return "control"
+    if value == "web":
+        return "web"
+    return "workspace"
 
 
 class ToolSpec(ResourceSpec):
@@ -169,11 +190,14 @@ class ToolStore(TieredResourceStore[ToolSpec]):
         root: str | Path,
         user_home_dir: str | Path | None = None,
     ) -> None:
-        """Bind the tool store to a workspace root and user-home dir.
+        """Bind the tool store to a workspace directory.
 
         Args:
-            root: Workspace root directory; the workspace-tier file
-                lives at ``<root>/.tools.json``.
+            root: Subsystem directory for agent tools — typically
+                ``workspace.subsystem_store("agent.tools").dir()``. The
+                store's workspace-tier file is ``<root>/tools.json``. A
+                bare file path is also accepted for direct wiring; in
+                that case it is used verbatim as the workspace-tier file.
             user_home_dir: Override for the user-tier directory. When
                 ``None`` (the default), resolves to ``~/.molexp/`` and
                 the user-tier file is ``~/.molexp/tools.json``. Tests
@@ -242,8 +266,13 @@ def default_tool(
     """
 
     def decorator(f: Callable) -> Callable:
-        tool_name = name or f.__name__
-        target = f"{f.__module__}:{f.__name__}"
+        # ``f`` is a user-supplied callable; reach for ``__name__`` /
+        # ``__module__`` defensively via ``getattr`` since ty types
+        # generic ``Callable`` without those Python-function attrs.
+        fn_name = getattr(f, "__name__", None) or "anonymous"
+        fn_module = getattr(f, "__module__", None) or ""
+        tool_name = name or fn_name
+        target = f"{fn_module}:{fn_name}"
         description = (inspect.getdoc(f) or "").strip()
         now = _now_iso()
         spec = ToolSpec(
@@ -282,14 +311,16 @@ def _register_native_tools() -> None:
 
     for native_spec, fn in iter_native_tools():
         tool_name = native_spec.name.removeprefix("native:")
-        target = f"{fn.__module__}:{fn.__name__}"
+        fn_module = getattr(fn, "__module__", None) or ""
+        fn_name = getattr(fn, "__name__", None) or "anonymous"
+        target = f"{fn_module}:{fn_name}"
         now = _now_iso()
         spec = ToolSpec(
             id=tool_name,
             name=tool_name,
             description=native_spec.description,
             scope=Scope.NATIVE,
-            category=native_spec.category,
+            category=_coerce_category(native_spec.category),
             mutates=native_spec.mutates,
             requires_approval=native_spec.requires_approval,
             invoker=PythonInvoker(kind="python", target=target),
@@ -304,16 +335,16 @@ _register_native_tools()
 
 
 __all__ = [
-    "HttpInvoker",
     "KIND_KEY",
+    "USER_HOME_DIR_NAME",
+    "USER_TOOLS_FILENAME",
+    "WORKSPACE_TOOLS_FILENAME",
+    "HttpInvoker",
     "PythonInvoker",
     "ToolCategory",
     "ToolInvoker",
     "ToolSpec",
     "ToolStore",
-    "USER_HOME_DIR_NAME",
-    "USER_TOOLS_FILENAME",
-    "WORKSPACE_TOOLS_FILENAME",
     "clear_python_tool_impls",
     "default_tool",
     "get_python_tool_impl",

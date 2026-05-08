@@ -36,7 +36,7 @@ def _build(tmp_path):
 
 class TestDeleteExecution:
     def test_removes_dir_and_history_entry(self, tmp_path):
-        ws, _p, _e, r = _build(tmp_path)
+        _ws, _p, _e, r = _build(tmp_path)
         first_exec = r.metadata.execution_history[0].execution_id
         r.delete_execution(first_exec)
         assert not (r.run_dir / "executions" / first_exec).exists()

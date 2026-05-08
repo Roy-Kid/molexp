@@ -10,6 +10,10 @@ When the question is about the shape of the graph itself, start with [Task and A
 
 When the question is about persistent state, start with [Workspace API](workspace-api.md) and [Workspace Architecture](workspace-architecture.md). Those two pages describe the same model from different angles: one from the Python surface, one from the on-disk structure. [Assets](assets.md) explains reusable named resources, and [Workflow Persistence](workflow-persistence.md) explains which pieces of execution state are serialized and which are reconstructed from source.
 
+## Agent and Plan Mode
+
+When the question is "I have a research goal in prose, not yet a workflow," go to [Plan Mode](plan-mode.md). It walks `PlanModeRunner` end-to-end: the four collaborator Protocols, the `molcfg` slice, the on-disk plan layout, the resume semantics, and the repair loop that catches in-memory execution failures. The companion concept page is [Agent](../concept/agent.md), which carries the lifecycle flowchart and explains why the layer is provider-agnostic.
+
 ## Operations and Scheduling
 
 When the question is about long-running services or scheduler transport, go to [Server Lifecycle](server-lifecycle.md) and [Molq Plugin](molq.md). Those pages are intentionally outside the onboarding path because they matter only after the local workflow and workspace model are already stable.

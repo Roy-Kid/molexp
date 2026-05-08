@@ -16,12 +16,13 @@ import inspect
 import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .project import Project
     from .workspace import Workspace
 
+from molexp._typing import JSONMapping, JSONValue
 from molexp.workflow.context import TaskContext
 from molexp.workflow.spec import Workflow, WorkflowSpec
 from molexp.workflow.task import Task
@@ -98,6 +99,11 @@ def _resolve_spec_entrypoint(spec: WorkflowSpec) -> str:
     that module's globals for a binding to *spec* by identity.
     """
     mod = inspect.getmodule(spec._tasks[0].fn_or_class)
+    if mod is None:
+        raise ValueError(
+            f"cannot determine an importable entrypoint: the first task body "
+            f"({spec._tasks[0].fn_or_class!r}) does not belong to any module."
+        )
     file_path = Path(inspect.getfile(mod)).resolve()
     for var, val in vars(mod).items():
         if val is spec:
@@ -128,7 +134,7 @@ class Experiment:
         project: Project,
         id: str | None = None,
         *,
-        params: dict[str, Any] | None = None,
+        params: dict[str, JSONValue] | None = None,
         n_replicas: int = 1,
         seeds: list[int] | None = None,
         workflow_source: str | None = None,
@@ -160,7 +166,7 @@ class Experiment:
         self._workflow_entrypoint: str | None = None
         # Snapshot of the JSON IR when bound from a dict; ``None`` when
         # bound from a Python ``WorkflowSpec`` / callable.
-        self._workflow_ir: dict[str, Any] | None = None
+        self._workflow_ir: dict[str, JSONValue] | None = None
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -189,11 +195,11 @@ class Experiment:
         return self.metadata.workflow_source
 
     @property
-    def parameter_space(self) -> dict[str, Any]:
+    def parameter_space(self) -> dict[str, JSONValue]:
         return self.metadata.parameter_space
 
     @property
-    def params(self) -> dict[str, Any]:
+    def params(self) -> dict[str, JSONValue]:
         """Concrete parameter dict bound to this experiment."""
         return self.metadata.parameter_space
 
@@ -256,7 +262,7 @@ class Experiment:
 
     def set_workflow(
         self,
-        workflow: WorkflowSpec | Callable | dict[str, Any],
+        workflow: WorkflowSpec | Callable | JSONMapping,
     ) -> None:
         """Bind a workflow to this experiment.
 
@@ -287,9 +293,16 @@ class Experiment:
         if isinstance(workflow, dict):
             from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
 
-            spec = _WorkflowSpec.from_dict(workflow)
+            # ``workflow`` was already narrowed to ``dict`` above; the
+            # rebuild + ``cast`` document the intent and let ty match
+            # ``Mapping[str, JSONValue]`` on ``WorkflowSpec.from_dict``.
+            # The cast is the boundary acknowledgement: the parameter
+            # signature accepts a JSON-shaped mapping, but ``dict`` is
+            # invariant in its value type so ty cannot prove the cell.
+            ir: dict[str, JSONValue] = {str(k): cast(JSONValue, v) for k, v in workflow.items()}
+            spec = _WorkflowSpec.from_dict(ir)
             self._workflow = spec
-            self._workflow_ir = dict(workflow)
+            self._workflow_ir = ir
             self._workflow_entrypoint = None
             self._persist_workflow_ir(self._workflow_ir)
             return
@@ -311,16 +324,16 @@ class Experiment:
         """Path to the on-disk workflow IR file (may not exist)."""
         return self.experiment_dir / "workflow.json"
 
-    def _persist_workflow_ir(self, ir: dict[str, Any]) -> None:
+    def _persist_workflow_ir(self, ir: dict[str, JSONValue]) -> None:
         self.experiment_dir.mkdir(parents=True, exist_ok=True)
         _atomic_write_json(self.workflow_path, ir)
 
-    def _read_workflow_ir_from_disk(self) -> dict[str, Any] | None:
+    def _read_workflow_ir_from_disk(self) -> dict[str, JSONValue] | None:
         path = self.workflow_path
         if not path.exists():
             return None
         try:
-            with open(path, "r") as fh:
+            with open(path) as fh:
                 return json.load(fh)
         except (OSError, json.JSONDecodeError):
             return None
@@ -371,7 +384,7 @@ class Experiment:
 
     def run(
         self,
-        parameters: dict[str, Any] | None = None,
+        parameters: dict[str, JSONValue] | None = None,
         *,
         id: str | None = None,
         target: str | None = None,

@@ -74,7 +74,7 @@ def _make_run(tmp_path: Path):
 def test_submit_handler_with_target_stages_in_and_uses_transport(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    ws, project, experiment, run = _make_run(tmp_path)
+    _ws, project, experiment, run = _make_run(tmp_path)
     target = ComputeTarget(
         name="hpc",
         host="me@cluster",

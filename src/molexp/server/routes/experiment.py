@@ -6,7 +6,7 @@ from shutil import rmtree
 
 from fastapi import APIRouter, Depends
 
-from molexp.plugins.metrics import read_run_metrics
+from molexp.workspace.metrics import read_run_metrics
 
 from ..dependencies import get_workspace
 from ..exceptions import ExperimentNotFoundError, ProjectNotFoundError
@@ -82,7 +82,7 @@ def get_experiment_comparison(
     experiment_id: str,
     workspace=Depends(get_workspace),
 ) -> ExperimentComparisonResponse:
-    """Sweep matrix: parameter columns x run rows + final metric values per run."""
+    """Comparison matrix: parameter columns x run rows + final metric values per run."""
     project = workspace.get_project(project_id)
     if not project:
         raise ProjectNotFoundError(project_id)
@@ -101,11 +101,11 @@ def get_experiment_comparison(
         try:
             result = read_run_metrics(run.run_dir, limit=50000)
             for series in result.series:
-                key = series.get("key")
+                key_raw = series.get("key")
                 latest = series.get("latestValue")
-                if key and latest is not None:
-                    metrics_summary[key] = latest
-                    metric_keys.add(key)
+                if isinstance(key_raw, str) and key_raw and latest is not None:
+                    metrics_summary[key_raw] = latest
+                    metric_keys.add(key_raw)
         except (FileNotFoundError, OSError, ValueError):
             pass
 

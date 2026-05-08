@@ -10,6 +10,7 @@ This module is the recommended extension pattern for mollog plugins:
 Users who want the molexp verbs (``.ice()``) import from molexp::
 
     from molexp import get_logger
+
     log = get_logger(__name__)
     log.info("classic mollog verb")
     log.ice("agent step", agent_id=a.id, step=3)
@@ -21,9 +22,10 @@ unchanged. ``import molexp`` does **not** mutate :class:`mollog.Logger`.
 from __future__ import annotations
 
 import threading
-from typing import Any
 
 import mollog
+
+from molexp._typing import JSONValue
 
 
 class Logger(mollog.Logger):
@@ -34,7 +36,7 @@ class Logger(mollog.Logger):
     ``critical`` / ``exception``) and adds an agent-trace verb.
     """
 
-    def ice(self, message: str, **fields: Any) -> None:
+    def ice(self, message: str, **fields: JSONValue) -> None:
         """Emit an agent-trace event tagged ``verb="ice"``.
 
         Records flow through the same dispatch path as :meth:`info`, so

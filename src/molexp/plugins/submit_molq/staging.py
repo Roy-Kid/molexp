@@ -27,6 +27,7 @@ deduping.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -118,13 +119,11 @@ def stage_out(
             continue
 
     # Run metadata — always pulled so the local copy reflects worker outcomes.
-    try:
+    with contextlib.suppress(TransportError):
         transport.download(
             f"{remote_run}/run.json",
             str(Path(local_run) / "run.json"),
         )
-    except TransportError:
-        pass
 
 
 __all__ = ["stage_in", "stage_out"]

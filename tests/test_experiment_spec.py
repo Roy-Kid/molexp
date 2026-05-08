@@ -53,11 +53,11 @@ def experiment(project):
 class TestExperimentConstruction:
     def test_stores_fields(self, project):
         exp = project.experiment(
-            "sweep",
+            "explore",
             params={"x": 1},
             n_replicas=3,
         )
-        assert exp.name == "sweep"
+        assert exp.name == "explore"
         assert exp.project is project
         assert exp.n_replicas == 3
 
@@ -166,7 +166,8 @@ class TestPromoteToWorkflow:
         run = experiment.run(parameters={})
 
         profile_cfg = ProfileConfig({"skip_heavy": True}, name="dry-run")
-        result = await spec.execute(run=run, profile_config=profile_cfg)
+        with run.start(profile_config=profile_cfg) as run_ctx:
+            result = await spec.execute(run_context=run_ctx)
 
         assert result.status == "completed"
         run_json = json.loads((run.run_dir / "run.json").read_text())

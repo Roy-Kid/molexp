@@ -11,7 +11,7 @@ from __future__ import annotations
 import shutil
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Annotated, Any, Optional
+from typing import Annotated
 
 import typer
 from rich.table import Table
@@ -135,7 +135,7 @@ def _execution_rows(run: Run) -> list[tuple[str, ...]]:
 
 def prune_runs(
     path: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option("--path", "-p", help="Workspace path (default: cwd)."),
     ] = None,
 ) -> None:
@@ -276,5 +276,5 @@ def prune_runs(
     )
 
 
-def register(run_app: Any) -> None:
+def register(run_app: typer.Typer) -> None:
     run_app.command("prune")(prune_runs)

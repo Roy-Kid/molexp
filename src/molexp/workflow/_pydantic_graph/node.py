@@ -1,25 +1,21 @@
-"""Per-task BaseNode wrappers + return-value classifier (spec 03 §9, §10).
+"""molexp frontier scheduler — single-track edition.
 
-``Task`` already inherits :class:`pydantic_graph.BaseNode` (see
-``workflow/task.py``), so each registered task is a BaseNode subclass
-straight away. The compiler creates a thin per-registration subclass via
-``type(...)`` to attach the task name + registration as class attributes;
-no method codegen, no closures.
+``WorkflowStep`` is the **only** ``pydantic_graph.BaseNode`` molexp
+exposes. pg drives ``WorkflowStep(0) → WorkflowStep(1) → … → End`` and
+gets snapshot/resume bookkeeping for free; everything else (per-task
+invocation, data-dep ready-set, parallel fan-out, loop counters,
+``Next(label)`` routing) is molexp-owned scheduling logic that runs
+inside ``WorkflowStep.run``.
 
-The molexp frontier runtime drives ``await node.run(ctx)`` directly and
-classifies the raw return value via :func:`_classify_return`. ``Graph.run``
-is never invoked (spec 03 §9), so the BaseNode contract on ``run``'s return
-type is purely satisfied for ``Graph(nodes=[...])`` construction; runtime
-correctness lives in the scheduler.
+``Task`` and ``Actor`` are plain abstract classes (no pg ``BaseNode``
+inheritance) — the scheduler invokes ``execute(ctx)`` / ``run(ctx)``
+directly via duck typing. The compiler stashes the user's registered
+object straight into ``compiled.task_by_name``; there is no per-task pg
+``BaseNode`` codegen.
 
 Module surface:
 
-* :class:`_CallableTask` — fixed Task base for decorator-style
-  ``@wf.task async def`` functions.
-* :class:`_StreamableTask` — fixed Actor base for ``@wf.actor`` async
-  generators (drains the generator; terminal yield is the dispatch value).
-* :func:`make_task_node_class` — return a per-registration subclass with
-  ``_molexp_task_name`` / ``_molexp_registration`` set.
+* :class:`WorkflowStep` — the single pg BaseNode wrapping the scheduler.
 * :func:`_classify_return` / :data:`Dispatch` — split a raw user return
   into ``(recorded_value, dispatch_verb)``.
 """
@@ -28,16 +24,26 @@ from __future__ import annotations
 
 import asyncio
 import warnings
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, cast
 
 from mollog import get_logger
-from pydantic_graph import BaseNode, End, GraphRunContext
+from pydantic_graph import End, GraphRunContext
+from pydantic_graph.nodes import BaseNode
 
-from ..context import TaskContext
-from ..protocols import Runnable, Streamable
-from ..task import Task
+from ..context import ActorContext
+from ..protocols import (
+    AssetsViewLike,
+    JSONMapping,
+    RunContextLike,
+    Runnable,
+    Streamable,
+    TaskInput,
+    TaskOutput,
+    UserDeps,
+)
+from ..task import Actor, Task
 from ..types import (
     BranchEdges,
     LoopMaxItersExceeded,
@@ -50,10 +56,10 @@ from ..types import (
     UnknownTaskError,
     WorkflowDeadlockError,
 )
-from ..types import (
-    End as MolExpEnd,
-)
 from .state import WorkflowDeps, WorkflowState
+
+if TYPE_CHECKING:
+    from ..spec import TaskRegistration
 
 logger = get_logger(__name__)
 
@@ -131,7 +137,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     async def run(
         self,
         ctx: GraphRunContext[WorkflowState, WorkflowDeps],
-    ) -> "WorkflowStep | End[WorkflowState]":
+    ) -> WorkflowStep | End[WorkflowState]:
         deps = ctx.deps
         state = ctx.state
 
@@ -167,24 +173,59 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     async def _invoke_one(
         name: str,
         ctx: GraphRunContext[WorkflowState, WorkflowDeps],
-    ) -> Any:
+    ) -> TaskOutput:
         """Dispatch one ready task — singleton or parallel fan-out.
 
-        Singleton path: ``node.run(ctx)`` directly, which routes through
-        the patched :func:`_task_run` and returns the user's raw value.
+        Singleton path: build a ``TaskContext`` and dispatch the user's
+        registered ``Task`` / ``Actor`` / callable through
+        :func:`_invoke_body_with_ctx`.
 
         Parallel path (``name`` is the body of a ``wf.parallel`` decl):
         read ``state.results[map_over]``, fan out one body invocation
         per element under ``Semaphore(max_concurrency)``, return the
         ordered ``list[per_element_output]``. Per-element exceptions
         are captured and raised as :class:`ParallelExecutionError`
-        once every sibling has finished (spec 05 §4 D3).
+        once every sibling has finished.
         """
         deps = ctx.deps
-        node = deps.task_by_name[name]
+        registration = deps.registration_by_name.get(name)
+        if registration is None:
+            raise UnknownTaskError(f"WorkflowStep: unknown task {name!r} on frontier")
+
         decl = deps.parallel_decls.get(name) if deps.parallel_decls else None
         if decl is None:
-            return await node.run(ctx)  # type: ignore[arg-type]
+            inputs = _collect_upstream_outputs(registration, ctx.state)
+            effective_config = _resolve_dependent_params(
+                registration=registration,
+                state=ctx.state,
+                run_context=ctx.deps.run_context,
+                base_config=ctx.deps.config,
+            )
+            # Always construct ``ActorContext`` (a ``TaskContext`` subclass).
+            # Liskov — every branch of the body dispatcher accepts
+            # ``TaskContext`` ergonomically, while the Actor / Streamable
+            # branches require the narrower ``ActorContext`` type for
+            # ``ctx.receive()`` / ``ctx.send()`` access.
+            task_ctx: ActorContext[WorkflowState, UserDeps, TaskInput] = ActorContext(
+                state=ctx.state,
+                deps=ctx.deps.user_deps,
+                inputs=inputs,
+                config=effective_config,
+                run_context=ctx.deps.run_context,
+            )
+
+            # Remote-execution gate runs ahead of any local body call.
+            remote = getattr(registration, "remote", None)
+            if remote is not None:
+                remote_executor = getattr(ctx.deps, "remote_executor", None)
+                if remote_executor is not None:
+                    return await remote_executor.execute_remote(
+                        entry=registration,
+                        inputs=task_ctx.inputs,
+                        run_dir=getattr(ctx.deps, "run_dir", None),
+                    )
+
+            return await _invoke_body_with_ctx(registration, task_ctx)
 
         elements = ctx.state.results.get(decl.map_over)
         if elements is None:
@@ -211,27 +252,24 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
             ) from exc
 
         sem = asyncio.Semaphore(decl.max_concurrency)
-        registration = getattr(type(node), "_molexp_registration", None) or getattr(
-            node, "_molexp_registration", None
-        )
 
-        async def _invoke_element(elem: Any) -> Any:
+        async def _invoke_element(elem: TaskInput) -> TaskOutput:
             async with sem:
-                task_ctx = TaskContext(
+                task_ctx: ActorContext[WorkflowState, UserDeps, TaskInput] = ActorContext(
                     state=ctx.state,
                     deps=ctx.deps.user_deps,
                     inputs=elem,
                     config=ctx.deps.config,
                     run_context=ctx.deps.run_context,
                 )
-                return await _invoke_body_with_ctx(node, registration, task_ctx)
+                return await _invoke_body_with_ctx(registration, task_ctx)
 
         results_or_excs = await asyncio.gather(
             *[_invoke_element(elem) for elem in element_list],
             return_exceptions=True,
         )
 
-        outputs: list[Any] = []
+        outputs: list[TaskOutput] = []
         failures: dict[int, Exception] = {}
         for idx, result in enumerate(results_or_excs):
             if isinstance(result, BaseException):
@@ -253,10 +291,10 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
         ready: list[str] = []
         deferred: list[str] = []
         for name in frame:
-            node = deps.task_by_name.get(name)
-            if node is None:
+            registration = deps.registration_by_name.get(name)
+            if registration is None:
                 raise UnknownTaskError(f"WorkflowStep: unknown task {name!r} on frontier")
-            data_deps = _node_depends_on(node)
+            data_deps = list(getattr(registration, "depends_on", ()) or ())
             if all(d in state.completed for d in data_deps):
                 ready.append(name)
             else:
@@ -266,7 +304,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
     @staticmethod
     def _dispatch(
         ready: list[str],
-        raw_results: list[Any],
+        raw_results: list[TaskOutput],
         deps: WorkflowDeps,
         new_state_seed: WorkflowState,
         deferred: list[str],
@@ -275,7 +313,7 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
         end_signaled = False
         new_state = new_state_seed
 
-        for name, raw in zip(ready, raw_results):
+        for name, raw in zip(ready, raw_results, strict=False):
             edge_set = deps.out_edges[name]
             recorded, dispatch = _classify_return(raw, edge_set, task_name=name)
             if recorded is not NO_OUTPUT:
@@ -348,29 +386,15 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
         return new_state, deduped, end_signaled
 
 
-def _node_depends_on(node: Any) -> list[str]:
-    """Pull the data ``depends_on`` list off a per-task BaseNode subclass.
-
-    The compiler stashes the originating :class:`TaskRegistration` on
-    each generated subclass via ``_molexp_registration``; absent a
-    registration (placeholder / sentinel nodes), the node is treated
-    as having no data deps.
-    """
-    registration = getattr(type(node), "_molexp_registration", None)
-    if registration is None:
-        return []
-    return list(registration.depends_on)
-
-
 # ── Return-value classifier (spec 03 §5 / §9 step 1) ────────────────────────
 
 
 def _classify_return(
-    value: Any,
+    value: TaskOutput,
     edge_set: OutEdges,
     *,
     task_name: str,
-) -> tuple[Any, Dispatch]:
+) -> tuple[TaskOutput, Dispatch]:
     """Split a raw task return value into ``(recorded_value, dispatch_verb)``.
 
     Spec 03 §5 return shapes:
@@ -388,13 +412,13 @@ def _classify_return(
         v, sentinel = value
         if isinstance(sentinel, Next):
             return v, TakeLabel(sentinel.label)
-        if isinstance(sentinel, MolExpEnd):
+        if isinstance(sentinel, End):
             return v, TakeEnd()
         # Otherwise fall through — a 2-tuple is just a value.
 
     if isinstance(value, Next):
         return NO_OUTPUT, TakeLabel(value.label)
-    if isinstance(value, MolExpEnd):
+    if isinstance(value, End):
         return NO_OUTPUT, TakeEnd()
 
     if isinstance(edge_set, BranchEdges):
@@ -409,262 +433,69 @@ def _classify_return(
     return value, TakeAll()
 
 
-# ── Fixed Task subclasses for non-OOP registrations ─────────────────────────
-
-
-class _CallableTask(Task[Any, Any, Any, Any]):
-    """Wraps a decorator-style ``@wf.task async def fetch(ctx)``.
-
-    Per-registration subclass attaches ``_molexp_fn`` (the user's function)
-    and ``_molexp_task_name`` (the registered name).
-    """
-
-    _molexp_fn: Any = None  # set on per-registration subclass
-
-    async def execute(self, ctx: TaskContext[Any, Any, Any]) -> Any:
-        fn = type(self)._molexp_fn
-        if fn is None:
-            raise RuntimeError(f"{type(self).__name__}: _molexp_fn was not bound at compile time")
-        return await fn(ctx)
-
-
-class _StreamableTask(Task[Any, Any, Any, Any]):
-    """Wraps a decorator-style ``@wf.actor async def streamer(ctx)`` async generator.
-
-    Drains the generator; the terminal yield is returned as the dispatch value.
-    """
-
-    _molexp_fn: Any = None
-
-    async def execute(self, ctx: TaskContext[Any, Any, Any]) -> Any:
-        fn = type(self)._molexp_fn
-        if fn is None:
-            raise RuntimeError(f"{type(self).__name__}: _molexp_fn was not bound at compile time")
-        last: Any = None
-        async for chunk in fn(ctx):
-            last = chunk
-        return last
-
-
-# ── Concrete Task.run via mixin (overrides the placeholder in task.py) ──────
-# Done as a method patch so user-facing Task.py stays small / dependency-free.
-
-
-async def _task_run(
-    self: Task[Any, Any, Any, Any],
-    ctx: GraphRunContext[WorkflowState, WorkflowDeps],
-) -> Any:
-    """Concrete BaseNode.run for Task: build TaskContext, dispatch, return raw value.
-
-    The molexp frontier runtime classifies the raw return via
-    :func:`_classify_return`. The annotation on the BaseNode contract
-    (``BaseNode | End``) is only relevant for ``Graph.run``, which we don't
-    invoke. Type-wise this is intentionally loose.
-    """
-    # The compiler may stash ``_molexp_registration`` either on the
-    # per-registration subclass (decorator-style — fresh ``cls()``
-    # instances) or directly on the user's instance (OOP-style — we
-    # reuse their ``Task`` instance because its ``__init__`` may
-    # require args we don't have). ``getattr(self, ...)`` finds both.
-    registration = getattr(self, "_molexp_registration", None)
-    if registration is None:
-        raise RuntimeError(
-            f"{type(self).__name__}.run() called without registration metadata. "
-            "Tasks must go through Workflow.add(...) / @wf.task before execution."
-        )
-
-    inputs = _collect_upstream_outputs(registration, ctx.state)
-    effective_config = _resolve_dependent_params(
-        registration=registration,
-        state=ctx.state,
-        run_context=ctx.deps.run_context,
-        base_config=ctx.deps.config,
-    )
-    task_ctx = TaskContext(
-        state=ctx.state,
-        deps=ctx.deps.user_deps,
-        inputs=inputs,
-        config=effective_config,
-        run_context=ctx.deps.run_context,
-    )
-
-    # Remote-execution gate runs ahead of any local body call.
-    remote = getattr(registration, "remote", None)
-    if remote is not None:
-        remote_executor = getattr(ctx.deps, "remote_executor", None)
-        if remote_executor is not None:
-            run_dir = getattr(ctx.deps, "run_dir", None)
-            return await remote_executor.execute_remote(
-                entry=registration,
-                inputs=task_ctx.inputs,
-                run_dir=run_dir,
-            )
-
-    output = await _invoke_body_with_ctx(self, registration, task_ctx)
-    # Sanity hooks fire after the task body returns but before its output is
-    # recorded into state.results — the predicate sees state up to (but not
-    # including) this task. To make the predicate observe THIS task's output,
-    # pre-record into a transient view so hooks compose naturally.
-    transient = ctx.state.record(registration.name, output)
-    _run_sanity_hooks(
-        task_name=registration.name,
-        state=transient,
-        deps=ctx.deps,
-    )
-    return output
-
-
-def _run_sanity_hooks(*, task_name: str, state: WorkflowState, deps: WorkflowDeps) -> None:
-    """Evaluate every ``Workflow.sanity_check`` hook attached to *task_name*.
-
-    Hooks fire in declaration order. ``on_fail='halt'`` raises
-    :class:`SanityCheckFailed` so the runtime surfaces a failed
-    ``WorkflowResult``; ``'replan'`` records a structured event on
-    ``state.sanity_events`` and continues; ``'continue'`` is a no-op.
-    """
-    hooks = deps.sanity_hooks_by_task.get(task_name) if deps.sanity_hooks_by_task else None
-    if not hooks:
-        return
-
-    from ..types import SanityCheckFailed
-
-    for hook in hooks:
-        try:
-            passed = bool(hook.predicate(state))
-        except Exception as exc:  # predicate is user code — surface failures cleanly
-            state.sanity_events.append(
-                {
-                    "task": task_name,
-                    "on_fail": hook.on_fail,
-                    "passed": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            )
-            if hook.on_fail == "halt":
-                raise SanityCheckFailed(
-                    task=task_name,
-                    message=f"Sanity predicate raised: {exc}",
-                    sanity_events=list(state.sanity_events),
-                ) from exc
-            continue
-
-        if passed:
-            continue
-
-        state.sanity_events.append(
-            {
-                "task": task_name,
-                "on_fail": hook.on_fail,
-                "passed": False,
-            }
-        )
-        if hook.on_fail == "halt":
-            raise SanityCheckFailed(
-                task=task_name,
-                sanity_events=list(state.sanity_events),
-            )
-        # 'replan' / 'continue' — event recorded; do not interrupt the run.
+# ── Body dispatcher (called by WorkflowStep._invoke_one) ────────────────────
 
 
 async def _invoke_body_with_ctx(
-    node: Any,
-    registration: Any,
-    task_ctx: TaskContext[Any, Any, Any],
-) -> Any:
+    registration: TaskRegistration,
+    task_ctx: ActorContext[TaskOutput, UserDeps, TaskInput],
+) -> TaskOutput:
     """Dispatch a registered task's body against a *pre-built* TaskContext.
 
-    Mirrors the body-dispatch logic from :func:`_task_run` but takes a
-    caller-built ``TaskContext`` so the parallel scheduler can supply
-    per-element ``inputs`` instead of going through
-    :func:`_collect_upstream_outputs`.
+    Single-track edition: ``registration.fn_or_class`` is the user-supplied
+    object (Task / Actor instance, third-party Runnable / Streamable, or
+    plain callable). No per-task pg ``BaseNode`` codegen, no patched
+    ``Task.run`` — this function IS the body dispatcher.
     """
     body = registration.fn_or_class
 
-    # OOP-style: the registered object IS this Task instance subclass; call its execute.
+    # OOP Task subclass — invoke .execute(ctx).
     if isinstance(body, Task):
         return await body.execute(task_ctx)
+
+    # OOP Actor subclass — drain the async generator.
+    if isinstance(body, Actor):
+        last: TaskOutput = None
+        async for chunk in body.run(task_ctx):
+            last = chunk
+        return last
 
     # Third-party Runnable (anything with .execute) — protocol path.
     if isinstance(body, Runnable):
         return await body.execute(task_ctx)
 
-    # Streamable async-generator (third-party actor) — drain.
+    # Third-party Streamable (anything with .run async generator).
     if isinstance(body, Streamable):
-        last: Any = None
+        last2: TaskOutput = None
         async for chunk in body.run(task_ctx):
-            last = chunk
-        return last
+            last2 = chunk
+        return last2
 
-    # Decorator-style: the per-registration subclass binds ``_molexp_fn``.
-    bound_fn = getattr(type(node), "_molexp_fn", None)
-    if bound_fn is not None:
-        return await node.execute(task_ctx)
+    # Decorator-actor: async-generator function. ``is_actor=True`` is the
+    # registry's contract that ``body(ctx)`` returns an ``AsyncIterator``;
+    # the cast tells the static type-checker which arm of ``TaskBody`` we
+    # are in (the runtime check above is the actual guard).
+    if getattr(registration, "is_actor", False) and callable(body):
+        actor_fn = cast("Callable[..., AsyncIterator[TaskOutput]]", body)
+        last3: TaskOutput = None
+        async for chunk in actor_fn(task_ctx):
+            last3 = chunk
+        return last3
 
-    # Bare callable (function) attached as fn_or_class but no _molexp_fn.
+    # Decorator-task: plain async function.
     if callable(body):
-        return await body(task_ctx)
+        return await cast("Callable[..., Awaitable[TaskOutput]]", body)(task_ctx)
 
     raise TypeError(
-        f"Task '{registration.name}' is neither Task / Runnable / Streamable / callable: "
-        f"{type(body)}"
+        f"Task '{registration.name}' is neither Task / Actor / Runnable / "
+        f"Streamable / callable: {type(body)}"
     )
-
-
-# Patch Task with the concrete run; BaseNode.run is abstract there until now.
-Task.run = _task_run  # type: ignore[assignment, method-assign]
-
-
-# ── make_task_node_class — thin per-registration subclass ───────────────────
-
-
-def make_task_node_class(
-    *,
-    name: str,
-    registration: Any,
-    edge_set: OutEdges,
-) -> type[Task[Any, Any, Any, Any]]:
-    """Return a per-registration Task subclass with ``_molexp_task_name`` set.
-
-    OOP-style (``registration.fn_or_class`` is a :class:`Task` instance) →
-    subclass *its concrete class* so the user's ``execute`` is reused.
-
-    Decorator-style (callable) → subclass :class:`_CallableTask`
-    (or :class:`_StreamableTask` for actors) and bind ``_molexp_fn`` to the
-    user's function on the resulting class.
-    """
-    safe = _python_safe_ident(name)
-    cls_name = f"_GraphNode_{safe}"
-
-    body = registration.fn_or_class
-    namespace: dict[str, Any] = {
-        "_molexp_task_name": name,
-        "_molexp_registration": registration,
-        "_molexp_edge_set": edge_set,
-        "__module__": __name__,
-    }
-
-    if isinstance(body, Task):
-        # OOP-style: subclass the user's concrete Task subclass.
-        base: type[Task[Any, Any, Any, Any]] = type(body)
-    elif registration.is_actor:
-        # Decorator actor — bind the async-generator function.
-        base = _StreamableTask
-        namespace["_molexp_fn"] = body
-    else:
-        # Decorator function or any callable — bind it.
-        base = _CallableTask
-        namespace["_molexp_fn"] = body
-
-    cls = type(cls_name, (base,), namespace)
-    # Sanity: subclass must be a BaseNode for Graph(nodes=[...]) to accept it.
-    assert issubclass(cls, BaseNode), f"{cls_name} is not a BaseNode subclass"
-    return cls  # type: ignore[return-value]
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _collect_upstream_outputs(registration: Any, state: WorkflowState) -> Any:
+def _collect_upstream_outputs(registration: TaskRegistration, state: WorkflowState) -> TaskInput:
     """Collect upstream outputs into the shape ``TaskContext.inputs`` expects.
 
     Returns ``None`` for no deps; the single value for one dep; a
@@ -688,20 +519,20 @@ class _UpstreamView:
     ``None`` otherwise).
     """
 
-    __slots__ = ("output", "assets")
+    __slots__ = ("assets", "output")
 
-    def __init__(self, output: Any, assets: Any) -> None:
+    def __init__(self, output: TaskOutput, assets: _UpstreamAssetsView | None) -> None:
         self.output = output
         self.assets = assets
 
 
 def _resolve_dependent_params(
     *,
-    registration: Any,
+    registration: TaskRegistration,
     state: WorkflowState,
-    run_context: Any,
-    base_config: Any,
-) -> Any:
+    run_context: RunContextLike | None,
+    base_config: JSONMapping | None,
+) -> JSONMapping | None:
     """If the task declares ``dependent_params=fn``, resolve and overlay onto config.
 
     ``fn`` receives ``dict[str, _UpstreamView]`` keyed by upstream task name.
@@ -736,7 +567,7 @@ def _resolve_dependent_params(
             f"dependent_params for task {registration.name!r} must return a Mapping; "
             f"got {type(overlay).__name__}"
         )
-    merged: dict[str, Any] = dict(base_config) if base_config is not None else {}
+    merged: dict[str, TaskInput] = dict(base_config) if base_config is not None else {}
     merged.update(overlay)
     return ProfileConfig(merged, name=getattr(base_config, "name", None))
 
@@ -750,37 +581,41 @@ class _UpstreamAssetsView:
 
     __slots__ = ("_inner", "_producer_task")
 
-    def __init__(self, assets_view: Any, producer_task: str) -> None:
+    def __init__(self, assets_view: AssetsViewLike, producer_task: str) -> None:
         self._inner = assets_view
         self._producer_task = producer_task
 
-    def query(self, **kwargs: Any) -> Any:
-        kwargs.setdefault("producer_task", self._producer_task)
-        return self._inner.query(**kwargs)
+    def query(
+        self,
+        *,
+        kind: str | type | None = None,
+        producer_run: str | None = None,
+        producer_task: str | None = None,
+        tag: tuple[str, str] | None = None,
+        limit: int | None = None,
+        recursive: bool = False,
+    ) -> TaskOutput:
+        return self._inner.query(
+            kind=kind,
+            producer_run=producer_run,
+            producer_task=producer_task or self._producer_task,
+            tag=tag,
+            limit=limit,
+            recursive=recursive,
+        )
 
-    def list(self) -> Any:
+    def list(self) -> TaskOutput:
         return self.query()
-
-
-def _python_safe_ident(name: str) -> str:
-    """Sanitise a task name so it can serve as part of a Python class name."""
-    safe = "".join(c if c.isalnum() or c == "_" else "_" for c in name)
-    if safe and safe[0].isdigit():
-        safe = "_" + safe
-    return safe or "_anonymous"
 
 
 __all__ = [
     "END_TARGET",
-    "End",
-    "Dispatch",
-    "TakeAll",
-    "TakeLabel",
-    "TakeEnd",
     "NO_OUTPUT",
+    "Dispatch",
+    "End",
+    "TakeAll",
+    "TakeEnd",
+    "TakeLabel",
     "WorkflowStep",
     "_classify_return",
-    "_CallableTask",
-    "_StreamableTask",
-    "make_task_node_class",
 ]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 from rich.table import Table
@@ -17,7 +17,7 @@ app.add_typer(asset_app, name="asset")
 
 @asset_app.command("list")
 def asset_list(
-    path: Annotated[Optional[Path], typer.Option("--path", "-p", help="Workspace path")] = None,
+    path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Limit results")] = 50,
 ) -> None:
     """List workspace-level assets."""

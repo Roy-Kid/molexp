@@ -40,4 +40,4 @@ def list_schemas() -> list[str]:
     return [p.stem for p in SCHEMA_DIR.glob("*.json")]
 
 
-__all__ = ["get_schema", "list_schemas", "SCHEMA_DIR", "SchemaValidator", "ValidationError"]
+__all__ = ["SCHEMA_DIR", "SchemaValidator", "ValidationError", "get_schema", "list_schemas"]

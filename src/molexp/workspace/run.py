@@ -7,23 +7,52 @@ checkpoints, and asset access during execution.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import os
 import platform
+import sys
 import time
 import traceback
 from datetime import datetime
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Protocol
 
 from mollog import get_logger
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
+
+from molexp._typing import (
+    ChannelMessage,
+    HashablePayload,
+    JSONValue,
+    TaskOutput,
+)
+
+if TYPE_CHECKING:
+    from .workspace import Workspace
+
+
+class _WorkflowSpecLike(Protocol):
+    """Duck-typed shape of ``molexp.workflow.WorkflowSpec``.
+
+    Defined here (rather than imported) because the workspace layer must
+    not depend on the workflow layer (CLAUDE.md § *Workspace core-dependency
+    boundary*). The workflow layer's real ``WorkflowSpec`` structurally
+    satisfies this Protocol.
+    """
+
+    workflow_id: str
+    version: str
+
+    def register(self, workspace: Workspace) -> None: ...
+
 
 if TYPE_CHECKING:
     from .experiment import Experiment
 
 from molexp.config import ProfileConfig
-from molexp.plugins.metrics import MetricsWriter
 
 from .assets import (
     ArtifactAccessor,
@@ -44,6 +73,7 @@ from .base import (
     _save_metadata,
 )
 from .context import Context
+from .metrics import MetricsWriter
 from .models import (
     ErrorInfo,
     ExecutionMetadata,
@@ -56,7 +86,61 @@ from .utils import generate_asset_id, generate_id
 logger = get_logger(__name__)
 
 
-class RunStatus(str, Enum):
+_FINGERPRINT_HASH_HEX_LEN = 16
+
+
+class RunFingerprint(BaseModel):
+    """Content-addressed identifier for a :class:`Run`.
+
+    Computed from the four inputs that fully determine a run's
+    behavior: the compiled workflow spec id, the parameters, the
+    upstream inputs, and the environment. Two runs with identical
+    fingerprints are reproductions of the same experiment by
+    definition; a fingerprint mismatch is grounds to invalidate any
+    cached result.
+
+    The existing UUID :attr:`Run.id` continues to identify a row in
+    the workspace. The fingerprint is exposed alongside via
+    :attr:`Run.fingerprint`.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workflow_spec_id: str
+    parameters_hash: str
+    inputs_hash: str
+    environment_hash: str
+
+    @property
+    def fingerprint_id(self) -> str:
+        canonical = json.dumps(
+            {
+                "workflow_spec_id": self.workflow_spec_id,
+                "parameters_hash": self.parameters_hash,
+                "inputs_hash": self.inputs_hash,
+                "environment_hash": self.environment_hash,
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:_FINGERPRINT_HASH_HEX_LEN]
+
+
+def _hash_payload(payload: HashablePayload) -> str:
+    canonical = json.dumps(payload, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:_FINGERPRINT_HASH_HEX_LEN]
+
+
+def _environment_signature() -> str:
+    """Deterministic, dependency-free hash of the active runtime environment."""
+    return _hash_payload(
+        {
+            "python": sys.version.split()[0],
+            "platform": platform.platform(terse=True),
+        }
+    )
+
+
+class RunStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
@@ -91,7 +175,7 @@ class RunContext:
             profile_config if profile_config is not None else ProfileConfig({}, name=None)
         )
         self._entered = False
-        self._context = Context(
+        self._context: Context = Context(
             run_id=run.id,
             experiment_id=run.experiment.id,
             project_id=run.experiment.project.id,
@@ -104,8 +188,10 @@ class RunContext:
         # the worker will use.
         self._explicit_execution_id: str | None = execution_id
         self._execution_id: str | None = None
-        # Actor message-passing infrastructure
-        self._channels: dict[str, Any] = {}
+        # Actor message-passing infrastructure — channel name → asyncio.Queue.
+        # Queues hold user-domain messages (typed ``ChannelMessage`` because
+        # the workspace doesn't constrain the wire format).
+        self._channels: dict[str, asyncio.Queue[ChannelMessage]] = {}
         # Active task id (set via set_active_task) used for Producer.task_id
         self._active_task_id: str | None = None
         # Walltime chunking — set by ``suspend()`` so ``__exit__`` keeps the
@@ -254,7 +340,7 @@ class RunContext:
     # ── Public API ──────────────────────────────────────────────────────
 
     @property
-    def params(self) -> dict[str, Any]:
+    def params(self) -> dict[str, JSONValue]:
         """Shortcut for ``self.run.parameters``."""
         return self.run.parameters
 
@@ -296,10 +382,10 @@ class RunContext:
             return data_dir
         raise FileNotFoundError(f"Asset {asset_name!r} not found and no fallback specified.")
 
-    def set_result(self, key: str, value: Any) -> None:
+    def set_result(self, key: str, value: TaskOutput) -> None:
         self._context.results[key] = value
 
-    def get_result(self, key: str) -> Any:
+    def get_result(self, key: str) -> TaskOutput:
         return self._context.results.get(key)
 
     # ── Walltime chunking ──────────────────────────────────────────────
@@ -315,7 +401,7 @@ class RunContext:
         """
         return self.run.metadata.last_step or 0
 
-    def checkpoint_step(self, step: int, *, data: dict[str, Any] | None = None) -> None:
+    def checkpoint_step(self, step: int, *, data: dict[str, JSONValue] | None = None) -> None:
         """Record the latest completed step on the run metadata.
 
         ``step`` is the *next* step to start at — i.e. after completing
@@ -342,7 +428,7 @@ class RunContext:
             self._suspended_at_step = int(at_step)
             self.run._update_metadata(last_step=int(at_step))
 
-    def bind_workflow_version(self, spec: Any) -> None:
+    def bind_workflow_version(self, spec: _WorkflowSpecLike) -> None:
         """Pin this run to a versioned :class:`~molexp.workflow.WorkflowSpec`.
 
         Persists ``workflow_id`` + ``workflow_version`` into
@@ -391,9 +477,9 @@ class RunContext:
     def get_asset(self, name: str, scope: str = "project"):
         if scope == "experiment":
             return self.run.experiment.data_assets.get(name)
-        elif scope == "project":
+        if scope == "project":
             return self.run.experiment.project.data_assets.get(name)
-        elif scope == "workspace":
+        if scope == "workspace":
             return self.run.experiment.project.workspace.data_assets.get(name)
         raise ValueError(f"Unknown scope: {scope!r}")
 
@@ -406,12 +492,12 @@ class RunContext:
 
     # ── Actor message passing ───────────────────────────────────────────
 
-    async def receive(self, channel: str) -> Any:
+    async def receive(self, channel: str) -> ChannelMessage:
         if channel not in self._channels:
             raise KeyError(f"Channel '{channel}' not found")
         return await self._channels[channel].get()
 
-    async def emit(self, channel: str, message: Any) -> None:
+    async def emit(self, channel: str, message: ChannelMessage) -> None:
         if channel not in self._channels:
             logger.warning(f"emit() to non-existent channel {channel!r} — dropped")
             return
@@ -476,7 +562,7 @@ class RunContext:
         profile_cfg = ProfileConfig(run.metadata.config, name=run.metadata.profile)
         return cls(run, profile_config=profile_cfg)
 
-    def _register_channel(self, name: str, queue: Any) -> None:
+    def _register_channel(self, name: str, queue: asyncio.Queue[ChannelMessage]) -> None:
         self._channels[name] = queue
 
     # ── Internal ────────────────────────────────────────────────────────
@@ -485,7 +571,7 @@ class RunContext:
     def context(self) -> Context:
         return self._context
 
-    def _load_existing_results(self):
+    def _load_existing_results(self) -> None:
         from .schema_version import read_versioned_json
 
         run_json = self.work_dir / "run.json"
@@ -496,7 +582,7 @@ class RunContext:
             if key not in self._context.results:
                 self._context.results[key] = value
 
-    def _save_context(self):
+    def _save_context(self) -> None:
         from .schema_version import write_versioned_json
 
         write_versioned_json(
@@ -518,8 +604,14 @@ class RunContext:
         target.parent.mkdir(parents=True, exist_ok=True)
         write_versioned_json(target, meta.model_dump(mode="json"))
 
-    def _update_execution_metadata(self, **updates: Any) -> None:
-        """Merge *updates* into the on-disk execution.json (read-modify-write)."""
+    def _update_execution_metadata(self, **updates: object) -> None:
+        """Merge *updates* into the on-disk execution.json (read-modify-write).
+
+        Values flow through pydantic's per-field validators on
+        :class:`ExecutionMetadata`; the parameter type is the structural
+        top-type ``object`` because the values are forwarded as-is
+        without inspection.
+        """
         from .schema_version import read_versioned_json, write_versioned_json
 
         target = self._execution_metadata_path()
@@ -578,13 +670,12 @@ class RunContext:
     def _apply_profile_metadata(self) -> None:
         """Persist the active profile name / data / hash into RunMetadata."""
         cfg = self._profile_config
-        updates: dict[str, Any] = {
-            "profile": cfg.name,
-            "config": cfg.to_dict(),
-            "config_hash": cfg.content_hash() if len(cfg) > 0 or cfg.name else None,
-            "labels": dict(self.run.metadata.labels),
-        }
-        self.run._update_metadata(**updates)
+        self.run._update_metadata(
+            profile=cfg.name,
+            config=cfg.to_dict(),
+            config_hash=cfg.content_hash() if len(cfg) > 0 or cfg.name else None,
+            labels=dict(self.run.metadata.labels),
+        )
 
     def _claim_ownership(self) -> None:
         """Stamp the run with the current process identity.
@@ -606,7 +697,7 @@ class RunContext:
             labels.pop(key, None)
         return labels
 
-    def _save_error_details(self, exc_type, exc_val, exc_tb):
+    def _save_error_details(self, exc_type, exc_val, exc_tb) -> None:
         """Persist an ``ErrorTraceAsset`` for the current execution."""
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
         exec_id = self._execution_id or "unbound"
@@ -653,7 +744,7 @@ class Run:
     def __init__(
         self,
         experiment: Experiment,
-        parameters: dict[str, Any] | None = None,
+        parameters: dict[str, JSONValue] | None = None,
         id: str | None = None,
         workflow_snapshot: WorkflowSnapshotRef | None = None,
         target: str | None = None,
@@ -673,8 +764,25 @@ class Run:
         return self.metadata.id
 
     @property
-    def parameters(self) -> dict[str, Any]:
+    def parameters(self) -> dict[str, JSONValue]:
         return self.metadata.parameters
+
+    @property
+    def fingerprint(self) -> RunFingerprint:
+        """Content-addressed :class:`RunFingerprint` for this run.
+
+        Independent of the UUID :attr:`id`; two runs with identical
+        ``(workflow_spec_id, parameters, inputs_hash, environment_hash)``
+        share the same fingerprint id.
+        """
+        snapshot = self.metadata.workflow_snapshot
+        workflow_spec_id = getattr(snapshot, "workflow_id", "") if snapshot is not None else ""
+        return RunFingerprint(
+            workflow_spec_id=workflow_spec_id,
+            parameters_hash=_hash_payload(self.metadata.parameters),
+            inputs_hash=_hash_payload({}),  # populated when input-asset model lands
+            environment_hash=_environment_signature(),
+        )
 
     @property
     def status(self) -> str:
@@ -700,7 +808,7 @@ class Run:
 
         return AssetsView(self.experiment.project.workspace.catalog, self.scope)
 
-    def get_result(self, key: str) -> Any:
+    def get_result(self, key: str) -> TaskOutput:
         """Read a result value persisted by ``RunContext.set_result``.
 
         Returns ``None`` when the run has not been executed yet, when the
@@ -839,6 +947,13 @@ class Run:
         self.metadata = self.metadata.model_copy(update={"status": status.value})
         self.save()
 
-    def _update_metadata(self, **updates: Any) -> None:
+    def _update_metadata(self, **updates: object) -> None:
+        """Forward partial-field updates into ``RunMetadata.model_copy``.
+
+        Values flow through pydantic's per-field validators; the parameter
+        type is the true Python top-type ``object`` (not ``Any`` — the
+        function does not interact with the values, it only forwards
+        them, and pydantic owns the per-field type contract).
+        """
         self.metadata = self.metadata.model_copy(update=updates)
         self.save()

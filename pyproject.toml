@@ -51,10 +51,84 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = [
+    "src/molexp/dist",
+    "ui",
+    "build",
+    "dist",
+    "site",
+    "node_modules",
+    ".venv",
+]
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
-ignore = ["E501"]
+# Strict ruleset for the molexp Python codebase.
+#   E, W, F, I  — pycodestyle / pyflakes / isort baseline
+#   B           — flake8-bugbear
+#   UP          — pyupgrade (modern py312 syntax)
+#   SIM         — flake8-simplify
+#   RUF         — ruff-specific rules
+#   ANN         — flake8-annotations (drives ANN401: ban `Any`)
+#   ARG         — unused-argument
+#   PTH         — flake8-use-pathlib
+#   TID         — flake8-tidy-imports
+#   PIE         — flake8-pie
+#   RET         — flake8-return
+#   C4          — flake8-comprehensions
+select = [
+    "E", "W", "F", "I",
+    "B", "UP", "SIM", "RUF",
+    "ANN", "ARG", "PTH",
+    "PIE", "RET", "C4",
+]
+ignore = [
+    "E501",     # line-length — handled by ruff-format, not the linter
+    "B008",     # function call in default arg — pydantic-ai / typer rely on this
+    "SIM108",   # ternary noise — judgement call, often less readable
+    "RET504",   # unnecessary assignment before return — local naming aids debugging
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use `Any` in fixtures/conftest where it's genuinely opaque,
+# and may freely declare untyped fixture functions.
+"tests/**" = ["ANN001", "ANN201", "ANN202", "ANN204", "ANN401", "ARG001", "ARG002"]
+# Examples are user-facing tutorials — annotation gaps are pedagogically OK.
+"examples/**" = ["ANN001", "ANN201", "ANN202", "ANN204", "ANN401"]
+# `__init__.py` re-export modules don't need annotations on `__all__` etc.
+"**/__init__.py" = ["F401"]
+# CLI entry-points use typer-style decorators with implicit return types.
+"src/molexp/cli/**" = ["ANN201", "ANN202"]
+
+[tool.ruff.lint.flake8-annotations]
+# ANN401 (`Any` is not allowed) is in the default `ANN` selection.
+# These options sharpen its enforcement.
+allow-star-arg-any = false
+suppress-dummy-args = true
+
+[tool.ruff.format]
+line-ending = "lf"
+docstring-code-format = true
+
+# ─── ty (type checker) ───────────────────────────────────────────────────────
+[tool.ty.src]
+include = ["src", "tests", "examples"]
+exclude = [
+    "src/molexp/dist",
+    "ui",
+    "build",
+    "dist",
+    "site",
+    "node_modules",
+    ".venv",
+    "**/__pycache__",
+]
+
+[tool.ty.rules]
+# ty is still alpha; we keep the default rule set and treat all diagnostics
+# as errors. Concrete `Any` enforcement happens through ruff ANN401.
+unresolved-import = "error"
+invalid-assignment = "error"
+invalid-type-form = "error"
 
 [tool.hatch.build]
 # Ship the built frontend bundle inside the wheel — populated by

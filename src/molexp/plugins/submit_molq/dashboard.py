@@ -13,11 +13,11 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from statistics import mean
-from typing import Any
+from typing import IO
 
 from molq import JobNotFoundError, MolqError, Submitor
 from molq.config import load_config
@@ -147,7 +147,7 @@ def list_targets(config_path: str | Path | None = None) -> list[TargetSummary]:
         try:
             submitor = _submitor_for(name, cfg_str)
             active = sum(1 for _ in submitor.list_jobs(include_terminal=False))
-        except Exception as exc:  # noqa: BLE001 — third-party errors are opaque
+        except Exception as exc:
             healthy = False
             reason = f"{type(exc).__name__}: {exc}"
         targets.append(
@@ -194,12 +194,12 @@ def list_jobs(
         try:
             submitor = _submitor_for(name, cfg_str)
             records = submitor.list_jobs(include_terminal=include_terminal)
-        except Exception:  # noqa: BLE001 — keep iterating other targets
+        except Exception:
             continue
         collected.extend(_to_summary(name, r) for r in records)
 
     collected.sort(
-        key=lambda j: j.submitted_at or datetime.min.replace(tzinfo=timezone.utc),
+        key=lambda j: j.submitted_at or datetime.min.replace(tzinfo=UTC),
         reverse=True,
     )
     return collected[:limit]
@@ -259,7 +259,7 @@ def compute_stats(jobs: list[JobSummary]) -> QueueStats:
     """
     running = pending = failed = succeeded = 0
     waits: list[float] = []
-    cutoff = datetime.now(timezone.utc).timestamp() - _WAIT_WINDOW_SECONDS
+    cutoff = datetime.now(UTC).timestamp() - _WAIT_WINDOW_SECONDS
 
     for job in jobs:
         try:
@@ -345,7 +345,7 @@ async def tail_log(
 
     # Tail the file. Use a thread to avoid blocking the event loop on slow
     # network filesystems where readers can stall on read(2).
-    def _open_and_seek() -> Any:
+    def _open_and_seek() -> IO[str]:
         f = log_path.open("r", encoding="utf-8", errors="replace")
         f.seek(0)
         return f
@@ -404,7 +404,7 @@ def _to_summary(target: str, record: JobRecord) -> JobSummary:
 
 def _to_transition(t: StatusTransition) -> JobTransition:
     return JobTransition(
-        timestamp=_to_datetime(t.timestamp) or datetime.now(timezone.utc),
+        timestamp=_to_datetime(t.timestamp) or datetime.now(UTC),
         from_state=t.old_state.value if t.old_state is not None else None,
         to_state=t.new_state.value,
         reason=t.reason,
@@ -414,7 +414,7 @@ def _to_transition(t: StatusTransition) -> JobTransition:
 def _to_datetime(ts: float | None) -> datetime | None:
     if ts is None:
         return None
-    return datetime.fromtimestamp(ts, tz=timezone.utc)
+    return datetime.fromtimestamp(ts, tz=UTC)
 
 
 def _duration_seconds(record: JobRecord) -> float | None:
@@ -424,7 +424,7 @@ def _duration_seconds(record: JobRecord) -> float | None:
         return None
     if end is None:
         # Running: report elapsed since start.
-        end = datetime.now(timezone.utc).timestamp()
+        end = datetime.now(UTC).timestamp()
     delta = end - start
     return delta if delta >= 0 else None
 
@@ -446,16 +446,16 @@ def _resolve_log_path(record: JobRecord, stream: str) -> Path:
 
 
 __all__ = [
-    "TargetSummary",
+    "JobDetail",
     "JobSummary",
     "JobTransition",
-    "JobDetail",
-    "QueueStats",
     "JobsPage",
-    "list_targets",
-    "list_jobs",
-    "get_job",
+    "QueueStats",
+    "TargetSummary",
     "compute_stats",
     "fetch_page",
+    "get_job",
+    "list_jobs",
+    "list_targets",
     "tail_log",
 ]

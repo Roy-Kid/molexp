@@ -6,7 +6,7 @@ can import the adapter without pulling in package ``__init__``.
 
 from __future__ import annotations
 
-from typing import Annotated, Union
+from typing import Annotated
 
 from pydantic import Field, TypeAdapter
 
@@ -19,15 +19,13 @@ from .log import LogAsset
 from .output import OutputAsset
 
 AnyAsset = Annotated[
-    Union[
-        DataAsset,
-        ArtifactAsset,
-        LogAsset,
-        ErrorTraceAsset,
-        CheckpointAsset,
-        ExecutionStateAsset,
-        OutputAsset,
-    ],
+    DataAsset
+    | ArtifactAsset
+    | LogAsset
+    | ErrorTraceAsset
+    | CheckpointAsset
+    | ExecutionStateAsset
+    | OutputAsset,
     Field(discriminator="kind"),
 ]
 

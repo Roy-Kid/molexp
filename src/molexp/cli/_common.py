@@ -10,13 +10,14 @@ import os
 import platform
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from rich import print as rprint
 from rich.console import Console
 
+from molexp._typing import JSONValue
 from molexp.plugins.submit_molq.metadata import normalize_executor_info
 from molexp.workspace import Workspace
+from molexp.workspace.run import Run
 
 console = Console()
 
@@ -43,7 +44,7 @@ def get_workspace(path: Path | None = None) -> Workspace:
     return Workspace(path or Path.cwd())
 
 
-def deterministic_run_id(params: dict[str, Any]) -> str:
+def deterministic_run_id(params: dict[str, JSONValue]) -> str:
     """Generate a deterministic 16-char run ID from parameters.
 
     Same parameters always produce the same ID, making run creation
@@ -68,7 +69,7 @@ def pid_alive(pid: int) -> bool:
     return True
 
 
-def reap_zombie_run(run: Any) -> bool:
+def reap_zombie_run(run: Run) -> bool:
     """Mark a stale ``RUNNING`` run as ``FAILED`` if its owner is dead.
 
     Returns ``True`` when the run was reaped (status flipped from
@@ -105,20 +106,20 @@ def reap_zombie_run(run: Any) -> bool:
     return True
 
 
-def run_executor_info(run: Any) -> dict[str, str]:
+def run_executor_info(run: Run) -> dict[str, str]:
     """Return normalized executor metadata for a workspace run."""
     return normalize_executor_info(run.metadata.executor_info, run.metadata.labels)
 
 
 __all__ = [
-    "console",
-    "rprint",
-    "_TERMINAL_STATUSES",
     "_STATUS_COLORS",
-    "status_color",
-    "get_workspace",
+    "_TERMINAL_STATUSES",
+    "console",
     "deterministic_run_id",
+    "get_workspace",
     "pid_alive",
     "reap_zombie_run",
+    "rprint",
     "run_executor_info",
+    "status_color",
 ]

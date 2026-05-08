@@ -52,7 +52,7 @@ def _find_bundled_webapp() -> Path | None:
         webapp = pkg_path / "dist"
         if webapp.is_dir() and (webapp / "index.html").exists():
             return webapp
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return None
 
@@ -157,7 +157,7 @@ def create_app(
     ]
 
     app.add_middleware(
-        CORSMiddleware,  # ty: ignore[invalid-argument-type]
+        CORSMiddleware,
         allow_origins=origins,
         allow_credentials=True,
         allow_methods=["*"],

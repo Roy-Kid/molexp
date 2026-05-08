@@ -75,7 +75,7 @@ def _make_run(tmp_path: Path):
 
 def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
     """Local target with scratch_root that resolves to run_dir → no rsync."""
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     # scratch_root chosen so target_run_dir == run.run_dir
     target = ComputeTarget(
         name="loop",
@@ -104,7 +104,7 @@ def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
 
 
 def test_stage_in_remote_uploads_run_dir(tmp_path: Path) -> None:
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     target = ComputeTarget(
         name="hpc",
         host="me@h",
@@ -130,7 +130,7 @@ def test_stage_in_remote_uploads_run_dir(tmp_path: Path) -> None:
 
 
 def test_stage_out_local_is_noop(tmp_path: Path) -> None:
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     target = ComputeTarget(name="loop", scratch_root="/tmp")
 
     from molexp.plugins.submit_molq import staging as staging_mod
@@ -146,7 +146,7 @@ def test_stage_out_local_is_noop(tmp_path: Path) -> None:
 
 
 def test_stage_out_remote_pulls_exec_dir_and_run_json(tmp_path: Path) -> None:
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     target = ComputeTarget(
         name="hpc",
         host="me@h",
@@ -164,7 +164,7 @@ def test_stage_out_remote_pulls_exec_dir_and_run_json(tmp_path: Path) -> None:
 
 def test_stage_out_skips_missing_optional_dirs(tmp_path: Path) -> None:
     """When artifacts/ etc. don't exist remotely, stage_out shouldn't error."""
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     target = ComputeTarget(
         name="hpc",
         host="me@h",
@@ -183,7 +183,7 @@ def test_stage_out_skips_missing_optional_dirs(tmp_path: Path) -> None:
 
 def test_stage_out_is_idempotent(tmp_path: Path) -> None:
     """Calling stage_out twice should not double-register anything observable."""
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     target = ComputeTarget(
         name="hpc",
         host="me@h",
@@ -202,7 +202,7 @@ def test_stage_out_is_idempotent(tmp_path: Path) -> None:
 
 def test_stage_out_swallows_transport_errors_for_optional_paths(tmp_path: Path) -> None:
     """If the remote exec dir isn't accessible (early failure), no exception."""
-    ws, run = _make_run(tmp_path)
+    _ws, run = _make_run(tmp_path)
     target = ComputeTarget(
         name="hpc",
         host="me@h",

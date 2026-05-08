@@ -21,10 +21,10 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 | Guide | Example | What it shows |
 |---|---|---|
-| [task-and-actor](../docs/guide/task-and-actor.md) | `workflow/task_and_actor.py` | Functional DSL, OOP builder, and `Actor` streaming |
-| [task-context](../docs/guide/task-context.md) | `workflow/task_context.py` | `ctx.state` / `ctx.deps` / `ctx.inputs` / `ctx.config` |
+| [task-and-actor](../docs/guide/task-and-actor.md) | `workflow/task_and_actor.py` | Functional DSL, OOP builder, and Protocol-form tasks |
+| [task-context](../docs/guide/task-context.md) | `workflow/task_context.py` | `ctx.inputs` / `ctx.deps` / `ctx.config` / `ctx.run_context` |
 | [workflow-runtime](../docs/guide/workflow-runtime.md) | `workflow/workflow_runtime.py` | `spec.execute()` vs `spec.start()` |
-| [control-flow](../docs/guide/control-flow.md) | `workflow/control_flow.py` | Diamond fan-out, conditional branches, fan-out via `parallel_map` |
+| [control-flow](../docs/guide/control-flow.md) | `workflow/control_flow.py` | Diamond fan-out, conditional branches, build-time fan-out |
 | [subworkflows](../docs/guide/subworkflows.md) | `workflow/subworkflows.py` | Calling a sub-spec from inside a task |
 
 ## Records and Assets
@@ -42,7 +42,29 @@ You can delete these freely; none of them touch `~/` or any system path.
 |---|---|---|
 | [run-profiles](../docs/guide/run-profiles.md) | `operations/run_profiles/` | `molcfg.yaml`, `--profile`, `--override` |
 | [server-lifecycle](../docs/guide/server-lifecycle.md) | `operations/server_lifecycle.py` | Programmatic `ServerManager.start()` / `stop()` |
-| [molq](../docs/guide/molq.md) | `operations/molq.py` | How `--scheduler slurm` composes a `SubmitHandler` |
+| [molq](../docs/guide/molq.md) | `operations/scheduler_molq.py` | How `--scheduler slurm` composes a `SubmitHandler` |
+
+## Agent Layer
+
+| Example | What it shows |
+|---|---|
+| `agent/chat_mode.py` | Minimum viable agent loop — `ChatMode` + `AgentSession` driven through `PydanticAIHarness`, using `pydantic_ai.models.test.TestModel` so it runs offline. The four public names (`AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`) plus the concrete `ChatMode`/`ChatModeConfig` are the entire user surface. |
+
+## Driving a Run
+
+The canonical pattern is to enter a workspace `RunContext` and forward it
+to `spec.execute()`:
+
+```python
+run = experiment.run(parameters={"seed": 0})
+with run.start(profile_config=cfg) as ctx:
+    result = await experiment.workflow.execute(run_context=ctx)
+```
+
+`run_context=` is the only way to expose workspace helpers
+(`ctx.artifact` / `ctx.log` / `ctx.set_result`) inside task bodies.
+Tasks unable to find a `RunContext` fall through to in-memory execution
+and the workspace-side helpers are no-ops.
 
 ## Running an Example
 

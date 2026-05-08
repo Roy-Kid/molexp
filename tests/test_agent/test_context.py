@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent import Message
 from molexp.agent.context import (
     ContextBuildRequest,
     DefaultContextManager,
     PromptComposer,
     TailCompressor,
 )
+from molexp.agent.types import Message
 
 
 def test_prompt_composer_concatenates_layers_in_order() -> None:

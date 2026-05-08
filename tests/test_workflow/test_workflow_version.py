@@ -1,23 +1,22 @@
-"""Tests for workflow versioning (spec: core-versioning).
+"""Tests for workflow versioning — pure-data shape.
 
-Covers acceptance criteria:
-- ac-001: Workflow(version=...) round-trips through WorkflowVersion JSON
-- ac-002: Same workflow_id with conflicting version raises
-- ac-009: RunMetadata.workflow_version persisted on first execution
+Spec: workflow-rectification (criterion `workflow-version-pure-data`).
+
+After the rectification, `WorkflowVersion` is a pure data type with no
+filesystem persistence helpers. `WorkflowSpec.version()` returns the
+record; `WorkflowSpec.register(workspace)` and on-disk write/load
+helpers (`write_record` / `load_record` / `_versions_dir` /
+`_record_path`) are gone.
 """
 
 from __future__ import annotations
 
-import json
-
-import pytest
-
 from molexp.workflow import Workflow
 from molexp.workflow.version import (
+    TaskTopologyEntry,
     WorkflowVersion,
     WorkflowVersionConflictError,
 )
-from molexp.workspace import Workspace
 
 
 def _make_two_task_workflow(version: str = "1.0.0") -> Workflow:
@@ -34,113 +33,57 @@ def _make_two_task_workflow(version: str = "1.0.0") -> Workflow:
     return wf
 
 
-class TestWorkflowVersionRoundTrip:
-    def test_register_writes_version_record(self, tmp_path):
-        ws = Workspace(tmp_path / "lab", name="Lab")
-        wf = _make_two_task_workflow(version="1.0.0")
-        spec = wf.build()
+class TestWorkflowSpecVersionMethod:
+    def test_version_returns_workflow_version_record(self):
+        spec = _make_two_task_workflow(version="1.0.0").build()
+        record = spec.version()
 
-        spec.register(ws)
-
-        version_path = ws.root / ".versions" / "workflows" / f"{spec.workflow_id}.json"
-        assert version_path.exists()
-
-        with open(version_path) as fh:
-            data = json.load(fh)
-        record = WorkflowVersion(**data)
-
+        assert isinstance(record, WorkflowVersion)
         assert record.workflow_id == spec.workflow_id
         assert record.version == "1.0.0"
         assert record.name == "pipeline"
+
+    def test_version_topology_shape(self):
+        spec = _make_two_task_workflow(version="1.0.0").build()
+        record = spec.version()
+
         assert len(record.topology) == 2
+        assert all(isinstance(t, TaskTopologyEntry) for t in record.topology)
         assert record.topology[0].name == "fetch"
         assert record.topology[1].name == "transform"
         assert record.topology[1].depends_on == ("fetch",)
 
-    def test_register_idempotent_for_same_version(self, tmp_path):
-        ws = Workspace(tmp_path / "lab", name="Lab")
-        wf = _make_two_task_workflow(version="1.0.0")
-        spec = wf.build()
-
-        spec.register(ws)
-        version_path = ws.root / ".versions" / "workflows" / f"{spec.workflow_id}.json"
-        first_mtime = version_path.stat().st_mtime_ns
-
-        spec.register(ws)
-        second_mtime = version_path.stat().st_mtime_ns
-        assert first_mtime == second_mtime, "second register must be a no-op (mtime unchanged)"
+    def test_version_label_is_separate_attribute(self):
+        spec = _make_two_task_workflow(version="3.1.4").build()
+        # The version *label* (string) and the version *record* (WorkflowVersion)
+        # are two different things; the record carries the label.
+        assert spec.version_label == "3.1.4"
+        assert spec.version().version == "3.1.4"
 
 
-class TestWorkflowVersionConflict:
-    def test_same_workflow_id_different_version_raises(self, tmp_path):
-        ws = Workspace(tmp_path / "lab", name="Lab")
-        spec_v1 = _make_two_task_workflow(version="1.0.0").build()
-        spec_v2 = _make_two_task_workflow(version="2.0.0").build()
-
-        assert spec_v1.workflow_id == spec_v2.workflow_id  # same topology
-
-        spec_v1.register(ws)
-        with pytest.raises(WorkflowVersionConflictError):
-            spec_v2.register(ws)
+class TestWorkflowVersionConflictErrorIsRuntimeError:
+    def test_conflict_error_is_runtime_error_subclass(self):
+        assert issubclass(WorkflowVersionConflictError, RuntimeError)
 
 
-class TestRunRecordsWorkflowVersion:
-    def test_run_metadata_carries_workflow_version(self, tmp_path):
-        ws = Workspace(tmp_path / "lab", name="Lab")
-        wf = _make_two_task_workflow(version="1.0.0")
-        spec = wf.build()
+class TestNoFilesystemHelpers:
+    def test_no_register_method_on_spec(self):
+        spec = _make_two_task_workflow().build()
+        assert not hasattr(spec, "register"), (
+            "WorkflowSpec.register(workspace) must be removed; persistence is "
+            "no longer the workflow layer's responsibility."
+        )
 
-        run = ws.project("p").experiment("e").run()
-        with run.start() as ctx:
-            ctx.bind_workflow_version(spec)
+    def test_no_to_workflow_version_method(self):
+        spec = _make_two_task_workflow().build()
+        assert not hasattr(spec, "to_workflow_version"), (
+            "to_workflow_version() must be renamed to version()."
+        )
 
-        version_path = ws.root / ".versions" / "workflows" / f"{spec.workflow_id}.json"
-        assert version_path.exists()
+    def test_no_persistence_helpers_in_version_module(self):
+        from molexp.workflow import version as version_mod
 
-        # Re-load run from disk and verify workflow_version was persisted.
-        from molexp.workspace.base import _load_metadata
-        from molexp.workspace.models import RunMetadata
-
-        meta = _load_metadata(RunMetadata, run.run_dir / "run.json")
-        assert meta.workflow_version == "1.0.0"
-        assert meta.workflow_id == spec.workflow_id
-
-
-class TestRuntimeAutoBindsWorkflowVersion:
-    def test_execute_auto_registers_version(self, tmp_path):
-        import asyncio
-
-        ws = Workspace(tmp_path / "lab", name="Lab")
-        wf = _make_two_task_workflow(version="3.1.4")
-        spec = wf.build()
-
-        run = ws.project("p").experiment("e").run()
-        result = asyncio.run(spec.execute(run=run))
-        assert result.status == "completed"
-
-        # WorkflowVersion record auto-written by the runtime.
-        version_path = ws.root / ".versions" / "workflows" / f"{spec.workflow_id}.json"
-        assert version_path.exists()
-
-        # RunMetadata stamped on disk without explicit bind_workflow_version().
-        from molexp.workspace.base import _load_metadata
-        from molexp.workspace.models import RunMetadata
-
-        meta = _load_metadata(RunMetadata, run.run_dir / "run.json")
-        assert meta.workflow_id == spec.workflow_id
-        assert meta.workflow_version == "3.1.4"
-
-    def test_runtime_swallows_version_conflict(self, tmp_path, caplog):
-        import asyncio
-
-        ws = Workspace(tmp_path / "lab", name="Lab")
-        spec_v1 = _make_two_task_workflow(version="1.0.0").build()
-        # Pre-register the workflow id under a different version label so the
-        # runtime auto-bind fires the conflict path.
-        spec_v1.register(ws)
-
-        spec_v2 = _make_two_task_workflow(version="2.0.0").build()
-        run = ws.project("p").experiment("e").run()
-        # Should NOT raise — runtime catches the conflict and logs a warning.
-        result = asyncio.run(spec_v2.execute(run=run))
-        assert result.status == "completed"
+        for name in ("write_record", "load_record", "_versions_dir", "_record_path"):
+            assert not hasattr(version_mod, name), (
+                f"Persistence helper {name!r} must be removed from molexp.workflow.version."
+            )

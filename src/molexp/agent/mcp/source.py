@@ -15,8 +15,10 @@ phase (R5 — survives without it).
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from pathlib import Path
+from typing import Protocol
 
+from molexp._typing import JSONMapping, JSONValue, TaskOutput
 from molexp.agent.mcp.probe import (
     PROBE_TIMEOUT_SECONDS,
     _build_pydantic_ai_server,
@@ -29,6 +31,26 @@ from molexp.agent.mcp.store import (
 )
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 from molexp.agent.types import AgentFailure, FailureKind
+
+
+class _SubsystemStoreLike(Protocol):
+    """Subsystem-store handle exposing a ``.dir()`` accessor."""
+
+    def dir(self) -> Path: ...
+
+
+class _WorkspaceLike(Protocol):
+    """Duck-typed shape of ``molexp.workspace.workspace.Workspace`` reached by the MCP source.
+
+    The MCP source needs only ``subsystem_store(name)`` (preferred) plus a
+    ``root`` fallback for legacy callers. Defined as a Protocol so the
+    agent layer doesn't take a hard dependency on the workspace class.
+    """
+
+    root: Path
+
+    def subsystem_store(self, kind: str) -> _SubsystemStoreLike: ...
+
 
 SOURCE_NAME = "mcp"
 
@@ -47,7 +69,7 @@ def _split_name(name: str) -> tuple[str, str]:
     return server, tool
 
 
-def _err(kind: FailureKind, message: str, **detail: Any) -> ToolResult:
+def _err(kind: FailureKind, message: str, **detail: JSONValue) -> ToolResult:
     return ToolResult(
         ok=False,
         error=AgentFailure(kind=kind, message=message, detail=dict(detail)),
@@ -66,10 +88,10 @@ class McpToolSource:
 
     source_name = SOURCE_NAME
 
-    def __init__(self, root: Any | None = None) -> None:
+    def __init__(self, root: Path | None = None) -> None:
         self._root = root
 
-    async def list_tools(self, workspace: Any) -> list[ToolSpec]:
+    async def list_tools(self, workspace: _WorkspaceLike) -> list[ToolSpec]:
         store = self._store_for(workspace)
         if store is None:
             return []
@@ -81,11 +103,17 @@ class McpToolSource:
                 out.append(spec)
         return out
 
-    async def call(self, name: str, args: dict[str, Any], ctx: ToolContext) -> ToolResult:
+    async def call(self, name: str, args: JSONMapping, ctx: ToolContext) -> ToolResult:
         try:
             server_name, tool_name = _split_name(name)
         except ValueError as exc:
             return _err(FailureKind.TOOL_NOT_FOUND, str(exc))
+        if ctx.workspace is None:
+            return _err(
+                FailureKind.TOOL_NOT_FOUND,
+                "MCP source has no workspace bound",
+                tool=name,
+            )
         store = self._store_for(ctx.workspace)
         if store is None:
             return _err(
@@ -130,32 +158,41 @@ class McpToolSource:
                 f"Timeout after {PROBE_TIMEOUT_SECONDS:.0f}s",
                 tool=name,
             )
-        except Exception as exc:  # noqa: BLE001 — surface SDK error to the agent
+        except Exception as exc:
             return _err(
                 FailureKind.TOOL_ERROR,
                 f"{type(exc).__name__}: {exc}",
                 tool=name,
             )
 
-    def _store_for(self, workspace: Any) -> McpStore | None:
+    def _store_for(self, workspace: _WorkspaceLike) -> McpStore | None:
+        # Prefer the workspace API (gives us the canonical
+        # <root>/.subsystems/agent.mcp/ path); fall back to a bare root
+        # for legacy callers that supplied only a Path.
+        if hasattr(workspace, "subsystem_store"):
+            return McpStore(workspace.subsystem_store("agent.mcp").dir())
         root = self._root if self._root is not None else getattr(workspace, "root", None)
         if root is None:
             return None
-        return McpStore(root)
+        from pathlib import Path
+
+        from molexp.workspace.subsystem import SUBSYSTEMS_DIRNAME
+
+        return McpStore(Path(root) / SUBSYSTEMS_DIRNAME / "agent.mcp")
 
     async def _list_one(self, store: McpStore, entry: McpServerEntry) -> list[ToolSpec]:
         try:
             resolved = store.resolve(entry)
-        except (UnresolvedSecretError, Exception):  # noqa: BLE001
+        except (UnresolvedSecretError, Exception):
             return []
         try:
             server = _build_pydantic_ai_server(resolved, entry.name, entry.scope, store)
-        except (ImportError, Exception):  # noqa: BLE001
+        except (ImportError, Exception):
             return []
         try:
             async with server:
                 tools = await asyncio.wait_for(server.list_tools(), timeout=PROBE_TIMEOUT_SECONDS)
-        except (TimeoutError, Exception):  # noqa: BLE001
+        except (TimeoutError, Exception):
             return []
 
         out: list[ToolSpec] = []
@@ -190,7 +227,7 @@ def _find_entry(store: McpStore, name: str) -> McpServerEntry | None:
     return None
 
 
-def _jsonable(value: Any) -> Any:
+def _jsonable(value: TaskOutput) -> JSONValue:
     """Best-effort coercion so an MCP value can ride a JSON wire format."""
 
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -204,4 +241,4 @@ def _jsonable(value: Any) -> Any:
     return repr(value)
 
 
-__all__ = ["McpToolSource", "SOURCE_NAME"]
+__all__ = ["SOURCE_NAME", "McpToolSource"]

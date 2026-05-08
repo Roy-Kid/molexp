@@ -65,7 +65,16 @@ class CliPlugin:
             only ``"1"`` is accepted; mismatches are skipped.
     """
 
-    __slots__ = ("id", "name", "version", "register", "api_version")
+    __slots__ = ("api_version", "id", "name", "register", "version")
+
+    # Class-level annotations let static type-checkers see the slots —
+    # the runtime values are populated via ``object.__setattr__`` because
+    # the class is treated as logically immutable after construction.
+    id: str
+    name: str
+    version: str
+    register: Callable[[typer.Typer], None]
+    api_version: str
 
     def __init__(
         self,
@@ -73,7 +82,7 @@ class CliPlugin:
         id: str,
         name: str,
         version: str,
-        register: Callable[["typer.Typer"], None],
+        register: Callable[[typer.Typer], None],
         api_version: str = CLI_PLUGIN_API_VERSION,
     ) -> None:
         object.__setattr__(self, "id", id)
@@ -119,7 +128,7 @@ def _safe_load(ep) -> CliPlugin | None:
     name = getattr(ep, "name", "<unknown>")
     try:
         obj = ep.load()
-    except Exception as exc:  # noqa: BLE001 — must isolate any failure
+    except Exception as exc:
         logger.warning(f"failed to load CLI plugin entry point '{name}': {exc}")
         return None
 
@@ -152,7 +161,7 @@ def discover_cli_plugins() -> tuple[CliPlugin, ...]:
 
 __all__ = [
     "CLI_PLUGIN_API_VERSION",
-    "CliPlugin",
     "ENTRY_POINT_GROUP",
+    "CliPlugin",
     "discover_cli_plugins",
 ]

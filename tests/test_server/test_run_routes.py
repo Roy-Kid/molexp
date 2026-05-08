@@ -187,7 +187,7 @@ class TestRunSubmissionWiring:
         def fake_try_cancel(r):
             seen.append(r.id)
             r.cancel()
-            return None
+            return
 
         monkeypatch.setattr("molexp.server.routes.run.try_cancel", fake_try_cancel)
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")

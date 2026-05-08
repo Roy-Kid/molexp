@@ -19,7 +19,7 @@ app = typer.Typer(
 )
 
 # Order matters only for --help display. Import for side-effect registration.
-from molexp.cli import (  # noqa: E402,F401
+from molexp.cli import (  # noqa: E402
     asset,
     experiment,
     explore_cmd,
@@ -46,7 +46,7 @@ def _register_third_party_cli_plugins(app: typer.Typer) -> None:
     for plugin in discover_cli_plugins():
         try:
             plugin.register(app)
-        except Exception as exc:  # noqa: BLE001 — must isolate any failure
+        except Exception as exc:
             _logger.warning(f"plugin '{plugin.id}' register raised; skipping: {exc}")
 
 

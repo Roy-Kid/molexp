@@ -9,9 +9,9 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
-from typing import Iterator
+from collections.abc import Iterator
 
-from molexp.agent.model import ToolSchema
+from molexp.agent._legacy_types import ToolSchema
 from molexp.agent.tools.policy import ToolPolicy
 from molexp.agent.tools.spec import RegisteredTool, ToolCallable, ToolSpec
 

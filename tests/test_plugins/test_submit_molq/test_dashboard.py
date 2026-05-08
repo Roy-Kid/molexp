@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from molq import JobNotFoundError
@@ -40,7 +40,7 @@ def _summary(
 
 class TestComputeStats:
     def test_buckets_each_state_correctly(self):
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         jobs = [
             _summary(state="running"),
             _summary(state="running"),
@@ -76,7 +76,7 @@ class TestComputeStats:
         assert stats.avg_wait_seconds is None
 
     def test_excludes_waits_outside_24h_window(self):
-        old = datetime.now(timezone.utc) - timedelta(days=2)
+        old = datetime.now(UTC) - timedelta(days=2)
         jobs = [
             _summary(
                 state="succeeded",

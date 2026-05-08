@@ -37,15 +37,13 @@ class MolExpError(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert exception to dictionary for JSON response."""
-        result = {
-            "error": {
-                "code": self.code,
-                "message": self.message,
-            }
+        error_body: dict[str, Any] = {
+            "code": self.code,
+            "message": self.message,
         }
         if self.details:
-            result["error"]["details"] = self.details
-        return result
+            error_body["details"] = self.details
+        return {"error": error_body}
 
 
 # ============================================================================
@@ -304,8 +302,6 @@ class PathOutsideWorkspaceError(PermissionError):
 
 class WorkflowError(MolExpError):
     """Base class for workflow-related errors."""
-
-    pass
 
 
 class WorkflowValidationError(WorkflowError):

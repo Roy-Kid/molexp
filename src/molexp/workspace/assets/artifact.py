@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
+
+from molexp._typing import JSONValue
 
 from .base import Asset
 
@@ -25,5 +27,5 @@ class ArtifactAsset(Asset):
     def read_text(self, scope_dir: Path, encoding: str = "utf-8") -> str:
         return self.absolute_path(scope_dir).read_text(encoding=encoding)
 
-    def read_json(self, scope_dir: Path) -> Any:
+    def read_json(self, scope_dir: Path) -> JSONValue:
         return json.loads(self.read_text(scope_dir))

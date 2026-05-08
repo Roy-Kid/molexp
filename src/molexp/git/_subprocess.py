@@ -19,7 +19,7 @@ class GitCommandError(RuntimeError):
     """Raised when ``git`` exits non-zero or times out.
 
     Attributes:
-        args: The ``git`` argv used (without the leading ``"git"``).
+        argv: The ``git`` argv used (without the leading ``"git"``).
         cwd: Working directory the command ran in.
         returncode: Exit code, or ``None`` if the run timed out.
         stderr: Captured stderr (decoded, may be empty).
@@ -27,16 +27,19 @@ class GitCommandError(RuntimeError):
 
     def __init__(
         self,
-        args: list[str],
+        argv: list[str],
         cwd: Path | str | None,
         returncode: int | None,
         stderr: str,
     ) -> None:
-        self.args = args
+        # ``self.args`` belongs to ``BaseException`` (a ``tuple[Any, ...]``);
+        # store our argv under a distinct attribute name so the parent's
+        # exception-args contract is preserved.
+        self.argv = argv
         self.cwd = cwd
         self.returncode = returncode
         self.stderr = stderr
-        msg = f"git {' '.join(args)} (cwd={cwd}) exit={returncode}"
+        msg = f"git {' '.join(argv)} (cwd={cwd}) exit={returncode}"
         if stderr:
             msg += f": {stderr.strip()[:500]}"
         super().__init__(msg)
@@ -86,7 +89,7 @@ async def run_git(
     )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         proc.kill()
         await proc.wait()
         raise GitCommandError(args, cwd, None, "timed out") from exc

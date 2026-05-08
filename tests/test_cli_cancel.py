@@ -201,7 +201,7 @@ class TestRunsCancelExperimentScope:
         assert reloaded.status == "pending"
 
     def test_cancel_shows_confirmation_table(self, tmp_path):
-        ws_path, project, exp, run = _make_workspace(tmp_path)
+        ws_path, project, exp, _run = _make_workspace(tmp_path)
 
         result = runner.invoke(
             app,
@@ -288,7 +288,7 @@ class TestRunsCancelByRunId:
 
 class TestRunsCancelMolqIntegration:
     def test_cancel_calls_molq_when_job_id_present(self, tmp_path, mocker):
-        ws_path, project, exp, run = _make_workspace(tmp_path, job_id="molq-uuid-1234")
+        ws_path, _project, _exp, run = _make_workspace(tmp_path, job_id="molq-uuid-1234")
 
         mock_submitor = mocker.MagicMock()
         mock_molq = mocker.MagicMock()
@@ -394,7 +394,7 @@ class TestRunsCancelMolqIntegration:
         assert reloaded.status == "cancelled"
 
     def test_cancel_uses_custom_cluster_name(self, tmp_path, mocker):
-        ws_path, project, exp, run = _make_workspace(tmp_path, job_id="molq-uuid-custom")
+        ws_path, _project, _exp, run = _make_workspace(tmp_path, job_id="molq-uuid-custom")
 
         mock_submitor = mocker.MagicMock()
         mock_molq = mocker.MagicMock()
