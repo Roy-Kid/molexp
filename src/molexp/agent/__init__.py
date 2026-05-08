@@ -1,9 +1,11 @@
 """Public agent surface.
 
 The entire ``molexp.agent`` layer is rebuilt around four user-visible
-names. Pydantic-ai and pydantic-graph are implementation details hidden
-inside the private ``_pydanticai/`` and ``_pydantic_graph/`` subpackages
-respectively; users never import either library through this package.
+names. ``pydantic_ai`` is an implementation detail hidden inside the
+private ``_pydanticai/`` subpackage. ``pydantic_graph`` is **not**
+imported anywhere under ``agent/`` — multi-step modes (PlanMode) drive
+their workflows through the public ``molexp.workflow`` API, the only
+sanctioned pydantic-graph site in the project.
 """
 
 from molexp.agent.mode import AgentMode, AgentRunResult

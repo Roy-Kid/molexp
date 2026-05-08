@@ -1,9 +1,10 @@
-"""Import-boundary firewall (spec ac-004 / ac-005 / ac-013).
+"""Import-boundary firewall.
 
-Two invariants:
+Three invariants:
 
 1. ``pydantic_ai`` may only be imported from ``src/molexp/agent/_pydanticai/``.
-2. ``pydantic_graph`` may only be imported from ``src/molexp/agent/_pydantic_graph/``.
+2. ``pydantic_graph`` must NOT be imported anywhere under ``src/molexp/agent/`` —
+   it lives exclusively under ``src/molexp/workflow/_pydantic_graph/``.
 3. Plain ``import molexp.agent`` does not eagerly load ``pydantic_ai`` —
    the SDK is loaded lazily when ``PydanticAIHarness`` is constructed.
 """
@@ -44,11 +45,10 @@ def test_pydantic_ai_imports_confined_to_pydanticai_subtree() -> None:
     assert not bad, f"pydantic_ai imported outside agent/_pydanticai/: {bad}"
 
 
-def test_pydantic_graph_imports_confined_to_pydantic_graph_subtree() -> None:
-    hits = _files_importing("pydantic_graph", AGENT_ROOT)
-    allowed = AGENT_ROOT / "_pydantic_graph"
-    bad = [str(p.relative_to(AGENT_ROOT)) for p in hits if allowed not in p.parents]
-    assert not bad, f"pydantic_graph imported outside agent/_pydantic_graph/: {bad}"
+def test_pydantic_graph_never_imported_in_agent() -> None:
+    """``pydantic_graph`` is a workflow-layer concern; ``agent/`` never imports it."""
+    bad = [str(p.relative_to(AGENT_ROOT)) for p in _files_importing("pydantic_graph", AGENT_ROOT)]
+    assert not bad, f"pydantic_graph imported inside agent/: {bad}"
 
 
 def test_importing_molexp_agent_does_not_load_pydantic_ai() -> None:

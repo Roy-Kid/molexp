@@ -21,6 +21,7 @@ def test_modes_all_is_the_three_pair_contract() -> None:
     assert set(modes.__all__) == {
         "PlanMode",
         "PlanModeConfig",
+        "PlanResult",
         "ChatMode",
         "ChatModeConfig",
         "ReviewMode",
