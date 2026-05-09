@@ -28,7 +28,9 @@ from molexp.agent.modes.plan.protocols import ModelTier, Provider
 from molexp.agent.modes.plan.schemas import (
     PlanBrief,
     ReportDigest,
+    TaskImplementationModule,
     TaskIRBrief,
+    TaskTestModule,
     WorkflowContract,
 )
 from molexp.workflow import (
@@ -106,14 +108,46 @@ def canned_presets() -> dict[type[BaseModel], BaseModel]:
             success_criteria=("Product mass recorded.",),
         ),
     }
+    # Per-task module sources keyed by task_id — used by GenerateTaskTests
+    # and GenerateTaskImplementations. The shapes are deliberately minimal
+    # (one assert / one trivial body); the test suite asserts on file
+    # existence + stub-skip semantics, not on content quality.
+    test_modules = {
+        task_id: TaskTestModule(
+            task_id=task_id,
+            source=(
+                f'"""Generated test for {task_id}."""\n\n'
+                "import pytest\n\n\n"
+                f"def test_{task_id}_smoke() -> None:\n"
+                f"    assert {task_id!r}\n"
+            ),
+        )
+        for task_id in ("prepare", "couple", "isolate")
+    }
+    impl_modules = {
+        task_id: TaskImplementationModule(
+            task_id=task_id,
+            source=(
+                f'"""Generated implementation for {task_id}."""\n\n'
+                "from molexp.workflow import Task\n\n\n"
+                f"class {task_id.capitalize()}(Task):\n"
+                "    async def execute(self, ctx) -> None:  # type: ignore[no-untyped-def, override]\n"
+                "        return None\n"
+            ),
+        )
+        for task_id in ("prepare", "couple", "isolate")
+    }
     return {
         ReportDigest: digest,
         PlanBrief: plan_brief,
         WorkflowContract: contract,
-        # CompileTaskIR invokes the provider once per task — the fake
-        # provider's per-task answer is keyed off (schema, task_id);
-        # we expose the dict via the FakeProvider attr below.
+        # CompileTaskIR / GenerateTaskTests / GenerateTaskImplementations
+        # invoke the provider once per task; the fake provider's per-task
+        # answer is keyed off the (schema, task_id) pair via the dispatch
+        # in :class:`FakeProvider.invoke` below.
         TaskIRBrief: task_briefs,  # type: ignore[dict-item]
+        TaskTestModule: test_modules,  # type: ignore[dict-item]
+        TaskImplementationModule: impl_modules,  # type: ignore[dict-item]
     }
 
 
@@ -144,14 +178,15 @@ class FakeProvider:
         node_id: str = "",
     ) -> SchemaT:
         self.calls.append((node_id, tier, schema.__name__))
-        if schema is TaskIRBrief:
-            briefs = self._presets[TaskIRBrief]
-            assert isinstance(briefs, dict), "TaskIRBrief preset must be a dict"
+        per_task_schemas = (TaskIRBrief, TaskTestModule, TaskImplementationModule)
+        if schema in per_task_schemas:
+            entries = self._presets[schema]
+            assert isinstance(entries, dict), f"{schema.__name__} preset must be a dict"
             import json
 
             payload = json.loads(user)
             task_id = payload["task_id"]
-            return briefs[task_id]  # type: ignore[return-value]
+            return entries[task_id]  # type: ignore[return-value]
         value = self._presets[schema]
         return value  # type: ignore[return-value]
 

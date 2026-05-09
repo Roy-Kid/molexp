@@ -49,7 +49,8 @@ from .conftest import FakeProvider
 # ── PLAN_WORKFLOW shape (ac-007) ───────────────────────────────────────────
 
 
-def test_plan_workflow_is_workflow_with_six_named_nodes() -> None:
+def test_plan_workflow_is_workflow_with_ten_named_nodes() -> None:
+    """Sub-spec 06 grew the pipeline from 6 to 10 nodes."""
     assert isinstance(PLAN_WORKFLOW, Workflow)
     assert PLAN_WORKFLOW._entries == ("IngestReport",)
     assert {t.name for t in PLAN_WORKFLOW._tasks} == {
@@ -59,6 +60,10 @@ def test_plan_workflow_is_workflow_with_six_named_nodes() -> None:
         "CompileWorkflowIR",
         "CompileTaskIR",
         "GenerateWorkflowSkeleton",
+        "GenerateTaskTests",
+        "GenerateTaskImplementations",
+        "ValidateWorkspace",
+        "HumanReview",
     }
 
 
@@ -137,11 +142,11 @@ def test_new_schemas_importable_and_frozen(schema_name: str) -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        "AutoApproveGatePolicy",
+        # Sub-spec 06 reintroduced ``GatePolicy`` + ``AutoApproveGatePolicy``
+        # for the terminal HumanReview node — they are NOT in this list.
         "IdentityRepairPolicy",
         "InMemoryPlanStore",
         "NoOpArtifactWriter",
-        "GatePolicy",
         "RepairPolicy",
         "PlanStore",
         "ArtifactWriter",
@@ -416,9 +421,12 @@ async def test_plan_mode_run_exposes_workspace_path_and_back_compat_shim(
     assert result.mode_state is not None
     assert result.mode_state["workspace_path"] == workspace_handle.root()
     plan_compat = result.mode_state["plan"]
-    assert set(plan_compat.keys()) == {"intake", "design", "approved", "iterations"}
-    assert plan_compat["approved"] is False
+    # Sub-spec 06 added ``handoff`` to the back-compat shim; ``approved``
+    # is now driven by the gate's decision (auto-approve here ⇒ True).
+    assert set(plan_compat.keys()) == {"intake", "design", "approved", "iterations", "handoff"}
+    assert plan_compat["approved"] is True
     assert plan_compat["iterations"] is None
+    assert isinstance(plan_compat["handoff"], dict)
     # Session shim preserved.
     assert session.mode_state["plan"] == plan_compat
 

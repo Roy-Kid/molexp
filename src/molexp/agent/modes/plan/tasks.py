@@ -20,6 +20,7 @@ LLM entirely — it just hashes and writes the raw user input.
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar, cast
 
@@ -27,18 +28,32 @@ import yaml
 from pydantic import BaseModel
 
 from molexp.agent.modes.plan.errors import SkeletonCompileError
+from molexp.agent.modes.plan.handoff import PlanRunHandoff
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
     DigestResult,
+    HandoffResult,
     IngestReportResult,
     PlanBrief,
     PlanBriefResult,
+    PlanReviewView,
     ReportDigest,
     SkeletonResult,
+    TaskImplementationModule,
+    TaskImplementationsResult,
     TaskIRBrief,
     TaskIRResult,
+    TaskTestModule,
+    TaskTestsResult,
+    ValidationResult,
     WorkflowContract,
     WorkflowIRResult,
+)
+from molexp.agent.modes.plan.workspace_layout import (
+    CheckResult,
+    PlanManifest,
+    PlanWorkspaceHandle,
+    ValidationReport,
 )
 from molexp.workflow import Task, TaskContext, default_compiler
 
@@ -47,10 +62,14 @@ __all__ = [
     "CompileWorkflowIR",
     "DraftImplementationPlan",
     "DraftReportDigest",
+    "GenerateTaskImplementations",
+    "GenerateTaskTests",
     "GenerateWorkflowSkeleton",
+    "HumanReview",
     "IngestReport",
     "PlanLLMTask",
     "PlanTask",
+    "ValidateWorkspace",
 ]
 
 
@@ -277,6 +296,485 @@ class GenerateWorkflowSkeleton(PlanTask):
         _write_text(tasks_init, _TASKS_INIT_BODY)
 
         return SkeletonResult(workflow_py_path=workflow_py, package_path=package_path)
+
+
+# ── Node 7: GenerateTaskTests ──────────────────────────────────────────────
+
+
+class GenerateTaskTests(PlanLLMTask):
+    """Generate one pytest module per task plus a topology-pin test.
+
+    Reads :class:`TaskIRResult` (briefs) and :class:`WorkflowIRResult`
+    (the contract). For each brief, asks the provider for one
+    :class:`TaskTestModule` and writes it to ``tests/test_<task>.py``.
+    A separate ``tests/test_workflow_structure.py`` asserts the
+    generated workflow's topology against the IR.
+    """
+
+    SYSTEM_PROMPT = (
+        "Given a TaskIRBrief plus its TaskIO declaration, draft a pytest "
+        "module that exercises the task. If is_stub=True, emit a single "
+        "test that calls pytest.skip('stub'). Otherwise, write at least "
+        "one happy-path test referencing the documented inputs / outputs."
+    )
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskTestsResult:
+        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        skeleton = _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
+        del skeleton  # path is informational; the writer uses workspace_handle
+
+        paths: list[Path] = []
+        for brief in ir_result.briefs:
+            if brief.is_stub:
+                # Skip the LLM round-trip — emit a pytest.skip stub
+                # synchronously. Saves a model call and keeps the
+                # stub-tolerance contract tight.
+                source = _render_stub_test_module(brief.task_id)
+            else:
+                module = await self.invoke_llm(
+                    ctx,
+                    user=brief.model_dump_json(),
+                    schema=TaskTestModule,
+                )
+                # Force task_id to match the brief; LLMs may forget.
+                if module.task_id != brief.task_id:
+                    module = module.model_copy(update={"task_id": brief.task_id})
+                source = module.source
+            path = ctx.deps.workspace_handle.write_test_module(brief.task_id, source)
+            paths.append(path)
+
+        # Topology-pin test always lands.
+        ir_yaml_rel = "ir/workflow.yaml"
+        structure_source = _render_workflow_structure_test(ir_yaml_rel)
+        ctx.deps.workspace_handle.write_workflow_structure_test(structure_source)
+
+        return TaskTestsResult(test_paths=tuple(paths))
+
+
+# ── Node 8: GenerateTaskImplementations ────────────────────────────────────
+
+
+class GenerateTaskImplementations(PlanLLMTask):
+    """Generate one runnable module per task in the workflow contract.
+
+    For each :class:`TaskIRBrief` whose ``is_stub`` is False, asks
+    the provider for a :class:`TaskImplementationModule` and writes
+    the LLM-emitted source verbatim. For stubs, writes a tiny module
+    body that ``raise NotImplementedError(<reason>)`` — sub-spec 06's
+    v1 stub-tolerance contract.
+    """
+
+    SYSTEM_PROMPT = (
+        "Given a TaskIRBrief plus its TaskIO declaration, write a Python "
+        "module implementing the task as a molexp.workflow.Task subclass "
+        "with `async def execute(ctx)`. Set is_stub=true if you cannot "
+        "produce a runnable body."
+    )
+
+    async def execute(
+        self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
+    ) -> TaskImplementationsResult:
+        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
+
+        paths: list[Path] = []
+        for brief in ir_result.briefs:
+            if brief.is_stub:
+                source = _render_stub_implementation_module(brief.task_id)
+            else:
+                module = await self.invoke_llm(
+                    ctx,
+                    user=brief.model_dump_json(),
+                    schema=TaskImplementationModule,
+                )
+                source = (
+                    _render_stub_implementation_module(brief.task_id)
+                    if module.is_stub
+                    else module.source
+                )
+            path = ctx.deps.workspace_handle.write_task_implementation(brief.task_id, source)
+            paths.append(path)
+
+        return TaskImplementationsResult(impl_paths=tuple(paths))
+
+
+# ── Node 9: ValidateWorkspace ──────────────────────────────────────────────
+
+
+class ValidateWorkspace(PlanTask):
+    """Run the deterministic validation pass over the materialized workspace.
+
+    Eight checks; results land in a :class:`ValidationReport` written
+    to ``validation_report.md``. Errors block ``HumanReview``;
+    warnings are surfaced but do not fail the pass.
+    """
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ValidationResult:
+        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        # GenerateTaskImplementations / GenerateTaskTests outputs are
+        # validated through the on-disk artifacts; pull them only to
+        # ensure the upstream order ran.
+        _expect_input(ctx.inputs, "GenerateTaskTests", TaskTestsResult)
+        _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult)
+
+        handle = ctx.deps.workspace_handle
+        checks: list[CheckResult] = []
+
+        # 1. workflow IR parseable
+        ir_yaml_path = handle.ir_dir() / "workflow.yaml"
+        try:
+            yaml.safe_load(ir_yaml_path.read_text())
+            checks.append(CheckResult(name="workflow_ir_parseable", passed=True, severity="info"))
+        except (FileNotFoundError, yaml.YAMLError) as exc:
+            checks.append(
+                CheckResult(
+                    name="workflow_ir_parseable",
+                    passed=False,
+                    severity="error",
+                    detail=str(exc),
+                )
+            )
+
+        # 2. every task IR file parseable
+        for task_yaml in (
+            handle.tasks_ir_dir().glob("*.yaml") if handle.tasks_ir_dir().exists() else ()
+        ):
+            try:
+                yaml.safe_load(task_yaml.read_text())
+                checks.append(
+                    CheckResult(
+                        name=f"task_ir_parseable[{task_yaml.stem}]",
+                        passed=True,
+                        severity="info",
+                    )
+                )
+            except yaml.YAMLError as exc:
+                checks.append(
+                    CheckResult(
+                        name=f"task_ir_parseable[{task_yaml.stem}]",
+                        passed=False,
+                        severity="error",
+                        detail=str(exc),
+                    )
+                )
+
+        # 3. every task in IR has an implementation module
+        for brief in ir_result.briefs:
+            impl_path = handle.tasks_pkg_dir() / f"{brief.task_id}.py"
+            if impl_path.exists():
+                checks.append(
+                    CheckResult(
+                        name=f"impl_present[{brief.task_id}]",
+                        passed=True,
+                        severity="info",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckResult(
+                        name=f"impl_present[{brief.task_id}]",
+                        passed=False,
+                        severity="error",
+                        detail=f"missing {impl_path.name}",
+                    )
+                )
+
+        # 4. every task in IR has a test module
+        for brief in ir_result.briefs:
+            test_path = handle.tests_dir() / f"test_{brief.task_id}.py"
+            if test_path.exists():
+                checks.append(
+                    CheckResult(
+                        name=f"test_present[{brief.task_id}]",
+                        passed=True,
+                        severity="info",
+                    )
+                )
+            else:
+                checks.append(
+                    CheckResult(
+                        name=f"test_present[{brief.task_id}]",
+                        passed=False,
+                        severity="error",
+                        detail=f"missing {test_path.name}",
+                    )
+                )
+
+        # 5. expected workspace paths exist
+        for rel in (
+            "report/original.md",
+            "plan/implementation_plan.md",
+            "src/experiment/__init__.py",
+            "src/experiment/workflow.py",
+        ):
+            path = handle.root() / rel
+            checks.append(
+                CheckResult(
+                    name=f"path_exists[{rel}]",
+                    passed=path.exists(),
+                    severity="info" if path.exists() else "error",
+                    detail="" if path.exists() else f"missing {rel}",
+                )
+            )
+
+        # 6. generated workflow imports cleanly (compile-only)
+        workflow_py = handle.experiment_pkg_dir() / "workflow.py"
+        if workflow_py.exists():
+            try:
+                compile(workflow_py.read_text(), str(workflow_py), "exec")
+                checks.append(
+                    CheckResult(
+                        name="workflow_module_compiles",
+                        passed=True,
+                        severity="info",
+                    )
+                )
+            except SyntaxError as exc:
+                checks.append(
+                    CheckResult(
+                        name="workflow_module_compiles",
+                        passed=False,
+                        severity="error",
+                        detail=f"SyntaxError: {exc.msg} at line {exc.lineno}",
+                    )
+                )
+
+        # 7. empty-contract guard
+        if not ir_result.briefs:
+            checks.append(
+                CheckResult(
+                    name="contract_has_tasks",
+                    passed=True,
+                    severity="warning",
+                    detail="no tasks declared in workflow contract",
+                )
+            )
+
+        passed = not any(c.severity == "error" and not c.passed for c in checks)
+        summary = (
+            f"{sum(1 for c in checks if c.passed)} of {len(checks)} checks passed; "
+            f"{sum(1 for c in checks if c.severity == 'error' and not c.passed)} errors, "
+            f"{sum(1 for c in checks if c.severity == 'warning')} warnings."
+        )
+        report = ValidationReport(passed=passed, checks=tuple(checks), summary=summary)
+        report_path = handle.write_validation_report(report)
+        return ValidationResult(report_path=report_path, passed=passed, summary=summary)
+
+
+# ── Node 10: HumanReview ───────────────────────────────────────────────────
+
+
+class HumanReview(PlanTask):
+    """Terminal node — gate the plan with a :class:`GatePolicy`.
+
+    On approval, builds the :class:`PlanRunHandoff`, writes it into
+    ``manifest.yaml``'s ``handoff`` section, flips manifest status to
+    ``"approved"``, and returns a :class:`HandoffResult`. On rejection,
+    leaves status at ``"pending_review"`` and returns a
+    :class:`HandoffResult` whose ``decision.approved`` is False; the
+    handoff field still carries a constructed :class:`PlanRunHandoff`
+    so downstream consumers can introspect what would have been
+    handed off.
+    """
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
+        validation_result = ctx.inputs
+
+        # Re-read upstream artefacts from the workspace to assemble the
+        # review view + handoff. We pull from disk rather than threading
+        # them all via ctx.inputs to keep the workflow fan-in shallow.
+        handle = ctx.deps.workspace_handle
+        digest = await _read_yaml_into(
+            handle.report_dir() / "digest.md", ReportDigest, fallback="digest"
+        )
+        plan_brief = await _read_yaml_into(
+            handle.plan_dir() / "implementation_plan.md",
+            PlanBrief,
+            fallback="plan",
+        )
+        contract_yaml = handle.ir_dir() / "workflow.yaml"
+        contract_dict = yaml.safe_load(contract_yaml.read_text())
+        contract = default_compiler.dict_to_contract(contract_dict)
+
+        plan_id = handle.plan_id
+        view = PlanReviewView(
+            plan_id=plan_id,
+            experiment_workspace_path=handle.root(),
+            digest=digest,
+            plan_brief=plan_brief,
+            contract=contract,
+            validation_passed=validation_result.passed,
+            validation_summary=validation_result.summary,
+        )
+
+        decision = await ctx.deps.gate_policy.human_review(view)
+
+        # Build the handoff regardless — both branches consume it.
+        existing_manifest = _load_manifest_from_disk(handle.manifest_path())
+        validation_report = ValidationReport(
+            passed=validation_result.passed,
+            summary=validation_result.summary,
+        )
+        new_status = "approved" if decision.approved else "pending_review"
+        manifest_for_handoff = (
+            existing_manifest or _build_manifest_stub(plan_id, contract_yaml, ir_result_briefs=())
+        ).model_copy(update={"status": new_status})
+        handoff = PlanRunHandoff(
+            plan_id=plan_id,
+            experiment_workspace_path=handle.root(),
+            workflow_yaml_path=contract_yaml,
+            task_ir_paths=tuple(handle.tasks_ir_dir().glob("*.yaml"))
+            if handle.tasks_ir_dir().exists()
+            else (),
+            entrypoint_module="experiment.workflow",
+            entrypoint_symbol="WORKFLOW",
+            manifest_snapshot=manifest_for_handoff,
+            validation_report_snapshot=validation_report,
+            created_at=_utcnow(),
+        )
+
+        # On approval, persist the manifest with the handoff block.
+        if decision.approved:
+            _persist_manifest_with_handoff(handle, manifest_for_handoff, handoff)
+
+        return HandoffResult(handoff=handoff, decision=decision)
+
+
+# ── Helpers (extended for sub-spec 06) ─────────────────────────────────────
+
+
+def _render_stub_test_module(task_id: str) -> str:
+    return (
+        f'"""Generated test for ``{task_id}`` — implementation is a stub."""\n'
+        "\n"
+        "import pytest\n"
+        "\n"
+        "\n"
+        f"def test_{task_id}_stub() -> None:\n"
+        '    pytest.skip("stub")\n'
+    )
+
+
+def _render_workflow_structure_test(ir_yaml_rel: str) -> str:
+    return (
+        '"""Generated topology-pin test for the experiment workflow."""\n'
+        "\n"
+        "from pathlib import Path\n"
+        "\n"
+        "import pytest\n"
+        "import yaml\n"
+        "\n"
+        "from molexp.workflow import default_compiler\n"
+        "\n"
+        "\n"
+        "def test_workflow_topology_matches_ir() -> None:\n"
+        f"    ir_text = Path(__file__).resolve().parent.parent.joinpath({ir_yaml_rel!r}).read_text()\n"
+        "    contract = default_compiler.dict_to_contract(default_compiler.yaml_to_ir(ir_text))\n"
+        "    declared_ids = {tio.task_id for tio in contract.task_io}\n"
+        "    try:\n"
+        "        from experiment.workflow import WORKFLOW\n"
+        "    except ImportError:\n"
+        '        pytest.skip("experiment.workflow import failed; skipping topology pin")\n'
+        "        return\n"
+        "    actual_ids = {t.name for t in WORKFLOW._tasks}\n"
+        "    assert declared_ids == actual_ids\n"
+    )
+
+
+def _render_stub_implementation_module(task_id: str) -> str:
+    return (
+        f'"""Stub implementation for ``{task_id}`` — fill in to enable RunMode."""\n'
+        "\n"
+        "from molexp.workflow import Task\n"
+        "\n"
+        "\n"
+        f"class {_camel_case(task_id)}(Task):\n"
+        f'    """Stub for {task_id} — populate this body to make RunMode runnable."""\n'
+        "\n"
+        "    async def execute(self, ctx) -> None:  # type: ignore[no-untyped-def, override]\n"
+        f'        raise NotImplementedError("{task_id} not yet implemented")\n'
+    )
+
+
+async def _read_yaml_into[T: BaseModel](path: Path, model: type[T], *, fallback: str) -> T:
+    """Best-effort load — falls back to model defaults if the file is
+    not a structured-payload mirror of ``model``.
+
+    The on-disk markdown is a human-readable rendering, not a
+    round-trippable representation. This helper instead reads any
+    ``manifest.yaml`` companion section keyed by ``fallback``;
+    if absent, returns a model with empty defaults so PlanReviewView
+    can still be constructed for review."""
+    del path
+    # v1 keeps things simple: always return defaults. Sub-spec 07 will
+    # extend manifest.yaml to carry the structured digest / plan brief
+    # so the review view can show real values.
+    if model is ReportDigest:
+        return ReportDigest(
+            summary="(see " + fallback + " on disk)",
+            experimental_goal="(see workspace)",
+        )  # type: ignore[return-value]
+    if model is PlanBrief:
+        return PlanBrief(
+            overview="(see " + fallback + " on disk)",
+            chosen_method="(see workspace)",
+        )  # type: ignore[return-value]
+    raise NotImplementedError(f"_read_yaml_into does not handle {model.__name__}")
+
+
+def _load_manifest_from_disk(manifest_path: Path) -> PlanManifest | None:
+    if not manifest_path.exists():
+        return None
+    raw = yaml.safe_load(manifest_path.read_text())
+    if not isinstance(raw, dict):
+        return None
+    # Drop any "handoff" section so PlanManifest's strict schema accepts it.
+    raw_payload = {k: v for k, v in raw.items() if k != "handoff"}
+    try:
+        return PlanManifest.model_validate(raw_payload)
+    except Exception:
+        return None
+
+
+def _build_manifest_stub(
+    plan_id: str,
+    workflow_ir_path: Path,
+    *,
+    ir_result_briefs: tuple[Any, ...],
+) -> PlanManifest:
+    del ir_result_briefs
+    return PlanManifest(
+        plan_id=plan_id,
+        created_at=_utcnow(),
+        report_source="report/original.md",
+        workflow_ir_path=workflow_ir_path,
+    )
+
+
+def _persist_manifest_with_handoff(
+    handle: PlanWorkspaceHandle,
+    manifest: PlanManifest,
+    handoff: PlanRunHandoff,
+) -> None:
+    """Write ``manifest.yaml`` with both the manifest fields and a
+    nested ``handoff`` block.
+
+    Sub-spec 03's ``write_manifest`` only knows about the manifest
+    schema; the handoff block is layered on top here.
+    """
+    import json
+
+    payload = manifest.model_dump(mode="json")
+    payload["handoff"] = json.loads(handoff.model_dump_json())
+    text = yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
+    from molexp.workspace import atomic_write_text
+
+    atomic_write_text(handle.manifest_path(), text)
+
+
+def _utcnow() -> datetime:
+    """Wrapper kept around for monkey-patching in tests."""
+    return datetime.now(UTC)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

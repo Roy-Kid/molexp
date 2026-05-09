@@ -146,7 +146,7 @@ class PlanManifest(BaseModel):
     workflow_ir_path: Path
     task_ir_paths: tuple[Path, ...] = ()
     model_policy_snapshot: dict[str, Any] | None = None
-    status: Literal["draft", "validated", "approved"] = "draft"
+    status: Literal["draft", "validated", "pending_review", "approved"] = "draft"
 
 
 # ── Runtime container ──────────────────────────────────────────────────────
@@ -309,6 +309,26 @@ class PlanWorkspaceHandle:
         path = self.validation_report_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, report.to_markdown())
+        return path
+
+    # -- Generated-source writers (sub-spec 06) ---------------------------
+
+    def write_test_module(self, task_id: str, source: str) -> Path:
+        """Write a per-task test module to ``tests/test_<task_id>.py``."""
+        path = self.tests_dir() / f"test_{task_id}.py"
+        atomic_write_text(path, source)
+        return path
+
+    def write_workflow_structure_test(self, source: str) -> Path:
+        """Write the topology-pin test to ``tests/test_workflow_structure.py``."""
+        path = self.tests_dir() / "test_workflow_structure.py"
+        atomic_write_text(path, source)
+        return path
+
+    def write_task_implementation(self, task_id: str, source: str) -> Path:
+        """Write a per-task module to ``src/experiment/tasks/<task_id>.py``."""
+        path = self.tasks_pkg_dir() / f"{task_id}.py"
+        atomic_write_text(path, source)
         return path
 
 

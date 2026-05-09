@@ -25,9 +25,15 @@ from pydantic import BaseModel, ConfigDict
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
-from molexp.agent.modes.plan.protocols import PlanDeps, Provider
+from molexp.agent.modes.plan.protocols import (
+    AutoApproveGatePolicy,
+    GatePolicy,
+    PlanDeps,
+    Provider,
+)
 from molexp.agent.modes.plan.schemas import (
     DigestResult,
+    HandoffResult,
     PlanBriefResult,
     SkeletonResult,
 )
@@ -114,6 +120,7 @@ class PlanMode(AgentMode):
         workspace_handle: PlanWorkspaceHandle,
         provider: Provider | None = None,
         model_policy: PlanModelPolicy | None = None,
+        gate_policy: GatePolicy | None = None,
         artifacts_root: Path | None = None,
         max_iterations: int = 8,
         temperature: float | None = None,
@@ -131,6 +138,7 @@ class PlanMode(AgentMode):
             provider=provider,
             policy=model_policy if model_policy is not None else STANDARD_PLAN_POLICY,
             workspace_handle=workspace_handle,
+            gate_policy=gate_policy if gate_policy is not None else AutoApproveGatePolicy(),
         )
 
     async def run(
@@ -151,6 +159,7 @@ class PlanMode(AgentMode):
         digest_result = outputs.get("DraftReportDigest")
         plan_brief_result = outputs.get("DraftImplementationPlan")
         skeleton_result = outputs.get("GenerateWorkflowSkeleton")
+        handoff_result = outputs.get("HumanReview")
 
         intake_text: str = ""
         design_text: str = ""
@@ -164,7 +173,13 @@ class PlanMode(AgentMode):
                     f"- {stage}" for stage in brief.stages
                 )
 
-        if isinstance(skeleton_result, SkeletonResult):
+        if isinstance(handoff_result, HandoffResult):
+            summary = (
+                f"PlanMode {'approved' if handoff_result.decision.approved else 'declined'} "
+                f"plan_id={handoff_result.handoff.plan_id} at "
+                f"{self._deps.workspace_handle.root()}."
+            )
+        elif isinstance(skeleton_result, SkeletonResult):
             summary = (
                 f"PlanMode materialized {skeleton_result.workflow_py_path} "
                 f"under {self._deps.workspace_handle.root()}."
@@ -172,21 +187,29 @@ class PlanMode(AgentMode):
         else:
             summary = "PlanMode pipeline did not reach the skeleton-generation step."
 
+        approved = bool(
+            isinstance(handoff_result, HandoffResult) and handoff_result.decision.approved
+        )
         view = PlanResult(
             intake=intake_text,
             design=design_text,
             summary=summary,
-            approved=False,
+            approved=approved,
         )
 
         # Back-compat shim — preserves the ``mode_state["plan"]``
-        # shape today's UI / tests rely on. Sub-spec 06 will replace
-        # ``approved`` / ``iterations`` with their real values.
+        # shape today's UI / tests rely on. Adds ``handoff`` (sub-spec
+        # 06) when the gate approved; otherwise None.
         plan_compat: dict[str, Any] = {
             "intake": intake_text,
             "design": design_text,
-            "approved": False,
+            "approved": approved,
             "iterations": None,
+            "handoff": (
+                handoff_result.handoff.model_dump(mode="json")
+                if isinstance(handoff_result, HandoffResult) and approved
+                else None
+            ),
         }
 
         mode_state: dict[str, Any] = {

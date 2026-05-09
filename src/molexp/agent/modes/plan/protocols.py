@@ -17,7 +17,7 @@ and there is no in-memory iteration counter to thread.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
@@ -25,10 +25,14 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from molexp.agent.modes.plan.policy import PlanModelPolicy
+    from molexp.agent.modes.plan.schemas import ApprovalDecision, PlanReviewView
     from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
 
 
 __all__ = [
+    "AutoApproveGatePolicy",
+    "GatePolicy",
+    "InteractiveGatePolicy",
     "ModelTier",
     "PlanDeps",
     "Provider",
@@ -101,12 +105,55 @@ class Provider(Protocol):
 # ── PlanDeps aggregate ─────────────────────────────────────────────────────
 
 
+# ── Gate policy (sub-spec 06: terminal HumanReview node) ───────────────────
+
+
+@runtime_checkable
+class GatePolicy(Protocol):
+    """Approval gate consulted by ``HumanReviewTask`` at the pipeline tail.
+
+    A single method — ``human_review`` — returning an
+    :class:`ApprovalDecision`. PlanMode v1 ships only with the
+    auto-approve and not-yet-implemented placeholders; production UIs
+    will plug in their own implementation that prompts a human.
+    """
+
+    async def human_review(self, view: PlanReviewView) -> ApprovalDecision: ...
+
+
+class AutoApproveGatePolicy:
+    """Always-approve gate — the safe default for non-interactive use."""
+
+    async def human_review(self, view: PlanReviewView) -> ApprovalDecision:
+        del view  # protocol-pinned name; not consulted by auto-approve
+        from molexp.agent.modes.plan.schemas import ApprovalDecision as _AD
+
+        return _AD(approved=True)
+
+
+class InteractiveGatePolicy:
+    """Placeholder for a future UI / CLI-driven gate.
+
+    Raises :class:`NotImplementedError` so callers who construct
+    PlanMode without supplying their own gate are forced to either
+    accept the auto-approve default or implement an interactive
+    handler. The full interactive surface ships in a separate spec.
+    """
+
+    async def human_review(self, view: PlanReviewView) -> ApprovalDecision:
+        del view
+        raise NotImplementedError(
+            "InteractiveGatePolicy is a placeholder — provide a concrete "
+            "GatePolicy implementation or use AutoApproveGatePolicy."
+        )
+
+
+# ── PlanDeps aggregate ─────────────────────────────────────────────────────
+
+
 @dataclass(frozen=True)
 class PlanDeps:
     """Runtime services bundle threaded through ``ctx.deps``.
-
-    Three required fields, no defaults — the materialize-to-workspace
-    pipeline is meaningless without all three:
 
     Attributes:
         provider: LLM dispatch gateway (concrete impl: ``PydanticAIProvider``).
@@ -118,8 +165,12 @@ class PlanDeps:
             (:class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`).
             All artifact writes route through this handle's API; tasks
             never touch ``Path.write_text`` directly.
+        gate_policy: Approval gate consulted by ``HumanReviewTask``.
+            Defaults to :class:`AutoApproveGatePolicy` so non-interactive
+            callers (tests, CLI happy paths) don't have to wire one in.
     """
 
     provider: Provider
     policy: PlanModelPolicy
     workspace_handle: PlanWorkspaceHandle
+    gate_policy: GatePolicy = field(default_factory=AutoApproveGatePolicy)

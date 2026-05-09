@@ -33,13 +33,20 @@ from molexp.workflow import WorkflowContract
 __all__ = [
     "ApprovalDecision",
     "DigestResult",
+    "HandoffResult",
     "IngestReportResult",
     "PlanBrief",
     "PlanBriefResult",
+    "PlanReviewView",
     "ReportDigest",
     "SkeletonResult",
     "TaskIRBrief",
     "TaskIRResult",
+    "TaskImplementationModule",
+    "TaskImplementationsResult",
+    "TaskTestModule",
+    "TaskTestsResult",
+    "ValidationResult",
     "WorkflowContract",
     "WorkflowIRResult",
 ]
@@ -210,3 +217,122 @@ class SkeletonResult(BaseModel):
 
     workflow_py_path: Path
     package_path: Path
+
+
+# ── Sub-spec 06: codegen / validation / handoff schemas ───────────────────
+
+
+class TaskTestModule(BaseModel):
+    """Generated pytest module source for one task.
+
+    The provider returns one of these per task; the generated text
+    becomes ``tests/test_<task_id>.py``.
+
+    Attributes:
+        task_id: Matches the contract entry the test exercises.
+        source: Full pytest module source (header + imports + tests).
+        imports: Optional descriptive list of imports the source uses;
+            informational, not consumed by the writer.
+        fixtures: Optional descriptive list of pytest fixtures the
+            source defines.
+    """
+
+    model_config = _FROZEN
+
+    task_id: str
+    source: str
+    imports: tuple[str, ...] = ()
+    fixtures: tuple[str, ...] = ()
+
+
+class TaskTestsResult(BaseModel):
+    """``GenerateTaskTests`` output — paths to every generated test file."""
+
+    model_config = _FROZEN
+
+    test_paths: tuple[Path, ...]
+
+
+class TaskImplementationModule(BaseModel):
+    """Generated module source for one task's runnable implementation.
+
+    Attributes:
+        task_id: Matches the contract entry this module implements.
+        source: Full module source (imports + class definition +
+            ``async def execute(ctx)``).
+        is_stub: When True, the source is a placeholder that raises
+            :class:`NotImplementedError`. The validator's pytest
+            invocation respects this flag via ``pytest.skip("stub")``
+            so v1 stubs do not fail CI.
+    """
+
+    model_config = _FROZEN
+
+    task_id: str
+    source: str
+    is_stub: bool = False
+
+
+class TaskImplementationsResult(BaseModel):
+    """``GenerateTaskImplementations`` output — paths to every impl file."""
+
+    model_config = _FROZEN
+
+    impl_paths: tuple[Path, ...]
+
+
+class ValidationResult(BaseModel):
+    """``ValidateWorkspace`` output — report path + pass/fail summary."""
+
+    model_config = _FROZEN
+
+    report_path: Path
+    passed: bool
+    summary: str
+
+
+class PlanReviewView(BaseModel):
+    """Snapshot of materialized PlanMode artifacts surfaced to a human reviewer.
+
+    Composed by ``HumanReviewTask`` from the per-node ``*Result``
+    objects, plus the materialized workspace path. The view is the
+    minimal payload an interactive reviewer / UI needs to decide
+    approve / reject; it does not embed the full markdown / IR text
+    (those live on disk and are linked by path).
+
+    Attributes:
+        plan_id: Identifier for the plan being reviewed.
+        experiment_workspace_path: Root directory of the materialized workspace.
+        digest: Structured report digest.
+        plan_brief: Natural-language implementation plan.
+        contract: Typed workflow contract.
+        validation_passed: Echo of :class:`ValidationResult.passed`.
+        validation_summary: Echo of :class:`ValidationResult.summary`.
+    """
+
+    model_config = _FROZEN
+
+    plan_id: str
+    experiment_workspace_path: Path
+    digest: ReportDigest
+    plan_brief: PlanBrief
+    contract: WorkflowContract
+    validation_passed: bool
+    validation_summary: str
+
+
+class HandoffResult(BaseModel):
+    """``HumanReview`` output — wraps the :class:`PlanRunHandoff`."""
+
+    model_config = _FROZEN
+
+    handoff: PlanRunHandoff
+    decision: ApprovalDecision
+
+
+# Avoid circular import at type-check time; the runtime resolution
+# happens via :meth:`HandoffResult.model_rebuild` once both classes
+# are defined (see ``__init__.py``).
+from molexp.agent.modes.plan.handoff import PlanRunHandoff  # noqa: E402
+
+HandoffResult.model_rebuild()

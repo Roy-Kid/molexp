@@ -205,7 +205,9 @@ def test_plan_deps_required_fields() -> None:
 
 def test_plan_deps_drops_legacy_service_fields() -> None:
     fields = PlanDeps.__dataclass_fields__
-    legacy = {"gate_policy", "repair_policy", "store", "artifact_writer", "model_policy"}
+    # Sub-spec 06 reintroduced ``gate_policy`` for the HumanReview gate;
+    # it is NOT in the legacy-removed set anymore.
+    legacy = {"repair_policy", "store", "artifact_writer", "model_policy"}
     assert legacy.isdisjoint(fields.keys())
 
 

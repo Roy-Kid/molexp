@@ -22,8 +22,12 @@ from molexp.agent.modes.plan.tasks import (
     CompileWorkflowIR,
     DraftImplementationPlan,
     DraftReportDigest,
+    GenerateTaskImplementations,
+    GenerateTaskTests,
     GenerateWorkflowSkeleton,
+    HumanReview,
     IngestReport,
+    ValidateWorkspace,
 )
 from molexp.workflow import Workflow, WorkflowBuilder
 
@@ -34,17 +38,22 @@ __all__ = [
 
 
 def build_plan_workflow() -> Workflow:
-    """Assemble the 6-node materialize-to-workspace pipeline.
+    """Assemble the 10-node materialize-to-workspace pipeline.
 
-    Each step's data dep is the previous step's output, except
-    :class:`GenerateWorkflowSkeleton` which has two upstreams (the
-    workflow contract and the per-task IR set) and therefore receives
-    a ``dict``-shaped ``ctx.inputs``.
+    Pipeline shape::
+
+        IngestReport → DraftReportDigest → DraftImplementationPlan
+            → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
+            → GenerateTaskTests / GenerateTaskImplementations
+            → ValidateWorkspace → HumanReview
 
     Step names are the Task class ``__name__`` so
     :class:`~molexp.agent.modes.plan.policy.PlanModelPolicy.tier_for`
     finds them by their canonical id without any per-pipeline mapping
-    table.
+    table. ``GenerateTaskTests`` and ``GenerateTaskImplementations``
+    fan out from ``GenerateWorkflowSkeleton`` (data-graph siblings);
+    ``ValidateWorkspace`` joins them and ``HumanReview`` is the
+    terminal node.
     """
     builder = WorkflowBuilder(name="plan_mode", entry="IngestReport")
     builder.add(IngestReport(), name="IngestReport", next_="DraftReportDigest")
@@ -76,6 +85,31 @@ def build_plan_workflow() -> Workflow:
         GenerateWorkflowSkeleton(),
         name="GenerateWorkflowSkeleton",
         depends_on=["CompileWorkflowIR", "CompileTaskIR"],
+    )
+    builder.add(
+        GenerateTaskTests(),
+        name="GenerateTaskTests",
+        depends_on=["CompileTaskIR", "GenerateWorkflowSkeleton"],
+    )
+    builder.add(
+        GenerateTaskImplementations(),
+        name="GenerateTaskImplementations",
+        depends_on=["CompileTaskIR", "GenerateWorkflowSkeleton"],
+    )
+    builder.add(
+        ValidateWorkspace(),
+        name="ValidateWorkspace",
+        depends_on=[
+            "CompileTaskIR",
+            "GenerateTaskTests",
+            "GenerateTaskImplementations",
+        ],
+        next_="HumanReview",
+    )
+    builder.add(
+        HumanReview(),
+        name="HumanReview",
+        depends_on=["ValidateWorkspace"],
     )
     return builder.build()
 

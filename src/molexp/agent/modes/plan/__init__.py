@@ -19,10 +19,16 @@ from molexp.agent.modes.plan._mode import (
 )
 from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW, build_plan_workflow
 from molexp.agent.modes.plan.errors import SkeletonCompileError
+from molexp.agent.modes.plan.handoff import PlanRunHandoff
 from molexp.agent.modes.plan.policy import (
     PLAN_NODE_NAMES,
     STANDARD_PLAN_POLICY,
     PlanModelPolicy,
+)
+from molexp.agent.modes.plan.protocols import (
+    AutoApproveGatePolicy,
+    GatePolicy,
+    InteractiveGatePolicy,
 )
 from molexp.agent.modes.plan.workspace_layout import (
     AGENT_PLAN_EXPERIMENTS_KIND,
@@ -37,12 +43,16 @@ __all__ = [
     "PLAN_NODE_NAMES",
     "PLAN_WORKFLOW",
     "STANDARD_PLAN_POLICY",
+    "AutoApproveGatePolicy",
     "CheckResult",
+    "GatePolicy",
+    "InteractiveGatePolicy",
     "PlanManifest",
     "PlanMode",
     "PlanModeConfig",
     "PlanModelPolicy",
     "PlanResult",
+    "PlanRunHandoff",
     "PlanWorkspaceHandle",
     "SkeletonCompileError",
     "ValidationReport",
