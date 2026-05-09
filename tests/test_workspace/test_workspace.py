@@ -147,9 +147,9 @@ class TestRun:
         assert run.status == "pending"
 
     def test_workflow_snapshot_passed_through_as_dict(self, experiment):
-        # workspace no longer auto-captures snapshots from
-        # Experiment.workflow_source — the caller (workflow / agent
-        # layer) supplies an opaque dict at run-creation time.
+        # workspace no longer auto-captures workflow-snapshot data —
+        # the caller (workflow / agent layer) supplies an opaque dict
+        # at run-creation time.
         run = experiment.run(workflow_snapshot={"source": "train.py", "git_commit": "abc123"})
         snap = run.metadata.workflow_snapshot
         assert snap is not None
