@@ -1,34 +1,26 @@
 """Tests for :mod:`molexp.agent.modes.plan.policy`.
 
 Covers acceptance criteria ac-001..ac-010 for sub-spec
-``planmode-workspace-pipeline-04-plan-model-policy``.
+``planmode-workspace-pipeline-04-plan-model-policy``. The end-to-end
+"custom policy is observed by Provider.invoke" coverage moved to
+``test_pipeline_core.py`` once sub-spec 05 rewrote the pipeline; the
+unit-level tests live here.
 """
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import Any, ClassVar, TypeVar
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from molexp.agent.modes.plan import (
     PLAN_NODE_NAMES,
-    PLAN_WORKFLOW,
     STANDARD_PLAN_POLICY,
-    PlanMode,
     PlanModelPolicy,
 )
-from molexp.agent.modes.plan.protocols import (
-    AutoApproveGatePolicy,
-    IdentityRepairPolicy,
-    InMemoryPlanStore,
-    ModelTier,
-    NoOpArtifactWriter,
-    PlanDeps,
-    Provider,
-)
+from molexp.agent.modes.plan.protocols import ModelTier, PlanDeps
 
 # ── tier_for (ac-001) ──────────────────────────────────────────────────────
 
@@ -47,8 +39,6 @@ def test_tier_for_returns_default_when_node_unmapped() -> None:
 
 
 def test_tier_for_unknown_but_allowed_node_returns_default() -> None:
-    """A node id that is in PLAN_NODE_NAMES but not in node_tiers
-    falls back to default_tier."""
     policy = PlanModelPolicy(default_tier=ModelTier.HEAVY)
     assert policy.tier_for("HandoffTask") is ModelTier.HEAVY
 
@@ -81,7 +71,9 @@ def test_plan_node_names_is_frozenset_of_str() -> None:
     assert all(isinstance(n, str) for n in PLAN_NODE_NAMES)
 
 
-def test_plan_node_names_covers_current_pipeline_classes() -> None:
+def test_plan_node_names_covers_legacy_pipeline_classes() -> None:
+    """The legacy 14-task ids stay in the bridging set so an
+    operator can still author a policy referring to them."""
     expected = {
         "IntakeTask",
         "GoalTask",
@@ -151,11 +143,11 @@ def test_standard_policy_subspec_05_table(node: str, expected_tier: ModelTier) -
         ("CodegenTask", ModelTier.HEAVY),
     ],
 )
-def test_standard_policy_preserves_current_tier_table(node: str, expected_tier: ModelTier) -> None:
+def test_standard_policy_preserves_legacy_tier_table(node: str, expected_tier: ModelTier) -> None:
     assert STANDARD_PLAN_POLICY.tier_for(node) is expected_tier
 
 
-# ── tasks.py source-level invariants (ac-006) ──────────────────────────────
+# ── tasks.py source-level invariants (ac-005 + ac-006) ─────────────────────
 
 
 _TASKS_PY_PATH = (
@@ -191,40 +183,30 @@ def test_tasks_py_has_no_tier_classvar() -> None:
     source = _TASKS_PY_PATH.read_text()
     tree = ast.parse(source)
     assignments = _ast_classvar_targets(tree)
-    assert "TIER" not in assignments, (
-        "TIER ClassVar leftover in tasks.py — should be removed in favor of "
-        "ctx.deps.model_policy.tier_for(...)"
-    )
+    assert "TIER" not in assignments
 
 
 def test_tasks_py_invoke_llm_uses_model_policy() -> None:
-    """``invoke_llm`` must resolve tier via the deps' model_policy."""
+    """``invoke_llm`` must resolve tier via ``ctx.deps.policy.tier_for(...)``."""
     source = _TASKS_PY_PATH.read_text()
-    assert "ctx.deps.model_policy.tier_for(" in source
-    # And no literal ModelTier.CHEAP/DEFAULT/HEAVY appears in tasks.py
-    # — every site goes through the policy.
+    assert "ctx.deps.policy.tier_for(" in source
     assert "ModelTier.CHEAP" not in source
     assert "ModelTier.DEFAULT" not in source
     assert "ModelTier.HEAVY" not in source
 
 
-# ── PlanDeps additive field (ac-008) ───────────────────────────────────────
+# ── PlanDeps shape (ac-008) ────────────────────────────────────────────────
 
 
-def test_plan_deps_has_model_policy_field() -> None:
+def test_plan_deps_required_fields() -> None:
     fields = PlanDeps.__dataclass_fields__
-    assert "model_policy" in fields
+    assert {"provider", "policy", "workspace_handle"}.issubset(fields.keys())
 
 
-def test_plan_deps_default_construction_uses_standard_policy() -> None:
-    deps = PlanDeps(
-        provider=_RecordingProvider(),  # type: ignore[arg-type]
-        gate_policy=AutoApproveGatePolicy(),
-        repair_policy=IdentityRepairPolicy(),
-        store=InMemoryPlanStore(),
-        artifact_writer=NoOpArtifactWriter(),
-    )
-    assert deps.model_policy is STANDARD_PLAN_POLICY
+def test_plan_deps_drops_legacy_service_fields() -> None:
+    fields = PlanDeps.__dataclass_fields__
+    legacy = {"gate_policy", "repair_policy", "store", "artifact_writer", "model_policy"}
+    assert legacy.isdisjoint(fields.keys())
 
 
 # ── Public re-exports (ac-009) ─────────────────────────────────────────────
@@ -237,130 +219,3 @@ def test_planmode_modes_plan_re_exports_policy_names() -> None:
     assert plan_pkg.STANDARD_PLAN_POLICY is STANDARD_PLAN_POLICY
     assert "PlanModelPolicy" in plan_pkg.__all__
     assert "STANDARD_PLAN_POLICY" in plan_pkg.__all__
-
-
-# ── End-to-end policy injection (ac-007) ───────────────────────────────────
-
-
-SchemaT = TypeVar("SchemaT", bound=BaseModel)
-
-
-class _RecordingProvider:
-    """Stub Provider that records every ``(node_id, tier)`` it sees.
-
-    Returns canned schema instances so PLAN_WORKFLOW can run end-to-end.
-    The mapping from schema name → constructor kwargs is hand-tuned for
-    the present-day plan workflow.
-    """
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, ModelTier]] = []
-
-    async def invoke(
-        self,
-        *,
-        tier: ModelTier,
-        system: str,
-        user: str,
-        schema: type[SchemaT],
-        node_id: str = "",
-    ) -> SchemaT:
-        self.calls.append((node_id, tier))
-        return _build_canned_schema(schema)
-
-    async def invoke_with_template(
-        self,
-        *,
-        tier: ModelTier,
-        system: str,
-        user_template: str,
-        user_context: Any,
-        schema: type[SchemaT],
-        node_id: str = "",
-    ) -> SchemaT:
-        return await self.invoke(tier=tier, system=system, user="", schema=schema, node_id=node_id)
-
-
-def _build_canned_schema[SchemaT: BaseModel](schema: type[SchemaT]) -> SchemaT:
-    """Construct a minimal valid instance of one of the plan-mode schemas."""
-    from molexp.agent.modes.plan.schemas import (
-        ContextSpec,
-        Decomposition,
-        GoalSpec,
-        IntakeSpec,
-        MethodSpec,
-        ProtocolDraft,
-        ProtocolStep,
-    )
-
-    name = schema.__name__
-    if name == "IntakeSpec":
-        return IntakeSpec(request="r", extracted_goal="g")  # type: ignore[return-value]
-    if name == "GoalSpec":
-        return GoalSpec(objective="o")  # type: ignore[return-value]
-    if name == "ContextSpec":
-        return ContextSpec()  # type: ignore[return-value]
-    if name == "MethodSpec":
-        return MethodSpec(name="m")  # type: ignore[return-value]
-    if name == "Decomposition":
-        return Decomposition(stages=("s1",))  # type: ignore[return-value]
-    if name == "ProtocolDraft":
-        return ProtocolDraft(
-            steps=(ProtocolStep(stage="s1", operation="op"),),
-        )  # type: ignore[return-value]
-    if name == "CodegenOutput":
-        from molexp.agent.modes.plan.schemas import CodegenOutput, GeneratedTaskSpec
-
-        return CodegenOutput(
-            tasks=(GeneratedTaskSpec(stage="s1", code="class S1: pass"),),
-        )  # type: ignore[return-value]
-    raise NotImplementedError(f"_build_canned_schema does not handle {name!r}")
-
-
-def test_provider_protocol_runtime_check() -> None:
-    """The recording stub matches the Provider protocol."""
-    assert isinstance(_RecordingProvider(), Provider)
-
-
-@pytest.mark.asyncio
-async def test_custom_policy_observed_by_provider_invoke() -> None:
-    """Driving the present-day workflow with a custom policy puts the
-    overridden tier on every LLM-bearing call."""
-    provider = _RecordingProvider()
-    policy = PlanModelPolicy(default_tier=ModelTier.CHEAP)
-    deps = PlanDeps(
-        provider=provider,  # type: ignore[arg-type]
-        gate_policy=AutoApproveGatePolicy(),
-        repair_policy=IdentityRepairPolicy(),
-        store=InMemoryPlanStore(),
-        artifact_writer=NoOpArtifactWriter(),
-        model_policy=policy,
-    )
-    await PLAN_WORKFLOW.execute(config={"user_input": "hello"}, deps=deps)
-    assert provider.calls, "stub provider should have been invoked at least once"
-    for node_id, tier in provider.calls:
-        assert tier is ModelTier.CHEAP, (
-            f"node {node_id!r} received tier={tier} under default-CHEAP policy"
-        )
-
-
-@pytest.mark.asyncio
-async def test_planmode_constructor_threads_custom_policy_into_deps() -> None:
-    """Sanity check on ``PlanMode(model_policy=...)`` plumbing — the
-    resulting ``_deps.model_policy`` must be the supplied policy."""
-    custom = PlanModelPolicy(default_tier=ModelTier.HEAVY)
-    mode = PlanMode(provider=_RecordingProvider(), model_policy=custom)  # type: ignore[arg-type]
-    # ``_deps`` is private but the test is the consumer-of-record for
-    # the wiring contract; reaching in is fine inside the test module.
-    assert mode._deps.model_policy is custom
-
-
-@pytest.mark.asyncio
-async def test_planmode_default_constructor_uses_standard_policy() -> None:
-    mode = PlanMode(provider=_RecordingProvider())  # type: ignore[arg-type]
-    assert mode._deps.model_policy is STANDARD_PLAN_POLICY
-
-
-# Suppress unused-attribute warning on ClassVar import in environments
-# where ruff doesn't recognize it as TYPE_CHECKING-style usage.
-_: ClassVar[None] | None = None

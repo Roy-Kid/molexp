@@ -13,11 +13,12 @@ downstream sub-specs to consume.
 """
 
 from molexp.agent.modes.plan._mode import (
-    PLAN_WORKFLOW,
     PlanMode,
     PlanModeConfig,
     PlanResult,
 )
+from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW, build_plan_workflow
+from molexp.agent.modes.plan.errors import SkeletonCompileError
 from molexp.agent.modes.plan.policy import (
     PLAN_NODE_NAMES,
     STANDARD_PLAN_POLICY,
@@ -43,5 +44,7 @@ __all__ = [
     "PlanModelPolicy",
     "PlanResult",
     "PlanWorkspaceHandle",
+    "SkeletonCompileError",
     "ValidationReport",
+    "build_plan_workflow",
 ]

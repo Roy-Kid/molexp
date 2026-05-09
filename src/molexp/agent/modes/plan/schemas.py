@@ -1,248 +1,212 @@
-"""Structured payload types for the PlanMode workflow.
+"""Structured payload types for the rewritten PlanMode pipeline.
 
-Every task in :mod:`~molexp.agent.modes.plan.tasks` returns one of
-these models — string-only data flow is deliberately rejected
-(planning needs structure, not natural language hand-off). Models are
-considered private to ``modes.plan`` for now; if downstream code grows
-a need to consume them they can be elevated to a public namespace.
+Replaces the old in-memory PlanSpec / ApprovedPlan family with the
+**materialize-to-workspace** pipeline's contracts:
+
+- :class:`ReportDigest` / :class:`PlanBrief` — natural-language
+  digests of the user-supplied report and the proposed implementation
+  plan; rendered to disk and consumed by downstream nodes.
+- :class:`TaskIRBrief` — per-task IR companion to
+  :class:`molexp.workflow.WorkflowContract.TaskIO` carrying the
+  natural-language responsibility / success-criteria fields a code
+  generator needs.
+- :class:`ApprovalDecision` — kept for sub-spec 06's ``HumanReview``
+  node.
+- ``*Result`` types (one per workflow node) — frozen, *path-bearing*
+  return values. Downstream nodes consume :class:`Path` references,
+  never embedded blobs, so the workspace is the single source of
+  truth for materialized content.
+
+:class:`molexp.workflow.WorkflowContract` is re-exported here so
+PlanMode tasks can compose the typed-IR contract without importing
+from the workflow module directly in every file.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-_FROZEN = ConfigDict(frozen=True)
+from molexp.workflow import WorkflowContract
 
-
-# ── Specification stages ───────────────────────────────────────────────────
-
-
-class IntakeSpec(BaseModel):
-    """Parsed user request — what is being asked, under what constraints."""
-
-    model_config = _FROZEN
-
-    request: str
-    extracted_goal: str
-    constraints: tuple[str, ...] = ()
-
-
-class GoalSpec(BaseModel):
-    """Refined, single-objective restatement of the request."""
-
-    model_config = _FROZEN
-
-    objective: str
-    success_criteria: tuple[str, ...] = ()
+__all__ = [
+    "ApprovalDecision",
+    "DigestResult",
+    "IngestReportResult",
+    "PlanBrief",
+    "PlanBriefResult",
+    "ReportDigest",
+    "SkeletonResult",
+    "TaskIRBrief",
+    "TaskIRResult",
+    "WorkflowContract",
+    "WorkflowIRResult",
+]
 
 
-class ContextSpec(BaseModel):
-    """Constraints / assumptions / environment for the goal."""
-
-    model_config = _FROZEN
-
-    constraints: tuple[str, ...] = ()
-    assumptions: tuple[str, ...] = ()
-    environment: str = ""
+_FROZEN = ConfigDict(frozen=True, extra="forbid")
 
 
-class MethodSpec(BaseModel):
-    """Chosen experimental / computational method."""
-
-    model_config = _FROZEN
-
-    name: str
-    rationale: str = ""
-
-
-class Decomposition(BaseModel):
-    """Ordered protocol stages the method breaks into."""
-
-    model_config = _FROZEN
-
-    stages: tuple[str, ...]
-
-
-class ProtocolStep(BaseModel):
-    """One concrete stage of the protocol — inputs / op / outputs."""
-
-    model_config = _FROZEN
-
-    stage: str
-    operation: str
-    inputs: tuple[str, ...] = ()
-    outputs: tuple[str, ...] = ()
-
-
-class ProtocolDraft(BaseModel):
-    """Full protocol — list of concrete steps."""
-
-    model_config = _FROZEN
-
-    steps: tuple[ProtocolStep, ...]
-
-
-class PlanSpec(BaseModel):
-    """Composed plan — frozen view, materialised inline by Preview / Codegen.
-
-    There is **no** ``ComposePlanTask`` in the workflow; each consumer
-    builds a fresh :class:`PlanSpec` from the same upstream
-    ``ctx.inputs`` map via the private :func:`compose_plan_spec`
-    helper. The shape lives here so producers and consumers agree.
-    """
-
-    model_config = _FROZEN
-
-    goal: GoalSpec
-    context: ContextSpec
-    method: MethodSpec
-    decomposition: Decomposition
-    protocol: ProtocolDraft
-    revision: int = 0
-
-
-# ── Preview / approvals ────────────────────────────────────────────────────
-
-
-class PlanPreview(BaseModel):
-    """Human-readable rendering of a :class:`PlanSpec`."""
-
-    model_config = _FROZEN
-
-    plan: PlanSpec
-    rendered: str
+# ── Approval (kept for sub-spec 06) ────────────────────────────────────────
 
 
 class ApprovalDecision(BaseModel):
-    """Output of a gate policy invocation."""
+    """Human-review verdict.
+
+    Used by sub-spec 06's ``HumanReview`` node; kept here so
+    intermediate sub-specs that don't yet wire human review have a
+    stable place to import the type from.
+    """
 
     model_config = _FROZEN
 
     approved: bool
-    note: str = ""
+    reason: str = ""
 
 
-# ── Codegen / executable draft ─────────────────────────────────────────────
+# ── Natural-language digests ───────────────────────────────────────────────
 
 
-class GeneratedTaskSpec(BaseModel):
-    """One LLM-authored Task implementation — its own artifact unit."""
+class ReportDigest(BaseModel):
+    """Structured summary of a user-supplied experimental report.
 
-    model_config = _FROZEN
+    Rendered to ``report/digest.md`` by ``DraftReportDigest``; the
+    structured form is preserved alongside the markdown so downstream
+    nodes can read field values without re-parsing prose.
 
-    stage: str
-    task_id: str
-    code: str
-    docstring: str = ""
-
-
-class CodegenOutput(BaseModel):
-    """LLM-side codegen output — N independent generated tasks.
-
-    Internal to :class:`~molexp.agent.modes.plan.tasks.CodegenTask`;
-    the workflow surface emits :class:`ExecutableWorkflowDraft`.
+    Attributes:
+        summary: One-paragraph plain-language overview.
+        experimental_goal: The single principal objective.
+        scientific_assumptions: Tuple of explicit assumptions / priors.
+        systems_and_variables: Tuple of subjects-of-study (e.g. one
+            chemical system + observable variables per entry).
+        expected_outputs: Tuple of natural-language descriptions of the
+            outputs the experiment is supposed to produce.
+        missing_information: Tuple of gaps the report did not specify;
+            these surface as warnings to a human reviewer.
     """
 
     model_config = _FROZEN
 
-    generated: tuple[GeneratedTaskSpec, ...]
+    summary: str
+    experimental_goal: str
+    scientific_assumptions: tuple[str, ...] = ()
+    systems_and_variables: tuple[str, ...] = ()
+    expected_outputs: tuple[str, ...] = ()
+    missing_information: tuple[str, ...] = ()
 
 
-class ExecutableWorkflowDraft(BaseModel):
-    """Plan + bound + generated — what the compiler turns into a template."""
+class PlanBrief(BaseModel):
+    """Natural-language implementation plan for the experiment.
 
-    model_config = _FROZEN
+    Bridges the gap between the (terse) :class:`ReportDigest` and the
+    (machine-readable) :class:`WorkflowContract`. The workflow IR
+    compiler reads this to ground its own structured output.
 
-    plan: PlanSpec
-    bound: dict[str, str] = Field(default_factory=dict)
-    generated: tuple[GeneratedTaskSpec, ...] = ()
-
-
-# ── Compile / dry-run reports ──────────────────────────────────────────────
-
-
-class CompileReport(BaseModel):
-    model_config = _FROZEN
-
-    ok: bool
-    workflow_template_id: str | None = None
-    experiment_spec_id: str | None = None
-    diagnostics: tuple[str, ...] = ()
-
-
-class DryRunReport(BaseModel):
-    model_config = _FROZEN
-
-    ok: bool
-    notes: tuple[str, ...] = ()
-
-
-# ── Repair ─────────────────────────────────────────────────────────────────
-
-
-class PlanPatch(BaseModel):
-    """Atomic change targeting one node of a :class:`PlanSpec`."""
+    Attributes:
+        overview: One-paragraph plain-language plan.
+        chosen_method: Concrete method name + brief rationale.
+        stages: Ordered list of stages (each a short noun phrase).
+        rationale: Why this decomposition; surfaced to human review.
+    """
 
     model_config = _FROZEN
 
-    target: str
-    new_value: dict[str, Any] = Field(default_factory=dict)
+    overview: str
+    chosen_method: str
+    stages: tuple[str, ...] = ()
     rationale: str = ""
 
 
-class RepairReport(BaseModel):
-    """One repair iteration — patches plus the stale-subgraph it implies.
+class TaskIRBrief(BaseModel):
+    """Per-task natural-language brief paired with the typed IR.
 
-    ``affected_nodes`` are the spec nodes the patches mutate;
-    ``stale_nodes`` are the downstream nodes whose outputs are no longer
-    valid. molexp.workflow currently re-enters the plan-mode cycle from
-    ``preview`` regardless; recording the markers here keeps the
-    contract ready for a future scheduler that re-runs only the
-    invalidated subgraph.
+    Sub-spec 06's code-generation passes consume both the structured
+    :class:`molexp.workflow.TaskIO` (typed inputs / outputs / artifacts)
+    AND this brief (responsibility / success criteria / failure
+    conditions / minimal test expectations).
+
+    Attributes:
+        task_id: Matches the task id in the workflow contract.
+        responsibility: One-sentence statement of what the task does.
+        success_criteria: Tuple of natural-language post-conditions.
+        failure_conditions: Tuple of natural-language failure modes.
+        test_expectations: Tuple of test-shaped sentences (sub-spec 06
+            translates these into ``pytest.skip`` markers when the
+            implementation is a stub).
+        is_stub: True if the implementation may legitimately be
+            ``raise NotImplementedError`` (v1 of sub-spec 06 emits
+            stubs for tasks the LLM cannot write end-to-end).
     """
 
     model_config = _FROZEN
 
-    iteration: int
-    patches: tuple[PlanPatch, ...] = ()
-    affected_nodes: tuple[str, ...] = ()
-    stale_nodes: tuple[str, ...] = ()
+    task_id: str
+    responsibility: str
+    success_criteria: tuple[str, ...] = ()
+    failure_conditions: tuple[str, ...] = ()
+    test_expectations: tuple[str, ...] = ()
+    is_stub: bool = False
 
 
-# ── Final handoff ──────────────────────────────────────────────────────────
+# ── Per-node Result types ──────────────────────────────────────────────────
 
 
-class ApprovedPlan(BaseModel):
-    """Terminal payload — handed to the runner downstream of PlanMode."""
+class IngestReportResult(BaseModel):
+    """``IngestReport`` output — original report path + content hash."""
 
     model_config = _FROZEN
 
-    plan: PlanSpec
-    executable: ExecutableWorkflowDraft
-    compile_report: CompileReport
-    dry_run_report: DryRunReport
-    iterations: int
+    report_path: Path
+    report_hash: str
 
 
-__all__ = [
-    "ApprovalDecision",
-    "ApprovedPlan",
-    "CodegenOutput",
-    "CompileReport",
-    "ContextSpec",
-    "Decomposition",
-    "DryRunReport",
-    "ExecutableWorkflowDraft",
-    "GeneratedTaskSpec",
-    "GoalSpec",
-    "IntakeSpec",
-    "MethodSpec",
-    "PlanPatch",
-    "PlanPreview",
-    "PlanSpec",
-    "ProtocolDraft",
-    "ProtocolStep",
-    "RepairReport",
-]
+class DigestResult(BaseModel):
+    """``DraftReportDigest`` output — digest path + structured payload."""
+
+    model_config = _FROZEN
+
+    digest_path: Path
+    digest: ReportDigest
+
+
+class PlanBriefResult(BaseModel):
+    """``DraftImplementationPlan`` output — plan path + structured brief."""
+
+    model_config = _FROZEN
+
+    plan_path: Path
+    plan_brief: PlanBrief
+
+
+class WorkflowIRResult(BaseModel):
+    """``CompileWorkflowIR`` output — YAML path + parsed contract."""
+
+    model_config = _FROZEN
+
+    workflow_yaml_path: Path
+    contract: WorkflowContract
+
+
+class TaskIRResult(BaseModel):
+    """``CompileTaskIR`` output — per-task YAML paths + parsed briefs."""
+
+    model_config = _FROZEN
+
+    task_ir_paths: tuple[Path, ...]
+    briefs: tuple[TaskIRBrief, ...]
+
+
+class SkeletonResult(BaseModel):
+    """``GenerateWorkflowSkeleton`` output — generated package paths.
+
+    The skeleton is validated via :func:`compile` (syntax-only — no
+    import, no execution); a failure raises
+    :class:`~molexp.agent.modes.plan.errors.SkeletonCompileError`.
+    """
+
+    model_config = _FROZEN
+
+    workflow_py_path: Path
+    package_path: Path

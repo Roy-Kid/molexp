@@ -1,94 +1,77 @@
-"""Concrete tasks for the PlanMode workflow.
+"""Concrete tasks for the materialize-to-workspace PlanMode pipeline.
 
-Each LLM-bearing task subclasses :class:`PlanLLMTask`, declares its
-:class:`ModelTier`, and returns a structured pydantic schema. Pure
-control / policy tasks subclass :class:`PlanTask` directly. No task
-constructs an LLM client itself; every model call goes through
-``ctx.deps.provider``.
+The 6 nodes of the v1 pipeline:
 
-There are no aggregator / compose tasks — every workflow node does
-work that can stand on its own (LLM call, deterministic check, branch
-decision, structural transform). Where multiple consumers need a
-:class:`PlanSpec` view of the same upstream specs, each consumer
-materialises one inline via :func:`compose_plan_spec`; the helper is a
-function, not a workflow stage.
+    IngestReport → DraftReportDigest → DraftImplementationPlan
+        → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
 
-``ctx.inputs`` shape (molexp.workflow API): ``None`` for zero-dep
-tasks, the bare upstream value for single-dep tasks, and a
-``dict[name → value]`` for ≥ 2 deps. Each task asserts the shape it
-expects in-line so the cast is explicit at the read site.
+Each node consumes its single upstream ``ctx.inputs``, materializes
+its product through :class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`,
+and returns a frozen ``*Result`` carrying *path references* — never
+embedded blobs. Downstream nodes operate on file handles, the
+workspace is the single source of truth for materialized content.
+
+LLM-bearing tasks subclass :class:`PlanLLMTask`; the tier each one
+runs at is resolved by ``ctx.deps.policy.tier_for(type(self).__name__)``
+(no per-class ``TIER`` ClassVar literal). ``IngestReport`` skips the
+LLM entirely — it just hashes and writes the raw user input.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any, ClassVar
+import hashlib
+from pathlib import Path
+from typing import Any, ClassVar, cast
 
+import yaml
+from pydantic import BaseModel
+
+from molexp.agent.modes.plan.errors import SkeletonCompileError
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
-    ApprovedPlan,
-    CodegenOutput,
-    CompileReport,
-    ContextSpec,
-    Decomposition,
-    DryRunReport,
-    ExecutableWorkflowDraft,
-    GoalSpec,
-    IntakeSpec,
-    MethodSpec,
-    PlanPreview,
-    PlanSpec,
-    ProtocolDraft,
-    RepairReport,
+    DigestResult,
+    IngestReportResult,
+    PlanBrief,
+    PlanBriefResult,
+    ReportDigest,
+    SkeletonResult,
+    TaskIRBrief,
+    TaskIRResult,
+    WorkflowContract,
+    WorkflowIRResult,
 )
-from molexp.workflow import Task, TaskContext
-from molexp.workflow.types import Next
+from molexp.workflow import Task, TaskContext, default_compiler
 
-# ── Helpers (functions, not tasks) ─────────────────────────────────────────
-
-
-def compose_plan_spec(
-    inputs: Mapping[str, Any],
-    *,
-    revision: int,
-) -> PlanSpec:
-    """Build a frozen :class:`PlanSpec` view from the upstream specs.
-
-    Used by :class:`PreviewTask` and :class:`CodegenTask`; both have
-    identical data deps, so each calls this directly rather than
-    routing through a third aggregator workflow node.
-    """
-    return PlanSpec(
-        goal=inputs["goal"],
-        context=inputs["context"],
-        method=inputs["method"],
-        decomposition=inputs["decomposition"],
-        protocol=inputs["protocol"],
-        revision=revision,
-    )
+__all__ = [
+    "CompileTaskIR",
+    "CompileWorkflowIR",
+    "DraftImplementationPlan",
+    "DraftReportDigest",
+    "GenerateWorkflowSkeleton",
+    "IngestReport",
+    "PlanLLMTask",
+    "PlanTask",
+]
 
 
 # ── Bases ──────────────────────────────────────────────────────────────────
 
 
 class PlanTask(Task):
-    """Base for every task inside the plan-mode workflow."""
+    """Base for every task inside the materialize-to-workspace pipeline."""
 
 
 class PlanLLMTask(PlanTask):
-    """Plan task that invokes the provider to produce a structured output.
+    """Plan task that invokes the provider to produce structured output.
 
     The active :class:`~molexp.agent.modes.plan.policy.PlanModelPolicy`
-    on ``ctx.deps.model_policy`` decides which :class:`ModelTier` the
-    invocation runs under, keyed by the Task subclass name. The
-    standard policy preserves each subclass's pre-policy tier; an
-    operator can override per-node by constructing :class:`PlanMode`
-    with a custom policy.
+    on ``ctx.deps.policy`` decides which :class:`ModelTier` the
+    invocation runs under, keyed by the Task subclass name.
     """
 
     SYSTEM_PROMPT: ClassVar[str] = ""
 
-    async def invoke_llm[SchemaT](
+    async def invoke_llm[SchemaT: "BaseModel"](
         self,
         ctx: TaskContext[None, PlanDeps, Any],
         *,
@@ -97,7 +80,7 @@ class PlanLLMTask(PlanTask):
     ) -> SchemaT:
         node_id = type(self).__name__
         return await ctx.deps.provider.invoke(
-            tier=ctx.deps.model_policy.tier_for(node_id),
+            tier=ctx.deps.policy.tier_for(node_id),
             system=self.SYSTEM_PROMPT,
             user=user,
             schema=schema,
@@ -105,223 +88,360 @@ class PlanLLMTask(PlanTask):
         )
 
 
-# ── Specification stages ───────────────────────────────────────────────────
+# ── Node 1: IngestReport ───────────────────────────────────────────────────
 
 
-class IntakeTask(PlanLLMTask):
-    SYSTEM_PROMPT = "Extract a structured IntakeSpec from the user request."
+class IngestReport(PlanTask):
+    """Materialize the user-supplied report verbatim into ``report/original.md``.
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, None]) -> IntakeSpec:
-        request: str = ctx.config["user_input"]  # type: ignore[assignment]
-        return await self.invoke_llm(ctx, user=request, schema=IntakeSpec)
+    No LLM call. Hashes the input via SHA-256 so downstream nodes can
+    detect re-runs against the same content (idempotency hint, not an
+    invariant).
+    """
 
+    async def execute(self, ctx: TaskContext[None, PlanDeps, None]) -> IngestReportResult:
+        user_input = ctx.config.get("user_input")
+        if not isinstance(user_input, str) or not user_input.strip():
+            raise ValueError("IngestReport requires a non-empty 'user_input' in config.")
 
-class GoalTask(PlanLLMTask):
-    SYSTEM_PROMPT = "Restate the user's goal as a precise GoalSpec."
+        report_dir = ctx.deps.workspace_handle.report_dir()
+        report_path = report_dir / "original.md"
+        _write_text(report_path, user_input)
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, IntakeSpec]) -> GoalSpec:
-        intake = ctx.inputs
-        return await self.invoke_llm(ctx, user=intake.model_dump_json(), schema=GoalSpec)
-
-
-class ContextTask(PlanLLMTask):
-    SYSTEM_PROMPT = "Identify constraints, assumptions and environment for this goal."
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, GoalSpec]) -> ContextSpec:
-        goal = ctx.inputs
-        return await self.invoke_llm(ctx, user=goal.model_dump_json(), schema=ContextSpec)
-
-
-class MethodTask(PlanLLMTask):
-    SYSTEM_PROMPT = "Choose a concrete method that satisfies the goal under the context."
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> MethodSpec:
-        goal: GoalSpec = ctx.inputs["goal"]
-        context: ContextSpec = ctx.inputs["context"]
-        user = f"Goal: {goal.model_dump_json()}\nContext: {context.model_dump_json()}"
-        return await self.invoke_llm(ctx, user=user, schema=MethodSpec)
-
-
-class DecompositionTask(PlanLLMTask):
-    SYSTEM_PROMPT = "Break this method into ordered protocol stages."
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, MethodSpec]) -> Decomposition:
-        method = ctx.inputs
-        return await self.invoke_llm(ctx, user=method.model_dump_json(), schema=Decomposition)
-
-
-class ProtocolTask(PlanLLMTask):
-    SYSTEM_PROMPT = "Render each stage as a concrete protocol step."
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, Decomposition]) -> ProtocolDraft:
-        decomp = ctx.inputs
-        return await self.invoke_llm(ctx, user=decomp.model_dump_json(), schema=ProtocolDraft)
-
-
-# ── Preview ────────────────────────────────────────────────────────────────
-
-
-class PreviewTask(PlanTask):
-    """Render a frozen :class:`PlanPreview` from the upstream specs."""
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> PlanPreview:
-        plan = compose_plan_spec(ctx.inputs, revision=ctx.deps.store.get_iteration())
-        rendered = (
-            f"Goal: {plan.goal.objective}\n"
-            f"Method: {plan.method.name}\n"
-            f"Stages: {', '.join(plan.decomposition.stages)}\n"
-            f"Steps: {len(plan.protocol.steps)}\n"
-            f"Revision: {plan.revision}"
+        return IngestReportResult(
+            report_path=report_path,
+            report_hash=hashlib.sha256(user_input.encode("utf-8")).hexdigest(),
         )
-        return PlanPreview(plan=plan, rendered=rendered)
 
 
-# ── Gate A ─────────────────────────────────────────────────────────────────
+# ── Node 2: DraftReportDigest ──────────────────────────────────────────────
 
 
-class GateATask(PlanTask):
-    """Approve PlanSpec? — reads only the explicit ``preview`` input."""
+class DraftReportDigest(PlanLLMTask):
+    """Distill the original report into a structured + markdown digest."""
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, PlanPreview]) -> Next:
-        preview = ctx.inputs
-        decision = await ctx.deps.gate_policy.gate_a(preview)
-        return Next("approve" if decision.approved else "patch")
+    SYSTEM_PROMPT = (
+        "You are summarizing an experimental report. Return a structured "
+        "ReportDigest covering goal, assumptions, systems, expected outputs, "
+        "and any missing information."
+    )
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, IngestReportResult]) -> DigestResult:
+        ingest = ctx.inputs
+        report_text = Path(ingest.report_path).read_text(encoding="utf-8")
+        digest = await self.invoke_llm(ctx, user=report_text, schema=ReportDigest)
+
+        digest_path = ctx.deps.workspace_handle.report_dir() / "digest.md"
+        _write_text(digest_path, _render_digest_markdown(digest))
+        return DigestResult(digest_path=digest_path, digest=digest)
 
 
-# ── Codegen → executable draft ─────────────────────────────────────────────
+# ── Node 3: DraftImplementationPlan ────────────────────────────────────────
 
 
-class CodegenTask(PlanLLMTask):
-    """Author one Python skeleton task per protocol stage and emit a draft.
+class DraftImplementationPlan(PlanLLMTask):
+    """Render a natural-language implementation plan from the digest."""
 
-    Reads the same upstream specs Preview does, calls the LLM for the
-    generated code, and returns the executable draft directly — no
-    separate ``ComposeExecutableWorkflowTask`` aggregator. Each
-    :class:`GeneratedTaskSpec` is independently persisted via
-    ``ctx.deps.artifact_writer`` so the generated workflow's nodes are
-    addressable artefacts, not lines in a single blob.
+    SYSTEM_PROMPT = (
+        "Given the ReportDigest, draft a PlanBrief covering an overview, "
+        "the chosen experimental method with rationale, and an ordered list "
+        "of stages."
+    )
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, DigestResult]) -> PlanBriefResult:
+        digest_result = ctx.inputs
+        plan_brief = await self.invoke_llm(
+            ctx,
+            user=digest_result.digest.model_dump_json(),
+            schema=PlanBrief,
+        )
+        plan_path = ctx.deps.workspace_handle.plan_dir() / "implementation_plan.md"
+        _write_text(plan_path, _render_plan_brief_markdown(plan_brief))
+        return PlanBriefResult(plan_path=plan_path, plan_brief=plan_brief)
+
+
+# ── Node 4: CompileWorkflowIR ──────────────────────────────────────────────
+
+
+class CompileWorkflowIR(PlanLLMTask):
+    """Compile the plan brief into a typed :class:`WorkflowContract`."""
+
+    SYSTEM_PROMPT = (
+        "Translate the PlanBrief into a WorkflowContract: list every task "
+        "(task_io with inputs/outputs/artifacts), declare dependencies via "
+        "the 'source' field on each input, and list the validation_checks "
+        "you want enforced."
+    )
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, PlanBriefResult]) -> WorkflowIRResult:
+        plan_result = ctx.inputs
+        contract = await self.invoke_llm(
+            ctx,
+            user=plan_result.plan_brief.model_dump_json(),
+            schema=WorkflowContract,
+        )
+        ir_path = ctx.deps.workspace_handle.ir_dir() / "workflow.yaml"
+        contract_dict = default_compiler.contract_to_dict(contract)
+        _write_text(ir_path, default_compiler.ir_to_yaml(contract_dict))
+        return WorkflowIRResult(workflow_yaml_path=ir_path, contract=contract)
+
+
+# ── Node 5: CompileTaskIR ──────────────────────────────────────────────────
+
+
+class CompileTaskIR(PlanLLMTask):
+    """Compile a per-task brief for every task in the workflow contract.
+
+    Empty-task contracts (``contract.task_io == ()``) emit an empty
+    ``task_ir_paths`` tuple — sub-spec 01 explicitly permits empty
+    contracts, so this node is not allowed to fail on them.
     """
 
     SYSTEM_PROMPT = (
-        "For each protocol stage, author a Python Task subclass implementing "
-        "it. Return one GeneratedTaskSpec per stage."
+        "Given one TaskIO entry from a WorkflowContract, draft a TaskIRBrief "
+        "covering its responsibility, success criteria, failure conditions, "
+        "and minimal test expectations. Set is_stub=true only if you cannot "
+        "describe a concrete implementation."
     )
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
-    ) -> ExecutableWorkflowDraft:
-        plan = compose_plan_spec(ctx.inputs, revision=ctx.deps.store.get_iteration())
-        codegen = await self.invoke_llm(ctx, user=plan.model_dump_json(), schema=CodegenOutput)
-        for spec in codegen.generated:
-            ctx.deps.artifact_writer.write(f"generated_task/{spec.task_id}", spec)
-        return ExecutableWorkflowDraft(
-            plan=plan,
-            bound={gen.stage: gen.task_id for gen in codegen.generated},
-            generated=codegen.generated,
-        )
+    async def execute(self, ctx: TaskContext[None, PlanDeps, WorkflowIRResult]) -> TaskIRResult:
+        ir_result = ctx.inputs
+        tasks_ir_dir = ctx.deps.workspace_handle.tasks_ir_dir()
+
+        paths: list[Path] = []
+        briefs: list[TaskIRBrief] = []
+        for task_io in ir_result.contract.task_io:
+            brief = await self.invoke_llm(
+                ctx,
+                user=task_io.model_dump_json(),
+                schema=TaskIRBrief,
+            )
+            # Force the brief's task_id to match the contract entry —
+            # the LLM may forget; the workflow_contract is authoritative.
+            if brief.task_id != task_io.task_id:
+                brief = brief.model_copy(update={"task_id": task_io.task_id})
+            task_yaml = tasks_ir_dir / f"{task_io.task_id}.yaml"
+            _write_text(
+                task_yaml,
+                yaml.safe_dump(
+                    brief.model_dump(mode="json"),
+                    sort_keys=False,
+                    default_flow_style=False,
+                ),
+            )
+            paths.append(task_yaml)
+            briefs.append(brief)
+
+        return TaskIRResult(task_ir_paths=tuple(paths), briefs=tuple(briefs))
 
 
-# ── Compile + Dry-run ──────────────────────────────────────────────────────
+# ── Node 6: GenerateWorkflowSkeleton ───────────────────────────────────────
 
 
-class CompileTask(PlanTask):
-    """Compile the executable draft into a workflow template.
+class GenerateWorkflowSkeleton(PlanTask):
+    """Emit the experiment Python package skeleton.
 
-    Returns ``(report, Next)`` so the report lands on ``state.results``
-    while the branch label dispatches the next step.
+    Templated, not LLM-driven — the contract is structured enough to
+    deterministically generate ``src/experiment/{__init__.py,
+    workflow.py, tasks/__init__.py}``. Each generated file is
+    syntax-checked via :func:`compile`; a failure raises
+    :class:`SkeletonCompileError`. Per-task module bodies are out of
+    scope here (sub-spec 06's ``GenerateTaskImplementations`` writes
+    them).
     """
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, ExecutableWorkflowDraft]
-    ) -> tuple[CompileReport, Next]:
-        executable = ctx.inputs
-        ok = bool(executable.generated) or bool(executable.bound)
-        report = CompileReport(
-            ok=ok,
-            workflow_template_id=f"tpl-{executable.plan.revision}" if ok else None,
-            experiment_spec_id=f"exp-{executable.plan.revision}" if ok else None,
-            diagnostics=() if ok else ("no bound or generated tasks",),
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> SkeletonResult:
+        # Read both upstreams: the workflow contract for topology, the
+        # task IR result to confirm the per-task IR has been written.
+        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
+        _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+
+        contract = ir_result.contract
+        package_path = ctx.deps.workspace_handle.experiment_pkg_dir()
+        tasks_pkg = ctx.deps.workspace_handle.tasks_pkg_dir()
+
+        # __init__.py (top-level package)
+        package_init = package_path / "__init__.py"
+        _validate_python(_PACKAGE_INIT_BODY, str(package_init))
+        _write_text(package_init, _PACKAGE_INIT_BODY)
+
+        # workflow.py
+        workflow_py = package_path / "workflow.py"
+        workflow_source = _render_workflow_module(contract)
+        _validate_python(workflow_source, str(workflow_py))
+        _write_text(workflow_py, workflow_source)
+
+        # tasks/__init__.py
+        tasks_init = tasks_pkg / "__init__.py"
+        _validate_python(_TASKS_INIT_BODY, str(tasks_init))
+        _write_text(tasks_init, _TASKS_INIT_BODY)
+
+        return SkeletonResult(workflow_py_path=workflow_py, package_path=package_path)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _expect_input[T](inputs: object, key: str, expected: type[T]) -> T:
+    """Pull and type-narrow one upstream from a multi-dep ``ctx.inputs``."""
+    if not isinstance(inputs, dict):
+        raise TypeError(
+            f"GenerateWorkflowSkeleton expected dict-shaped ctx.inputs; got {type(inputs).__name__}"
         )
-        return report, Next("ok" if ok else "fail")
-
-
-class DryRunTask(PlanTask):
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, CompileReport]
-    ) -> tuple[DryRunReport, Next]:
-        report_in = ctx.inputs
-        ok = report_in.ok
-        report = DryRunReport(ok=ok, notes=() if ok else ("compile failed",))
-        return report, Next("ok" if ok else "fail")
-
-
-# ── Gate B ─────────────────────────────────────────────────────────────────
-
-
-class GateBTask(PlanTask):
-    """Approve handoff? — reads ``codegen`` + reports from explicit inputs."""
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> Next:
-        executable: ExecutableWorkflowDraft = ctx.inputs["codegen"]
-        compile_report: CompileReport = ctx.inputs["compile"]
-        dry_run_report: DryRunReport = ctx.inputs["dry_run"]
-        decision = await ctx.deps.gate_policy.gate_b(executable, compile_report, dry_run_report)
-        return Next("approve" if decision.approved else "patch")
-
-
-# ── Repair ─────────────────────────────────────────────────────────────────
-
-
-class RepairTask(PlanTask):
-    """Apply a :class:`RepairPolicy` patch and bump the iteration counter."""
-
-    async def execute(self, ctx: TaskContext[None, PlanDeps, PlanPreview]) -> RepairReport:
-        preview = ctx.inputs
-        ctx.deps.store.note_iteration()
-        report = await ctx.deps.repair_policy.patch(preview, reason="rejected")
-        return RepairReport(
-            iteration=ctx.deps.store.get_iteration(),
-            patches=report.patches,
-            affected_nodes=report.affected_nodes,
-            stale_nodes=report.stale_nodes,
+    inputs_dict = cast("dict[str, object]", inputs)
+    value = inputs_dict.get(key)
+    if not isinstance(value, expected):
+        raise TypeError(
+            f"GenerateWorkflowSkeleton expected ctx.inputs[{key!r}] of "
+            f"type {expected.__name__}; got {type(value).__name__}"
         )
+    return value
 
 
-# ── Handoff ────────────────────────────────────────────────────────────────
+def _write_text(path: Path, content: str) -> None:
+    """Atomic-write a string through the workspace's helper.
+
+    Centralized so tasks never call ``Path.write_text`` directly — the
+    AST guard ``ac-006`` enforces this rule.
+    """
+    from molexp.workspace import atomic_write_text
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(path, content)
 
 
-class HandoffTask(PlanTask):
-    """Materialise the :class:`ApprovedPlan` payload for the runner."""
+def _validate_python(source: str, path: str) -> None:
+    """Syntax-check ``source`` via :func:`compile` (no execution).
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ApprovedPlan:
-        executable: ExecutableWorkflowDraft = ctx.inputs["codegen"]
-        compile_report: CompileReport = ctx.inputs["compile"]
-        dry_run_report: DryRunReport = ctx.inputs["dry_run"]
-        return ApprovedPlan(
-            plan=executable.plan,
-            executable=executable,
-            compile_report=compile_report,
-            dry_run_report=dry_run_report,
-            iterations=ctx.deps.store.get_iteration(),
-        )
+    Raises :class:`SkeletonCompileError` with the original
+    :class:`SyntaxError` chained as ``__cause__``.
+    """
+    try:
+        compile(source, path, "exec")
+    except SyntaxError as exc:
+        raise SkeletonCompileError(
+            f"generated source did not compile ({path}): {exc.msg} at line {exc.lineno}",
+            path=path,
+        ) from exc
 
 
-__all__ = [
-    "CodegenTask",
-    "CompileTask",
-    "ContextTask",
-    "DecompositionTask",
-    "DryRunTask",
-    "GateATask",
-    "GateBTask",
-    "GoalTask",
-    "HandoffTask",
-    "IntakeTask",
-    "MethodTask",
-    "PlanLLMTask",
-    "PlanTask",
-    "PreviewTask",
-    "ProtocolTask",
-    "RepairTask",
-    "compose_plan_spec",
-]
+def _render_digest_markdown(digest: ReportDigest) -> str:
+    lines = [
+        "# Report digest",
+        "",
+        digest.summary,
+        "",
+        "## Experimental goal",
+        "",
+        digest.experimental_goal,
+    ]
+    for heading, items in (
+        ("Scientific assumptions", digest.scientific_assumptions),
+        ("Systems and variables", digest.systems_and_variables),
+        ("Expected outputs", digest.expected_outputs),
+        ("Missing information", digest.missing_information),
+    ):
+        if not items:
+            continue
+        lines.extend(["", f"## {heading}", ""])
+        lines.extend(f"- {item}" for item in items)
+    return "\n".join(lines) + "\n"
+
+
+def _render_plan_brief_markdown(plan: PlanBrief) -> str:
+    lines = [
+        "# Implementation plan",
+        "",
+        plan.overview,
+        "",
+        "## Chosen method",
+        "",
+        plan.chosen_method,
+    ]
+    if plan.rationale:
+        lines.extend(["", "## Rationale", "", plan.rationale])
+    if plan.stages:
+        lines.extend(["", "## Stages", ""])
+        lines.extend(f"{i}. {stage}" for i, stage in enumerate(plan.stages, start=1))
+    return "\n".join(lines) + "\n"
+
+
+def _render_workflow_module(contract: WorkflowContract) -> str:
+    """Render ``src/experiment/workflow.py`` from a workflow contract.
+
+    Generates a ``WORKFLOW`` constant built via
+    :class:`~molexp.workflow.WorkflowBuilder`, with one ``.add(<TaskClass>())``
+    per ``task_io`` entry. Dependencies are inferred from each input's
+    ``source`` field — distinct sources, in order, become the
+    ``depends_on`` list.
+    """
+    task_class_names: list[str] = []
+    add_lines: list[str] = []
+    for task_io in contract.task_io:
+        cls_name = _camel_case(task_io.task_id)
+        task_class_names.append(cls_name)
+        deps: list[str] = []
+        seen: set[str] = set()
+        for inp in task_io.inputs:
+            if inp.source and inp.source not in seen:
+                deps.append(inp.source)
+                seen.add(inp.source)
+        if deps:
+            depends_on_repr = ", ".join(repr(d) for d in deps)
+            add_lines.append(
+                f"    .add({cls_name}(), name={task_io.task_id!r}, depends_on=[{depends_on_repr}])"
+            )
+        else:
+            add_lines.append(f"    .add({cls_name}(), name={task_io.task_id!r})")
+
+    if task_class_names:
+        import_line = "from .tasks import " + ", ".join(sorted(set(task_class_names)))
+    else:
+        import_line = "# (workflow contract has no tasks; nothing to import)"
+
+    body = "\n".join(add_lines) if add_lines else "    # no tasks"
+    workflow_name = contract.workflow_id or "experiment_workflow"
+
+    return (
+        '"""Generated experiment workflow.\n'
+        "\n"
+        "This module is regenerated by PlanMode's GenerateWorkflowSkeleton\n"
+        "task. Edit the per-task modules under ``tasks/`` to fill in the\n"
+        "implementations; do not hand-edit this file unless you intend to\n"
+        "diverge from the plan.\n"
+        '"""\n'
+        "\n"
+        "from __future__ import annotations\n"
+        "\n"
+        "from molexp.workflow import WorkflowBuilder\n"
+        f"{import_line}\n"
+        "\n"
+        "WORKFLOW = (\n"
+        f"    WorkflowBuilder(name={workflow_name!r})\n"
+        f"{body}\n"
+        "    .build()\n"
+        ")\n"
+    )
+
+
+def _camel_case(task_id: str) -> str:
+    """Convert ``snake_case_task_id`` to ``CamelCaseClassName``."""
+    parts = [p for p in task_id.replace("-", "_").split("_") if p]
+    return "".join(p.capitalize() or "_" for p in parts) or "Task"
+
+
+_PACKAGE_INIT_BODY = (
+    '"""Generated experiment package — re-export the WORKFLOW constant."""\n'
+    "\n"
+    "from molexp.workspace import Workspace as _Workspace  # noqa: F401 — keeps the package importable in offline tests\n"
+    "\n"
+)
+
+_TASKS_INIT_BODY = (
+    '"""Generated experiment-task package.\n'
+    "\n"
+    "Per-task modules are written by PlanMode's GenerateTaskImplementations\n"
+    "node (sub-spec 06). v1 of the skeleton lays down the package marker\n"
+    'only — fill in concrete imports as the per-task files appear."""\n'
+    "\n"
+)

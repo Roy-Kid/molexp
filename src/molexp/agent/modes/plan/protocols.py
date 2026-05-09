@@ -1,22 +1,23 @@
 """Runtime services consumed by the PlanMode workflow via ``ctx.deps``.
 
 PlanMode's ``ctx.deps`` is a frozen :class:`PlanDeps` aggregate of
-runtime services — provider routing, gate / repair policies, plan
-store, artifact writer. ``ctx.config`` carries JSON-only values
-(``user_input`` etc.); ``ctx.deps`` carries the callables and stateful
-services that don't fit through a JSON channel.
+runtime services — provider routing, the tier policy, and the
+on-disk experiment-workspace handle. ``ctx.config`` carries
+JSON-only values (``user_input`` etc.); ``ctx.deps`` carries the
+callables and stateful services that don't fit through a JSON
+channel.
 
-Each service is declared as a :class:`typing.Protocol` so user code can
-substitute its own implementation without subclassing molexp internals.
-Default in-memory / no-op implementations live at the bottom of this
-module so :class:`~molexp.agent.modes.plan.PlanMode` can be constructed
-without any wiring.
+Sub-spec 06 will reintroduce gate / repair policy slots when the
+human-review node lands; v1 of the rewrite (this sub-spec) drops
+them — the materialize-to-workspace pipeline owns persistence
+through :class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`
+and there is no in-memory iteration counter to thread.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
@@ -24,15 +25,16 @@ from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from molexp.agent.modes.plan.policy import PlanModelPolicy
+    from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
 
-from molexp.agent.modes.plan.schemas import (
-    ApprovalDecision,
-    CompileReport,
-    DryRunReport,
-    ExecutableWorkflowDraft,
-    PlanPreview,
-    RepairReport,
-)
+
+__all__ = [
+    "ModelTier",
+    "PlanDeps",
+    "Provider",
+    "SchemaT",
+]
+
 
 # ── Tier vocabulary ────────────────────────────────────────────────────────
 
@@ -96,49 +98,6 @@ class Provider(Protocol):
         ...
 
 
-# ── Gate / repair policies ─────────────────────────────────────────────────
-
-
-@runtime_checkable
-class GatePolicy(Protocol):
-    """External approval source — never the LLM that authored the plan."""
-
-    async def gate_a(self, preview: PlanPreview) -> ApprovalDecision: ...
-
-    async def gate_b(
-        self,
-        executable: ExecutableWorkflowDraft,
-        compile_report: CompileReport,
-        dry_run_report: DryRunReport,
-    ) -> ApprovalDecision: ...
-
-
-@runtime_checkable
-class RepairPolicy(Protocol):
-    """Source of plan patches when a gate / check rejects the plan."""
-
-    async def patch(self, preview: PlanPreview, *, reason: str) -> RepairReport: ...
-
-
-# ── Persistence services ───────────────────────────────────────────────────
-
-
-@runtime_checkable
-class PlanStore(Protocol):
-    """Per-session plan-mode bookkeeping (iteration counter, etc.)."""
-
-    def get_iteration(self) -> int: ...
-
-    def note_iteration(self) -> None: ...
-
-
-@runtime_checkable
-class ArtifactWriter(Protocol):
-    """Persist plan artifacts (generated code, reports) to disk / store."""
-
-    def write(self, name: str, payload: BaseModel) -> str: ...
-
-
 # ── PlanDeps aggregate ─────────────────────────────────────────────────────
 
 
@@ -146,93 +105,21 @@ class ArtifactWriter(Protocol):
 class PlanDeps:
     """Runtime services bundle threaded through ``ctx.deps``.
 
-    The ``model_policy`` field decides which :class:`ModelTier` each
-    Task's LLM call resolves to via
-    :meth:`PlanModelPolicy.tier_for(type(self).__name__)
-    <molexp.agent.modes.plan.policy.PlanModelPolicy.tier_for>`.
-    Defaults to ``STANDARD_PLAN_POLICY`` so existing callers that
-    didn't name the field continue to construct a working
-    :class:`PlanDeps`.
+    Three required fields, no defaults — the materialize-to-workspace
+    pipeline is meaningless without all three:
+
+    Attributes:
+        provider: LLM dispatch gateway (concrete impl: ``PydanticAIProvider``).
+        policy: Tier-aware model selection policy
+            (:class:`~molexp.agent.modes.plan.policy.PlanModelPolicy`).
+            Each task resolves its tier via
+            ``policy.tier_for(type(self).__name__)``.
+        workspace_handle: On-disk experiment-workspace handle
+            (:class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`).
+            All artifact writes route through this handle's API; tasks
+            never touch ``Path.write_text`` directly.
     """
 
     provider: Provider
-    gate_policy: GatePolicy
-    repair_policy: RepairPolicy
-    store: PlanStore
-    artifact_writer: ArtifactWriter
-    model_policy: PlanModelPolicy = field(default_factory=lambda: _standard_plan_policy())
-
-
-# ── Default implementations ────────────────────────────────────────────────
-
-
-class AutoApproveGatePolicy:
-    """Approves everything — the safe default for non-interactive use."""
-
-    async def gate_a(self, _preview: PlanPreview) -> ApprovalDecision:
-        return ApprovalDecision(approved=True)
-
-    async def gate_b(
-        self,
-        _executable: ExecutableWorkflowDraft,
-        _compile_report: CompileReport,
-        _dry_run_report: DryRunReport,
-    ) -> ApprovalDecision:
-        return ApprovalDecision(approved=True)
-
-
-class IdentityRepairPolicy:
-    """No-op repair — returns an empty patch set."""
-
-    async def patch(self, _preview: PlanPreview, *, reason: str) -> RepairReport:
-        del reason
-        return RepairReport(iteration=0, patches=(), affected_nodes=(), stale_nodes=())
-
-
-class InMemoryPlanStore:
-    """Process-local iteration counter; resets per :class:`PlanMode` instance."""
-
-    def __init__(self) -> None:
-        self._iteration = 0
-
-    def get_iteration(self) -> int:
-        return self._iteration
-
-    def note_iteration(self) -> None:
-        self._iteration += 1
-
-
-class NoOpArtifactWriter:
-    """Discards artifacts — placeholder until a workspace-backed writer lands."""
-
-    def write(self, name: str, _payload: BaseModel) -> str:
-        return name
-
-
-def _standard_plan_policy() -> PlanModelPolicy:
-    """Deferred resolver for ``STANDARD_PLAN_POLICY`` to break import cycle.
-
-    ``policy.py`` imports :class:`ModelTier` from this module; this
-    module would in turn want ``STANDARD_PLAN_POLICY`` as the
-    :class:`PlanDeps` default. The lazy callable inside
-    :func:`field(default_factory=...)` defers the import until
-    :class:`PlanDeps` is actually instantiated.
-    """
-    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
-
-    return STANDARD_PLAN_POLICY
-
-
-__all__ = [
-    "ArtifactWriter",
-    "AutoApproveGatePolicy",
-    "GatePolicy",
-    "IdentityRepairPolicy",
-    "InMemoryPlanStore",
-    "ModelTier",
-    "NoOpArtifactWriter",
-    "PlanDeps",
-    "PlanStore",
-    "Provider",
-    "RepairPolicy",
-]
+    policy: PlanModelPolicy
+    workspace_handle: PlanWorkspaceHandle
