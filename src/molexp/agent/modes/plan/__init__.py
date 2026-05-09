@@ -3,6 +3,13 @@
 Public entry point — :class:`PlanMode` plus its :class:`PlanModeConfig`
 and the :class:`PlanResult` view. Schema / protocol / task modules are
 considered private; tests reach into them by their full dotted path.
+
+Materialized experiment workspaces live under the agent-owned
+subsystem kind ``agent.plan-experiments`` (reserved 2026-05-09 by the
+``planmode-workspace-pipeline-*`` chain — see ``.claude/notes/architecture.md``).
+The on-disk layout helper :class:`PlanWorkspaceHandle` and the
+manifest / validation-report data types are re-exported here for
+downstream sub-specs to consume.
 """
 
 from molexp.agent.modes.plan._mode import (
@@ -11,5 +18,22 @@ from molexp.agent.modes.plan._mode import (
     PlanModeConfig,
     PlanResult,
 )
+from molexp.agent.modes.plan.workspace_layout import (
+    AGENT_PLAN_EXPERIMENTS_KIND,
+    CheckResult,
+    PlanManifest,
+    PlanWorkspaceHandle,
+    ValidationReport,
+)
 
-__all__ = ["PLAN_WORKFLOW", "PlanMode", "PlanModeConfig", "PlanResult"]
+__all__ = [
+    "AGENT_PLAN_EXPERIMENTS_KIND",
+    "PLAN_WORKFLOW",
+    "CheckResult",
+    "PlanManifest",
+    "PlanMode",
+    "PlanModeConfig",
+    "PlanResult",
+    "PlanWorkspaceHandle",
+    "ValidationReport",
+]

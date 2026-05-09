@@ -35,7 +35,7 @@ from .assets import (
     OutputAsset,
     Producer,
 )
-from .base import atomic_write_json
+from .base import atomic_write_json, atomic_write_text
 from .context import Context
 from .errors import (
     ExperimentExistsError,
@@ -127,5 +127,8 @@ __all__ = [
     # Atomic JSON I/O — used by workflow layer's persistence + agent
     # layer's session storage.
     "atomic_write_json",
+    # Atomic plain-text I/O — companion to atomic_write_json for
+    # markdown reports / generated source previews / log snapshots.
+    "atomic_write_text",
     "to_transport",
 ]

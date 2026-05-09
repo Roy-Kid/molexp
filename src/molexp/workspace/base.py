@@ -63,6 +63,39 @@ def atomic_write_json(path: Path, data: object) -> None:
 _atomic_write_json = atomic_write_json
 
 
+def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:
+    """Write text to a file atomically via write-to-temp + rename.
+
+    Companion to :func:`atomic_write_json` for plain-text artifacts —
+    markdown reports, generated source previews, log snapshots — that
+    are read back as strings rather than parsed as JSON. Same temp-file
+    + ``os.replace`` pattern; if the process crashes mid-write the
+    original file remains intact.
+
+    Public surface — re-exported through ``molexp.workspace`` so the
+    agent layer (``PlanMode`` validation reports) and any future
+    plain-text consumer can write through workspace's atomicity
+    guarantee.
+
+    Args:
+        path: Destination file path.
+        content: Text to write.
+        encoding: Text encoding (default ``"utf-8"``).
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
+    tmp = Path(tmp_path)
+    try:
+        with os.fdopen(fd, "w", encoding=encoding) as f:
+            f.write(content)
+        tmp.replace(path)
+    except BaseException:
+        # Clean up temp file on any failure (including KeyboardInterrupt).
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
+
+
 def _save_metadata(metadata: BaseModel, path: Path) -> None:
     """Write a Pydantic metadata model to a JSON file atomically.
 
