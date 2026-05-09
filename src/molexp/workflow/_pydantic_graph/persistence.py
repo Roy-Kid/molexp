@@ -1,11 +1,18 @@
 """RunStorePersistence: pydantic-graph BaseStatePersistence backed by a single workflow.json.
 
-All workflow execution state (steps + end) is consolidated into one file:
+All workflow execution state (steps + end) is consolidated into one
+file::
+
     <run_dir>/executions/<execution_id>/workflow.json
 
 This replaces the previous per-snapshot file layout
-(``WorkflowStep:{uuid}.json``, ``__end__.json``), making it easy to inspect
-progress with a single ``cat workflow.json``.
+(``WorkflowStep:{uuid}.json``, ``__end__.json``), making it easy to
+inspect progress with a single ``cat workflow.json``.
+
+Atomic writes route through workspace's
+:func:`molexp.workspace.atomic_write_json` so the atomicity guarantee
+is workspace's, not a workflow-layer reinvention. (Rectification spec
+2026-05-09 — workspace ← workflow direction.)
 """
 
 from __future__ import annotations
@@ -22,6 +29,8 @@ from mollog import get_logger
 from pydantic_graph import End, exceptions
 from pydantic_graph.nodes import BaseNode
 from pydantic_graph.persistence import BaseStatePersistence, EndSnapshot, NodeSnapshot
+
+from molexp.workspace import atomic_write_json
 
 from ..._typing import HashablePayload, JSONValue
 from ..protocols import UserDeps
@@ -202,10 +211,8 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
                 return
 
     def _write_workflow(self) -> None:
-        """Atomically write workflow.json (tmp → rename)."""
-        tmp = self._workflow_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(self._state.to_jsonable(), indent=2, default=str))
-        tmp.replace(self._workflow_file)
+        """Atomically write workflow.json through workspace's helper."""
+        atomic_write_json(self._workflow_file, self._state.to_jsonable())
 
 
 def _safe_serialize(obj: HashablePayload) -> JSONValue:

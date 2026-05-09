@@ -117,11 +117,30 @@ def test_no_duplicate_end_sentinel():
 
 
 def test_claude_md_documents_boundary():
+    """The pg boundary rule is documented somewhere in CLAUDE.md.
+
+    Post-rectification (2026-05-09) the dedicated "Workflow ↔
+    pydantic-graph boundary" section was folded into a unified
+    "Layer charters" section that documents all three layer
+    boundaries together. The architectural facts must still appear
+    verbatim:
+
+    1. ``WorkflowStep`` is the only ``BaseNode`` exposed to pg;
+    2. ``pydantic_graph`` imports are confined to
+       ``workflow/_pydantic_graph/``;
+    3. ``Task`` / ``Actor`` do not subclass ``pydantic_graph.BaseNode``.
+    """
     assert CLAUDE_MD.exists(), "CLAUDE.md must exist at the repo root"
     text = CLAUDE_MD.read_text()
-    assert "Workflow ↔ pydantic-graph boundary" in text, (
-        "CLAUDE.md must contain a section heading 'Workflow ↔ pydantic-graph boundary' "
-        "documenting the architectural rule."
+    assert "WorkflowStep" in text, (
+        "CLAUDE.md must mention WorkflowStep (the sole BaseNode molexp exposes to pydantic_graph)."
+    )
+    assert "_pydantic_graph" in text, (
+        "CLAUDE.md must document the pydantic_graph confinement under workflow/_pydantic_graph/."
+    )
+    assert "BaseNode" in text, (
+        "CLAUDE.md must document the rule that Task / Actor do not "
+        "subclass pydantic_graph.BaseNode."
     )
 
 

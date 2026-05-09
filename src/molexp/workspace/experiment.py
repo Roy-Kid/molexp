@@ -1,42 +1,43 @@
 """Experiment entity — one directory per parameter combination.
 
-An Experiment binds a workflow to a concrete set of parameters plus a
-replica configuration (``n_replicas`` × ``seeds``).  Replicas under the
-same Experiment share parameters; they differ only in their random seed.
+An Experiment is a parameter-space container plus replica configuration
+(``n_replicas`` × ``seeds``). Replicas under the same Experiment share
+parameters; they differ only in their random seed.
 
-Construction is side-effect free; ``project.experiment(...)`` materializes
-on disk at call-time (idempotent: if an experiment with the same slug
-already exists, it is loaded and returned).
+Workspace does **not** know about workflows — pairing an Experiment
+with a workflow is the caller's concern. Use the workflow layer to
+build a ``WorkflowSpec`` and pass the workspace ``Run`` to its
+``execute(run=...)`` method:
+
+    >>> exp = project.experiment("lr-1e-3", params={"lr": 1e-3})
+    >>> run = exp.run()
+    >>> result = await my_workflow_spec.execute(run=run)
+
+Construction is side-effect free; ``project.experiment(...)``
+materializes on disk at call-time (idempotent: if an experiment with
+the same slug already exists, it is loaded and returned).
 """
 
 from __future__ import annotations
 
-import asyncio
-import inspect
-import json
-from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .project import Project
     from .workspace import Workspace
 
-from molexp._typing import JSONMapping, JSONValue
-from molexp.workflow.context import TaskContext
-from molexp.workflow.spec import Workflow, WorkflowSpec
-from molexp.workflow.task import Task
+from molexp._typing import JSONValue
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import (
-    _atomic_write_json,
     _list_children,
     _load_metadata,
     _rebuild_container_index,
     _reconstruct,
     _save_metadata,
 )
-from .models import ExperimentMetadata, RunMetadata, WorkflowSnapshotRef
+from .models import ExperimentMetadata, RunMetadata
 from .run import Run
 from .utils import generate_id
 
@@ -44,79 +45,8 @@ from .utils import generate_id
 _DEFAULT_SEEDS = [42, 123, 456, 789, 1234]
 
 
-class _EntryTask(Task):
-    """Wraps a bare ``fn(RunContext) -> None`` into a workflow Task."""
-
-    def __init__(self, fn: Callable) -> None:
-        self._fn = fn
-
-    async def execute(self, ctx: TaskContext) -> None:
-        run_ctx = ctx.run_context
-        if run_ctx is None:
-            fn_name = getattr(self._fn, "__name__", None) or "anonymous"
-            raise RuntimeError(
-                f"{fn_name}() requires a RunContext, but the "
-                "workflow was executed without a workspace run."
-            )
-        if asyncio.iscoroutinefunction(self._fn):
-            await self._fn(run_ctx)
-        else:
-            # Run sync bodies in a worker thread so blocking I/O (e.g.
-            # ``time.sleep``) does not stall sibling replicas in the same
-            # event loop.  Preserve the original semantics where a sync
-            # callable that returns an awaitable is still awaited.
-            result = await asyncio.to_thread(self._fn, run_ctx)
-            if asyncio.iscoroutine(result) or inspect.isawaitable(result):
-                await result
-
-
-def _promote_to_workflow(fn: Callable, name: str) -> WorkflowSpec:
-    """Promote a bare ``fn(RunContext)`` to a single-Task WorkflowSpec."""
-    fn_name = getattr(fn, "__name__", None) or "anonymous"
-    return Workflow(name=name).add(_EntryTask(fn), name=fn_name).build()
-
-
-def _resolve_callable_entrypoint(fn: Callable) -> str:
-    """Return ``"<file>:<qualname>"`` for a module-level callable."""
-    qualname = getattr(fn, "__qualname__", None) or getattr(fn, "__name__", None)
-    if qualname is None or "<locals>" in qualname or "<lambda>" in qualname:
-        raise ValueError(
-            f"cannot determine an importable entrypoint for {fn!r}: "
-            "define it at module scope (not nested / lambda) so the "
-            "worker can re-import it."
-        )
-    file_path = Path(inspect.getfile(fn)).resolve()
-    return f"{file_path}:{qualname}"
-
-
-def _resolve_spec_entrypoint(spec: WorkflowSpec) -> str:
-    """Return ``"<file>:<varname>"`` for *spec*.
-
-    A ``WorkflowSpec`` carries no name; the worker re-imports it by
-    looking up the variable that holds it.  We find that module by
-    asking the first registered task (which always lives in the same
-    user module that assembled the spec) for its source, then scan
-    that module's globals for a binding to *spec* by identity.
-    """
-    mod = inspect.getmodule(spec._tasks[0].fn_or_class)
-    if mod is None:
-        raise ValueError(
-            f"cannot determine an importable entrypoint: the first task body "
-            f"({spec._tasks[0].fn_or_class!r}) does not belong to any module."
-        )
-    file_path = Path(inspect.getfile(mod)).resolve()
-    for var, val in vars(mod).items():
-        if val is spec:
-            return f"{file_path}:{var}"
-    raise ValueError(
-        f"cannot determine an importable entrypoint: {spec!r} is not "
-        f"bound to a module-level variable in {file_path}.  Assign the "
-        "spec to a name at module scope so the worker can re-import it."
-    )
-
-
 class Experiment:
-    """Repeatable experiment bound to a workflow and a concrete parameter set.
+    """Repeatable experiment — a parameter-space container.
 
     Example::
 
@@ -125,7 +55,9 @@ class Experiment:
             params={"lr": 1e-3},
             n_replicas=3,
         )
-        exp.set_workflow(train_fn)
+        run = exp.run()
+        # Workflow execution is the caller's concern; workspace just
+        # provides the Run that workflow.execute(run=...) operates on.
     """
 
     def __init__(
@@ -159,14 +91,6 @@ class Experiment:
             default_target=default_target,
         )
         self._data_assets: DataAssetLibrary | None = None
-        self._workflow: WorkflowSpec | None = None
-        # Captured at ``set_workflow()`` time as ``"<file>:<qualname>"`` so
-        # the worker can pull the workflow object back without re-running
-        # the entire user script.
-        self._workflow_entrypoint: str | None = None
-        # Snapshot of the JSON IR when bound from a dict; ``None`` when
-        # bound from a Python ``WorkflowSpec`` / callable.
-        self._workflow_ir: dict[str, JSONValue] | None = None
 
     # ── Properties ──────────────────────────────────────────────────────
 
@@ -212,28 +136,6 @@ class Experiment:
         return self.metadata.seeds
 
     @property
-    def workflow(self) -> WorkflowSpec | None:
-        """The bound workflow (always ``WorkflowSpec`` or ``None``).
-
-        Lazy-loads from ``experiment_dir/workflow.json`` (the IR file) on
-        first access if no workflow has been bound in-process. This
-        recovers IR-bound workflows after a server restart, where
-        :meth:`set_workflow` was called in a previous process.
-        """
-        cached = getattr(self, "_workflow", None)
-        if cached is not None:
-            return cached
-        ir = self._read_workflow_ir_from_disk()
-        if ir is None:
-            return None
-        from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
-
-        spec = _WorkflowSpec.from_dict(ir)
-        self._workflow = spec
-        self._workflow_ir = ir
-        return spec
-
-    @property
     def workspace(self) -> Workspace:
         return self.project.workspace
 
@@ -257,86 +159,6 @@ class Experiment:
                 self.experiment_dir, self.scope, self.project.workspace.catalog
             )
         return self._data_assets
-
-    # ── Workflow binding ────────────────────────────────────────────────
-
-    def set_workflow(
-        self,
-        workflow: WorkflowSpec | Callable | JSONMapping,
-    ) -> None:
-        """Bind a workflow to this experiment.
-
-        Accepted forms:
-
-        - A compiled :class:`WorkflowSpec`.
-        - A bare ``fn(RunContext)`` callable; auto-promoted to a
-          single-Task ``WorkflowSpec``.
-        - A JSON IR ``dict`` matching ``schema/workflow.json``;
-          compiled via :meth:`WorkflowSpec.from_dict` and persisted to
-          ``experiment_dir/workflow.json`` so the binding survives
-          process restarts.
-
-        For Python-side bindings (spec / callable), captures an
-        *entrypoint* — ``"<absolute_file>:<qualname>"`` — so a worker
-        process can re-import the workflow without re-running the entire
-        user script. IR bindings need no entrypoint: the IR itself is
-        the durable artifact.
-
-        Raises:
-            TypeError: If *workflow* is not a ``WorkflowSpec``, callable,
-                or dict.
-            ValueError: If a workflow is already bound, the entrypoint
-                cannot be resolved, or the IR fails to compile.
-        """
-        if getattr(self, "_workflow", None) is not None:
-            raise ValueError(f"Experiment {self.name!r} already has a workflow bound.")
-        if isinstance(workflow, dict):
-            from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
-
-            # ``workflow`` was already narrowed to ``dict`` above; the
-            # rebuild + ``cast`` document the intent and let ty match
-            # ``Mapping[str, JSONValue]`` on ``WorkflowSpec.from_dict``.
-            # The cast is the boundary acknowledgement: the parameter
-            # signature accepts a JSON-shaped mapping, but ``dict`` is
-            # invariant in its value type so ty cannot prove the cell.
-            ir: dict[str, JSONValue] = {str(k): cast(JSONValue, v) for k, v in workflow.items()}
-            spec = _WorkflowSpec.from_dict(ir)
-            self._workflow = spec
-            self._workflow_ir = ir
-            self._workflow_entrypoint = None
-            self._persist_workflow_ir(self._workflow_ir)
-            return
-        if isinstance(workflow, WorkflowSpec):
-            self._workflow = workflow
-            self._workflow_entrypoint = _resolve_spec_entrypoint(workflow)
-        elif callable(workflow):
-            self._workflow = _promote_to_workflow(workflow, self.name)
-            self._workflow_entrypoint = _resolve_callable_entrypoint(workflow)
-        else:
-            raise TypeError(
-                f"Expected WorkflowSpec, callable, or IR dict, got {type(workflow).__name__}"
-            )
-
-    # ── Workflow IR persistence ─────────────────────────────────────────
-
-    @property
-    def workflow_path(self) -> Path:
-        """Path to the on-disk workflow IR file (may not exist)."""
-        return self.experiment_dir / "workflow.json"
-
-    def _persist_workflow_ir(self, ir: dict[str, JSONValue]) -> None:
-        self.experiment_dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_json(self.workflow_path, ir)
-
-    def _read_workflow_ir_from_disk(self) -> dict[str, JSONValue] | None:
-        path = self.workflow_path
-        if not path.exists():
-            return None
-        try:
-            with open(path) as fh:
-                return json.load(fh)
-        except (OSError, json.JSONDecodeError):
-            return None
 
     def get_seeds(self) -> list[int]:
         """Return replica seeds (length == ``n_replicas``)."""
@@ -388,29 +210,25 @@ class Experiment:
         *,
         id: str | None = None,
         target: str | None = None,
+        workflow_snapshot: dict[str, JSONValue] | None = None,
     ) -> Run:
         """Get-or-create a run (idempotent, materialized immediately).
 
-        If a run with the same ID already exists on disk, load and return it.
-        Otherwise, construct + materialize a new Run.
-        """
-        # Always emit a snapshot when an entrypoint was captured, even
-        # without a recorded workflow_source — the entrypoint itself is
-        # what the worker needs.
-        source = self.metadata.workflow_source or self._workflow_entrypoint
-        snapshot = None
-        if source is not None or self._workflow_entrypoint is not None:
-            snapshot = WorkflowSnapshotRef(
-                source=source or "",
-                entrypoint=self._workflow_entrypoint,
-                git_commit=self.metadata.git_commit,
-            )
+        If a run with the same ID already exists on disk, load and
+        return it. Otherwise, construct + materialize a new Run.
 
+        ``workflow_snapshot`` is an opaque JSON-shaped payload — the
+        canonical structure lives in
+        :class:`molexp.workflow.snapshot_ref.WorkflowSnapshotRef` but
+        workspace doesn't know that type. Callers that want to record
+        workflow provenance pass the snapshot's ``model_dump(mode="json")``
+        directly; everyone else passes ``None`` (the default).
+        """
         r = Run(
             experiment=self,
             parameters=parameters,
             id=id,
-            workflow_snapshot=snapshot,
+            workflow_snapshot=workflow_snapshot,
             target=target if target is not None else self.metadata.default_target,
         )
         run_dir = self.experiment_dir / "runs" / f"run-{r.id}"

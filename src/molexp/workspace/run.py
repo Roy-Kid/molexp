@@ -79,7 +79,6 @@ from .models import (
     ExecutionMetadata,
     ExecutionRecord,
     RunMetadata,
-    WorkflowSnapshotRef,
 )
 from .utils import generate_asset_id, generate_id
 
@@ -746,7 +745,7 @@ class Run:
         experiment: Experiment,
         parameters: dict[str, JSONValue] | None = None,
         id: str | None = None,
-        workflow_snapshot: WorkflowSnapshotRef | None = None,
+        workflow_snapshot: dict[str, JSONValue] | None = None,
         target: str | None = None,
     ) -> None:
         self.experiment = experiment
@@ -776,7 +775,13 @@ class Run:
         share the same fingerprint id.
         """
         snapshot = self.metadata.workflow_snapshot
-        workflow_spec_id = getattr(snapshot, "workflow_id", "") if snapshot is not None else ""
+        # ``workflow_snapshot`` is an opaque JSON dict (see RunMetadata);
+        # we only sip a single field for fingerprint composition.
+        workflow_spec_id = ""
+        if isinstance(snapshot, dict):
+            value = snapshot.get("workflow_id")
+            if isinstance(value, str):
+                workflow_spec_id = value
         return RunFingerprint(
             workflow_spec_id=workflow_spec_id,
             parameters_hash=_hash_payload(self.metadata.parameters),
@@ -852,9 +857,7 @@ class Run:
                 self.metadata.finished_at.isoformat() if self.metadata.finished_at else None
             ),
             "workflow_snapshot": (
-                self.metadata.workflow_snapshot.model_dump(mode="json")
-                if self.metadata.workflow_snapshot
-                else None
+                dict(self.metadata.workflow_snapshot) if self.metadata.workflow_snapshot else None
             ),
         }
         ws.catalog.upsert_run(record)

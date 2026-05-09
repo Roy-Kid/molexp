@@ -146,12 +146,15 @@ class TestRun:
         assert run.parameters == {"x": 1}
         assert run.status == "pending"
 
-    def test_workflow_snapshot_auto_captured(self, experiment):
-        run = experiment.run()
+    def test_workflow_snapshot_passed_through_as_dict(self, experiment):
+        # workspace no longer auto-captures snapshots from
+        # Experiment.workflow_source — the caller (workflow / agent
+        # layer) supplies an opaque dict at run-creation time.
+        run = experiment.run(workflow_snapshot={"source": "train.py", "git_commit": "abc123"})
         snap = run.metadata.workflow_snapshot
         assert snap is not None
-        assert snap.source == "train.py"
-        assert snap.git_commit == "abc123"
+        assert snap["source"] == "train.py"
+        assert snap["git_commit"] == "abc123"
 
     def test_list_runs(self, experiment):
         experiment.run(parameters={"x": 1})
@@ -159,7 +162,11 @@ class TestRun:
         assert len(experiment.list_runs()) == 2
 
     def test_reload_from_disk(self, experiment):
-        run = experiment.run(parameters={"x": 42})
+        run = experiment.run(
+            parameters={"x": 42},
+            workflow_snapshot={"source": "train.py"},
+        )
         reloaded = experiment.get_run(run.id)
         assert reloaded.parameters == {"x": 42}
-        assert reloaded.metadata.workflow_snapshot.source == "train.py"
+        assert reloaded.metadata.workflow_snapshot is not None
+        assert reloaded.metadata.workflow_snapshot["source"] == "train.py"

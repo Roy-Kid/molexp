@@ -38,14 +38,26 @@ config — see § Workflow ↔ pydantic-graph boundary in CLAUDE.md.
 
 from ._pydantic_graph.runtime import make_execution_id
 from .cache import Caching
+from .cache_store import (
+    WORKFLOW_CACHE_SUBSYSTEM_KIND,
+    CacheStore,
+    FileCacheStore,
+    WorkspaceCacheStore,
+)
 from .compiler import (
     WorkflowCompiler,
     default_compiler,
 )
 from .context import ActorContext, TaskContext
+from .promote import (
+    promote_callable,
+    resolve_callable_entrypoint,
+    resolve_spec_entrypoint,
+)
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .snapshot import TaskSnapshot
+from .snapshot_ref import WorkflowSnapshotRef
 from .spec import Workflow, WorkflowSpec
 from .task import Actor, Task
 from .types import (
@@ -78,9 +90,11 @@ __all__ = [
     "ActorContext",
     "BranchEdges",
     # Utilities
+    "CacheStore",
     "Caching",
     "CycleError",
     "EdgeShapeError",
+    "FileCacheStore",
     # Workflow terminator (re-exported from pydantic_graph)
     "End",
     "EntryAmbiguousError",
@@ -110,16 +124,24 @@ __all__ = [
     "Workflow",
     # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec)
     "WorkflowCompiler",
+    "WORKFLOW_CACHE_SUBSYSTEM_KIND",
     "WorkflowDeadlockError",
     # Errors
     "WorkflowError",
     "WorkflowExecution",
     # Execution
     "WorkflowResult",
+    # Snapshot reference (on-disk shape stored in run.json)
+    "WorkflowSnapshotRef",
     "WorkflowSpec",
     "WorkflowVersion",
     "WorkflowVersionConflictError",
+    "WorkspaceCacheStore",
     "default_compiler",
     "default_registry",
     "make_execution_id",
+    # Callable → WorkflowSpec promotion (worker re-import support)
+    "promote_callable",
+    "resolve_callable_entrypoint",
+    "resolve_spec_entrypoint",
 ]

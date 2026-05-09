@@ -18,11 +18,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict
-from pydantic_graph import (
-    End as End,
-)
 
 from .._typing import JSONValue, TaskOutput
+from ._pydantic_graph import End as End
 
 # ── IR-internal route routing token ─────────────────────────────────────────
 

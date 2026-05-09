@@ -9,7 +9,6 @@ from molexp.workspace.models import (
     ExperimentMetadata,
     ProjectMetadata,
     RunMetadata,
-    WorkflowSnapshotRef,
     WorkspaceMetadata,
 )
 
@@ -83,10 +82,15 @@ class TestExperimentMetadata:
 
 
 class TestRunMetadata:
-    def test_workflow_snapshot(self):
-        snap = WorkflowSnapshotRef(source="train.py", git_commit="abc")
+    def test_workflow_snapshot_is_opaque_dict(self):
+        # workflow_snapshot is now an opaque JSON dict — workspace
+        # never imports the canonical type. Workflow-layer callers
+        # may dump their pydantic ``WorkflowSnapshotRef`` to a dict
+        # before passing it in.
+        snap = {"source": "train.py", "git_commit": "abc"}
         m = RunMetadata(id="run-1", workflow_snapshot=snap)
-        assert m.workflow_snapshot.source == "train.py"
+        assert m.workflow_snapshot is not None
+        assert m.workflow_snapshot["source"] == "train.py"
         assert m.status == "pending"
 
     def test_error_info(self):

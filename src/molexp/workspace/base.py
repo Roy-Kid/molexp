@@ -21,18 +21,24 @@ from molexp._typing import JSONValue
 T = TypeVar("T")
 
 
-def _atomic_write_json(path: Path, data: object) -> None:
+def atomic_write_json(path: Path, data: object) -> None:
     """Write JSON data to a file atomically via write-to-temp + rename.
 
-    On POSIX systems, os.replace is atomic — if the process crashes mid-write,
-    the original file remains intact. This prevents data corruption for
-    critical files like run.json and metadata files.
+    On POSIX systems, os.replace is atomic — if the process crashes
+    mid-write, the original file remains intact. This prevents data
+    corruption for critical files like run.json, metadata files, and
+    workflow-state checkpoints.
 
     The ``data`` parameter is the structural top-type ``object`` rather
     than ``JSONValue`` because :func:`json.dumps` is invoked with
     ``default=str``, which accepts anything that has a string repr.
     Callers are responsible for ensuring the value is meaningful as
     JSON; ``json.dumps`` raises at write time if not.
+
+    Public surface — re-exported through ``molexp.workspace`` so the
+    workflow layer's ``RunStorePersistence`` and the agent layer's
+    ``SessionCatalog`` can write through workspace's atomicity guarantee
+    without reaching into a private helper.
 
     Args:
         path: Destination file path.
@@ -50,6 +56,11 @@ def _atomic_write_json(path: Path, data: object) -> None:
         with contextlib.suppress(OSError):
             os.unlink(tmp_path)
         raise
+
+
+# Backwards-compatible private alias — every existing call site uses
+# the underscore name. New code should reach for ``atomic_write_json``.
+_atomic_write_json = atomic_write_json
 
 
 def _save_metadata(metadata: BaseModel, path: Path) -> None:

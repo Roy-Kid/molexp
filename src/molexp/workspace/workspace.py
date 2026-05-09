@@ -12,12 +12,8 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from .assets import AssetCatalog, AssetScope, AssetsView, DataAssetLibrary
-
-if TYPE_CHECKING:
-    from .sessions import SessionLibrary
 from .base import (
     _list_children,
     _load_metadata,
@@ -76,7 +72,6 @@ class Workspace:
         self._catalog: AssetCatalog | None = None
         self._projects_cache: dict[str, Project] = {}
         self._subsystem_stores: dict[str, SubsystemStore] = {}
-        self._sessions: SessionLibrary | None = None
 
     def _ensure_materialized(self) -> None:
         if not (self.root / "workspace.json").exists():
@@ -128,6 +123,11 @@ class Workspace:
         Same kind returns the same instance per workspace. Construction
         is side-effect-free; the directory is created on first
         :meth:`SubsystemStore.dir` / :meth:`SubsystemStore.file` call.
+
+        ``kind`` is opaque to workspace — it just validates the shape
+        (lowercase ASCII, no path traversal). Consumers (the agent
+        layer's ``SessionCatalog``, the workflow layer's cache backing,
+        etc.) decide what their kind string should be.
         """
         cached = self._subsystem_stores.get(kind)
         if cached is not None:
@@ -135,20 +135,6 @@ class Workspace:
         store = SubsystemStore(self.root, kind)
         self._subsystem_stores[kind] = store
         return store
-
-    @property
-    def sessions(self) -> SessionLibrary:
-        """Workspace-scoped session library (catalog + on-disk metadata).
-
-        Lazily constructed. Mediates session-metadata writes and the
-        catalog's ``sessions`` section so the agent layer never touches
-        either directly.
-        """
-        if self._sessions is None:
-            from .sessions import SessionLibrary
-
-            self._sessions = SessionLibrary(self)
-        return self._sessions
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -193,7 +179,6 @@ class Workspace:
                 "_catalog": None,
                 "_projects_cache": {},
                 "_subsystem_stores": {},
-                "_sessions": None,
             },
         )
 

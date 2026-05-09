@@ -1,17 +1,19 @@
 """Per-subsystem private storage under ``<workspace_root>/.subsystems/<kind>/``.
 
 A subsystem is any consumer of the workspace that needs a private,
-namespaced location for its own files — for example the agent layer's
-sessions / skills / tools / mcp stores. The workspace vendors the path
-through :meth:`Workspace.subsystem_store`; the subsystem owns the layout
-inside the directory it is handed.
+namespaced location for its own files. Workspace knows nothing about
+specific consumers — it just vends the path through
+:meth:`Workspace.subsystem_store` and validates that the requested
+*kind* is shape-safe. The consumer owns the layout inside the
+directory it is handed and the schema of the files it writes.
 
 Construction is side-effect-free: ``SubsystemStore(root, kind)`` does
 not create any directory. ``.dir()`` and ``.file(name)`` create the
-parent on demand. ``kind`` is dotted-lowercase (``agent.sessions``,
-``agent.skills``); validation rejects path-traversal, leading dots,
-uppercase, and non-ASCII strings so the namespace can never escape
-``<workspace_root>/.subsystems/`` or shadow another dotfile.
+parent on demand. ``kind`` is dotted-lowercase ASCII; validation
+rejects path-traversal, leading dots, uppercase, and non-ASCII strings
+so the namespace can never escape ``<workspace_root>/.subsystems/`` or
+shadow another dotfile. Workspace assigns no semantics to particular
+``kind`` values.
 """
 
 from __future__ import annotations
@@ -32,7 +34,7 @@ def _validate_kind(kind: str) -> None:
     if not _KIND_PATTERN.fullmatch(kind):
         raise ValueError(
             f"invalid subsystem kind {kind!r}: must be dotted lowercase ASCII "
-            "(e.g. 'agent.sessions'); no path separators, leading dots, "
+            "(e.g. 'foo.bar', 'baz'); no path separators, leading dots, "
             "uppercase, or whitespace allowed"
         )
 
@@ -42,13 +44,12 @@ class SubsystemStore:
 
     The store does not interpret the contents of its directory — it
     only vendors paths and creates parent directories on demand.
-    Consumers (the agent layer's sessions store, skills store, etc.)
-    own whatever schema lives inside.
+    Consumers own whatever schema lives inside.
 
     Examples:
-        >>> store = SubsystemStore(workspace_root, "agent.sessions")
-        >>> sessions_dir = store.dir()
-        >>> skills_file = SubsystemStore(workspace_root, "agent.skills").file("skills.json")
+        >>> store = SubsystemStore(workspace_root, "my.subsystem")
+        >>> store_dir = store.dir()
+        >>> store_file = SubsystemStore(workspace_root, "my.subsystem").file("data.json")
     """
 
     def __init__(self, workspace_root: Path | str, kind: str) -> None:

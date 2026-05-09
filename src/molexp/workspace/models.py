@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from molexp._typing import JSONValue
 
@@ -24,26 +24,10 @@ class ErrorInfo(BaseModel, frozen=True):
     timestamp: datetime
 
 
-class WorkflowSnapshotRef(BaseModel, frozen=True):
-    """Frozen reference to the workflow that produced a run.
-
-    Captured at run-creation time so the exact code/config
-    can always be traced back.
-
-    ``entrypoint`` is the worker's import coordinate, formatted as
-    ``"<absolute_file_path>:<qualname>"``.  The worker imports the file
-    as a *non-``__main__``* module — any ``if __name__ == "__main__":``
-    guard in the user script therefore skips workspace setup, so
-    re-importing for workflow lookup has no side effects.  ``source``
-    is retained for human-readable audit (often the same path).
-    """
-
-    source: str
-    entrypoint: str | None = None
-    git_commit: str | None = None
-    code_hash: str | None = None
-    config_hash: str | None = None
-
+# ``WorkflowSnapshotRef`` lives under ``molexp.workflow.snapshot_ref`` —
+# workspace stores its on-disk shape as opaque JSON in
+# ``RunMetadata.workflow_snapshot``. The relocation was part of the
+# rectification spec (2026-05-09); see CLAUDE.md § Layer charters.
 
 # ── Entity metadata ────────────────────────────────────────────────────────
 #
@@ -135,15 +119,27 @@ class ProjectMetadata(BaseModel, frozen=True):
 
 
 class ExperimentMetadata(BaseModel, frozen=True):
-    """Repeatable experiment definition bound to a workflow.
+    """Repeatable experiment definition — a parameter-space container.
 
-    An Experiment carries a concrete parameter dict (`parameter_space`)
-    plus replica configuration (`n_replicas`, `seeds`).  Parameter
+    An Experiment carries a concrete parameter dict (``parameter_space``)
+    plus replica configuration (``n_replicas``, ``seeds``). Parameter
     combinations are expanded by the user at script level (e.g. via
     ``for p in GridSpace(...)``); each combination becomes a distinct
-    Experiment.  Replicas under a single Experiment share parameters
-    but differ in random seed.
+    Experiment. Replicas under a single Experiment share parameters but
+    differ in random seed.
+
+    Workspace does **not** know about workflows; the Experiment-to-
+    Workflow pairing is the caller's concern (typically the agent layer
+    or a user script). The ``workflow_source`` / ``workflow_type`` fields
+    here are advisory free-form strings used by the UI for grouping —
+    workspace itself never interprets them.
+
+    ``model_config`` ignores extra fields so workspace.json files written
+    by older molexp versions (which may carry now-removed keys like
+    ``workflow``) still load cleanly.
     """
+
+    model_config = ConfigDict(extra="ignore", frozen=True)
 
     id: str
     name: str
@@ -151,7 +147,8 @@ class ExperimentMetadata(BaseModel, frozen=True):
     tags: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.now)
 
-    # Workflow binding — what makes an Experiment more than just a folder
+    # Advisory free-form workflow metadata — used by the UI for
+    # grouping; workspace never interprets it.
     workflow_source: str | None = None
     workflow_type: str | None = None
     parameter_space: dict[str, JSONValue] = Field(default_factory=dict)
@@ -230,7 +227,10 @@ class RunMetadata(BaseModel):
     created_at: datetime = Field(default_factory=datetime.now)
     finished_at: datetime | None = None
     error: ErrorInfo | None = None
-    workflow_snapshot: WorkflowSnapshotRef | None = None
+    # Opaque workflow-snapshot payload — the canonical type lives in
+    # ``molexp.workflow.snapshot_ref.WorkflowSnapshotRef``; workspace
+    # stores it as a plain dict to avoid an upward dependency.
+    workflow_snapshot: dict[str, JSONValue] | None = None
     script: str | None = None
     submit_cwd: str | None = None
     profile: str | None = None
