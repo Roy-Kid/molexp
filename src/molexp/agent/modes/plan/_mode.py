@@ -256,21 +256,15 @@ class PlanMode(AgentMode):
         plan_spec: PlanSpec | None = (
             approved.plan
             if approved is not None
-            else (
-                outputs["preview"].plan if "preview" in outputs else None
-            )
+            else (outputs["preview"].plan if "preview" in outputs else None)
         )
 
         intake_obj = outputs.get("intake")
         intake_text = intake_obj.extracted_goal if intake_obj is not None else ""
         design_text = ""
         if plan_spec is not None:
-            design_text = (
-                f"{plan_spec.method.name}\n\n"
-                + "\n".join(
-                    f"- {step.stage}: {step.operation}"
-                    for step in plan_spec.protocol.steps
-                )
+            design_text = f"{plan_spec.method.name}\n\n" + "\n".join(
+                f"- {step.stage}: {step.operation}" for step in plan_spec.protocol.steps
             )
 
         summary = (
@@ -289,9 +283,7 @@ class PlanMode(AgentMode):
             "approved_plan": approved.model_dump() if approved is not None else None,
             "plan_spec": plan_spec.model_dump() if plan_spec is not None else None,
             "outputs": {
-                name: payload.model_dump()
-                if isinstance(payload, BaseModel)
-                else payload
+                name: payload.model_dump() if isinstance(payload, BaseModel) else payload
                 for name, payload in outputs.items()
             },
             # Back-compat shim for callers that read mode_state["plan"].

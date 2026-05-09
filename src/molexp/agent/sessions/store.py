@@ -18,7 +18,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from molexp._typing import HashablePayload, JSONValue
-from molexp.agent._legacy_types import to_jsonable
+from molexp.agent.sessions._serde import to_jsonable
 from molexp.agent.sessions.types import SessionMetadata
 from molexp.agent.types import Message
 

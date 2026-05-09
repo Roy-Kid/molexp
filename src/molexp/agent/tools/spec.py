@@ -1,9 +1,24 @@
-"""Tool boundary types
+"""Tool boundary types.
 
 Tool execution lives entirely inside the harness; the model plugin
-surfaces ``ModelToolCall`` objects (see :mod:`molexp.agent.model`) and
-the dispatcher (see :mod:`molexp.agent.tools.dispatcher`) translates
-them into ``ToolResult``.
+surfaces ``ModelToolCall`` objects and the dispatcher
+(see :mod:`molexp.agent.tools.dispatcher`) translates them into
+``ToolResult``.
+
+This module owns the *agent-internal* tool data shapes —
+``ToolSchema`` (LLM-facing description), ``ModelToolCall``
+(LLM → agent invocation request), ``ToolSpec`` (full tool
+description with policy flags), ``ToolResult`` (normalized return
+shape). The ``pydantic_ai.tools.ToolDefinition`` /
+``pydantic_ai.messages.ToolCallPart`` analogues live behind
+the import-boundary firewall in ``agent/_pydanticai/``; the rest
+of the agent layer reaches for these local types.
+
+History: ``ToolSchema`` and ``ModelToolCall`` previously lived in
+``agent/_legacy_types.py``, which was a transitional bridge marked
+"slice 2 of agent-pydanticai-as-core removes these". The
+rectification spec (2026-05-09) moved them here permanently — they
+are agent-internal data contracts, not legacy bridges.
 """
 
 from __future__ import annotations
@@ -26,6 +41,40 @@ class _ChatGatewayLike(Protocol):
     """Mid-turn user-prompt gateway used by ``native:ask_user``-style tools."""
 
     async def ask(self, prompt: str) -> str: ...
+
+
+class ToolSchema(BaseModel):
+    """Tool description as the model sees it.
+
+    A trimmed projection of :class:`ToolSpec` containing only the
+    fields the LLM provider needs (``name`` / ``description`` /
+    ``input_schema``). Built by :meth:`ToolRegistry.schemas` and
+    forwarded to the harness for inclusion in the prompt.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    description: str
+    input_schema: JSONMapping
+
+
+class ModelToolCall(BaseModel):
+    """A single tool invocation requested by the model.
+
+    The dispatcher decodes one of these per ``ToolCallPart`` it
+    receives from pydantic-ai (translated inside
+    ``agent/_pydanticai/harness.py``). ``arguments`` is the
+    JSON-shaped payload the model produced; the dispatcher validates
+    it against the matching :class:`ToolSpec.input_schema` before
+    invoking the tool callable.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    name: str
+    arguments: JSONMapping
 
 
 class ToolSpec(BaseModel):

@@ -122,9 +122,7 @@ class ContextTask(PlanLLMTask):
     TIER = ModelTier.CHEAP
     SYSTEM_PROMPT = "Identify constraints, assumptions and environment for this goal."
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, GoalSpec]
-    ) -> ContextSpec:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, GoalSpec]) -> ContextSpec:
         goal = ctx.inputs
         return await self.invoke_llm(ctx, user=goal.model_dump_json(), schema=ContextSpec)
 
@@ -133,15 +131,10 @@ class MethodTask(PlanLLMTask):
     TIER = ModelTier.DEFAULT
     SYSTEM_PROMPT = "Choose a concrete method that satisfies the goal under the context."
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
-    ) -> MethodSpec:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> MethodSpec:
         goal: GoalSpec = ctx.inputs["goal"]
         context: ContextSpec = ctx.inputs["context"]
-        user = (
-            f"Goal: {goal.model_dump_json()}\n"
-            f"Context: {context.model_dump_json()}"
-        )
+        user = f"Goal: {goal.model_dump_json()}\nContext: {context.model_dump_json()}"
         return await self.invoke_llm(ctx, user=user, schema=MethodSpec)
 
 
@@ -149,9 +142,7 @@ class DecompositionTask(PlanLLMTask):
     TIER = ModelTier.HEAVY
     SYSTEM_PROMPT = "Break this method into ordered protocol stages."
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, MethodSpec]
-    ) -> Decomposition:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, MethodSpec]) -> Decomposition:
         method = ctx.inputs
         return await self.invoke_llm(ctx, user=method.model_dump_json(), schema=Decomposition)
 
@@ -160,9 +151,7 @@ class ProtocolTask(PlanLLMTask):
     TIER = ModelTier.HEAVY
     SYSTEM_PROMPT = "Render each stage as a concrete protocol step."
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, Decomposition]
-    ) -> ProtocolDraft:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, Decomposition]) -> ProtocolDraft:
         decomp = ctx.inputs
         return await self.invoke_llm(ctx, user=decomp.model_dump_json(), schema=ProtocolDraft)
 
@@ -173,9 +162,7 @@ class ProtocolTask(PlanLLMTask):
 class PreviewTask(PlanTask):
     """Render a frozen :class:`PlanPreview` from the upstream specs."""
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
-    ) -> PlanPreview:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> PlanPreview:
         plan = compose_plan_spec(ctx.inputs, revision=ctx.deps.store.get_iteration())
         rendered = (
             f"Goal: {plan.goal.objective}\n"
@@ -193,9 +180,7 @@ class PreviewTask(PlanTask):
 class GateATask(PlanTask):
     """Approve PlanSpec? — reads only the explicit ``preview`` input."""
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, PlanPreview]
-    ) -> Next:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, PlanPreview]) -> Next:
         preview = ctx.inputs
         decision = await ctx.deps.gate_policy.gate_a(preview)
         return Next("approve" if decision.approved else "patch")
@@ -225,9 +210,7 @@ class CodegenTask(PlanLLMTask):
         self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
     ) -> ExecutableWorkflowDraft:
         plan = compose_plan_spec(ctx.inputs, revision=ctx.deps.store.get_iteration())
-        codegen = await self.invoke_llm(
-            ctx, user=plan.model_dump_json(), schema=CodegenOutput
-        )
+        codegen = await self.invoke_llm(ctx, user=plan.model_dump_json(), schema=CodegenOutput)
         for spec in codegen.generated:
             ctx.deps.artifact_writer.write(f"generated_task/{spec.task_id}", spec)
         return ExecutableWorkflowDraft(
@@ -277,15 +260,11 @@ class DryRunTask(PlanTask):
 class GateBTask(PlanTask):
     """Approve handoff? — reads ``codegen`` + reports from explicit inputs."""
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
-    ) -> Next:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> Next:
         executable: ExecutableWorkflowDraft = ctx.inputs["codegen"]
         compile_report: CompileReport = ctx.inputs["compile"]
         dry_run_report: DryRunReport = ctx.inputs["dry_run"]
-        decision = await ctx.deps.gate_policy.gate_b(
-            executable, compile_report, dry_run_report
-        )
+        decision = await ctx.deps.gate_policy.gate_b(executable, compile_report, dry_run_report)
         return Next("approve" if decision.approved else "patch")
 
 
@@ -295,9 +274,7 @@ class GateBTask(PlanTask):
 class RepairTask(PlanTask):
     """Apply a :class:`RepairPolicy` patch and bump the iteration counter."""
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, PlanPreview]
-    ) -> RepairReport:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, PlanPreview]) -> RepairReport:
         preview = ctx.inputs
         ctx.deps.store.note_iteration()
         report = await ctx.deps.repair_policy.patch(preview, reason="rejected")
@@ -315,9 +292,7 @@ class RepairTask(PlanTask):
 class HandoffTask(PlanTask):
     """Materialise the :class:`ApprovedPlan` payload for the runner."""
 
-    async def execute(
-        self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
-    ) -> ApprovedPlan:
+    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ApprovedPlan:
         executable: ExecutableWorkflowDraft = ctx.inputs["codegen"]
         compile_report: CompileReport = ctx.inputs["compile"]
         dry_run_report: DryRunReport = ctx.inputs["dry_run"]

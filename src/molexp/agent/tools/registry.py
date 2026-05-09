@@ -11,9 +11,13 @@ import importlib
 import pkgutil
 from collections.abc import Iterator
 
-from molexp.agent._legacy_types import ToolSchema
 from molexp.agent.tools.policy import ToolPolicy
-from molexp.agent.tools.spec import RegisteredTool, ToolCallable, ToolSpec
+from molexp.agent.tools.spec import (
+    RegisteredTool,
+    ToolCallable,
+    ToolSchema,
+    ToolSpec,
+)
 
 _NATIVE_TOOL_ATTR = "__molexp_native_tool_spec__"
 
