@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import pytest
 import yaml
+from pydantic import ValidationError
 
 from molexp.workflow.compiler import default_compiler
 from molexp.workflow.contract import (
@@ -70,7 +71,7 @@ def test_contract_dict_roundtrip_is_field_equal() -> None:
 def test_dict_to_contract_rejects_unknown_top_level_key() -> None:
     dumped = default_compiler.contract_to_dict(_sample_contract())
     dumped["stray"] = 1
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError):
         default_compiler.dict_to_contract(dumped)
 
 
@@ -131,7 +132,7 @@ def test_old_workflow_ir_without_contract_round_trips_without_contract() -> None
             return None
 
     if not default_registry.has("test.echo_back_compat"):
-        default_registry.register("test.echo_back_compat", lambda config: Echo())
+        default_registry.register("test.echo_back_compat", lambda _config: Echo())
 
     ir_in = {
         "workflow_id": "workflow_abc12345",
@@ -173,7 +174,7 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
             return None
 
     if not default_registry.has("test.inert_yaml_rt"):
-        default_registry.register("test.inert_yaml_rt", lambda config: Inert())
+        default_registry.register("test.inert_yaml_rt", lambda _config: Inert())
 
     spec = (
         WorkflowBuilder(name="rt")

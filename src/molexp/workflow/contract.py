@@ -348,7 +348,8 @@ def _check_no_orphan_tasks(
 
 
 def _check_unique_artifact_paths(
-    contract: WorkflowContract, spec: Workflow | None
+    contract: WorkflowContract,
+    spec: Workflow | None,  # noqa: ARG001 — dispatcher-uniform signature; this check ignores spec.
 ) -> Sequence[_IssueKwargs]:
     """No two artifacts may declare the same path."""
     seen: dict[str, str] = {}  # path → first-declaring task_id
@@ -372,7 +373,8 @@ def _check_unique_artifact_paths(
 
 
 def _check_acyclic_data_edges(
-    contract: WorkflowContract, spec: Workflow | None
+    contract: WorkflowContract,
+    spec: Workflow | None,  # noqa: ARG001 — dispatcher-uniform signature; this check ignores spec.
 ) -> Sequence[_IssueKwargs]:
     """The data dep graph induced by inputs[].source must be acyclic."""
     # Build adjacency: task_id -> {sources}
@@ -390,7 +392,7 @@ def _check_acyclic_data_edges(
 
     def dfs(node: str, path: list[str]) -> None:
         if node in visiting:
-            cycle = " → ".join(path[path.index(node) :] + [node])
+            cycle = " → ".join([*path[path.index(node) :], node])
             issues.append(
                 {
                     "target": node,
@@ -446,7 +448,8 @@ def _check_every_input_has_source(
 
 
 def _check_produced_by_resolves(
-    contract: WorkflowContract, spec: Workflow | None
+    contract: WorkflowContract,
+    spec: Workflow | None,  # noqa: ARG001 — dispatcher-uniform signature; this check ignores spec.
 ) -> Sequence[_IssueKwargs]:
     """Every artifact's produced_by must reference a contract task_id."""
     known: set[str] = {tio.task_id for tio in contract.task_io}
@@ -470,7 +473,8 @@ def _check_produced_by_resolves(
 
 
 def _check_outputs_match_downstream_inputs(
-    contract: WorkflowContract, spec: Workflow | None
+    contract: WorkflowContract,
+    spec: Workflow | None,  # noqa: ARG001 — dispatcher-uniform signature; this check ignores spec.
 ) -> Sequence[_IssueKwargs]:
     """Each input's (source, name) must appear in the source task's outputs."""
     outputs_by_task: dict[str, set[str]] = {
