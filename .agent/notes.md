@@ -13,3 +13,50 @@ Cross-layer references go through URI / asset_id / string id, never `from <upstr
 Pure data types → `pydantic.BaseModel(frozen=True)`. Runtime containers (live callables / asyncio objects / non-pydantic instances) → plain Python class with explicit `__init__`. **`arbitrary_types_allowed=True` is forbidden in `src/molexp/agent/`** — anything that needs it is a runtime container by definition. See full table in `CLAUDE.md ## Data type ownership`.
 
 **Status:** stable
+
+## three-layer-rectification | 2026-05-09 | impl
+
+The molexp dependency DAG was inverted by the rectification spec:
+**workspace ← workflow ← agent**, where the arrows point from "uses" to "is used by".
+
+Why the inversion: pre-2026-05-09 the codebase had workspace importing
+workflow types (`Experiment.workflow: WorkflowSpec`,
+`workspace/sessions.py:SessionLibrary` knowing about agent session
+schemas, `workspace/subsystem.py` hardcoding `"agent.sessions"`),
+which made workspace neither a clean storage primitive nor a clean
+upstream concern. The fix:
+
+- workspace becomes a pure storage primitive (filesystem hierarchy,
+  atomic JSON, content-addressed assets, generic per-kind `SubsystemStore`).
+  Knows nothing about workflows, sessions, agents, or LLMs.
+- workflow becomes a graph engine that uses workspace for caching
+  (`WorkspaceCacheStore` backed by `SubsystemStore("workflow.cache")`)
+  and for atomic state writes (`workspace.atomic_write_json` for
+  `workflow.json` snapshots). The `~/.molexp/cache/` user-home
+  shortcut is gone.
+- agent becomes a thin LLM harness that uses both downstream layers
+  through their public surfaces, and confines `pydantic_ai` to
+  `agent/_pydanticai/` (lazy load) and never imports `pydantic_graph`
+  at all.
+
+Mechanical enforcement: three import-guard tests
+(`tests/test_<layer>/test_import_guard.py`). The audit + design lives
+in `.claude/specs/molexp-rectification.md`; the binding "done"
+contract is `molexp-rectification.acceptance.md` (criteria
+P0-01..P0-07, P1-01..P1-05, P2-01..P2-04, P3-01..P3-05, P4-01..P4-02,
+P5-01..P5-02, P6-01..P6-03).
+
+Side effects worth remembering:
+- `Experiment.workflow` field, `Experiment.set_workflow`, the
+  workspace-side `_promote_to_workflow` / `_resolve_*_entrypoint`
+  helpers, and `workspace/sessions.py:SessionLibrary` are **gone**.
+  Pairing an Experiment with a workflow is the caller's concern;
+  workflow exposes `promote_callable` / `WorkflowSnapshotRef`
+  publicly.
+- `agent/_legacy_types.py` is gone; `ToolSchema` / `ModelToolCall`
+  live permanently in `agent/tools/spec.py`; `to_jsonable` lives
+  privately in `agent/sessions/_serde.py`.
+- Old on-disk `experiment.json` files with a `workflow` field still
+  load (`ExperimentMetadata` carries `extra="ignore"`).
+
+**Status:** stable

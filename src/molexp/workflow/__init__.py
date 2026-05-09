@@ -30,10 +30,17 @@ via its methods. Three equivalent styles share the same class:
 
        wf = Workflow(name="pipeline").add(ExternalProcessor())
 
-This layer knows nothing about agents or workspaces. The dependency
-direction is strictly ``agent → workflow``; cross-layer payloads flow
-through duck-typed ``run_context`` (opaque) or ``Mapping[str, Any]``
-config — see § Workflow ↔ pydantic-graph boundary in CLAUDE.md.
+Layer position: **workflow uses workspace, agent uses both**. The
+graph algorithm (compiler, scheduler, IR round-trip) is workspace-
+agnostic, but caching and run-state persistence delegate through
+workspace storage primitives — :class:`WorkspaceCacheStore`
+(backed by ``Workspace.subsystem_store("workflow.cache")``) for the
+content-addressed result cache, and :func:`molexp.workspace.atomic_write_json`
+for ``workflow.json`` snapshots under the run dir. Cross-layer
+payloads coming *down* from the agent flow through duck-typed
+``run_context`` (opaque) or ``Mapping[str, JSONValue]`` config — see
+``§ Layer charters`` in CLAUDE.md and the import-guard tests under
+``tests/test_workflow/`` for the binding rules.
 """
 
 from ._pydantic_graph.runtime import make_execution_id

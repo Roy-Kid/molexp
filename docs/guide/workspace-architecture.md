@@ -5,11 +5,13 @@ MolExp organizes experiments in a four-tier hierarchy:
 ```
 Workspace
 └── Project
-    └── Experiment      (bound to a WorkflowSpec + parameters + replica config)
-        └── Run          (one execution; may be re-executed → ExecutionRecord)
+    └── Experiment      (parameter-space container + replica config)
+        └── Run          (one execution attempt; re-runs append ExecutionRecords)
 ```
 
 Every persistent byproduct — imported data, task artifacts, logs, checkpoints, error traces, workflow execution state — is a typed `Asset` subclass recorded in a per-scope `assets.json` manifest and indexed by the workspace catalog at `.catalog/index.json`. Every metadata write is atomic (temp-file + `os.rename`), so a crash never leaves a half-written JSON file.
+
+Workspace is the bottom of the molexp dependency DAG. It owns filesystem layout, atomic JSON, content-addressed assets, and generic per-kind subsystem storage — and **does not know about workflows, sessions, agents, or LLMs**. Upstream layers (workflow, agent) reach *down* into workspace's public surface; the inverse is forbidden by the import-guard test.
 
 ## Hierarchy Levels
 
@@ -17,7 +19,7 @@ Every persistent byproduct — imported data, task artifacts, logs, checkpoints,
 |-------|-----------|---------------|---------|
 | `Workspace` | `<root>/` | `workspace.json` | Top-level container. Materialized explicitly or when the first child is created. |
 | `Project` | `<root>/projects/<project_id>/` | `project.json` | Research-area container (MD, ML training, data pipeline, …). |
-| `Experiment` | `<project>/experiments/<exp_id>/` | `experiment.json` | Repeatable workflow bound to a concrete parameter set + replica count. |
+| `Experiment` | `<project>/experiments/<exp_id>/` | `experiment.json` | Concrete parameter set + replica count. Workspace stores the parameter binding; pairing the experiment with a workflow is the *caller's* concern. |
 | `Run` | `<exp>/runs/run-<run_id>/` | `run.json` | Single execution instance; re-runs append `ExecutionRecord` entries. |
 
 Children are **not** stored as lists in the parent metadata — parents discover children by scanning the filesystem. This keeps writes local and avoids lock contention.
@@ -26,10 +28,10 @@ Children are **not** stored as lists in the parent metadata — parents discover
 
 Scientific workflows tend to run the same pipeline many times with different parameters, then compare outcomes. The `Experiment → Run` split reflects that:
 
-- **Experiment** is the *definition* — workflow source, parameters, replica count, seeds.
+- **Experiment** is the *definition* — parameters, replica count, seeds, optional advisory `workflow_source` / `workflow_type` strings used by the UI for grouping.
 - **Run** is a *realization* — one execution, one set of concrete parameter values, one outcome.
 
-Each `Run` captures reproducibility metadata: the bound workflow source (`WorkflowSnapshotRef`), the resolved molcfg profile, a `config_hash`, execution history, error info, and produced artifacts.
+Each `Run` captures reproducibility metadata: an opaque `workflow_snapshot` payload (the canonical typed shape lives in `molexp.workflow.WorkflowSnapshotRef`; workspace stores it as a JSON `dict`), the resolved molcfg profile, a `config_hash`, execution history, error info, and produced artifacts.
 
 ## Creating a Hierarchy
 
@@ -45,7 +47,7 @@ exp = project.experiment(
     params={"T": 300, "pressure": 1.0},
     n_replicas=3,
     seeds=[42, 43, 44],
-    workflow_source="workflows/md.py",
+    workflow_source="workflows/md.py",                    # advisory free-form string
     git_commit="abc123",
 )
 run = exp.run(
@@ -68,31 +70,39 @@ grid = GridSpace({"T": [300, 310, 320], "force_field": ["amber", "charmm"]})
 for params in grid:
     slug = f"T{params['T']}-{params['force_field']}"
     exp = project.experiment(slug, params=params, n_replicas=3, workflow_source="md.py")
-    exp.set_workflow(spec)
     for seed in exp.get_seeds():
         run = exp.run(parameters={**params, "seed": seed})
+        await spec.execute(run=run)
 ```
 
 `UniformSpace(param_values, n_samples, seed=None)` samples `n_samples` combinations uniformly at random — handy for broader search spaces.
 
-## Binding a Workflow
+## Pairing an Experiment with a Workflow
+
+Workspace does **not** track the experiment-to-workflow association. The `Experiment` is a parameter container; pairing it with a workflow happens at execution time in the caller's code:
 
 ```python
-exp = project.experiment("baseline", params={"lr": 1e-3}, workflow_source="train.py")
-exp.set_workflow(spec)          # WorkflowSpec
-# or
-exp.set_workflow(train_fn)      # bare fn(RunContext) — auto-promoted to a single-Task spec
+from molexp.workflow import Workflow, promote_callable
+
+# Build (or load) a WorkflowSpec however you like — workspace doesn't care.
+spec = Workflow(name="train").add(TrainTask()).build()
+# or, for a bare fn(RunContext):
+spec = promote_callable(train_fn, name="train")
+
+# Workspace just provides the Run that the workflow executes within.
+run = exp.run(parameters={"lr": 1e-3})
+result = await spec.execute(run=run)
 ```
 
-`set_workflow` is write-once; calling it twice on the same Experiment raises `ValueError`.
+This intentional decoupling came out of the 2026-05-09 rectification: workspace stays a storage primitive, workflow stays a graph engine, and the *orchestration* layer (typically the agent layer or a user script) decides which workflow to run against which experiment.
 
 ## Executing a Run
 
 ```python
-result = await exp.workflow.execute(run=run)
+result = await spec.execute(run=run)
 ```
 
-Under the hood, the runtime opens a `RunContext` which:
+Under the hood, the workflow runtime opens a `RunContext` which:
 
 1. Ensures `artifacts/`, `logs/`, and `.ckpt/` subdirectories exist.
 2. Records temporary ownership metadata for the active execution.

@@ -17,6 +17,33 @@ If a `Run` is attached, the runtime also owns the `RunContext` lifecycle. It ope
 
 The runtime also relies on the compiled workflow identity rather than on ad hoc process state. `workflow_id` is derived deterministically from the workflow name and task topology, which is what makes it useful for correlating equivalent graphs across executions and machines.
 
+## Where Persistent State Lives
+
+Workflow execution state — the `workflow.json` snapshot under
+`<run_dir>/executions/<exec_id>/` — is written through workspace's
+public `atomic_write_json` helper, not raw filesystem calls. The
+atomicity guarantee is workspace's, not a runtime-layer reinvention.
+This is the runtime side of the *workflow → workspace* dependency
+direction documented in CLAUDE.md.
+
+## Caching
+
+Cache persistence is pluggable. `Caching` orchestrates the cache
+policy (key derivation, format version, LRU eviction); the storage
+primitive is a `CacheStore` impl supplied at construction time:
+
+- `WorkspaceCacheStore(workspace)` — content-addressed entries land
+  under `<workspace_root>/.subsystems/workflow.cache/`. This is the
+  preferred form for in-process workflow runs that already have a
+  workspace.
+- `FileCacheStore(path)` — a plain filesystem directory. Useful when
+  the caller has no workspace (e.g. ad-hoc scripts; the FastAPI
+  server's process-local cache).
+
+The user-home `~/.molexp/cache/` shortcut from earlier MolExp
+versions is gone — caching is always either workspace-rooted or
+explicitly opted into via `FileCacheStore`.
+
 ## Blocking Execution and Background Execution
 
 `spec.execute(...)` is the block-and-return path. It runs the workflow to completion and returns a `WorkflowResult`. `spec.start(...)` launches the same execution through an async handle and returns a `WorkflowExecution`, which can later be awaited or cancelled. The two entry points differ in control style, not in workflow semantics.
