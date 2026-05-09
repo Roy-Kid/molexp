@@ -13,9 +13,9 @@ from molexp.workspace.models import ExecutionRecord
 def _build(tmp_path):
     ws = Workspace(root=tmp_path, name="lab")
     ws.materialize()
-    p = ws.project("proj-a")
-    e = p.experiment("exp-x", workflow_source="s.py", params={})
-    r = e.run(parameters={"seed": 1})
+    p = ws.Project("proj-a")
+    e = p.Experiment("exp-x", workflow_source="s.py", params={})
+    r = e.Run(parameters={"seed": 1})
 
     # Seed two execution dirs + history entries
     hist = []

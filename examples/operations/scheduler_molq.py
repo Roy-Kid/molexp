@@ -38,9 +38,9 @@ def main() -> None:
 
     root = Path(tempfile.mkdtemp(prefix="molexp-molq-"))
     ws = me.Workspace(root, name="molq-demo")
-    project = ws.project("demo")
-    exp = project.experiment("train")
-    run = exp.run(parameters={"seed": 0})
+    project = ws.Project("demo")
+    exp = project.Experiment("train")
+    run = exp.Run(parameters={"seed": 0})
 
     # The CLI composes this same object from --scheduler/--cpus/--gpus/… .
     # Demonstration only; the CLI builds and uses this handler at submit time.

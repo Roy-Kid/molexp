@@ -5,14 +5,14 @@ Spec: .claude/specs/03-molexp-workflow-cycles.md §3, §4, §8, §9
 
 import pytest
 
-from molexp.workflow import Workflow
+from molexp.workflow import WorkflowBuilder
 
 
 def test_mixed_route_shape_rejected():
     """Mixing unconditional + branch out-edges on the same node fails at compile."""
     from molexp.workflow import EdgeShapeError
 
-    wf = Workflow(name="mixed", entry="src")
+    wf = WorkflowBuilder(name="mixed", entry="src")
 
     @wf.task
     async def src(ctx) -> int:
@@ -38,7 +38,7 @@ def test_control_workflow_without_entry_rejected():
     """A workflow with control edges but no `wf.entry(...)` declaration fails at compile."""
     from molexp.workflow import EntryAmbiguousError
 
-    wf = Workflow(name="no-entry")
+    wf = WorkflowBuilder(name="no-entry")
 
     @wf.task
     async def a(ctx) -> int:
@@ -63,7 +63,7 @@ def test_entry_unknown_task_rejected():
     """`wf.entry("missing")` referencing an unknown task fails at compile."""
     from molexp.workflow import UnknownTaskError
 
-    wf = Workflow(name="bad-entry")
+    wf = WorkflowBuilder(name="bad-entry")
 
     @wf.task
     async def real_task(ctx) -> int:
@@ -80,7 +80,7 @@ def test_unreachable_task_rejected():
     """A task unreachable from any entry through control edges fails at compile."""
     from molexp.workflow import UnreachableTaskError
 
-    wf = Workflow(name="unreachable", entry="a")
+    wf = WorkflowBuilder(name="unreachable", entry="a")
 
     @wf.task
     async def a(ctx) -> int:
@@ -107,7 +107,7 @@ async def test_deadlock_when_pending_unsatisfied():
     """Empty next frontier with non-empty `pending_targets` raises `WorkflowDeadlockError`."""
     from molexp.workflow import WorkflowDeadlockError
 
-    wf = Workflow(name="deadlock", entry="a")
+    wf = WorkflowBuilder(name="deadlock", entry="a")
 
     @wf.task
     async def a(ctx) -> int:

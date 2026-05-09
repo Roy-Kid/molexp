@@ -47,7 +47,7 @@ def _sample_ir() -> dict:
 def test_ir_to_python_emits_runnable_script_with_workflow_ir_literal():
     script = default_compiler.ir_to_python(_sample_ir())
     assert "WORKFLOW_IR" in script
-    assert "WorkflowSpec.from_dict(WORKFLOW_IR)" in script
+    assert "Workflow.from_dict(WORKFLOW_IR)" in script
     # Single trailing newline so editors don't flag a missing final newline.
     assert script.endswith("\n")
 

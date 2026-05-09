@@ -1,0 +1,124 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/workflow/task_io.json",
+    "title": "TaskIO",
+    "description": "Per-task declared inputs / outputs / artifacts for the workflow contract sidecar. Optional in the workflow IR; when absent, downstream code generators see an empty surface for that task.",
+    "type": "object",
+    "definitions": {
+        "TaskInputSpec": {
+            "type": "object",
+            "description": "One input declared for a task body.",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Identifier of this input within the task body."
+                },
+                "type": {
+                    "type": "string",
+                    "description": "JSON-Schema-style type string (free-form)."
+                },
+                "required": {
+                    "type": "boolean",
+                    "description": "Whether the task body must receive this input.",
+                    "default": true
+                },
+                "source": {
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "description": "Upstream task name producing the value, or null for entry-task inputs.",
+                    "default": null
+                },
+                "description": {
+                    "type": "string",
+                    "default": ""
+                }
+            },
+            "required": [
+                "name",
+                "type"
+            ],
+            "additionalProperties": false
+        },
+        "TaskOutputSpec": {
+            "type": "object",
+            "description": "One output declared for a task body.",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string",
+                    "default": ""
+                }
+            },
+            "required": [
+                "name",
+                "type"
+            ],
+            "additionalProperties": false
+        },
+        "ArtifactDecl": {
+            "type": "object",
+            "description": "One on-disk artifact a task produces.",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "POSIX-style path relative to the run dir."
+                },
+                "mime": {
+                    "type": "string",
+                    "default": ""
+                },
+                "description": {
+                    "type": "string",
+                    "default": ""
+                },
+                "produced_by": {
+                    "type": "string",
+                    "description": "task_id of the writing task; must reference a TaskIO entry."
+                }
+            },
+            "required": [
+                "path",
+                "produced_by"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "properties": {
+        "task_id": {
+            "type": "string",
+            "description": "Identifier of the task this declaration applies to."
+        },
+        "inputs": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/TaskInputSpec"
+            },
+            "default": []
+        },
+        "outputs": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/TaskOutputSpec"
+            },
+            "default": []
+        },
+        "artifacts": {
+            "type": "array",
+            "items": {
+                "$ref": "#/definitions/ArtifactDecl"
+            },
+            "default": []
+        }
+    },
+    "required": [
+        "task_id"
+    ],
+    "additionalProperties": false
+}

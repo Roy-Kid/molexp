@@ -4,7 +4,7 @@ The workflow layer is the in-memory model of a computation graph. It is concerne
 
 ## A Workflow Is a Definition
 
-In MolExp, a workflow is something you author, compile, and execute. You can write it with the functional DSL, or with reusable task classes and `WorkflowBuilder`, but in both cases the result is the same kind of object: a compiled `WorkflowSpec`.
+In MolExp, a workflow is something you author, compile, and execute. You can write it with the functional DSL, or with reusable task classes and `WorkflowBuilder`, but in both cases the result is the same kind of object: a compiled `Workflow`.
 
 ```python
 wf = workflow(name="demo")
@@ -39,7 +39,7 @@ The graph does not become a different graph when you attach it to persistent sta
 
 ## Authoring, Compilation, and Execution
 
-MolExp keeps authoring, compilation, and execution separate on purpose. Authoring is the stage where tasks and dependencies are declared. Compilation is the stage where that declaration becomes a validated `WorkflowSpec` with a deterministic `workflow_id`. Execution is the stage where the compiled graph is driven by a runtime, optionally under a `RunContext`.
+MolExp keeps authoring, compilation, and execution separate on purpose. Authoring is the stage where tasks and dependencies are declared. Compilation is the stage where that declaration becomes a validated `Workflow` with a deterministic `workflow_id`. Execution is the stage where the compiled graph is driven by a runtime, optionally under a `RunContext`.
 
 That separation prevents import-time side effects from becoming part of the workflow model. A script can define a graph, inspect it, bind it to an experiment, and expose it to the CLI without accidentally running computation just because the module was imported.
 
@@ -47,7 +47,7 @@ That separation prevents import-time side effects from becoming part of the work
 
 The workflow layer does not know how a research program is grouped into projects. It does not decide where a run directory should live. It does not decide whether a job runs in-process or through a scheduler bridge. It also does not own shared datasets or derived feature stores. Those are all deliberate exclusions.
 
-This narrow boundary is what lets `WorkflowSpec` remain reusable. The same compiled graph can run during local iteration, under `molexp run`, or from a remote worker process launched later by `molexp execute`. The workflow layer stays stable because persistence and transport are external to it.
+This narrow boundary is what lets `Workflow` remain reusable. The same compiled graph can run during local iteration, under `molexp run`, or from a remote worker process launched later by `molexp execute`. The workflow layer stays stable because persistence and transport are external to it.
 
 ## Where It Connects to the Rest of MolExp
 

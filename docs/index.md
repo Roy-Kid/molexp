@@ -22,4 +22,4 @@ The shortest practical route is [Quick Start](getting-started/quick-start.md), t
 
 ## Runnable Examples
 
-Every guide page has a matching stand-alone script under `examples/` — one per topic, cross-linked from the guide. Start at [`examples/README.md`](../examples/README.md) to see the full map.
+Every guide page has a matching stand-alone script under the repository's `examples/` directory — one per topic, cross-linked from the guide. The `examples/README.md` file in the repo root has the full map.

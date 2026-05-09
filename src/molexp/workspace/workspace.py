@@ -184,12 +184,15 @@ class Workspace:
 
     # ── Project operations ──────────────────────────────────────────────
 
-    def project(self, name: str) -> Project:
-        """Get-or-create a project (idempotent, materialized immediately).
+    def Project(self, name: str) -> Project:
+        """Idempotent constructor — return existing project if found, else create.
 
         Within the same process, repeated calls with the same name return
         the **same** Project instance — preserving in-memory state such as
         bound workflows on child experiments.
+
+        For "must be new" semantics, use :meth:`create_project`. For
+        "must already exist" semantics, use :meth:`project`.
         """
         self._ensure_materialized()
         project_id = slugify(name)
@@ -205,8 +208,36 @@ class Workspace:
         self._projects_cache[project_id] = project
         return project
 
-    def get_project(self, name_or_id: str) -> Project | None:
-        """Get project by name or slugified ID."""
+    def create_project(self, name: str) -> Project:
+        """Strict constructor — raise :class:`ProjectExistsError` if exists.
+
+        Mirror of :meth:`Project` for callers (CLI / API server) that
+        require a fresh project and treat collision as an error.
+        """
+        from .errors import ProjectExistsError
+
+        self._ensure_materialized()
+        project_id = slugify(name)
+        if project_id in self._projects_cache:
+            raise ProjectExistsError(project_id)
+        project_dir = self.root / "projects" / project_id
+        if project_dir.exists():
+            raise ProjectExistsError(project_id)
+        project = Project(name=name, workspace=self)
+        project.materialize()
+        self._refresh_projects_index()
+        self._projects_cache[project_id] = project
+        return project
+
+    def project(self, name_or_id: str) -> Project:
+        """Strict getter — raise :class:`ProjectNotFoundError` if absent.
+
+        Replaces the old get-or-create ``project(name)`` and the deprecated
+        ``get_project(...)`` (which returned ``None``). Accepts a project
+        name or its slugified ID.
+        """
+        from .errors import ProjectNotFoundError
+
         for candidate in (name_or_id, slugify(name_or_id)):
             if candidate in self._projects_cache:
                 return self._projects_cache[candidate]
@@ -215,7 +246,7 @@ class Workspace:
                 project = self._load_project_from_dir(project_dir)
                 self._projects_cache[project.id] = project
                 return project
-        return None
+        raise ProjectNotFoundError(name_or_id)
 
     def registered_projects(self) -> list[Project]:
         """Return only projects explicitly registered in the current process.

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.workflow import Task, TaskContext, Workflow
+from molexp.workflow import Task, TaskContext, WorkflowBuilder
 
 
 class _RunContextStub:
@@ -36,7 +36,7 @@ class _RunContextStub:
 @pytest.mark.asyncio
 class TestFunctionalExecution:
     async def test_single_task(self):
-        wf = Workflow(name="single")
+        wf = WorkflowBuilder(name="single")
 
         @wf.task
         async def double(ctx: TaskContext) -> int:
@@ -47,7 +47,7 @@ class TestFunctionalExecution:
         assert result.outputs["double"] == 10
 
     async def test_chain(self):
-        wf = Workflow(name="chain")
+        wf = WorkflowBuilder(name="chain")
 
         @wf.task
         async def step_a(ctx: TaskContext) -> int:
@@ -61,7 +61,7 @@ class TestFunctionalExecution:
         assert result.outputs == {"step_a": 10, "step_b": 15}
 
     async def test_failure_propagates(self):
-        wf = Workflow(name="fail")
+        wf = WorkflowBuilder(name="fail")
 
         @wf.task
         async def boom(ctx):
@@ -71,7 +71,7 @@ class TestFunctionalExecution:
         assert result.status == "failed"
 
     async def test_run_context_is_forwarded_to_tasks(self, tmp_path):
-        wf = Workflow(name="with-run-context")
+        wf = WorkflowBuilder(name="with-run-context")
 
         run_ctx = _RunContextStub(
             work_dir=tmp_path / "run",
@@ -91,7 +91,7 @@ class TestFunctionalExecution:
         """Critical: runtime drives a workflow with a stub run_context that
         has no Workspace ancestry whatsoever, and writes workflow.json under
         run_dir/executions/<execution_id>/."""
-        wf = Workflow(name="duck")
+        wf = WorkflowBuilder(name="duck")
 
         run_ctx = _RunContextStub(work_dir=tmp_path / "stub-run")
 
@@ -112,7 +112,7 @@ class TestFunctionalExecution:
     async def test_legacy_run_kwarg_is_rejected(self, tmp_path):
         """The runtime no longer accepts ``run=``. Use ``run_dir=`` or
         ``run_context=``."""
-        wf = Workflow(name="no-run-kwarg")
+        wf = WorkflowBuilder(name="no-run-kwarg")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
@@ -125,7 +125,7 @@ class TestFunctionalExecution:
         """The runtime no longer accepts ``profile_config=``. Use ``config=``."""
         from molexp.config import ProfileConfig
 
-        wf = Workflow(name="no-profile-config-kwarg")
+        wf = WorkflowBuilder(name="no-profile-config-kwarg")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
@@ -135,7 +135,7 @@ class TestFunctionalExecution:
             await wf.build().execute(profile_config=ProfileConfig({}, name=None))
 
     async def test_run_dir_kwarg_writes_workflow_json(self, tmp_path):
-        wf = Workflow(name="run-dir-only")
+        wf = WorkflowBuilder(name="run-dir-only")
 
         @wf.task
         async def step(ctx: TaskContext) -> int:
@@ -147,7 +147,7 @@ class TestFunctionalExecution:
         assert wf_jsons
 
     async def test_config_is_plain_mapping(self, tmp_path):
-        wf = Workflow(name="plain-config")
+        wf = WorkflowBuilder(name="plain-config")
 
         @wf.task
         async def inspect(ctx: TaskContext) -> int:
@@ -164,7 +164,7 @@ class TestOOPExecution:
             async def execute(self, ctx: TaskContext) -> int:
                 return (ctx.inputs or 0) + 10
 
-        spec = Workflow(name="oop").add(AddTen()).build()
+        spec = WorkflowBuilder(name="oop").add(AddTen()).build()
         result = await spec.execute()
         assert result.outputs["add_ten"] == 10
 
@@ -176,7 +176,7 @@ class TestProtocolExecution:
             async def execute(self, ctx) -> int:
                 return 99
 
-        spec = Workflow(name="ext").add(External(), name="ext").build()
+        spec = WorkflowBuilder(name="ext").add(External(), name="ext").build()
         result = await spec.execute()
         assert result.outputs["ext"] == 99
 
@@ -190,7 +190,7 @@ class TestProtocolExecution:
                 return ctx.inputs + 90
 
         spec = (
-            Workflow(name="mixed")
+            WorkflowBuilder(name="mixed")
             .add(OOP(), name="oop")
             .add(External(), name="ext", depends_on=["oop"])
             .build()
@@ -202,7 +202,7 @@ class TestProtocolExecution:
 @pytest.mark.asyncio
 class TestParallelExecution:
     async def test_independent_tasks_parallel(self):
-        wf = Workflow(name="parallel")
+        wf = WorkflowBuilder(name="parallel")
 
         @wf.task
         async def a(ctx):
@@ -216,7 +216,7 @@ class TestParallelExecution:
         assert result.outputs == {"a": "a", "b": "b"}
 
     async def test_diamond_dependency(self):
-        wf = Workflow(name="diamond")
+        wf = WorkflowBuilder(name="diamond")
 
         @wf.task
         async def root(ctx):

@@ -9,11 +9,13 @@ No source scanning, no magic attribute discovery — explicit registration.
 Example (user script)::
 
     import molexp as me
+    from molexp.workflow import WorkflowBuilder
 
     ws = me.Workspace("./lab")
-    project = ws.project("my-project")
-    exp = project.experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
-    exp.set_workflow(train)
+    project = ws.Project("my-project")
+    exp = project.Experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
+    train_spec = WorkflowBuilder(name="train").add(...).build()
+    train_spec.bind_to(exp)
     me.entry(ws)
 
 Example (CLI internal)::
@@ -31,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.workflow.spec import WorkflowSpec
+    from molexp.workflow.spec import Workflow
     from molexp.workspace.run import Run
     from molexp.workspace.workspace import Workspace
 
@@ -69,7 +71,7 @@ def load_workspaces(script: Path) -> list[Workspace]:
     return list(_registry)
 
 
-def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> WorkflowSpec | None:
+def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> Workflow | None:
     """Return the workflow object matching *run*'s project and experiment IDs.
 
     Searches all registered workspaces returned by :func:`load_workspaces` for
@@ -83,8 +85,10 @@ def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> WorkflowSpec
             ``experiment.id`` are used as lookup keys.
 
     Returns:
-        The matching :class:`~molexp.workflow.WorkflowSpec`, or ``None``.
+        The matching :class:`~molexp.workflow.Workflow`, or ``None``.
     """
+    from molexp.workflow.spec import Workflow as _Workflow
+
     target_project_id = run.experiment.project.id
     target_exp_id = run.experiment.id
 
@@ -93,8 +97,10 @@ def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> WorkflowSpec
             if proj.id != target_project_id:
                 continue
             for exp in proj.registered_experiments():
-                if exp.id == target_exp_id and exp.workflow is not None:
-                    return exp.workflow
+                if exp.id == target_exp_id:
+                    bound = _Workflow.for_experiment(exp)
+                    if bound is not None:
+                        return bound
     return None
 
 
@@ -130,15 +136,16 @@ def _import_script(script: Path) -> None:
     spec.loader.exec_module(module)  # type: ignore[union-attr]
 
 
-def load_workflow_from_entrypoint(entrypoint: str) -> WorkflowSpec:
+def load_workflow_from_entrypoint(entrypoint: str) -> Workflow:
     """Import the workflow object referenced by *entrypoint*.
 
     *entrypoint* is the colon-separated form
-    ``"<absolute_file_path>:<qualname>"`` produced by
-    :meth:`molexp.workspace.Experiment.set_workflow`.  The file is
-    imported as a *non*-``__main__`` module so any
-    ``if __name__ == "__main__":`` guard skips, leaving only the
-    module-level workflow definition exposed.
+    ``"<absolute_file_path>:<qualname>"`` produced when a
+    ``Workflow.bind_to(experiment)`` site recorded an entrypoint on
+    the experiment's snapshot.  The file is imported as a
+    *non*-``__main__`` module so any ``if __name__ == "__main__":``
+    guard skips, leaving only the module-level workflow definition
+    exposed.
 
     Args:
         entrypoint: ``"<path>:<qualname>"`` string from
@@ -146,7 +153,7 @@ def load_workflow_from_entrypoint(entrypoint: str) -> WorkflowSpec:
 
     Returns:
         The resolved object — typically a
-        :class:`~molexp.workflow.WorkflowSpec` or a bare callable.
+        :class:`~molexp.workflow.Workflow` or a bare callable.
 
     Raises:
         ValueError: If *entrypoint* is malformed.
@@ -155,6 +162,8 @@ def load_workflow_from_entrypoint(entrypoint: str) -> WorkflowSpec:
             imported module.
     """
     import functools
+
+    from molexp.workflow.spec import Workflow as _Workflow
 
     if ":" not in entrypoint:
         raise ValueError(
@@ -175,15 +184,13 @@ def load_workflow_from_entrypoint(entrypoint: str) -> WorkflowSpec:
     try:
         # ``functools.reduce`` walks dotted attributes; the resolved value
         # is the user's bound workflow object — promised to be a
-        # ``WorkflowSpec`` by ``set_workflow``'s contract.
-        from molexp.workflow.spec import WorkflowSpec as _WorkflowSpec
-
+        # ``Workflow`` by ``bind_to``'s contract.
         resolved = functools.reduce(getattr, qualname.split("."), module)
     except AttributeError as exc:
         raise AttributeError(f"Cannot resolve {qualname!r} in {file_path}: {exc}") from exc
-    if not isinstance(resolved, _WorkflowSpec):
+    if not isinstance(resolved, _Workflow):
         raise TypeError(
             f"Entrypoint {entrypoint!r} resolved to {type(resolved).__name__}, "
-            "expected a molexp.workflow.WorkflowSpec instance."
+            "expected a molexp.workflow.Workflow instance."
         )
     return resolved

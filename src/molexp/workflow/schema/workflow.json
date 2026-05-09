@@ -44,6 +44,10 @@
         "metadata": {
             "$ref": "workflow_metadata.json",
             "description": "Optional workflow metadata"
+        },
+        "workflow_contract": {
+            "$ref": "workflow_contract.json",
+            "description": "Optional sidecar contract describing typed task I/O, declared artifacts, and static validation checks. Absent in older IR; loaders MUST treat its absence as 'no contract declared'."
         }
     },
     "required": [

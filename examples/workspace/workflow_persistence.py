@@ -20,9 +20,10 @@ from pathlib import Path
 
 import molexp as me
 from molexp.config import ProfileConfig
+from molexp.workflow import promote_callable, Workflow
 
 # Module-level marker so the body is importable as a fresh callable on
-# every attempt — ``Experiment.set_workflow`` captures an entrypoint.
+# every attempt — ``promote_callable`` captures an entrypoint.
 _FAIL_ONCE_MARKER: Path | None = None
 
 
@@ -41,21 +42,22 @@ async def main() -> None:
     _FAIL_ONCE_MARKER = root / "fail-once"
 
     ws = me.Workspace(root, name="persist-demo")
-    project = ws.project("demo")
-    exp = project.experiment("train")
-    exp.set_workflow(flaky_train)
+    project = ws.Project("demo")
+    exp = project.Experiment("train")
+    spec = promote_callable(flaky_train, name="flaky_train")
+    spec.bind_to(exp)
 
     cfg = ProfileConfig({"epochs": 5}, name="smoke")
-    run = exp.run(parameters={"seed": 0})
+    run = exp.Run(parameters={"seed": 0})
 
     # ``execute()`` captures task failures and records them on the run
     # without re-raising — inspect ``result.status`` instead.
     with run.start(profile_config=cfg) as ctx:
-        result = await exp.workflow.execute(run_context=ctx)
+        result = await spec.execute(run_context=ctx)
     print(f"attempt 1: status={result.status}")
 
     with run.start(profile_config=cfg) as ctx:
-        result = await exp.workflow.execute(run_context=ctx)
+        result = await spec.execute(run_context=ctx)
     print(f"attempt 2: status={result.status}")
 
     run_json = json.loads((run.run_dir / "run.json").read_text())

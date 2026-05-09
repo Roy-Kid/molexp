@@ -13,11 +13,10 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from molexp.agent.tools.spec import ModelToolCall, ToolSchema
 from molexp.agent.tools.policy import ApprovalDecision, ToolPolicy
 from molexp.agent.tools.registry import ToolRegistry
 from molexp.agent.tools.source import ToolSource
-from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
+from molexp.agent.tools.spec import ModelToolCall, ToolContext, ToolResult, ToolSchema, ToolSpec
 from molexp.agent.types import AgentFailure, FailureKind
 
 if TYPE_CHECKING:

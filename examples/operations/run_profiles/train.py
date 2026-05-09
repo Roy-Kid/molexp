@@ -24,6 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import molexp as me
+from molexp.workflow import promote_callable, Workflow
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent / "_workspace"
 
@@ -53,8 +54,8 @@ def train(ctx: me.RunContext) -> None:
 
 
 ws = me.Workspace(WORKSPACE_ROOT, name="run-profiles-demo")
-project = ws.project("demo")
-exp = project.experiment("train")
-exp.set_workflow(train)
+project = ws.Project("demo")
+exp = project.Experiment("train")
+promote_callable(train, name="train").bind_to(exp)
 
 me.entry(ws)

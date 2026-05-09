@@ -87,11 +87,11 @@ The submitted job does not reimplement scheduling logic inside the cluster proce
 python -m molexp.cli execute <run_dir>
 ```
 
-That worker command reconstructs the `RunContext` from `run.json`, re-imports the original workflow script, finds the matching workflow binding for the run, rebuilds the `WorkflowSpec`, and then executes it against the existing run directory.
+That worker command reconstructs the `RunContext` from `run.json`, re-imports the original workflow script, finds the matching workflow binding for the run, rebuilds the `Workflow`, and then executes it against the existing run directory.
 
 This is a key design point. Remote execution still goes through the same workflow and workspace abstractions as local execution:
 
-- the same `WorkflowSpec`,
+- the same `Workflow`,
 - the same `RunContext`,
 - the same persisted profile config,
 - the same `execution_history` model.

@@ -55,7 +55,7 @@ The constructor for `Workspace` is intentionally lightweight:
 ws = me.Workspace("./lab", name="Lab")
 ```
 
-At this point you have a Python object, not yet a fully materialized directory tree. The constructor resolves the root path and prepares metadata, but it does not immediately write `workspace.json`. Disk state appears when you call `ws.materialize()` explicitly or when you create the first child project through `ws.project(...)`.
+At this point you have a Python object, not yet a fully materialized directory tree. The constructor resolves the root path and prepares metadata, but it does not immediately write `workspace.json`. Disk state appears when you call `ws.materialize()` explicitly or when you create the first child project through `ws.Project(...)`.
 
 That delayed materialization is important if you want to compose workspace objects without leaving empty directories behind. When you do want a strict load-from-disk path, use:
 
@@ -72,21 +72,21 @@ Once a workspace exists, its core properties are straightforward. `ws.id` and `w
 Projects are created through the workspace:
 
 ```python
-project = ws.project("QM9")
+project = ws.Project("QM9")
 ```
 
 This operation is idempotent by project slug. If the corresponding directory already exists, Molexp loads it. If it does not exist, Molexp creates a new `Project`, writes `project.json`, and returns it. Repeated calls with the same project name inside one process return the same in-memory object, which lets later code keep bound state on child objects without accidentally duplicating handles.
 
 Projects expose descriptive metadata such as `project.description`, `project.owner`, `project.tags`, and `project.config`. They also expose `project.project_dir`, which is the concrete directory under `<workspace>/projects/<project_id>/`, `project.assets`, which is a catalog view scoped to the project, and `project.data_assets`, which is the `DataAssetLibrary` for imported external data.
 
-Project discovery works in two styles. `ws.get_project(name_or_id)` retrieves a single project by id or slugified name. `ws.list_projects()` scans the on-disk tree and merges that result with the in-memory cache. Deletion is explicit through `ws.delete_project(project_id)`, which removes the project directory from disk.
+Project discovery works in two styles. `ws.project(name_or_id)` retrieves a single project by id or slugified name. `ws.list_projects()` scans the on-disk tree and merges that result with the in-memory cache. Deletion is explicit through `ws.delete_project(project_id)`, which removes the project directory from disk.
 
 ## Experiments Bind Workflow Identity to Parameters
 
 Experiments are created through a project:
 
 ```python
-exp = project.experiment(
+exp = project.Experiment(
     "baseline",
     params={"lr": 1e-3},
     n_replicas=3,
@@ -99,28 +99,32 @@ exp = project.experiment(
 
 This is the point where a reusable workflow begins to acquire persistent identity. The experiment metadata records the workflow source reference, the parameter dictionary, the replica configuration, and optional source-control provenance. In the API, `exp.parameter_space` and `exp.params` are the same concrete dictionary; despite the name, this is not an abstract search space object but the bound parameter payload for this one experiment.
 
-Like projects, experiments are get-or-create objects. `project.experiment(name, ...)` is idempotent by id. If you omit `id`, Molexp uses the slugified experiment name. If an experiment directory with that id already exists, it is loaded; otherwise it is created and materialized. `project.get_experiment(experiment_id)` and `project.list_experiments()` provide the expected lookup paths.
+Like projects, experiments are get-or-create objects. `project.Experiment(name, ...)` is idempotent by id. If you omit `id`, Molexp uses the slugified experiment name. If an experiment directory with that id already exists, it is loaded; otherwise it is created and materialized. `project.experiment(experiment_id)` and `project.list_experiments()` provide the expected lookup paths.
 
 Experiments also own `exp.assets`, the experiment-scoped asset library, and `exp.experiment_dir`, the root directory for everything stored beneath that experiment.
 
 ## Binding a Workflow Is a Separate Step
 
-Creating an experiment does not automatically attach executable workflow code. That happens through `exp.set_workflow(...)`:
+Creating an experiment does not automatically attach executable workflow code. The binding lives at the workflow layer, not on the experiment object itself — workspace was reduced to pure storage, so it no longer carries any workflow-shaped types. Use `set_workflow` from `molexp.workflow.bindings`:
 
 ```python
-exp.set_workflow(spec)
+from molexp.workflow import Workflow, WorkflowBuilder
+
+spec.bind_to(exp)
 ```
 
-The preferred input is a compiled `WorkflowSpec`. A second, narrower form is also supported: a bare callable that accepts `RunContext`. In that case Molexp promotes the function into a one-task workflow automatically.
+The expected input is a compiled `Workflow`. For a bare callable that accepts `RunContext`, wrap it through `promote_callable`, which is the workflow-layer helper that replaced the old workspace-side `_promote_to_workflow` shortcut:
 
 ```python
+from molexp.workflow import promote_callable, Workflow, WorkflowBuilder
+
 def train(run_ctx: me.RunContext) -> None:
     ...
 
-exp.set_workflow(train)
+name="train").bind_to(exp, promote_callable(train)
 ```
 
-This binding is write-once for the lifetime of the in-memory `Experiment` object. Calling `set_workflow()` again raises `ValueError`. That constraint prevents user code from silently mutating the meaning of an already-defined experiment.
+`set_workflow` records the spec in a process-local registry keyed by `experiment.id`. Re-binding is allowed (later calls replace the earlier spec); use `Workflow.for_experiment(experiment)` to read it back from anywhere in the same process — typically from CLI / server / agent code that needs to drive execution after the user script has bound the spec.
 
 Replica handling also lives on the experiment. `exp.n_replicas` and `exp.seeds` describe the declared policy, while `exp.get_seeds()` returns the effective seed list. If no explicit seeds were stored, Molexp expands a deterministic default seed sequence and truncates it to the requested replica count.
 
@@ -129,7 +133,7 @@ Replica handling also lives on the experiment. `exp.n_replicas` and `exp.seeds` 
 Runs are created through the experiment:
 
 ```python
-run = exp.run(parameters={"lr": 1e-3, "seed": 42})
+run = exp.Run(parameters={"lr": 1e-3, "seed": 42})
 ```
 
 This is the point where the distinction between the Python API and the CLI matters.
@@ -149,7 +153,7 @@ The CLI uses this mechanism to achieve repeatable runs. `molexp run` derives det
 
 Each `Run` stores its data in `<experiment>/runs/run-<run_id>/`. The most important fields live on `run.metadata`, a `RunMetadata` model. Direct convenience properties such as `run.id`, `run.parameters`, `run.status`, and `run.run_dir` simply expose the corresponding metadata fields in a more ergonomic form.
 
-Two details are easy to miss. First, if the experiment metadata includes `workflow_source`, then `exp.run()` automatically captures a `WorkflowSnapshotRef` into the new run. Second, one logical run may be executed more than once. Molexp does not flatten those attempts; instead it appends `ExecutionRecord` entries to `run.metadata.execution_history`.
+Two details are easy to miss. First, if the experiment metadata includes `workflow_source`, then `exp.run()` can carry a workflow-snapshot dict on the new run's `RunMetadata.workflow_snapshot`. The canonical type for that payload is `molexp.workflow.snapshot_ref.WorkflowSnapshotRef`, but workspace stores it as opaque JSON to keep the layer one-directional — it is the workflow layer that gives the dict its shape. Second, one logical run may be executed more than once. Molexp does not flatten those attempts; instead it appends `ExecutionRecord` entries to `run.metadata.execution_history`.
 
 If a run should be marked dead without completing normally, `run.cancel()` transitions it to `cancelled` and writes the terminal timestamp.
 
@@ -168,7 +172,7 @@ Leaving the context closes the lifecycle. A normal exit marks the run as `succee
 
 The most commonly used `RunContext` helpers fall into three groups.
 
-The first group deals with results and metadata. `ctx.set_result(key, value)` and `ctx.get_result(key)` read and write the lightweight result map persisted into `run.json`. `ctx.set_workflow(...)` stores a workflow-shaped dictionary into the serialized context, which is mostly useful for tooling and inspection.
+The first group deals with results and metadata. `ctx.set_result(key, value)` and `ctx.get_result(key)` read and write the lightweight result map persisted into `run.json`. `ctx.run.set_workflow(payload)` stores a workflow-shaped dictionary onto the serialized run-context — the payload type is opaque to workspace; in practice it is a serialized `WorkflowSnapshotRef` from the workflow layer, but workspace just round-trips the JSON. This is distinct from the workflow-layer `Workflow.bind_to(experiment)` registry call, which records the live `Workflow` instance for downstream consumers within the same process.
 
 The second group deals with files, through typed accessors. `ctx.artifact.save(name, data)` writes under `<run_dir>/artifacts/`, automatically choosing JSON, binary, file-copy, or string serialization, and registers an `ArtifactAsset` in the catalog with a populated `Producer`. `ctx.log(name)` returns a bound log handle whose `.append(line)` writes a line into `<run_dir>/logs/<name>.log` and keeps the `LogAsset` up to date. `ctx.checkpoint(name, data=...)` writes a `CheckpointAsset` under `<run_dir>/.ckpt/`, linearly chained to the previous checkpoint of the same run.
 
@@ -208,13 +212,15 @@ random_search = UniformSpace({"lr": [1e-3, 5e-4, 1e-4]}, n_samples=10, seed=42)
 These objects are iterable generators of parameter dictionaries. They do not cause Molexp to create experiments automatically. The intended pattern is that user code iterates the space and materializes one experiment per parameter combination:
 
 ```python
+from molexp.workflow import Workflow, WorkflowBuilder
+
 for params in grid:
-    exp = project.experiment(
+    exp = project.Experiment(
         f"lr-{params['lr']}-batch-{params['batch']}",
         params=params,
         workflow_source="train.py",
     )
-    exp.set_workflow(spec)
+    spec.bind_to(exp)
 ```
 
 That design keeps the library explicit. Molexp gives you the combinatorics, but the user still decides naming, grouping, and lifecycle boundaries.
@@ -225,16 +231,17 @@ When workflows are launched from the CLI, the missing link is `me.entry(ws)`:
 
 ```python
 import molexp as me
+from molexp.workflow import Workflow, WorkflowBuilder
 
 ws = me.Workspace("./lab")
-project = ws.project("demo")
-exp = project.experiment("baseline", params={"lr": 1e-3}, workflow_source="train.py")
-exp.set_workflow(spec)
+project = ws.Project("demo")
+exp = project.Experiment("baseline", params={"lr": 1e-3}, workflow_source="train.py")
+spec.bind_to(exp)
 
 me.entry(ws)
 ```
 
-This call registers the workspace when the script is imported by `molexp run`. The CLI then loads the script, reads the registered workspaces, discovers projects and experiments beneath them, and resolves which workflow belongs to which persistent experiment. Without that registration step, the CLI has no supported way to discover the workspace graph from an arbitrary Python module.
+This call registers the workspace when the script is imported by `molexp run`. The CLI then loads the script, reads the registered workspaces, discovers projects and experiments beneath them, and resolves which workflow belongs to which persistent experiment via `Workflow.for_experiment(experiment)` from the same registry the script wrote to. Without that registration step, the CLI has no supported way to discover the workspace graph from an arbitrary Python module.
 
 ## A Minimal End-to-End Example
 
@@ -242,9 +249,9 @@ The following example shows the full path from workflow definition to persistent
 
 ```python
 import molexp as me
-from molexp.workflow import TaskContext, workflow
+from molexp.workflow import TaskContext, Workflow, Workflow, WorkflowBuilder
 
-wf = workflow(name="demo")
+wf = WorkflowBuilder(name="demo")
 
 
 @wf.task
@@ -259,16 +266,16 @@ async def compute(ctx: TaskContext) -> float:
 spec = wf.build()
 
 ws = me.Workspace("./lab")
-project = ws.project("demo")
-exp = project.experiment(
+project = ws.Project("demo")
+exp = project.Experiment(
     "baseline",
     params={"lr": 1e-3},
     workflow_source="train.py",
 )
-exp.set_workflow(spec)
+spec.bind_to(exp)
 
-run = exp.run(parameters={"lr": 1e-3}, id="baseline-defaults")
-result = await exp.workflow.execute(run=run)
+run = exp.Run(parameters={"lr": 1e-3}, id="baseline-defaults")
+result = await spec.execute(run=run)
 
 print(run.status)
 print(run.metadata.execution_history[-1].status)

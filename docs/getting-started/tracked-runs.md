@@ -12,25 +12,33 @@ That split is the heart of the model. An experiment is not the same thing as a r
 
 ```python
 import molexp as me
+from molexp.workflow import Workflow
 
 ws = me.Workspace("./lab")
-project = ws.project("qm9")
-exp = project.experiment(
+project = ws.Project("qm9")
+exp = project.Experiment(
     "baseline",
     params={"lr": 1e-3},
     workflow_source="train.py",
 )
-exp.set_workflow(spec)
+spec.bind_to(exp)
 ```
 
-`Workspace(...)` itself is lightweight. The workspace record is materialized explicitly with `ws.materialize()` or implicitly when the first child object is created. In ordinary usage, calling `ws.project(...)` is enough to create the real on-disk hierarchy.
+`set_workflow` lives in `molexp.workflow.bindings`. It records the
+`Workflow` in a process-local registry keyed by `experiment.id` so
+the CLI, server routes, and agent tools can later retrieve it via
+`Workflow.for_experiment(experiment)`. The previous workspace-side
+`exp.set_workflow(...)` method was removed when the layer direction was
+rectified — workspace no longer carries any workflow-shaped types.
+
+`Workspace(...)` itself is lightweight. The workspace record is materialized explicitly with `ws.materialize()` or implicitly when the first child object is created. In ordinary usage, calling `ws.Project(...)` is enough to create the real on-disk hierarchy.
 
 ## Creating a Stable Run
 
 When you create runs directly from Python, the safest habit is to give them explicit ids:
 
 ```python
-run = exp.run(parameters={"lr": 1e-3}, id="baseline-default")
+run = exp.Run(parameters={"lr": 1e-3}, id="baseline-default")
 result = await spec.execute(run=run)
 ```
 

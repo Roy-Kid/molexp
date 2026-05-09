@@ -22,7 +22,7 @@ from ._common import (
 run_app = typer.Typer(help="Run management commands")
 app.add_typer(run_app, name="runs")
 
-from . import prune as _prune  # noqa: E402
+from . import prune as _prune
 
 _prune.register(run_app)
 
@@ -55,18 +55,27 @@ def run_create(
                 rprint(f"[red]Error:[/red] Invalid JSON in parameters: {params}")
                 raise typer.Exit(1)
 
+    from molexp.workspace import (
+        ExperimentNotFoundError as _ExpNotFound,
+    )
+    from molexp.workspace import (
+        ProjectNotFoundError as _ProjNotFound,
+    )
+
     try:
-        project = ws.get_project(project_id)
-        if not project:
+        try:
+            project = ws.project(project_id)
+        except _ProjNotFound:
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
-        experiment = project.get_experiment(experiment_id)
-        if not experiment:
+        try:
+            experiment = project.experiment(experiment_id)
+        except _ExpNotFound:
             rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
-        r = experiment.run(parameters=parameters)
+        r = experiment.Run(parameters=parameters)
         rprint(f"[green]OK[/green] Created run: {r.id}")
         rprint(f"  Project: {project_id}")
         rprint(f"  Experiment: {experiment_id}")
@@ -90,15 +99,24 @@ def run_list(
     """List all runs in an experiment."""
     ws = get_workspace(path)
 
-    project = ws.get_project(project_id)
-    if not project:
-        rprint(f"[red]Error:[/red] Project not found: {project_id}")
-        raise typer.Exit(1)
+    from molexp.workspace import (
+        ExperimentNotFoundError as _ExpNotFound,
+    )
+    from molexp.workspace import (
+        ProjectNotFoundError as _ProjNotFound,
+    )
 
-    experiment = project.get_experiment(experiment_id)
-    if not experiment:
+    try:
+        project = ws.project(project_id)
+    except _ProjNotFound:
+        rprint(f"[red]Error:[/red] Project not found: {project_id}")
+        raise typer.Exit(1) from None
+
+    try:
+        experiment = project.experiment(experiment_id)
+    except _ExpNotFound:
         rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     runs = experiment.list_runs()
 
@@ -180,15 +198,26 @@ def run_cancel(
 
     target_runs: list[Any] = []
 
+    from molexp.workspace import (
+        ExperimentNotFoundError as _ExpNotFound,
+    )
+    from molexp.workspace import (
+        ProjectNotFoundError as _ProjNotFound,
+    )
+    from molexp.workspace import (
+        RunNotFoundError as _RunNotFound,
+    )
+
     if run_ids:
         for rid in run_ids:
             found = None
             for proj in ws.list_projects():
                 for exp in proj.list_experiments():
-                    r = exp.get_run(rid)
-                    if r is not None:
-                        found = r
-                        break
+                    try:
+                        found = exp.run(rid)
+                    except _RunNotFound:
+                        continue
+                    break
                 if found:
                     break
             if found is None:
@@ -203,15 +232,17 @@ def run_cancel(
             )
             raise typer.Exit(1)
 
-        project = ws.get_project(project_id)
-        if not project:
+        try:
+            project = ws.project(project_id)
+        except _ProjNotFound:
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
-        experiment = project.get_experiment(experiment_id)
-        if not experiment:
+        try:
+            experiment = project.experiment(experiment_id)
+        except _ExpNotFound:
             rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
         candidates = experiment.list_runs()
 
@@ -338,22 +369,35 @@ def run_info(
     path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Show run information."""
+    from molexp.workspace import (
+        ExperimentNotFoundError as _ExpNotFound,
+    )
+    from molexp.workspace import (
+        ProjectNotFoundError as _ProjNotFound,
+    )
+    from molexp.workspace import (
+        RunNotFoundError as _RunNotFound,
+    )
+
     ws = get_workspace(path)
 
-    project = ws.get_project(project_id)
-    if not project:
+    try:
+        project = ws.project(project_id)
+    except _ProjNotFound:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
-    experiment = project.get_experiment(experiment_id)
-    if not experiment:
+    try:
+        experiment = project.experiment(experiment_id)
+    except _ExpNotFound:
         rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
-    r = experiment.get_run(run_id)
-    if not r:
+    try:
+        r = experiment.run(run_id)
+    except _RunNotFound:
         rprint(f"[red]Error:[/red] Run not found: {run_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     rprint(f"[bold]Run:[/bold] {r.id}")
     rprint(f"  Status: {r.status}")

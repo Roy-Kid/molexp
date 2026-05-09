@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workflow import TaskContext, Workflow
+from molexp.workflow import TaskContext, WorkflowBuilder
 
 # ── ac-001 ── dependent_params ───────────────────────────────────────────────
 
@@ -21,7 +21,7 @@ from molexp.workflow import TaskContext, Workflow
 class TestDependentParams:
     async def test_resolves_from_upstream_output_into_config(self) -> None:
         """Downstream sees dependent_params(prev) merged into TaskContext.config."""
-        wf = Workflow(name="dep-params")
+        wf = WorkflowBuilder(name="dep-params")
 
         @wf.task
         async def cooling(ctx: TaskContext) -> dict:
@@ -40,7 +40,7 @@ class TestDependentParams:
 
     async def test_no_dependent_params_keeps_config_unchanged(self) -> None:
         """Sanity: tasks without dependent_params don't get spurious config."""
-        wf = Workflow(name="dep-params-absent")
+        wf = WorkflowBuilder(name="dep-params-absent")
 
         @wf.task
         async def upstream(ctx: TaskContext) -> int:
@@ -60,7 +60,7 @@ class TestDependentParams:
 class TestReduce:
     def test_reduce_decorator_registers_aggregator(self) -> None:
         """``@wf.reduce(over='replicate')`` registers a reducer on the spec."""
-        wf = Workflow(name="rep-reduce")
+        wf = WorkflowBuilder(name="rep-reduce")
 
         @wf.task
         async def cooling(ctx: TaskContext) -> dict:
@@ -77,7 +77,7 @@ class TestReduce:
         assert reduced["mean_Tg"] == pytest.approx(0.60)
 
     def test_reduce_dimension_recorded(self) -> None:
-        wf = Workflow(name="rep-reduce-dim")
+        wf = WorkflowBuilder(name="rep-reduce-dim")
 
         @wf.task
         async def stub(ctx: TaskContext) -> int:
@@ -91,7 +91,7 @@ class TestReduce:
         assert spec.reducer_dimension == "replicate"
 
     def test_no_reducer_raises_on_run_reducer(self) -> None:
-        wf = Workflow(name="no-reducer")
+        wf = WorkflowBuilder(name="no-reducer")
 
         @wf.task
         async def t(ctx) -> int:

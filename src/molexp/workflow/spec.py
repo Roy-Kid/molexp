@@ -1,9 +1,10 @@
 """Workflow specification — unified OOP API.
 
-Define a workflow by instantiating :class:`Workflow` and registering tasks
-through its methods. Decorator and builder styles share the same class::
+Define a workflow by instantiating :class:`WorkflowBuilder` and registering tasks
+through its methods, then call :meth:`WorkflowBuilder.build` to produce the
+frozen :class:`Workflow` (compiled, executable, content-addressed)::
 
-    wf = Workflow(name="pipeline")
+    wf = WorkflowBuilder(name="pipeline")
 
 
     @wf.task
@@ -32,7 +33,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from .protocols import (
     JSONMapping,
@@ -131,9 +132,9 @@ class TaskRegistration:
     """Internal record of a registered task or actor.
 
     ``task_type`` and ``config`` are populated when the task originates
-    from a registry slug (either via :meth:`Workflow.add` with
-    ``task_type=...`` or via :meth:`WorkflowSpec.from_dict`). They are
-    required for :meth:`WorkflowSpec.to_dict` to produce IR JSON.
+    from a registry slug (either via :meth:`WorkflowBuilder.add` with
+    ``task_type=...`` or via :meth:`Workflow.from_dict`). They are
+    required for :meth:`Workflow.to_dict` to produce IR JSON.
     """
 
     __slots__ = (
@@ -168,14 +169,38 @@ class TaskRegistration:
         self.dependent_params = dependent_params
 
 
-# ── WorkflowSpec ────────────────────────────────────────────────────────────
+# ── Workflow ────────────────────────────────────────────────────────────
 
 
-class WorkflowSpec:
+class _ExperimentLike(Protocol):
+    """Duck-typed handle to anything with a stable string ``id``.
+
+    Workspace's :class:`molexp.workspace.Experiment` satisfies this; tests
+    that construct a stand-in object with an ``id`` attribute also work.
+    The workflow layer never imports ``molexp.workspace.Experiment``
+    directly — keeping the dependency direction one-way.
+    """
+
+    @property
+    def id(self) -> str: ...
+
+
+class Workflow:
     """Compiled, executable workflow specification.
 
-    Produced by :meth:`Workflow.build`.
+    Produced by :meth:`WorkflowBuilder.build`. Frozen — task topology and
+    content-hash :attr:`workflow_id` are stable for the lifetime of the
+    instance. Carries a process-local registry mapping
+    ``experiment.id → Workflow`` so that downstream code (CLI, server,
+    cluster workers) can look up the spec bound to a given experiment
+    without threading it through every call.
     """
+
+    # Process-local registry: experiment.id → Workflow. Survives across
+    # function boundaries within a single Python process; does not survive
+    # process restart on its own. Cluster workers re-establish bindings by
+    # re-importing the user script, which calls :meth:`bind_to` again.
+    _bindings_registry: ClassVar[dict[str, Workflow]] = {}
 
     def __init__(
         self,
@@ -196,7 +221,7 @@ class WorkflowSpec:
         self.version_label = version
         self._tasks = tasks
         self._mode = mode
-        # Raw control-flow declarations from the Workflow builder.
+        # Raw control-flow declarations from the WorkflowBuilder.
         # Compiled into ``out_edges`` + ``entry_frontier`` by the CFG compiler.
         self._entries = entries
         self._control_edges = control_edges
@@ -204,8 +229,60 @@ class WorkflowSpec:
         self._loops = loops
         self._parallels = parallels
         self._runtime: GraphWorkflowRuntime | None = None
-        # Cross-replicate reducer (set by Workflow.build()).
+        # Cross-replicate reducer (set by WorkflowBuilder.build()).
         self._reducer: tuple[str, Callable[..., TaskOutput]] | None = None
+
+    # ── Experiment binding (process-local registry) ─────────────────────
+
+    def bind_to(self, experiment: _ExperimentLike) -> None:
+        """Bind this workflow to *experiment* in the current process.
+
+        Re-binding the same experiment overwrites the previous spec —
+        the caller controls overwrite semantics. The typical
+        cluster-worker flow re-runs the user script and rebinds cleanly.
+
+        Args:
+            experiment: Anything with a stable string ``id``. In
+                production this is :class:`molexp.workspace.Experiment`.
+
+        Raises:
+            ValueError: If *experiment* has no string ``id``.
+        """
+        exp_id = getattr(experiment, "id", None)
+        if not isinstance(exp_id, str) or not exp_id:
+            raise ValueError(
+                f"bind_to expects an experiment with a non-empty string `id`; got {experiment!r}"
+            )
+        Workflow._bindings_registry[exp_id] = self
+
+    def unbind_from(self, experiment: _ExperimentLike) -> bool:
+        """Drop the binding for *experiment*. Returns ``True`` iff one existed."""
+        exp_id = getattr(experiment, "id", None)
+        if not isinstance(exp_id, str) or not exp_id:
+            return False
+        # Only unbind if THIS spec is the bound one (defensive; matches old
+        # clear_workflow which removed regardless).
+        return Workflow._bindings_registry.pop(exp_id, None) is not None
+
+    def is_bound_to(self, experiment: _ExperimentLike) -> bool:
+        """Return ``True`` iff this exact spec is the one bound to *experiment*."""
+        exp_id = getattr(experiment, "id", None)
+        if not isinstance(exp_id, str) or not exp_id:
+            return False
+        return Workflow._bindings_registry.get(exp_id) is self
+
+    @classmethod
+    def for_experiment(cls, experiment: _ExperimentLike) -> Workflow | None:
+        """Return the spec bound to *experiment* in this process, or ``None``."""
+        exp_id = getattr(experiment, "id", None)
+        if not isinstance(exp_id, str) or not exp_id:
+            return None
+        return cls._bindings_registry.get(exp_id)
+
+    @classmethod
+    def _reset_registry(cls) -> None:
+        """Clear every binding. For test isolation only."""
+        cls._bindings_registry.clear()
 
     def _get_runtime(self) -> GraphWorkflowRuntime:
         if self._runtime is None:
@@ -230,7 +307,7 @@ class WorkflowSpec:
         """
         if self._reducer is None:
             raise LookupError(
-                f"WorkflowSpec {self.name!r}: no reducer registered (call @wf.reduce(over=...))"
+                f"Workflow {self.name!r}: no reducer registered (call @wf.reduce(over=...))"
             )
         return self._reducer[1](replicate_outputs)
 
@@ -287,6 +364,67 @@ class WorkflowSpec:
             execution_id=execution_id,
         )
 
+    # ── Happy-path one-liner ────────────────────────────────────────────
+
+    async def run_on(
+        self,
+        experiment: _ExperimentLike,
+        *,
+        parameters: Mapping[str, JSONValue] | None = None,
+        deps: UserDeps = None,
+        profile_config: object | None = None,
+        config: JSONMapping | None = None,
+    ) -> WorkflowResult:
+        """Build a fresh ``Run``, enter its context, execute, and return the result.
+
+        Convenience wrapper for the canonical pattern::
+
+            run = experiment.Run(parameters=parameters)
+            with run.start(profile_config=profile_config) as run_ctx:
+                return await self.execute(run_context=run_ctx, deps=deps, config=config)
+
+        Note: ``run_on`` does **not** call :meth:`bind_to`. If the caller
+        also wants the workflow recoverable by experiment ID after the
+        process restarts (CLI / cluster worker dispatch), call
+        ``self.bind_to(experiment)`` separately.
+
+        Args:
+            experiment: Workspace ``Experiment`` to attach the new run to.
+            parameters: Run-level parameter dict (passed to ``Experiment.Run``).
+            deps: User dependencies forwarded to ``TaskContext.deps``.
+            profile_config: Active molcfg profile; forwarded to ``Run.start``.
+            config: JSON-shaped mapping exposed as ``ctx.config``.
+
+        Returns:
+            The :class:`WorkflowResult` from the workflow execution.
+        """
+        # Imported lazily to keep module import cheap for tests that
+        # never construct a Run.
+        params_dict: dict[str, JSONValue] | None
+        params_dict = dict(parameters) if parameters is not None else None
+        run = experiment.Run(parameters=params_dict)  # type: ignore[attr-defined]
+        with run.start(profile_config=profile_config) as run_ctx:
+            result = await self.execute(
+                run_context=run_ctx,
+                config=config,
+                deps=deps,
+            )
+        # Mirror Python's "exceptions propagate" idiom: if the workflow
+        # ended in a non-success status, surface it. The original task
+        # exception was already recorded on the run's metadata; here we
+        # rebuild a representative exception so callers can wrap
+        # ``await wf.run_on(...)`` in ``try / except`` naturally.
+        if result.status != "completed":
+            err = run.metadata.error
+            err_msg = (
+                f"workflow {self.name!r} ended with status {result.status!r}: "
+                f"{err.type}: {err.message}"
+                if err is not None
+                else f"workflow {self.name!r} ended with status {result.status!r}"
+            )
+            raise RuntimeError(err_msg)
+        return result
+
     # ── Versioning ──────────────────────────────────────────────────────
 
     def version(self) -> WorkflowVersion:
@@ -322,8 +460,8 @@ class WorkflowSpec:
         """Serialize this spec to the JSON IR shape (see ``schema/workflow.json``).
 
         Every task must have been registered with a ``task_type`` slug
-        (passed via :meth:`Workflow.add` or set by
-        :meth:`WorkflowSpec.from_dict`); otherwise this raises
+        (passed via :meth:`WorkflowBuilder.add` or set by
+        :meth:`Workflow.from_dict`); otherwise this raises
         :class:`ValueError`. Decorator-style functions and ad-hoc Task
         instances added without a slug are not serializable — they live
         only in process memory.
@@ -332,8 +470,8 @@ class WorkflowSpec:
         if unslugged:
             raise ValueError(
                 "Cannot serialize workflow to IR: the following tasks have no "
-                f"task_type slug: {unslugged}. Use `Workflow.add(..., task_type=...)` "
-                "or build the spec from IR via WorkflowSpec.from_dict()."
+                f"task_type slug: {unslugged}. Use `WorkflowBuilder.add(..., task_type=...)` "
+                "or build the spec from IR via Workflow.from_dict()."
             )
 
         # Spec 03 — IR currently models data edges only. Workflows that declare
@@ -381,8 +519,8 @@ class WorkflowSpec:
         data: Mapping[str, JSONValue],
         *,
         registry: TaskTypeRegistry | None = None,
-    ) -> WorkflowSpec:
-        """Build a :class:`WorkflowSpec` from JSON IR.
+    ) -> Workflow:
+        """Build a :class:`Workflow` from JSON IR.
 
         Each ``task_configs[]`` entry's ``task_type`` is looked up in
         *registry* (defaults to the module-level
@@ -453,21 +591,21 @@ class WorkflowSpec:
         )
 
 
-# ── Workflow (unified OOP API) ──────────────────────────────────────────────
+# ── WorkflowBuilder (unified OOP API) ──────────────────────────────────────────────
 
 
-class Workflow:
+class WorkflowBuilder:
     """OOP workflow definition. Supports decorator and builder styles.
 
     Instantiate once, then register tasks via the decorators
     (:meth:`task`, :meth:`actor`) or the OOP method :meth:`add`. Wire
     control flow with :meth:`control` / :meth:`branch` / :meth:`loop`
     / :meth:`parallel`. Call :meth:`build` to produce a
-    :class:`WorkflowSpec`.
+    :class:`Workflow`.
 
     Example (decorator)::
 
-        wf = Workflow(name="pipeline")
+        wf = WorkflowBuilder(name="pipeline")
 
 
         @wf.task
@@ -475,7 +613,7 @@ class Workflow:
 
     Example (OOP)::
 
-        wf = Workflow(name="pipeline")
+        wf = WorkflowBuilder(name="pipeline")
         wf.add(FetchTask())
         wf.add(ProcessTask(), depends_on=["fetch"])
     """
@@ -558,7 +696,7 @@ class Workflow:
         """
         if routes is not None and next_ is not None:
             raise TypeError(
-                "Workflow.task: routes= and next_= are mutually exclusive "
+                "WorkflowBuilder.task: routes= and next_= are mutually exclusive "
                 "(spec 03 §3 — pick branch or unconditional, not both)."
             )
 
@@ -597,7 +735,7 @@ class Workflow:
         ``(value, Next(label))`` / ``(value, End())`` (spec 03 §5).
         """
         if routes is not None and next_ is not None:
-            raise TypeError("Workflow.actor: routes= and next_= are mutually exclusive.")
+            raise TypeError("WorkflowBuilder.actor: routes= and next_= are mutually exclusive.")
 
         def decorator(f: Callable) -> Callable:
             actor_name = name or _callable_name(f)
@@ -630,7 +768,7 @@ class Workflow:
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
         dependent_params: DependentParamsFn | None = None,
-    ) -> Workflow:
+    ) -> WorkflowBuilder:
         """Register a Task / Actor instance (or any Runnable/Streamable).
 
         Accepts:
@@ -642,7 +780,7 @@ class Workflow:
         Pass ``task_type`` (the registry slug) and ``config`` (the
         kwargs originally given to the factory) when the task came from
         :data:`~molexp.workflow.registry.default_registry` and you want
-        the resulting spec to be serializable via :meth:`WorkflowSpec.to_dict`.
+        the resulting spec to be serializable via :meth:`Workflow.to_dict`.
 
         ``routes=`` / ``next_=`` mirror :meth:`task` — sugar for declaring
         outgoing control edges on the task being added (spec 03 §3, §7).
@@ -651,7 +789,7 @@ class Workflow:
         """
 
         if routes is not None and next_ is not None:
-            raise TypeError("Workflow.add: routes= and next_= are mutually exclusive.")
+            raise TypeError("WorkflowBuilder.add: routes= and next_= are mutually exclusive.")
 
         task_name = name or _to_snake_case(type(task).__name__)
         for suffix in ("_task", "_actor"):
@@ -676,7 +814,7 @@ class Workflow:
 
     # ── Control-flow declarations (spec 03) ─────────────────────────────
 
-    def entry(self, name: str) -> Workflow:
+    def entry(self, name: str) -> WorkflowBuilder:
         """Declare *name* as a workflow entry point.
 
         Multiple calls add multiple entries (multi-entry workflows are run in
@@ -685,11 +823,13 @@ class Workflow:
         :meth:`build` so entries can be declared before tasks.
         """
         if name in self._entries:
-            raise ValueError(f"Workflow {self._name!r}: entry {name!r} declared multiple times")
+            raise ValueError(
+                f"WorkflowBuilder {self._name!r}: entry {name!r} declared multiple times"
+            )
         self._entries.append(name)
         return self
 
-    def control(self, src: str, to: str) -> Workflow:
+    def control(self, src: str, to: str) -> WorkflowBuilder:
         """Declare an unconditional control edge ``src → to``.
 
         Multiple calls per *src* fan out to multiple unconditional successors.
@@ -706,7 +846,7 @@ class Workflow:
         to: str | None = None,
         *,
         routes: Mapping[str, str] | None = None,
-    ) -> Workflow:
+    ) -> WorkflowBuilder:
         """Declare branch (label-routed) outgoing control edges on *src*.
 
         Two equivalent calling forms (spec 03 §7):
@@ -722,7 +862,7 @@ class Workflow:
         if routes is not None:
             if label is not None or to is not None:
                 raise TypeError(
-                    "Workflow.branch: pass either positional (src, label, to) "
+                    "WorkflowBuilder.branch: pass either positional (src, label, to) "
                     "or keyword routes={...}, not both."
                 )
             for lbl, target in routes.items():
@@ -730,7 +870,7 @@ class Workflow:
             return self
         if label is None or to is None:
             raise TypeError(
-                "Workflow.branch: pass (src, label, to) or routes={...}; "
+                "WorkflowBuilder.branch: pass (src, label, to) or routes={...}; "
                 "received a partial single-edge form."
             )
         self._branch_edges.append((src, label, to))
@@ -743,7 +883,7 @@ class Workflow:
         until: str,
         max_iters: int,
         on_exit: str = "_end",
-    ) -> Workflow:
+    ) -> WorkflowBuilder:
         """Declare a loop: ``body`` runs repeatedly until ``until`` exits.
 
         Spec 04 §4. The loop's ``until`` task is a normal task whose body
@@ -780,10 +920,10 @@ class Workflow:
         """
         if not body:
             raise ValueError(
-                f"Workflow.loop: body must contain at least one task name; got {body!r}"
+                f"WorkflowBuilder.loop: body must contain at least one task name; got {body!r}"
             )
         if max_iters < 1:
-            raise ValueError(f"Workflow.loop: max_iters must be >= 1; got {max_iters!r}")
+            raise ValueError(f"WorkflowBuilder.loop: max_iters must be >= 1; got {max_iters!r}")
         self._loops.append(
             LoopDecl(
                 body=tuple(body),
@@ -801,7 +941,7 @@ class Workflow:
         body: str,
         join: str,
         max_concurrency: int = 1,
-    ) -> Workflow:
+    ) -> WorkflowBuilder:
         """Declare a parallel fan-out: run *body* once per element of *map_over*.
 
         Spec 05 §4. ``map_over`` is the name of an upstream task whose
@@ -836,7 +976,7 @@ class Workflow:
         """
         if max_concurrency < 1:
             raise ValueError(
-                f"Workflow.parallel: max_concurrency must be >= 1; got {max_concurrency!r}"
+                f"WorkflowBuilder.parallel: max_concurrency must be >= 1; got {max_concurrency!r}"
             )
         self._parallels.append(
             ParallelDecl(
@@ -858,7 +998,7 @@ class Workflow:
         """Register a cross-replicate reducer.
 
         The reducer is *not* part of the workflow DAG; it is invoked by any
-        caller of :meth:`WorkflowSpec.run_reducer` after all replicate runs
+        caller of :meth:`Workflow.run_reducer` after all replicate runs
         of this workflow complete. Output is intended for the
         experiment-level asset library — callers attach it to the
         experiment scope, not the run.
@@ -866,13 +1006,13 @@ class Workflow:
         Args:
             over: Name of the dimension being reduced over (typically
                 ``"replicate"``). Recorded on the spec via
-                :attr:`WorkflowSpec.reducer_dimension`.
+                :attr:`Workflow.reducer_dimension`.
         """
 
         def decorator(fn: Callable[..., TaskOutput]) -> Callable[..., TaskOutput]:
             if self._reducer is not None:
                 raise ValueError(
-                    f"Workflow {self._name!r}: reducer already registered "
+                    f"WorkflowBuilder {self._name!r}: reducer already registered "
                     f"({_callable_name(self._reducer[1])!r}); "
                     "only one reducer per workflow."
                 )
@@ -897,17 +1037,17 @@ class Workflow:
 
     # ── Compile ─────────────────────────────────────────────────────────
 
-    def build(self) -> WorkflowSpec:
-        """Compile the registered tasks into a :class:`WorkflowSpec`.
+    def build(self) -> Workflow:
+        """Compile the registered tasks into a :class:`Workflow`.
 
         Runs the CFG compiler eagerly so the spec arrives validated:
         data-DAG / edge-shape / entry / reachability errors raise here
         rather than at first execute (spec 03 §8). The compiled
         per-task BaseNode classes are surfaced on
-        :attr:`WorkflowSpec._compiled_node_classes` for tooling.
+        :attr:`Workflow._compiled_node_classes` for tooling.
         """
         tasks = list(self._tasks)
-        spec = WorkflowSpec(
+        spec = Workflow(
             name=self._name,
             workflow_id=_stable_workflow_id(self._name, tasks),
             tasks=tasks,
@@ -985,7 +1125,7 @@ def _ir_object_list(value: JSONValue | None) -> list[dict[str, JSONValue]]:
     """Narrow a ``JSONValue`` IR field expected to hold a list of JSON objects.
 
     Accepts ``None`` / non-list / list-with-non-dict entries by returning
-    only the dict entries. Used by :meth:`WorkflowSpec.from_dict` so the
+    only the dict entries. Used by :meth:`Workflow.from_dict` so the
     rest of the parser can rely on a homogeneous shape.
     """
     if not isinstance(value, list):

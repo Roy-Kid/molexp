@@ -21,6 +21,7 @@ from molexp.agent.tools.native._helpers import (
 )
 from molexp.agent.tools.registry import native_tool
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
+from molexp.workflow import Workflow
 
 
 @native_tool(
@@ -72,7 +73,7 @@ async def list_experiments(args: JSONMapping, ctx: ToolContext) -> ToolResult:
             "id": exp.id,
             "name": exp.name,
             "params": dict(getattr(exp, "params", {}) or {}),
-            "has_workflow": exp.workflow is not None,
+            "has_workflow": Workflow.for_experiment(exp) is not None,
         }
         for exp in project.list_experiments()
     ]

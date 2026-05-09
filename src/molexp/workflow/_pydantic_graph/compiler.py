@@ -32,7 +32,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from ..protocols import JSONMapping, RunContextLike, RunLike, TaskBody, UserDeps
-from ..spec import ParallelDecl, TaskRegistration, WorkflowSpec
+from ..spec import ParallelDecl, TaskRegistration, Workflow
 from ..types import (
     BranchEdges,
     CycleError,
@@ -104,9 +104,9 @@ class CompiledWorkflow:
 
 
 class WorkflowGraphCompiler:
-    """Compile a :class:`WorkflowSpec` into a :class:`CompiledWorkflow`."""
+    """Compile a :class:`Workflow` into a :class:`CompiledWorkflow`."""
 
-    def compile(self, spec: WorkflowSpec) -> CompiledWorkflow:
+    def compile(self, spec: Workflow) -> CompiledWorkflow:
         self._validate_data_dag(spec)
         out_edges = self._compile_edge_sets(spec)
         entry_frontier = self._resolve_entry_frontier(spec, out_edges)
@@ -135,7 +135,7 @@ class WorkflowGraphCompiler:
 
     # ── Stage 1 ─ data DAG ──────────────────────────────────────────────
 
-    def _validate_data_dag(self, spec: WorkflowSpec) -> list[str]:
+    def _validate_data_dag(self, spec: Workflow) -> list[str]:
         names = {t.name for t in spec._tasks}
         for t in spec._tasks:
             for dep in t.depends_on:
@@ -156,7 +156,7 @@ class WorkflowGraphCompiler:
 
     # ── Stage 2 ─ edge sets ─────────────────────────────────────────────
 
-    def _compile_edge_sets(self, spec: WorkflowSpec) -> dict[str, OutEdges]:
+    def _compile_edge_sets(self, spec: Workflow) -> dict[str, OutEdges]:
         names = {t.name for t in spec._tasks}
         ctrl_by_src: dict[str, list[str]] = defaultdict(list)
         branch_by_src: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -279,8 +279,8 @@ class WorkflowGraphCompiler:
 
     def _resolve_entry_frontier(
         self,
-        spec: WorkflowSpec,
-        out_edges: dict[str, OutEdges],  # noqa: ARG002  — kept for API symmetry with _check_reachability
+        spec: Workflow,
+        out_edges: dict[str, OutEdges],
     ) -> tuple[str, ...]:
         names = {t.name for t in spec._tasks}
 
@@ -316,7 +316,7 @@ class WorkflowGraphCompiler:
 
     def _check_reachability(
         self,
-        spec: WorkflowSpec,
+        spec: Workflow,
         out_edges: dict[str, OutEdges],
         entry_frontier: tuple[str, ...],
     ) -> None:

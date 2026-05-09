@@ -58,7 +58,7 @@ class TaskTopologyEntry(BaseModel):
 class WorkflowVersion(BaseModel):
     """Immutable record of one ``(workflow_id, version)`` pair.
 
-    Returned by :meth:`molexp.workflow.spec.WorkflowSpec.version`. The
+    Returned by :meth:`molexp.workflow.spec.Workflow.version`. The
     workflow layer no longer writes this record to disk; persistence is a
     workspace-layer concern.
 

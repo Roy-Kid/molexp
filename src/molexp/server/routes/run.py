@@ -14,11 +14,23 @@ from fastapi.responses import StreamingResponse
 from molexp._run_cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workflow import (
+    Workflow,
     WorkflowSnapshotRef,
-    get_workflow,
     resolve_spec_entrypoint,
 )
-from molexp.workspace import Experiment, RunStatus
+from molexp.workspace import (
+    Experiment,
+    RunStatus,
+)
+from molexp.workspace import (
+    ExperimentNotFoundError as WorkspaceExperimentNotFoundError,
+)
+from molexp.workspace import (
+    ProjectNotFoundError as WorkspaceProjectNotFoundError,
+)
+from molexp.workspace import (
+    RunNotFoundError as WorkspaceRunNotFoundError,
+)
 from molexp.workspace.metrics import read_run_metrics
 from molexp.workspace.targets import get_target
 
@@ -49,10 +61,28 @@ router = APIRouter(
 
 
 def _get_experiment(workspace, project_id: str, experiment_id: str):
-    project = workspace.get_project(project_id)
-    if not project:
+    """Strict-getter chain — returns ``Experiment`` or ``None``.
+
+    Translates the workspace-layer ``*NotFoundError`` exceptions to a
+    boolean miss so the existing ``if not experiment:`` callers continue
+    to map missing entities onto their HTTP 404 responses.
+    """
+    try:
+        project = workspace.project(project_id)
+    except WorkspaceProjectNotFoundError:
         return None
-    return project.get_experiment(experiment_id)
+    try:
+        return project.experiment(experiment_id)
+    except WorkspaceExperimentNotFoundError:
+        return None
+
+
+def _get_run_or_none(experiment, run_id: str):
+    """Wrap ``experiment.run(run_id)`` to map ``RunNotFoundError`` → ``None``."""
+    try:
+        return experiment.run(run_id)
+    except WorkspaceRunNotFoundError:
+        return None
 
 
 def _synthesize_snapshot(experiment: Experiment) -> dict | None:
@@ -66,7 +96,7 @@ def _synthesize_snapshot(experiment: Experiment) -> dict | None:
     submit_handler dispatch will refuse it later if a target is
     requested).
     """
-    spec = get_workflow(experiment)
+    spec = Workflow.for_experiment(experiment)
     if spec is None:
         return None
     try:
@@ -97,7 +127,7 @@ def _dispatch_to_molq(target, run) -> None:
             status_code=422,
             detail=(
                 f"experiment {run.experiment.id!r} has no workflow entrypoint; "
-                "bind a Python WorkflowSpec or callable on the experiment "
+                "bind a Python Workflow or callable on the experiment "
                 "before submitting via the API"
             ),
         )
@@ -139,7 +169,7 @@ def get_run(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
     return RunResponse.from_model(run)
@@ -166,7 +196,7 @@ def create_run(
                 detail=f"compute target {run_req.target!r} is not registered on this workspace",
             ) from exc
 
-    run = experiment.run(
+    run = experiment.Run(
         parameters=run_req.parameters,
         target=run_req.target,
         workflow_snapshot=_synthesize_snapshot(experiment),
@@ -200,7 +230,7 @@ def get_run_logs(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -225,7 +255,7 @@ def get_run_execution_logs(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
     return _read_execution_logs(run, execution_id)
@@ -246,7 +276,7 @@ def get_run_metrics(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -280,7 +310,7 @@ def get_run_file_text(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -319,7 +349,7 @@ def get_run_lammps_log(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -375,7 +405,7 @@ def get_run_execution(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -421,7 +451,7 @@ def get_run_files(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -488,7 +518,7 @@ def rerun_run(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -503,7 +533,7 @@ def rerun_run(
                 detail=f"compute target {inherited_target!r} is not registered on this workspace",
             ) from exc
 
-    new_run = experiment.run(
+    new_run = experiment.Run(
         parameters=dict(run.parameters),
         target=inherited_target,
         workflow_snapshot=_synthesize_snapshot(experiment),
@@ -538,7 +568,7 @@ def kill_run(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -568,7 +598,7 @@ def export_run(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
@@ -600,7 +630,7 @@ def update_run_status(
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
-    run = experiment.get_run(run_id)
+    run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 

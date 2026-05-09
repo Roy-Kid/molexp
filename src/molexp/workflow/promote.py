@@ -1,19 +1,19 @@
-"""Promote a bare callable into a single-Task ``WorkflowSpec``.
+"""Promote a bare callable into a single-Task ``Workflow``.
 
 This used to live in ``molexp.workspace.experiment`` as the private
 ``_promote_to_workflow`` + ``_resolve_*_entrypoint`` helpers — which
 forced workspace to import workflow types. The rectification spec
 (2026-05-09) moved it into the workflow layer, where it conceptually
-belongs (the output is a ``WorkflowSpec``).
+belongs (the output is a ``Workflow``).
 
 Public surface:
 
 - :func:`promote_callable` — wrap a ``fn(RunContext)`` into a
-  single-Task ``WorkflowSpec``.
+  single-Task ``Workflow``.
 - :func:`resolve_callable_entrypoint` — return ``"<file>:<qualname>"``
   for a module-level callable so the cluster worker can re-import it.
 - :func:`resolve_spec_entrypoint` — return ``"<file>:<varname>"`` for
-  a ``WorkflowSpec`` whose first task lives in a user module, so the
+  a ``Workflow`` whose first task lives in a user module, so the
   worker can re-import the spec by name.
 """
 
@@ -25,7 +25,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from .context import TaskContext
-from .spec import Workflow, WorkflowSpec
+from .spec import Workflow, WorkflowBuilder
 from .task import Task
 
 
@@ -58,8 +58,8 @@ class _EntryTask(Task):
                 await result
 
 
-def promote_callable(fn: Callable, name: str) -> WorkflowSpec:
-    """Promote a bare ``fn(RunContext)`` to a single-Task ``WorkflowSpec``.
+def promote_callable(fn: Callable, name: str) -> Workflow:
+    """Promote a bare ``fn(RunContext)`` to a single-Task ``Workflow``.
 
     Args:
         fn: Callable that accepts a ``RunContext`` (sync or async).
@@ -67,10 +67,10 @@ def promote_callable(fn: Callable, name: str) -> WorkflowSpec:
             single task inside it gets the callable's ``__name__``.
 
     Returns:
-        A compiled :class:`WorkflowSpec` with one task wrapping *fn*.
+        A compiled :class:`Workflow` with one task wrapping *fn*.
     """
     fn_name = getattr(fn, "__name__", None) or "anonymous"
-    return Workflow(name=name).add(_EntryTask(fn), name=fn_name).build()
+    return WorkflowBuilder(name=name).add(_EntryTask(fn), name=fn_name).build()
 
 
 def resolve_callable_entrypoint(fn: Callable) -> str:
@@ -91,10 +91,10 @@ def resolve_callable_entrypoint(fn: Callable) -> str:
     return f"{file_path}:{qualname}"
 
 
-def resolve_spec_entrypoint(spec: WorkflowSpec) -> str:
+def resolve_spec_entrypoint(spec: Workflow) -> str:
     """Return ``"<file>:<varname>"`` for *spec*.
 
-    A ``WorkflowSpec`` carries no name; the worker re-imports it by
+    A ``Workflow`` carries no source-level name; the worker re-imports it by
     looking up the variable that holds it. We find that module by
     asking the first registered task (which always lives in the same
     user module that assembled the spec) for its source, then scan

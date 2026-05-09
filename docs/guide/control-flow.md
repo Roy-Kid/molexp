@@ -86,7 +86,7 @@ The decorators set per-task metadata (`_parallel_map_config`, `_join_config`) th
 | Conditional branch | plain Python `if` inside the task |
 | Fixed-size fan-out | `N` tasks authored at build time with identical `depends_on` |
 | Runtime-sized fan-out | `@parallel_map(wf, fan_out_over=...)` + `@join(wf, reducer=...)` |
-| Long-running streaming processing | `Actor` (see [task-and-actor.md](task-and-actor.md#actor--streaming-tasks)) |
+| Long-running streaming processing | `Actor` (see [task-and-actor.md](task-and-actor.md#actor-streaming-tasks)) |
 
 Explicit IR-level control-flow tasks (`IfTask`, `ForTask`, etc.) are **not part of the current API** and are not planned in the short term — the DAG shape + decorators cover the cases we've actually needed.
 

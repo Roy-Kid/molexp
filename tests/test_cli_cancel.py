@@ -15,9 +15,9 @@ def _make_workspace(tmp_path, status="pending", job_id=None, scheduler_job_id=No
     """Create a minimal workspace/project/experiment/run for testing."""
     ws_path = tmp_path / "workspace"
     ws = Workspace(root=ws_path, name="test-ws")
-    project = ws.project("proj1")
-    exp = project.experiment("exp1")
-    run = exp.run(parameters={"lr": 0.001})
+    project = ws.Project("proj1")
+    exp = project.Experiment("exp1")
+    run = exp.Run(parameters={"lr": 0.001})
     if status != "pending":
         run._set_status(RunStatus(status))
     if job_id or scheduler_job_id:
@@ -51,9 +51,7 @@ class TestRunsCancelExperimentScope:
         )
 
         assert result.exit_code == 0, result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "cancelled"
 
     def test_cancel_by_status_filter(self, tmp_path):
@@ -77,9 +75,7 @@ class TestRunsCancelExperimentScope:
         )
 
         assert result.exit_code == 0, result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "cancelled"
 
     def test_cancel_skips_terminal_runs(self, tmp_path):
@@ -105,9 +101,7 @@ class TestRunsCancelExperimentScope:
         # In experiment-scope --all mode, terminal runs are excluded before selection,
         # so the message is "nothing to cancel" rather than "already terminal".
         assert "nothing to cancel" in result.output or "terminal" in result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "succeeded"
 
     def test_cancel_no_matching_runs(self, tmp_path):
@@ -195,9 +189,7 @@ class TestRunsCancelExperimentScope:
 
         assert result.exit_code == 0
         assert "Aborted" in result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "pending"
 
     def test_cancel_shows_confirmation_table(self, tmp_path):
@@ -240,9 +232,7 @@ class TestRunsCancelByRunId:
         )
 
         assert result.exit_code == 0, result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "cancelled"
 
     def test_cancel_by_run_id_skips_terminal(self, tmp_path):
@@ -262,9 +252,7 @@ class TestRunsCancelByRunId:
 
         assert result.exit_code == 0
         assert "terminal" in result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "succeeded"
 
     def test_cancel_unknown_run_id_warns(self, tmp_path):
@@ -337,9 +325,7 @@ class TestRunsCancelMolqIntegration:
 
         assert result.exit_code == 0
         assert "Warning" in result.output
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "cancelled"
 
     def test_cancel_warns_when_no_job_id(self, tmp_path, mocker):
@@ -365,9 +351,7 @@ class TestRunsCancelMolqIntegration:
         assert result.exit_code == 0
         assert "no molq job metadata" in result.output
         mock_submitor.cancel_job.assert_not_called()
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "cancelled"
 
     def test_cancel_local_scheduler_skips_molq(self, tmp_path):
@@ -388,9 +372,7 @@ class TestRunsCancelMolqIntegration:
         )
 
         assert result.exit_code == 0
-        reloaded = (
-            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
-        )
+        reloaded = Workspace.load(ws_path).project(project.id).experiment(exp.id).run(run.id)
         assert reloaded.status == "cancelled"
 
     def test_cancel_uses_custom_cluster_name(self, tmp_path, mocker):

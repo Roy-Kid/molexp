@@ -21,9 +21,9 @@ from molexp.workspace.schema_version import (
 
 def _seed_workspace(root) -> Workspace:
     ws = Workspace(root=root, name="Lab")
-    proj = ws.project("p")
-    exp = proj.experiment("e", params={"lr": 1e-3})
-    run = exp.run()
+    proj = ws.Project("p")
+    exp = proj.Experiment("e", params={"lr": 1e-3})
+    run = exp.Run()
     with run.start() as ctx:
         ctx.artifact.save("metrics.json", {"loss": 0.1})
     return ws

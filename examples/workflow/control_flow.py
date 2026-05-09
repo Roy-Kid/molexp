@@ -19,12 +19,12 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, Workflow
+from molexp.workflow import TaskContext, Workflow, WorkflowBuilder
 
 
 # ── 1. Diamond fan-out ─────────────────────────────────────────────────────
 async def diamond_demo() -> None:
-    wf = Workflow(name="diamond")
+    wf = WorkflowBuilder(name="diamond")
 
     @wf.task
     async def fetch(ctx: TaskContext) -> dict:
@@ -48,7 +48,7 @@ async def diamond_demo() -> None:
 
 # ── 2. Conditional branch inside a task ────────────────────────────────────
 async def conditional_demo(skip: bool) -> None:
-    wf = Workflow(name="conditional")
+    wf = WorkflowBuilder(name="conditional")
 
     @wf.task
     async def fetch(ctx: TaskContext) -> list[int]:
@@ -67,7 +67,7 @@ async def conditional_demo(skip: bool) -> None:
 
 # ── 3. Build-time fan-out ──────────────────────────────────────────────────
 async def fanout_demo() -> None:
-    wf = Workflow(name="fanout")
+    wf = WorkflowBuilder(name="fanout")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:

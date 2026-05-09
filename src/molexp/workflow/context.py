@@ -22,7 +22,7 @@ class TaskContext[StateT, DepsT, InputT]:
         inputs: Typed output from the upstream task (``None`` for root tasks).
         config: JSON-shaped mapping exposed to the task body (defaults to ``{}``).
         run_context: Duck-typed run context (``RunContextLike``) supplied by
-            the caller of ``WorkflowSpec.execute(run_context=...)``. Tasks
+            the caller of ``Workflow.execute(run_context=...)``. Tasks
             that need workspace capabilities reach for them through this
             object; the workflow layer holds it via the structural Protocol.
     """

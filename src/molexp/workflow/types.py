@@ -194,7 +194,7 @@ class WorkflowResult(BaseModel):
 class WorkflowExecution:
     """Handle for a running workflow.
 
-    Returned by ``WorkflowSpec.start()`` for async control. This is a
+    Returned by ``Workflow.start()`` for async control. This is a
     runtime container — it carries live ``asyncio`` state in concrete
     subclasses — and is therefore a plain Python class rather than a
     pydantic model.

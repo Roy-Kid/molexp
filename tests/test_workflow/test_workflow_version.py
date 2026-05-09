@@ -11,7 +11,7 @@ helpers (`write_record` / `load_record` / `_versions_dir` /
 
 from __future__ import annotations
 
-from molexp.workflow import Workflow
+from molexp.workflow import Workflow, WorkflowBuilder
 from molexp.workflow.version import (
     TaskTopologyEntry,
     WorkflowVersion,
@@ -20,7 +20,7 @@ from molexp.workflow.version import (
 
 
 def _make_two_task_workflow(version: str = "1.0.0") -> Workflow:
-    wf = Workflow(name="pipeline", version=version)
+    wf = WorkflowBuilder(name="pipeline", version=version)
 
     @wf.task
     async def fetch(ctx):

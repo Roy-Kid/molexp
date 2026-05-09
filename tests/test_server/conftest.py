@@ -9,8 +9,7 @@ from molexp.workflow import (
     Task,
     TaskContext,
     Workflow,
-    reset_bindings,
-    set_workflow,
+    WorkflowBuilder,
 )
 from molexp.workspace import Workspace
 
@@ -18,9 +17,9 @@ from molexp.workspace import Workspace
 @pytest.fixture(autouse=True)
 def _isolate_workflow_bindings():
     """Each test gets a fresh process-local workflow-binding registry."""
-    reset_bindings()
+    Workflow._reset_registry()
     yield
-    reset_bindings()
+    Workflow._reset_registry()
 
 
 @pytest.fixture
@@ -30,7 +29,7 @@ def workspace(tmp_path):
 
 @pytest.fixture
 def project(workspace):
-    return workspace.project("test-project")
+    return workspace.Project("test-project")
 
 
 class _NoopTask(Task):
@@ -42,9 +41,9 @@ class _NoopTask(Task):
         return None
 
 
-# Module-level WorkflowSpec — explicitly named at module scope so
+# Module-level Workflow — explicitly named at module scope so
 # ``resolve_spec_entrypoint`` returns ``<this-file>:_NOOP_SPEC``.
-_NOOP_SPEC = Workflow(name="noop").add(_NoopTask(), name="step").build()
+_NOOP_SPEC = WorkflowBuilder(name="noop").add(_NoopTask(), name="step").build()
 
 
 @pytest.fixture
@@ -54,7 +53,7 @@ def experiment(project):
     Tests that need a dispatch-ready experiment should use
     :func:`experiment_with_entrypoint` instead.
     """
-    return project.experiment(
+    return project.Experiment(
         "test-exp",
         workflow_source="train.py",
         params={"lr": 1e-4},
@@ -69,18 +68,18 @@ def experiment_with_entrypoint(project):
     ``resolve_spec_entrypoint`` returns a valid ``<file>:<varname>``
     handle.
     """
-    exp = project.experiment(
+    exp = project.Experiment(
         "test-exp",
         workflow_source="train.py",
         params={"lr": 1e-4},
     )
-    set_workflow(exp, _NOOP_SPEC)
+    _NOOP_SPEC.bind_to(exp)
     return exp
 
 
 @pytest.fixture
 def run(experiment):
-    return experiment.run(parameters={"lr": 1e-4})
+    return experiment.Run(parameters={"lr": 1e-4})
 
 
 @pytest.fixture

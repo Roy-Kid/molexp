@@ -49,7 +49,7 @@ from molexp.agent.modes.plan.tasks import (
     RepairTask,
 )
 from molexp.agent.types import Message
-from molexp.workflow import Workflow, WorkflowSpec
+from molexp.workflow import Workflow, WorkflowBuilder
 
 if TYPE_CHECKING:
     from molexp.agent._pydanticai.harness import PydanticAIHarness
@@ -93,7 +93,7 @@ class PlanResult(BaseModel):
 _PLAN_SPEC_DEPS = ["goal", "context", "method", "decomposition", "protocol"]
 
 
-def _build_plan_workflow() -> WorkflowSpec:
+def _build_plan_workflow() -> Workflow:
     """Assemble the plan-mode workflow.
 
     Every task names its data deps; every branch names its routes; the
@@ -103,7 +103,7 @@ def _build_plan_workflow() -> WorkflowSpec:
     :func:`compose_plan_spec`.
     """
 
-    wf = Workflow(name="plan_mode", entry="intake")
+    wf = WorkflowBuilder(name="plan_mode", entry="intake")
 
     # Specification chain.
     wf.add(IntakeTask(), name="intake", next_="goal")
@@ -190,7 +190,7 @@ def _build_plan_workflow() -> WorkflowSpec:
     return wf.build()
 
 
-PLAN_WORKFLOW: WorkflowSpec = _build_plan_workflow()
+PLAN_WORKFLOW: Workflow = _build_plan_workflow()
 
 
 # ── PlanMode ────────────────────────────────────────────────────────────────
@@ -240,7 +240,7 @@ class PlanMode(AgentMode):
     async def run(
         self,
         *,
-        harness: PydanticAIHarness,  # noqa: ARG002 — runner-supplied; ignored by design
+        harness: PydanticAIHarness,
         session: AgentSession,
         user_input: str,
     ) -> AgentRunResult:

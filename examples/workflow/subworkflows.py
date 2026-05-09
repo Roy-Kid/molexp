@@ -1,4 +1,4 @@
-"""Compose an outer workflow out of a reusable inner ``WorkflowSpec``.
+"""Compose an outer workflow out of a reusable inner ``Workflow``.
 
 Matches ``docs/guide/subworkflows.md``.
 
@@ -15,12 +15,12 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, Workflow, WorkflowSpec
+from molexp.workflow import Task, TaskContext, Workflow, Workflow, WorkflowBuilder
 
 
-def build_preprocess() -> WorkflowSpec:
+def build_preprocess() -> Workflow:
     """The inner pipeline — could live in its own module."""
-    wf = Workflow(name="preprocess")
+    wf = WorkflowBuilder(name="preprocess")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[float]:
@@ -37,7 +37,7 @@ def build_preprocess() -> WorkflowSpec:
 class Preprocess(Task):
     """Wraps an inner spec so an outer builder can add it as one node."""
 
-    def __init__(self, spec: WorkflowSpec) -> None:
+    def __init__(self, spec: Workflow) -> None:
         self._spec = spec
 
     async def execute(self, ctx: TaskContext) -> list[float]:
@@ -58,7 +58,7 @@ async def main() -> None:
     inner = build_preprocess()
 
     outer = (
-        Workflow(name="train")
+        WorkflowBuilder(name="train")
         .add(Preprocess(inner), name="preprocess")
         .add(Train(), depends_on=["preprocess"])
         .build()

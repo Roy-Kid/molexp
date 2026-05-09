@@ -1,0 +1,64 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://molexp.io/schemas/workflow/workflow_contract.json",
+    "title": "WorkflowContract",
+    "description": "Sidecar contract layer for a workflow IR. Optional addition next to the existing task_configs / links shape; old IR JSON without this section continues to parse as a no-contract workflow.",
+    "type": "object",
+    "definitions": {
+        "ValidationCheck": {
+            "type": "object",
+            "description": "A check selection — the runner id plus its severity.",
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "enum": [
+                        "no_orphan_tasks",
+                        "unique_artifact_paths",
+                        "acyclic_data_edges",
+                        "every_input_has_source",
+                        "produced_by_resolves",
+                        "outputs_match_downstream_inputs"
+                    ]
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": [
+                        "error",
+                        "warning"
+                    ],
+                    "default": "error"
+                }
+            },
+            "required": [
+                "id"
+            ],
+            "additionalProperties": false
+        }
+    },
+    "properties": {
+        "workflow_id": {
+            "type": "string",
+            "description": "Must match the wrapped Workflow's workflow_id so a contract cannot drift onto a different spec."
+        },
+        "task_io": {
+            "type": "array",
+            "description": "One TaskIO per task; order is irrelevant.",
+            "items": {
+                "$ref": "task_io.json"
+            },
+            "default": []
+        },
+        "validation_checks": {
+            "type": "array",
+            "description": "Selected static checks. When empty, the validator falls back to default_validation_checks().",
+            "items": {
+                "$ref": "#/definitions/ValidationCheck"
+            },
+            "default": []
+        }
+    },
+    "required": [
+        "workflow_id"
+    ],
+    "additionalProperties": false
+}

@@ -1,6 +1,6 @@
 # Compiler Internals
 
-This page is for contributors who need to understand — or modify — how a `WorkflowSpec` is built and then turned into an executable graph. End-users should read the [Quick Start](../getting-started/quick-start.md) first.
+This page is for contributors who need to understand — or modify — how a `Workflow` is built and then turned into an executable graph. End-users should read the [Quick Start](../getting-started/quick-start.md) first.
 
 There is **no intermediate JSON representation**. Compilation happens in memory, on demand, the first time `spec.execute()` / `spec.start()` is called. The implementation lives in `molexp.workflow._pydantic_graph.*` and is treated as private to the workflow package.
 
@@ -10,7 +10,7 @@ There is **no intermediate JSON representation**. Compilation happens in memory,
 @wf.task / WorkflowBuilder.add(...)  →  TaskRegistration[]
                                         │
                                         ▼
-                              WorkflowSpec (name, workflow_id, tasks)
+                              Workflow (name, workflow_id, tasks)
                                         │
                                         ▼     (first execute() / start())
                                         ▼
@@ -22,14 +22,14 @@ There is **no intermediate JSON representation**. Compilation happens in memory,
 
 Two compilation boundaries:
 
-1. `DSL → WorkflowSpec` (at `.build()`). Stores the task registrations and computes the `workflow_id`.
-2. `WorkflowSpec → pydantic-graph Graph` (on first execute). Validates the DAG, groups tasks into topological levels, and wires up the trampoline node.
+1. `DSL → Workflow` (at `.build()`). Stores the task registrations and computes the `workflow_id`.
+2. `Workflow → pydantic-graph Graph` (on first execute). Validates the DAG, groups tasks into topological levels, and wires up the trampoline node.
 
 ## Source Layout
 
 ```
 src/molexp/workflow/
-├── spec.py                # WorkflowSpec, WorkflowDSL, WorkflowBuilder, parallel_map, join
+├── spec.py                # Workflow, WorkflowDSL, WorkflowBuilder, parallel_map, join
 ├── task.py                # Task / Actor convenience base classes
 ├── context.py             # TaskContext / ActorContext
 ├── protocols.py           # Runnable / Streamable
@@ -120,7 +120,7 @@ deps.run_dir = run_dir
 
 ## Runtime Entry
 
-`WorkflowSpec._get_runtime()` lazily instantiates `GraphWorkflowRuntime` and caches it on the spec. `WorkflowRuntime.execute(...)` is the abstract base (`runtime.py`):
+`Workflow._get_runtime()` lazily instantiates `GraphWorkflowRuntime` and caches it on the spec. `WorkflowRuntime.execute(...)` is the abstract base (`runtime.py`):
 
 ```python
 class WorkflowRuntime(ABC):
@@ -130,7 +130,7 @@ class WorkflowRuntime(ABC):
                     profile_config=None, **kwargs) -> WorkflowExecution: ...
 ```
 
-A swap-in alternative runtime must honor the same signature and consume a `WorkflowSpec` directly — for example a Dask-backed runtime could reinterpret `spec._tasks` against a Dask futures graph. In practice `GraphWorkflowRuntime` is the only one we ship.
+A swap-in alternative runtime must honor the same signature and consume a `Workflow` directly — for example a Dask-backed runtime could reinterpret `spec._tasks` against a Dask futures graph. In practice `GraphWorkflowRuntime` is the only one we ship.
 
 ## TaskSnapshot — Code + Config Identity
 
@@ -152,9 +152,11 @@ The **code hash** uses AST normalization — `_normalize_ast` strips comments, w
 The combined identity key is `f"{code_hash}:{config_hash}"`. `Caching` (`cache.py`) is orthogonal to the runtime — tasks that opt in call `cache.get(snapshot, inputs)` / `cache.put(...)` themselves. The full cache key is `f"{snapshot.key}:{input_hash}"`. Code hashes fall back to bytecode hashing if the source isn't available.
 
 ```python
-from molexp.workflow import Caching
+from molexp.workflow import Caching, WorkspaceCacheStore, WorkflowBuilder
 
-cache = Caching(store_dir=Path("~/.molexp/cache"), max_entries=1000)
+# Workspace-rooted cache: storage lives under
+# ``<workspace_root>/.subsystems/workflow.cache/``.
+cache = Caching(store=WorkspaceCacheStore(workspace), max_entries=1000)
 cache.initialize()
 
 hit = cache.get(snapshot, inputs)
@@ -162,6 +164,20 @@ if hit is None:
     result = await run_task(...)
     cache.put(snapshot, inputs, result)
 ```
+
+For workspace-less callers (e.g. ad-hoc scripts), use `FileCacheStore`
+or pass a plain `store_dir=...` argument:
+
+```python
+from molexp.workflow import Caching, WorkflowBuilder
+
+cache = Caching(store_dir=Path("./cache"), max_entries=1000)
+```
+
+The user-home `~/.molexp/cache/` shortcut from earlier MolExp versions
+is gone — caching is always either workspace-rooted via
+`WorkspaceCacheStore` or explicitly directed to a path the caller
+chose.
 
 ## What the Compiler Does Not Do
 

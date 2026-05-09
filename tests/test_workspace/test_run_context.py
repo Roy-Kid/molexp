@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from molexp.workspace import Workspace
 from molexp.workspace.assets import ArtifactAsset, CheckpointAsset
 from molexp.workspace.run import RunStatus
 
@@ -19,7 +20,7 @@ class TestRunContextLifecycle:
         assert run.status == RunStatus.SUCCEEDED
 
     def test_exit_failure(self, experiment):
-        run = experiment.run()
+        run = experiment.Run()
         try:
             with run.start():
                 raise ValueError("boom")
@@ -138,7 +139,7 @@ class TestCheckpointAccessor:
 
 class TestRunContextParams:
     def test_params_shortcut(self, experiment):
-        run = experiment.run(parameters={"lr": 1e-4, "batch": 32})
+        run = experiment.Run(parameters={"lr": 1e-4, "batch": 32})
         with run.start() as ctx:
             assert ctx.params == {"lr": 1e-4, "batch": 32}
             assert ctx.params is ctx.run.parameters
@@ -164,7 +165,7 @@ class TestGetDataDir:
 
 class TestErrorTraceAsset:
     def test_error_file_created_and_registered(self, experiment):
-        run = experiment.run()
+        run = experiment.Run()
         ctx_ref = {}
         try:
             with run.start() as ctx:
@@ -183,3 +184,47 @@ class TestErrorTraceAsset:
         traces = catalog.query_assets(kind="error_trace", producer_run=run.id)
         assert len(traces) == 1
         assert traces[0].exception_type == "RuntimeError"
+
+
+# ── Async context-manager protocol + Run sugar ─────────────────────────────
+
+
+class TestAsyncRunContext:
+    """``async with`` support on ``RunContext`` and the ``Run`` sugar shape."""
+
+    @pytest.mark.asyncio
+    async def test_async_with_run_start(self, tmp_path):
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.Project(name="p").Experiment(name="e")
+        run = exp.Run()
+        async with run.start() as ctx:
+            assert ctx.work_dir.exists()
+            assert run.status == "running"
+        assert run.status == RunStatus.SUCCEEDED
+
+    @pytest.mark.asyncio
+    async def test_async_with_run_sugar(self, tmp_path):
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.Project(name="p").Experiment(name="e")
+        run = exp.Run()
+        async with run as ctx:
+            assert ctx.work_dir.exists()
+        assert run.status == RunStatus.SUCCEEDED
+
+    def test_sync_with_run_sugar(self, tmp_path):
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.Project(name="p").Experiment(name="e")
+        run = exp.Run()
+        with run as ctx:
+            assert ctx.work_dir.exists()
+        assert run.status == RunStatus.SUCCEEDED
+
+    @pytest.mark.asyncio
+    async def test_async_failure_propagates_and_records_failed(self, tmp_path):
+        ws = Workspace(root=tmp_path, name="ws")
+        exp = ws.Project(name="p").Experiment(name="e")
+        run = exp.Run()
+        with pytest.raises(ValueError, match="boom"):
+            async with run.start():
+                raise ValueError("boom")
+        assert run.status == RunStatus.FAILED

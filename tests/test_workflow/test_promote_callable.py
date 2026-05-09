@@ -10,10 +10,10 @@ into ``workflow/promote.py`` and re-exported them publicly as
 Tests here exercise:
 
 - promotion turns a bare ``fn(RunContext)`` into a runnable
-  ``WorkflowSpec`` whose only task wraps that callable;
+  ``Workflow`` whose only task wraps that callable;
 - the entrypoint resolver returns ``"<file>:<qualname>"`` for module-
   level callables and rejects unimportable shapes (lambdas, locals);
-- the spec entrypoint resolver locates a ``WorkflowSpec`` bound at
+- the spec entrypoint resolver locates a ``Workflow`` bound at
   module scope and rejects unbound specs.
 """
 
@@ -23,21 +23,20 @@ from molexp.workflow import (
     Task,
     TaskContext,
     Workflow,
-    WorkflowSpec,
+    WorkflowBuilder,
     promote_callable,
     resolve_callable_entrypoint,
     resolve_spec_entrypoint,
 )
 
-
 # Module-level callables for the resolver tests.
 
 
-async def _async_fn(ctx) -> None:  # noqa: ANN001 - duck-typed RunContext-like
+async def _async_fn(ctx) -> None:
     return None
 
 
-def _sync_fn(ctx) -> None:  # noqa: ANN001 - duck-typed RunContext-like
+def _sync_fn(ctx) -> None:
     return None
 
 
@@ -53,18 +52,18 @@ class _ProbeTask(Task):
 
 
 # Module-level spec for the spec-entrypoint resolver test.
-_FIXTURE_SPEC: WorkflowSpec = Workflow(name="probe").add(_ProbeTask(), name="step").build()
+_FIXTURE_SPEC: Workflow = WorkflowBuilder(name="probe").add(_ProbeTask(), name="step").build()
 
 
 def test_promote_async_callable_yields_runnable_spec() -> None:
     spec = promote_callable(_async_fn, "p1")
-    assert isinstance(spec, WorkflowSpec)
+    assert isinstance(spec, Workflow)
     assert spec.name == "p1"
 
 
 def test_promote_sync_callable_yields_runnable_spec() -> None:
     spec = promote_callable(_sync_fn, "p2")
-    assert isinstance(spec, WorkflowSpec)
+    assert isinstance(spec, Workflow)
     assert spec.name == "p2"
 
 
@@ -86,7 +85,7 @@ def test_resolve_callable_entrypoint_rejects_lambda() -> None:
 
 
 def test_resolve_callable_entrypoint_rejects_local_function() -> None:
-    def _local_fn(ctx) -> None:  # noqa: ANN001
+    def _local_fn(ctx) -> None:
         return None
 
     import pytest

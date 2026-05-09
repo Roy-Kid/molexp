@@ -1,4 +1,4 @@
-"""A ``WorkflowSpec`` executed with no workspace attached.
+"""A ``Workflow`` executed with no workspace attached.
 
 Matches ``docs/getting-started/first-workflow.md``.
 
@@ -15,11 +15,11 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, Workflow
+from molexp.workflow import TaskContext, Workflow, WorkflowBuilder
 
 
 async def main() -> None:
-    wf = Workflow(name="first-workflow")
+    wf = WorkflowBuilder(name="first-workflow")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:

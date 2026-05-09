@@ -30,10 +30,10 @@ def seeded_workspace(tmp_path):
     ws = Workspace(root=tmp_path, name="lab")
     ws.materialize()
 
-    p = ws.project("proj-a")
-    e = p.experiment("exp-x", workflow_source="s.py", params={})
-    r1 = e.run(parameters={"seed": 1}, id="abcdef0123456789")
-    r2 = e.run(parameters={"seed": 2}, id="fedcba9876543210")
+    p = ws.Project("proj-a")
+    e = p.Experiment("exp-x", workflow_source="s.py", params={})
+    r1 = e.Run(parameters={"seed": 1}, id="abcdef0123456789")
+    r2 = e.Run(parameters={"seed": 2}, id="fedcba9876543210")
 
     # r1: two execution attempts
     hist = []
@@ -51,8 +51,8 @@ def seeded_workspace(tmp_path):
     r1._update_metadata(execution_history=hist, status="succeeded")
     r2._update_metadata(status="running")
 
-    p2 = ws.project("proj-b")
-    p2.experiment("exp-y", workflow_source="s.py", params={})
+    p2 = ws.Project("proj-b")
+    p2.Experiment("exp-y", workflow_source="s.py", params={})
     return ws
 
 

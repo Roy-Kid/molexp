@@ -22,15 +22,18 @@ def experiment_create(
     path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Create a new experiment."""
+    from molexp.workspace import ProjectNotFoundError
+
     ws = get_workspace(path)
 
     try:
-        project = ws.get_project(project_id)
-        if not project:
+        try:
+            project = ws.project(project_id)
+        except ProjectNotFoundError:
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
-            raise typer.Exit(1)
+            raise typer.Exit(1) from None
 
-        experiment = project.experiment(name)
+        experiment = project.Experiment(name)
         rprint(f"[green]OK[/green] Created experiment: {experiment.id}")
         rprint(f"  Name: {experiment.name}")
         rprint(f"  Project: {project_id}")
@@ -47,12 +50,14 @@ def experiment_list(
     path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """List all experiments in a project."""
-    ws = get_workspace(path)
-    project = ws.get_project(project_id)
+    from molexp.workspace import ProjectNotFoundError
 
-    if not project:
+    ws = get_workspace(path)
+    try:
+        project = ws.project(project_id)
+    except ProjectNotFoundError:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     experiments = project.list_experiments()
 

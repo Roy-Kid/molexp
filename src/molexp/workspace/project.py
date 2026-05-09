@@ -133,7 +133,7 @@ class Project:
 
     # ── Experiment operations ───────────────────────────────────────────
 
-    def experiment(
+    def Experiment(
         self,
         name: str,
         *,
@@ -148,7 +148,7 @@ class Project:
         tags: list[str] | None = None,
         default_target: str | None = None,
     ) -> Experiment:
-        """Get-or-create an experiment (idempotent, materialized immediately).
+        """Idempotent constructor — return existing experiment if found, else create.
 
         If an experiment with the same ID (or slug from *name*) exists on
         disk, it is loaded and returned.  Otherwise a new experiment is
@@ -156,6 +156,9 @@ class Project:
 
         ``description`` and ``tags`` are only applied on first creation;
         reloading an existing experiment does not overwrite them.
+
+        For "must be new" semantics, use :meth:`create_experiment`. For
+        "must already exist", use :meth:`experiment`.
         """
         exp_id = id if id is not None else slugify(name)
         if exp_id in self._experiments_cache:
@@ -183,13 +186,58 @@ class Project:
         self._experiments_cache[exp.id] = exp
         return exp
 
-    def get_experiment(self, experiment_id: str) -> Experiment | None:
-        """Get experiment by ID."""
+    def create_experiment(
+        self,
+        name: str,
+        *,
+        id: str | None = None,
+        params: dict[str, Any] | None = None,
+        n_replicas: int = 1,
+        seeds: list[int] | None = None,
+        workflow_source: str | None = None,
+        workflow_type: str | None = None,
+        git_commit: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+        default_target: str | None = None,
+    ) -> Experiment:
+        """Strict constructor — raise :class:`ExperimentExistsError` if exists."""
+        from .errors import ExperimentExistsError
+
+        exp_id = id if id is not None else slugify(name)
+        if exp_id in self._experiments_cache:
+            raise ExperimentExistsError(exp_id)
+        exp_dir = self.project_dir / "experiments" / exp_id
+        if exp_dir.exists():
+            raise ExperimentExistsError(exp_id)
+        exp = Experiment(
+            name=name,
+            project=self,
+            id=exp_id,
+            params=params,
+            n_replicas=n_replicas,
+            seeds=seeds,
+            workflow_source=workflow_source,
+            workflow_type=workflow_type,
+            git_commit=git_commit,
+            description=description,
+            tags=tags,
+            default_target=default_target,
+        )
+        exp.materialize()
+        self._refresh_experiments_index()
+        self._experiments_cache[exp.id] = exp
+        return exp
+
+    def experiment(self, experiment_id: str) -> Experiment:
+        """Strict getter — raise :class:`ExperimentNotFoundError` if absent."""
+        from .errors import ExperimentNotFoundError
+
         if experiment_id in self._experiments_cache:
             return self._experiments_cache[experiment_id]
         exp_dir = self.project_dir / "experiments" / experiment_id
         if not exp_dir.exists():
-            return None
+            raise ExperimentNotFoundError(experiment_id)
         exp = self._load_experiment_from_dir(exp_dir)
         self._experiments_cache[exp.id] = exp
         return exp

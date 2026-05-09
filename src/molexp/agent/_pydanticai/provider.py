@@ -63,7 +63,7 @@ class PydanticAIProvider:
         system: str,
         user: str,
         schema: type[SchemaT],
-        node_id: str = "",  # noqa: ARG002 — accepted for symmetry, used by tracing impls
+        node_id: str = "",
     ) -> SchemaT:
         agent = self._agent_for(tier, schema, system)
         result = await agent.run(user)

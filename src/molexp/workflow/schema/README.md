@@ -31,6 +31,19 @@ tool) to discover the registered set.
 4. **[workflow.json](workflow.json)** - Workflow schema (main)
    - Complete workflow definition
    - Composes task_config, link, and workflow_metadata schemas using `$ref`
+   - **Optionally** references `workflow_contract.json` (see Sidecar Contract Layer)
+
+### Sidecar Contract Layer
+
+5. **[task_io.json](task_io.json)** - TaskIO schema
+   - Per-task declared inputs / outputs / artifacts (typed I/O)
+   - Defines `TaskInputSpec`, `TaskOutputSpec`, `ArtifactDecl` sub-schemas
+   - Optional in the contract; when omitted, downstream code generators see an empty surface for that task
+
+6. **[workflow_contract.json](workflow_contract.json)** - WorkflowContract schema
+   - Sidecar contract wrapping a workflow's typed I/O surface and validation suite
+   - Composed of an array of `TaskIO` (`$ref: task_io.json`) plus a `validation_checks` array
+   - **Back-compat (binding):** Existing IR JSON without a `workflow_contract` key continues to parse as a no-contract workflow. Loaders MUST treat absence as "no contract declared", not as a validation error.
 
 ## Schema Composition
 
@@ -40,8 +53,35 @@ The schemas use JSON Schema `$ref` for composition:
 workflow.json
 ├── $ref: task_config.json (for task_configs array)
 ├── $ref: link.json (for links array)
-└── $ref: workflow_metadata.json (for metadata object)
+├── $ref: workflow_metadata.json (for metadata object)
+└── $ref: workflow_contract.json (for the OPTIONAL workflow_contract section)
+                ├── $ref: task_io.json (for each task_io entry)
+                │       ├── TaskInputSpec / TaskOutputSpec / ArtifactDecl (inline definitions)
+                └── ValidationCheck (inline definition; enum of check ids + severity)
 ```
+
+## Wire Formats
+
+The IR's canonical wire format is **JSON** — used by the FastAPI server and
+by the auto-generated TypeScript client. A YAML alternative is also
+available and is the format PlanMode-materialized experiment workspaces
+write to `ir/workflow.yaml`. Round-trip is provided by
+`molexp.workflow.WorkflowCompiler`:
+
+| Method                                  | Direction                       |
+| --------------------------------------- | ------------------------------- |
+| `WorkflowCompiler.spec_to_ir(spec)`     | Workflow → JSON-shaped dict     |
+| `WorkflowCompiler.ir_to_spec(ir)`       | JSON-shaped dict → Workflow     |
+| `WorkflowCompiler.contract_to_dict(c)`  | WorkflowContract → dict         |
+| `WorkflowCompiler.dict_to_contract(d)`  | dict → WorkflowContract         |
+| `WorkflowCompiler.ir_to_yaml(ir)`       | dict → YAML text (`safe_dump`)  |
+| `WorkflowCompiler.yaml_to_ir(text)`     | YAML text → dict (`safe_load`)  |
+| `WorkflowCompiler.spec_to_yaml(spec)`   | Workflow → YAML text            |
+| `WorkflowCompiler.yaml_to_spec(text)`   | YAML text → Workflow            |
+
+YAML loading uses `yaml.safe_load` only — unsafe tags
+(`!!python/object/...`) raise `yaml.YAMLError` rather than constructing
+arbitrary Python objects.
 
 ## Usage
 
@@ -145,6 +185,35 @@ print('✓ Valid workflow')
 | `task_configs` | array[TaskConfig] | Yes | List of task configurations |
 | `links` | array[Link] | Yes | List of task dependencies |
 | `metadata` | WorkflowMetadata | Yes | Workflow metadata |
+| `workflow_contract` | WorkflowContract | No | Optional sidecar contract (see below) |
+
+### TaskIO
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `task_id` | string | Yes | Task this declaration applies to |
+| `inputs` | array[TaskInputSpec] | No | Declared inputs (default `[]`) |
+| `outputs` | array[TaskOutputSpec] | No | Declared outputs (default `[]`) |
+| `artifacts` | array[ArtifactDecl] | No | Declared on-disk artifacts (default `[]`) |
+
+### WorkflowContract
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `workflow_id` | string | Yes | Must match the wrapped workflow's `workflow_id` |
+| `task_io` | array[TaskIO] | No | Per-task I/O declarations (default `[]`) |
+| `validation_checks` | array[ValidationCheck] | No | Selected static checks; defaults to `default_validation_checks()` when empty |
+
+### ValidationCheck (id enum)
+
+| Id | Default severity | Spec-aware? | What it asserts |
+|----|------------------|-------------|------------------|
+| `no_orphan_tasks` | error | yes | Every spec task has a TaskIO entry; every TaskIO references a real spec task |
+| `unique_artifact_paths` | error | no | No duplicate artifact paths across tasks |
+| `acyclic_data_edges` | error | no | The `inputs[].source` dep graph is acyclic |
+| `every_input_has_source` | error | yes | Every input has a `source` (entry-task inputs exempt when spec is provided) |
+| `produced_by_resolves` | error | no | Every artifact's `produced_by` references a known `task_id` |
+| `outputs_match_downstream_inputs` | warning | no | Each input's `(source, name)` matches an upstream output |
 
 ## Status Values
 

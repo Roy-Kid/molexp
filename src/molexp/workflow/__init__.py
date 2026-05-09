@@ -1,18 +1,21 @@
 """Molexp workflow layer — public OOP API.
 
-Define a workflow as an instance of :class:`Workflow` and register tasks
-via its methods. Three equivalent styles share the same class:
+Define a workflow by instantiating :class:`WorkflowBuilder`, registering
+tasks via its methods, then calling :meth:`WorkflowBuilder.build` to
+produce the frozen, content-addressed :class:`Workflow`. Three equivalent
+styles share the builder class:
 
 1. **Decorator** (functions as tasks)::
 
-       wf = Workflow(name="pipeline")
+       wf_builder = WorkflowBuilder(name="pipeline")
 
 
-       @wf.task
+       @wf_builder.task
        async def fetch(ctx: TaskContext) -> FetchResult: ...
 
 
-       result = await wf.build().execute()
+       wf = wf_builder.build()
+       result = await wf.execute()
 
 2. **OOP** (subclass ``Task`` and ``.add()``)::
 
@@ -20,7 +23,7 @@ via its methods. Three equivalent styles share the same class:
            async def execute(self, ctx: TaskContext) -> FetchResult: ...
 
 
-       wf = Workflow(name="pipeline").add(FetchTask())
+       wf = WorkflowBuilder(name="pipeline").add(FetchTask()).build()
 
 3. **Protocol** (any object with ``async execute(ctx)``)::
 
@@ -28,7 +31,12 @@ via its methods. Three equivalent styles share the same class:
            async def execute(self, ctx) -> dict: ...
 
 
-       wf = Workflow(name="pipeline").add(ExternalProcessor())
+       wf = WorkflowBuilder(name="pipeline").add(ExternalProcessor()).build()
+
+Bind a built :class:`Workflow` to an experiment via
+``wf.bind_to(experiment)`` so that downstream code (CLI / server /
+cluster workers) can recover it via
+:meth:`Workflow.for_experiment(experiment) <Workflow.for_experiment>`.
 
 Layer position: **workflow uses workspace, agent uses both**. The
 graph algorithm (compiler, scheduler, IR round-trip) is workspace-
@@ -44,13 +52,6 @@ payloads coming *down* from the agent flow through duck-typed
 """
 
 from ._pydantic_graph.runtime import make_execution_id
-from .bindings import (
-    clear_workflow,
-    get_workflow,
-    has_workflow,
-    reset_bindings,
-    set_workflow,
-)
 from .cache import Caching
 from .cache_store import (
     WORKFLOW_CACHE_SUBSYSTEM_KIND,
@@ -63,6 +64,20 @@ from .compiler import (
     default_compiler,
 )
 from .context import ActorContext, TaskContext
+from .contract import (
+    ArtifactDecl,
+    Severity,
+    TaskInputSpec,
+    TaskIO,
+    TaskOutputSpec,
+    ValidationCheck,
+    ValidationCheckId,
+    ValidationIssue,
+    ValidationReport,
+    WorkflowContract,
+    default_validation_checks,
+    validate_workflow_contract,
+)
 from .promote import (
     promote_callable,
     resolve_callable_entrypoint,
@@ -72,7 +87,7 @@ from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .snapshot import TaskSnapshot
 from .snapshot_ref import WorkflowSnapshotRef
-from .spec import Workflow, WorkflowSpec
+from .spec import Workflow, WorkflowBuilder
 from .task import Actor, Task
 from .types import (
     BranchEdges,
@@ -102,6 +117,8 @@ from .version import (
 __all__ = [
     "Actor",
     "ActorContext",
+    # Sidecar contract layer (typed I/O + artifact decls + validation)
+    "ArtifactDecl",
     "BranchEdges",
     # Utilities
     "CacheStore",
@@ -119,11 +136,15 @@ __all__ = [
     "ParallelExecutionError",
     # Protocols (for third-party integration)
     "Runnable",
+    "Severity",
     "Streamable",
     # Convenience base classes
     "Task",
     # Contexts
     "TaskContext",
+    "TaskIO",
+    "TaskInputSpec",
+    "TaskOutputSpec",
     "TaskSnapshot",
     # Versioning
     "TaskTopologyEntry",
@@ -134,11 +155,17 @@ __all__ = [
     "UnknownRouteError",
     "UnknownTaskError",
     "UnreachableTaskError",
+    "ValidationCheck",
+    "ValidationCheckId",
+    "ValidationIssue",
+    "ValidationReport",
     # Workflow building (unified OOP API)
     "Workflow",
     # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec)
     "WorkflowCompiler",
     "WORKFLOW_CACHE_SUBSYSTEM_KIND",
+    # Sidecar contract wrapper
+    "WorkflowContract",
     "WorkflowDeadlockError",
     # Errors
     "WorkflowError",
@@ -147,21 +174,20 @@ __all__ = [
     "WorkflowResult",
     # Snapshot reference (on-disk shape stored in run.json)
     "WorkflowSnapshotRef",
-    "WorkflowSpec",
     "WorkflowVersion",
     "WorkflowVersionConflictError",
+    # Builder for the Workflow (decorator + OOP, calls .build() to freeze)
+    "WorkflowBuilder",
     "WorkspaceCacheStore",
-    # Process-local Experiment ↔ WorkflowSpec bindings
-    "clear_workflow",
     "default_compiler",
     "default_registry",
-    "get_workflow",
-    "has_workflow",
+    # Default validation check tuple (applied when contract.validation_checks is empty)
+    "default_validation_checks",
     "make_execution_id",
-    # Callable → WorkflowSpec promotion (worker re-import support)
+    # Callable → Workflow promotion (worker re-import support)
     "promote_callable",
-    "reset_bindings",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
-    "set_workflow",
+    # Static contract validation entry point
+    "validate_workflow_contract",
 ]

@@ -58,9 +58,9 @@ downstream layers:
   `SubsystemStore`. Sessions live under
   `<workspace_root>/.subsystems/agent.sessions/` via workspace's
   generic subsystem storage.
-- **workflow** — `Workflow`, `WorkflowSpec`, `Task`, `TaskContext`,
+- **workflow** — `Workflow`, `Workflow`, `Task`, `TaskContext`,
   `default_registry`, `Runnable`. PlanMode builds workflow specs and
-  runs them through the standard `WorkflowSpec.execute(run=run)` API.
+  runs them through the standard `Workflow.execute(run=run)` API.
 
 The agent does not import any sibling application layer
 (`plugins` / `server` / `cli` / `sweep`). The agent stays a library.

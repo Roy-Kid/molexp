@@ -25,7 +25,7 @@ from pathlib import Path
 
 import molexp as me
 from molexp.config import ProfileConfig
-from molexp.workflow import Task, TaskContext, Workflow
+from molexp.workflow import Task, TaskContext, Workflow, WorkflowBuilder
 
 
 @dataclass
@@ -58,18 +58,19 @@ class Record(Task):
         return value
 
 
-# Module-scope so ``Experiment.set_workflow`` can capture an entrypoint.
-spec = Workflow(name="counter").add(Seed()).add(Record(), depends_on=["seed"]).build()
+# Module-scope so ``set_workflow`` can capture an entrypoint stable
+# across CLI re-imports.
+spec = WorkflowBuilder(name="counter").add(Seed()).add(Record(), depends_on=["seed"]).build()
 
 
 async def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="molexp-ctx-"))
     ws = me.Workspace(root, name="ctx-demo")
-    project = ws.project("demo")
-    exp = project.experiment("counter")
-    exp.set_workflow(spec)
+    project = ws.Project("demo")
+    exp = project.Experiment("counter")
+    spec.bind_to(exp)
 
-    run = exp.run()
+    run = exp.Run()
     cfg = ProfileConfig({"scale": 10}, name="smoke")
     with run.start(profile_config=cfg) as ctx:
         result = await spec.execute(run_context=ctx, deps=Deps(prefix="step"))

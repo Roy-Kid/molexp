@@ -35,14 +35,14 @@ Each `Run` captures reproducibility metadata: an opaque `workflow_snapshot` payl
 
 ## Creating a Hierarchy
 
-The hierarchy is created from the top down, but not every step has identical identity rules. `ws.project(...)` and `project.experiment(...)` are get-or-create operations keyed by slug or explicit id, so repeated calls can load existing objects from disk. `exp.run(...)` is different: it creates a fresh run unless you provide an explicit `id`, in which case it becomes a get-or-load operation for that concrete run directory.
+The hierarchy is created from the top down, but not every step has identical identity rules. `ws.Project(...)` and `project.Experiment(...)` are get-or-create operations keyed by slug or explicit id, so repeated calls can load existing objects from disk. `exp.run(...)` is different: it creates a fresh run unless you provide an explicit `id`, in which case it becomes a get-or-load operation for that concrete run directory.
 
 ```python
 import molexp as me
 
 ws = me.Workspace("./lab")                                # lightweight object; no files yet
-project = ws.project("MD Simulations")                    # materializes workspace.json and project.json
-exp = project.experiment(
+project = ws.Project("MD Simulations")                    # materializes workspace.json and project.json
+exp = project.Experiment(
     "temperature-300K",
     params={"T": 300, "pressure": 1.0},
     n_replicas=3,
@@ -69,9 +69,9 @@ grid = GridSpace({"T": [300, 310, 320], "force_field": ["amber", "charmm"]})
 
 for params in grid:
     slug = f"T{params['T']}-{params['force_field']}"
-    exp = project.experiment(slug, params=params, n_replicas=3, workflow_source="md.py")
+    exp = project.Experiment(slug, params=params, n_replicas=3, workflow_source="md.py")
     for seed in exp.get_seeds():
-        run = exp.run(parameters={**params, "seed": seed})
+        run = exp.Run(parameters={**params, "seed": seed})
         await spec.execute(run=run)
 ```
 
@@ -82,15 +82,15 @@ for params in grid:
 Workspace does **not** track the experiment-to-workflow association. The `Experiment` is a parameter container; pairing it with a workflow happens at execution time in the caller's code:
 
 ```python
-from molexp.workflow import Workflow, promote_callable
+from molexp.workflow import Workflow, promote_callable, WorkflowBuilder
 
-# Build (or load) a WorkflowSpec however you like — workspace doesn't care.
-spec = Workflow(name="train").add(TrainTask()).build()
+# Build (or load) a Workflow however you like — workspace doesn't care.
+spec = WorkflowBuilder(name="train").add(TrainTask()).build()
 # or, for a bare fn(RunContext):
 spec = promote_callable(train_fn, name="train")
 
 # Workspace just provides the Run that the workflow executes within.
-run = exp.run(parameters={"lr": 1e-3})
+run = exp.Run(parameters={"lr": 1e-3})
 result = await spec.execute(run=run)
 ```
 

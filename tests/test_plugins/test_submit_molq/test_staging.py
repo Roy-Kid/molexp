@@ -62,9 +62,9 @@ def _make_run(tmp_path: Path):
     """Create a workspace + project + experiment + run hierarchy on disk."""
     ws = Workspace(tmp_path)
     ws.materialize()
-    project = ws.project("p")
-    experiment = project.experiment("e", params={})
-    run = experiment.run(parameters={"seed": 1})
+    project = ws.Project("p")
+    experiment = project.Experiment("e", params={})
+    run = experiment.Run(parameters={"seed": 1})
     return ws, run
 
 
@@ -92,7 +92,7 @@ def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
     # Force the no-op by using a fake target whose target_run_dir equals run_dir.
     from molexp.plugins.submit_molq import staging as staging_mod
 
-    monkey_target_run_dir = lambda *_a, **_kw: str(run.run_dir)  # noqa: E731
+    monkey_target_run_dir = lambda *_a, **_kw: str(run.run_dir)
     original = staging_mod.target_run_dir
     staging_mod.target_run_dir = monkey_target_run_dir  # type: ignore[assignment]
     try:

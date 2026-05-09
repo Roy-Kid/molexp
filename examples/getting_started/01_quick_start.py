@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
+from molexp.workflow import promote_callable, Workflow
 
 
 async def train(ctx: me.RunContext) -> None:
@@ -33,13 +34,14 @@ async def main() -> None:
     print(f"workspace root: {workspace_root}")
 
     ws = me.Workspace(workspace_root, name="quickstart")
-    project = ws.project("demo")
-    experiment = project.experiment("train", params={"lr": 1e-3})
-    experiment.set_workflow(train)
+    project = ws.Project("demo")
+    experiment = project.Experiment("train", params={"lr": 1e-3})
+    spec = promote_callable(train, name="train")
+    spec.bind_to(experiment)
 
-    run = experiment.run(parameters={"seed": 0})
+    run = experiment.Run(parameters={"seed": 0})
     with run.start() as ctx:
-        result = await experiment.workflow.execute(run_context=ctx)
+        result = await spec.execute(run_context=ctx)
 
     run_json = json.loads((run.run_dir / "run.json").read_text())
     print(f"status:     {result.status}")

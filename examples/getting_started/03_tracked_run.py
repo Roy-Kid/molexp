@@ -15,6 +15,7 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
+from molexp.workflow import promote_callable, Workflow
 
 
 async def experiment_body(ctx: me.RunContext) -> None:
@@ -28,13 +29,14 @@ async def main() -> None:
     print(f"workspace root: {root}\n")
 
     ws = me.Workspace(root, name="tracked-demo")
-    project = ws.project("demo")
-    exp = project.experiment("baseline", params={"lr": 1e-3})
-    exp.set_workflow(experiment_body)
+    project = ws.Project("demo")
+    exp = project.Experiment("baseline", params={"lr": 1e-3})
+    spec = promote_callable(experiment_body, name="experiment_body")
+    spec.bind_to(exp)
 
-    run = exp.run(parameters={"seed": 42})
+    run = exp.Run(parameters={"seed": 42})
     with run.start() as ctx:
-        await exp.workflow.execute(run_context=ctx)
+        await spec.execute(run_context=ctx)
 
     for path in sorted(root.rglob("*")):
         if path.is_file():

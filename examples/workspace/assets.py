@@ -23,6 +23,7 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
+from molexp.workflow import promote_callable, Workflow
 
 
 async def train(ctx: me.RunContext) -> None:
@@ -54,13 +55,14 @@ async def main() -> None:
     external.write_text("x,y\n1,2\n3,4\n")
     ws.data_assets.import_asset("toy-dataset", external)
 
-    project = ws.project("demo")
-    exp = project.experiment("train")
-    exp.set_workflow(train)
+    project = ws.Project("demo")
+    exp = project.Experiment("train")
+    spec = promote_callable(train, name="train")
+    spec.bind_to(exp)
 
-    run = exp.run()
+    run = exp.Run()
     with run.start() as ctx:
-        await exp.workflow.execute(run_context=ctx)
+        await spec.execute(run_context=ctx)
 
     # 6. Catalog queries — flat view over the whole workspace.
     catalog = ws.catalog

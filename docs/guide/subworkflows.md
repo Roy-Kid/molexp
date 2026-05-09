@@ -1,6 +1,6 @@
 # Workflow Composition
 
-There is **no dedicated `SubWorkflow` type** in MolExp. Composition is done by calling a `WorkflowSpec.execute(...)` from inside another task, or by sharing task classes / DSL fragments between multiple `WorkflowBuilder` instances. This page shows the three composition patterns the library currently supports.
+There is **no dedicated `SubWorkflow` type** in MolExp. Composition is done by calling a `Workflow.execute(...)` from inside another task, or by sharing task classes / DSL fragments between multiple `WorkflowBuilder` instances. This page shows the three composition patterns the library currently supports.
 
 ## Pattern 1: Call a sub-spec from a task
 
@@ -63,7 +63,7 @@ augmented = (
 )
 ```
 
-Each builder produces a distinct `WorkflowSpec` with its own `workflow_id`; the shared classes keep the code base DRY without introducing runtime coupling.
+Each builder produces a distinct `Workflow` with its own `workflow_id`; the shared classes keep the code base DRY without introducing runtime coupling.
 
 ## Pattern 3: Factor a builder helper
 

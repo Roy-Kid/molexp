@@ -69,12 +69,14 @@ def project_info(
     path: Annotated[Path | None, typer.Option("--path", "-p", help="Workspace path")] = None,
 ) -> None:
     """Show project information."""
-    ws = get_workspace(path)
-    project = ws.get_project(project_id)
+    from molexp.workspace import ProjectNotFoundError
 
-    if not project:
+    ws = get_workspace(path)
+    try:
+        project = ws.project(project_id)
+    except ProjectNotFoundError:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
     rprint(f"[bold]Project:[/bold] {project.id}")
     rprint(f"  Name: {project.name}")

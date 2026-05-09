@@ -73,8 +73,8 @@ def test_run_id_is_unaffected_by_fingerprint(run) -> None:
 
 
 def test_two_runs_with_same_inputs_have_same_fingerprint(experiment) -> None:
-    run_a = experiment.run(parameters={"lr": 1e-4})
-    run_b = experiment.run(parameters={"lr": 1e-4})
+    run_a = experiment.Run(parameters={"lr": 1e-4})
+    run_b = experiment.Run(parameters={"lr": 1e-4})
     # Same parameters + same workflow_snapshot + same environment ⇒ same fingerprint.
     assert run_a.fingerprint.fingerprint_id == run_b.fingerprint.fingerprint_id
     # But the UUIDs are independent.
@@ -84,6 +84,6 @@ def test_two_runs_with_same_inputs_have_same_fingerprint(experiment) -> None:
 def test_runs_with_different_parameters_have_different_fingerprints(
     experiment,
 ) -> None:
-    run_a = experiment.run(parameters={"lr": 1e-4})
-    run_b = experiment.run(parameters={"lr": 9e-3})
+    run_a = experiment.Run(parameters={"lr": 1e-4})
+    run_b = experiment.Run(parameters={"lr": 9e-3})
     assert run_a.fingerprint.fingerprint_id != run_b.fingerprint.fingerprint_id

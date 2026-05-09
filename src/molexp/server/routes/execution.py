@@ -9,9 +9,13 @@ from fastapi.responses import JSONResponse
 
 from molexp.workflow import (
     Caching,
-    WorkflowSpec,
-    has_workflow,
-    set_workflow,
+    Workflow,
+)
+from molexp.workspace import (
+    ExperimentNotFoundError as WorkspaceExperimentNotFoundError,
+)
+from molexp.workspace import (
+    ProjectNotFoundError as WorkspaceProjectNotFoundError,
 )
 
 from ..dependencies import get_workspace
@@ -32,23 +36,25 @@ def create_execution(
     workflow bound, compile and persist the IR before the run is
     materialized so worker processes can pick it up off disk.
     """
-    project = workspace.get_project(request.project_id)
-    if not project:
-        raise ProjectNotFoundError(request.project_id)
+    try:
+        project = workspace.project(request.project_id)
+    except WorkspaceProjectNotFoundError:
+        raise ProjectNotFoundError(request.project_id) from None
 
-    experiment = project.get_experiment(request.experiment_id)
-    if not experiment:
-        raise ExperimentNotFoundError(request.project_id, request.experiment_id)
+    try:
+        experiment = project.experiment(request.experiment_id)
+    except WorkspaceExperimentNotFoundError:
+        raise ExperimentNotFoundError(request.project_id, request.experiment_id) from None
 
-    if request.workflow_json is not None and not has_workflow(experiment):
+    if request.workflow_json is not None and Workflow.for_experiment(experiment) is None:
         # The IR is the durable artifact — compile it here so the bound
         # spec lives in the workflow-layer registry, and re-emit it as
         # opaque JSON so the worker can pick it up without re-running
         # the user script.
-        spec = WorkflowSpec.from_dict(request.workflow_json)
-        set_workflow(experiment, spec)
+        spec = Workflow.from_dict(request.workflow_json)
+        spec.bind_to(experiment)
 
-    new_run = experiment.run(parameters=request.parameters)
+    new_run = experiment.Run(parameters=request.parameters)
     return RunResponse.from_model(new_run)
 
 

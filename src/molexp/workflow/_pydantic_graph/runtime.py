@@ -30,7 +30,7 @@ from .persistence import RunStorePersistence
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
-    from ..spec import WorkflowSpec
+    from ..spec import Workflow
 
 logger = get_logger(__name__)
 
@@ -131,7 +131,7 @@ class GraphWorkflowRuntime:
     def __init__(self) -> None:
         self._compiled: dict[str, CompiledWorkflow] = {}
 
-    def _get_compiled(self, spec: WorkflowSpec) -> CompiledWorkflow:
+    def _get_compiled(self, spec: Workflow) -> CompiledWorkflow:
         wf_id = spec.workflow_id
         if wf_id not in self._compiled:
             self._compiled[wf_id] = _compiler.compile(spec)
@@ -172,7 +172,7 @@ class GraphWorkflowRuntime:
 
     async def execute(
         self,
-        spec: WorkflowSpec,
+        spec: Workflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
@@ -254,7 +254,7 @@ class GraphWorkflowRuntime:
 
     async def start(
         self,
-        spec: WorkflowSpec,
+        spec: Workflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
@@ -310,7 +310,7 @@ class GraphWorkflowRuntime:
 
     async def resume(
         self,
-        spec: WorkflowSpec,
+        spec: Workflow,
         *,
         run_dir: str | Path,
         execution_id: str,
@@ -383,7 +383,7 @@ class GraphWorkflowRuntime:
 
     def iter(
         self,
-        spec: WorkflowSpec,
+        spec: Workflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
@@ -407,7 +407,7 @@ class GraphWorkflowRuntime:
 
     def stream(
         self,
-        spec: WorkflowSpec,
+        spec: Workflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,

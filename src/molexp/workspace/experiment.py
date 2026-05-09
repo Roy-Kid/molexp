@@ -204,7 +204,7 @@ class Experiment:
 
     # ── Run operations ──────────────────────────────────────────────────
 
-    def run(
+    def Run(
         self,
         parameters: dict[str, JSONValue] | None = None,
         *,
@@ -212,7 +212,7 @@ class Experiment:
         target: str | None = None,
         workflow_snapshot: dict[str, JSONValue] | None = None,
     ) -> Run:
-        """Get-or-create a run (idempotent, materialized immediately).
+        """Idempotent constructor — return existing run if found, else create.
 
         If a run with the same ID already exists on disk, load and
         return it. Otherwise, construct + materialize a new Run.
@@ -223,6 +223,9 @@ class Experiment:
         workspace doesn't know that type. Callers that want to record
         workflow provenance pass the snapshot's ``model_dump(mode="json")``
         directly; everyone else passes ``None`` (the default).
+
+        For "must be new" semantics, use :meth:`create_run`. For
+        "must already exist", use :meth:`run`.
         """
         r = Run(
             experiment=self,
@@ -238,11 +241,38 @@ class Experiment:
         self._refresh_runs_index()
         return r
 
-    def get_run(self, run_id: str) -> Run | None:
-        """Get run by ID."""
+    def create_run(
+        self,
+        parameters: dict[str, JSONValue] | None = None,
+        *,
+        id: str | None = None,
+        target: str | None = None,
+        workflow_snapshot: dict[str, JSONValue] | None = None,
+    ) -> Run:
+        """Strict constructor — raise :class:`RunExistsError` if exists."""
+        from .errors import RunExistsError
+
+        r = Run(
+            experiment=self,
+            parameters=parameters,
+            id=id,
+            workflow_snapshot=workflow_snapshot,
+            target=target if target is not None else self.metadata.default_target,
+        )
+        run_dir = self.experiment_dir / "runs" / f"run-{r.id}"
+        if run_dir.exists():
+            raise RunExistsError(r.id)
+        r.materialize()
+        self._refresh_runs_index()
+        return r
+
+    def run(self, run_id: str) -> Run:
+        """Strict getter — raise :class:`RunNotFoundError` if absent."""
+        from .errors import RunNotFoundError
+
         run_dir = self.experiment_dir / "runs" / f"run-{run_id}"
         if not run_dir.exists():
-            return None
+            raise RunNotFoundError(run_id)
         return self._load_run_from_dir(run_dir)
 
     def list_runs(self) -> list[Run]:

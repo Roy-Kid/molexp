@@ -9,7 +9,32 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from .exceptions import MolExpError
+from molexp.workspace.errors import (
+    ExperimentExistsError as WorkspaceExperimentExistsError,
+)
+from molexp.workspace.errors import (
+    ExperimentNotFoundError as WorkspaceExperimentNotFoundError,
+)
+from molexp.workspace.errors import (
+    ProjectExistsError as WorkspaceProjectExistsError,
+)
+from molexp.workspace.errors import (
+    ProjectNotFoundError as WorkspaceProjectNotFoundError,
+)
+from molexp.workspace.errors import (
+    RunExistsError as WorkspaceRunExistsError,
+)
+from molexp.workspace.errors import (
+    RunNotFoundError as WorkspaceRunNotFoundError,
+)
+
+from .exceptions import (
+    DuplicateResourceError,
+    ExperimentNotFoundError,
+    MolExpError,
+    ProjectNotFoundError,
+    RunNotFoundError,
+)
 
 
 def register_exception_handlers(app: FastAPI) -> None:
@@ -51,4 +76,65 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "message": str(exc),
                 }
             },
+        )
+
+    # ── Workspace-layer error → HTTP 404 / 409 ────────────────────────────
+    #
+    # The workspace layer raises typed entity errors at the storage
+    # boundary; the server layer maps them onto its existing
+    # ``NotFoundError`` / ``DuplicateResourceError`` HTTP envelopes so
+    # routes can simply re-raise without per-route try/except.
+
+    @app.exception_handler(WorkspaceProjectNotFoundError)
+    async def workspace_project_not_found_handler(
+        request: Request, exc: WorkspaceProjectNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content=ProjectNotFoundError(exc.entity_id).to_dict(),
+        )
+
+    @app.exception_handler(WorkspaceExperimentNotFoundError)
+    async def workspace_experiment_not_found_handler(
+        request: Request, exc: WorkspaceExperimentNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content=ExperimentNotFoundError(exc.entity_id).to_dict(),
+        )
+
+    @app.exception_handler(WorkspaceRunNotFoundError)
+    async def workspace_run_not_found_handler(
+        request: Request, exc: WorkspaceRunNotFoundError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=404,
+            content=RunNotFoundError(exc.entity_id).to_dict(),
+        )
+
+    @app.exception_handler(WorkspaceProjectExistsError)
+    async def workspace_project_exists_handler(
+        request: Request, exc: WorkspaceProjectExistsError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=DuplicateResourceError("Project", exc.entity_id).to_dict(),
+        )
+
+    @app.exception_handler(WorkspaceExperimentExistsError)
+    async def workspace_experiment_exists_handler(
+        request: Request, exc: WorkspaceExperimentExistsError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=DuplicateResourceError("Experiment", exc.entity_id).to_dict(),
+        )
+
+    @app.exception_handler(WorkspaceRunExistsError)
+    async def workspace_run_exists_handler(
+        request: Request, exc: WorkspaceRunExistsError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=409,
+            content=DuplicateResourceError("Run", exc.entity_id).to_dict(),
         )

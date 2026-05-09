@@ -2,6 +2,8 @@
 
 import json
 
+import pytest
+
 from molexp.workspace import Workspace
 
 
@@ -17,7 +19,7 @@ class TestWorkspace:
 
     def test_child_factory_auto_materializes(self, tmp_path):
         ws = Workspace(root=tmp_path, name="Lab")
-        ws.project("first")
+        ws.Project("first")
         assert (tmp_path / "workspace.json").exists()
 
     def test_load_preserves_metadata(self, workspace):
@@ -40,24 +42,22 @@ class TestWorkspace:
 
 class TestProject:
     def test_creation(self, workspace):
-        proj = workspace.project("QM9")
+        proj = workspace.Project("QM9")
         assert proj.id == "qm9"
         assert proj.name == "QM9"
 
     def test_get_by_id(self, workspace, project):
-        found = workspace.get_project(project.id)
-        assert found is not None
+        found = workspace.project(project.id)
         assert found.id == project.id
 
     def test_get_by_name_slugified(self, workspace):
-        workspace.project("My Project")
-        found = workspace.get_project("My Project")
-        assert found is not None
+        workspace.Project("My Project")
+        found = workspace.project("My Project")
         assert found.id == "my-project"
 
     def test_list_projects(self, workspace):
-        workspace.project("a")
-        workspace.project("b")
+        workspace.Project("a")
+        workspace.Project("b")
         assert len(workspace.list_projects()) == 2
 
     def test_registered_projects_excludes_orphan_dirs(self, tmp_path):
@@ -69,7 +69,7 @@ class TestProject:
             '"tags":[],"config":{},"created_at":"2026-04-21T12:00:00"}'
         )
         ws = Workspace(tmp_path)
-        ws.project("registered")
+        ws.Project("registered")
         # list_projects (Intent A / UI) sees both.
         assert {p.id for p in ws.list_projects()} == {"orphan", "registered"}
         # registered_projects (Intent B / run) sees only what the caller
@@ -77,14 +77,17 @@ class TestProject:
         assert [p.id for p in ws.registered_projects()] == ["registered"]
 
     def test_delete(self, workspace, project):
+        from molexp.workspace import ProjectNotFoundError
+
         workspace.delete_project(project.id)
         # clear cache after delete (otherwise in-memory stays)
         workspace._projects_cache.pop(project.id, None)
-        assert workspace.get_project(project.id) is None
+        with pytest.raises(ProjectNotFoundError):
+            workspace.project(project.id)
 
     def test_idempotent_returns_same_instance(self, workspace):
-        p1 = workspace.project("dup")
-        p2 = workspace.project("dup")
+        p1 = workspace.Project("dup")
+        p2 = workspace.Project("dup")
         assert p1 is p2
 
     def test_metadata_has_no_child_lists(self, project):
@@ -95,7 +98,7 @@ class TestProject:
 
 class TestExperiment:
     def test_creation_with_workflow(self, project):
-        exp = project.experiment(
+        exp = project.Experiment(
             "baseline",
             workflow_source="train.py",
             params={"lr": 1e-4},
@@ -110,12 +113,12 @@ class TestExperiment:
         assert experiment.workspace is experiment.project.workspace
 
     def test_list_experiments(self, project):
-        project.experiment("a")
-        project.experiment("b")
+        project.Experiment("a")
+        project.Experiment("b")
         assert len(project.list_experiments()) == 2
 
     def test_registered_experiments_excludes_orphan_dirs(self, workspace):
-        project = workspace.project("p")
+        project = workspace.Project("p")
         # Orphan experiment dir left by a prior script.
         orphan = project.project_dir / "experiments" / "orphan"
         orphan.mkdir(parents=True)
@@ -125,24 +128,23 @@ class TestExperiment:
             '"workflow_type":null,"git_commit":null,"description":"",'
             '"tags":[],"created_at":"2026-04-21T12:00:00"}'
         )
-        project.experiment("kept")
+        project.Experiment("kept")
         assert {e.id for e in project.list_experiments()} == {"orphan", "kept"}
         assert [e.id for e in project.registered_experiments()] == ["kept"]
 
     def test_get_experiment(self, project, experiment):
-        found = project.get_experiment(experiment.id)
-        assert found is not None
+        found = project.experiment(experiment.id)
         assert found.name == experiment.name
 
     def test_idempotent(self, project):
-        e1 = project.experiment("same")
-        e2 = project.experiment("same")
+        e1 = project.Experiment("same")
+        e2 = project.Experiment("same")
         assert e1 is e2
 
 
 class TestRun:
     def test_creation(self, experiment):
-        run = experiment.run(parameters={"x": 1})
+        run = experiment.Run(parameters={"x": 1})
         assert run.parameters == {"x": 1}
         assert run.status == "pending"
 
@@ -150,23 +152,23 @@ class TestRun:
         # workspace no longer auto-captures workflow-snapshot data —
         # the caller (workflow / agent layer) supplies an opaque dict
         # at run-creation time.
-        run = experiment.run(workflow_snapshot={"source": "train.py", "git_commit": "abc123"})
+        run = experiment.Run(workflow_snapshot={"source": "train.py", "git_commit": "abc123"})
         snap = run.metadata.workflow_snapshot
         assert snap is not None
         assert snap["source"] == "train.py"
         assert snap["git_commit"] == "abc123"
 
     def test_list_runs(self, experiment):
-        experiment.run(parameters={"x": 1})
-        experiment.run(parameters={"x": 2})
+        experiment.Run(parameters={"x": 1})
+        experiment.Run(parameters={"x": 2})
         assert len(experiment.list_runs()) == 2
 
     def test_reload_from_disk(self, experiment):
-        run = experiment.run(
+        run = experiment.Run(
             parameters={"x": 42},
             workflow_snapshot={"source": "train.py"},
         )
-        reloaded = experiment.get_run(run.id)
+        reloaded = experiment.run(run.id)
         assert reloaded.parameters == {"x": 42}
         assert reloaded.metadata.workflow_snapshot is not None
         assert reloaded.metadata.workflow_snapshot["source"] == "train.py"

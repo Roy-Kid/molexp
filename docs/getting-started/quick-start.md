@@ -7,9 +7,9 @@ The fastest way to understand MolExp is to see one small script move through the
 ```python
 import asyncio
 import molexp as me
-from molexp.workflow import TaskContext, workflow
+from molexp.workflow import TaskContext, Workflow, Workflow, WorkflowBuilder
 
-wf = workflow(name="demo")
+wf = WorkflowBuilder(name="demo")
 
 
 @wf.task
@@ -29,19 +29,19 @@ async def summarize(ctx: TaskContext) -> float:
 spec = wf.build()
 
 ws = me.Workspace("./lab")
-project = ws.project("demo")
-exp = project.experiment(
+project = ws.Project("demo")
+exp = project.Experiment(
     "sum",
     params={"scale": 1.0},
     workflow_source="train.py",
 )
-exp.set_workflow(spec)
+spec.bind_to(exp)
 
 me.entry(ws)
 
 
 async def main() -> None:
-    run = exp.run(parameters={"scale": 1.0}, id="sum-default")
+    run = exp.Run(parameters={"scale": 1.0}, id="sum-default")
     result = await spec.execute(run=run)
     print(result.outputs)
 

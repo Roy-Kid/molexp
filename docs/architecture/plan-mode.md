@@ -106,7 +106,7 @@ Full replanning is an explicit fallback, not the default revision behavior.
 ## Handoff
 
 Plan mode ends at an approved handoff bundle. It must not call
-`WorkflowSpec.execute()` directly.
+`Workflow.execute()` directly.
 
 The runner receives the handoff bundle and owns dispatch, monitoring, resume,
 logging, failure tracking, backend execution, and artifact collection.

@@ -27,7 +27,7 @@ The important thing here is not the arithmetic. It is the dependency line. `scal
 
 ## Compiling the Graph
 
-Once the tasks have been declared, `wf.build()` turns the definition into a `WorkflowSpec`:
+Once the tasks have been declared, `wf.build()` turns the definition into a `Workflow`:
 
 ```python
 spec = wf.build()

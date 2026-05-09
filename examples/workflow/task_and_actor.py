@@ -22,12 +22,12 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, Workflow
+from molexp.workflow import Task, TaskContext, Workflow, WorkflowBuilder
 
 
 # ── 1. Decorator style ─────────────────────────────────────────────────────
 async def functional_demo() -> None:
-    wf = Workflow(name="functional")
+    wf = WorkflowBuilder(name="functional")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:
@@ -53,7 +53,7 @@ class Sum(Task):
 
 
 async def oop_demo() -> None:
-    spec = Workflow(name="oop").add(Load()).add(Sum(), depends_on=["load"]).build()
+    spec = WorkflowBuilder(name="oop").add(Load()).add(Sum(), depends_on=["load"]).build()
     result = await spec.execute()
     print(f"oop:        {result.outputs}")
 
@@ -68,7 +68,7 @@ class ExternalDoubler:
 
 async def protocol_demo() -> None:
     spec = (
-        Workflow(name="external")
+        WorkflowBuilder(name="external")
         .add(Load())
         .add(ExternalDoubler(), name="double", depends_on=["load"])
         .build()

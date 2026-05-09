@@ -1,6 +1,6 @@
 # Workflow Runtime
 
-The workflow runtime is the execution backend behind `WorkflowSpec`. In ordinary usage you do not instantiate it yourself. You call `spec.execute(...)` or `spec.start(...)`, and MolExp creates the default runtime lazily when it is needed.
+The workflow runtime is the execution backend behind `Workflow`. In ordinary usage you do not instantiate it yourself. You call `spec.execute(...)` or `spec.start(...)`, and MolExp creates the default runtime lazily when it is needed.
 
 ```python
 await spec.execute(run=run)

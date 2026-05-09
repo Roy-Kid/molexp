@@ -54,7 +54,7 @@ At runtime, the compiler treats a `Task` subclass and a third-party `Runnable` o
 
 Workflows are **authored in Python and re-imported on each execution** — there is no JSON IR or on-disk workflow schema. Identity is captured at two levels:
 
-- `WorkflowSpec.workflow_id` — deterministic topology hash (`name + task dependencies`).
+- `Workflow.workflow_id` — deterministic topology hash (`name + task dependencies`).
 - `TaskSnapshot` — per-task AST-normalized code hash + config hash.
 
-Use `WorkflowSnapshotRef(source="train.py", git_commit="...")` (stored on `Experiment`) plus `config_hash` on `RunMetadata` to trace which code and config produced a run. The full replay path is: re-import `source`, rebuild the `WorkflowSpec`, activate the same molcfg profile.
+Use `WorkflowSnapshotRef(source="train.py", git_commit="...")` (stored on `Experiment`) plus `config_hash` on `RunMetadata` to trace which code and config produced a run. The full replay path is: re-import `source`, rebuild the `Workflow`, activate the same molcfg profile.

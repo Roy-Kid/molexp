@@ -12,7 +12,7 @@ import typer
 from molexp._typing import JSONValue
 from molexp.config import MolCfg, ProfileConfig, load_molcfg
 from molexp.config.loader import find_default_config
-from molexp.workflow import get_workflow
+from molexp.workflow import Workflow
 
 from . import app
 from ._common import (
@@ -218,10 +218,10 @@ def _dispatch_runs(
 
         for project in ws.registered_projects():
             for exp in project.registered_experiments():
-                if get_workflow(exp) is None:
+                if Workflow.for_experiment(exp) is None:
                     rprint(
                         f"[red]Error:[/red] Experiment {exp.name!r} has no workflow. "
-                        "Call molexp.set_workflow(experiment, spec) before me.entry()."
+                        "Call workflow.bind_to(experiment) before me.entry()."
                     )
                     raise typer.Exit(1)
 
@@ -252,7 +252,12 @@ def _dispatch_runs(
                         id_seed["_config_hash"] = profile_cfg.content_hash()
                     run_id = deterministic_run_id(id_seed)
 
-                    existing = exp.get_run(run_id)
+                    from molexp.workspace import RunNotFoundError as _RunNotFound
+
+                    try:
+                        existing = exp.run(run_id)
+                    except _RunNotFound:
+                        existing = None
                     if existing is not None and existing.status == "running":
                         if reap_zombie_run(existing):
                             rprint(
@@ -287,7 +292,7 @@ def _dispatch_runs(
                             continue
                         mol_run = existing
                     else:
-                        mol_run = exp.run(parameters=run_params, id=run_id)
+                        mol_run = exp.Run(parameters=run_params, id=run_id)
 
                     created_runs.append((mol_run, seed))
                     icon = "[cyan]>[/cyan]" if resume else "[dim]o[/dim]"
@@ -351,7 +356,7 @@ def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
     Used by ``molexp run --local`` so the workflow runs in the parent
     Python process. Each replica opens its own :class:`RunContext` (with
     the active profile config so ``run.metadata.profile`` is preserved)
-    and awaits :meth:`WorkflowSpec.execute`; failures bubble up as
+    and awaits :meth:`Workflow.execute`; failures bubble up as
     exceptions and are caught by the dispatcher.
     """
     import asyncio
@@ -359,7 +364,7 @@ def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
     from molexp.workspace.run import RunContext
 
     def _handler(_script: Path, mol_run: Run, experiment: Experiment, _project: Project) -> None:
-        spec = get_workflow(experiment)
+        spec = Workflow.for_experiment(experiment)
         if spec is None:
             raise RuntimeError(f"Experiment {experiment.name!r} has no workflow attached.")
         with RunContext(mol_run, profile_config=profile_cfg) as ctx:
@@ -673,8 +678,8 @@ def execute(
     import os
 
     from molexp.entry import load_workflow_from_entrypoint
-    from molexp.workflow.spec import WorkflowSpec
-    from molexp.workspace.experiment import _promote_to_workflow
+    from molexp.workflow.promote import promote_callable
+    from molexp.workflow.spec import Workflow as _Workflow
     from molexp.workspace.run import RunContext
 
     ctx = RunContext.open(run_dir)
@@ -715,14 +720,14 @@ def execute(
     finally:
         os.chdir(saved_cwd)
 
-    if isinstance(target, WorkflowSpec):
+    if isinstance(target, _Workflow):
         workflow = target
     elif callable(target):
-        workflow = _promote_to_workflow(target, run.experiment.name)
+        workflow = promote_callable(target, name=run.experiment.name)
     else:
         rprint(
             f"[red]Error:[/red] entrypoint {snapshot.entrypoint!r} resolved to "
-            f"{type(target).__name__}, expected WorkflowSpec or callable."
+            f"{type(target).__name__}, expected Workflow or callable."
         )
         raise typer.Exit(1)
 

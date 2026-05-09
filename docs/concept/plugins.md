@@ -12,7 +12,7 @@ Two optional integrations ship with the repository today. `submit_molq` is the s
 
 ## Scheduler Transport Is Not a Second Runtime
 
-The most important example is `submit_molq`, because it can easily look larger than it really is. The plugin does not define task semantics, replace `WorkflowSpec`, or invent a second persistence model. Its job is narrower. It translates CLI scheduling flags into a job submission, launches `python -m molexp.cli execute <run_dir>` on the target scheduler, and writes normalized executor metadata back onto the run record.
+The most important example is `submit_molq`, because it can easily look larger than it really is. The plugin does not define task semantics, replace `Workflow`, or invent a second persistence model. Its job is narrower. It translates CLI scheduling flags into a job submission, launches `python -m molexp.cli execute <run_dir>` on the target scheduler, and writes normalized executor metadata back onto the run record.
 
 That design is why local and remote execution remain conceptually aligned. The workflow is still the same workflow. The workspace record is still the same workspace record. Only the transport layer changes.
 

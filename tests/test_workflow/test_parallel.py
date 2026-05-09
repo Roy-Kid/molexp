@@ -21,7 +21,7 @@ import asyncio
 
 import pytest
 
-from molexp.workflow import Workflow
+from molexp.workflow import WorkflowBuilder
 from molexp.workflow.types import Next
 
 # ── T1 / ac-002, ac-003: encapsulation invariants ───────────────────────────
@@ -46,7 +46,7 @@ def test_no_per_element_node_growth() -> None:
     """
     from molexp.workflow._pydantic_graph.compiler import WorkflowGraphCompiler
 
-    wf = Workflow(name="no-per-elem-growth", entry="enumerate")
+    wf = WorkflowBuilder(name="no-per-elem-growth", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -76,7 +76,7 @@ def test_no_per_element_node_growth() -> None:
 @pytest.mark.asyncio
 async def test_parallel_happy_path() -> None:
     """ac-004 — squarer + summer pipeline; ordered list and reduced sum."""
-    wf = Workflow(name="parallel-happy", entry="enumerate")
+    wf = WorkflowBuilder(name="parallel-happy", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -105,7 +105,7 @@ async def test_parallel_preserves_iteration_order() -> None:
     Element 0 sleeps the longest; the recorded list MUST still be in
     iteration order, not completion order.
     """
-    wf = Workflow(name="parallel-order", entry="enumerate")
+    wf = WorkflowBuilder(name="parallel-order", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[float]:
@@ -145,7 +145,7 @@ async def test_max_concurrency_throttle() -> None:
     observed_max = 0
     lock = asyncio.Lock()
 
-    wf = Workflow(name="parallel-throttle", entry="enumerate")
+    wf = WorkflowBuilder(name="parallel-throttle", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -181,11 +181,11 @@ async def test_parallel_failure_capture() -> None:
     """ac-006 — element 1 raises; siblings finish; ``ParallelExecutionError``
     surfaces with ``failures[1]`` populated.
     """
-    from molexp.workflow import ParallelExecutionError
+    from molexp.workflow import ParallelExecutionError, WorkflowBuilder
 
     sibling_completions: list[int] = []
 
-    wf = Workflow(name="parallel-failure", entry="enumerate")
+    wf = WorkflowBuilder(name="parallel-failure", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -224,7 +224,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
     workspace-backed run; in lieu of that, we re-execute and assert the
     outputs[body] length, which is the observable consequence.
     """
-    wf = Workflow(name="parallel-count", entry="enumerate")
+    wf = WorkflowBuilder(name="parallel-count", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -251,7 +251,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
 
 def test_validation_max_concurrency_zero_rejected() -> None:
     """ac-007 — ``max_concurrency=0`` is a programming error, eager-rejected."""
-    wf = Workflow(name="bad-concurrency", entry="seed")
+    wf = WorkflowBuilder(name="bad-concurrency", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -271,9 +271,9 @@ def test_validation_max_concurrency_zero_rejected() -> None:
 
 def test_validation_unregistered_map_over_rejected() -> None:
     """ac-007 — unregistered ``map_over`` task name → ``UnknownTaskError``."""
-    from molexp.workflow import UnknownTaskError
+    from molexp.workflow import UnknownTaskError, WorkflowBuilder
 
-    wf = Workflow(name="bad-map-over", entry="body")
+    wf = WorkflowBuilder(name="bad-map-over", entry="body")
 
     @wf.task
     async def body(ctx) -> int:
@@ -292,9 +292,9 @@ def test_validation_unregistered_map_over_rejected() -> None:
 
 def test_validation_unregistered_body_rejected() -> None:
     """ac-007 — unregistered ``body`` task name → ``UnknownTaskError``."""
-    from molexp.workflow import UnknownTaskError
+    from molexp.workflow import UnknownTaskError, WorkflowBuilder
 
-    wf = Workflow(name="bad-body", entry="seed")
+    wf = WorkflowBuilder(name="bad-body", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -313,9 +313,9 @@ def test_validation_unregistered_body_rejected() -> None:
 
 def test_validation_unregistered_join_rejected() -> None:
     """ac-007 — unregistered ``join`` task name → ``UnknownTaskError``."""
-    from molexp.workflow import UnknownTaskError
+    from molexp.workflow import UnknownTaskError, WorkflowBuilder
 
-    wf = Workflow(name="bad-join", entry="seed")
+    wf = WorkflowBuilder(name="bad-join", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -334,9 +334,9 @@ def test_validation_unregistered_join_rejected() -> None:
 
 def test_validation_parallel_of_parallel_rejected() -> None:
     """ac-007 — same ``body`` shared across two parallel decls → ``EdgeShapeError``."""
-    from molexp.workflow import EdgeShapeError
+    from molexp.workflow import EdgeShapeError, WorkflowBuilder
 
-    wf = Workflow(name="parallel-of-parallel", entry="seed")
+    wf = WorkflowBuilder(name="parallel-of-parallel", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -364,9 +364,9 @@ def test_validation_parallel_of_parallel_rejected() -> None:
 
 def test_validation_loop_until_eq_parallel_body_rejected() -> None:
     """ac-007 — using a loop ``until`` task as a parallel ``body`` → ``EdgeShapeError``."""
-    from molexp.workflow import EdgeShapeError
+    from molexp.workflow import EdgeShapeError, WorkflowBuilder
 
-    wf = Workflow(name="loop-parallel-collision", entry="seed")
+    wf = WorkflowBuilder(name="loop-parallel-collision", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -392,9 +392,9 @@ def test_validation_body_extra_depends_on_rejected() -> None:
     """ac-007 — body declared with extra ``depends_on`` than ``[map_over]`` →
     ``EdgeShapeError`` (parallel owns the wiring per D6).
     """
-    from molexp.workflow import EdgeShapeError
+    from molexp.workflow import EdgeShapeError, WorkflowBuilder
 
-    wf = Workflow(name="body-extra-deps", entry="seed")
+    wf = WorkflowBuilder(name="body-extra-deps", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:

@@ -8,11 +8,12 @@ Once a workflow script can create a workspace and bind one or more experiments, 
 
 ```python
 import molexp as me
+from molexp.workflow import Workflow
 
 ws = me.Workspace("./lab")
-project = ws.project("demo")
-exp = project.experiment("sum", params={"scale": 1.0}, workflow_source="train.py")
-exp.set_workflow(spec)
+project = ws.Project("demo")
+exp = project.Experiment("sum", params={"scale": 1.0}, workflow_source="train.py")
+spec.bind_to(exp)
 
 me.entry(ws)
 ```

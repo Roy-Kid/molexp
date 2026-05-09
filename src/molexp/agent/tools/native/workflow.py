@@ -25,10 +25,8 @@ from molexp.agent.tools.native._templates import TEMPLATES, list_templates
 from molexp.agent.tools.registry import native_tool
 from molexp.agent.tools.spec import ToolContext, ToolResult, ToolSpec
 from molexp.workflow import (
-    get_workflow,
-    has_workflow,
+    Workflow,
     promote_callable,
-    set_workflow,
 )
 
 if TYPE_CHECKING:
@@ -189,9 +187,12 @@ async def wait_for_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, project_id, experiment_id)
     if failure is not None or experiment is None:
         return failure or err("experiment lookup failed")
+    from molexp.workspace import RunNotFoundError as _RunNotFound
+
     while True:
-        run = experiment.get_run(run_id)
-        if run is None:
+        try:
+            run = experiment.run(run_id)
+        except _RunNotFound:
             return err(f"Run '{run_id}' not found")
         payload = _status_payload(run)
         status_raw = payload["status"]
@@ -235,10 +236,13 @@ async def retry_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, project_id, experiment_id)
     if failure is not None or experiment is None:
         return failure or err("experiment lookup failed")
-    run = experiment.get_run(run_id)
-    if run is None:
+    from molexp.workspace import RunNotFoundError as _RunNotFound
+
+    try:
+        run = experiment.run(run_id)
+    except _RunNotFound:
         return err(f"Run '{run_id}' not found")
-    new_run = experiment.run(parameters=dict(run.parameters or {}))
+    new_run = experiment.Run(parameters=dict(run.parameters or {}))
     return ok(
         {
             "source_run_id": run.id,
@@ -333,13 +337,13 @@ async def create_experiment(args: JSONMapping, ctx: ToolContext) -> ToolResult:
         return failure or err("project lookup failed")
     template_raw = args.get("template")
     if template_raw is None:
-        experiment = project.experiment(name)
+        experiment = project.Experiment(name)
         return ok(
             {
                 "experiment_id": experiment.id,
                 "name": experiment.name,
                 "workflow_template": None,
-                "has_workflow": has_workflow(experiment),
+                "has_workflow": Workflow.for_experiment(experiment) is not None,
             }
         )
     if not isinstance(template_raw, str):
@@ -348,9 +352,9 @@ async def create_experiment(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     if template not in TEMPLATES:
         return err(f"Unknown workflow template '{template}'. Available: {sorted(TEMPLATES)}")
     fn, description, expected_params = TEMPLATES[template]
-    experiment = project.experiment(name)
-    if not has_workflow(experiment):
-        set_workflow(experiment, promote_callable(fn, name=experiment.name))
+    experiment = project.Experiment(name)
+    if Workflow.for_experiment(experiment) is None:
+        promote_callable(fn, name=experiment.name).bind_to(experiment)
     return ok(
         {
             "experiment_id": experiment.id,
@@ -409,7 +413,7 @@ async def set_workflow_from_ir(args: JSONMapping, ctx: ToolContext) -> ToolResul
     experiment, failure = get_experiment(ctx, project_id, experiment_id)
     if failure is not None or experiment is None:
         return failure or err("experiment lookup failed")
-    if has_workflow(experiment):
+    if Workflow.for_experiment(experiment) is not None:
         return err(
             f"Experiment '{experiment_id}' already has a workflow bound. "
             "Delete the experiment to rebind."
@@ -419,12 +423,10 @@ async def set_workflow_from_ir(args: JSONMapping, ctx: ToolContext) -> ToolResul
         return err(f"workflow_json must be a JSON object; got {type(workflow_json_raw).__name__}")
     workflow_json = workflow_json_raw
     try:
-        from molexp.workflow import WorkflowSpec
-
-        spec = WorkflowSpec.from_dict(workflow_json)
+        spec = Workflow.from_dict(workflow_json)
     except (KeyError, ValueError) as exc:
         return err(f"Invalid workflow IR: {exc}")
-    set_workflow(experiment, spec)
+    spec.bind_to(experiment)
     task_configs = workflow_json.get("task_configs")
     task_count = len(task_configs) if isinstance(task_configs, list) else 0
     return ok(
@@ -466,10 +468,13 @@ async def execute_run(args: JSONMapping, ctx: ToolContext) -> ToolResult:
     experiment, failure = get_experiment(ctx, project_id, experiment_id)
     if failure is not None or experiment is None:
         return failure or err("experiment lookup failed")
-    run = experiment.get_run(run_id)
-    if run is None:
+    from molexp.workspace import RunNotFoundError as _RunNotFound
+
+    try:
+        run = experiment.run(run_id)
+    except _RunNotFound:
         return err(f"Run '{run_id}' not found")
-    workflow = get_workflow(experiment)
+    workflow = Workflow.for_experiment(experiment)
     if workflow is None:
         return err(
             f"Experiment '{experiment_id}' has no workflow attached "

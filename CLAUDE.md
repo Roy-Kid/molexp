@@ -82,7 +82,8 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 
 **workspace owns** — and these are the *only* things it owns:
 
-- The `Workspace → Project → Experiment → Run` hierarchy as data containers (lazy materialization on first `.project(...)` / `.experiment(...)` / `.run(...)`).
+- The `Workspace → Project → Experiment → Run` hierarchy as data containers (lazy materialization on first factory call). Three-verb SRP for each level: PascalCase factory `Workspace.Project(name) / Project.Experiment(name, ...) / Experiment.Run(parameters, ...)` is **idempotent** (returns existing entity if found); `create_project / create_experiment / create_run` are strict — raise `*ExistsError` on collision; lowercase `workspace.project(id) / project.experiment(id) / experiment.run(id)` are strict getters — raise `*NotFoundError` on miss. `RunContext` (and `Run` itself) supports both `with` and `async with`.
+- Typed exception hierarchy in `errors.py`: `ProjectNotFoundError` / `ExperimentNotFoundError` / `RunNotFoundError` (subclass `LookupError`); `ProjectExistsError` / `ExperimentExistsError` / `RunExistsError` (subclass `ValueError`). Re-exported from `molexp.workspace`. The server layer's `handlers.py` translates them to HTTP 404 / 409 at the boundary.
 - Atomic JSON I/O (`base.py`) — temp-file + `os.rename` for crash safety.
 - `AssetCatalog` and the `Asset` family (`ArtifactAsset`, `DataAsset`, `LogAsset`, `CheckpointAsset`, `ErrorTraceAsset`, `OutputAsset`, `ExecutionStateAsset`); `Producer` (lineage record).
 - `Params`, `ParamSpace`, `GridSpace`, `UniformSpace`.
@@ -104,7 +105,7 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 
 **workflow owns**:
 
-- Scientific workflow declaration: `Workflow` (builder) and `WorkflowSpec` (compiled), supporting decorator + OOP styles on the same instance.
+- Scientific workflow declaration: `WorkflowBuilder` (builder, decorator + OOP styles on the same instance) and `Workflow` (compiled, immutable, content-hashed `workflow_id`). Built specs carry the experiment-binding registry as class methods (`Workflow.bind_to / unbind_from / is_bound_to / Workflow.for_experiment`); the old free-function `set_workflow(exp, spec)` and the `bindings.py` module are gone.
 - `Task` / `Actor` — convenience base classes; do **not** subclass `pydantic_graph.BaseNode`. The user-facing protocols are `Runnable` / `Streamable` (duck-typed).
 - `TaskContext` / `ActorContext` — typed context with `state`, `deps`, `inputs`, `config`, optional `run_context` (a duck-typed handle to a workspace `RunContext`).
 - `TaskTypeRegistry`, `default_registry` — slug ↔ factory map for IR-driven round-trip.
@@ -112,7 +113,7 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 - `TaskSnapshot` (AST-normalized code hashing), `Caching` (LRU), `WorkflowVersion`.
 - `WorkflowSnapshotRef` (the on-disk reference shape stored in `RunMetadata.workflow_snapshot`; workspace stores it as opaque JSON to stay decoupled).
 - `WorkflowResult`, `WorkflowExecution`, `End` (re-exported from `pydantic_graph.End` — `molexp.workflow.End is pydantic_graph.End`).
-- `promote_callable(fn, name)` — wrap a bare `fn(RunContext)` into a single-Task `WorkflowSpec` (the helper that used to live in workspace as `_promote_to_workflow`).
+- `promote_callable(fn, name)` — wrap a bare `fn(RunContext)` into a single-Task `Workflow` (the helper that used to live in workspace as `_promote_to_workflow`).
 - `_pydantic_graph/` (private) — the sole permitted `import pydantic_graph` site. Owns: `WorkflowStep` (the single `BaseNode` molexp exposes to pg, wrapping the entire frontier-advance scheduler), `WorkflowGraphCompiler`, `GraphWorkflowRuntime`, `RunStorePersistence`.
 
 **workflow uses workspace**:
@@ -147,7 +148,7 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 **agent uses workspace + workflow**:
 
 - Workspace for: `Workspace`, `Run`, `RunContext`, `AssetCatalog`, `SubsystemStore`, `Project`, `Experiment`.
-- Workflow for: `Workflow`, `WorkflowSpec`, `Task`, `TaskContext`, `default_registry`, `Runnable`, `RunContextLike` (the protocol the workflow layer defines for the `run_context` handle).
+- Workflow for: `Workflow`, `WorkflowBuilder`, `Task`, `TaskContext`, `default_registry`, `Runnable`, `RunContextLike` (the protocol the workflow layer defines for the `run_context` handle).
 
 **agent MUST NOT**:
 
@@ -289,36 +290,42 @@ persistence, atomic writes); uses pydantic-graph for state-machine
 plumbing inside the private `_pydantic_graph/`. See § Layer charters above
 for hard rules; enforced by `tests/test_workflow/test_import_guard.py`.
 
-Single OOP entry point — `Workflow` — supports both decorator and builder styles on the same class:
+Two-class OOP API: `WorkflowBuilder` (decorator + builder, mutable) → `.build()` → `Workflow` (frozen, content-hashed, executable). Both styles work on the builder:
 
 **Decorator style** (function-as-task):
 ```python
-wf = Workflow(name="pipeline")
+builder = WorkflowBuilder(name="pipeline")
 
-@wf.task
+@builder.task
 async def fetch(ctx: TaskContext[State, Deps, None]) -> FetchResult: ...
 
-@wf.task(depends_on=["fetch"])
+@builder.task(depends_on=["fetch"])
 async def process(ctx: TaskContext[State, Deps, FetchResult]) -> ProcessResult: ...
 
-spec = wf.build()
-result = await spec.execute(run=run)
+wf: Workflow = builder.build()
+result = await wf.run_on(experiment, parameters={"lr": 1e-3})  # happy-path one-liner
+# or explicitly: with run.start() as ctx: await wf.execute(run_context=ctx)
 ```
 
 **OOP style** (add `Task` instances):
 ```python
-wf = Workflow(name="pipeline").add(FetchTask()).add(ProcessTask(), depends_on=["fetch"]).build()
-result = await wf.execute(run=run)
+wf: Workflow = (
+    WorkflowBuilder(name="pipeline")
+    .add(FetchTask())
+    .add(ProcessTask(), depends_on=["fetch"])
+    .build()
+)
+result = await wf.run_on(experiment)
 ```
 
-Both styles can be mixed on the same `Workflow` instance. Control-flow helpers are methods, not free functions: `@wf.parallel_map(...)` and `@wf.join(...)`.
+Both styles can be mixed on the same `WorkflowBuilder` instance. Control-flow helpers are methods, not free functions: `@builder.parallel_map(...)` and `@builder.join(...)`.
 
 Key abstractions:
 - `Task` — Batch execution (`async def execute(ctx) -> OutputT`); implements the `Runnable` protocol
 - `Actor` — Streaming execution (`async def run(ctx) -> AsyncIterator[OutputT]`); implements the `Streamable` protocol
 - `TaskContext` / `ActorContext` — Typed context with `state`, `deps`, `inputs`, `config`, optional workspace `run_context`
-- `WorkflowSpec` — Compiled spec with deterministic `workflow_id` (topology hash)
-- `WorkflowRuntime` — Abstract runtime; `GraphWorkflowRuntime` (in `workflow/_pydantic_graph/`) is the default, created lazily by `WorkflowSpec`
+- `Workflow` — Compiled spec with deterministic `workflow_id` (topology hash); produced by `WorkflowBuilder.build()`. Carries the class-level `_bindings_registry` for `bind_to / for_experiment / is_bound_to / unbind_from / _reset_registry`. Has a `run_on(experiment, *, parameters, deps, profile_config, config)` happy-path one-liner that wraps `Experiment.Run + run.start() + execute`
+- `WorkflowRuntime` — Abstract runtime; `GraphWorkflowRuntime` (in `workflow/_pydantic_graph/`) is the default, created lazily by `Workflow`
 
 Internal `_pydantic_graph/` compiles specs into pydantic-graph IR with topological levels for automatic parallelization. Never import from `_pydantic_graph/` directly.
 
@@ -426,7 +433,7 @@ ui/src/  →  (cd ui && npm run build)  →  src/molexp/dist/  →  (hatchling) 
 
 1. Subclass `Task` (batch) or `Actor` (streaming) — or use any third-party object whose method signature matches the `Runnable` / `Streamable` protocol (no molexp import required).
 2. Implement `execute()` / `run()` with a typed return annotation.
-3. Add to the workflow via the `Workflow` decorators (`@wf.task` / `@wf.actor`) or `.add()` for Task/Actor instances.
+3. Add to a `WorkflowBuilder` via the decorators (`@builder.task` / `@builder.actor`) or `.add()` for Task/Actor instances; call `.build()` to get the frozen `Workflow`.
 4. The compiler auto-detects batch vs streaming from the return annotation / `Streamable` runtime check.
 
 ### Adding a New API Route
@@ -466,7 +473,7 @@ Each conceptual data category lives in **one** layer. Cross-layer references flo
 | asset / artifact | `molexp.workspace.assets` | `Asset` / `ArtifactAsset` / `DataAsset` — content-hashed, scoped catalog |
 | workspace hierarchy | `molexp.workspace` | `Workspace`, `Project`, `Experiment`, `Run`, `RunContext`, `Params`, `ParamSpace` |
 | subsystem private storage | `molexp.workspace.subsystem` | `SubsystemStore` (kind-agnostic; consumer decides the layout under `.subsystems/<kind>/`) |
-| workflow declaration | `molexp.workflow` | `Workflow`, `WorkflowSpec`, `Task`, `Actor`, `TaskContext`, `TaskTypeRegistry`, `Caching`, `TaskSnapshot` |
+| workflow declaration | `molexp.workflow` | `Workflow` (compiled), `WorkflowBuilder` (builder), `Task`, `Actor`, `TaskContext`, `TaskTypeRegistry`, `Caching`, `TaskSnapshot` |
 | workflow snapshot ref | `molexp.workflow.snapshot_ref` | `WorkflowSnapshotRef` — on-disk reference shape; workspace stores it as opaque JSON |
 | workflow plan / preview | `molexp.workflow.proposal` + `molexp.workflow.preview` | `PlanProposal` (source of truth, holds IR) + `WorkflowPreviewView` (derived view) |
 | session metadata + persistence | `molexp.agent.sessions` | `SessionMetadata`, `SessionStore`, `SessionCatalog` (catalog absorbs the old workspace-side `SessionLibrary`) |
@@ -476,7 +483,7 @@ Each conceptual data category lives in **one** layer. Cross-layer references flo
 | context packet | `molexp.agent.context` | `ContextPacket`, `ContextBuildRequest` |
 | import-boundary firewall | `agent/_pydanticai/` and `workflow/_pydantic_graph/` | only these subtrees may import `pydantic_ai` / `pydantic_graph` respectively; `molexp.agent` itself must not eagerly load `pydantic_ai` |
 
-**Rule (cross-layer-data-reference)**: cross-layer references flow *downward* through the public surface of the lower layer. workflow imports `workspace.Run` is fine. workspace imports `workflow.WorkflowSpec` is forbidden. agent imports both is fine. Never wire across layers in any other direction.
+**Rule (cross-layer-data-reference)**: cross-layer references flow *downward* through the public surface of the lower layer. workflow imports `workspace.Run` is fine. workspace imports `workflow.Workflow` is forbidden. agent imports both is fine. Never wire across layers in any other direction.
 
 **Pydantic vs plain class**: pure data types (events, configs, results, lineage records, IR nodes) are `pydantic.BaseModel(frozen=True)`. Runtime containers carrying live runtime instances (callables, asyncio objects, service instances, non-pydantic types) are plain Python classes with explicit `__init__`. **`arbitrary_types_allowed=True` is forbidden in `src/molexp/agent/`** — anything that needs it is a runtime container by definition.
 

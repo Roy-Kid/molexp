@@ -9,6 +9,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from molexp.workspace import (
+    ExperimentNotFoundError,
+    ProjectNotFoundError,
+    RunNotFoundError,
+)
 from molexp.workspace.assets import AssetScope
 
 
@@ -23,16 +28,18 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
     if not scope.ids:
         return None
 
-    project = workspace.get_project(scope.ids[0])
-    if project is None:
+    try:
+        project = workspace.project(scope.ids[0])
+    except ProjectNotFoundError:
         return None
     if scope.kind == "project":
         return project.project_dir
 
     if len(scope.ids) < 2:
         return None
-    experiment = project.get_experiment(scope.ids[1])
-    if experiment is None:
+    try:
+        experiment = project.experiment(scope.ids[1])
+    except ExperimentNotFoundError:
         return None
     if scope.kind == "experiment":
         return experiment.experiment_dir
@@ -40,8 +47,9 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
     if scope.kind == "run":
         if len(scope.ids) < 3:
             return None
-        run = experiment.get_run(scope.ids[2])
-        if run is None:
+        try:
+            run = experiment.run(scope.ids[2])
+        except RunNotFoundError:
             return None
         return run.run_dir
 

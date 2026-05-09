@@ -157,7 +157,7 @@ class Caching:
         # the SIM118 lint that suggests dropping ``.keys()`` would break
         # the call (``self._store`` is not iterable directly).
         return {
-            "entry_count": sum(1 for _ in self._store.keys()),  # noqa: SIM118
+            "entry_count": sum(1 for _ in self._store.keys()),
             "total_size_bytes": self._store.total_bytes(),
             "max_entries": self._max_entries,
         }

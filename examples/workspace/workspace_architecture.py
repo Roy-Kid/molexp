@@ -19,6 +19,7 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
+from molexp.workflow import promote_callable, Workflow
 
 
 async def task(ctx: me.RunContext) -> None:
@@ -30,12 +31,13 @@ async def task(ctx: me.RunContext) -> None:
 async def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="molexp-arch-"))
     ws = me.Workspace(root, name="arch-demo")
-    project = ws.project("demo")
-    exp = project.experiment("baseline")
-    exp.set_workflow(task)
-    run = exp.run()
+    project = ws.Project("demo")
+    exp = project.Experiment("baseline")
+    spec = promote_callable(task, name="task")
+    spec.bind_to(exp)
+    run = exp.Run()
     with run.start() as ctx:
-        await exp.workflow.execute(run_context=ctx)
+        await spec.execute(run_context=ctx)
 
     print(f"workspace root: {root}\n")
     for path in sorted(root.rglob("*")):

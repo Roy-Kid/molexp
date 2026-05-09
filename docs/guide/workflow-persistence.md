@@ -23,7 +23,7 @@ A string pointing to the Python file that defines the workflow (typically the sa
 
 ### 2. `RunMetadata.workflow_snapshot`
 
-A frozen `WorkflowSnapshotRef` captured at run-creation time:
+An opaque JSON dict captured at run-creation time. The canonical shape is `molexp.workflow.snapshot_ref.WorkflowSnapshotRef` — but workspace stores the value as a plain dict to keep the dependency direction one-way (workspace ← workflow). Workflow-layer code dumps the model into JSON before handing it to workspace; workspace just round-trips it:
 
 ```json
 {
@@ -68,13 +68,13 @@ molexp run train.py --profile smoke
 molexp execute path/to/run-<id>/
 ```
 
-`molexp execute` is the worker entry point used by cluster backends. It reads `run.json` for the `script` field, re-imports the script, matches the project + experiment IDs via `find_workflow_for_run(...)`, and drives the bound `WorkflowSpec` against the existing run directory — appending a new `ExecutionRecord` to `execution_history`.
+`molexp execute` is the worker entry point used by cluster backends. It reads `run.json` for the `script` field, re-imports the script, matches the project + experiment IDs via `find_workflow_for_run(...)`, and drives the bound `Workflow` against the existing run directory — appending a new `ExecutionRecord` to `execution_history`.
 
 ## Identity and Correlation
 
 | Field | Where | Meaning |
 |-------|-------|---------|
-| `WorkflowSpec.workflow_id` | derived | sha256 over `name + task topology`; stable across machines |
+| `Workflow.workflow_id` | derived | sha256 over `name + task topology`; stable across machines |
 | `TaskSnapshot.code_hash` | derived | sha256 over AST-normalized `execute()` source |
 | `TaskSnapshot.config_hash` | derived | sha256 over serialized task config |
 | `RunMetadata.workflow_snapshot.source` | `run.json` | path to the defining script |

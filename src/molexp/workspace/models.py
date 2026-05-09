@@ -249,7 +249,7 @@ class RunMetadata(BaseModel):
     # Workflow versioning — populated by RunContext.bind_workflow_version().
     # ``workflow_id`` is the deterministic topology hash; ``workflow_version``
     # is the user-declared label.  Both are ``None`` when the run was started
-    # without a bound WorkflowSpec (legacy / ad-hoc runs).
+    # without a bound Workflow (legacy / ad-hoc runs).
     workflow_id: str | None = None
     workflow_version: str | None = None
 

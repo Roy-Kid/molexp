@@ -154,8 +154,8 @@ default_registry = TaskTypeRegistry()
 # giving the agent a non-trivial composable starter set. Domain plugins
 # (LAMMPS, VASP, molpy) register their own slugs through the same registry.
 
-from .context import TaskContext  # noqa: E402  — late import avoids cycles
-from .task import Task  # noqa: E402
+from .context import TaskContext
+from .task import Task
 
 
 class _Constant(Task):
@@ -164,7 +164,7 @@ class _Constant(Task):
     def __init__(self, value: TaskOutput = 0) -> None:
         self.value = value
 
-    async def execute(self, ctx: TaskContext) -> TaskOutput:  # noqa: ARG002
+    async def execute(self, ctx: TaskContext) -> TaskOutput:
         return self.value
 
 

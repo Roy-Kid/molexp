@@ -52,34 +52,40 @@ def workspace(ctx: ToolContext) -> tuple[Workspace | None, ToolResult | None]:
 
 
 def get_project(ctx: ToolContext, project_id: str) -> tuple[Project | None, ToolResult | None]:
+    from molexp.workspace import ProjectNotFoundError
+
     ws, failure = workspace(ctx)
     if failure is not None or ws is None:
         return None, failure
-    project = ws.get_project(project_id)
-    if project is None:
+    try:
+        return ws.project(project_id), None
+    except ProjectNotFoundError:
         return None, err(f"Project '{project_id}' not found")
-    return project, None
 
 
 def get_experiment(
     ctx: ToolContext, project_id: str, experiment_id: str
 ) -> tuple[Experiment | None, ToolResult | None]:
+    from molexp.workspace import ExperimentNotFoundError
+
     project, failure = get_project(ctx, project_id)
     if failure is not None or project is None:
         return None, failure
-    experiment = project.get_experiment(experiment_id)
-    if experiment is None:
+    try:
+        return project.experiment(experiment_id), None
+    except ExperimentNotFoundError:
         return None, err(f"Experiment '{experiment_id}' not found")
-    return experiment, None
 
 
 def get_run(
     ctx: ToolContext, project_id: str, experiment_id: str, run_id: str
 ) -> tuple[Run | None, ToolResult | None]:
+    from molexp.workspace import RunNotFoundError
+
     experiment, failure = get_experiment(ctx, project_id, experiment_id)
     if failure is not None or experiment is None:
         return None, failure
-    run = experiment.get_run(run_id)
-    if run is None:
+    try:
+        return experiment.run(run_id), None
+    except RunNotFoundError:
         return None, err(f"Run '{run_id}' not found")
-    return run, None

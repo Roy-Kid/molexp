@@ -7,7 +7,7 @@ even when control edges legitimately form loops.
 
 import pytest
 
-from molexp.workflow import Workflow
+from molexp.workflow import WorkflowBuilder
 
 
 def test_depends_on_cycle_rejected_when_control_loops_exist():
@@ -16,7 +16,7 @@ def test_depends_on_cycle_rejected_when_control_loops_exist():
     """
     from molexp.workflow import CycleError
 
-    wf = Workflow(name="bad-data-cycle", entry="a")
+    wf = WorkflowBuilder(name="bad-data-cycle", entry="a")
 
     @wf.task
     async def a(ctx) -> int:

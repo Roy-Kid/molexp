@@ -34,12 +34,12 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 
-class _WorkflowSpecLike(Protocol):
-    """Duck-typed shape of ``molexp.workflow.WorkflowSpec``.
+class _WorkflowLike(Protocol):
+    """Duck-typed shape of ``molexp.workflow.Workflow``.
 
     Defined here (rather than imported) because the workspace layer must
     not depend on the workflow layer (CLAUDE.md § *Workspace core-dependency
-    boundary*). The workflow layer's real ``WorkflowSpec`` structurally
+    boundary*). The workflow layer's real ``Workflow`` structurally
     satisfies this Protocol.
     """
 
@@ -336,6 +336,20 @@ class RunContext:
         self._entered = False
         return False
 
+    # ── Async-context-manager protocol ──────────────────────────────────
+    #
+    # Thin wrappers over ``__enter__`` / ``__exit__``. The body is sync
+    # (filesystem writes, metadata maintenance) so no real awaits happen
+    # — but exposing ``__aenter__`` / ``__aexit__`` lets callers write
+    # ``async with run.start() as ctx:`` directly inside an async
+    # workflow body without juggling ``asyncio.to_thread`` themselves.
+
+    async def __aenter__(self) -> RunContext:
+        return self.__enter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        return self.__exit__(exc_type, exc_val, exc_tb)
+
     # ── Public API ──────────────────────────────────────────────────────
 
     @property
@@ -427,8 +441,8 @@ class RunContext:
             self._suspended_at_step = int(at_step)
             self.run._update_metadata(last_step=int(at_step))
 
-    def bind_workflow_version(self, spec: _WorkflowSpecLike) -> None:
-        """Pin this run to a versioned :class:`~molexp.workflow.WorkflowSpec`.
+    def bind_workflow_version(self, spec: _WorkflowLike) -> None:
+        """Pin this run to a versioned :class:`~molexp.workflow.Workflow`.
 
         Persists ``workflow_id`` + ``workflow_version`` into
         ``RunMetadata`` and registers the spec's
@@ -440,7 +454,7 @@ class RunContext:
         version.
 
         Args:
-            spec: The :class:`~molexp.workflow.WorkflowSpec` produced
+            spec: The :class:`~molexp.workflow.Workflow` produced
                 by ``Workflow.build()``.
         """
         ws = self.run.experiment.project.workspace
@@ -890,8 +904,40 @@ class Run:
         *execution_id* pre-allocates the execution slot — used by external
         submitters (e.g. molq) that need to know the per-attempt directory
         ahead of worker startup.
+
+        The returned :class:`RunContext` supports both ``with`` and
+        ``async with`` — choose whichever matches the caller's body.
+        For the no-arg case, ``Run`` itself is also a context manager
+        (sugar that calls ``self.start()`` internally); see
+        :meth:`__enter__` / :meth:`__aenter__`.
         """
         return RunContext(self, profile_config=profile_config, execution_id=execution_id)
+
+    # ── Sugar: ``with run as ctx:`` / ``async with run as ctx:`` ────────
+    #
+    # Equivalent to ``with run.start() as ctx:`` / ``async with``. Sugar
+    # form does not accept ``profile_config`` / ``execution_id``; for
+    # those, call ``run.start(...)`` explicitly. Internally we cache the
+    # ``RunContext`` on first ``__enter__`` so ``__exit__`` sees the
+    # same instance.
+
+    def __enter__(self) -> RunContext:
+        self._sugar_ctx = self.start()
+        return self._sugar_ctx.__enter__()
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        ctx = self._sugar_ctx
+        del self._sugar_ctx
+        return ctx.__exit__(exc_type, exc_val, exc_tb)
+
+    async def __aenter__(self) -> RunContext:
+        self._sugar_ctx = self.start()
+        return await self._sugar_ctx.__aenter__()
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+        ctx = self._sugar_ctx
+        del self._sugar_ctx
+        return await ctx.__aexit__(exc_type, exc_val, exc_tb)
 
     def cancel(self) -> None:
         """Mark the run as cancelled in workspace metadata."""

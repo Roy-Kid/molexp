@@ -16,9 +16,9 @@ runner = CliRunner()
 
 def _make_workspace(tmp_path):
     workspace = Workspace(root=tmp_path / "workspace", name="Test")
-    project = workspace.project("demo")
-    experiment = project.experiment("train")
-    run = experiment.run(parameters={"seed": 0})
+    project = workspace.Project("demo")
+    experiment = project.Experiment("train")
+    run = experiment.Run(parameters={"seed": 0})
     return workspace, experiment, run
 
 
@@ -29,16 +29,16 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
         "\n".join(
             [
                 "import molexp as me",
-                "from molexp.workflow import promote_callable, set_workflow",
+                "from molexp.workflow import promote_callable",
                 "",
                 f"ws = me.Workspace({str(workspace_root)!r})",
-                "project = ws.project('demo')",
-                "exp = project.experiment('train')",
+                "project = ws.Project('demo')",
+                "exp = project.Experiment('train')",
                 "",
                 "def train(ctx: me.RunContext) -> None:",
                 "    ctx.set_result('ok', True)",
                 "",
-                "set_workflow(exp, promote_callable(train, name='train'))",
+                "promote_callable(train, name='train').bind_to(exp)",
                 "me.entry(ws)",
                 "",
             ]
@@ -118,7 +118,7 @@ def test_run_cancel_uses_molq_handle(monkeypatch, tmp_path):
     assert calls == [("default", "slurm", "molq-job-123")]
 
     reloaded = Workspace.load(workspace.root)
-    reloaded_run = reloaded.get_project("demo").get_experiment(experiment.id).get_run(run.id)
+    reloaded_run = reloaded.project("demo").experiment(experiment.id).run(run.id)
     assert reloaded_run is not None
     assert reloaded_run.status == "cancelled"
 

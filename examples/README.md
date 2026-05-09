@@ -13,7 +13,7 @@ You can delete these freely; none of them touch `~/` or any system path.
 | Guide | Example | What it shows |
 |---|---|---|
 | [quick-start](../docs/getting-started/quick-start.md) | `getting_started/01_quick_start.py` | End-to-end: workspace + experiment + run + result |
-| [first-workflow](../docs/getting-started/first-workflow.md) | `getting_started/02_first_workflow.py` | A `WorkflowSpec` with no workspace attached |
+| [first-workflow](../docs/getting-started/first-workflow.md) | `getting_started/02_first_workflow.py` | A `Workflow` with no workspace attached |
 | [tracked-runs](../docs/getting-started/tracked-runs.md) | `getting_started/03_tracked_run.py` | What appears on disk when a run is tracked |
 | [cli-and-profiles](../docs/getting-started/cli-and-profiles.md) | `getting_started/04_cli_and_profiles/` | `molexp run` + `molcfg.yaml` + `--profile` |
 
@@ -52,14 +52,26 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 ## Driving a Run
 
-The canonical pattern is to enter a workspace `RunContext` and forward it
-to `spec.execute()`:
+The canonical pattern is to bind a `Workflow` to the experiment via
+the workflow-layer registry, enter a workspace `RunContext`, and forward
+it to `spec.execute()`:
 
 ```python
-run = experiment.run(parameters={"seed": 0})
+from molexp.workflow import promote_callable, Workflow
+
+spec = promote_callable(train, name="train")  # or wf.build()
+spec.bind_to(experiment)
+
+run = experiment.Run(parameters={"seed": 0})
 with run.start(profile_config=cfg) as ctx:
-    result = await experiment.workflow.execute(run_context=ctx)
+    result = await spec.execute(run_context=ctx)
 ```
+
+`Workflow.bind_to` stores the spec in a class-level process-local
+registry keyed by `experiment.id` so the CLI, server, and agent tools
+can later retrieve it via `Workflow.for_experiment(experiment)`. The
+registry is process-local — cluster workers re-establish it by
+re-running the user script on import.
 
 `run_context=` is the only way to expose workspace helpers
 (`ctx.artifact` / `ctx.log` / `ctx.set_result`) inside task bodies.

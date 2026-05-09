@@ -33,7 +33,7 @@ Concretely the workflow layer reaches downward for:
   `executions/<exec_id>/` directory. Atomicity is workspace's
   guarantee, not a workflow-layer reinvention.
 - `workspace.Run`, `workspace.RunContext` — accepted as the canonical
-  execution unit by `Workflow.execute(run=run)` / `WorkflowSpec.start(...)`.
+  execution unit by `Workflow.execute(run=run)` / `Workflow.start(...)`.
 
 The workflow layer does **not** import from `molexp.agent`,
 `molexp.plugins`, `molexp.server`, `molexp.cli`, or `molexp.sweep`.
@@ -46,7 +46,7 @@ opaque.
 
 `molexp.workflow` owns:
 
-- workflow declaration (`Workflow` builder, `WorkflowSpec` compiled)
+- workflow declaration (`Workflow` builder, `Workflow` compiled)
 - task / actor abstractions (`Task`, `Actor`, `TaskContext`,
   `ActorContext`, plus the structural `Runnable` / `Streamable`
   protocols)
@@ -98,7 +98,7 @@ Allowed outside `molexp.workflow`:
 ```python
 from molexp.workflow import (
     Workflow,
-    WorkflowSpec,
+    Workflow,
     Task,
     Actor,
     TaskContext,

@@ -14,8 +14,8 @@ from molexp.workspace import Workspace
 def running_run(tmp_path):
     ws = Workspace(root=tmp_path, name="lab")
     ws.materialize()
-    e = ws.project("p").experiment("e", workflow_source="s.py", params={})
-    r = e.run(parameters={"seed": 1})
+    e = ws.Project("p").Experiment("e", workflow_source="s.py", params={})
+    r = e.Run(parameters={"seed": 1})
     r._update_metadata(status="running")
     return r
 

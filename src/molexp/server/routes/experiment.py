@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends
 from molexp.workspace.metrics import read_run_metrics
 
 from ..dependencies import get_workspace
-from ..exceptions import ExperimentNotFoundError, ProjectNotFoundError
 from ..schemas import (
     ComparisonRunRow,
     ExperimentComparisonResponse,
@@ -26,9 +25,7 @@ def list_experiments(
     project_id: str,
     workspace=Depends(get_workspace),
 ) -> list[ExperimentResponse]:
-    project = workspace.get_project(project_id)
-    if not project:
-        raise ProjectNotFoundError(project_id)
+    project = workspace.project(project_id)
     return [ExperimentResponse.from_model(e) for e in project.list_experiments()]
 
 
@@ -38,12 +35,8 @@ def get_experiment(
     experiment_id: str,
     workspace=Depends(get_workspace),
 ) -> ExperimentResponse:
-    project = workspace.get_project(project_id)
-    if not project:
-        raise ProjectNotFoundError(project_id)
-    experiment = project.get_experiment(experiment_id)
-    if not experiment:
-        raise ExperimentNotFoundError(project_id, experiment_id)
+    project = workspace.project(project_id)
+    experiment = project.experiment(experiment_id)
     return ExperimentResponse.from_model(experiment, runs=experiment.list_runs())
 
 
@@ -53,9 +46,7 @@ def create_experiment(
     req: ExperimentCreateRequest,
     workspace=Depends(get_workspace),
 ) -> ExperimentResponse:
-    project = workspace.get_project(project_id)
-    if not project:
-        raise ProjectNotFoundError(project_id)
+    project = workspace.project(project_id)
     if req.default_target is not None and not _target_exists(workspace, req.default_target):
         from fastapi import HTTPException
 
@@ -63,7 +54,7 @@ def create_experiment(
             status_code=422,
             detail=f"compute target {req.default_target!r} is not registered on this workspace",
         )
-    exp = project.experiment(
+    exp = project.Experiment(
         name=req.name,
         workflow_source=req.workflow_source,
         params=req.parameter_space,
@@ -83,12 +74,8 @@ def get_experiment_comparison(
     workspace=Depends(get_workspace),
 ) -> ExperimentComparisonResponse:
     """Comparison matrix: parameter columns x run rows + final metric values per run."""
-    project = workspace.get_project(project_id)
-    if not project:
-        raise ProjectNotFoundError(project_id)
-    experiment = project.get_experiment(experiment_id)
-    if not experiment:
-        raise ExperimentNotFoundError(project_id, experiment_id)
+    project = workspace.project(project_id)
+    experiment = project.experiment(experiment_id)
 
     runs = experiment.list_runs()
     rows: list[ComparisonRunRow] = []
@@ -148,11 +135,7 @@ def delete_experiment(
     experiment_id: str,
     workspace=Depends(get_workspace),
 ) -> MessageResponse:
-    project = workspace.get_project(project_id)
-    if not project:
-        raise ProjectNotFoundError(project_id)
-    experiment = project.get_experiment(experiment_id)
-    if not experiment:
-        raise ExperimentNotFoundError(project_id, experiment_id)
+    project = workspace.project(project_id)
+    experiment = project.experiment(experiment_id)
     rmtree(experiment.experiment_dir)
     return MessageResponse(message="Experiment deleted")

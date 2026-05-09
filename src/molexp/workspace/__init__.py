@@ -37,6 +37,14 @@ from .assets import (
 )
 from .base import atomic_write_json
 from .context import Context
+from .errors import (
+    ExperimentExistsError,
+    ExperimentNotFoundError,
+    ProjectExistsError,
+    ProjectNotFoundError,
+    RunExistsError,
+    RunNotFoundError,
+)
 from .experiment import Experiment
 from .models import (
     ComputeTarget,
@@ -81,6 +89,9 @@ __all__ = [
     "ExecutionRecord",
     "ExecutionStateAsset",
     "Experiment",
+    # Workspace error hierarchy
+    "ExperimentExistsError",
+    "ExperimentNotFoundError",
     "ExperimentMetadata",
     "GridSpace",
     "LogAsset",
@@ -90,10 +101,14 @@ __all__ = [
     "Params",
     "Producer",
     "Project",
+    "ProjectExistsError",
     "ProjectMetadata",
+    "ProjectNotFoundError",
     "Run",
     "RunContext",
+    "RunExistsError",
     "RunMetadata",
+    "RunNotFoundError",
     "RunStatus",
     # Subsystem storage primitive
     "SubsystemStore",

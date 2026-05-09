@@ -19,7 +19,7 @@ app = typer.Typer(
 )
 
 # Order matters only for --help display. Import for side-effect registration.
-from molexp.cli import (  # noqa: E402
+from molexp.cli import (
     asset,
     experiment,
     explore_cmd,

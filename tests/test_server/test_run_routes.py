@@ -162,7 +162,7 @@ class TestRunSubmissionWiring:
         local_target,
         captured_submits,
     ):
-        src_run = experiment_with_entrypoint.run(parameters={"lr": 1e-4}, target=local_target)
+        src_run = experiment_with_entrypoint.Run(parameters={"lr": 1e-4}, target=local_target)
         captured_submits.clear()  # ignore implicit submit on source-run creation
 
         resp = client.post(

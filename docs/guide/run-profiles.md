@@ -128,7 +128,7 @@ The workflow remains one source file, the profile remains one named config slice
 
 ## The Next Layer of Detail
 
-If you want the end-to-end authoring path, continue with the [Quick Start](../getting-started/quick-start.md). If you need the persistence details behind `profile`, `config`, and `config_hash`, see [Workflow Persistence](workflow-persistence.md). For the design rationale and the original replacement of `dry-run` with profiles, see [molcfg profiles](../development/specs/molcfg-profiles.md).
+If you want the end-to-end authoring path, continue with the [Quick Start](../getting-started/quick-start.md). If you need the persistence details behind `profile`, `config`, and `config_hash`, see [Workflow Persistence](workflow-persistence.md).
 
 ## Runnable Example
 
