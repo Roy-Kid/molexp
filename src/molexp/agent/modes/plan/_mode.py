@@ -85,6 +85,8 @@ class PlanResult(BaseModel):
     design: str
     summary: str = ""
     approved: bool = False
+    ready_for_run: bool = False
+    status: str = ""
 
 
 # ── PlanMode ────────────────────────────────────────────────────────────────
@@ -159,7 +161,9 @@ class PlanMode(AgentMode):
         digest_result = outputs.get("DraftReportDigest")
         plan_brief_result = outputs.get("DraftImplementationPlan")
         skeleton_result = outputs.get("GenerateWorkflowSkeleton")
-        handoff_result = outputs.get("HumanReview")
+        handoff_result = outputs.get("FinalHandoffCheck")
+        if not isinstance(handoff_result, HandoffResult):
+            handoff_result = outputs.get("HumanReview")
 
         intake_text: str = ""
         design_text: str = ""
@@ -175,8 +179,9 @@ class PlanMode(AgentMode):
 
         if isinstance(handoff_result, HandoffResult):
             summary = (
-                f"PlanMode {'approved' if handoff_result.decision.approved else 'declined'} "
-                f"plan_id={handoff_result.handoff.plan_id} at "
+                f"PlanMode {handoff_result.status} "
+                f"plan_id={handoff_result.handoff.plan_id} "
+                f"ready_for_run={handoff_result.ready_for_run} at "
                 f"{self._deps.workspace_handle.root()}."
             )
         elif isinstance(skeleton_result, SkeletonResult):
@@ -190,11 +195,17 @@ class PlanMode(AgentMode):
         approved = bool(
             isinstance(handoff_result, HandoffResult) and handoff_result.decision.approved
         )
+        ready_for_run = bool(
+            isinstance(handoff_result, HandoffResult) and handoff_result.ready_for_run
+        )
+        status = handoff_result.status if isinstance(handoff_result, HandoffResult) else "failed"
         view = PlanResult(
             intake=intake_text,
             design=design_text,
             summary=summary,
             approved=approved,
+            ready_for_run=ready_for_run,
+            status=status,
         )
 
         # Back-compat shim — preserves the ``mode_state["plan"]``
@@ -204,10 +215,12 @@ class PlanMode(AgentMode):
             "intake": intake_text,
             "design": design_text,
             "approved": approved,
+            "ready_for_run": ready_for_run,
+            "status": status,
             "iterations": None,
             "handoff": (
                 handoff_result.handoff.model_dump(mode="json")
-                if isinstance(handoff_result, HandoffResult) and approved
+                if isinstance(handoff_result, HandoffResult)
                 else None
             ),
         }

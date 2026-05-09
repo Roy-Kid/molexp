@@ -1,112 +1,140 @@
 # Plan Mode Architecture
 
-Plan mode is a workflow authoring and validation system. It does not execute
-experiments.
+PlanMode turns an experimental report or natural-language scientific
+request into a reviewable, Python-native molexp workspace. It authors
+and validates a workspace; it does not execute experiments.
 
-The planning workflow is represented with `molexp.workflow`. It turns a natural
-language request into a structured `PlanSpec`, supports node-level patches and
-agent rewrites, compiles the executable portion into workflow artifacts, runs a
-dry run, and produces a handoff bundle for the runner.
+PlanMode is implemented as a `molexp.workflow.Workflow`. The agent
+layer owns the prompts, model policy, review gate, and handoff contract.
+The workflow layer owns workflow/task abstractions and generic
+`WorkflowContract` validation. The workspace layer owns generic storage
+primitives such as subsystem directories and atomic writes.
 
 ## Flow
 
 ```mermaid
 flowchart TD
-    A["User Request<br/>natural language goal"] --> B["Planning Workflow<br/>molexp.workflow"]
-
-    B --> C["Intake Node<br/>raw request, constraints, outputs"]
-    C --> D["Goal Draft Node<br/>GoalSpec draft"]
-    D --> E["Context Collection Node<br/>literature, repo, tools, data, environment"]
-    E --> F["Method Selection Node<br/>methods, variables, controls, assumptions"]
-    F --> G["Decomposition Node<br/>scientific steps, compute steps, analysis steps"]
-    G --> H["Protocol Draft Node<br/>protocol, parameters, artifacts, checks"]
-
-    H --> I["PlanSpec Preview<br/>summary, DAG, parameters, assumptions, risks"]
-    I --> J{"Gate A<br/>approve plan?"}
-
-    J -- "patch node" --> K["PlanPatch<br/>node-level structured edit"]
-    K --> B
-
-    J -- "agent rewrite node" --> L["Agent Node Rewrite<br/>rewrite selected node only"]
-    L --> B
-
-    J -- "approve" --> M["Executable Workflow Draft<br/>molexp.workflow"]
-
-    M --> N["WorkflowTemplate<br/>reusable executable task graph"]
-    N --> O["ExperimentSpec<br/>WorkflowTemplate + ParamSpace + ExecutionPolicy"]
-
-    O --> P["Compile<br/>schema, registry, artifacts, dependencies"]
-    P --> Q{"Compile OK?"}
-
-    Q -- "no" --> R["Repair Patch<br/>patch affected nodes/subgraph"]
-    R --> B
-
-    Q -- "yes" --> S["Dry Run<br/>paths, tools, commands, resources, backend readiness"]
-    S --> T{"Dry Run OK?"}
-
-    T -- "no" --> R
-    T -- "yes" --> U["WorkflowBundle / RunGraph<br/>materialized executable runs"]
-
-    U --> V{"Gate B<br/>approve execution handoff?"}
-    V -- "patch executable node" --> R
-    V -- "approve" --> W["Runner<br/>dispatch, monitor, resume, collect"]
-
-    W --> X["Backend<br/>local / slurm / pbs / lsf / remote"]
+    A["Experiment Report / User Request"] --> B["IngestReport"]
+    B --> C["DraftReportDigest"]
+    C --> D["DraftImplementationPlan"]
+    D --> E["CompileWorkflowIR"]
+    E --> F["CompileTaskIR"]
+    F --> G["GenerateWorkflowSkeleton"]
+    F --> H["GenerateTaskTests"]
+    G --> I["GenerateTaskImplementations"]
+    H --> I
+    I --> J["ValidateWorkspace"]
+    J --> K["HumanReview"]
+    K --> X["FinalHandoffCheck"]
+    X --> L["PlanMode Result"]
+    L --> M["RunMode"]
 ```
 
 ## Planning Nodes
 
-The planning workflow uses these documented node names:
+The current PlanMode workflow uses these node names:
 
-- `IntakeNode`
-- `GoalDraftNode`
-- `ContextCollectionNode`
-- `MethodSelectionNode`
-- `DecompositionNode`
-- `ProtocolDraftNode`
-- `PreviewNode`
-- `ApprovalNode`
-- `RevisionNode`
-- `ExecutableWorkflowDraftNode`
-- `CompileNode`
-- `DryRunNode`
-- `HandoffNode`
+- `IngestReport`
+- `DraftReportDigest`
+- `DraftImplementationPlan`
+- `CompileWorkflowIR`
+- `CompileTaskIR`
+- `GenerateWorkflowSkeleton`
+- `GenerateTaskTests`
+- `GenerateTaskImplementations`
+- `ValidateWorkspace`
+- `HumanReview`
+- `FinalHandoffCheck`
 
-Code and documentation must use the same node names.
+Code, tests, and documentation should use these names for the current
+pipeline.
 
 ## Artifacts
 
-Plan mode produces and revises these artifacts:
+PlanMode materializes a plan workspace under the agent-owned subsystem
+store:
 
-- `PlanSpec`
-- `PlanPreview`
-- `PlanPatch`
-- `ExecutableWorkflowDraft`
-- `WorkflowTemplate`
-- `ExperimentSpec`
-- `CompileReport`
-- `DryRunReport`
-- `WorkflowBundle` / `RunGraph`
-- handoff bundle
+```text
+<workspace>/.subsystems/agent.plan-experiments/<plan_id>/
+```
 
-`PlanSpec` is user-facing and editable. It is not the executable workflow.
+The workspace contains:
 
-## Revision
+- `report/original.md`
+- `report/digest.md`
+- `plan/implementation_plan.md`
+- `ir/workflow.yaml`
+- `ir/tasks/*.yaml`
+- `src/experiment/workflow.py`
+- `src/experiment/tasks/*.py`
+- `tests/test_*.py`
+- `manifest.yaml`
+- `validation_report.md`
+- `validation_report.yaml`
 
-Plan rejection creates a structured `PlanPatch` by default. The patch targets a
-specific node or field and can add, remove, replace, update, rewrite, disable,
-or enable a node.
+Generated experiment code is Python-native and uses
+`molexp.workflow.WorkflowBuilder`. The generated workflow module exposes
+`create_workflow`, which returns the `molexp.workflow.Workflow` object
+that RunMode will load.
 
-Agent rewrite is node-scoped. The agent rewrites the selected node, validates
-the node output against the node schema, marks affected downstream nodes stale,
-and regenerates only the affected preview or subgraph when possible.
+## Validation
 
-Full replanning is an explicit fallback, not the default revision behavior.
+Validation has two levels:
+
+- `ValidateWorkspace` checks materialized files, task IR files, generated
+  source, RunMode-style entrypoint importability, and delegates generic
+  workflow contract rules to `molexp.workflow.validate_workflow_contract`.
+- `FinalHandoffCheck` repeats the RunMode-facing import and contract
+  validation after human review so final edits cannot bypass handoff
+  checks.
+
+Syntax compilation is only a preliminary check. A workspace is runnable
+only if RunMode can import the generated entrypoint and the loaded
+workflow passes generic contract validation.
+
+## Review And Readiness
+
+Human approval and runnable readiness are separate:
+
+```text
+human approval of the plan
+machine validation of the handoff
+ready_for_run status
+```
+
+Default auto-approval may approve the design direction, but failed
+machine validation cannot produce `ready_for_run`. The manifest records
+both the approval result and the final machine-readable status under the
+`plan_mode` block.
+
+Current status values are:
+
+- `draft`
+- `validated`
+- `validation_failed`
+- `ready_for_review`
+- `approved`
+- `approved_with_override`
+- `ready_for_run`
+- `pending_review`
 
 ## Handoff
 
-Plan mode ends at an approved handoff bundle. It must not call
-`Workflow.execute()` directly.
+PlanMode ends with a `PlanRunHandoff`. The manifest includes the
+entrypoint metadata RunMode needs:
 
-The runner receives the handoff bundle and owns dispatch, monitoring, resume,
-logging, failure tracking, backend execution, and artifact collection.
+```yaml
+plan_mode:
+  status: ready_for_run
+  validation_passed: true
+  ready_for_run: true
+  handoff:
+    source_root: src
+    module: experiment.workflow
+    symbol: create_workflow
+  override: false
+```
+
+RunMode owns dispatch, monitoring, resume, logging, backend execution,
+failure tracking, and artifact collection. It should not have to
+rediscover basic PlanMode generation errors.

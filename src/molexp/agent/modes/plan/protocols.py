@@ -102,15 +102,12 @@ class Provider(Protocol):
         ...
 
 
-# ── PlanDeps aggregate ─────────────────────────────────────────────────────
-
-
 # ── Gate policy (sub-spec 06: terminal HumanReview node) ───────────────────
 
 
 @runtime_checkable
 class GatePolicy(Protocol):
-    """Approval gate consulted by ``HumanReviewTask`` at the pipeline tail.
+    """Approval gate consulted by ``HumanReview`` at the pipeline tail.
 
     A single method — ``human_review`` — returning an
     :class:`ApprovalDecision`. PlanMode v1 ships only with the
@@ -165,7 +162,7 @@ class PlanDeps:
             (:class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`).
             All artifact writes route through this handle's API; tasks
             never touch ``Path.write_text`` directly.
-        gate_policy: Approval gate consulted by ``HumanReviewTask``.
+        gate_policy: Approval gate consulted by ``HumanReview``.
             Defaults to :class:`AutoApproveGatePolicy` so non-interactive
             callers (tests, CLI happy paths) don't have to wire one in.
     """

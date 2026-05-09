@@ -1,9 +1,11 @@
 """Concrete tasks for the materialize-to-workspace PlanMode pipeline.
 
-The 6 nodes of the v1 pipeline:
+The nodes of the current pipeline:
 
     IngestReport → DraftReportDigest → DraftImplementationPlan
         → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
+        → GenerateTaskTests / GenerateTaskImplementations
+        → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
 Each node consumes its single upstream ``ctx.inputs``, materializes
 its product through :class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`,
@@ -19,9 +21,14 @@ LLM entirely — it just hashes and writes the raw user input.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import importlib
+import json
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from types import ModuleType
 from typing import Any, ClassVar, cast
 
 import yaml
@@ -31,6 +38,7 @@ from molexp.agent.modes.plan.errors import SkeletonCompileError
 from molexp.agent.modes.plan.handoff import PlanRunHandoff
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
+    ApprovalDecision,
     DigestResult,
     HandoffResult,
     IngestReportResult,
@@ -55,13 +63,21 @@ from molexp.agent.modes.plan.workspace_layout import (
     PlanWorkspaceHandle,
     ValidationReport,
 )
-from molexp.workflow import Task, TaskContext, default_compiler
+from molexp.workflow import (
+    Task,
+    TaskContext,
+    Workflow,
+    default_compiler,
+    validate_workflow_contract,
+)
+from molexp.workspace import atomic_write_text
 
 __all__ = [
     "CompileTaskIR",
     "CompileWorkflowIR",
     "DraftImplementationPlan",
     "DraftReportDigest",
+    "FinalHandoffCheck",
     "GenerateTaskImplementations",
     "GenerateTaskTests",
     "GenerateWorkflowSkeleton",
@@ -404,9 +420,9 @@ class GenerateTaskImplementations(PlanLLMTask):
 class ValidateWorkspace(PlanTask):
     """Run the deterministic validation pass over the materialized workspace.
 
-    Eight checks; results land in a :class:`ValidationReport` written
-    to ``validation_report.md``. Errors block ``HumanReview``;
-    warnings are surfaced but do not fail the pass.
+    The pass includes RunMode-style import validation and generic
+    workflow contract validation. Results land in both
+    ``validation_report.md`` and ``validation_report.yaml``.
     """
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ValidationResult:
@@ -418,163 +434,44 @@ class ValidateWorkspace(PlanTask):
         _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult)
 
         handle = ctx.deps.workspace_handle
-        checks: list[CheckResult] = []
-
-        # 1. workflow IR parseable
-        ir_yaml_path = handle.ir_dir() / "workflow.yaml"
-        try:
-            yaml.safe_load(ir_yaml_path.read_text())
-            checks.append(CheckResult(name="workflow_ir_parseable", passed=True, severity="info"))
-        except (FileNotFoundError, yaml.YAMLError) as exc:
-            checks.append(
-                CheckResult(
-                    name="workflow_ir_parseable",
-                    passed=False,
-                    severity="error",
-                    detail=str(exc),
-                )
-            )
-
-        # 2. every task IR file parseable
-        for task_yaml in (
-            handle.tasks_ir_dir().glob("*.yaml") if handle.tasks_ir_dir().exists() else ()
-        ):
-            try:
-                yaml.safe_load(task_yaml.read_text())
-                checks.append(
-                    CheckResult(
-                        name=f"task_ir_parseable[{task_yaml.stem}]",
-                        passed=True,
-                        severity="info",
-                    )
-                )
-            except yaml.YAMLError as exc:
-                checks.append(
-                    CheckResult(
-                        name=f"task_ir_parseable[{task_yaml.stem}]",
-                        passed=False,
-                        severity="error",
-                        detail=str(exc),
-                    )
-                )
-
-        # 3. every task in IR has an implementation module
-        for brief in ir_result.briefs:
-            impl_path = handle.tasks_pkg_dir() / f"{brief.task_id}.py"
-            if impl_path.exists():
-                checks.append(
-                    CheckResult(
-                        name=f"impl_present[{brief.task_id}]",
-                        passed=True,
-                        severity="info",
-                    )
-                )
-            else:
-                checks.append(
-                    CheckResult(
-                        name=f"impl_present[{brief.task_id}]",
-                        passed=False,
-                        severity="error",
-                        detail=f"missing {impl_path.name}",
-                    )
-                )
-
-        # 4. every task in IR has a test module
-        for brief in ir_result.briefs:
-            test_path = handle.tests_dir() / f"test_{brief.task_id}.py"
-            if test_path.exists():
-                checks.append(
-                    CheckResult(
-                        name=f"test_present[{brief.task_id}]",
-                        passed=True,
-                        severity="info",
-                    )
-                )
-            else:
-                checks.append(
-                    CheckResult(
-                        name=f"test_present[{brief.task_id}]",
-                        passed=False,
-                        severity="error",
-                        detail=f"missing {test_path.name}",
-                    )
-                )
-
-        # 5. expected workspace paths exist
-        for rel in (
-            "report/original.md",
-            "plan/implementation_plan.md",
-            "src/experiment/__init__.py",
-            "src/experiment/workflow.py",
-        ):
-            path = handle.root() / rel
-            checks.append(
-                CheckResult(
-                    name=f"path_exists[{rel}]",
-                    passed=path.exists(),
-                    severity="info" if path.exists() else "error",
-                    detail="" if path.exists() else f"missing {rel}",
-                )
-            )
-
-        # 6. generated workflow imports cleanly (compile-only)
-        workflow_py = handle.experiment_pkg_dir() / "workflow.py"
-        if workflow_py.exists():
-            try:
-                compile(workflow_py.read_text(), str(workflow_py), "exec")
-                checks.append(
-                    CheckResult(
-                        name="workflow_module_compiles",
-                        passed=True,
-                        severity="info",
-                    )
-                )
-            except SyntaxError as exc:
-                checks.append(
-                    CheckResult(
-                        name="workflow_module_compiles",
-                        passed=False,
-                        severity="error",
-                        detail=f"SyntaxError: {exc.msg} at line {exc.lineno}",
-                    )
-                )
-
-        # 7. empty-contract guard
-        if not ir_result.briefs:
-            checks.append(
-                CheckResult(
-                    name="contract_has_tasks",
-                    passed=True,
-                    severity="warning",
-                    detail="no tasks declared in workflow contract",
-                )
-            )
-
-        passed = not any(c.severity == "error" and not c.passed for c in checks)
-        summary = (
-            f"{sum(1 for c in checks if c.passed)} of {len(checks)} checks passed; "
-            f"{sum(1 for c in checks if c.severity == 'error' and not c.passed)} errors, "
-            f"{sum(1 for c in checks if c.severity == 'warning')} warnings."
+        checks = _run_workspace_validation(
+            handle,
+            task_ir=ir_result,
+            module_name="experiment.workflow",
+            symbol_name="create_workflow",
         )
+        passed = _checks_passed(checks)
+        status = "ready_for_review" if passed else "validation_failed"
+        summary = _summarize_checks(checks)
         report = ValidationReport(passed=passed, checks=tuple(checks), summary=summary)
         report_path = handle.write_validation_report(report)
-        return ValidationResult(report_path=report_path, passed=passed, summary=summary)
+        manifest = _build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml")
+        manifest = manifest.model_copy(
+            update={
+                "task_ir_paths": tuple(sorted(handle.tasks_ir_dir().glob("*.yaml"))),
+                "model_policy_snapshot": ctx.deps.policy.model_dump(mode="json"),
+                "status": status,
+            }
+        )
+        handle.write_manifest(manifest)
+        return ValidationResult(
+            report_path=report_path,
+            passed=passed,
+            summary=summary,
+            checks=tuple(checks),
+            status=status,
+        )
 
 
 # ── Node 10: HumanReview ───────────────────────────────────────────────────
 
 
 class HumanReview(PlanTask):
-    """Terminal node — gate the plan with a :class:`GatePolicy`.
+    """Gate the plan with a :class:`GatePolicy`.
 
-    On approval, builds the :class:`PlanRunHandoff`, writes it into
-    ``manifest.yaml``'s ``handoff`` section, flips manifest status to
-    ``"approved"``, and returns a :class:`HandoffResult`. On rejection,
-    leaves status at ``"pending_review"`` and returns a
-    :class:`HandoffResult` whose ``decision.approved`` is False; the
-    handoff field still carries a constructed :class:`PlanRunHandoff`
-    so downstream consumers can introspect what would have been
-    handed off.
+    Human approval is deliberately separate from RunMode readiness.
+    The next node, ``FinalHandoffCheck``, is the only node allowed to
+    mark the workspace ``ready_for_run``.
     """
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
@@ -615,29 +512,99 @@ class HumanReview(PlanTask):
             passed=validation_result.passed,
             summary=validation_result.summary,
         )
-        new_status = "approved" if decision.approved else "pending_review"
+        new_status = _review_status(
+            decision=decision,
+            validation_passed=validation_result.passed,
+        )
         manifest_for_handoff = (
-            existing_manifest or _build_manifest_stub(plan_id, contract_yaml, ir_result_briefs=())
+            existing_manifest or _build_manifest_stub(plan_id, contract_yaml)
         ).model_copy(update={"status": new_status})
         handoff = PlanRunHandoff(
             plan_id=plan_id,
             experiment_workspace_path=handle.root(),
             workflow_yaml_path=contract_yaml,
+            source_root=Path("src"),
             task_ir_paths=tuple(handle.tasks_ir_dir().glob("*.yaml"))
             if handle.tasks_ir_dir().exists()
             else (),
             entrypoint_module="experiment.workflow",
-            entrypoint_symbol="WORKFLOW",
+            entrypoint_symbol="create_workflow",
             manifest_snapshot=manifest_for_handoff,
             validation_report_snapshot=validation_report,
             created_at=_utcnow(),
         )
 
-        # On approval, persist the manifest with the handoff block.
-        if decision.approved:
-            _persist_manifest_with_handoff(handle, manifest_for_handoff, handoff)
+        _persist_manifest_with_handoff(
+            handle,
+            manifest_for_handoff,
+            handoff,
+            decision=decision,
+            ready_for_run=False,
+            validation_passed=validation_result.passed,
+            validation_summary=validation_result.summary,
+            status=new_status,
+        )
 
-        return HandoffResult(handoff=handoff, decision=decision)
+        return HandoffResult(
+            handoff=handoff,
+            decision=decision,
+            validation_passed=validation_result.passed,
+            ready_for_run=False,
+            status=new_status,
+            report_path=validation_result.report_path,
+            validation_checks=validation_result.checks,
+        )
+
+
+# ── Node 11: FinalHandoffCheck ─────────────────────────────────────────────
+
+
+class FinalHandoffCheck(PlanTask):
+    """Run the final RunMode-style load and contract validation gate."""
+
+    async def execute(self, ctx: TaskContext[None, PlanDeps, HandoffResult]) -> HandoffResult:
+        prior = ctx.inputs
+        handle = ctx.deps.workspace_handle
+        final_checks = _run_handoff_validation(handle, prior.handoff, prefix="final_")
+        checks = (*prior.validation_checks, *final_checks)
+        validation_passed = prior.validation_passed and _checks_passed(final_checks)
+        ready_for_run = bool(prior.decision.approved and validation_passed)
+        status = _final_status(
+            decision=prior.decision,
+            validation_passed=validation_passed,
+            ready_for_run=ready_for_run,
+        )
+        summary = _summarize_checks(checks)
+        report = ValidationReport(passed=validation_passed, checks=checks, summary=summary)
+        report_path = handle.write_validation_report(report)
+
+        manifest = prior.handoff.manifest_snapshot.model_copy(update={"status": status})
+        handoff = prior.handoff.model_copy(
+            update={
+                "manifest_snapshot": manifest,
+                "validation_report_snapshot": report,
+            }
+        )
+        _persist_manifest_with_handoff(
+            handle,
+            manifest,
+            handoff,
+            decision=prior.decision,
+            ready_for_run=ready_for_run,
+            validation_passed=validation_passed,
+            validation_summary=summary,
+            status=status,
+        )
+        return prior.model_copy(
+            update={
+                "handoff": handoff,
+                "validation_passed": validation_passed,
+                "ready_for_run": ready_for_run,
+                "status": status,
+                "report_path": report_path,
+                "validation_checks": checks,
+            }
+        )
 
 
 # ── Helpers (extended for sub-spec 06) ─────────────────────────────────────
@@ -672,11 +639,11 @@ def _render_workflow_structure_test(ir_yaml_rel: str) -> str:
         "    contract = default_compiler.dict_to_contract(default_compiler.yaml_to_ir(ir_text))\n"
         "    declared_ids = {tio.task_id for tio in contract.task_io}\n"
         "    try:\n"
-        "        from experiment.workflow import WORKFLOW\n"
+        "        from experiment.workflow import create_workflow\n"
         "    except ImportError:\n"
         '        pytest.skip("experiment.workflow import failed; skipping topology pin")\n'
         "        return\n"
-        "    actual_ids = {t.name for t in WORKFLOW._tasks}\n"
+        "    actual_ids = {t.name for t in create_workflow()._tasks}\n"
         "    assert declared_ids == actual_ids\n"
     )
 
@@ -694,6 +661,345 @@ def _render_stub_implementation_module(task_id: str) -> str:
         "    async def execute(self, ctx) -> None:  # type: ignore[no-untyped-def, override]\n"
         f'        raise NotImplementedError("{task_id} not yet implemented")\n'
     )
+
+
+def _run_workspace_validation(
+    handle: PlanWorkspaceHandle,
+    *,
+    task_ir: TaskIRResult,
+    module_name: str,
+    symbol_name: str,
+) -> list[CheckResult]:
+    checks: list[CheckResult] = []
+    contract = _load_contract_for_validation(handle, checks)
+
+    for task_yaml in (
+        sorted(handle.tasks_ir_dir().glob("*.yaml")) if handle.tasks_ir_dir().exists() else ()
+    ):
+        try:
+            yaml.safe_load(task_yaml.read_text())
+            checks.append(
+                CheckResult(
+                    name=f"task_ir_parseable[{task_yaml.stem}]",
+                    passed=True,
+                    severity="info",
+                )
+            )
+        except yaml.YAMLError as exc:
+            checks.append(
+                CheckResult(
+                    name=f"task_ir_parseable[{task_yaml.stem}]",
+                    passed=False,
+                    severity="error",
+                    detail=str(exc),
+                )
+            )
+
+    for brief in task_ir.briefs:
+        impl_path = handle.tasks_pkg_dir() / f"{brief.task_id}.py"
+        checks.append(
+            CheckResult(
+                name=f"impl_present[{brief.task_id}]",
+                passed=impl_path.exists(),
+                severity="info" if impl_path.exists() else "error",
+                detail="" if impl_path.exists() else f"missing {impl_path.name}",
+            )
+        )
+        test_path = handle.tests_dir() / f"test_{brief.task_id}.py"
+        checks.append(
+            CheckResult(
+                name=f"test_present[{brief.task_id}]",
+                passed=test_path.exists(),
+                severity="info" if test_path.exists() else "error",
+                detail="" if test_path.exists() else f"missing {test_path.name}",
+            )
+        )
+
+    for rel in (
+        "report/original.md",
+        "plan/implementation_plan.md",
+        "src/experiment/__init__.py",
+        "src/experiment/workflow.py",
+    ):
+        path = handle.root() / rel
+        checks.append(
+            CheckResult(
+                name=f"path_exists[{rel}]",
+                passed=path.exists(),
+                severity="info" if path.exists() else "error",
+                detail="" if path.exists() else f"missing {rel}",
+            )
+        )
+
+    workflow_py = handle.experiment_pkg_dir() / "workflow.py"
+    if workflow_py.exists():
+        try:
+            compile(workflow_py.read_text(), str(workflow_py), "exec")
+            checks.append(
+                CheckResult(
+                    name="workflow_module_compiles",
+                    passed=True,
+                    severity="info",
+                )
+            )
+        except SyntaxError as exc:
+            checks.append(
+                CheckResult(
+                    name="workflow_module_compiles",
+                    passed=False,
+                    severity="error",
+                    detail=f"SyntaxError: {exc.msg} at line {exc.lineno}",
+                )
+            )
+
+    if contract is not None:
+        contract_task_ids = {tio.task_id for tio in contract.task_io}
+        task_ir_ids = {brief.task_id for brief in task_ir.briefs}
+        mismatch = contract_task_ids.symmetric_difference(task_ir_ids)
+        checks.append(
+            CheckResult(
+                name="task_ir_matches_workflow_ir",
+                passed=not mismatch,
+                severity="info" if not mismatch else "error",
+                detail="" if not mismatch else f"mismatched task ids: {sorted(mismatch)}",
+            )
+        )
+        if not contract.task_io:
+            checks.append(
+                CheckResult(
+                    name="contract_has_tasks",
+                    passed=True,
+                    severity="warning",
+                    detail="no tasks declared in workflow contract",
+                )
+            )
+
+    handoff = PlanRunHandoff(
+        plan_id=handle.plan_id,
+        experiment_workspace_path=handle.root(),
+        workflow_yaml_path=handle.ir_dir() / "workflow.yaml",
+        source_root=Path("src"),
+        task_ir_paths=tuple(sorted(handle.tasks_ir_dir().glob("*.yaml")))
+        if handle.tasks_ir_dir().exists()
+        else (),
+        entrypoint_module=module_name,
+        entrypoint_symbol=symbol_name,
+        manifest_snapshot=_build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml"),
+        validation_report_snapshot=ValidationReport(passed=False),
+        created_at=_utcnow(),
+    )
+    checks.extend(_run_handoff_validation(handle, handoff, contract=contract))
+    return checks
+
+
+def _load_contract_for_validation(
+    handle: PlanWorkspaceHandle,
+    checks: list[CheckResult],
+) -> WorkflowContract | None:
+    ir_yaml_path = handle.ir_dir() / "workflow.yaml"
+    try:
+        contract_dict = default_compiler.yaml_to_ir(ir_yaml_path.read_text())
+        contract = default_compiler.dict_to_contract(contract_dict)
+    except (FileNotFoundError, ValueError, yaml.YAMLError) as exc:
+        checks.append(
+            CheckResult(
+                name="workflow_ir_parseable",
+                passed=False,
+                severity="error",
+                detail=str(exc),
+            )
+        )
+        return None
+    except Exception as exc:
+        checks.append(
+            CheckResult(
+                name="workflow_ir_parseable",
+                passed=False,
+                severity="error",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
+        return None
+    checks.append(CheckResult(name="workflow_ir_parseable", passed=True, severity="info"))
+    return contract
+
+
+def _run_handoff_validation(
+    handle: PlanWorkspaceHandle,
+    handoff: PlanRunHandoff,
+    *,
+    contract: WorkflowContract | None = None,
+    prefix: str = "",
+) -> list[CheckResult]:
+    checks: list[CheckResult] = []
+    if contract is None:
+        contract = _load_contract_for_validation(handle, checks)
+
+    workflow = _load_handoff_workflow(handoff, checks, prefix=prefix)
+    if workflow is None or contract is None:
+        return checks
+
+    report = validate_workflow_contract(contract, spec=workflow)
+    if report.ok:
+        checks.append(
+            CheckResult(
+                name=f"{prefix}workflow_contract_valid",
+                passed=True,
+                severity="info",
+            )
+        )
+    for issue in report.issues:
+        checks.append(
+            CheckResult(
+                name=f"{prefix}workflow_contract[{issue.check_id.value}:{issue.target}]",
+                passed=False,
+                severity=issue.severity,
+                detail=issue.message + (f" Hint: {issue.hint}" if issue.hint else ""),
+            )
+        )
+    return checks
+
+
+def _load_handoff_workflow(
+    handoff: PlanRunHandoff,
+    checks: list[CheckResult],
+    *,
+    prefix: str = "",
+) -> Workflow | None:
+    source_root = handoff.experiment_workspace_path / handoff.source_root
+    if not source_root.exists():
+        checks.append(
+            CheckResult(
+                name=f"{prefix}handoff_source_root_exists",
+                passed=False,
+                severity="error",
+                detail=f"missing {source_root}",
+            )
+        )
+        return None
+    checks.append(
+        CheckResult(name=f"{prefix}handoff_source_root_exists", passed=True, severity="info")
+    )
+
+    try:
+        module = _import_fresh_from_source_root(source_root, handoff.entrypoint_module)
+        checks.append(
+            CheckResult(
+                name=f"{prefix}handoff_entrypoint_imports",
+                passed=True,
+                severity="info",
+            )
+        )
+    except Exception as exc:
+        checks.append(
+            CheckResult(
+                name=f"{prefix}handoff_entrypoint_imports",
+                passed=False,
+                severity="error",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
+        return None
+
+    try:
+        entrypoint = getattr(module, handoff.entrypoint_symbol)
+    except AttributeError as exc:
+        checks.append(
+            CheckResult(
+                name=f"{prefix}handoff_entrypoint_symbol_exists",
+                passed=False,
+                severity="error",
+                detail=str(exc),
+            )
+        )
+        return None
+    checks.append(
+        CheckResult(name=f"{prefix}handoff_entrypoint_symbol_exists", passed=True, severity="info")
+    )
+
+    try:
+        candidate = entrypoint() if callable(entrypoint) else entrypoint
+    except Exception as exc:
+        checks.append(
+            CheckResult(
+                name=f"{prefix}handoff_entrypoint_returns_workflow",
+                passed=False,
+                severity="error",
+                detail=f"{type(exc).__name__}: {exc}",
+            )
+        )
+        return None
+    is_workflow = isinstance(candidate, Workflow)
+    checks.append(
+        CheckResult(
+            name=f"{prefix}handoff_entrypoint_returns_workflow",
+            passed=is_workflow,
+            severity="info" if is_workflow else "error",
+            detail="" if is_workflow else f"got {type(candidate).__name__}",
+        )
+    )
+    return candidate if is_workflow else None
+
+
+def _import_fresh_from_source_root(source_root: Path, module_name: str) -> ModuleType:
+    source_root_str = str(source_root)
+    root_name = module_name.split(".", 1)[0]
+    affected = {
+        name: module
+        for name, module in sys.modules.items()
+        if name == root_name or name.startswith(root_name + ".")
+    }
+    for name in affected:
+        sys.modules.pop(name, None)
+    sys.path.insert(0, source_root_str)
+    try:
+        return importlib.import_module(module_name)
+    finally:
+        with contextlib.suppress(ValueError):
+            sys.path.remove(source_root_str)
+        for name in list(sys.modules):
+            if name == root_name or name.startswith(root_name + "."):
+                sys.modules.pop(name, None)
+        sys.modules.update(affected)
+
+
+def _checks_passed(checks: tuple[CheckResult, ...] | list[CheckResult]) -> bool:
+    return not any(check.severity == "error" and not check.passed for check in checks)
+
+
+def _summarize_checks(checks: tuple[CheckResult, ...] | list[CheckResult]) -> str:
+    return (
+        f"{sum(1 for c in checks if c.passed)} of {len(checks)} checks passed; "
+        f"{sum(1 for c in checks if c.severity == 'error' and not c.passed)} errors, "
+        f"{sum(1 for c in checks if c.severity == 'warning')} warnings."
+    )
+
+
+def _review_status(*, decision: ApprovalDecision, validation_passed: bool) -> str:
+    if validation_passed and decision.approved:
+        return "approved"
+    if validation_passed:
+        return "ready_for_review"
+    if decision.approved and decision.override_validation:
+        return "approved_with_override"
+    return "validation_failed"
+
+
+def _final_status(
+    *,
+    decision: ApprovalDecision,
+    validation_passed: bool,
+    ready_for_run: bool,
+) -> str:
+    if ready_for_run:
+        return "ready_for_run"
+    if decision.approved and decision.override_validation:
+        return "approved_with_override"
+    if not validation_passed:
+        return "validation_failed"
+    if decision.approved:
+        return "approved"
+    return "ready_for_review"
 
 
 async def _read_yaml_into[T: BaseModel](path: Path, model: type[T], *, fallback: str) -> T:
@@ -728,21 +1034,15 @@ def _load_manifest_from_disk(manifest_path: Path) -> PlanManifest | None:
     raw = yaml.safe_load(manifest_path.read_text())
     if not isinstance(raw, dict):
         return None
-    # Drop any "handoff" section so PlanManifest's strict schema accepts it.
-    raw_payload = {k: v for k, v in raw.items() if k != "handoff"}
+    # Drop extension sections so PlanManifest's strict schema accepts it.
+    raw_payload = {k: v for k, v in raw.items() if k not in {"handoff", "plan_mode"}}
     try:
         return PlanManifest.model_validate(raw_payload)
     except Exception:
         return None
 
 
-def _build_manifest_stub(
-    plan_id: str,
-    workflow_ir_path: Path,
-    *,
-    ir_result_briefs: tuple[Any, ...],
-) -> PlanManifest:
-    del ir_result_briefs
+def _build_manifest_stub(plan_id: str, workflow_ir_path: Path) -> PlanManifest:
     return PlanManifest(
         plan_id=plan_id,
         created_at=_utcnow(),
@@ -755,20 +1055,38 @@ def _persist_manifest_with_handoff(
     handle: PlanWorkspaceHandle,
     manifest: PlanManifest,
     handoff: PlanRunHandoff,
+    *,
+    decision: ApprovalDecision,
+    ready_for_run: bool,
+    validation_passed: bool,
+    validation_summary: str,
+    status: str,
 ) -> None:
     """Write ``manifest.yaml`` with both the manifest fields and a
-    nested ``handoff`` block.
+    nested ``handoff`` block plus a machine-readable ``plan_mode`` block.
 
     Sub-spec 03's ``write_manifest`` only knows about the manifest
-    schema; the handoff block is layered on top here.
+    schema; PlanMode extension blocks are layered on top here.
     """
-    import json
-
     payload = manifest.model_dump(mode="json")
-    payload["handoff"] = json.loads(handoff.model_dump_json())
+    handoff_payload = json.loads(handoff.model_dump_json())
+    payload["handoff"] = handoff_payload
+    payload["plan_mode"] = {
+        "status": status,
+        "validation_passed": validation_passed,
+        "ready_for_run": ready_for_run,
+        "approved": decision.approved,
+        "approval_reason": decision.reason,
+        "override": decision.override_validation,
+        "validation_summary": validation_summary,
+        "generated_at": handoff.created_at.isoformat(),
+        "handoff": {
+            "source_root": str(handoff.source_root),
+            "module": handoff.entrypoint_module,
+            "symbol": handoff.entrypoint_symbol,
+        },
+    }
     text = yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
-    from molexp.workspace import atomic_write_text
-
     atomic_write_text(handle.manifest_path(), text)
 
 
@@ -802,8 +1120,6 @@ def _write_text(path: Path, content: str) -> None:
     Centralized so tasks never call ``Path.write_text`` directly — the
     AST guard ``ac-006`` enforces this rule.
     """
-    from molexp.workspace import atomic_write_text
-
     path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(path, content)
 
@@ -873,11 +1189,11 @@ def _render_workflow_module(contract: WorkflowContract) -> str:
     ``source`` field — distinct sources, in order, become the
     ``depends_on`` list.
     """
-    task_class_names: list[str] = []
+    import_lines: list[str] = []
     add_lines: list[str] = []
     for task_io in contract.task_io:
         cls_name = _camel_case(task_io.task_id)
-        task_class_names.append(cls_name)
+        import_lines.append(f"from .tasks.{task_io.task_id} import {cls_name}")
         deps: list[str] = []
         seen: set[str] = set()
         for inp in task_io.inputs:
@@ -892,10 +1208,7 @@ def _render_workflow_module(contract: WorkflowContract) -> str:
         else:
             add_lines.append(f"    .add({cls_name}(), name={task_io.task_id!r})")
 
-    if task_class_names:
-        import_line = "from .tasks import " + ", ".join(sorted(set(task_class_names)))
-    else:
-        import_line = "# (workflow contract has no tasks; nothing to import)"
+    imports = "\n".join(import_lines) if import_lines else "# (workflow contract has no tasks)"
 
     body = "\n".join(add_lines) if add_lines else "    # no tasks"
     workflow_name = contract.workflow_id or "experiment_workflow"
@@ -912,13 +1225,17 @@ def _render_workflow_module(contract: WorkflowContract) -> str:
         "from __future__ import annotations\n"
         "\n"
         "from molexp.workflow import WorkflowBuilder\n"
-        f"{import_line}\n"
+        f"{imports}\n"
         "\n"
         "WORKFLOW = (\n"
         f"    WorkflowBuilder(name={workflow_name!r})\n"
         f"{body}\n"
         "    .build()\n"
         ")\n"
+        "\n"
+        "\n"
+        "def create_workflow():\n"
+        "    return WORKFLOW\n"
     )
 
 

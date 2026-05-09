@@ -28,6 +28,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from molexp.agent.modes.plan.workspace_layout import CheckResult
 from molexp.workflow import WorkflowContract
 
 __all__ = [
@@ -70,6 +71,7 @@ class ApprovalDecision(BaseModel):
 
     approved: bool
     reason: str = ""
+    override_validation: bool = False
 
 
 # ── Natural-language digests ───────────────────────────────────────────────
@@ -289,6 +291,8 @@ class ValidationResult(BaseModel):
     report_path: Path
     passed: bool
     summary: str
+    checks: tuple[CheckResult, ...] = ()
+    status: str = ""
 
 
 class PlanReviewView(BaseModel):
@@ -328,6 +332,11 @@ class HandoffResult(BaseModel):
 
     handoff: PlanRunHandoff
     decision: ApprovalDecision
+    validation_passed: bool
+    ready_for_run: bool = False
+    status: str = "ready_for_review"
+    report_path: Path | None = None
+    validation_checks: tuple[CheckResult, ...] = ()
 
 
 # Avoid circular import at type-check time; the runtime resolution

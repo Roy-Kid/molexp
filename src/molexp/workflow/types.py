@@ -29,9 +29,8 @@ class Next(BaseModel):
     """IR-internal routing token.
 
     Used by the declarative IR sugar (``wf.loop`` / ``wf.branch`` /
-    ``wf.parallel`` builder methods, the proposal compiler in
-    ``molexp.agent.planning.proposal_compiler``) to pick a declared outgoing
-    route by label. Picks one of the ``routes={label: target}`` entries
+    ``wf.parallel`` builder methods) to pick a declared outgoing route
+    by label. Picks one of the ``routes={label: target}`` entries
     declared on the task; does NOT jump to a task named ``label``.
 
     **Python-developer-facing tasks should return native pydantic-graph node

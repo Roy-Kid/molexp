@@ -1,69 +1,94 @@
 # Plan Mode
 
-Plan mode is a workflow authoring and validation system. It stops at an
-approved handoff bundle; it does not execute experiments.
+PlanMode turns a scientific request or experimental report into a
+reviewable molexp workspace. It stops at a validated handoff; it does
+not execute experiments.
 
 The artifact flow is:
 
 ```text
-Intent -> PlanSpec -> WorkflowTemplate -> ExperimentSpec -> WorkflowBundle / RunGraph -> Runner
+Request -> report digest -> implementation plan -> workflow/task IR
+        -> generated Python workflow -> validation -> review
+        -> final handoff check -> RunMode handoff
 ```
 
 ## Public Surface
 
 ```python
-from molexp.agent.planning import (
-    PlanModeRunner,
-    PlanSpec,
-    PlanPatch,
-    create_handoff_bundle,
+from molexp.agent import AgentSession
+from molexp.agent.modes import PlanMode
+from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.workspace import Workspace
+
+workspace = Workspace("./lab")
+handle = PlanWorkspaceHandle.materialize(workspace)
+mode = PlanMode(workspace_handle=handle)
+
+session = AgentSession()
+result = await mode.run(
+    harness=...,  # supplied by AgentRunner in normal use
+    session=session,
+    user_input="screen solvent conditions",
 )
+
+plan_state = result.mode_state["plan"]
+assert "ready_for_run" in plan_state
 ```
 
-`PlanModeRunner` composes collaborators for approval, events, artifacts, and
-provider invocation. It persists plan artifacts under `plans_root`.
+`PlanMode` accepts optional provider, model-policy, and gate-policy
+collaborators for tests and non-default deployments. Provider calls stay
+behind the molexp-owned provider abstraction; PlanMode users do not use
+`pydantic-ai` directly.
 
-```python
-runner = PlanModeRunner(
-    invoker=...,
-    approver=...,
-    event_sink=...,
-    artifact_writer=...,
-    plans_root=Path("./plans"),
-)
-result = await runner.run("screen solvent conditions")
-assert result.execution_status == "handoff"
+## Pipeline
+
+Plan progress is represented by a `molexp.workflow.Workflow` with
+stable node names:
+
+- `IngestReport`
+- `DraftReportDigest`
+- `DraftImplementationPlan`
+- `CompileWorkflowIR`
+- `CompileTaskIR`
+- `GenerateWorkflowSkeleton`
+- `GenerateTaskTests`
+- `GenerateTaskImplementations`
+- `ValidateWorkspace`
+- `HumanReview`
+- `FinalHandoffCheck`
+
+The generated workspace includes report files, workflow IR, per-task IR,
+Python source, tests, a manifest, and validation reports.
+
+## Validation
+
+`ValidateWorkspace` does more than compile generated Python syntax. It
+checks that the generated `src/` tree can be imported the same way
+RunMode will import it:
+
+```text
+source_root: src
+module: experiment.workflow
+symbol: create_workflow
 ```
 
-## Planning Workflow
+The entrypoint is called and must return a `molexp.workflow.Workflow`.
+The loaded workflow is then checked with the generic workflow contract
+validation API.
 
-Plan progress is represented by a `molexp.workflow.WorkflowGraph` with stable
-node ids:
+`FinalHandoffCheck` repeats the RunMode-facing check after human review.
+This keeps the final handoff reliable even if review or edits changed
+the workspace.
 
-- `IntakeNode`
-- `GoalDraftNode`
-- `ContextCollectionNode`
-- `MethodSelectionNode`
-- `DecompositionNode`
-- `ProtocolDraftNode`
-- `PreviewNode`
-- `ApprovalNode`
-- `RevisionNode`
-- `ExecutableWorkflowDraftNode`
-- `CompileNode`
-- `DryRunNode`
-- `HandoffNode`
+## Status
 
-Rejection creates a `PlanPatch` against one node by default. Agent rewrite is
-also node-scoped. Downstream nodes are marked stale; unrelated upstream and
-sibling nodes are not regenerated.
+Human approval does not mean the workspace is runnable. The result state
+and manifest distinguish:
 
-## Handoff
+- whether the plan was approved;
+- whether machine validation passed;
+- whether the workspace is `ready_for_run`.
 
-`create_handoff_bundle(plan)` compiles the executable draft into a
-`WorkflowTemplate`, creates an `ExperimentSpec`, performs a backend-independent
-dry run, materializes a `WorkflowBundle` / `RunGraph`, and packages a
-runner-facing handoff.
-
-The runner that receives that bundle owns dispatch, monitoring, resume, failure
-tracking, backend-specific execution, and artifact collection.
+Failed validation produces a reviewable workspace with validation
+reports, not a runnable handoff. `RunMode` should rely on
+`manifest.yaml` and the `PlanRunHandoff` entrypoint metadata.

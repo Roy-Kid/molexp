@@ -24,10 +24,10 @@ Every conversion is **AST-based / template-based** — we never ``exec``
 user-supplied Python. The Python surface is a structured carrier for
 the IR, not a free-form script.
 
-Plan-side compilation (``PlanProposal`` → ``ParameterizedWorkflow``
-or → ``Workflow``) is not part of this module. It belongs to the
-agent layer and lives in ``molexp.agent.planning.proposal_compiler``;
-the workflow layer is unaware of plans.
+PlanMode-specific report digestion, code generation, and handoff
+assembly are not part of this module. They belong to the agent layer;
+the workflow layer only owns generic workflow representations and
+contract validation.
 """
 
 from __future__ import annotations

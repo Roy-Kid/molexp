@@ -37,6 +37,7 @@ __all__ = [
     "AGENT_PLAN_EXPERIMENTS_KIND",
     "CheckResult",
     "PlanManifest",
+    "PlanStatus",
     "PlanWorkspaceHandle",
     "ValidationReport",
 ]
@@ -50,6 +51,23 @@ workspace assigns no semantics."""
 
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
+
+PlanStatus = Literal[
+    "draft",
+    "validated",
+    "validation_failed",
+    "ready_for_review",
+    "approved",
+    "approved_with_override",
+    "ready_for_run",
+    "pending_review",
+]
+"""PlanMode workspace lifecycle state.
+
+The values intentionally distinguish human approval from machine
+readiness. A failed validation pass may still leave a reviewable
+workspace, but it must not be marked ``ready_for_run``.
+"""
 
 
 # ── Frozen-pydantic data ───────────────────────────────────────────────────
@@ -133,9 +151,8 @@ class PlanManifest(BaseModel):
             :class:`PlanModelPolicy` (sub-spec 04). ``None`` when no
             policy was attached at materialize time. Plain dict to keep
             workspace_layout decoupled from the policy module.
-        status: Lifecycle marker — ``"draft"`` after initial
-            materialize, ``"validated"`` after PlanMode's validation
-            pass, ``"approved"`` after human review.
+        status: Lifecycle marker. ``"ready_for_run"`` is reserved for
+            workspaces that passed the RunMode-style handoff check.
     """
 
     model_config = _FROZEN
@@ -146,7 +163,7 @@ class PlanManifest(BaseModel):
     workflow_ir_path: Path
     task_ir_paths: tuple[Path, ...] = ()
     model_policy_snapshot: dict[str, Any] | None = None
-    status: Literal["draft", "validated", "pending_review", "approved"] = "draft"
+    status: PlanStatus = "draft"
 
 
 # ── Runtime container ──────────────────────────────────────────────────────
@@ -288,6 +305,10 @@ class PlanWorkspaceHandle:
         """``<plan_id>/validation_report.md`` — does **not** create the file."""
         return self._resolve(("validation_report.md",))
 
+    def validation_report_data_path(self) -> Path:
+        """``<plan_id>/validation_report.yaml`` — structured validation data."""
+        return self._resolve(("validation_report.yaml",))
+
     # -- Atomic writers --------------------------------------------------
 
     def write_manifest(self, manifest: PlanManifest) -> Path:
@@ -305,10 +326,17 @@ class PlanWorkspaceHandle:
         return path
 
     def write_validation_report(self, report: ValidationReport) -> Path:
-        """Render ``report`` to markdown and write to ``validation_report_path()``."""
+        """Render ``report`` to markdown and persist a structured YAML twin."""
         path = self.validation_report_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(path, report.to_markdown())
+        data_path = self.validation_report_data_path()
+        text = yaml.safe_dump(
+            report.model_dump(mode="json"),
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        atomic_write_text(data_path, text)
         return path
 
     # -- Generated-source writers (sub-spec 06) ---------------------------

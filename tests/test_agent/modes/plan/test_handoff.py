@@ -24,6 +24,7 @@ from molexp.agent.modes.plan.protocols import (
     AutoApproveGatePolicy,
     PlanDeps,
 )
+from molexp.agent.modes.plan.schemas import ApprovalDecision
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
@@ -45,7 +46,7 @@ def _sample_handoff(plan_id: str = "plan_xyz") -> PlanRunHandoff:
         workflow_yaml_path=Path("/tmp/ws/ir/workflow.yaml"),
         task_ir_paths=(Path("/tmp/ws/ir/tasks/a.yaml"),),
         entrypoint_module="experiment.workflow",
-        entrypoint_symbol="WORKFLOW",
+        entrypoint_symbol="create_workflow",
         manifest_snapshot=manifest,
         validation_report_snapshot=report,
         created_at=datetime(2026, 5, 9, 12, 5, 0, tzinfo=UTC),
@@ -110,27 +111,27 @@ async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
     assert manifest_yaml.exists()
     raw = yaml.safe_load(manifest_yaml.read_text())
     assert isinstance(raw, dict)
-    assert raw["status"] == "approved"
+    assert raw["status"] == "ready_for_run"
+    assert raw["plan_mode"]["status"] == "ready_for_run"
+    assert raw["plan_mode"]["ready_for_run"] is True
     assert "handoff" in raw, "manifest.yaml missing handoff block after approval"
 
     rebuilt = PlanRunHandoff.model_validate(raw["handoff"])
     assert rebuilt.plan_id == "manifest_handoff"
     assert rebuilt.entrypoint_module == "experiment.workflow"
-    assert rebuilt.entrypoint_symbol == "WORKFLOW"
+    assert rebuilt.entrypoint_symbol == "create_workflow"
 
 
 # ── HumanReview rejection branch ───────────────────────────────────────────
 
 
 class _RejectingGate:
-    async def human_review(self, _view) -> object:  # type: ignore[no-untyped-def]
-        from molexp.agent.modes.plan.schemas import ApprovalDecision
-
+    async def human_review(self, _view: object) -> ApprovalDecision:
         return ApprovalDecision(approved=False, reason="rejected for testing")
 
 
 @pytest.mark.asyncio
-async def test_human_review_rejection_does_not_persist_handoff(tmp_path: Path) -> None:
+async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Path) -> None:
     from molexp.agent.modes.plan import PLAN_WORKFLOW
 
     workspace = Workspace(tmp_path / "ws")
@@ -142,10 +143,10 @@ async def test_human_review_rejection_does_not_persist_handoff(tmp_path: Path) -
         gate_policy=_RejectingGate(),  # type: ignore[arg-type]
     )
     result = await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)
-    # On rejection: the validation_report still wrote, but the manifest
-    # was not persisted with a handoff block.
+    # On rejection: the workspace remains reviewable but is not ready for RunMode.
     assert result.status == "completed"
-    if handle.manifest_path().exists():
-        raw = yaml.safe_load(handle.manifest_path().read_text())
-        assert raw.get("status") != "approved"
-        assert "handoff" not in raw
+    raw = yaml.safe_load(handle.manifest_path().read_text())
+    assert raw.get("status") == "ready_for_review"
+    assert raw["plan_mode"]["ready_for_run"] is False
+    assert raw["plan_mode"]["approved"] is False
+    assert "handoff" in raw

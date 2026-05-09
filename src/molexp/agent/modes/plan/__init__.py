@@ -34,6 +34,7 @@ from molexp.agent.modes.plan.workspace_layout import (
     AGENT_PLAN_EXPERIMENTS_KIND,
     CheckResult,
     PlanManifest,
+    PlanStatus,
     PlanWorkspaceHandle,
     ValidationReport,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "PlanModelPolicy",
     "PlanResult",
     "PlanRunHandoff",
+    "PlanStatus",
     "PlanWorkspaceHandle",
     "SkeletonCompileError",
     "ValidationReport",

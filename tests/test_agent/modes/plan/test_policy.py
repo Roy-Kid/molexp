@@ -104,6 +104,8 @@ def test_plan_node_names_covers_subspec_05_node_ids() -> None:
         "GenerateWorkflowSkeleton",
         "GenerateTaskTests",
         "GenerateTaskImplementations",
+        "HumanReview",
+        "FinalHandoffCheck",
         "RepairOnValidationFailure",
     }
     assert expected.issubset(PLAN_NODE_NAMES)
@@ -124,6 +126,8 @@ def test_plan_node_names_covers_subspec_05_node_ids() -> None:
         ("GenerateWorkflowSkeleton", ModelTier.DEFAULT),
         ("GenerateTaskTests", ModelTier.DEFAULT),
         ("GenerateTaskImplementations", ModelTier.HEAVY),
+        ("HumanReview", ModelTier.CHEAP),
+        ("FinalHandoffCheck", ModelTier.CHEAP),
         ("RepairOnValidationFailure", ModelTier.HEAVY),
     ],
 )

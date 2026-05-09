@@ -1,18 +1,17 @@
 """Builder for the materialize-to-workspace PlanMode pipeline.
 
-Six nodes — ``IngestReport → DraftReportDigest → DraftImplementationPlan
-→ CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton``.
-Sub-spec 06 extends this pipeline with the remaining four nodes
-(``GenerateTaskTests``, ``GenerateTaskImplementations``,
-``ValidateWorkspace``, ``HumanReview``); ``build_plan_workflow`` is
-factored so 06 can either rebuild from primitives or call
-:func:`extend_plan_pipeline` (added in that sub-spec) on the
-:data:`PLAN_WORKFLOW` constant.
+Eleven nodes::
+
+    IngestReport → DraftReportDigest → DraftImplementationPlan
+        → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
+        → GenerateTaskTests / GenerateTaskImplementations  (parallel)
+        → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
 The pipeline is a pure data-edge DAG — no control edges, no
-``wf.loop`` primitive. ``GenerateWorkflowSkeleton`` reads two
-upstreams (the workflow contract + the per-task IR set) so its
-``ctx.inputs`` is a ``dict[str, *Result]`` keyed by upstream node name.
+``wf.loop`` primitive. ``GenerateWorkflowSkeleton`` (and the two
+parallel codegen siblings) reads two upstreams, so its
+``ctx.inputs`` is a ``dict[str, *Result]`` keyed by upstream node
+name; the rest take a single bare upstream value.
 """
 
 from __future__ import annotations
@@ -22,6 +21,7 @@ from molexp.agent.modes.plan.tasks import (
     CompileWorkflowIR,
     DraftImplementationPlan,
     DraftReportDigest,
+    FinalHandoffCheck,
     GenerateTaskImplementations,
     GenerateTaskTests,
     GenerateWorkflowSkeleton,
@@ -38,14 +38,14 @@ __all__ = [
 
 
 def build_plan_workflow() -> Workflow:
-    """Assemble the 10-node materialize-to-workspace pipeline.
+    """Assemble the 11-node materialize-to-workspace pipeline.
 
     Pipeline shape::
 
         IngestReport → DraftReportDigest → DraftImplementationPlan
             → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
             → GenerateTaskTests / GenerateTaskImplementations
-            → ValidateWorkspace → HumanReview
+            → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
     Step names are the Task class ``__name__`` so
     :class:`~molexp.agent.modes.plan.policy.PlanModelPolicy.tier_for`
@@ -53,7 +53,8 @@ def build_plan_workflow() -> Workflow:
     table. ``GenerateTaskTests`` and ``GenerateTaskImplementations``
     fan out from ``GenerateWorkflowSkeleton`` (data-graph siblings);
     ``ValidateWorkspace`` joins them and ``HumanReview`` is the
-    terminal node.
+    review node, then ``FinalHandoffCheck`` verifies the RunMode
+    entrypoint before the workflow terminates.
     """
     builder = WorkflowBuilder(name="plan_mode", entry="IngestReport")
     builder.add(IngestReport(), name="IngestReport", next_="DraftReportDigest")
@@ -110,6 +111,12 @@ def build_plan_workflow() -> Workflow:
         HumanReview(),
         name="HumanReview",
         depends_on=["ValidateWorkspace"],
+        next_="FinalHandoffCheck",
+    )
+    builder.add(
+        FinalHandoffCheck(),
+        name="FinalHandoffCheck",
+        depends_on=["HumanReview"],
     )
     return builder.build()
 

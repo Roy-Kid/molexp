@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from molexp.agent.modes.plan import PlanWorkspaceHandle
 from molexp.agent.modes.plan.policy import PlanModelPolicy
@@ -22,6 +23,7 @@ from molexp.agent.modes.plan.schemas import (
     ValidationResult,
 )
 from molexp.agent.modes.plan.tasks import ValidateWorkspace
+from molexp.workflow import TaskInputSpec, TaskIO, WorkflowContract, default_compiler
 from molexp.workflow.context import TaskContext
 from molexp.workspace import Workspace
 
@@ -31,6 +33,7 @@ def _make_ctx(
     *,
     briefs: tuple[TaskIRBrief, ...],
 ) -> TaskContext:
+    _write_contract_and_workflow(handle, briefs)
     deps = PlanDeps(
         provider=_NoopProvider(),  # type: ignore[arg-type]
         policy=PlanModelPolicy(),
@@ -74,10 +77,48 @@ def valid_handle(tmp_path: Path) -> PlanWorkspaceHandle:
     (handle.experiment_pkg_dir() / "workflow.py").write_text(
         "from molexp.workflow import WorkflowBuilder\n"
         "WORKFLOW = WorkflowBuilder(name='wf').build()\n"
+        "def create_workflow():\n"
+        "    return WORKFLOW\n"
     )
     (handle.tasks_pkg_dir() / "__init__.py").write_text("")
     (handle.ir_dir() / "workflow.yaml").write_text("workflow_id: wf\ntask_io: []\n")
     return handle
+
+
+def _write_contract_and_workflow(
+    handle: PlanWorkspaceHandle,
+    briefs: tuple[TaskIRBrief, ...],
+) -> None:
+    contract = WorkflowContract(
+        workflow_id="wf",
+        task_io=tuple(TaskIO(task_id=brief.task_id) for brief in briefs),
+    )
+    (handle.ir_dir() / "workflow.yaml").write_text(
+        default_compiler.ir_to_yaml(default_compiler.contract_to_dict(contract))
+    )
+    if not briefs:
+        return
+    imports = "\n".join(
+        f"from .tasks.{brief.task_id} import {_class_name(brief.task_id)}" for brief in briefs
+    )
+    adds = "\n".join(
+        f"    .add({_class_name(brief.task_id)}(), name={brief.task_id!r})" for brief in briefs
+    )
+    (handle.experiment_pkg_dir() / "workflow.py").write_text(
+        "from molexp.workflow import WorkflowBuilder\n"
+        f"{imports}\n"
+        "WORKFLOW = (\n"
+        "    WorkflowBuilder(name='wf')\n"
+        f"{adds}\n"
+        "    .build()\n"
+        ")\n"
+        "def create_workflow():\n"
+        "    return WORKFLOW\n"
+    )
+
+
+def _class_name(task_id: str) -> str:
+    return "".join(part.capitalize() for part in task_id.split("_"))
 
 
 @pytest.mark.asyncio
@@ -90,7 +131,12 @@ async def test_validate_workspace_passes_when_all_artifacts_present(
     )
     # Lay down the per-task impls + tests the briefs claim exist.
     for b in briefs:
-        (valid_handle.tasks_pkg_dir() / f"{b.task_id}.py").write_text("")
+        (valid_handle.tasks_pkg_dir() / f"{b.task_id}.py").write_text(
+            "from molexp.workflow import Task\n"
+            f"class {_class_name(b.task_id)}(Task):\n"
+            "    async def execute(self, ctx):\n"
+            "        return None\n"
+        )
         (valid_handle.tests_dir() / f"test_{b.task_id}.py").write_text("")
 
     ctx = _make_ctx(valid_handle, briefs=briefs)
@@ -98,6 +144,8 @@ async def test_validate_workspace_passes_when_all_artifacts_present(
     assert isinstance(result, ValidationResult)
     assert result.passed is True
     assert valid_handle.validation_report_path().exists()
+    assert valid_handle.validation_report_data_path().exists()
+    assert yaml.safe_load(valid_handle.validation_report_data_path().read_text())["passed"] is True
 
 
 @pytest.mark.asyncio
@@ -126,6 +174,48 @@ async def test_validate_workspace_fails_when_test_missing(
     ctx = _make_ctx(valid_handle, briefs=briefs)
     result = await ValidateWorkspace().execute(ctx)
     assert result.passed is False
+
+
+@pytest.mark.asyncio
+async def test_validate_workspace_fails_on_invalid_workflow_dependency(
+    valid_handle: PlanWorkspaceHandle,
+) -> None:
+    briefs = (TaskIRBrief(task_id="child", responsibility="x"),)
+    (valid_handle.tasks_pkg_dir() / "child.py").write_text(
+        "from molexp.workflow import Task\n"
+        "class Child(Task):\n"
+        "    async def execute(self, ctx):\n"
+        "        return None\n"
+    )
+    (valid_handle.tests_dir() / "test_child.py").write_text("")
+    ctx = _make_ctx(valid_handle, briefs=briefs)
+    contract = WorkflowContract(
+        workflow_id="wf",
+        task_io=(
+            TaskIO(
+                task_id="child",
+                inputs=(TaskInputSpec(name="x", type="object", source="missing"),),
+            ),
+        ),
+    )
+    (valid_handle.ir_dir() / "workflow.yaml").write_text(
+        default_compiler.ir_to_yaml(default_compiler.contract_to_dict(contract))
+    )
+    (valid_handle.experiment_pkg_dir() / "workflow.py").write_text(
+        "from molexp.workflow import WorkflowBuilder\n"
+        "from .tasks.child import Child\n"
+        "WORKFLOW = (\n"
+        "    WorkflowBuilder(name='wf')\n"
+        "    .add(Child(), name='child', depends_on=['missing'])\n"
+        "    .build()\n"
+        ")\n"
+        "def create_workflow():\n"
+        "    return WORKFLOW\n"
+    )
+
+    result = await ValidateWorkspace().execute(ctx)
+    assert result.passed is False
+    assert "handoff_entrypoint_imports" in valid_handle.validation_report_path().read_text()
 
 
 @pytest.mark.asyncio

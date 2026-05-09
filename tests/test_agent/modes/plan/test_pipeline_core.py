@@ -29,6 +29,7 @@ from molexp.agent.modes.plan.schemas import (
     PlanBriefResult,
     SkeletonResult,
     TaskIRResult,
+    WorkflowContract,
     WorkflowIRResult,
 )
 from molexp.agent.modes.plan.tasks import (
@@ -36,10 +37,15 @@ from molexp.agent.modes.plan.tasks import (
     CompileWorkflowIR,
     DraftImplementationPlan,
     DraftReportDigest,
+    FinalHandoffCheck,
+    GenerateTaskImplementations,
+    GenerateTaskTests,
     GenerateWorkflowSkeleton,
+    HumanReview,
     IngestReport,
     PlanLLMTask,
     PlanTask,
+    ValidateWorkspace,
 )
 from molexp.agent.session import AgentSession
 from molexp.workflow import Workflow
@@ -49,8 +55,8 @@ from .conftest import FakeProvider
 # ── PLAN_WORKFLOW shape (ac-007) ───────────────────────────────────────────
 
 
-def test_plan_workflow_is_workflow_with_ten_named_nodes() -> None:
-    """Sub-spec 06 grew the pipeline from 6 to 10 nodes."""
+def test_plan_workflow_is_workflow_with_eleven_named_nodes() -> None:
+    """FinalHandoffCheck gates the reviewed workspace before RunMode."""
     assert isinstance(PLAN_WORKFLOW, Workflow)
     assert PLAN_WORKFLOW._entries == ("IngestReport",)
     assert {t.name for t in PLAN_WORKFLOW._tasks} == {
@@ -64,6 +70,7 @@ def test_plan_workflow_is_workflow_with_ten_named_nodes() -> None:
         "GenerateTaskImplementations",
         "ValidateWorkspace",
         "HumanReview",
+        "FinalHandoffCheck",
     }
 
 
@@ -100,8 +107,6 @@ def test_build_plan_workflow_returns_independent_instance() -> None:
 )
 def test_subsumed_schemas_are_no_longer_importable(removed: str) -> None:
     """ac-001 — removed names raise ``ImportError`` from the schemas module."""
-    import importlib
-
     mod = importlib.import_module("molexp.agent.modes.plan.schemas")
     assert not hasattr(mod, removed), (
         f"schemas.py still exposes the removed name {removed!r}; should be gone"
@@ -167,12 +172,19 @@ _NEW_TASK_CLASSES: list[type] = [
     CompileWorkflowIR,
     CompileTaskIR,
     GenerateWorkflowSkeleton,
+    GenerateTaskTests,
+    GenerateTaskImplementations,
+    ValidateWorkspace,
+    HumanReview,
+    FinalHandoffCheck,
 ]
 _LLM_TASK_CLASSES = {
     DraftReportDigest,
     DraftImplementationPlan,
     CompileWorkflowIR,
     CompileTaskIR,
+    GenerateTaskTests,
+    GenerateTaskImplementations,
 }
 
 
@@ -364,9 +376,7 @@ async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
         tier=ModelTier.DEFAULT,
         system="",
         user="",
-        schema=__import__(
-            "molexp.agent.modes.plan.schemas", fromlist=["WorkflowContract"]
-        ).WorkflowContract,
+        schema=WorkflowContract,
         node_id="CompileWorkflowIR",
     )
     ir_path = workspace_handle.ir_dir() / "workflow.yaml"
@@ -423,8 +433,18 @@ async def test_plan_mode_run_exposes_workspace_path_and_back_compat_shim(
     plan_compat = result.mode_state["plan"]
     # Sub-spec 06 added ``handoff`` to the back-compat shim; ``approved``
     # is now driven by the gate's decision (auto-approve here ⇒ True).
-    assert set(plan_compat.keys()) == {"intake", "design", "approved", "iterations", "handoff"}
+    assert set(plan_compat.keys()) == {
+        "intake",
+        "design",
+        "approved",
+        "ready_for_run",
+        "status",
+        "iterations",
+        "handoff",
+    }
     assert plan_compat["approved"] is True
+    assert plan_compat["ready_for_run"] is True
+    assert plan_compat["status"] == "ready_for_run"
     assert plan_compat["iterations"] is None
     assert isinstance(plan_compat["handoff"], dict)
     # Session shim preserved.

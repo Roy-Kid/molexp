@@ -12,7 +12,7 @@ When the question is about persistent state, start with [Workspace API](workspac
 
 ## Agent and Plan Mode
 
-When the question is "I have a research goal in prose, not yet a workflow," go to [Plan Mode](plan-mode.md). It walks `PlanModeRunner` end-to-end: the four collaborator Protocols, the `molcfg` slice, the on-disk plan layout, the resume semantics, and the repair loop that catches in-memory execution failures. The companion concept page is [Agent](../concept/agent.md), which carries the lifecycle flowchart and explains why the layer is provider-agnostic.
+When the question is "I have a research goal in prose, not yet a workflow," go to [Plan Mode](plan-mode.md). It covers the workflow-backed PlanMode pipeline, the generated workspace layout, validation reports, human review, and the final RunMode handoff check. The companion concept page is [Agent](../concept/agent.md), which carries the lifecycle flowchart and explains why the layer is provider-agnostic.
 
 ## Operations and Scheduling
 

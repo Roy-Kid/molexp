@@ -11,7 +11,7 @@ The contract is exposed two ways:
 - **In-memory** — :attr:`AgentRunResult.mode_state["plan"]["handoff"]`
   holds the ``PlanRunHandoff.model_dump()`` of the handoff. Consumers
   inside the same Python process consume the dict directly.
-- **On disk** — ``HumanReviewTask`` writes the handoff into the
+- **On disk** — ``HumanReview`` writes the handoff into the
   experiment workspace's ``manifest.yaml`` under the ``handoff`` key
   (``yaml.safe_dump`` of ``json.loads(model_dump_json())``). A future
   ``RunMode`` running outside the agent process loads this and
@@ -48,6 +48,9 @@ class PlanRunHandoff(BaseModel):
         workflow_yaml_path: Path to ``ir/workflow.yaml`` (relative to
             ``experiment_workspace_path`` or absolute — the producer
             decides; consumers should respect whichever shape was set).
+        source_root: Python source root relative to
+            ``experiment_workspace_path``. ``RunMode`` adds this path to
+            ``sys.path`` before importing the entrypoint.
         task_ir_paths: Paths to per-task IR files
             (``ir/tasks/<task>.yaml``).
         entrypoint_module: Importable module name (e.g.
@@ -65,6 +68,7 @@ class PlanRunHandoff(BaseModel):
     plan_id: str
     experiment_workspace_path: Path
     workflow_yaml_path: Path
+    source_root: Path = Path("src")
     task_ir_paths: tuple[Path, ...]
     entrypoint_module: str
     entrypoint_symbol: str

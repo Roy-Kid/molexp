@@ -64,6 +64,8 @@ _FUTURE_NODE_NAMES: frozenset[str] = frozenset(
         "GenerateWorkflowSkeleton",
         "GenerateTaskTests",
         "GenerateTaskImplementations",
+        "HumanReview",
+        "FinalHandoffCheck",
         "RepairOnValidationFailure",
     }
 )
@@ -142,6 +144,8 @@ STANDARD_PLAN_POLICY: Final[PlanModelPolicy] = PlanModelPolicy(
         "GenerateWorkflowSkeleton": ModelTier.DEFAULT,
         "GenerateTaskTests": ModelTier.DEFAULT,
         "GenerateTaskImplementations": ModelTier.HEAVY,
+        "HumanReview": ModelTier.CHEAP,
+        "FinalHandoffCheck": ModelTier.CHEAP,
         "RepairOnValidationFailure": ModelTier.HEAVY,
         # Current pipeline node names — preserve each task's
         # pre-existing TIER ClassVar value so migration is

@@ -179,7 +179,16 @@ def test_plan_manifest_rejects_invalid_status() -> None:
 
 
 def test_plan_manifest_accepts_documented_status_values() -> None:
-    for status in ("draft", "validated", "approved"):
+    for status in (
+        "draft",
+        "validated",
+        "validation_failed",
+        "ready_for_review",
+        "approved",
+        "approved_with_override",
+        "ready_for_run",
+        "pending_review",
+    ):
         m = PlanManifest(
             plan_id="p",
             created_at=datetime(2026, 5, 9, tzinfo=UTC),
@@ -271,11 +280,16 @@ def test_write_validation_report_persists_atomically(workspace: Workspace) -> No
     written_path = handle.write_validation_report(report)
     assert written_path == handle.validation_report_path()
     assert written_path.exists()
+    data_path = handle.validation_report_data_path()
+    assert data_path.exists()
     text = written_path.read_text()
     assert "ir_parseable" in text
     assert "impl_present" in text
     assert "task_a missing" in text
     assert "1 of 2 passed" in text
+    data = yaml.safe_load(data_path.read_text())
+    assert data["passed"] is False
+    assert data["checks"][1]["name"] == "impl_present"
 
 
 # ── Re-exports (ac-009) ────────────────────────────────────────────────────
@@ -289,6 +303,7 @@ def test_public_names_reachable_from_modes_plan() -> None:
         "PlanManifest",
         "ValidationReport",
         "CheckResult",
+        "PlanStatus",
     ):
         assert hasattr(plan_pkg, name)
         assert name in plan_pkg.__all__
