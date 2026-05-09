@@ -30,6 +30,7 @@ def _write_script(
         "\n".join(
             [
                 "import molexp as me",
+                "from molexp.workflow import promote_callable, set_workflow",
                 "",
                 f"ws = me.Workspace({str(workspace_root)!r})",
                 "project = ws.project('demo')",
@@ -38,7 +39,7 @@ def _write_script(
                 "def train(ctx: me.RunContext) -> None:",
                 f"    {body}",
                 "",
-                "exp.set_workflow(train)",
+                "set_workflow(exp, promote_callable(train, name='train'))",
                 "me.entry(ws)",
                 "",
             ]

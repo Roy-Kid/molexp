@@ -7,7 +7,12 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
-from molexp.workflow.cache import Caching
+from molexp.workflow import (
+    Caching,
+    WorkflowSpec,
+    has_workflow,
+    set_workflow,
+)
 
 from ..dependencies import get_workspace
 from ..exceptions import ExperimentNotFoundError, ProjectNotFoundError
@@ -35,8 +40,13 @@ def create_execution(
     if not experiment:
         raise ExperimentNotFoundError(request.project_id, request.experiment_id)
 
-    if request.workflow_json is not None and experiment.workflow is None:
-        experiment.set_workflow(request.workflow_json)
+    if request.workflow_json is not None and not has_workflow(experiment):
+        # The IR is the durable artifact — compile it here so the bound
+        # spec lives in the workflow-layer registry, and re-emit it as
+        # opaque JSON so the worker can pick it up without re-running
+        # the user script.
+        spec = WorkflowSpec.from_dict(request.workflow_json)
+        set_workflow(experiment, spec)
 
     new_run = experiment.run(parameters=request.parameters)
     return RunResponse.from_model(new_run)

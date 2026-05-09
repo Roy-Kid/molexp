@@ -19,6 +19,13 @@ from molexp.workspace import (
 )
 
 
+def _str_or_none(value: object) -> str | None:
+    """Coerce a JSON-shaped opaque value into ``str | None`` for response fields."""
+    if value is None:
+        return None
+    return str(value)
+
+
 def _read_context_results(run: Run) -> dict[str, Any]:
     """Read the ``context.results`` block from run.json on disk.
 
@@ -180,17 +187,32 @@ class RunResponse(BaseModel):
 
     @classmethod
     def from_model(cls, run: Run) -> RunResponse:
+        # ``workflow_snapshot`` is an opaque JSON dict on disk
+        # (rectification 2026-05-09 — the canonical typed shape lives
+        # in ``molexp.workflow.WorkflowSnapshotRef``). The response
+        # fishes the well-known fields out by name. When the run has
+        # no snapshot but the experiment carries a ``workflow_source``
+        # advisory string, synthesize a minimal snapshot so callers
+        # see the label without having to refetch the experiment.
         wf_snap = None
-        wf_source: str | None = None
-        if run.metadata.workflow_snapshot:
-            s = run.metadata.workflow_snapshot
+        snap = run.metadata.workflow_snapshot
+        wf_source: str | None = run.experiment.metadata.workflow_source
+        if isinstance(snap, dict):
+            source = snap.get("source") or wf_source or ""
             wf_snap = WorkflowSnapshotResponse(
-                source=s.source,
-                gitCommit=s.git_commit,
-                codeHash=s.code_hash,
-                configHash=s.config_hash,
+                source=str(source),
+                gitCommit=_str_or_none(snap.get("git_commit"))
+                or run.experiment.metadata.git_commit,
+                codeHash=_str_or_none(snap.get("code_hash")),
+                configHash=_str_or_none(snap.get("config_hash")),
             )
-            wf_source = s.source
+        elif wf_source:
+            wf_snap = WorkflowSnapshotResponse(
+                source=wf_source,
+                gitCommit=run.experiment.metadata.git_commit,
+                codeHash=None,
+                configHash=None,
+            )
         error = None
         if run.metadata.error:
             error = {

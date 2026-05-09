@@ -13,7 +13,12 @@ from fastapi.responses import StreamingResponse
 
 from molexp._run_cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
-from molexp.workspace import RunStatus
+from molexp.workflow import (
+    WorkflowSnapshotRef,
+    get_workflow,
+    resolve_spec_entrypoint,
+)
+from molexp.workspace import Experiment, RunStatus
 from molexp.workspace.metrics import read_run_metrics
 from molexp.workspace.targets import get_target
 
@@ -50,6 +55,35 @@ def _get_experiment(workspace, project_id: str, experiment_id: str):
     return project.get_experiment(experiment_id)
 
 
+def _synthesize_snapshot(experiment: Experiment) -> dict | None:
+    """Build the opaque snapshot dict the run record should carry.
+
+    The route does not require an explicit snapshot from the caller —
+    if the experiment already has a workflow bound in the workflow-
+    layer registry, we resolve its entrypoint here so molq workers
+    can re-import it without re-running the user script. When no
+    binding exists, returns ``None`` (the run still materializes;
+    submit_handler dispatch will refuse it later if a target is
+    requested).
+    """
+    spec = get_workflow(experiment)
+    if spec is None:
+        return None
+    try:
+        entrypoint = resolve_spec_entrypoint(spec)
+    except ValueError:
+        # Spec isn't bound to a module-level name — most often a
+        # promote_callable result on a fixture. Fall back to source-
+        # only snapshot.
+        entrypoint = None
+    snap = WorkflowSnapshotRef(
+        source=experiment.metadata.workflow_source or "",
+        entrypoint=entrypoint,
+        git_commit=experiment.metadata.git_commit,
+    )
+    return snap.model_dump(mode="json")
+
+
 def _dispatch_to_molq(target, run) -> None:
     """Submit *run* through molq onto *target*.
 
@@ -57,7 +91,8 @@ def _dispatch_to_molq(target, run) -> None:
     has no per-run CLI overrides like ``molexp run --cpus``.
     """
     snapshot = run.metadata.workflow_snapshot
-    if snapshot is None or not snapshot.entrypoint:
+    entrypoint = snapshot.get("entrypoint") if isinstance(snapshot, dict) else None
+    if not entrypoint:
         raise HTTPException(
             status_code=422,
             detail=(
@@ -131,7 +166,11 @@ def create_run(
                 detail=f"compute target {run_req.target!r} is not registered on this workspace",
             ) from exc
 
-    run = experiment.run(parameters=run_req.parameters, target=run_req.target)
+    run = experiment.run(
+        parameters=run_req.parameters,
+        target=run_req.target,
+        workflow_snapshot=_synthesize_snapshot(experiment),
+    )
     if target is not None:
         _dispatch_to_molq(target, run)
     return RunResponse.from_model(run)
@@ -467,6 +506,7 @@ def rerun_run(
     new_run = experiment.run(
         parameters=dict(run.parameters),
         target=inherited_target,
+        workflow_snapshot=_synthesize_snapshot(experiment),
     )
     if target is not None:
         _dispatch_to_molq(target, new_run)

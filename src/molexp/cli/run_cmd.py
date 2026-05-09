@@ -12,6 +12,7 @@ import typer
 from molexp._typing import JSONValue
 from molexp.config import MolCfg, ProfileConfig, load_molcfg
 from molexp.config.loader import find_default_config
+from molexp.workflow import get_workflow
 
 from . import app
 from ._common import (
@@ -217,10 +218,10 @@ def _dispatch_runs(
 
         for project in ws.registered_projects():
             for exp in project.registered_experiments():
-                if exp.workflow is None:
+                if get_workflow(exp) is None:
                     rprint(
                         f"[red]Error:[/red] Experiment {exp.name!r} has no workflow. "
-                        "Call experiment.set_workflow(fn) before me.entry()."
+                        "Call molexp.set_workflow(experiment, spec) before me.entry()."
                     )
                     raise typer.Exit(1)
 
@@ -358,7 +359,7 @@ def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
     from molexp.workspace.run import RunContext
 
     def _handler(_script: Path, mol_run: Run, experiment: Experiment, _project: Project) -> None:
-        spec = experiment.workflow
+        spec = get_workflow(experiment)
         if spec is None:
             raise RuntimeError(f"Experiment {experiment.name!r} has no workflow attached.")
         with RunContext(mol_run, profile_config=profile_cfg) as ctx:

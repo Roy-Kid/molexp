@@ -44,6 +44,13 @@ payloads coming *down* from the agent flow through duck-typed
 """
 
 from ._pydantic_graph.runtime import make_execution_id
+from .bindings import (
+    clear_workflow,
+    get_workflow,
+    has_workflow,
+    reset_bindings,
+    set_workflow,
+)
 from .cache import Caching
 from .cache_store import (
     WORKFLOW_CACHE_SUBSYSTEM_KIND,
@@ -144,11 +151,17 @@ __all__ = [
     "WorkflowVersion",
     "WorkflowVersionConflictError",
     "WorkspaceCacheStore",
+    # Process-local Experiment ↔ WorkflowSpec bindings
+    "clear_workflow",
     "default_compiler",
     "default_registry",
+    "get_workflow",
+    "has_workflow",
     "make_execution_id",
     # Callable → WorkflowSpec promotion (worker re-import support)
     "promote_callable",
+    "reset_bindings",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
+    "set_workflow",
 ]
