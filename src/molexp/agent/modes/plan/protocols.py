@@ -15,9 +15,10 @@ without any wiring.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -71,6 +72,25 @@ class Provider(Protocol):
         schema: type[SchemaT],
         node_id: str = "",
     ) -> SchemaT: ...
+
+    async def invoke_with_template(
+        self,
+        *,
+        tier: ModelTier,
+        system: str,
+        user_template: str,
+        user_context: Mapping[str, Any],
+        schema: type[SchemaT],
+        node_id: str = "",
+    ) -> SchemaT:
+        """Render ``user_template`` against ``user_context`` then call :meth:`invoke`.
+
+        Concrete providers MUST implement this; the abstract Protocol
+        does not provide a default body. Template substitution failures
+        surface as :class:`~molexp.agent._pydanticai.errors.ProviderError`
+        with kind :attr:`ErrorKind.validation`.
+        """
+        ...
 
 
 # ── Gate / repair policies ─────────────────────────────────────────────────
