@@ -24,7 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
-from molexp.agent.modes.plan.protocols import ModelTier, PlanDeps
+from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
     ApprovedPlan,
     CodegenOutput,
@@ -76,9 +76,16 @@ class PlanTask(Task):
 
 
 class PlanLLMTask(PlanTask):
-    """Plan task that invokes the provider to produce a structured output."""
+    """Plan task that invokes the provider to produce a structured output.
 
-    TIER: ClassVar[ModelTier] = ModelTier.DEFAULT
+    The active :class:`~molexp.agent.modes.plan.policy.PlanModelPolicy`
+    on ``ctx.deps.model_policy`` decides which :class:`ModelTier` the
+    invocation runs under, keyed by the Task subclass name. The
+    standard policy preserves each subclass's pre-policy tier; an
+    operator can override per-node by constructing :class:`PlanMode`
+    with a custom policy.
+    """
+
     SYSTEM_PROMPT: ClassVar[str] = ""
 
     async def invoke_llm[SchemaT](
@@ -88,12 +95,13 @@ class PlanLLMTask(PlanTask):
         user: str,
         schema: type[SchemaT],
     ) -> SchemaT:
+        node_id = type(self).__name__
         return await ctx.deps.provider.invoke(
-            tier=self.TIER,
+            tier=ctx.deps.model_policy.tier_for(node_id),
             system=self.SYSTEM_PROMPT,
             user=user,
             schema=schema,
-            node_id=type(self).__name__,
+            node_id=node_id,
         )
 
 
@@ -101,7 +109,6 @@ class PlanLLMTask(PlanTask):
 
 
 class IntakeTask(PlanLLMTask):
-    TIER = ModelTier.CHEAP
     SYSTEM_PROMPT = "Extract a structured IntakeSpec from the user request."
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, None]) -> IntakeSpec:
@@ -110,7 +117,6 @@ class IntakeTask(PlanLLMTask):
 
 
 class GoalTask(PlanLLMTask):
-    TIER = ModelTier.CHEAP
     SYSTEM_PROMPT = "Restate the user's goal as a precise GoalSpec."
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, IntakeSpec]) -> GoalSpec:
@@ -119,7 +125,6 @@ class GoalTask(PlanLLMTask):
 
 
 class ContextTask(PlanLLMTask):
-    TIER = ModelTier.CHEAP
     SYSTEM_PROMPT = "Identify constraints, assumptions and environment for this goal."
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, GoalSpec]) -> ContextSpec:
@@ -128,7 +133,6 @@ class ContextTask(PlanLLMTask):
 
 
 class MethodTask(PlanLLMTask):
-    TIER = ModelTier.DEFAULT
     SYSTEM_PROMPT = "Choose a concrete method that satisfies the goal under the context."
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> MethodSpec:
@@ -139,7 +143,6 @@ class MethodTask(PlanLLMTask):
 
 
 class DecompositionTask(PlanLLMTask):
-    TIER = ModelTier.HEAVY
     SYSTEM_PROMPT = "Break this method into ordered protocol stages."
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, MethodSpec]) -> Decomposition:
@@ -148,7 +151,6 @@ class DecompositionTask(PlanLLMTask):
 
 
 class ProtocolTask(PlanLLMTask):
-    TIER = ModelTier.HEAVY
     SYSTEM_PROMPT = "Render each stage as a concrete protocol step."
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, Decomposition]) -> ProtocolDraft:
@@ -200,7 +202,6 @@ class CodegenTask(PlanLLMTask):
     addressable artefacts, not lines in a single blob.
     """
 
-    TIER = ModelTier.HEAVY
     SYSTEM_PROMPT = (
         "For each protocol stage, author a Python Task subclass implementing "
         "it. Return one GeneratedTaskSpec per stage."

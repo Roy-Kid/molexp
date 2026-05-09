@@ -18,6 +18,11 @@ from molexp.agent.modes.plan._mode import (
     PlanModeConfig,
     PlanResult,
 )
+from molexp.agent.modes.plan.policy import (
+    PLAN_NODE_NAMES,
+    STANDARD_PLAN_POLICY,
+    PlanModelPolicy,
+)
 from molexp.agent.modes.plan.workspace_layout import (
     AGENT_PLAN_EXPERIMENTS_KIND,
     CheckResult,
@@ -28,11 +33,14 @@ from molexp.agent.modes.plan.workspace_layout import (
 
 __all__ = [
     "AGENT_PLAN_EXPERIMENTS_KIND",
+    "PLAN_NODE_NAMES",
     "PLAN_WORKFLOW",
+    "STANDARD_PLAN_POLICY",
     "CheckResult",
     "PlanManifest",
     "PlanMode",
     "PlanModeConfig",
+    "PlanModelPolicy",
     "PlanResult",
     "PlanWorkspaceHandle",
     "ValidationReport",

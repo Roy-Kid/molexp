@@ -16,11 +16,14 @@ without any wiring.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, runtime_checkable
 
 from pydantic import BaseModel
+
+if TYPE_CHECKING:
+    from molexp.agent.modes.plan.policy import PlanModelPolicy
 
 from molexp.agent.modes.plan.schemas import (
     ApprovalDecision,
@@ -141,13 +144,23 @@ class ArtifactWriter(Protocol):
 
 @dataclass(frozen=True)
 class PlanDeps:
-    """Runtime services bundle threaded through ``ctx.deps``."""
+    """Runtime services bundle threaded through ``ctx.deps``.
+
+    The ``model_policy`` field decides which :class:`ModelTier` each
+    Task's LLM call resolves to via
+    :meth:`PlanModelPolicy.tier_for(type(self).__name__)
+    <molexp.agent.modes.plan.policy.PlanModelPolicy.tier_for>`.
+    Defaults to ``STANDARD_PLAN_POLICY`` so existing callers that
+    didn't name the field continue to construct a working
+    :class:`PlanDeps`.
+    """
 
     provider: Provider
     gate_policy: GatePolicy
     repair_policy: RepairPolicy
     store: PlanStore
     artifact_writer: ArtifactWriter
+    model_policy: PlanModelPolicy = field(default_factory=lambda: _standard_plan_policy())
 
 
 # ── Default implementations ────────────────────────────────────────────────
@@ -194,6 +207,20 @@ class NoOpArtifactWriter:
 
     def write(self, name: str, _payload: BaseModel) -> str:
         return name
+
+
+def _standard_plan_policy() -> PlanModelPolicy:
+    """Deferred resolver for ``STANDARD_PLAN_POLICY`` to break import cycle.
+
+    ``policy.py`` imports :class:`ModelTier` from this module; this
+    module would in turn want ``STANDARD_PLAN_POLICY`` as the
+    :class:`PlanDeps` default. The lazy callable inside
+    :func:`field(default_factory=...)` defers the import until
+    :class:`PlanDeps` is actually instantiated.
+    """
+    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
+
+    return STANDARD_PLAN_POLICY
 
 
 __all__ = [

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
 from molexp.agent.modes.plan.protocols import (
     ArtifactWriter,
     AutoApproveGatePolicy,
@@ -216,6 +217,7 @@ class PlanMode(AgentMode):
         repair_policy: RepairPolicy | None = None,
         store: PlanStore | None = None,
         artifact_writer: ArtifactWriter | None = None,
+        model_policy: PlanModelPolicy | None = None,
         artifacts_root: Path | None = None,
         max_iterations: int = 8,
         temperature: float | None = None,
@@ -235,12 +237,13 @@ class PlanMode(AgentMode):
             repair_policy=repair_policy or IdentityRepairPolicy(),
             store=store or InMemoryPlanStore(),
             artifact_writer=artifact_writer or NoOpArtifactWriter(),
+            model_policy=model_policy if model_policy is not None else STANDARD_PLAN_POLICY,
         )
 
     async def run(
         self,
         *,
-        harness: PydanticAIHarness,
+        harness: PydanticAIHarness,  # noqa: ARG002 — runner-supplied; ignored by design (per-task tier policy)
         session: AgentSession,
         user_input: str,
     ) -> AgentRunResult:
