@@ -38,7 +38,7 @@ async def test_generate_impl_writes_llm_source_for_non_stub_tasks(
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
-        provider=fake,
+        router=fake,
         policy=PlanModelPolicy(),
         workspace_handle=impl_handle,
     )
@@ -74,7 +74,7 @@ async def test_generate_impl_writes_stub_body_for_is_stub_brief(
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
-        provider=fake,
+        router=fake,
         policy=PlanModelPolicy(),
         workspace_handle=impl_handle,
     )
@@ -121,7 +121,7 @@ async def test_generate_impl_writes_stub_body_when_module_marks_self_stub(
     combined = canned_presets() | presets_with_stub  # type: ignore[operator]
     fake = FakeProvider(presets=combined)
     deps = PlanDeps(
-        provider=fake,
+        router=fake,
         policy=PlanModelPolicy(),
         workspace_handle=impl_handle,
     )

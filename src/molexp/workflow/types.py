@@ -166,20 +166,6 @@ class LoopMaxItersExceeded(UserWarning):
     """
 
 
-class RepairBudgetExceeded(UserWarning):
-    """Emitted by the PlanMode review→repair loop when the configured
-    ``max_iterations`` budget is exhausted without the gate ever
-    approving the materialized plan.
-
-    Mirrors :class:`LoopMaxItersExceeded` semantics: the workflow itself
-    does not raise — the outer driver forces the final
-    :class:`HandoffResult.status` to ``"rejected"`` and surfaces this
-    warning so callers can detect "we ran out of repair budget" without
-    having to inspect the manifest. Catch with
-    ``pytest.warns(RepairBudgetExceeded)`` or filter via :mod:`warnings`.
-    """
-
-
 # ── Workflow execution results ──────────────────────────────────────────────
 
 

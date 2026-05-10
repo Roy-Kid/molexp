@@ -147,8 +147,13 @@ def test_new_schemas_importable_and_frozen(schema_name: str) -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        # Sub-spec 06 reintroduced ``GatePolicy`` + ``AutoApproveGatePolicy``
-        # for the terminal HumanReview node — they are NOT in this list.
+        # ``GatePolicy`` / ``AutoApproveGatePolicy`` /
+        # ``static_gate_policy_lookup`` are workflow-orthogonal and
+        # live at the agent layer (:mod:`molexp.agent.policy`); they
+        # are explicitly NOT defined under ``protocols.py``.
+        "GatePolicy",
+        "AutoApproveGatePolicy",
+        "static_gate_policy_lookup",
         "IdentityRepairPolicy",
         "InMemoryPlanStore",
         "NoOpArtifactWriter",
@@ -269,7 +274,7 @@ async def test_ingest_report_writes_original_md(
     workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
 ) -> None:
     deps = PlanDeps(
-        provider=fake_provider,
+        router=fake_provider,
         policy=PlanModelPolicy(),
         workspace_handle=workspace_handle,
     )
@@ -291,7 +296,7 @@ async def test_ingest_report_rejects_empty_input(
     returns ``WorkflowResult(status='failed')`` rather than propagating
     (see ``runtime.py``); the failure is what we assert on."""
     deps = PlanDeps(
-        provider=fake_provider,
+        router=fake_provider,
         policy=PlanModelPolicy(),
         workspace_handle=workspace_handle,
     )
@@ -310,7 +315,7 @@ async def test_pipeline_end_to_end_creates_all_artifacts(
 ) -> None:
     """ac-008 — the load-bearing integration test."""
     deps = PlanDeps(
-        provider=fake_provider,
+        router=fake_provider,
         policy=PlanModelPolicy(),
         workspace_handle=workspace_handle,
     )
@@ -368,11 +373,11 @@ async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
     # First run the pipeline up through CompileTaskIR so the upstream
     # *Result objects exist for the skeleton task to consume.
     deps = PlanDeps(
-        provider=fake_provider,
+        router=fake_provider,
         policy=PlanModelPolicy(),
         workspace_handle=workspace_handle,
     )
-    ir_contract = await fake_provider.invoke(
+    ir_contract = await fake_provider.complete_structured(
         tier=ModelTier.DEFAULT,
         system="",
         user="",
@@ -417,13 +422,10 @@ async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
 async def test_plan_mode_run_exposes_workspace_path_and_back_compat_shim(
     workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
 ) -> None:
-    mode = PlanMode(
-        workspace_handle=workspace_handle,
-        provider=fake_provider,  # type: ignore[arg-type]
-    )
+    mode = PlanMode(workspace_handle=workspace_handle)
     session = AgentSession()
     result = await mode.run(
-        harness=None,  # type: ignore[arg-type] — runner-supplied; ignored
+        router=fake_provider,
         session=session,
         user_input="Investigate Suzuki coupling.",
     )
@@ -458,17 +460,17 @@ async def test_plan_mode_run_exposes_workspace_path_and_back_compat_shim(
 async def test_custom_policy_observed_by_provider_invoke(
     workspace_handle: PlanWorkspaceHandle,
 ) -> None:
-    """A non-default :class:`PlanModelPolicy` lands on every provider call."""
-    provider = FakeProvider()
+    """A non-default :class:`PlanModelPolicy` lands on every router call."""
+    router = FakeProvider()
     custom = PlanModelPolicy(default_tier=ModelTier.CHEAP)
     deps = PlanDeps(
-        provider=provider,
+        router=router,
         policy=custom,
         workspace_handle=workspace_handle,
     )
     await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)
-    assert provider.calls, "fake provider should have been invoked"
-    for node_id, tier, _schema_name in provider.calls:
+    assert router.calls, "fake router should have been invoked"
+    for node_id, tier, _schema_name in router.calls:
         assert tier is ModelTier.CHEAP, (
             f"node {node_id!r} received tier={tier} under default-CHEAP policy"
         )

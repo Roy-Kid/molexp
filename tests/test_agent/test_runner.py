@@ -327,10 +327,19 @@ def test_runner_drops_obsolete_molcrafts_surface() -> None:
 
 
 def test_public_surface_unchanged() -> None:
-    """ac-015 — molexp.agent re-exports exactly the four user-visible names."""
+    """ac-015 — molexp.agent re-exports the mode-orchestration core plus the
+    workflow-orthogonal policy primitives. Policies live at the agent
+    layer parallel to ``mode.py`` because any workflow-bearing mode
+    consumes them; see ``feedback_policy_at_agent_layer.md``. Concrete
+    interactive gates ship under the owning mode's subpackage (e.g.
+    ``molexp.agent.modes.plan.PromptGatePolicy``) and are deliberately
+    NOT part of this top-level surface."""
     assert tuple(sorted(molexp.agent.__all__)) == (
         "AgentMode",
         "AgentRunResult",
         "AgentRunner",
         "AgentSession",
+        "AutoApproveGatePolicy",
+        "GatePolicy",
+        "static_gate_policy_lookup",
     )

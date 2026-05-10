@@ -4,13 +4,15 @@ Provides:
 
 - :func:`make_workspace_handle` — builds a :class:`PlanWorkspaceHandle`
   rooted under a per-test ``tmp_path`` workspace.
-- :class:`FakeProvider` — in-memory ``Provider`` implementation that
-  returns canned schema instances for the six new task schemas
+- :class:`FakeRouter` — in-memory :class:`Router` implementation that
+  returns canned schema instances for the new task schemas
   (``ReportDigest`` / ``PlanBrief`` / ``WorkflowContract`` /
   ``TaskIRBrief``). Records ``(node_id, tier)`` per call so policy
-  injection can be observed end-to-end.
+  injection can be observed end-to-end. Keeps the legacy alias
+  ``FakeProvider = FakeRouter`` for tests still importing the older
+  name.
 - :func:`canned_presets` — default mapping ``schema → instance`` the
-  fake provider serves; tests override individual entries to exercise
+  fake router serves; tests override individual entries to exercise
   edge cases.
 """
 
@@ -18,13 +20,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import TypeVar
 
 import pytest
 from pydantic import BaseModel
 
 from molexp.agent.modes.plan import PlanWorkspaceHandle
-from molexp.agent.modes.plan.protocols import ModelTier, Provider
 from molexp.agent.modes.plan.schemas import (
     PlanBrief,
     ReportDigest,
@@ -33,6 +34,8 @@ from molexp.agent.modes.plan.schemas import (
     TaskTestModule,
     WorkflowContract,
 )
+from molexp.agent.router import ModelTier, Router, RouterTextResult
+from molexp.agent.types import UsageBreakdown
 from molexp.workflow import (
     ArtifactDecl,
     TaskInputSpec,
@@ -108,10 +111,6 @@ def canned_presets() -> dict[type[BaseModel], BaseModel]:
             success_criteria=("Product mass recorded.",),
         ),
     }
-    # Per-task module sources keyed by task_id — used by GenerateTaskTests
-    # and GenerateTaskImplementations. The shapes are deliberately minimal
-    # (one assert / one trivial body); the test suite asserts on file
-    # existence + stub-skip semantics, not on content quality.
     test_modules = {
         task_id: TaskTestModule(
             task_id=task_id,
@@ -141,24 +140,24 @@ def canned_presets() -> dict[type[BaseModel], BaseModel]:
         ReportDigest: digest,
         PlanBrief: plan_brief,
         WorkflowContract: contract,
-        # CompileTaskIR / GenerateTaskTests / GenerateTaskImplementations
-        # invoke the provider once per task; the fake provider's per-task
-        # answer is keyed off the (schema, task_id) pair via the dispatch
-        # in :class:`FakeProvider.invoke` below.
         TaskIRBrief: task_briefs,  # type: ignore[dict-item]
         TaskTestModule: test_modules,  # type: ignore[dict-item]
         TaskImplementationModule: impl_modules,  # type: ignore[dict-item]
     }
 
 
-class FakeProvider:
-    """Provider stub for the v1 plan-mode pipeline tests.
+class FakeRouter:
+    """:class:`Router` stub for the v1 plan-mode pipeline tests.
 
     Records every ``(node_id, tier, schema_name)`` triple it sees and
     returns the canned schema instance from :func:`canned_presets`.
     For ``TaskIRBrief`` the user payload (``user``) is the JSON form
     of the upstream :class:`TaskIO`; the fake parses it to look up
     the per-task brief from the canned mapping.
+
+    The text path (:meth:`complete_text`) is a stub that raises if
+    invoked — PlanMode never uses it. ChatMode-style tests should
+    use a different fake.
     """
 
     def __init__(
@@ -168,7 +167,21 @@ class FakeProvider:
         self._presets = dict(presets) if presets is not None else canned_presets()
         self.calls: list[tuple[str, ModelTier, str]] = []
 
-    async def invoke(
+    async def complete_text(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        message_history: tuple[object, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+    ) -> RouterTextResult:
+        del prompt, system, message_history, tier
+        raise NotImplementedError(
+            "FakeRouter is built for PlanMode's structured path; tests that "
+            "need text completion should use a different fake."
+        )
+
+    async def complete_structured(
         self,
         *,
         tier: ModelTier,
@@ -177,6 +190,7 @@ class FakeProvider:
         schema: type[SchemaT],
         node_id: str = "",
     ) -> SchemaT:
+        del system
         self.calls.append((node_id, tier, schema.__name__))
         per_task_schemas = (TaskIRBrief, TaskTestModule, TaskImplementationModule)
         if schema in per_task_schemas:
@@ -190,17 +204,16 @@ class FakeProvider:
         value = self._presets[schema]
         return value  # type: ignore[return-value]
 
-    async def invoke_with_template(
-        self,
-        *,
-        tier: ModelTier,
-        system: str,
-        user_template: str,
-        user_context: Mapping[str, Any],
-        schema: type[SchemaT],
-        node_id: str = "",
-    ) -> SchemaT:
-        return await self.invoke(tier=tier, system=system, user="", schema=schema, node_id=node_id)
+    def clear_usage(self) -> None:
+        # No-op: FakeRouter has no real LLM, so nothing to track.
+        pass
+
+    def snapshot_usage(self) -> UsageBreakdown:
+        return UsageBreakdown()
+
+
+# Legacy name kept so tests still importing FakeProvider keep working.
+FakeProvider = FakeRouter
 
 
 @pytest.fixture
@@ -210,11 +223,17 @@ def workspace_handle(tmp_path: Path) -> PlanWorkspaceHandle:
 
 
 @pytest.fixture
-def fake_provider() -> FakeProvider:
-    """Per-test :class:`FakeProvider` with the default canned presets."""
-    return FakeProvider()
+def fake_router() -> FakeRouter:
+    """Per-test :class:`FakeRouter` with the default canned presets."""
+    return FakeRouter()
+
+
+@pytest.fixture
+def fake_provider(fake_router: FakeRouter) -> FakeRouter:
+    """Legacy alias kept for tests still using ``fake_provider`` fixture."""
+    return fake_router
 
 
 # Sanity check that the fake satisfies the runtime-checkable Protocol.
-def test_fake_provider_satisfies_provider_protocol() -> None:
-    assert isinstance(FakeProvider(), Provider)
+def test_fake_router_satisfies_router_protocol() -> None:
+    assert isinstance(FakeRouter(), Router)

@@ -20,11 +20,9 @@ from molexp.agent.modes.plan import (
     ValidationReport,
 )
 from molexp.agent.modes.plan.policy import PlanModelPolicy
-from molexp.agent.modes.plan.protocols import (
-    AutoApproveGatePolicy,
-    PlanDeps,
-)
+from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import ApprovalDecision
+from molexp.agent.policy import AutoApproveGatePolicy, static_gate_policy_lookup
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
@@ -96,10 +94,12 @@ async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
     handle = PlanWorkspaceHandle.materialize(workspace, plan_id="manifest_handoff")
     fake_provider = FakeProvider()
     deps = PlanDeps(
-        provider=fake_provider,
+        router=fake_provider,
         policy=PlanModelPolicy(),
         workspace_handle=handle,
-        gate_policy=AutoApproveGatePolicy(),
+        gate_policy_lookup=static_gate_policy_lookup(
+            AutoApproveGatePolicy(ApprovalDecision(approved=True))
+        ),
     )
     result = await PLAN_WORKFLOW.execute(
         config={"user_input": "Investigate Suzuki coupling at varying temperatures."},
@@ -137,10 +137,10 @@ async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Pa
     workspace = Workspace(tmp_path / "ws")
     handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rejected_plan")
     deps = PlanDeps(
-        provider=FakeProvider(),
+        router=FakeProvider(),
         policy=PlanModelPolicy(),
         workspace_handle=handle,
-        gate_policy=_RejectingGate(),  # type: ignore[arg-type]
+        gate_policy_lookup=static_gate_policy_lookup(_RejectingGate()),  # type: ignore[arg-type]
     )
     result = await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)
     # On rejection: the workspace remains reviewable but is not ready for RunMode.

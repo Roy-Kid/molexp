@@ -19,7 +19,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.modes.plan.protocols import ModelTier
+from molexp.agent.router import ModelTier
 
 __all__ = [
     "EventCallback",

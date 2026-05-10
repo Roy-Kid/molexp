@@ -34,7 +34,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-import yaml
+from mollog import get_logger
 
 from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
 from molexp.agent.modes.plan.schemas import (
@@ -43,13 +43,29 @@ from molexp.agent.modes.plan.schemas import (
     RepairIterationRecord,
 )
 from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
-from molexp.workflow import RepairBudgetExceeded, Workflow, WorkflowResult
-from molexp.workspace import atomic_write_text
+from molexp.workflow import Workflow, WorkflowResult
 
 if TYPE_CHECKING:
     from molexp.agent.modes.plan.protocols import PlanDeps
 
-__all__ = ["drive_with_repair"]
+__all__ = ["RepairBudgetExceeded", "drive_with_repair"]
+
+
+_LOG = get_logger(__name__)
+
+
+class RepairBudgetExceeded(UserWarning):
+    """Emitted by the PlanMode review→repair loop when the configured
+    ``max_iterations`` budget is exhausted without the gate ever
+    approving the materialized plan.
+
+    Mirrors :class:`~molexp.workflow.LoopMaxItersExceeded` semantics: the
+    workflow itself does not raise — the outer driver forces the final
+    :class:`HandoffResult.status` to ``"rejected"`` and surfaces this
+    warning so callers can detect "we ran out of repair budget" without
+    having to inspect the manifest. Catch with
+    ``pytest.warns(RepairBudgetExceeded)`` or filter via :mod:`warnings`.
+    """
 
 
 # Default plan-level nodes to re-run when the reviewer specifies only
@@ -88,8 +104,11 @@ async def drive_with_repair(
     seed_outputs: dict[str, Any] | None = None
     iteration = 0
 
+    _LOG.info(f"[plan-repair] start max_iterations={max_iterations} workspace={handle.root()}")
     while True:
         current_deps = replace(deps, repair_iteration=iteration)
+        seed_keys = list(seed_outputs.keys()) if seed_outputs else None
+        _LOG.info(f"[plan-repair] iter={iteration} running spec={spec.name} seed_keys={seed_keys}")
         result = await spec.execute(
             config={"user_input": user_input},
             deps=current_deps,
@@ -98,14 +117,23 @@ async def drive_with_repair(
 
         handoff = _terminal_handoff(result)
         if handoff is None:
+            _LOG.error(f"[plan-repair] iter={iteration} aborted before reaching the review gate")
             # Pipeline failed before reaching the review gate; bail out.
             return result
 
         if handoff.decision.approved:
+            _LOG.info(
+                f"[plan-repair] iter={iteration} approved status={handoff.status} "
+                f"ready_for_run={handoff.ready_for_run}"
+            )
             return result
 
         # Rejected — check budget.
         if iteration + 1 >= max_iterations:
+            _LOG.warning(
+                f"[plan-repair] iter={iteration} budget_exhausted "
+                f"max_iterations={max_iterations} — forcing rejected"
+            )
             warnings.warn(
                 RepairBudgetExceeded(
                     f"PlanMode repair loop reached max_iterations={max_iterations} "
@@ -117,8 +145,14 @@ async def drive_with_repair(
 
         # Archive the live tree, persist the decision, update the manifest.
         decision = handoff.decision
+        _LOG.info(
+            f"[plan-repair] iter={iteration} rejected "
+            f"target_nodes={list(decision.target_node_ids)} "
+            f"target_tasks={list(decision.target_task_ids)} "
+            f"cascade={decision.cascade_downstream} — archiving"
+        )
         handle.archive_artifacts_for_repair(iteration)
-        _persist_decision(handle, decision)
+        handle.write_latest_decision(decision)
         _append_repair_history(handle, iteration, decision)
 
         # Build the next iteration's spec + seeds.
@@ -161,22 +195,7 @@ def _force_rejected(
         new_outputs["FinalHandoffCheck"] = rejected
     if "HumanReview" in new_outputs:
         new_outputs["HumanReview"] = rejected
-    return WorkflowResult(
-        status=result.status,
-        outputs=new_outputs,
-        run_id=result.run_id,
-        execution_id=result.execution_id,
-    )
-
-
-def _persist_decision(handle: PlanWorkspaceHandle, decision: ApprovalDecision) -> None:
-    """Write ``repairs/latest_decision.yaml`` so an out-of-band reader
-    can recover the most recent rejection without parsing the manifest."""
-    payload = decision.model_dump(mode="json")
-    text = yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
-    path = handle.latest_decision_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(path, text)
+    return result.model_copy(update={"outputs": new_outputs})
 
 
 def _append_repair_history(

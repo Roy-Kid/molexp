@@ -27,12 +27,15 @@ import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict
 
 from molexp.workspace import Workspace, atomic_write_text
+
+if TYPE_CHECKING:
+    from molexp.agent.modes.plan.schemas import ApprovalDecision
 
 __all__ = [
     "AGENT_PLAN_EXPERIMENTS_KIND",
@@ -416,6 +419,20 @@ class PlanWorkspaceHandle:
             default_flow_style=False,
         )
         atomic_write_text(data_path, text)
+        return path
+
+    def write_latest_decision(self, decision: ApprovalDecision) -> Path:
+        """Persist the most recent :class:`ApprovalDecision` to
+        ``<plan_id>/repairs/latest_decision.yaml`` so an out-of-band
+        reader can recover the rejection without parsing the manifest."""
+        path = self.latest_decision_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        text = yaml.safe_dump(
+            decision.model_dump(mode="json"),
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        atomic_write_text(path, text)
         return path
 
     # -- Generated-source writers (sub-spec 06) ---------------------------

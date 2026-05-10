@@ -21,17 +21,20 @@ LLM entirely — it just hashes and writes the raw user input.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import hashlib
 import importlib
 import json
 import sys
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from types import ModuleType
 from typing import Any, ClassVar, cast
 
 import yaml
+from mollog import get_logger
 from pydantic import BaseModel
 
 from molexp.agent.modes.plan.errors import SkeletonCompileError
@@ -66,6 +69,7 @@ from molexp.agent.modes.plan.workspace_layout import (
 from molexp.workflow import (
     Task,
     TaskContext,
+    TaskIO,
     Workflow,
     default_compiler,
     validate_workflow_contract,
@@ -89,6 +93,38 @@ __all__ = [
 ]
 
 
+_LOG = get_logger(__name__)
+
+
+# ── Pipeline-step labelling ─────────────────────────────────────────────────
+#
+# Stable execution order of the 11 PlanMode pipeline nodes. Lives here
+# rather than in :mod:`_pipeline` to keep ``tasks.py`` the single source
+# of node-name truth — the builder reads class names, this tuple lists
+# them in topological order so logs can show ``[plan-node 5/11 ...]``.
+_PIPELINE_ORDER: tuple[str, ...] = (
+    "IngestReport",
+    "DraftReportDigest",
+    "DraftImplementationPlan",
+    "CompileWorkflowIR",
+    "CompileTaskIR",
+    "GenerateWorkflowSkeleton",
+    "GenerateTaskTests",
+    "GenerateTaskImplementations",
+    "ValidateWorkspace",
+    "HumanReview",
+    "FinalHandoffCheck",
+)
+_PIPELINE_TOTAL = len(_PIPELINE_ORDER)
+_PIPELINE_INDEX: dict[str, int] = {n: i for i, n in enumerate(_PIPELINE_ORDER, 1)}
+
+
+def _tag(name: str) -> str:
+    """Format the ``[plan-node N/11 NodeName]`` prefix for a log line."""
+    idx = _PIPELINE_INDEX.get(name)
+    return f"[plan-node {idx}/{_PIPELINE_TOTAL} {name}]" if idx else f"[plan-node ?/? {name}]"
+
+
 # ── Bases ──────────────────────────────────────────────────────────────────
 
 
@@ -97,7 +133,7 @@ class PlanTask(Task):
 
 
 class PlanLLMTask(PlanTask):
-    """Plan task that invokes the provider to produce structured output.
+    """Plan task that invokes the router to produce structured output.
 
     The active :class:`~molexp.agent.modes.plan.policy.PlanModelPolicy`
     on ``ctx.deps.policy`` decides which :class:`ModelTier` the
@@ -112,10 +148,16 @@ class PlanLLMTask(PlanTask):
         *,
         user: str,
         schema: type[SchemaT],
+        node_id_suffix: str = "",
     ) -> SchemaT:
-        node_id = type(self).__name__
-        return await ctx.deps.provider.invoke(
-            tier=ctx.deps.policy.tier_for(node_id),
+        # Per-call logging is owned by the Router (see _pydanticai/router.py).
+        # ``node_id_suffix`` lets per-task fanout (codegen) tag each
+        # parallel call with its task_id so the router log + usage
+        # breakdown attribute work to the right artefact.
+        node_name = type(self).__name__
+        node_id = f"{node_name}/{node_id_suffix}" if node_id_suffix else node_name
+        return await ctx.deps.router.complete_structured(
+            tier=ctx.deps.policy.tier_for(node_name),
             system=self.SYSTEM_PROMPT,
             user=user,
             schema=schema,
@@ -138,15 +180,15 @@ class IngestReport(PlanTask):
         user_input = ctx.config.get("user_input")
         if not isinstance(user_input, str) or not user_input.strip():
             raise ValueError("IngestReport requires a non-empty 'user_input' in config.")
+        _LOG.info(f"{_tag('IngestReport')} start chars={len(user_input)}")
 
         report_dir = ctx.deps.workspace_handle.report_dir()
         report_path = report_dir / "original.md"
         _write_text(report_path, user_input)
 
-        return IngestReportResult(
-            report_path=report_path,
-            report_hash=hashlib.sha256(user_input.encode("utf-8")).hexdigest(),
-        )
+        digest_hash = hashlib.sha256(user_input.encode("utf-8")).hexdigest()
+        _LOG.info(f"{_tag('IngestReport')} done path={report_path} sha256={digest_hash[:12]}")
+        return IngestReportResult(report_path=report_path, report_hash=digest_hash)
 
 
 # ── Node 2: DraftReportDigest ──────────────────────────────────────────────
@@ -163,11 +205,14 @@ class DraftReportDigest(PlanLLMTask):
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, IngestReportResult]) -> DigestResult:
         ingest = ctx.inputs
+        _LOG.info(f"{_tag('DraftReportDigest')} start report_path={ingest.report_path}")
         report_text = Path(ingest.report_path).read_text(encoding="utf-8")
         digest = await self.invoke_llm(ctx, user=report_text, schema=ReportDigest)
 
         digest_path = ctx.deps.workspace_handle.report_dir() / "digest.md"
         _write_text(digest_path, _render_digest_markdown(digest))
+        goal_chars = len(digest.experimental_goal or "")
+        _LOG.info(f"{_tag('DraftReportDigest')} done path={digest_path} goal_chars={goal_chars}")
         return DigestResult(digest_path=digest_path, digest=digest)
 
 
@@ -185,6 +230,9 @@ class DraftImplementationPlan(PlanLLMTask):
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, DigestResult]) -> PlanBriefResult:
         digest_result = ctx.inputs
+        _LOG.info(
+            f"{_tag('DraftImplementationPlan')} start digest_path={digest_result.digest_path}"
+        )
         plan_brief = await self.invoke_llm(
             ctx,
             user=digest_result.digest.model_dump_json(),
@@ -192,6 +240,10 @@ class DraftImplementationPlan(PlanLLMTask):
         )
         plan_path = ctx.deps.workspace_handle.plan_dir() / "implementation_plan.md"
         _write_text(plan_path, _render_plan_brief_markdown(plan_brief))
+        _LOG.info(
+            f"{_tag('DraftImplementationPlan')} done path={plan_path} "
+            f"stages={len(plan_brief.stages)}"
+        )
         return PlanBriefResult(plan_path=plan_path, plan_brief=plan_brief)
 
 
@@ -210,6 +262,7 @@ class CompileWorkflowIR(PlanLLMTask):
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, PlanBriefResult]) -> WorkflowIRResult:
         plan_result = ctx.inputs
+        _LOG.info(f"{_tag('CompileWorkflowIR')} start plan_path={plan_result.plan_path}")
         contract = await self.invoke_llm(
             ctx,
             user=plan_result.plan_brief.model_dump_json(),
@@ -218,6 +271,7 @@ class CompileWorkflowIR(PlanLLMTask):
         ir_path = ctx.deps.workspace_handle.ir_dir() / "workflow.yaml"
         contract_dict = default_compiler.contract_to_dict(contract)
         _write_text(ir_path, default_compiler.ir_to_yaml(contract_dict))
+        _LOG.info(f"{_tag('CompileWorkflowIR')} done path={ir_path} tasks={len(contract.task_io)}")
         return WorkflowIRResult(workflow_yaml_path=ir_path, contract=contract)
 
 
@@ -242,19 +296,32 @@ class CompileTaskIR(PlanLLMTask):
     async def execute(self, ctx: TaskContext[None, PlanDeps, WorkflowIRResult]) -> TaskIRResult:
         ir_result = ctx.inputs
         tasks_ir_dir = ctx.deps.workspace_handle.tasks_ir_dir()
+        task_ios = ir_result.contract.task_io
+        n_tasks = len(task_ios)
+        tier = ctx.deps.policy.tier_for("CompileTaskIR")
+        _LOG.info(f"{_tag('CompileTaskIR')} start tasks={n_tasks} (parallel)")
 
-        paths: list[Path] = []
-        briefs: list[TaskIRBrief] = []
-        for task_io in ir_result.contract.task_io:
-            brief = await self.invoke_llm(
-                ctx,
+        async def _draft_one(task_io: TaskIO) -> TaskIRBrief:
+            brief = await ctx.deps.router.complete_structured(
+                tier=tier,
+                system=self.SYSTEM_PROMPT,
                 user=task_io.model_dump_json(),
                 schema=TaskIRBrief,
+                node_id=f"CompileTaskIR/{task_io.task_id}",
             )
             # Force the brief's task_id to match the contract entry —
             # the LLM may forget; the workflow_contract is authoritative.
             if brief.task_id != task_io.task_id:
                 brief = brief.model_copy(update={"task_id": task_io.task_id})
+            return brief
+
+        briefs_seq: tuple[TaskIRBrief, ...] = (
+            tuple(await asyncio.gather(*[_draft_one(t) for t in task_ios])) if task_ios else ()
+        )
+
+        paths: list[Path] = []
+        briefs: list[TaskIRBrief] = []
+        for task_io, brief in zip(task_ios, briefs_seq, strict=True):
             task_yaml = tasks_ir_dir / f"{task_io.task_id}.yaml"
             _write_text(
                 task_yaml,
@@ -267,6 +334,8 @@ class CompileTaskIR(PlanLLMTask):
             paths.append(task_yaml)
             briefs.append(brief)
 
+        n_stub = sum(1 for b in briefs if b.is_stub)
+        _LOG.info(f"{_tag('CompileTaskIR')} done briefs={len(briefs)} stubs={n_stub}")
         return TaskIRResult(task_ir_paths=tuple(paths), briefs=tuple(briefs))
 
 
@@ -290,6 +359,9 @@ class GenerateWorkflowSkeleton(PlanTask):
         # task IR result to confirm the per-task IR has been written.
         ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
         _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        _LOG.info(
+            f"{_tag('GenerateWorkflowSkeleton')} start tasks={len(ir_result.contract.task_io)}"
+        )
 
         contract = ir_result.contract
         package_path = ctx.deps.workspace_handle.experiment_pkg_dir()
@@ -311,6 +383,9 @@ class GenerateWorkflowSkeleton(PlanTask):
         _validate_python(_TASKS_INIT_BODY, str(tasks_init))
         _write_text(tasks_init, _TASKS_INIT_BODY)
 
+        _LOG.info(
+            f"{_tag('GenerateWorkflowSkeleton')} done workflow_py={workflow_py} pkg={package_path}"
+        )
         return SkeletonResult(workflow_py_path=workflow_py, package_path=package_path)
 
 
@@ -336,53 +411,41 @@ class GenerateTaskTests(PlanLLMTask):
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskTestsResult:
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
-        skeleton = _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
-        del skeleton  # path is informational; the writer uses workspace_handle
+        _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
 
-        # Repair-loop filter: when ``ctx.deps.repair_target_tasks`` is a
-        # non-None tuple, only briefs whose task_id is in the set get a
-        # fresh LLM call this iteration. The remaining briefs reuse the
-        # on-disk file from the prior round; the returned ``test_paths``
-        # tuple still covers every brief so ValidateWorkspace's
-        # consistency check sees a complete set.
-        repair_targets = ctx.deps.repair_target_tasks
         handle = ctx.deps.workspace_handle
+        repair_targets = ctx.deps.repair_target_tasks
+        _targets_repr = list(repair_targets) if repair_targets else None
+        _LOG.info(
+            f"{_tag('GenerateTaskTests')} start briefs={len(ir_result.briefs)} "
+            f"repair_targets={_targets_repr}"
+        )
 
-        paths: list[Path] = []
-        for brief in ir_result.briefs:
-            existing_path = handle.tests_dir() / f"test_{brief.task_id}.py"
-            if (
-                repair_targets is not None
-                and brief.task_id not in repair_targets
-                and existing_path.exists()
-            ):
-                # Untouched on this repair iteration — reuse last round.
-                paths.append(existing_path)
-                continue
-            if brief.is_stub:
-                # Skip the LLM round-trip — emit a pytest.skip stub
-                # synchronously. Saves a model call and keeps the
-                # stub-tolerance contract tight.
-                source = _render_stub_test_module(brief.task_id)
-            else:
-                module = await self.invoke_llm(
-                    ctx,
-                    user=brief.model_dump_json(),
-                    schema=TaskTestModule,
-                )
-                # Force task_id to match the brief; LLMs may forget.
-                if module.task_id != brief.task_id:
-                    module = module.model_copy(update={"task_id": brief.task_id})
-                source = module.source
-            path = handle.write_test_module(brief.task_id, source)
-            paths.append(path)
+        async def render_real(brief: TaskIRBrief) -> str:
+            module = await self.invoke_llm(
+                ctx,
+                user=brief.model_dump_json(),
+                schema=TaskTestModule,
+                node_id_suffix=brief.task_id,
+            )
+            if module.task_id != brief.task_id:
+                module = module.model_copy(update={"task_id": brief.task_id})
+            return module.source
+
+        paths = await _per_brief_codegen(
+            briefs=ir_result.briefs,
+            repair_targets=repair_targets,
+            existing_path_for=lambda task_id: handle.tests_dir() / f"test_{task_id}.py",
+            render_stub=_render_stub_test_module,
+            render_real=render_real,
+            write=handle.write_test_module,
+        )
 
         # Topology-pin test always lands.
-        ir_yaml_rel = "ir/workflow.yaml"
-        structure_source = _render_workflow_structure_test(ir_yaml_rel)
-        handle.write_workflow_structure_test(structure_source)
+        handle.write_workflow_structure_test(_render_workflow_structure_test("ir/workflow.yaml"))
 
-        return TaskTestsResult(test_paths=tuple(paths))
+        _LOG.info(f"{_tag('GenerateTaskTests')} done test_modules={len(paths)}")
+        return TaskTestsResult(test_paths=paths)
 
 
 # ── Node 8: GenerateTaskImplementations ────────────────────────────────────
@@ -411,38 +474,36 @@ class GenerateTaskImplementations(PlanLLMTask):
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
 
-        # See ``GenerateTaskTests.execute`` above for the
-        # ``repair_target_tasks`` semantic.
-        repair_targets = ctx.deps.repair_target_tasks
         handle = ctx.deps.workspace_handle
+        repair_targets = ctx.deps.repair_target_tasks
+        _targets_repr = list(repair_targets) if repair_targets else None
+        _LOG.info(
+            f"{_tag('GenerateTaskImplementations')} start briefs={len(ir_result.briefs)} "
+            f"repair_targets={_targets_repr}"
+        )
 
-        paths: list[Path] = []
-        for brief in ir_result.briefs:
-            existing_path = handle.tasks_pkg_dir() / f"{brief.task_id}.py"
-            if (
-                repair_targets is not None
-                and brief.task_id not in repair_targets
-                and existing_path.exists()
-            ):
-                paths.append(existing_path)
-                continue
-            if brief.is_stub:
-                source = _render_stub_implementation_module(brief.task_id)
-            else:
-                module = await self.invoke_llm(
-                    ctx,
-                    user=brief.model_dump_json(),
-                    schema=TaskImplementationModule,
-                )
-                source = (
-                    _render_stub_implementation_module(brief.task_id)
-                    if module.is_stub
-                    else module.source
-                )
-            path = handle.write_task_implementation(brief.task_id, source)
-            paths.append(path)
+        async def render_real(brief: TaskIRBrief) -> str:
+            module = await self.invoke_llm(
+                ctx,
+                user=brief.model_dump_json(),
+                schema=TaskImplementationModule,
+                node_id_suffix=brief.task_id,
+            )
+            if module.is_stub:
+                return _render_stub_implementation_module(brief.task_id)
+            return module.source
 
-        return TaskImplementationsResult(impl_paths=tuple(paths))
+        paths = await _per_brief_codegen(
+            briefs=ir_result.briefs,
+            repair_targets=repair_targets,
+            existing_path_for=lambda task_id: handle.tasks_pkg_dir() / f"{task_id}.py",
+            render_stub=_render_stub_implementation_module,
+            render_real=render_real,
+            write=handle.write_task_implementation,
+        )
+
+        _LOG.info(f"{_tag('GenerateTaskImplementations')} done impl_modules={len(paths)}")
+        return TaskImplementationsResult(impl_paths=paths)
 
 
 # ── Node 9: ValidateWorkspace ──────────────────────────────────────────────
@@ -463,6 +524,7 @@ class ValidateWorkspace(PlanTask):
         # ensure the upstream order ran.
         _expect_input(ctx.inputs, "GenerateTaskTests", TaskTestsResult)
         _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult)
+        _LOG.info(f"{_tag('ValidateWorkspace')} start")
 
         handle = ctx.deps.workspace_handle
         checks = _run_workspace_validation(
@@ -474,6 +536,13 @@ class ValidateWorkspace(PlanTask):
         passed = _checks_passed(checks)
         status = "ready_for_review" if passed else "validation_failed"
         summary = _summarize_checks(checks)
+        failed_names = [c.name for c in checks if not c.passed]
+        if passed:
+            _LOG.info(f"{_tag('ValidateWorkspace')} passed checks={len(checks)}")
+        else:
+            _LOG.warning(
+                f"{_tag('ValidateWorkspace')} failed checks={len(checks)} failures={failed_names}"
+            )
         report = ValidationReport(passed=passed, checks=tuple(checks), summary=summary)
         report_path = handle.write_validation_report(report)
         # Preserve repair_iterations / repair_history from any prior manifest
@@ -515,6 +584,10 @@ class HumanReview(PlanTask):
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
         validation_result = ctx.inputs
+        _LOG.info(
+            f"{_tag('HumanReview')} start iter={ctx.deps.repair_iteration} "
+            f"validation_passed={validation_result.passed}"
+        )
 
         # Re-read upstream artefacts from the workspace to assemble the
         # review view + handoff. We pull from disk rather than threading
@@ -551,6 +624,12 @@ class HumanReview(PlanTask):
         )
 
         decision = await ctx.deps.gate_policy.human_review(view)
+        _LOG.info(
+            f"{_tag('HumanReview')} decision approved={decision.approved} "
+            f"target_nodes={list(decision.target_node_ids)} "
+            f"target_tasks={list(decision.target_task_ids)} "
+            f"cascade={decision.cascade_downstream}"
+        )
 
         # Build the handoff regardless — both branches consume it.
         existing_manifest = _load_manifest_from_disk(handle.manifest_path())
@@ -591,6 +670,7 @@ class HumanReview(PlanTask):
             status=new_status,
         )
 
+        _LOG.info(f"{_tag('HumanReview')} done status={new_status}")
         return HandoffResult(
             handoff=handoff,
             decision=decision,
@@ -611,6 +691,10 @@ class FinalHandoffCheck(PlanTask):
     async def execute(self, ctx: TaskContext[None, PlanDeps, HandoffResult]) -> HandoffResult:
         prior = ctx.inputs
         handle = ctx.deps.workspace_handle
+        _LOG.info(
+            f"{_tag('FinalHandoffCheck')} start prior_status={prior.status} "
+            f"approved={prior.decision.approved}"
+        )
         final_checks = _run_handoff_validation(handle, prior.handoff, prefix="final_")
         checks = (*prior.validation_checks, *final_checks)
         validation_passed = prior.validation_passed and _checks_passed(final_checks)
@@ -620,6 +704,15 @@ class FinalHandoffCheck(PlanTask):
             validation_passed=validation_passed,
             ready_for_run=ready_for_run,
         )
+        failed_final = [c.name for c in final_checks if not c.passed]
+        if validation_passed:
+            _LOG.info(
+                f"{_tag('FinalHandoffCheck')} done status={status} ready_for_run={ready_for_run}"
+            )
+        else:
+            _LOG.warning(
+                f"{_tag('FinalHandoffCheck')} failed status={status} failures={failed_final}"
+            )
         summary = _summarize_checks(checks)
         report = ValidationReport(passed=validation_passed, checks=checks, summary=summary)
         report_path = handle.write_validation_report(report)
@@ -654,6 +747,58 @@ class FinalHandoffCheck(PlanTask):
 
 
 # ── Helpers (extended for sub-spec 06) ─────────────────────────────────────
+
+
+async def _per_brief_codegen[BriefT: TaskIRBrief](
+    *,
+    briefs: tuple[BriefT, ...],
+    repair_targets: tuple[str, ...] | frozenset[str] | None,
+    existing_path_for: Callable[[str], Path],
+    render_stub: Callable[[str], str],
+    render_real: Callable[[BriefT], Awaitable[str]],
+    write: Callable[[str, str], Path],
+) -> tuple[Path, ...]:
+    """Apply the repair-loop filter to a sequence of briefs and codegen
+    the surviving ones in parallel.
+
+    For each brief, picks one of three actions:
+    - **reuse** — repair-loop filter says "skip" AND the previous round's
+      output is on disk: that path is returned verbatim.
+    - **stub** — ``brief.is_stub`` is True: ``render_stub`` produces the
+      source synchronously (no LLM round-trip).
+    - **real** — ``render_real`` produces the source via the provider; all
+      "real" calls are gathered concurrently with :func:`asyncio.gather`
+      so wall-clock cost is bounded by the slowest call rather than the
+      sum.
+
+    The returned tuple preserves brief order so downstream consistency
+    checks see the canonical sequence.
+    """
+    real_indices: list[int] = []
+    real_coros: list[Awaitable[str]] = []
+    sources: list[str | Path] = [Path()] * len(briefs)
+    for i, brief in enumerate(briefs):
+        existing = existing_path_for(brief.task_id)
+        if repair_targets is not None and brief.task_id not in repair_targets and existing.exists():
+            sources[i] = existing
+            continue
+        if brief.is_stub:
+            sources[i] = render_stub(brief.task_id)
+            continue
+        real_indices.append(i)
+        real_coros.append(render_real(brief))
+
+    if real_coros:
+        for i, source in zip(real_indices, await asyncio.gather(*real_coros), strict=True):
+            sources[i] = source
+
+    paths: list[Path] = []
+    for brief, source in zip(briefs, sources, strict=True):
+        if isinstance(source, Path):
+            paths.append(source)
+        else:
+            paths.append(write(brief.task_id, source))
+    return tuple(paths)
 
 
 def _render_stub_test_module(task_id: str) -> str:

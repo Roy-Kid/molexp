@@ -26,7 +26,7 @@ from molexp.agent.session import AgentSession
 from molexp.workflow import Workflow
 from molexp.workspace import Workspace
 
-from .conftest import FakeProvider, canned_presets
+from .conftest import FakeRouter, canned_presets
 
 
 @pytest.fixture
@@ -38,11 +38,11 @@ def full_pipeline_handle(tmp_path: Path) -> PlanWorkspaceHandle:
 async def test_pipeline_full_run_through_human_review(
     full_pipeline_handle: PlanWorkspaceHandle,
 ) -> None:
-    provider = FakeProvider()
-    mode = PlanMode(workspace_handle=full_pipeline_handle, provider=provider)  # type: ignore[arg-type]
+    router = FakeRouter()
+    mode = PlanMode(workspace_handle=full_pipeline_handle)
     session = AgentSession()
     result = await mode.run(
-        harness=None,  # type: ignore[arg-type]
+        router=router,
         session=session,
         user_input="Investigate Suzuki coupling.",
     )
@@ -79,10 +79,10 @@ async def test_pipeline_full_records_per_node_outputs(
     full_pipeline_handle: PlanWorkspaceHandle,
 ) -> None:
     """Every one of the 11 pipeline nodes lands its *Result in outputs."""
-    provider = FakeProvider()
-    mode = PlanMode(workspace_handle=full_pipeline_handle, provider=provider)  # type: ignore[arg-type]
+    router = FakeRouter()
+    mode = PlanMode(workspace_handle=full_pipeline_handle)
     result = await mode.run(
-        harness=None,  # type: ignore[arg-type]
+        router=router,
         session=AgentSession(),
         user_input="report",
     )
@@ -120,12 +120,9 @@ async def test_auto_approved_but_non_importable_workspace_is_not_ready_for_run(
         ),
     )
     presets[TaskImplementationModule] = impls
-    mode = PlanMode(
-        workspace_handle=full_pipeline_handle,
-        provider=FakeProvider(presets=presets),  # type: ignore[arg-type]
-    )
+    mode = PlanMode(workspace_handle=full_pipeline_handle)
     result = await mode.run(
-        harness=None,  # type: ignore[arg-type]
+        router=FakeRouter(presets=presets),
         session=AgentSession(),
         user_input="report",
     )

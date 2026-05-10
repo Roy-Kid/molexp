@@ -142,6 +142,7 @@ class WorkflowState:
             parallel_runs={**self.parallel_runs, body_name: count},
             failed=self.failed,
             error=self.error,
+            seeded=self.seeded,
         )
 
     def fail(self, step_name: str, exc: Exception) -> WorkflowState:

@@ -204,7 +204,7 @@ def test_tasks_py_invoke_llm_uses_model_policy() -> None:
 
 def test_plan_deps_required_fields() -> None:
     fields = PlanDeps.__dataclass_fields__
-    assert {"provider", "policy", "workspace_handle"}.issubset(fields.keys())
+    assert {"router", "policy", "workspace_handle"}.issubset(fields.keys())
 
 
 def test_plan_deps_drops_legacy_service_fields() -> None:

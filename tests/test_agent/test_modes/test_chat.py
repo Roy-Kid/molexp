@@ -25,12 +25,20 @@ async def test_chat_mode_run_returns_non_empty_text_via_test_model() -> None:
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
-    from molexp.agent._pydanticai.harness import PydanticAIHarness
+    from molexp.agent._pydanticai.router import PydanticAIRouter
     from molexp.agent.mode import AgentRunResult
+    from molexp.agent.router import ModelTier
     from molexp.agent.session import AgentSession
 
-    harness = PydanticAIHarness(model=TestModel())  # type: ignore[arg-type]
+    test_model = TestModel()
+    router = PydanticAIRouter(
+        models={
+            ModelTier.CHEAP: test_model,
+            ModelTier.DEFAULT: test_model,
+            ModelTier.HEAVY: test_model,
+        },
+    )
     mode = ChatMode(config=ChatModeConfig())
-    result = await mode.run(harness=harness, session=AgentSession(), user_input="ping")
+    result = await mode.run(router=router, session=AgentSession(), user_input="ping")
     assert isinstance(result, AgentRunResult)
     assert result.text

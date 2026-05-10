@@ -37,7 +37,7 @@ async def test_generate_task_tests_emits_three_modules_plus_structure(
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
-        provider=fake,
+        router=fake,
         policy=PlanModelPolicy(),
         workspace_handle=gen_tests_handle,
     )
@@ -82,7 +82,7 @@ async def test_generate_task_tests_stub_emits_pytest_skip(
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
-        provider=fake,
+        router=fake,
         policy=PlanModelPolicy(),
         workspace_handle=gen_tests_handle,
     )

@@ -22,4 +22,4 @@ def test_review_mode_config_is_frozen() -> None:
 async def test_review_mode_run_raises_phase_2() -> None:
     mode = ReviewMode(config=ReviewModeConfig())
     with pytest.raises(NotImplementedError, match="phase 2"):
-        await mode.run(harness=None, session=AgentSession(), user_input="x")  # type: ignore[arg-type]
+        await mode.run(router=None, session=AgentSession(), user_input="x")  # type: ignore[arg-type]

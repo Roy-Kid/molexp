@@ -23,6 +23,7 @@ from molexp.cli import (
     asset,
     experiment,
     explore_cmd,
+    mcp_cmd,
     project,
     run_cmd,
     runs,

@@ -17,18 +17,18 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan import PlanWorkspaceHandle, RepairBudgetExceeded
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
-from molexp.agent.modes.plan.protocols import (
-    AutoApproveGatePolicy,
-    GatePolicy,
-    PlanDeps,
-)
+from molexp.agent.modes.plan.protocols import PlanDeps, PlanGatePolicy
 from molexp.agent.modes.plan.schemas import (
     ApprovalDecision,
     PlanReviewView,
 )
-from molexp.workflow import RepairBudgetExceeded
+from molexp.agent.policy import (
+    AutoApproveGatePolicy,
+    GatePolicy,
+    static_gate_policy_lookup,
+)
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
@@ -36,7 +36,7 @@ from .conftest import FakeProvider
 # ── Stub gates used by the tests ───────────────────────────────────────────
 
 
-class _ApproveOnPass(GatePolicy):
+class _ApproveOnPass(GatePolicy[PlanReviewView, ApprovalDecision]):
     """Records each ``human_review`` invocation; approves on the configured pass."""
 
     def __init__(self, approve_at: int) -> None:
@@ -57,7 +57,7 @@ class _ApproveOnPass(GatePolicy):
         )
 
 
-class _AlwaysReject(GatePolicy):
+class _AlwaysReject(GatePolicy[PlanReviewView, ApprovalDecision]):
     def __init__(self) -> None:
         self.calls = 0
 
@@ -79,14 +79,19 @@ def repair_handle(tmp_path: Path) -> PlanWorkspaceHandle:
     return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="rep_loop")
 
 
-def _build_deps(handle: PlanWorkspaceHandle, *, gate_policy: GatePolicy | None = None) -> PlanDeps:
+def _build_deps(handle: PlanWorkspaceHandle, *, gate_policy: PlanGatePolicy | None = None) -> PlanDeps:
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
 
+    resolved = (
+        gate_policy
+        if gate_policy is not None
+        else AutoApproveGatePolicy(ApprovalDecision(approved=True))
+    )
     return PlanDeps(
-        provider=FakeProvider(),  # type: ignore[arg-type]
+        router=FakeProvider(),  # type: ignore[arg-type]
         policy=STANDARD_PLAN_POLICY,
         workspace_handle=handle,
-        gate_policy=gate_policy if gate_policy is not None else AutoApproveGatePolicy(),
+        gate_policy_lookup=static_gate_policy_lookup(resolved),
     )
 
 

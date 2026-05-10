@@ -1,6 +1,6 @@
 """Normalized provider errors — single exception type the wrapper raises.
 
-Callers of :class:`PydanticAIProvider` see exactly one error class
+Callers of :class:`PydanticAIRouter` see exactly one error class
 (:class:`ProviderError`) regardless of which underlying SDK / network
 layer surfaced the failure. The :func:`classify` helper maps the
 known exception families (``pydantic.ValidationError``,
@@ -23,7 +23,7 @@ from enum import StrEnum
 
 import pydantic
 
-from molexp.agent.modes.plan.protocols import ModelTier
+from molexp.agent.router import ModelTier
 
 __all__ = [
     "ErrorKind",

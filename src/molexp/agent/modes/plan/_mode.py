@@ -17,35 +17,37 @@ contract per acceptance criterion ``ac-010``.
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
-from molexp.agent.modes.plan.protocols import (
-    AutoApproveGatePolicy,
-    GatePolicy,
-    PlanDeps,
-    Provider,
-)
+from molexp.agent.modes.plan.protocols import PlanDeps, PlanGatePolicy
 from molexp.agent.modes.plan.schemas import (
+    ApprovalDecision,
     DigestResult,
     HandoffResult,
     PlanBriefResult,
     SkeletonResult,
 )
+from molexp.agent.policy import AutoApproveGatePolicy
 from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
-    from molexp.agent._pydanticai.harness import PydanticAIHarness
+    from molexp.agent.router import Router
     from molexp.agent.session import AgentSession
 
 
 __all__ = ["PlanMode", "PlanModeConfig", "PlanResult"]
+
+
+_LOG = get_logger(__name__)
 
 
 # ── Public configs / results ────────────────────────────────────────────────
@@ -100,18 +102,44 @@ class PlanMode(AgentMode):
     - ``workspace_handle`` (required) — the
       :class:`PlanWorkspaceHandle` rooted at the experiment workspace
       this run will write into.
-    - ``provider`` — LLM dispatch gateway. Defaults to a fresh
-      ``PydanticAIProvider``; supply a stub for tests.
     - ``model_policy`` — :class:`PlanModelPolicy` defining
       tier-per-node assignments. Defaults to ``STANDARD_PLAN_POLICY``.
+    - ``gate_policy`` — initial :class:`~molexp.agent.policy.GatePolicy`
+      consulted at the ``HumanReview`` gate. Defaults to
+      :class:`~molexp.agent.policy.AutoApproveGatePolicy` bound to
+      ``ApprovalDecision(approved=True)``. Hot-swappable mid-run via
+      :meth:`set_gate_policy` — see below.
     - ``artifacts_root``, ``max_iterations``, ``temperature`` — spare
-      knobs threaded into :class:`PlanModeConfig`. Currently
-      informational only; sub-spec 06's repair loop will start using
-      them.
+      knobs threaded into :class:`PlanModeConfig`. ``max_iterations``
+      caps the review→repair loop budget; the others are
+      informational placeholders.
 
-    The ``harness`` parameter handed in by :class:`AgentRunner.run` is
-    intentionally unused: model selection is a per-task tier policy,
-    not a runner-level choice.
+    The :class:`Router` is supplied by :class:`AgentRunner` at run
+    time. PlanMode does not take a ``router=`` kwarg — model
+    configuration is a runner-level concern. Tests that need a custom
+    dispatcher inject one through ``AgentRunner(router=<fake>)`` and
+    drive ``runner.run(...)``; tests that drive the workflow directly
+    (``PLAN_WORKFLOW.execute(...)``) build :class:`PlanDeps`
+    explicitly and supply the router on that side.
+
+    Mid-run gate swap
+    -----------------
+
+    Use :meth:`set_gate_policy` / :meth:`get_gate_policy` to replace or
+    inspect the active gate at any time during a running plan — for
+    example from a UI button, a SIGINT handler, or another coroutine
+    that decides "stop asking, just go"::
+
+        mode = PlanMode(workspace_handle=..., gate_policy=PromptGatePolicy())
+        # ... runner.run(...) executes in a task ...
+        mode.set_gate_policy(  # next HumanReview auto-approves
+            AutoApproveGatePolicy(ApprovalDecision(approved=True))
+        )
+
+    The deps the :class:`HumanReview` node receives carries a
+    :attr:`PlanDeps.gate_policy_lookup` callable that closes over this
+    instance's ``_gate_policy`` slot, so each gate consultation reads
+    the latest assigned policy.
     """
 
     name = "plan"
@@ -120,9 +148,8 @@ class PlanMode(AgentMode):
         self,
         *,
         workspace_handle: PlanWorkspaceHandle,
-        provider: Provider | None = None,
         model_policy: PlanModelPolicy | None = None,
-        gate_policy: GatePolicy | None = None,
+        gate_policy: PlanGatePolicy | None = None,
         artifacts_root: Path | None = None,
         max_iterations: int = 8,
         temperature: float | None = None,
@@ -132,29 +159,56 @@ class PlanMode(AgentMode):
             max_iterations=max_iterations,
             temperature=temperature,
         )
-        if provider is None:
-            from molexp.agent._pydanticai.provider import PydanticAIProvider
-
-            provider = PydanticAIProvider()
-        self._deps = PlanDeps(
-            provider=provider,
-            policy=model_policy if model_policy is not None else STANDARD_PLAN_POLICY,
-            workspace_handle=workspace_handle,
-            gate_policy=gate_policy if gate_policy is not None else AutoApproveGatePolicy(),
+        self._workspace_handle = workspace_handle
+        self._model_policy = model_policy if model_policy is not None else STANDARD_PLAN_POLICY
+        self._gate_policy: PlanGatePolicy = (
+            gate_policy
+            if gate_policy is not None
+            else AutoApproveGatePolicy(ApprovalDecision(approved=True))
         )
+
+    def get_gate_policy(self) -> PlanGatePolicy:
+        """Return the current gate policy consulted by ``HumanReview``."""
+        return self._gate_policy
+
+    def set_gate_policy(self, policy: PlanGatePolicy) -> None:
+        """Replace the active gate policy; effective from the next consultation.
+
+        ``HumanReview`` resolves the policy through
+        :attr:`~molexp.agent.modes.plan.protocols.PlanDeps.gate_policy_lookup`
+        on every invocation, so a call to this method during a running
+        plan takes effect on the next iteration's review without
+        rebuilding deps.
+        """
+        self._gate_policy = policy
 
     async def run(
         self,
         *,
-        harness: PydanticAIHarness,  # noqa: ARG002 — runner-supplied; ignored by design (per-task tier policy)
+        router: Router,
         session: AgentSession,
         user_input: str,
     ) -> AgentRunResult:
+        router.clear_usage()
         session.append(Message(role="user", content=user_input))
-
-        result = await drive_with_repair(
-            self._deps, user_input, max_iterations=self.config.max_iterations
+        _LOG.info(
+            f"[plan-mode] run start workspace={self._workspace_handle.root()} "
+            f"plan_id={self._workspace_handle.plan_id} "
+            f"max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
         )
+
+        deps = PlanDeps(
+            router=router,
+            policy=self._model_policy,
+            workspace_handle=self._workspace_handle,
+            gate_policy_lookup=lambda: self._gate_policy,
+        )
+        t0 = time.monotonic()
+        result = await drive_with_repair(
+            deps, user_input, max_iterations=self.config.max_iterations
+        )
+        elapsed = time.monotonic() - t0
+        breakdown = router.snapshot_usage()
 
         outputs = result.outputs
         digest_result = outputs.get("DraftReportDigest")
@@ -181,12 +235,12 @@ class PlanMode(AgentMode):
                 f"PlanMode {handoff_result.status} "
                 f"plan_id={handoff_result.handoff.plan_id} "
                 f"ready_for_run={handoff_result.ready_for_run} at "
-                f"{self._deps.workspace_handle.root()}."
+                f"{self._workspace_handle.root()}."
             )
         elif isinstance(skeleton_result, SkeletonResult):
             summary = (
                 f"PlanMode materialized {skeleton_result.workflow_py_path} "
-                f"under {self._deps.workspace_handle.root()}."
+                f"under {self._workspace_handle.root()}."
             )
         else:
             summary = "PlanMode pipeline did not reach the skeleton-generation step."
@@ -225,7 +279,7 @@ class PlanMode(AgentMode):
         }
 
         mode_state: dict[str, Any] = {
-            "workspace_path": self._deps.workspace_handle.root(),
+            "workspace_path": self._workspace_handle.root(),
             "outputs": {
                 name: (payload.model_dump() if isinstance(payload, BaseModel) else payload)
                 for name, payload in outputs.items()
@@ -235,8 +289,23 @@ class PlanMode(AgentMode):
 
         session.append(Message(role="assistant", content=view.summary))
         session.mode_state["plan"] = plan_compat
+        _LOG.info(
+            f"[plan-mode] run done {elapsed:.1f}s status={status} "
+            f"approved={approved} ready_for_run={ready_for_run}"
+        )
+        _LOG.info(
+            f"[plan-mode] usage in={breakdown.total.input_tokens} "
+            f"out={breakdown.total.output_tokens} total={breakdown.total.total_tokens} "
+            f"reqs={breakdown.total.requests}"
+        )
+        # Multi-line breakdown table at the end so it's the last thing
+        # the user sees; one chunk so it doesn't get interleaved with
+        # other loggers' output.
+        _LOG.info("[plan-mode] usage breakdown:\n" + breakdown.render_table())
         return AgentRunResult(
             text=view.summary,
             messages=tuple(session.history),
             mode_state=mode_state,
+            usage=breakdown.total,
+            usage_breakdown=breakdown,
         )

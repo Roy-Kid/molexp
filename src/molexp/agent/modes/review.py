@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from molexp.agent.mode import AgentMode, AgentRunResult
 
 if TYPE_CHECKING:
-    from molexp.agent._pydanticai.harness import PydanticAIHarness
+    from molexp.agent.router import Router
     from molexp.agent.session import AgentSession
 
 
@@ -35,7 +35,7 @@ class ReviewMode(AgentMode):
     async def run(
         self,
         *,
-        harness: PydanticAIHarness,
+        router: Router,
         session: AgentSession,
         user_input: str,
     ) -> AgentRunResult:

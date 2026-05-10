@@ -35,7 +35,7 @@ def _make_ctx(
 ) -> TaskContext:
     _write_contract_and_workflow(handle, briefs)
     deps = PlanDeps(
-        provider=_NoopProvider(),  # type: ignore[arg-type]
+        router=_NoopRouter(),  # type: ignore[arg-type]
         policy=PlanModelPolicy(),
         workspace_handle=handle,
     )
@@ -56,14 +56,14 @@ def _make_ctx(
     )
 
 
-class _NoopProvider:
-    """Validate doesn't call the provider, but PlanDeps requires one."""
+class _NoopRouter:
+    """Validate doesn't call the router, but PlanDeps requires one."""
 
-    async def invoke(self, **_kwargs):  # type: ignore[no-untyped-def]
-        raise RuntimeError("ValidateWorkspace must not call provider")
+    async def complete_text(self, **_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("ValidateWorkspace must not call router")
 
-    async def invoke_with_template(self, **_kwargs):  # type: ignore[no-untyped-def]
-        raise RuntimeError("ValidateWorkspace must not call provider")
+    async def complete_structured(self, **_kwargs):  # type: ignore[no-untyped-def]
+        raise RuntimeError("ValidateWorkspace must not call router")
 
 
 @pytest.fixture

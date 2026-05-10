@@ -16,6 +16,8 @@ name; the rest take a single bare upstream value.
 
 from __future__ import annotations
 
+from mollog import get_logger
+
 from molexp.agent.modes.plan.tasks import (
     CompileTaskIR,
     CompileWorkflowIR,
@@ -35,6 +37,9 @@ __all__ = [
     "PLAN_WORKFLOW",
     "build_plan_workflow",
 ]
+
+
+_LOG = get_logger(__name__)
 
 
 def build_plan_workflow() -> Workflow:
@@ -118,7 +123,9 @@ def build_plan_workflow() -> Workflow:
         name="FinalHandoffCheck",
         depends_on=["HumanReview"],
     )
-    return builder.build()
+    spec = builder.build()
+    _LOG.debug(f"[plan-pipeline] built workflow_id={spec.workflow_id} tasks={len(spec._tasks)}")
+    return spec
 
 
 PLAN_WORKFLOW: Workflow = build_plan_workflow()

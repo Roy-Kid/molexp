@@ -1,11 +1,11 @@
 """``AgentRunner`` + ``ChatMode`` — the minimum viable agent loop.
 
-Demonstrates the entire public agent surface: ``AgentRunner``, ``ChatMode``,
-``AgentSession``, and the ``AgentRunResult`` it returns.
+Demonstrates the entire public agent surface: ``AgentRunner``,
+``ChatMode``, ``AgentSession``, and the ``AgentRunResult`` it returns.
 
 Uses ``pydantic_ai.models.test.TestModel`` so the example is reproducible
-without an API key. To talk to a real provider, replace the harness setup
-with a model string like ``"openai:gpt-4o-mini"`` and set ``OPENAI_API_KEY``.
+without an API key. To talk to a real provider, replace ``model=`` with
+a string like ``"openai:gpt-4o-mini"`` and set ``OPENAI_API_KEY``.
 
 Run directly::
 
@@ -18,20 +18,21 @@ import asyncio
 
 from pydantic_ai.models.test import TestModel
 
-from molexp.agent import AgentSession
-from molexp.agent._pydanticai.harness import PydanticAIHarness
+from molexp.agent import AgentRunner, AgentSession
 from molexp.agent.modes import ChatMode, ChatModeConfig
 
 
 async def main() -> None:
-    # The harness is normally constructed by ``AgentRunner`` from the
-    # model string passed to its constructor.  Here we drive it directly
-    # so the example doesn't depend on a real provider.
-    mode = ChatMode(config=ChatModeConfig(system_prompt="you are concise"))
-    harness = PydanticAIHarness(model=TestModel())  # offline, deterministic.
+    runner = AgentRunner(
+        mode=ChatMode(config=ChatModeConfig(system_prompt="you are concise")),
+        # ``TestModel`` is a pydantic-ai model object — accepted in lieu of
+        # a model-id string. The runner normalizes this single value across
+        # every tier so PlanMode-style routing also works in tests.
+        model=TestModel(),  # type: ignore[arg-type]
+    )
 
     session = AgentSession()
-    result = await mode.run(harness=harness, session=session, user_input="ping")
+    result = await runner.run(session, "ping")
 
     print(f"text:           {result.text}")
     print(f"history turns:  {len(result.messages)}")
