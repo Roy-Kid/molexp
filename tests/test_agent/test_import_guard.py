@@ -17,8 +17,8 @@ Two pydantic-SDK invariants also live here:
    ``src/molexp/workflow/_pydantic_graph/``. PlanMode drives multi-step
    workflows through the public ``molexp.workflow`` API.
 3. Plain ``import molexp.agent`` does not eagerly load ``pydantic_ai``
-   — the SDK is loaded lazily when ``PydanticAIHarness`` is
-   constructed.
+   — the SDK is loaded lazily when ``PydanticAIRouter`` is
+   constructed (on first ``AgentRunner.run``).
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def test_pydantic_graph_never_imported_in_agent() -> None:
 def test_importing_molexp_agent_does_not_load_pydantic_ai() -> None:
     """``import molexp.agent`` must not eagerly import pydantic_ai.
 
-    The harness is heavy and the SDK takes time to load; agent's
+    The router is heavy and the SDK takes time to load; agent's
     runner constructs it lazily on first ``.run()``. We only assert
     pydantic_ai laziness here — pydantic_graph may legitimately load
     transitively through ``molexp.workflow`` (PlanMode wiring), and
@@ -121,6 +121,48 @@ def test_importing_molexp_agent_does_not_load_pydantic_ai() -> None:
         "    f'pydantic_ai was eagerly loaded; '\n"
         "    f'check that no module under agent/ imports it at top level '\n"
         "    f'outside agent/_pydanticai/.'\n"
+        ")\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_importing_molexp_agent_router_does_not_load_pydantic_ai() -> None:
+    """``import molexp.agent.router`` (the protocol module) must also stay lazy.
+
+    The protocol file deliberately defers all SDK imports to the concrete
+    :class:`~molexp.agent._pydanticai.router.PydanticAIRouter` so test
+    fakes can implement the protocol without paying the SDK load cost.
+    """
+    code = (
+        "import sys\n"
+        "import molexp.agent.router  # noqa: F401\n"
+        "assert 'pydantic_ai' not in sys.modules, (\n"
+        "    f'pydantic_ai was eagerly loaded by molexp.agent.router; '\n"
+        "    f'the protocol module must not import the SDK.'\n"
+        ")\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
+def test_importing_mcp_defaults_stays_lazy() -> None:
+    """ac-014 — ``import molexp.agent.mcp.defaults`` stays SDK-free.
+
+    The defaults module declares the platform's seeded MCP servers and
+    the seeding helper; nothing in it should pull in ``pydantic_ai`` or
+    ``pydantic_graph``. The seeding fires under
+    :class:`~molexp.agent.mcp.store.McpStore` construction, but neither
+    side path should require the SDKs.
+    """
+    code = (
+        "import sys\n"
+        "import molexp.agent.mcp.defaults  # noqa: F401\n"
+        "assert 'pydantic_ai' not in sys.modules, (\n"
+        "    f'pydantic_ai was eagerly loaded by molexp.agent.mcp.defaults'\n"
+        ")\n"
+        "assert 'pydantic_graph' not in sys.modules, (\n"
+        "    f'pydantic_graph was eagerly loaded by molexp.agent.mcp.defaults'\n"
         ")\n"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

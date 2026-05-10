@@ -73,6 +73,11 @@ class StdioSpec(BaseModel):
     command: str = Field(min_length=1, max_length=4096)
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
+    # Free-form per-server prompt fragment surfaced to the LLM. The runner
+    # concatenates the strings from every active entry and prepends them
+    # to the mode's system prompt — see ``AgentRunner._compose_system_prompt``.
+    # Round-trips through ``mcp.json``; empty string means "no preamble".
+    usage_instructions: str = ""
 
 
 class OAuth2AuthSpec(BaseModel):
@@ -114,6 +119,8 @@ class HttpSpec(BaseModel):
     # only OAuth 2.0 is supported; once a second auth type lands, re-wrap
     # this field as ``Annotated[Union[...], Discriminator("type")]``.
     auth: OAuth2AuthSpec | None = None
+    # See :class:`StdioSpec.usage_instructions`.
+    usage_instructions: str = ""
 
 
 McpServerSpec = Annotated[StdioSpec | HttpSpec, Discriminator("type")]
@@ -178,6 +185,12 @@ class McpServerEntry(BaseModel):
     auth: AuthSummary | None = None
     created_at: str = ""
     updated_at: str = ""
+    # Mirrors :attr:`StdioSpec.usage_instructions` /
+    # :attr:`HttpSpec.usage_instructions`. The runner reads it via
+    # ``McpStore.list()`` to compose the system-prompt preamble; the
+    # settings UI may surface it as a help string. Defaults to ``""``
+    # so older configs without the field load cleanly.
+    usage_instructions: str = ""
 
 
 class ResolvedSpec(BaseModel):
@@ -304,6 +317,14 @@ class McpStore:
         self._workspace_secrets = McpSecretsStore(self._workspace_root / MCP_SECRETS_FILENAME)
         self._user_secrets = McpSecretsStore(self._user_dir / MCP_SECRETS_FILENAME)
         self._lock = Lock()
+        # First-run seeding of platform-default MCP servers (molmcp). The
+        # helper is best-effort: a read-only HOME emits a warning and
+        # returns False, leaving the rest of the agent unaffected. Imported
+        # lazily so a future test that wants to disable seeding entirely
+        # can monkeypatch ``molexp.agent.mcp.defaults.seed_user_defaults``.
+        from molexp.agent.mcp.defaults import MCP_SEEDED_FILENAME, seed_user_defaults
+
+        seed_user_defaults(self._user_path, self._user_dir / MCP_SEEDED_FILENAME)
 
     # ── Path / store accessors ─────────────────────────────────────────────
 
@@ -467,9 +488,12 @@ class McpStore:
     ) -> McpServerEntry:
         created_at = ""
         updated_at = ""
+        usage_instructions = ""
         if isinstance(raw, dict):
             created_at = str(raw.get("created_at", "") or "")
             updated_at = str(raw.get("updated_at", "") or "")
+            raw_usage = raw.get("usage_instructions", "")
+            usage_instructions = raw_usage if isinstance(raw_usage, str) else ""
 
         if not isinstance(raw, dict):
             return McpServerEntry(
@@ -488,6 +512,7 @@ class McpStore:
                 invalid_reason="entry is not an object",
                 created_at=created_at,
                 updated_at=updated_at,
+                usage_instructions=usage_instructions,
             )
         try:
             spec = _SPEC_ADAPTER.validate_python(raw)
@@ -515,6 +540,7 @@ class McpStore:
                 invalid_reason=_format_validation_error(exc),
                 created_at=created_at,
                 updated_at=updated_at,
+                usage_instructions=usage_instructions,
             )
 
         auth_summary: AuthSummary | None = None
@@ -558,6 +584,7 @@ class McpStore:
             auth=auth_summary,
             created_at=created_at,
             updated_at=updated_at,
+            usage_instructions=spec.usage_instructions,
         )
 
     def _has_secret(self, key: str) -> bool:

@@ -7,23 +7,34 @@ import sys
 
 import pytest
 
+from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
 from molexp.agent.mcp.store import (
+    _SPEC_ADAPTER,
     MCP_CONFIG_FILENAME,
+    HttpSpec,
     McpScope,
     McpSecretsStore,
     McpStore,
+    StdioSpec,
     UnresolvedSecretError,
 )
 
 
 @pytest.fixture
 def isolated_user_dir(tmp_path, monkeypatch):
-    """Redirect ``USER_DIR`` to a temp dir so tests never touch ``~/.molexp``."""
+    """Redirect ``USER_DIR`` to a temp dir so tests never touch ``~/.molexp``.
+
+    Also stubs out platform-default seeding (``molmcp``) so tests in this
+    module — which predate the seeding feature — observe an empty User
+    config. The seeding contract has its own coverage in
+    :mod:`tests.test_agent.test_mcp.test_defaults`.
+    """
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     fake_user_dir = fake_home / ".molexp"
     monkeypatch.setattr(mcp_mod, "USER_DIR", fake_user_dir)
+    monkeypatch.setattr(defaults_mod, "seed_user_defaults", lambda *a, **kw: False)
     return fake_user_dir
 
 
@@ -533,3 +544,65 @@ def test_corrupt_config_returns_empty(tmp_path, isolated_user_dir):
     (workspace / MCP_CONFIG_FILENAME).write_text("{not json")
     store = McpStore(workspace)
     assert store.list() == []
+
+
+# ── usage_instructions field (molmcp-agent-default) ───────────────────────
+
+
+@pytest.mark.unit
+def test_stdio_spec_usage_instructions_round_trip():
+    """ac-001 — StdioSpec round-trips an optional ``usage_instructions``."""
+    spec = _SPEC_ADAPTER.validate_python(
+        {"type": "stdio", "command": "x", "usage_instructions": "FOO"}
+    )
+    assert isinstance(spec, StdioSpec)
+    assert spec.usage_instructions == "FOO"
+    dumped = spec.model_dump()
+    assert dumped["usage_instructions"] == "FOO"
+
+    # Default: absent → empty string.
+    bare = _SPEC_ADAPTER.validate_python({"type": "stdio", "command": "x"})
+    assert isinstance(bare, StdioSpec)
+    assert bare.usage_instructions == ""
+
+
+@pytest.mark.unit
+def test_http_spec_usage_instructions_round_trip():
+    """ac-002 — HttpSpec round-trips an optional ``usage_instructions``."""
+    spec = _SPEC_ADAPTER.validate_python(
+        {"type": "http", "url": "https://x", "usage_instructions": "BAR"}
+    )
+    assert isinstance(spec, HttpSpec)
+    assert spec.usage_instructions == "BAR"
+    dumped = spec.model_dump()
+    assert dumped["usage_instructions"] == "BAR"
+
+    bare = _SPEC_ADAPTER.validate_python({"type": "http", "url": "https://x"})
+    assert isinstance(bare, HttpSpec)
+    assert bare.usage_instructions == ""
+
+
+@pytest.mark.unit
+def test_entry_surfaces_usage_instructions(store):
+    """ac-003 — McpServerEntry surfaces the on-disk ``usage_instructions``."""
+    store.upsert(
+        McpScope.USER,
+        "x",
+        {"type": "stdio", "command": "x", "usage_instructions": "DOC"},
+    )
+    entry = store.get(McpScope.USER, "x")
+    assert entry is not None
+    assert entry.usage_instructions == "DOC"
+
+
+@pytest.mark.unit
+def test_entry_usage_instructions_default_empty(store):
+    """Companion to ac-003 — entries written without the field expose ``""``."""
+    store.upsert(
+        McpScope.USER,
+        "y",
+        {"type": "stdio", "command": "y"},
+    )
+    entry = store.get(McpScope.USER, "y")
+    assert entry is not None
+    assert entry.usage_instructions == ""

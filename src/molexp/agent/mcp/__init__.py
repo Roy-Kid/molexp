@@ -18,6 +18,13 @@ This subpackage owns:
 
 from __future__ import annotations
 
+from molexp.agent.mcp.defaults import (
+    MCP_DEFAULTS,
+    MCP_SEEDED_FILENAME,
+    MOLMCP_COMMAND_ENV,
+    MOLMCP_USAGE_INSTRUCTIONS,
+    seed_user_defaults,
+)
 from molexp.agent.mcp.oauth import (
     START_TIMEOUT_SECONDS,
     FileTokenStorage,
@@ -58,7 +65,11 @@ _register()
 
 __all__ = [
     "MCP_CONFIG_FILENAME",
+    "MCP_DEFAULTS",
     "MCP_SECRETS_FILENAME",
+    "MCP_SEEDED_FILENAME",
+    "MOLMCP_COMMAND_ENV",
+    "MOLMCP_USAGE_INSTRUCTIONS",
     "PROBE_TIMEOUT_SECONDS",
     "SOURCE_NAME",
     "START_TIMEOUT_SECONDS",
@@ -78,6 +89,7 @@ __all__ = [
     "default_redirect_uri",
     "list_mcp_tools",
     "probe_server",
+    "seed_user_defaults",
     "session_registry",
     "storage_for",
 ]
