@@ -1196,8 +1196,8 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
       ``"discovery_skipped"`` (pure-stdlib paths exempt from the gate).
     """
     from molexp.agent.modes.plan.capability import (
-        MOLCRAFTS_NAMESPACES,
         CapabilityEvidenceBatch,
+        extract_ast_refs,
         extract_declared_refs,
     )
 
@@ -1213,9 +1213,7 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
         ]
 
     try:
-        batch = CapabilityEvidenceBatch.model_validate(
-            yaml.safe_load(evidence_path.read_text())
-        )
+        batch = CapabilityEvidenceBatch.model_validate(yaml.safe_load(evidence_path.read_text()))
     except (yaml.YAMLError, ValueError) as exc:
         return [
             CheckResult(
@@ -1256,7 +1254,7 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
         declared = extract_declared_refs(tree)
         for ref in sorted(declared - evidence_refs):
             declared_misses.append(f"{path.name}:{ref}")
-        ast_refs = _collect_ast_refs(tree, namespaces=MOLCRAFTS_NAMESPACES)
+        ast_refs = extract_ast_refs(tree)
         for ref in sorted(ast_refs - evidence_refs):
             ast_misses.append(f"{path.name}:{ref}")
 
@@ -1301,61 +1299,6 @@ def _collect_generated_sources(handle: PlanWorkspaceHandle) -> list[tuple[Path, 
             except OSError:
                 continue
     return out
-
-
-def _collect_ast_refs(tree: ast.Module, *, namespaces: tuple[str, ...]) -> set[str]:
-    """Public-facing wrapper around capability.py's private AST walker.
-
-    Capability.py's ``_extract_ast_refs`` is currently private; this
-    helper inlines the same logic (maximal attribute chain + ImportFrom
-    expansion filtered by ``namespaces``) so the validator can run
-    without reaching across the privacy fence. The two implementations
-    intentionally mirror each other; if the Phase 5 walker diverges,
-    update both sites.
-    """
-    import_refs: set[str] = set()
-    raw_chains: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module:
-            head, _, _ = node.module.partition(".")
-            if head not in namespaces:
-                continue
-            for alias in node.names:
-                if alias.name == "*":
-                    continue
-                import_refs.add(f"{node.module}.{alias.name}")
-        elif isinstance(node, ast.Attribute):
-            chain = _attribute_chain(node)
-            if chain is None or "." not in chain:
-                continue
-            root = chain.split(".", 1)[0]
-            if root in namespaces:
-                raw_chains.add(chain)
-
-    maximal = {
-        c
-        for c in raw_chains
-        if not any(other != c and other.startswith(c + ".") for other in raw_chains)
-    }
-    return import_refs | maximal
-
-
-def _attribute_chain(node: ast.Attribute) -> str | None:
-    """Reconstruct the dotted name from an :class:`ast.Attribute`.
-
-    Returns ``None`` if the chain bottoms out on anything other than a
-    bare :class:`ast.Name`.
-    """
-    parts: list[str] = []
-    current: ast.expr = node
-    while isinstance(current, ast.Attribute):
-        parts.append(current.attr)
-        current = current.value
-    if not isinstance(current, ast.Name):
-        return None
-    parts.append(current.id)
-    parts.reverse()
-    return ".".join(parts)
 
 
 def _load_contract_for_validation(
@@ -1675,9 +1618,7 @@ def _expect_input[T](inputs: object, key: str, expected: type[T]) -> T:
     """
     caller = _caller_class_name() or "Plan node"
     if not isinstance(inputs, dict):
-        raise TypeError(
-            f"{caller} expected dict-shaped ctx.inputs; got {type(inputs).__name__}"
-        )
+        raise TypeError(f"{caller} expected dict-shaped ctx.inputs; got {type(inputs).__name__}")
     inputs_dict = cast("dict[str, object]", inputs)
     value = inputs_dict.get(key)
     if not isinstance(value, expected):

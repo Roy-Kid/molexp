@@ -30,6 +30,7 @@ __all__ = [
     "CapabilityNeedReport",
     "MissReason",
     "MissingCapability",
+    "extract_ast_refs",
     "extract_declared_refs",
     "validate_codegen_evidence",
 ]
@@ -262,7 +263,7 @@ def validate_codegen_evidence(
 
     tree = ast.parse(source)
     declared_refs = extract_declared_refs(tree)
-    ast_refs = _extract_ast_refs(tree)
+    ast_refs = extract_ast_refs(tree)
     evidence_refs = {e.api_ref for e in batch.evidence}
 
     misses: list[MissingCapability] = []
@@ -355,7 +356,7 @@ def _literal_string_tuple(node: ast.expr) -> set[str]:
     return {item for item in value if isinstance(item, str)}
 
 
-def _extract_ast_refs(tree: ast.Module) -> set[str]:
+def extract_ast_refs(tree: ast.Module) -> set[str]:
     """Reconstruct Molcrafts-prefixed dotted paths from imports + attribute chains.
 
     Walks every :class:`ast.ImportFrom` and :class:`ast.Attribute` node.

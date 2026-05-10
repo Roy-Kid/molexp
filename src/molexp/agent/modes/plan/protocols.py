@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from molexp.agent.router import ModelTier, Router
 
@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from molexp.agent.policy import GatePolicy
     from molexp.workflow import WorkflowContract
 
-    PlanGatePolicy: TypeAlias = GatePolicy[PlanReviewView, ApprovalDecision]
+    type PlanGatePolicy = GatePolicy[PlanReviewView, ApprovalDecision]
 else:
     # At runtime ``PlanGatePolicy`` is just a forward-ref string. It is
     # only consumed in annotations (which are strings under
