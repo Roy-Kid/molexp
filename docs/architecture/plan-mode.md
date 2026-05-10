@@ -19,9 +19,13 @@ flowchart TD
     C --> D["DraftImplementationPlan"]
     D --> E["CompileWorkflowIR"]
     E --> F["CompileTaskIR"]
-    F --> G["GenerateWorkflowSkeleton"]
+    F --> CN["DraftCapabilityNeeds"]
+    CN --> CD["DiscoverCapabilities"]
+    CD --> G["GenerateWorkflowSkeleton"]
     F --> H["GenerateTaskTests"]
+    CD --> H
     G --> I["GenerateTaskImplementations"]
+    CD --> I
     H --> I
     I --> J["ValidateWorkspace"]
     J --> K["HumanReview"]
@@ -32,19 +36,27 @@ flowchart TD
 
 ## Planning Nodes
 
-The current PlanMode workflow uses these node names:
+The current PlanMode workflow uses these 13 node names:
 
 - `IngestReport`
 - `DraftReportDigest`
 - `DraftImplementationPlan`
 - `CompileWorkflowIR`
 - `CompileTaskIR`
+- `DraftCapabilityNeeds`
+- `DiscoverCapabilities`
 - `GenerateWorkflowSkeleton`
 - `GenerateTaskTests`
 - `GenerateTaskImplementations`
 - `ValidateWorkspace`
 - `HumanReview`
 - `FinalHandoffCheck`
+
+The two capability nodes (Phase 4-5 of `agent-pydanticai-rectification`)
+sit between IR compilation and the codegen fan-out so each codegen
+node can refuse unevidenced Molcrafts API references. See
+[`agent.md`](agent.md#capability-discovery-gate) for the full gate
+contract.
 
 Code, tests, and documentation should use these names for the current
 pipeline.
@@ -65,6 +77,9 @@ The workspace contains:
 - `plan/implementation_plan.md`
 - `ir/workflow.yaml`
 - `ir/tasks/*.yaml`
+- `capability/needs.yaml`
+- `capability/evidence.yaml`
+- `capability/missing.md`
 - `src/experiment/workflow.py`
 - `src/experiment/tasks/*.py`
 - `tests/test_*.py`

@@ -3,6 +3,10 @@
 Architecture docs describe layer boundaries that must remain true as the code
 evolves.
 
+- [Agent Layer](agent.md) — `molexp.agent` as a thin wrapper over pydantic-ai
+  + pydantic-graph. Documents the four-name public surface, the
+  `_pydanticai/` firewall, the "don't reinvent pydantic-ai" rule, and the
+  capability-discovery gate that sits inside PlanMode.
 - [Plan Mode](plan-mode.md) — plan mode as workflow authoring and validation,
   ending in runner handoff.
 - [Workflow Layer](workflow-layer.md) — `molexp.workflow` as the single workflow

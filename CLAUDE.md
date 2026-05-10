@@ -143,7 +143,10 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 - Concrete modes: `PlanMode` (workflow-backed, drives a private `PlanGraph` through `molexp.workflow`), `ChatMode`, `ReviewMode`. Each is a subclass of `AgentMode`.
 - Session management: `SessionMetadata`, `SessionStore`, `SessionCatalog` (the catalog absorbed the old `workspace/sessions.py:SessionLibrary`).
 - Skills / tools / MCP / context / memory / recovery — private subsystems, each with their own subdirectory.
-- `_pydanticai/` — sole permitted `import pydantic_ai` site. Owns `PydanticAIHarness` and the MCP-server build helper.
+- `_pydanticai/` — sole permitted `import pydantic_ai` site. Owns three constructions:
+  - `_pydanticai/router.py` — `PydanticAIRouter` (one `Agent` per `(tier, schema | None)` for the structured / text codegen path);
+  - `_pydanticai/capability_probe.py` — `PydanticAICapabilityProbe` (two `Agent`\\ s: a no-tool needs-drafter and an `Agent(toolsets=[MCPServerStdio(...)])` evidence-gatherer for the capability-discovery gate);
+  - `_pydanticai/mcp.py` — the MCP-server build helper consumed by ChatMode tool injection.
 
 **agent uses workspace + workflow**:
 
@@ -483,7 +486,9 @@ Each conceptual data category lives in **one** layer. Cross-layer references flo
 | agent run result | `molexp.agent.mode` | `AgentRunResult` (frozen pydantic) — the only result shape `AgentRunner.run` ever returns |
 | message / usage | `molexp.agent.types` | `Message`, `Usage`, `Goal`, `GoalMode`, `AgentFailure`, `FailureKind`, `SessionStatus` |
 | context packet | `molexp.agent.context` | `ContextPacket`, `ContextBuildRequest` |
-| import-boundary firewall | `agent/_pydanticai/` and `workflow/_pydantic_graph/` | only these subtrees may import `pydantic_ai` / `pydantic_graph` respectively; `molexp.agent` itself must not eagerly load `pydantic_ai`; **any new pydantic-ai construction point (e.g. `_pydanticai/router.py`, future `_pydanticai/capability_probe.py`) must live under `_pydanticai/`; agent's other submodules consume only Protocols defined in `agent/router.py` / `agent/modes/plan/protocols.py`** |
+| capability discovery schemas | `molexp.agent.modes.plan.capability` | `CapabilityNeed`, `CapabilityNeedReport`, `CapabilityEvidence`, `CapabilityEvidenceBatch`, `MissingCapability`, plus the `MOLCRAFTS_NAMESPACES` constant + `validate_codegen_evidence` AST diff. |
+| capability probe protocol | `molexp.agent.modes.plan.protocols` | `CapabilityProbe` Protocol; consumed by `DraftCapabilityNeeds` / `DiscoverCapabilities` via `ctx.deps.capability_probe`. Concrete impls live at `molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe` (fail-closed fallback) and `molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe` (pydantic-ai-backed). |
+| import-boundary firewall | `agent/_pydanticai/` and `workflow/_pydantic_graph/` | only these subtrees may import `pydantic_ai` / `pydantic_graph` respectively; `molexp.agent` itself must not eagerly load `pydantic_ai`; **any new pydantic-ai construction point (e.g. `_pydanticai/router.py`, `_pydanticai/capability_probe.py`) must live under `_pydanticai/`; agent's other submodules consume only Protocols defined in `agent/router.py` / `agent/modes/plan/protocols.py`** |
 
 **Rule (cross-layer-data-reference)**: cross-layer references flow *downward* through the public surface of the lower layer. workflow imports `workspace.Run` is fine. workspace imports `workflow.Workflow` is forbidden. agent imports both is fine. Never wire across layers in any other direction.
 

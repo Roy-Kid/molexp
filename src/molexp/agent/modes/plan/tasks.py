@@ -25,6 +25,7 @@ LLM entirely — it just hashes and writes the raw user input.
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import contextlib
 import hashlib
@@ -1146,6 +1147,9 @@ def _run_workspace_validation(
                 )
             )
 
+    # Phase 6 — capability-evidence dual-signal check.
+    checks.extend(_capability_evidence_checks(handle))
+
     handoff = PlanRunHandoff(
         plan_id=handle.plan_id,
         experiment_workspace_path=handle.root(),
@@ -1162,6 +1166,196 @@ def _run_workspace_validation(
     )
     checks.extend(_run_handoff_validation(handle, handoff, contract=contract))
     return checks
+
+
+def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult]:
+    """Phase 6 dual-signal capability evidence check.
+
+    For each generated module under ``src/experiment/tasks/*.py`` and
+    ``tests/test_*.py``, runs two independent checks against the on-disk
+    ``capability/evidence.yaml`` batch:
+
+    1. **declared_refs** — the module-level
+       ``__capability_evidence__`` literal MUST list only ``api_ref``
+       values that appear in ``evidence.yaml``.
+    2. **ast_refs** — every Molcrafts dotted-path reference the AST
+       walker discovers (filtered by
+       :data:`MOLCRAFTS_NAMESPACES`) MUST also appear in
+       ``evidence.yaml``.
+
+    Both signals diff against the *same* evidence-batch ``api_ref`` set,
+    but are reported as separate :class:`CheckResult` rows so reviewers
+    can tell which signal flagged a miss.
+
+    Special cases:
+
+    * ``evidence.yaml`` missing — emits an `info` check noting the
+      capability dir was not materialized yet (the LLM-driven
+      :meth:`DiscoverCapabilities` short-circuited on a stub probe).
+    * ``discovery_skipped=True`` — both checks pass with detail
+      ``"discovery_skipped"`` (pure-stdlib paths exempt from the gate).
+    """
+    from molexp.agent.modes.plan.capability import (
+        MOLCRAFTS_NAMESPACES,
+        CapabilityEvidenceBatch,
+        extract_declared_refs,
+    )
+
+    evidence_path = handle.capability_dir() / "evidence.yaml"
+    if not evidence_path.exists():
+        return [
+            CheckResult(
+                name="capability_evidence_present",
+                passed=True,
+                severity="info",
+                detail="evidence.yaml not materialized (probe is null or pipeline aborted)",
+            )
+        ]
+
+    try:
+        batch = CapabilityEvidenceBatch.model_validate(
+            yaml.safe_load(evidence_path.read_text())
+        )
+    except (yaml.YAMLError, ValueError) as exc:
+        return [
+            CheckResult(
+                name="capability_evidence_parseable",
+                passed=False,
+                severity="error",
+                detail=f"failed to parse evidence.yaml: {exc}",
+            )
+        ]
+
+    if batch.discovery_skipped:
+        return [
+            CheckResult(
+                name="capability_evidence_check[declared]",
+                passed=True,
+                severity="info",
+                detail="discovery_skipped",
+            ),
+            CheckResult(
+                name="capability_evidence_check[ast]",
+                passed=True,
+                severity="info",
+                detail="discovery_skipped",
+            ),
+        ]
+
+    evidence_refs = {e.api_ref for e in batch.evidence}
+    sources = _collect_generated_sources(handle)
+    declared_misses: list[str] = []
+    ast_misses: list[str] = []
+    for path, source in sources:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            # The compile-syntax check above flagged the error
+            # separately; skip the AST diff for this file.
+            continue
+        declared = extract_declared_refs(tree)
+        for ref in sorted(declared - evidence_refs):
+            declared_misses.append(f"{path.name}:{ref}")
+        ast_refs = _collect_ast_refs(tree, namespaces=MOLCRAFTS_NAMESPACES)
+        for ref in sorted(ast_refs - evidence_refs):
+            ast_misses.append(f"{path.name}:{ref}")
+
+    return [
+        CheckResult(
+            name="capability_evidence_check[declared]",
+            passed=not declared_misses,
+            severity="info" if not declared_misses else "error",
+            detail=(
+                "; ".join(declared_misses)
+                if declared_misses
+                else "all __capability_evidence__ entries covered by evidence.yaml"
+            ),
+        ),
+        CheckResult(
+            name="capability_evidence_check[ast]",
+            passed=not ast_misses,
+            severity="info" if not ast_misses else "error",
+            detail=(
+                "; ".join(ast_misses)
+                if ast_misses
+                else "all Molcrafts AST refs covered by evidence.yaml"
+            ),
+        ),
+    ]
+
+
+def _collect_generated_sources(handle: PlanWorkspaceHandle) -> list[tuple[Path, str]]:
+    """Read every generated task implementation + test module from disk."""
+    out: list[tuple[Path, str]] = []
+    for d, glob in (
+        (handle.tasks_pkg_dir(), "*.py"),
+        (handle.tests_dir(), "test_*.py"),
+    ):
+        if not d.exists():
+            continue
+        for path in sorted(d.glob(glob)):
+            if path.name == "__init__.py":
+                continue
+            try:
+                out.append((path, path.read_text(encoding="utf-8")))
+            except OSError:
+                continue
+    return out
+
+
+def _collect_ast_refs(tree: ast.Module, *, namespaces: tuple[str, ...]) -> set[str]:
+    """Public-facing wrapper around capability.py's private AST walker.
+
+    Capability.py's ``_extract_ast_refs`` is currently private; this
+    helper inlines the same logic (maximal attribute chain + ImportFrom
+    expansion filtered by ``namespaces``) so the validator can run
+    without reaching across the privacy fence. The two implementations
+    intentionally mirror each other; if the Phase 5 walker diverges,
+    update both sites.
+    """
+    import_refs: set[str] = set()
+    raw_chains: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            head, _, _ = node.module.partition(".")
+            if head not in namespaces:
+                continue
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                import_refs.add(f"{node.module}.{alias.name}")
+        elif isinstance(node, ast.Attribute):
+            chain = _attribute_chain(node)
+            if chain is None or "." not in chain:
+                continue
+            root = chain.split(".", 1)[0]
+            if root in namespaces:
+                raw_chains.add(chain)
+
+    maximal = {
+        c
+        for c in raw_chains
+        if not any(other != c and other.startswith(c + ".") for other in raw_chains)
+    }
+    return import_refs | maximal
+
+
+def _attribute_chain(node: ast.Attribute) -> str | None:
+    """Reconstruct the dotted name from an :class:`ast.Attribute`.
+
+    Returns ``None`` if the chain bottoms out on anything other than a
+    bare :class:`ast.Name`.
+    """
+    parts: list[str] = []
+    current: ast.expr = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not isinstance(current, ast.Name):
+        return None
+    parts.append(current.id)
+    parts.reverse()
+    return ".".join(parts)
 
 
 def _load_contract_for_validation(
