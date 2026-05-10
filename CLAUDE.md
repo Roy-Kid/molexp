@@ -155,7 +155,9 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 - Import `molexp.plugins.*`, `molexp.server.*`, `molexp.cli.*`, `molexp.sweep.*`. The agent stays a library, never reaches out to the application shell.
 - Import `pydantic_ai` outside `agent/_pydanticai/`. `import molexp.agent` must not eagerly load `pydantic_ai` (the harness is constructed lazily on first `AgentRunner.run()`).
 - Import `pydantic_graph` anywhere. PlanMode drives multi-step workflows through the `molexp.workflow` API only — that's the sole sanctioned pg site in the project.
+- 在 *model-side execution* 层面重新实现 pydantic-ai 已提供的能力（tool dispatch、MCP server 挂载、retries、message history、structured output）—— 必须用 pydantic-ai 原生 API。具体而言：普通工具通过 `pydantic_ai.Agent(tools=[...])`（接受 `Tool` 实例或裸 callable）；MCP server 通过 `pydantic_ai.Agent(toolsets=[MCPServerStdio(...)])`；重试通过 `Agent(retries=N)`。**workflow / session / provenance 层**（PlanMode pipeline、`SessionCatalog`、on-disk evidence + assets）pydantic-ai 不覆盖，仍由 molexp 自有实现。若 pydantic-ai 不提供某能力，新增模块的 docstring 必须显式说明缺口。
 - Resurrect `_legacy_types.py`, `sessions/migrate.py`, `observability/usage.py`, `orchestration/`, or `sandbox.py` — all deleted in the rectification spec.
+- Resurrect `tools/`, `context/`, `memory/`, `recovery/`, `skills/`, or `mcp/{source,tool_store,probe}.py` — deleted by the `agent-pydanticai-rectification` spec because they were parallel-to-pydantic-ai implementations with zero production cites.
 
 **Equivalent invariant**: `import molexp.agent` must not pull `pydantic_ai` or `pydantic_graph` into `sys.modules` until the user actually instantiates an `AgentRunner` and calls `.run()`.
 
@@ -481,7 +483,7 @@ Each conceptual data category lives in **one** layer. Cross-layer references flo
 | agent run result | `molexp.agent.mode` | `AgentRunResult` (frozen pydantic) — the only result shape `AgentRunner.run` ever returns |
 | message / usage | `molexp.agent.types` | `Message`, `Usage`, `Goal`, `GoalMode`, `AgentFailure`, `FailureKind`, `SessionStatus` |
 | context packet | `molexp.agent.context` | `ContextPacket`, `ContextBuildRequest` |
-| import-boundary firewall | `agent/_pydanticai/` and `workflow/_pydantic_graph/` | only these subtrees may import `pydantic_ai` / `pydantic_graph` respectively; `molexp.agent` itself must not eagerly load `pydantic_ai` |
+| import-boundary firewall | `agent/_pydanticai/` and `workflow/_pydantic_graph/` | only these subtrees may import `pydantic_ai` / `pydantic_graph` respectively; `molexp.agent` itself must not eagerly load `pydantic_ai`; **any new pydantic-ai construction point (e.g. `_pydanticai/router.py`, future `_pydanticai/capability_probe.py`) must live under `_pydanticai/`; agent's other submodules consume only Protocols defined in `agent/router.py` / `agent/modes/plan/protocols.py`** |
 
 **Rule (cross-layer-data-reference)**: cross-layer references flow *downward* through the public surface of the lower layer. workflow imports `workspace.Run` is fine. workspace imports `workflow.Workflow` is forbidden. agent imports both is fine. Never wire across layers in any other direction.
 

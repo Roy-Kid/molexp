@@ -479,7 +479,12 @@ class CommandListResponse(BaseModel):
 
 
 class CommandParseResponse(BaseModel):
-    """Mirror of :class:`molexp.agent.skills.commands.ParsedCommand`."""
+    """Parsed slash-command shape returned by the server.
+
+    The agent-side slash-command parser (formerly ``molexp.agent.skills.commands``)
+    was deleted by the ``agent-pydanticai-rectification`` spec; this response
+    schema is now the canonical shape and any future parser must produce it.
+    """
 
     kind: Literal["skill", "builtin", "error"]
     name: str = ""

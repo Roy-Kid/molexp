@@ -1,19 +1,26 @@
-"""MCP support for the agent harness.
+"""MCP configuration support for the agent.
 
-Importing this package registers an :class:`McpToolSource` on
-:func:`molexp.agent.tools.source.register_tool_source` so the
-dispatcher can serve ``mcp:<server>.<tool>`` calls. The MCP SDK and
-``httpx`` are *not* loaded at module import — every code path that
-talks to a server (probe, source) imports them lazily so the agent
-package as a whole stays stdlib-only.
+This subpackage owns the **config layer** for MCP servers — config files,
+secrets, OAuth flows, default seeds. It does **not** implement MCP tool
+dispatch, server probing, or tool-source registration: those are pydantic-ai
+native (``Agent(toolsets=[MCPServerStdio(...)])``) and constructed inside
+:mod:`molexp.agent._pydanticai`.
 
-This subpackage owns:
+What lives here:
 
-- The MCP server / secrets store (workspace + user-home tiers).
-- The OAuth integration.
-- The connection probe.
-- The :class:`McpToolSource` that bridges the harness ``ToolSource``
-  contract to the underlying MCP SDK.
+- :class:`McpStore` / :class:`McpSecretsStore` — workspace + user-home tiers
+- :class:`McpServerEntry` / :class:`McpScope` — config record / scope enum
+- :class:`UnresolvedSecretError` — config-time error type
+- OAuth: token storage, session registry, provider builder
+- Defaults: :data:`MCP_DEFAULTS`, :func:`seed_user_defaults`, the
+  ``molmcp`` seed + ``MOLEXP_MOLMCP_COMMAND`` env-var contract
+
+What used to live here and was deleted by ``agent-pydanticai-rectification``:
+
+- ``source.py`` / ``tool_store.py`` / ``probe.py`` — parallel-to-pydantic-ai
+  implementations of tool dispatch and server probing; replaced by
+  ``pydantic_ai.Agent(toolsets=[MCPServerStdio(...)])`` and
+  ``MCPServerStdio.list_tools()`` respectively.
 """
 
 from __future__ import annotations
@@ -35,15 +42,6 @@ from molexp.agent.mcp.oauth import (
     session_registry,
     storage_for,
 )
-from molexp.agent.mcp.probe import (
-    PROBE_TIMEOUT_SECONDS,
-    McpServerToolList,
-    McpToolSummary,
-    ProbeOutcome,
-    list_mcp_tools,
-    probe_server,
-)
-from molexp.agent.mcp.source import SOURCE_NAME, McpToolSource
 from molexp.agent.mcp.store import (
     MCP_CONFIG_FILENAME,
     MCP_SECRETS_FILENAME,
@@ -53,15 +51,6 @@ from molexp.agent.mcp.store import (
     McpStore,
     UnresolvedSecretError,
 )
-from molexp.agent.tools.source import register_tool_source
-
-
-def _register() -> None:
-    register_tool_source(McpToolSource())
-
-
-_register()
-
 
 __all__ = [
     "MCP_CONFIG_FILENAME",
@@ -70,25 +59,17 @@ __all__ = [
     "MCP_SEEDED_FILENAME",
     "MOLMCP_COMMAND_ENV",
     "MOLMCP_USAGE_INSTRUCTIONS",
-    "PROBE_TIMEOUT_SECONDS",
-    "SOURCE_NAME",
     "START_TIMEOUT_SECONDS",
     "FileTokenStorage",
     "McpScope",
     "McpSecretsStore",
     "McpServerEntry",
-    "McpServerToolList",
     "McpStore",
-    "McpToolSource",
-    "McpToolSummary",
     "OAuthFlowSession",
     "OAuthSessionRegistry",
-    "ProbeOutcome",
     "UnresolvedSecretError",
     "build_oauth_provider",
     "default_redirect_uri",
-    "list_mcp_tools",
-    "probe_server",
     "seed_user_defaults",
     "session_registry",
     "storage_for",
