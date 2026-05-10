@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -24,6 +25,11 @@ from molexp.workflow.context import TaskContext
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
+
+# Most legacy tests inject a "discovery skipped" batch so the codegen
+# evidence gate (Phase 5) is bypassed — the LLM-generated source then
+# does not need a `__capability_evidence__` block.
+_SKIPPED_BATCH = CapabilityEvidenceBatch(discovery_skipped=True)
 
 
 @pytest.fixture
@@ -58,6 +64,7 @@ async def test_generate_task_tests_emits_three_modules_plus_structure(
                 workflow_py_path=gen_tests_handle.experiment_pkg_dir() / "workflow.py",
                 package_path=gen_tests_handle.experiment_pkg_dir(),
             ),
+            "DiscoverCapabilities": _SKIPPED_BATCH,
         },
         config={},
     )
@@ -99,6 +106,7 @@ async def test_generate_task_tests_stub_emits_pytest_skip(
                 workflow_py_path=gen_tests_handle.experiment_pkg_dir() / "workflow.py",
                 package_path=gen_tests_handle.experiment_pkg_dir(),
             ),
+            "DiscoverCapabilities": _SKIPPED_BATCH,
         },
         config={},
     )

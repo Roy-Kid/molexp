@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -25,6 +26,11 @@ from molexp.workflow.context import TaskContext
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
+
+# These legacy tests inject a "discovery skipped" batch so the codegen
+# evidence gate (Phase 5) is bypassed — the LLM-generated source then
+# does not need a `__capability_evidence__` block.
+_SKIPPED_BATCH = CapabilityEvidenceBatch(discovery_skipped=True)
 
 
 @pytest.fixture
@@ -55,6 +61,7 @@ async def test_generate_impl_writes_llm_source_for_non_stub_tasks(
                 workflow_py_path=impl_handle.experiment_pkg_dir() / "workflow.py",
                 package_path=impl_handle.experiment_pkg_dir(),
             ),
+            "DiscoverCapabilities": _SKIPPED_BATCH,
         },
         config={},
     )
@@ -91,6 +98,7 @@ async def test_generate_impl_writes_stub_body_for_is_stub_brief(
                 workflow_py_path=impl_handle.experiment_pkg_dir() / "workflow.py",
                 package_path=impl_handle.experiment_pkg_dir(),
             ),
+            "DiscoverCapabilities": _SKIPPED_BATCH,
         },
         config={},
     )
@@ -138,6 +146,7 @@ async def test_generate_impl_writes_stub_body_when_module_marks_self_stub(
                 workflow_py_path=impl_handle.experiment_pkg_dir() / "workflow.py",
                 package_path=impl_handle.experiment_pkg_dir(),
             ),
+            "DiscoverCapabilities": _SKIPPED_BATCH,
         },
         config={},
     )

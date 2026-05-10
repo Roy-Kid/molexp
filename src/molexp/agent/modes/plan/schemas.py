@@ -293,6 +293,14 @@ class TaskTestModule(BaseModel):
             informational, not consumed by the writer.
         fixtures: Optional descriptive list of pytest fixtures the
             source defines.
+        evidence_refs: Tuple of ``api_ref`` values (``f"{module}.{symbol}"``)
+            the LLM declares it used. Phase 5 codegen nodes assert
+            this set equals the source's module-level
+            ``__capability_evidence__: tuple[str, ...] = (...)`` literal
+            and forwards it to
+            :func:`~molexp.agent.modes.plan.capability.validate_codegen_evidence`
+            for the AST diff. Defaults to ``()`` so older callers /
+            ``discovery_skipped=True`` paths stay valid.
     """
 
     model_config = _FROZEN
@@ -301,6 +309,7 @@ class TaskTestModule(BaseModel):
     source: str
     imports: tuple[str, ...] = ()
     fixtures: tuple[str, ...] = ()
+    evidence_refs: tuple[str, ...] = ()
 
 
 class TaskTestsResult(BaseModel):
@@ -322,6 +331,11 @@ class TaskImplementationModule(BaseModel):
             :class:`NotImplementedError`. The validator's pytest
             invocation respects this flag via ``pytest.skip("stub")``
             so v1 stubs do not fail CI.
+        evidence_refs: Tuple of ``api_ref`` values the LLM declares it
+            used; Phase 5 codegen asserts this matches the source's
+            ``__capability_evidence__`` literal. ``is_stub=True`` is
+            permitted to ship an empty tuple (no Molcrafts API calls
+            in stub bodies).
     """
 
     model_config = _FROZEN
@@ -329,6 +343,7 @@ class TaskImplementationModule(BaseModel):
     task_id: str
     source: str
     is_stub: bool = False
+    evidence_refs: tuple[str, ...] = ()
 
 
 class TaskImplementationsResult(BaseModel):

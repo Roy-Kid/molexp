@@ -1,9 +1,11 @@
-"""End-to-end test for the 11-node PlanMode pipeline.
+"""End-to-end test for the 13-node PlanMode pipeline.
 
 Covers acceptance criterion ac-006: the pipeline runs every node,
 the validation report writes, the manifest gets ``status: ready_for_run``
 plus a ``handoff:`` block, and ``mode_state["plan"]["handoff"]``
-decodes to a valid :class:`PlanRunHandoff`.
+decodes to a valid :class:`PlanRunHandoff`. Phase 5 also validates
+that ``DraftCapabilityNeeds`` / ``DiscoverCapabilities`` materialize
+``capability/needs.yaml`` + ``capability/evidence.yaml`` (PYDA-18).
 """
 
 from __future__ import annotations
@@ -78,7 +80,7 @@ async def test_pipeline_full_run_through_human_review(
 async def test_pipeline_full_records_per_node_outputs(
     full_pipeline_handle: PlanWorkspaceHandle,
 ) -> None:
-    """Every one of the 11 pipeline nodes lands its *Result in outputs."""
+    """Every one of the 13 pipeline nodes lands its *Result in outputs."""
     router = FakeRouter()
     mode = PlanMode(workspace_handle=full_pipeline_handle)
     result = await mode.run(
@@ -93,6 +95,8 @@ async def test_pipeline_full_records_per_node_outputs(
         "DraftImplementationPlan",
         "CompileWorkflowIR",
         "CompileTaskIR",
+        "DraftCapabilityNeeds",
+        "DiscoverCapabilities",
         "GenerateWorkflowSkeleton",
         "GenerateTaskTests",
         "GenerateTaskImplementations",
@@ -101,6 +105,33 @@ async def test_pipeline_full_records_per_node_outputs(
         "FinalHandoffCheck",
     }
     assert expected_nodes.issubset(outputs.keys())
+
+
+@pytest.mark.asyncio
+async def test_pipeline_full_materializes_capability_artifacts(
+    full_pipeline_handle: PlanWorkspaceHandle,
+) -> None:
+    """PYDA-18 — needs.yaml + evidence.yaml end up on disk after a full run.
+
+    The default :class:`NullCapabilityProbe` reports
+    ``discovery_required=False`` so ``DiscoverCapabilities`` writes a
+    skipped evidence batch — both files MUST still exist so downstream
+    tooling (Phase 6 ValidateWorkspace check) can rely on their
+    presence.
+    """
+    router = FakeRouter()
+    mode = PlanMode(workspace_handle=full_pipeline_handle)
+    await mode.run(
+        router=router,
+        session=AgentSession(),
+        user_input="report",
+    )
+    needs_path = full_pipeline_handle.capability_dir() / "needs.yaml"
+    evidence_path = full_pipeline_handle.capability_dir() / "evidence.yaml"
+    missing_path = full_pipeline_handle.capability_dir() / "missing.md"
+    assert needs_path.exists(), "DraftCapabilityNeeds did not write needs.yaml"
+    assert evidence_path.exists(), "DiscoverCapabilities did not write evidence.yaml"
+    assert missing_path.exists(), "DiscoverCapabilities did not write missing.md"
 
 
 @pytest.mark.asyncio

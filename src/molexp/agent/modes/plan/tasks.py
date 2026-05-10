@@ -1,14 +1,18 @@
 """Concrete tasks for the materialize-to-workspace PlanMode pipeline.
 
-The nodes of the current pipeline:
+The nodes of the current pipeline (Phase 5 = 13 nodes):
 
     IngestReport → DraftReportDigest → DraftImplementationPlan
-        → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
+        → CompileWorkflowIR → CompileTaskIR
+        → DraftCapabilityNeeds → DiscoverCapabilities
+        → GenerateWorkflowSkeleton
         → GenerateTaskTests / GenerateTaskImplementations
         → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
-Each node consumes its single upstream ``ctx.inputs``, materializes
-its product through :class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`,
+Each node consumes its upstream ``ctx.inputs`` — a single bare value
+when the node has one upstream, a ``dict[str, *Result]`` keyed by
+upstream node name when it has more — materializes its product
+through :class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`,
 and returns a frozen ``*Result`` carrying *path references* — never
 embedded blobs. Downstream nodes operate on file handles, the
 workspace is the single source of truth for materialized content.
@@ -37,7 +41,14 @@ import yaml
 from mollog import get_logger
 from pydantic import BaseModel
 
-from molexp.agent.modes.plan.errors import SkeletonCompileError
+from molexp.agent.modes.plan.capability import (
+    CapabilityEvidenceBatch,
+    validate_codegen_evidence,
+)
+from molexp.agent.modes.plan.errors import (
+    SkeletonCompileError,
+    UnevidencedApiReference,
+)
 from molexp.agent.modes.plan.handoff import PlanRunHandoff
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -98,16 +109,20 @@ _LOG = get_logger(__name__)
 
 # ── Pipeline-step labelling ─────────────────────────────────────────────────
 #
-# Stable execution order of the 11 PlanMode pipeline nodes. Lives here
-# rather than in :mod:`_pipeline` to keep ``tasks.py`` the single source
-# of node-name truth — the builder reads class names, this tuple lists
-# them in topological order so logs can show ``[plan-node 5/11 ...]``.
+# Stable execution order of the 13 PlanMode pipeline nodes (Phase 5
+# inserted DraftCapabilityNeeds + DiscoverCapabilities between
+# CompileTaskIR and the codegen fan-out). Lives here rather than in
+# :mod:`_pipeline` to keep ``tasks.py`` the single source of node-name
+# truth — the builder reads class names, this tuple lists them in
+# topological order so logs can show ``[plan-node 5/13 ...]``.
 _PIPELINE_ORDER: tuple[str, ...] = (
     "IngestReport",
     "DraftReportDigest",
     "DraftImplementationPlan",
     "CompileWorkflowIR",
     "CompileTaskIR",
+    "DraftCapabilityNeeds",
+    "DiscoverCapabilities",
     "GenerateWorkflowSkeleton",
     "GenerateTaskTests",
     "GenerateTaskImplementations",
@@ -120,7 +135,7 @@ _PIPELINE_INDEX: dict[str, int] = {n: i for i, n in enumerate(_PIPELINE_ORDER, 1
 
 
 def _tag(name: str) -> str:
-    """Format the ``[plan-node N/11 NodeName]`` prefix for a log line."""
+    """Format the ``[plan-node N/13 NodeName]`` prefix for a log line."""
     idx = _PIPELINE_INDEX.get(name)
     return f"[plan-node {idx}/{_PIPELINE_TOTAL} {name}]" if idx else f"[plan-node ?/? {name}]"
 
@@ -355,10 +370,15 @@ class GenerateWorkflowSkeleton(PlanTask):
     """
 
     async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> SkeletonResult:
-        # Read both upstreams: the workflow contract for topology, the
-        # task IR result to confirm the per-task IR has been written.
+        # Read three upstreams: the workflow contract for topology, the
+        # task IR result to confirm the per-task IR has been written,
+        # and the capability evidence batch for chain ordering.
+        # Skeleton output is templated (not LLM-driven), so the evidence
+        # gate's source-AST diff doesn't apply here — the chain
+        # dependency exists only so codegen happens after discovery.
         ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
         _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
         _LOG.info(
             f"{_tag('GenerateWorkflowSkeleton')} start tasks={len(ir_result.contract.task_io)}"
         )
@@ -412,24 +432,33 @@ class GenerateTaskTests(PlanLLMTask):
     async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskTestsResult:
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
 
         handle = ctx.deps.workspace_handle
         repair_targets = ctx.deps.repair_target_tasks
         _targets_repr = list(repair_targets) if repair_targets else None
         _LOG.info(
             f"{_tag('GenerateTaskTests')} start briefs={len(ir_result.briefs)} "
-            f"repair_targets={_targets_repr}"
+            f"repair_targets={_targets_repr} "
+            f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
         )
 
         async def render_real(brief: TaskIRBrief) -> str:
             module = await self.invoke_llm(
                 ctx,
-                user=brief.model_dump_json(),
+                user=_augment_user_with_evidence(brief.model_dump_json(), evidence_batch),
                 schema=TaskTestModule,
                 node_id_suffix=brief.task_id,
             )
             if module.task_id != brief.task_id:
                 module = module.model_copy(update={"task_id": brief.task_id})
+            _gate_evidence(
+                source=module.source,
+                evidence_refs=module.evidence_refs,
+                batch=evidence_batch,
+                is_stub=False,
+                where=f"GenerateTaskTests/{brief.task_id}",
+            )
             return module.source
 
         paths = await _per_brief_codegen(
@@ -473,24 +502,36 @@ class GenerateTaskImplementations(PlanLLMTask):
     ) -> TaskImplementationsResult:
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
 
         handle = ctx.deps.workspace_handle
         repair_targets = ctx.deps.repair_target_tasks
         _targets_repr = list(repair_targets) if repair_targets else None
         _LOG.info(
             f"{_tag('GenerateTaskImplementations')} start briefs={len(ir_result.briefs)} "
-            f"repair_targets={_targets_repr}"
+            f"repair_targets={_targets_repr} "
+            f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
         )
 
         async def render_real(brief: TaskIRBrief) -> str:
             module = await self.invoke_llm(
                 ctx,
-                user=brief.model_dump_json(),
+                user=_augment_user_with_evidence(brief.model_dump_json(), evidence_batch),
                 schema=TaskImplementationModule,
                 node_id_suffix=brief.task_id,
             )
             if module.is_stub:
+                # Stubs ship empty `__capability_evidence__: () = ()` and
+                # skip the AST diff entirely (spec: stubs allowed to
+                # raise NotImplementedError; no Molcrafts API calls).
                 return _render_stub_implementation_module(brief.task_id)
+            _gate_evidence(
+                source=module.source,
+                evidence_refs=module.evidence_refs,
+                batch=evidence_batch,
+                is_stub=False,
+                where=f"GenerateTaskImplementations/{brief.task_id}",
+            )
             return module.source
 
         paths = await _per_brief_codegen(
@@ -747,6 +788,146 @@ class FinalHandoffCheck(PlanTask):
 
 
 # ── Helpers (extended for sub-spec 06) ─────────────────────────────────────
+
+
+def _augment_user_with_evidence(user: str, batch: CapabilityEvidenceBatch) -> str:
+    """Append a YAML-rendered evidence block to a per-brief LLM prompt.
+
+    When ``batch.discovery_skipped`` is True, returns ``user`` verbatim
+    — pure-stdlib codegen paths do not see an evidence appendix and
+    are exempt from the ``__capability_evidence__`` literal requirement.
+
+    Otherwise produces a structured appendix listing each evidence
+    row's ``api_ref`` / ``signature`` / ``doc_summary`` and instructs
+    the LLM that:
+
+    1. it may only reference ``api_ref`` values that appear in the
+       appendix;
+    2. the generated module's top level **must** contain a literal
+       ``__capability_evidence__: tuple[str, ...] = (...)`` whose
+       contents (parseable by :func:`ast.literal_eval`) match the
+       schema field ``evidence_refs`` exactly.
+
+    The strict matching is checked downstream by
+    :func:`_gate_evidence` immediately after the LLM returns and again
+    by :func:`~molexp.agent.modes.plan.capability.validate_codegen_evidence`
+    after the source is written to disk.
+    """
+    if batch.discovery_skipped:
+        return user
+    evidence_payload = [
+        {
+            "api_ref": e.api_ref,
+            "signature": e.signature,
+            "doc_summary": e.doc_summary,
+        }
+        for e in batch.evidence
+    ]
+    appendix = yaml.safe_dump(
+        {"discovered_molcrafts_evidence": evidence_payload},
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    return (
+        f"{user}\n\n"
+        "## Discovered Molcrafts evidence (binding)\n\n"
+        "You may reference only the api_ref values listed below.\n\n"
+        "Generated module REQUIREMENTS:\n"
+        "1. Set the schema's `evidence_refs` field to the api_ref values you actually used.\n"
+        "2. Emit a module-level literal:\n"
+        "       __capability_evidence__: tuple[str, ...] = (\n"
+        '           "<api_ref_1>",\n'
+        "           ...,\n"
+        "       )\n"
+        "   It MUST be a top-level assignment (not a comment / docstring / dict),\n"
+        "   parseable by ast.literal_eval, and the set of refs MUST equal `evidence_refs`.\n\n"
+        f"{appendix}"
+    )
+
+
+def _gate_evidence(
+    *,
+    source: str,
+    evidence_refs: tuple[str, ...],
+    batch: CapabilityEvidenceBatch,
+    is_stub: bool,
+    where: str,
+) -> None:
+    """Run the two-stage evidence gate on a freshly generated module.
+
+    Stage 1 — declared-block consistency: assert the source's
+    ``__capability_evidence__: tuple[str, ...] = (...)`` literal
+    matches the schema's ``evidence_refs`` field. Mismatch raises
+    ``UnevidencedApiReference(reason='declared_block_mismatch')``.
+
+    Stage 2 — AST diff against discovery batch: invoke
+    :func:`~molexp.agent.modes.plan.capability.validate_codegen_evidence`
+    and raise ``UnevidencedApiReference`` (no special reason slug) on
+    any non-empty miss set. The validator's own three-way diff is the
+    source of truth for the missing-ref detail.
+
+    Stub paths (``is_stub=True``) and ``batch.discovery_skipped=True``
+    short-circuit both stages — the spec exempts them from the gate.
+
+    ``where`` is included in error messages so the repair loop can
+    log which (node, task) triggered the failure.
+    """
+    if is_stub or batch.discovery_skipped:
+        return
+
+    declared = _extract_declared_block_refs(source)
+    if set(declared) != set(evidence_refs):
+        diff = sorted(set(declared) ^ set(evidence_refs))
+        raise UnevidencedApiReference(
+            f"{where}: declared_block_mismatch — source's __capability_evidence__ "
+            f"({sorted(declared)}) does not equal schema.evidence_refs "
+            f"({sorted(evidence_refs)}).",
+            refs=tuple(diff),
+            reason="declared_block_mismatch",
+            detail=f"node={where}",
+        )
+
+    misses = validate_codegen_evidence(source, batch)
+    if misses:
+        miss_refs = tuple(_pick_ref(m.detail) for m in misses if _pick_ref(m.detail))
+        raise UnevidencedApiReference(
+            f"{where}: post-codegen AST validator returned {len(misses)} miss(es).",
+            refs=miss_refs,
+            reason="",
+            detail="; ".join(m.detail for m in misses),
+        )
+
+
+def _extract_declared_block_refs(source: str) -> set[str]:
+    """Pull the ``__capability_evidence__`` literal out of ``source``.
+
+    Returns the empty set when the literal is absent or malformed —
+    :func:`_gate_evidence` then surfaces the mismatch against the
+    schema's ``evidence_refs`` if any were declared.
+
+    Defers to :func:`molexp.agent.modes.plan.capability.extract_declared_refs`
+    rather than re-implementing the AST walk so both call sites share
+    one extraction surface.
+    """
+    import ast as _ast
+
+    from molexp.agent.modes.plan.capability import extract_declared_refs
+
+    try:
+        tree = _ast.parse(source)
+    except SyntaxError:
+        return set()
+    return extract_declared_refs(tree)
+
+
+def _pick_ref(detail: str) -> str:
+    """Best-effort extraction of an api_ref from a MissingCapability.detail.
+
+    The validator formats details like ``"foo.bar.Baz not in evidence batch"``
+    or ``"foo.bar.Baz used in AST but missing from __capability_evidence__"``;
+    in both shapes the api_ref is the first whitespace-separated token.
+    """
+    return detail.split(" ", 1)[0] if detail else ""
 
 
 async def _per_brief_codegen[BriefT: TaskIRBrief](
@@ -1290,19 +1471,43 @@ def _utcnow() -> datetime:
 
 
 def _expect_input[T](inputs: object, key: str, expected: type[T]) -> T:
-    """Pull and type-narrow one upstream from a multi-dep ``ctx.inputs``."""
+    """Pull and type-narrow one upstream from a multi-dep ``ctx.inputs``.
+
+    The caller's class name is reconstructed from :func:`sys._getframe`
+    so the error message points at the actual node — Phase 5 wires four
+    distinct callers (``GenerateWorkflowSkeleton`` /
+    ``GenerateTaskTests`` / ``GenerateTaskImplementations`` /
+    ``ValidateWorkspace``) through this helper.
+    """
+    caller = _caller_class_name() or "Plan node"
     if not isinstance(inputs, dict):
         raise TypeError(
-            f"GenerateWorkflowSkeleton expected dict-shaped ctx.inputs; got {type(inputs).__name__}"
+            f"{caller} expected dict-shaped ctx.inputs; got {type(inputs).__name__}"
         )
     inputs_dict = cast("dict[str, object]", inputs)
     value = inputs_dict.get(key)
     if not isinstance(value, expected):
         raise TypeError(
-            f"GenerateWorkflowSkeleton expected ctx.inputs[{key!r}] of "
+            f"{caller} expected ctx.inputs[{key!r}] of "
             f"type {expected.__name__}; got {type(value).__name__}"
         )
     return value
+
+
+def _caller_class_name() -> str | None:
+    """Walk one frame up to fetch the caller's ``self.__class__.__name__``.
+
+    Returns ``None`` when the caller is not a bound method (e.g. a
+    free-function call from a test). The lookup is intentionally
+    shallow — it inspects exactly one frame and tolerates absent
+    ``self`` rather than scanning the stack, so it stays cheap on the
+    happy path.
+    """
+    frame = sys._getframe(2)  # caller-of-caller
+    self_obj = frame.f_locals.get("self")
+    if self_obj is None:
+        return None
+    return type(self_obj).__name__
 
 
 def _write_text(path: Path, content: str) -> None:

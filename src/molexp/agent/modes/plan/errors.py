@@ -17,11 +17,19 @@ Three exceptions are exposed:
   ``DiscoverCapabilities`` on the first miss and escalates to
   ``DraftCapabilityNeeds`` + ``DiscoverCapabilities`` on the second.
 
-All three subclass :class:`RuntimeError` — the failure mode is a
-code-generation / configuration defect, not a programmer error.
+The capability exceptions subclass :class:`molexp.workflow.WorkflowError`
+so the workflow runtime propagates them to ``drive_with_repair`` instead
+of swallowing them into a generic ``status="failed"`` result. Without
+that propagation the repair loop has no signal to act on (the runtime
+returns ``WorkflowResult(outputs={})`` for caught exceptions).
+:class:`SkeletonCompileError` stays as :class:`RuntimeError` because the
+existing pipeline relies on it bubbling out of the workflow runtime in a
+specific way that pre-dates the capability gate.
 """
 
 from __future__ import annotations
+
+from molexp.workflow import WorkflowError
 
 __all__ = [
     "CapabilityDiscoveryRequired",
@@ -48,7 +56,7 @@ class SkeletonCompileError(RuntimeError):
         super().__init__(message)
 
 
-class CapabilityDiscoveryRequired(RuntimeError):
+class CapabilityDiscoveryRequired(WorkflowError):
     """Capability discovery is needed but cannot proceed.
 
     Raised by ``NullCapabilityProbe.discover`` when its input report
@@ -76,7 +84,7 @@ class CapabilityDiscoveryRequired(RuntimeError):
         super().__init__(message)
 
 
-class UnevidencedApiReference(RuntimeError):
+class UnevidencedApiReference(WorkflowError):
     """A generated module references an API not covered by evidence.
 
     Raised by the three codegen nodes (``GenerateWorkflowSkeleton`` /

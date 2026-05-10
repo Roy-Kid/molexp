@@ -1,7 +1,7 @@
 """``drive_with_repair`` — outer Python loop for the PlanMode review→repair cycle.
 
 The PlanMode pipeline (:data:`PLAN_WORKFLOW`) is a single-direction
-11-node DAG; introducing reverse edges in the IR is rejected by
+13-node DAG; introducing reverse edges in the IR is rejected by
 ``Workflow.to_dict`` (see ``spec.py:480``). The repair loop therefore
 sits *outside* the workflow as a plain Python ``while`` driver:
 
@@ -37,6 +37,10 @@ from typing import TYPE_CHECKING, Any
 from mollog import get_logger
 
 from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
+from molexp.agent.modes.plan.errors import (
+    CapabilityDiscoveryRequired,
+    UnevidencedApiReference,
+)
 from molexp.agent.modes.plan.schemas import (
     ApprovalDecision,
     HandoffResult,
@@ -103,17 +107,55 @@ async def drive_with_repair(
     spec: Workflow = PLAN_WORKFLOW
     seed_outputs: dict[str, Any] | None = None
     iteration = 0
+    unevidenced_count = 0
 
     _LOG.info(f"[plan-repair] start max_iterations={max_iterations} workspace={handle.root()}")
     while True:
         current_deps = replace(deps, repair_iteration=iteration)
         seed_keys = list(seed_outputs.keys()) if seed_outputs else None
         _LOG.info(f"[plan-repair] iter={iteration} running spec={spec.name} seed_keys={seed_keys}")
-        result = await spec.execute(
-            config={"user_input": user_input},
-            deps=current_deps,
-            seed_outputs=seed_outputs,
-        )
+        try:
+            result = await spec.execute(
+                config={"user_input": user_input},
+                deps=current_deps,
+                seed_outputs=seed_outputs,
+            )
+        except (CapabilityDiscoveryRequired, UnevidencedApiReference) as exc:
+            decision = _synthesize_capability_decision(exc, unevidenced_count=unevidenced_count)
+            if isinstance(exc, UnevidencedApiReference):
+                unevidenced_count += 1
+            _LOG.warning(
+                f"[plan-repair] iter={iteration} {type(exc).__name__} → "
+                f"target_nodes={list(decision.target_node_ids)}"
+            )
+            if iteration + 1 >= max_iterations:
+                _LOG.warning(
+                    f"[plan-repair] iter={iteration} budget_exhausted on "
+                    f"{type(exc).__name__}; surfacing the exception."
+                )
+                # Budget exhausted before any successful run → bubble
+                # the exception so callers see a concrete failure
+                # rather than a synthetic rejected handoff with no
+                # `result.outputs`.
+                handle.archive_artifacts_for_repair(iteration)
+                handle.write_latest_decision(decision)
+                _append_repair_history(handle, iteration, decision)
+                raise
+
+            # Archive the live tree, persist decision, advance iteration.
+            handle.archive_artifacts_for_repair(iteration)
+            handle.write_latest_decision(decision)
+            _append_repair_history(handle, iteration, decision)
+            # Re-run the full pipeline. Subgraph-based partial reruns
+            # require a previous WorkflowResult to seed boundary stubs;
+            # exception-driven recovery has no such result, so we
+            # rewind to the top. Earlier nodes overwrite their
+            # already-written artefacts in place.
+            spec = PLAN_WORKFLOW
+            seed_outputs = None
+            deps = replace(deps, repair_target_tasks=None)
+            iteration += 1
+            continue
 
         handoff = _terminal_handoff(result)
         if handoff is None:
@@ -167,6 +209,54 @@ async def drive_with_repair(
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
+def _synthesize_capability_decision(
+    exc: CapabilityDiscoveryRequired | UnevidencedApiReference,
+    *,
+    unevidenced_count: int,
+) -> ApprovalDecision:
+    """Build a synthetic :class:`ApprovalDecision` from a capability-gate exception.
+
+    Mapping (per spec § ``_repair_loop.drive_with_repair`` 失败映射):
+
+    * :class:`CapabilityDiscoveryRequired` →
+      ``target_node_ids=("DraftCapabilityNeeds", "DiscoverCapabilities")``,
+      ``cascade_downstream=True``.
+    * :class:`UnevidencedApiReference` →
+      first occurrence ``("DiscoverCapabilities",)`` (unevidenced_count=0);
+      second-and-later ``("DraftCapabilityNeeds", "DiscoverCapabilities")``.
+
+    The decision is written to disk via
+    :func:`PlanWorkspaceHandle.write_latest_decision` and embedded in
+    the manifest's ``repair_history`` for telemetry, so the spec's
+    target-node mapping survives in the audit log even when the
+    pipeline is re-run from scratch.
+    """
+    if isinstance(exc, CapabilityDiscoveryRequired):
+        return ApprovalDecision(
+            approved=False,
+            reason=f"CapabilityDiscoveryRequired: {exc}",
+            target_node_ids=("DraftCapabilityNeeds", "DiscoverCapabilities"),
+            cascade_downstream=True,
+            feedback=exc.detail or str(exc),
+        )
+
+    # UnevidencedApiReference
+    if unevidenced_count == 0:
+        target_nodes = ("DiscoverCapabilities",)
+    else:
+        target_nodes = ("DraftCapabilityNeeds", "DiscoverCapabilities")
+    return ApprovalDecision(
+        approved=False,
+        reason=f"UnevidencedApiReference: {exc}",
+        target_node_ids=target_nodes,
+        cascade_downstream=True,
+        feedback=(
+            f"refs={list(exc.refs)} reason={exc.reason!r} "
+            f"detail={exc.detail!r} unevidenced_count={unevidenced_count}"
+        ),
+    )
+
+
 def _terminal_handoff(result: WorkflowResult) -> HandoffResult | None:
     """Pick the most recent ``HandoffResult`` produced by the workflow.
 
@@ -210,17 +300,27 @@ def _append_repair_history(
     ``handoff`` / ``plan_mode`` extension blocks (written by
     ``_persist_manifest_with_handoff`` in :mod:`tasks`) are stripped
     before the strict :class:`PlanManifest` validator runs.
+
+    When the pipeline aborts before ``ValidateWorkspace`` writes a
+    manifest (e.g. ``CapabilityDiscoveryRequired`` thrown from the
+    middle of the DAG), this helper synthesizes a minimal stub via
+    :func:`_build_manifest_stub` so the repair history still
+    accumulates. Without that stub the iteration counter never
+    increments and downstream telemetry loses the audit trail.
     """
-    from molexp.agent.modes.plan.tasks import _load_manifest_from_disk
+    from molexp.agent.modes.plan.tasks import (
+        _build_manifest_stub,
+        _load_manifest_from_disk,
+    )
 
     manifest_path = handle.manifest_path()
-    if not manifest_path.exists():
-        # Pipeline aborted before ValidateWorkspace wrote a manifest. Do
-        # not invent one — the archive on disk is still useful.
-        return
-    manifest = _load_manifest_from_disk(manifest_path)
+    manifest = _load_manifest_from_disk(manifest_path) if manifest_path.exists() else None
     if manifest is None:
-        return
+        # Exception-driven recovery: no ValidateWorkspace ran yet, so
+        # synthesize the minimal manifest the rest of the pipeline
+        # expects. Subsequent ValidateWorkspace runs will preserve our
+        # repair_iterations / repair_history fields via model_copy.
+        manifest = _build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml")
     record = RepairIterationRecord(
         iteration=iteration,
         target_node_ids=decision.target_node_ids,

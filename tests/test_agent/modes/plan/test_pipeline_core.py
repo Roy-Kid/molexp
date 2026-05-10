@@ -55,8 +55,13 @@ from .conftest import FakeProvider
 # ── PLAN_WORKFLOW shape (ac-007) ───────────────────────────────────────────
 
 
-def test_plan_workflow_is_workflow_with_eleven_named_nodes() -> None:
-    """FinalHandoffCheck gates the reviewed workspace before RunMode."""
+def test_plan_workflow_is_workflow_with_thirteen_named_nodes() -> None:
+    """FinalHandoffCheck gates the reviewed workspace before RunMode.
+
+    Phase 5 inserts ``DraftCapabilityNeeds`` + ``DiscoverCapabilities``
+    between ``CompileTaskIR`` and the codegen fan-out so each codegen
+    node receives the discovered capability evidence.
+    """
     assert isinstance(PLAN_WORKFLOW, Workflow)
     assert PLAN_WORKFLOW._entries == ("IngestReport",)
     assert {t.name for t in PLAN_WORKFLOW._tasks} == {
@@ -65,6 +70,8 @@ def test_plan_workflow_is_workflow_with_eleven_named_nodes() -> None:
         "DraftImplementationPlan",
         "CompileWorkflowIR",
         "CompileTaskIR",
+        "DraftCapabilityNeeds",
+        "DiscoverCapabilities",
         "GenerateWorkflowSkeleton",
         "GenerateTaskTests",
         "GenerateTaskImplementations",
@@ -72,6 +79,7 @@ def test_plan_workflow_is_workflow_with_eleven_named_nodes() -> None:
         "HumanReview",
         "FinalHandoffCheck",
     }
+    assert len(PLAN_WORKFLOW._tasks) == 13
 
 
 def test_build_plan_workflow_returns_independent_instance() -> None:
@@ -399,12 +407,17 @@ async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
     original = tasks_module._render_workflow_module
     tasks_module._render_workflow_module = _broken_render  # type: ignore[assignment]
     try:
+        # Phase 5 added a third upstream — pipe in a skipped batch so
+        # the skeleton can still be exercised in isolation.
+        from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
+
         ctx = TaskContext(
             state=None,
             deps=deps,
             inputs={
                 "CompileWorkflowIR": workflow_ir,
                 "CompileTaskIR": task_ir,
+                "DiscoverCapabilities": CapabilityEvidenceBatch(discovery_skipped=True),
             },
             config={},
         )

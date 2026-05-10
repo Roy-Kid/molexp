@@ -30,6 +30,7 @@ __all__ = [
     "CapabilityNeedReport",
     "MissReason",
     "MissingCapability",
+    "extract_declared_refs",
     "validate_codegen_evidence",
 ]
 
@@ -260,7 +261,7 @@ def validate_codegen_evidence(
         return ()
 
     tree = ast.parse(source)
-    declared_refs = _extract_declared_refs(tree)
+    declared_refs = extract_declared_refs(tree)
     ast_refs = _extract_ast_refs(tree)
     evidence_refs = {e.api_ref for e in batch.evidence}
 
@@ -304,13 +305,16 @@ def validate_codegen_evidence(
     return tuple(misses)
 
 
-def _extract_declared_refs(tree: ast.Module) -> set[str]:
+def extract_declared_refs(tree: ast.Module) -> set[str]:
     """Pull ``__capability_evidence__: tuple[str, ...] = (...)`` literals.
 
     Handles both the annotated (:class:`ast.AnnAssign`) and plain
     (:class:`ast.Assign`) forms; only module-level assignments count.
     Returns the empty set when no such assignment exists or the value
     is not a string-tuple literal.
+
+    Public so the codegen-gate helpers in :mod:`tasks` can re-use the
+    same extraction without reaching across the privacy fence.
     """
     refs: set[str] = set()
     for node in tree.body:

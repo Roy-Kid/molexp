@@ -1,15 +1,18 @@
 """Builder for the materialize-to-workspace PlanMode pipeline.
 
-Eleven nodes::
+Thirteen nodes::
 
     IngestReport → DraftReportDigest → DraftImplementationPlan
-        → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
+        → CompileWorkflowIR → CompileTaskIR
+        → DraftCapabilityNeeds → DiscoverCapabilities          [Phase 4]
+        → GenerateWorkflowSkeleton
         → GenerateTaskTests / GenerateTaskImplementations  (parallel)
         → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
 The pipeline is a pure data-edge DAG — no control edges, no
 ``wf.loop`` primitive. ``GenerateWorkflowSkeleton`` (and the two
-parallel codegen siblings) reads two upstreams, so its
+parallel codegen siblings) reads three upstreams (its two original
+inputs plus the new ``DiscoverCapabilities`` output), so its
 ``ctx.inputs`` is a ``dict[str, *Result]`` keyed by upstream node
 name; the rest take a single bare upstream value.
 """
@@ -31,6 +34,10 @@ from molexp.agent.modes.plan.tasks import (
     IngestReport,
     ValidateWorkspace,
 )
+from molexp.agent.modes.plan.tasks_capability import (
+    DiscoverCapabilities,
+    DraftCapabilityNeeds,
+)
 from molexp.workflow import Workflow, WorkflowBuilder
 
 __all__ = [
@@ -43,12 +50,14 @@ _LOG = get_logger(__name__)
 
 
 def build_plan_workflow() -> Workflow:
-    """Assemble the 11-node materialize-to-workspace pipeline.
+    """Assemble the 13-node materialize-to-workspace pipeline.
 
     Pipeline shape::
 
         IngestReport → DraftReportDigest → DraftImplementationPlan
-            → CompileWorkflowIR → CompileTaskIR → GenerateWorkflowSkeleton
+            → CompileWorkflowIR → CompileTaskIR
+            → DraftCapabilityNeeds → DiscoverCapabilities
+            → GenerateWorkflowSkeleton
             → GenerateTaskTests / GenerateTaskImplementations
             → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
@@ -60,6 +69,12 @@ def build_plan_workflow() -> Workflow:
     ``ValidateWorkspace`` joins them and ``HumanReview`` is the
     review node, then ``FinalHandoffCheck`` verifies the RunMode
     entrypoint before the workflow terminates.
+
+    The capability-discovery pair (``DraftCapabilityNeeds`` →
+    ``DiscoverCapabilities``) sits between ``CompileTaskIR`` and the
+    codegen fan-out so every codegen node receives the
+    :class:`~molexp.agent.modes.plan.capability.CapabilityEvidenceBatch`
+    needed for the AST evidence gate (Phase 5).
     """
     builder = WorkflowBuilder(name="plan_mode", entry="IngestReport")
     builder.add(IngestReport(), name="IngestReport", next_="DraftReportDigest")
@@ -85,22 +100,34 @@ def build_plan_workflow() -> Workflow:
         CompileTaskIR(),
         name="CompileTaskIR",
         depends_on=["CompileWorkflowIR"],
+        next_="DraftCapabilityNeeds",
+    )
+    builder.add(
+        DraftCapabilityNeeds(),
+        name="DraftCapabilityNeeds",
+        depends_on=["DraftImplementationPlan", "CompileWorkflowIR", "CompileTaskIR"],
+        next_="DiscoverCapabilities",
+    )
+    builder.add(
+        DiscoverCapabilities(),
+        name="DiscoverCapabilities",
+        depends_on=["DraftCapabilityNeeds"],
         next_="GenerateWorkflowSkeleton",
     )
     builder.add(
         GenerateWorkflowSkeleton(),
         name="GenerateWorkflowSkeleton",
-        depends_on=["CompileWorkflowIR", "CompileTaskIR"],
+        depends_on=["CompileWorkflowIR", "CompileTaskIR", "DiscoverCapabilities"],
     )
     builder.add(
         GenerateTaskTests(),
         name="GenerateTaskTests",
-        depends_on=["CompileTaskIR", "GenerateWorkflowSkeleton"],
+        depends_on=["CompileTaskIR", "GenerateWorkflowSkeleton", "DiscoverCapabilities"],
     )
     builder.add(
         GenerateTaskImplementations(),
         name="GenerateTaskImplementations",
-        depends_on=["CompileTaskIR", "GenerateWorkflowSkeleton"],
+        depends_on=["CompileTaskIR", "GenerateWorkflowSkeleton", "DiscoverCapabilities"],
     )
     builder.add(
         ValidateWorkspace(),
