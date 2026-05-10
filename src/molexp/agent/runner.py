@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from molexp.agent.router import ModelTier, Router, TierModels
 
@@ -119,11 +119,124 @@ class AgentRunner:
             if preamble:
                 kwargs["system_prompt"] = preamble
             self._router = PydanticAIRouter(**kwargs)
+
+        self._inject_capability_probe()
+
         return await self.mode.run(
             router=self._router,
             session=session,
             user_input=user_input,
         )
+
+    def _inject_capability_probe(self) -> None:
+        """Lazily build a :class:`CapabilityProbe` and hand it to the mode.
+
+        Skipped when:
+
+        * The mode does not expose ``set_capability_probe`` /
+          ``get_capability_probe`` (only :class:`PlanMode` and any
+          subclass do today).
+        * The mode already carries a non-``None`` probe — the user
+          configured one explicitly via the constructor or setter.
+
+        When the runner is responsible for the probe, it picks the
+        first valid, non-shadowed, secret-resolved
+        :class:`~molexp.agent.mcp.store.StdioSpec` named ``"molmcp"`` in
+        the workspace's MCP config and constructs a
+        :class:`~molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe`
+        bound to the runner's HEAVY tier model. Any failure in that
+        chain — no workspace, no molmcp entry, custom router with no
+        tier_models, MCP-store I/O error — falls back to a
+        :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
+        so PlanMode still runs (with discovery short-circuited).
+        """
+        mode = self.mode
+        getter = getattr(mode, "get_capability_probe", None)
+        setter = getattr(mode, "set_capability_probe", None)
+        if not callable(getter) or not callable(setter):
+            return
+        if getter() is not None:
+            return
+        setter(self._build_capability_probe())
+
+    def _build_capability_probe(self) -> object:
+        """Return a fresh :class:`CapabilityProbe` for this runner.
+
+        Returns either a
+        :class:`~molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe`
+        (when molmcp is reachable + the runner has tier_models for the
+        HEAVY tier) or a
+        :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
+        (every other path).
+        """
+        from molexp.agent.modes.plan.tasks_capability import NullCapabilityProbe
+
+        if self._tier_models is None:
+            return NullCapabilityProbe()
+
+        molmcp_entry = self._lookup_molmcp_entry()
+        if molmcp_entry is None:
+            return NullCapabilityProbe()
+
+        # The runner stores tier models as ``str | object`` because
+        # callers can pass either model id strings or pydantic-ai
+        # model instances; the probe accepts the same union under the
+        # ``PydanticAiModel`` alias. Cast at the boundary.
+        from molexp.agent._pydanticai.capability_probe import (
+            PydanticAICapabilityProbe,
+            PydanticAiModel,
+        )
+
+        env = dict(molmcp_entry.get("env") or {})
+        return PydanticAICapabilityProbe(
+            model=cast("PydanticAiModel", self._tier_models[ModelTier.HEAVY]),
+            molmcp_command=str(molmcp_entry["command"]),
+            molmcp_args=tuple(str(a) for a in (molmcp_entry.get("args") or ())),
+            molmcp_env=env if env else None,
+        )
+
+    def _lookup_molmcp_entry(self) -> dict[str, Any] | None:
+        """Return the resolved molmcp stdio spec, or ``None`` if unavailable.
+
+        Picks the first ``valid`` + ``not shadowed`` entry whose name
+        equals ``"molmcp"`` and whose transport is ``"stdio"``. Returns
+        a dict with ``command`` / ``args`` / ``env`` keys after secret
+        substitution. Read-only / missing config / unresolved-secrets
+        all fall through to ``None`` — :func:`_inject_capability_probe`
+        then routes to :class:`NullCapabilityProbe`.
+        """
+        try:
+            from molexp.agent.mcp.store import McpStore
+
+            workspace_root = self.workspace if self.workspace is not None else Path()
+            store = McpStore(workspace_root)
+            entries = store.list()
+        except OSError:
+            return None
+
+        from molexp.agent.mcp.store import UnresolvedSecretError
+
+        for entry in entries:
+            if entry.name != "molmcp":
+                continue
+            if not entry.valid or entry.shadowed or entry.unresolved_secrets:
+                continue
+            if entry.transport != "stdio":
+                continue
+            try:
+                resolved = store.resolve(entry)
+            except (UnresolvedSecretError, KeyError, OSError):
+                # The entry passed the precheck but the secret was
+                # deleted between list() and resolve() (race), or the
+                # underlying file disappeared. Treat as "no probe" and
+                # let NullCapabilityProbe take over.
+                return None
+            return {
+                "command": resolved.command,
+                "args": list(resolved.args),
+                "env": dict(resolved.env),
+            }
+        return None
 
     def _compose_system_prompt(self) -> str:
         """Concatenate ``usage_instructions`` from every active MCP entry.

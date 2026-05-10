@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
-from molexp.agent.modes.plan.protocols import PlanDeps, PlanGatePolicy
+from molexp.agent.modes.plan.protocols import CapabilityProbe, PlanDeps, PlanGatePolicy
 from molexp.agent.modes.plan.schemas import (
     ApprovalDecision,
     DigestResult,
@@ -35,8 +35,8 @@ from molexp.agent.modes.plan.schemas import (
     PlanBriefResult,
     SkeletonResult,
 )
-from molexp.agent.policy import AutoApproveGatePolicy
 from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.policy import AutoApproveGatePolicy
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
@@ -150,6 +150,7 @@ class PlanMode(AgentMode):
         workspace_handle: PlanWorkspaceHandle,
         model_policy: PlanModelPolicy | None = None,
         gate_policy: PlanGatePolicy | None = None,
+        capability_probe: CapabilityProbe | None = None,
         artifacts_root: Path | None = None,
         max_iterations: int = 8,
         temperature: float | None = None,
@@ -166,6 +167,7 @@ class PlanMode(AgentMode):
             if gate_policy is not None
             else AutoApproveGatePolicy(ApprovalDecision(approved=True))
         )
+        self._capability_probe: CapabilityProbe | None = capability_probe
 
     def get_gate_policy(self) -> PlanGatePolicy:
         """Return the current gate policy consulted by ``HumanReview``."""
@@ -181,6 +183,29 @@ class PlanMode(AgentMode):
         rebuilding deps.
         """
         self._gate_policy = policy
+
+    def get_capability_probe(self) -> CapabilityProbe | None:
+        """Return the configured :class:`CapabilityProbe`, or ``None``.
+
+        ``None`` means PlanMode will resolve to a
+        :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
+        at workflow run time. :class:`AgentRunner` calls this method
+        before constructing its lazy probe; a non-``None`` return
+        means the user has already set one explicitly and the runner
+        leaves it alone.
+        """
+        return self._capability_probe
+
+    def set_capability_probe(self, probe: CapabilityProbe | None) -> None:
+        """Inject a :class:`CapabilityProbe` for use by the discovery nodes.
+
+        Called by :class:`AgentRunner` during ``run()`` to wire in a
+        :class:`PydanticAICapabilityProbe` when molmcp is configured.
+        Tests construct PlanMode with the probe directly via the
+        constructor; this setter exists so the runner doesn't have to
+        re-create the mode just to inject the probe.
+        """
+        self._capability_probe = probe
 
     async def run(
         self,
@@ -202,6 +227,7 @@ class PlanMode(AgentMode):
             policy=self._model_policy,
             workspace_handle=self._workspace_handle,
             gate_policy_lookup=lambda: self._gate_policy,
+            capability_probe=self._capability_probe,
         )
         t0 = time.monotonic()
         result = await drive_with_repair(

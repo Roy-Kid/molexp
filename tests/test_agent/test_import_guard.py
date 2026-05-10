@@ -186,6 +186,29 @@ def test_importing_molexp_agent_router_does_not_load_pydantic_ai() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
+def test_importing_plan_modes_does_not_load_mcp_clients() -> None:
+    """Phase 4 sentinel — plan-mode import stays MCP-client free.
+
+    ``DraftCapabilityNeeds`` and ``DiscoverCapabilities`` import the
+    :class:`CapabilityProbe` Protocol (not the pydantic-ai-backed
+    implementation). The probe lives in ``agent/_pydanticai/`` and is
+    only constructed by :class:`AgentRunner` on first ``run()`` —
+    plain ``import molexp.agent.modes.plan`` must not pull
+    ``pydantic_ai.mcp`` / the ``mcp`` SDK into ``sys.modules``.
+    """
+    code = (
+        "import sys\n"
+        "import molexp.agent.modes.plan  # noqa: F401\n"
+        "for forbidden in ('pydantic_ai.mcp', 'mcp', 'mcp.client'):\n"
+        "    assert forbidden not in sys.modules, (\n"
+        "        f'{forbidden} eagerly loaded by molexp.agent.modes.plan; '\n"
+        "        'capability discovery wiring should stay lazy.'\n"
+        "    )\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr or result.stdout
+
+
 def test_importing_mcp_defaults_stays_lazy() -> None:
     """ac-014 — ``import molexp.agent.mcp.defaults`` stays SDK-free.
 
