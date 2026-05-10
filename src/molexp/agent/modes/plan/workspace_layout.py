@@ -35,6 +35,11 @@ from pydantic import BaseModel, ConfigDict
 from molexp.workspace import Workspace, atomic_write_text
 
 if TYPE_CHECKING:
+    from molexp.agent.modes.plan.capability import (
+        CapabilityEvidenceBatch,
+        CapabilityNeedReport,
+        MissingCapability,
+    )
     from molexp.agent.modes.plan.schemas import ApprovalDecision
 
 __all__ = [
@@ -337,6 +342,17 @@ class PlanWorkspaceHandle:
         """``<plan_id>/results/`` — final-product summaries."""
         return self._ensure(("results",))
 
+    def capability_dir(self) -> Path:
+        """``<plan_id>/capability/`` — capability needs / evidence / misses.
+
+        Owned by Phase 4's ``DraftCapabilityNeeds`` /
+        ``DiscoverCapabilities`` nodes. Created lazily on first call;
+        the three writers below — :meth:`write_capability_needs` /
+        :meth:`write_capability_evidence` /
+        :meth:`write_capability_missing` — call this implicitly.
+        """
+        return self._ensure(("capability",))
+
     def manifest_path(self) -> Path:
         """``<plan_id>/manifest.yaml`` — does **not** create the file."""
         return self._resolve(("manifest.yaml",))
@@ -433,6 +449,70 @@ class PlanWorkspaceHandle:
             default_flow_style=False,
         )
         atomic_write_text(path, text)
+        return path
+
+    # -- Capability writers (Phase 4) -----------------------------------
+
+    def write_capability_needs(self, report: CapabilityNeedReport) -> Path:
+        """Persist ``DraftCapabilityNeeds`` output to ``capability/needs.yaml``.
+
+        Round-trips through pydantic's ``mode="json"`` dump so the YAML
+        is human-readable (tuples become lists, enums become strings).
+        """
+        path = self.capability_dir() / "needs.yaml"
+        text = yaml.safe_dump(
+            report.model_dump(mode="json"),
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        atomic_write_text(path, text)
+        return path
+
+    def write_capability_evidence(self, batch: CapabilityEvidenceBatch) -> Path:
+        """Persist ``DiscoverCapabilities`` output to ``capability/evidence.yaml``.
+
+        Includes the full :class:`CapabilityEvidenceBatch` payload —
+        ``evidence`` rows, ``missing`` rows, and the
+        ``discovery_skipped`` flag — so the validator in Phase 5/6 can
+        round-trip read it without re-running discovery.
+        """
+        path = self.capability_dir() / "evidence.yaml"
+        text = yaml.safe_dump(
+            batch.model_dump(mode="json"),
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        atomic_write_text(path, text)
+        return path
+
+    def write_capability_missing(self, missing: tuple[MissingCapability, ...]) -> Path:
+        """Render the missing-capability ledger to ``capability/missing.md``.
+
+        Human-readable summary of capabilities the discovery agent could
+        not resolve. Empty input produces a placeholder body so the file
+        is always present after :meth:`write_capability_evidence` runs
+        (downstream tooling can rely on its existence).
+        """
+        path = self.capability_dir() / "missing.md"
+        lines: list[str] = ["# Missing capabilities", ""]
+        if not missing:
+            lines.append("_(none)_")
+        else:
+            lines.extend(
+                [
+                    "| reason | need | repairable | detail |",
+                    "| ------ | ---- | ---------- | ------ |",
+                ]
+            )
+            for entry in missing:
+                if entry.need is not None:
+                    need_cell = f"{entry.need.task_id}: {entry.need.capability}"
+                else:
+                    need_cell = "_(no need)_"
+                cell_repairable = "yes" if entry.repairable else "no"
+                detail = entry.detail.replace("|", "\\|") or "_(none)_"
+                lines.append(f"| {entry.reason} | {need_cell} | {cell_repairable} | {detail} |")
+        atomic_write_text(path, "\n".join(lines) + "\n")
         return path
 
     # -- Generated-source writers (sub-spec 06) ---------------------------

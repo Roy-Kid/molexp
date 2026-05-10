@@ -20,6 +20,13 @@ from molexp.agent.modes.plan import (
     PlanWorkspaceHandle,
     ValidationReport,
 )
+from molexp.agent.modes.plan.capability import (
+    CapabilityEvidence,
+    CapabilityEvidenceBatch,
+    CapabilityNeed,
+    CapabilityNeedReport,
+    MissingCapability,
+)
 from molexp.workspace import Workspace
 
 
@@ -478,3 +485,101 @@ def test_repairs_dir_and_manifest_iteration(workspace: Workspace) -> None:
     assert len(loaded["repair_history"]) == 2
     assert loaded["repair_history"][0]["iteration"] == 0
     assert loaded["repair_history"][1]["iteration"] == 1
+
+
+# ── Capability writers (Phase 3 — PYDA-10) ─────────────────────────────────
+
+
+def test_capability_dir_created_lazily(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    capability = handle.capability_dir()
+    assert capability.name == "capability"
+    assert capability.is_dir()
+    assert capability.parent == handle.root()
+
+
+def test_write_capability_needs_round_trips_through_yaml(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    report = CapabilityNeedReport(
+        discovery_required=True,
+        needs=(
+            CapabilityNeed(
+                task_id="prepare",
+                capability="construct a peptide",
+                rationale="needs builder",
+                expected_kind="class",
+                query_hints=("peptide", "builder"),
+            ),
+        ),
+        rationale_summary="prepare task needs a peptide builder",
+    )
+    path = handle.write_capability_needs(report)
+    assert path.name == "needs.yaml"
+    loaded = yaml.safe_load(path.read_text())
+    assert loaded["discovery_required"] is True
+    assert loaded["needs"][0]["task_id"] == "prepare"
+    assert loaded["needs"][0]["query_hints"] == ["peptide", "builder"]
+
+
+def test_write_capability_evidence_round_trips_through_yaml(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    batch = CapabilityEvidenceBatch(
+        evidence=(
+            CapabilityEvidence(
+                need_fingerprint="prepare:construct a peptide",
+                source="molmcp",
+                package="molpy",
+                module="molpy.builders.peptide",
+                symbol="PeptideBuilder",
+                kind="class",
+                signature="class PeptideBuilder:",
+                doc_summary="Build a peptide from amino-acid codes.",
+                api_ref="molpy.builders.peptide.PeptideBuilder",
+                confidence=0.95,
+            ),
+        ),
+        missing=(),
+        discovery_skipped=False,
+    )
+    path = handle.write_capability_evidence(batch)
+    assert path.name == "evidence.yaml"
+    loaded = yaml.safe_load(path.read_text())
+    assert loaded["discovery_skipped"] is False
+    assert loaded["evidence"][0]["api_ref"] == "molpy.builders.peptide.PeptideBuilder"
+
+
+def test_write_capability_missing_renders_markdown_table(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    misses = (
+        MissingCapability(
+            need=CapabilityNeed(
+                task_id="prepare",
+                capability="construct a peptide",
+            ),
+            reason="mcp_no_match",
+            detail="no matching symbol in molpy",
+            repairable=False,
+        ),
+        MissingCapability(
+            need=None,
+            reason="unevidenced_in_code",
+            detail="molpy.foo not in evidence batch",
+            repairable=True,
+        ),
+    )
+    path = handle.write_capability_missing(misses)
+    assert path.name == "missing.md"
+    body = path.read_text()
+    assert "# Missing capabilities" in body
+    assert "mcp_no_match" in body
+    assert "unevidenced_in_code" in body
+    assert "prepare: construct a peptide" in body
+    assert "_(no need)_" in body
+
+
+def test_write_capability_missing_handles_empty_input(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    path = handle.write_capability_missing(())
+    body = path.read_text()
+    assert "# Missing capabilities" in body
+    assert "_(none)_" in body

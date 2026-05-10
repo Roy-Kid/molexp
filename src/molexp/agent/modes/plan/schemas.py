@@ -31,6 +31,13 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
+from molexp.agent.modes.plan.capability import (
+    CapabilityEvidence,
+    CapabilityEvidenceBatch,
+    CapabilityNeed,
+    CapabilityNeedReport,
+    MissingCapability,
+)
 from molexp.agent.modes.plan.workspace_layout import (
     CheckResult,
     RepairIterationRecord,
@@ -39,9 +46,14 @@ from molexp.workflow import WorkflowContract
 
 __all__ = [
     "ApprovalDecision",
+    "CapabilityEvidence",
+    "CapabilityEvidenceBatch",
+    "CapabilityNeed",
+    "CapabilityNeedReport",
     "DigestResult",
     "HandoffResult",
     "IngestReportResult",
+    "MissingCapability",
     "PlanBrief",
     "PlanBriefResult",
     "PlanReviewView",
