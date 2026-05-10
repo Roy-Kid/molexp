@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -50,7 +51,11 @@ from .retry import RetryPolicy, should_retry, sleep_for
 # the real SDK type rather than ``object`` so type checkers can match
 # overloads.
 type PydanticAiModel = "models.Model | models.KnownModelName | str"
-type PydanticAiTool = "Tool[None]"
+# pydantic-ai's ``Agent(tools=...)`` accepts two shapes: a
+# :class:`pydantic_ai.tools.Tool` instance (typically built via the
+# ``Tool`` decorator), or a bare callable that the SDK introspects on
+# construction. molexp forwards both verbatim — no middle layer.
+type PydanticAiTool = "Tool[None] | Callable[..., Any]"
 type PydanticAiMessage = "ModelMessage"
 
 # Concrete agent shapes:

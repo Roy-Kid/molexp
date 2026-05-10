@@ -35,6 +35,33 @@ Two SDKs sit behind import-boundary firewalls:
   public ``molexp.workflow`` API, the sole sanctioned pg site in the
   project.
 
+Tool injection
+==============
+
+To register tools on :class:`ChatMode` (or any single-shot mode that
+takes the runner's text path), build a :class:`pydantic_ai.tools.Tool`
+or pass a bare async callable — pydantic-ai accepts both shapes
+natively — then forward them through :class:`AgentRunner`::
+
+    from pydantic_ai.tools import Tool
+    from molexp.agent import AgentRunner
+    from molexp.agent.modes import ChatMode
+
+
+    async def echo(message: str) -> str:
+        return message
+
+
+    runner = AgentRunner(
+        mode=ChatMode(),
+        model="openai:gpt-5.2",
+        tools=(Tool(echo), echo),  # Tool instance OR bare callable
+    )
+
+MCP servers do not go through ``tools=``. PlanMode's discovery agent
+mounts them internally via ``Agent(toolsets=[MCPServerStdio(...)])`` —
+see :mod:`molexp.agent._pydanticai` for that wiring.
+
 See ``§ Layer charters`` in CLAUDE.md and the import-guard tests
 under ``tests/test_agent/`` for the binding rules.
 """

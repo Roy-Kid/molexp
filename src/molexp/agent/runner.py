@@ -21,13 +21,15 @@ Exactly one must be supplied. Zero or two-or-more raise
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from molexp.agent.router import ModelTier, Router, TierModels
 
 if TYPE_CHECKING:
+    from pydantic_ai.tools import Tool
+
     from molexp.agent.mode import AgentMode, AgentRunResult
     from molexp.agent.session import AgentSession
 
@@ -61,7 +63,7 @@ class AgentRunner:
         model: str | object | None = None,
         models: Mapping[ModelTier | str, str | object] | None = None,
         router: Router | None = None,
-        tools: tuple[Any, ...] = (),
+        tools: tuple[Tool[None] | Callable[..., Any], ...] = (),
         workspace: Path | None = None,
     ) -> None:
         supplied = sum(x is not None for x in (model, models, router))
@@ -84,7 +86,7 @@ class AgentRunner:
         if router is not None:
             self._tier_models = None
         elif model is not None:
-            self._tier_models = {tier: model for tier in ModelTier}
+            self._tier_models = dict.fromkeys(ModelTier, model)
         else:
             assert models is not None  # narrowed by the count check above
             self._tier_models = _normalize_tier_map(models)

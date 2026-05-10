@@ -38,6 +38,46 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
 )
 
 
+def _is_type_checking_block(node: ast.AST) -> bool:
+    """True if ``node`` is an ``if TYPE_CHECKING:`` (or ``typing.TYPE_CHECKING``) gate."""
+    if not isinstance(node, ast.If):
+        return False
+    test = node.test
+    if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
+        return True
+    return (
+        isinstance(test, ast.Attribute)
+        and test.attr == "TYPE_CHECKING"
+        and isinstance(test.value, ast.Name)
+        and test.value.id == "typing"
+    )
+
+
+def _runtime_imports(tree: ast.AST) -> list[ast.Import | ast.ImportFrom]:
+    """Walk ``tree`` collecting only the imports executed at runtime.
+
+    Imports inside ``if TYPE_CHECKING:`` (or ``if typing.TYPE_CHECKING:``)
+    are skipped — they exist only for type checkers and are never
+    loaded, so they do not violate the runtime-firewall invariant.
+    """
+    collected: list[ast.Import | ast.ImportFrom] = []
+
+    def _walk(node: ast.AST) -> None:
+        for child in ast.iter_child_nodes(node):
+            if _is_type_checking_block(child):
+                # Skip the whole if/elif/else cascade: the body is
+                # never executed and any orelse clause that mirrors a
+                # ``if not TYPE_CHECKING:`` shape would be unusual and
+                # worth flagging by hand.
+                continue
+            if isinstance(child, (ast.Import, ast.ImportFrom)):
+                collected.append(child)
+            _walk(child)
+
+    _walk(tree)
+    return collected
+
+
 def _files_importing(module: str, root: Path) -> list[tuple[Path, int, str]]:
     hits: list[tuple[Path, int, str]] = []
     for py in root.rglob("*.py"):
@@ -47,7 +87,7 @@ def _files_importing(module: str, root: Path) -> list[tuple[Path, int, str]]:
             tree = ast.parse(py.read_text(encoding="utf-8"))
         except SyntaxError:
             continue
-        for node in ast.walk(tree):
+        for node in _runtime_imports(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name == module or alias.name.startswith(module + "."):
