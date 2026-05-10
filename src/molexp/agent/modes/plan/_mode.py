@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.mode import AgentMode, AgentRunResult
-from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
+from molexp.agent.modes.plan._repair_loop import drive_with_repair
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
 from molexp.agent.modes.plan.protocols import (
     AutoApproveGatePolicy,
@@ -152,9 +152,8 @@ class PlanMode(AgentMode):
     ) -> AgentRunResult:
         session.append(Message(role="user", content=user_input))
 
-        result = await PLAN_WORKFLOW.execute(
-            config={"user_input": user_input},
-            deps=self._deps,
+        result = await drive_with_repair(
+            self._deps, user_input, max_iterations=self.config.max_iterations
         )
 
         outputs = result.outputs

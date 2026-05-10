@@ -23,6 +23,7 @@ runs.
 
 from __future__ import annotations
 
+import shutil
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +40,7 @@ __all__ = [
     "PlanManifest",
     "PlanStatus",
     "PlanWorkspaceHandle",
+    "RepairIterationRecord",
     "ValidationReport",
 ]
 
@@ -133,6 +135,31 @@ class ValidationReport(BaseModel):
         return "\n".join(lines) + "\n"
 
 
+class RepairIterationRecord(BaseModel):
+    """Per-iteration audit row stored on :attr:`PlanManifest.repair_history`.
+
+    Captures the structured rejection that the human reviewer issued in
+    iteration *n* and when the prior live-tree snapshot was archived
+    under ``<plan_id>/repairs/iter-<n>/``.
+
+    Lives in this module (not ``schemas.py``) so :class:`PlanManifest`
+    can reference it concretely — :mod:`molexp.agent.modes.plan.schemas`
+    already imports from this module for :class:`CheckResult`, so
+    placing the record here avoids a circular import. The schemas
+    module re-exports the class so callers don't need to know the
+    physical location.
+    """
+
+    model_config = _FROZEN
+
+    iteration: int
+    target_node_ids: tuple[str, ...] = ()
+    target_task_ids: tuple[str, ...] = ()
+    cascade_downstream: bool = False
+    archived_at: datetime
+    feedback: str = ""
+
+
 class PlanManifest(BaseModel):
     """On-disk manifest for a single PlanMode experiment workspace.
 
@@ -153,6 +180,14 @@ class PlanManifest(BaseModel):
             workspace_layout decoupled from the policy module.
         status: Lifecycle marker. ``"ready_for_run"`` is reserved for
             workspaces that passed the RunMode-style handoff check.
+        repair_iterations: Count of completed review→repair rounds.
+            Zero on a freshly materialized plan; incremented before each
+            repair iteration writes its archive under
+            ``<plan_id>/repairs/iter-<n>/``.
+        repair_history: Audit tuple — one
+            :class:`~molexp.agent.modes.plan.schemas.RepairIterationRecord`
+            per past repair round. The element at index ``n`` describes
+            the rejection that caused round ``n``.
     """
 
     model_config = _FROZEN
@@ -164,6 +199,8 @@ class PlanManifest(BaseModel):
     task_ir_paths: tuple[Path, ...] = ()
     model_policy_snapshot: dict[str, Any] | None = None
     status: PlanStatus = "draft"
+    repair_iterations: int = 0
+    repair_history: tuple[RepairIterationRecord, ...] = ()
 
 
 # ── Runtime container ──────────────────────────────────────────────────────
@@ -300,6 +337,48 @@ class PlanWorkspaceHandle:
     def manifest_path(self) -> Path:
         """``<plan_id>/manifest.yaml`` — does **not** create the file."""
         return self._resolve(("manifest.yaml",))
+
+    # -- Repair-iteration archive (planmode-review-repair-loop) ---------
+
+    def repairs_dir(self, iteration: int) -> Path:
+        """``<plan_id>/repairs/iter-<iteration>/`` — created if missing.
+
+        One directory per completed review→repair round. The contents
+        mirror the live ``report/ plan/ ir/ src/ tests/`` subtrees as
+        they were *before* this iteration's overwrites began. See
+        :meth:`archive_artifacts_for_repair` for the canonical writer.
+        """
+        return self._ensure(("repairs", f"iter-{iteration}"))
+
+    def latest_decision_path(self) -> Path:
+        """``<plan_id>/repairs/latest_decision.yaml`` — does **not** create the file.
+
+        The repair-loop driver writes the most recent
+        :class:`~molexp.agent.modes.plan.schemas.ApprovalDecision` here so
+        a re-attached driver (or an out-of-band inspection tool) can see
+        what the previous gate decided without re-loading the manifest.
+        """
+        return self._resolve(("repairs", "latest_decision.yaml"))
+
+    def archive_artifacts_for_repair(self, iteration: int) -> None:
+        """Snapshot the live ``report/ plan/ ir/ src/ tests/`` subtrees
+        into ``<plan_id>/repairs/iter-<iteration>/``.
+
+        Each subdirectory that exists on disk is copied verbatim with
+        :func:`shutil.copytree`; missing subdirectories are silently
+        skipped (the materialized plan may not have populated every
+        live subtree yet — e.g. an early-iteration archive of a plan
+        that bailed out before ``GenerateTaskTests``). Non-empty target
+        subdirectories under the archive are an error: each iteration's
+        archive must be a fresh write.
+        """
+        archive_root = self.repairs_dir(iteration)
+        for sub in ("report", "plan", "ir", "src", "tests"):
+            live = self._resolve((sub,))
+            if not live.exists() or not live.is_dir():
+                continue
+            target = archive_root / sub
+            shutil.copytree(live, target, dirs_exist_ok=False)
 
     def validation_report_path(self) -> Path:
         """``<plan_id>/validation_report.md`` — does **not** create the file."""

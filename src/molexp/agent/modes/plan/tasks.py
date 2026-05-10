@@ -339,8 +339,26 @@ class GenerateTaskTests(PlanLLMTask):
         skeleton = _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
         del skeleton  # path is informational; the writer uses workspace_handle
 
+        # Repair-loop filter: when ``ctx.deps.repair_target_tasks`` is a
+        # non-None tuple, only briefs whose task_id is in the set get a
+        # fresh LLM call this iteration. The remaining briefs reuse the
+        # on-disk file from the prior round; the returned ``test_paths``
+        # tuple still covers every brief so ValidateWorkspace's
+        # consistency check sees a complete set.
+        repair_targets = ctx.deps.repair_target_tasks
+        handle = ctx.deps.workspace_handle
+
         paths: list[Path] = []
         for brief in ir_result.briefs:
+            existing_path = handle.tests_dir() / f"test_{brief.task_id}.py"
+            if (
+                repair_targets is not None
+                and brief.task_id not in repair_targets
+                and existing_path.exists()
+            ):
+                # Untouched on this repair iteration — reuse last round.
+                paths.append(existing_path)
+                continue
             if brief.is_stub:
                 # Skip the LLM round-trip — emit a pytest.skip stub
                 # synchronously. Saves a model call and keeps the
@@ -356,13 +374,13 @@ class GenerateTaskTests(PlanLLMTask):
                 if module.task_id != brief.task_id:
                     module = module.model_copy(update={"task_id": brief.task_id})
                 source = module.source
-            path = ctx.deps.workspace_handle.write_test_module(brief.task_id, source)
+            path = handle.write_test_module(brief.task_id, source)
             paths.append(path)
 
         # Topology-pin test always lands.
         ir_yaml_rel = "ir/workflow.yaml"
         structure_source = _render_workflow_structure_test(ir_yaml_rel)
-        ctx.deps.workspace_handle.write_workflow_structure_test(structure_source)
+        handle.write_workflow_structure_test(structure_source)
 
         return TaskTestsResult(test_paths=tuple(paths))
 
@@ -393,8 +411,21 @@ class GenerateTaskImplementations(PlanLLMTask):
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
 
+        # See ``GenerateTaskTests.execute`` above for the
+        # ``repair_target_tasks`` semantic.
+        repair_targets = ctx.deps.repair_target_tasks
+        handle = ctx.deps.workspace_handle
+
         paths: list[Path] = []
         for brief in ir_result.briefs:
+            existing_path = handle.tasks_pkg_dir() / f"{brief.task_id}.py"
+            if (
+                repair_targets is not None
+                and brief.task_id not in repair_targets
+                and existing_path.exists()
+            ):
+                paths.append(existing_path)
+                continue
             if brief.is_stub:
                 source = _render_stub_implementation_module(brief.task_id)
             else:
@@ -408,7 +439,7 @@ class GenerateTaskImplementations(PlanLLMTask):
                     if module.is_stub
                     else module.source
                 )
-            path = ctx.deps.workspace_handle.write_task_implementation(brief.task_id, source)
+            path = handle.write_task_implementation(brief.task_id, source)
             paths.append(path)
 
         return TaskImplementationsResult(impl_paths=tuple(paths))
@@ -445,7 +476,15 @@ class ValidateWorkspace(PlanTask):
         summary = _summarize_checks(checks)
         report = ValidationReport(passed=passed, checks=tuple(checks), summary=summary)
         report_path = handle.write_validation_report(report)
-        manifest = _build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml")
+        # Preserve repair_iterations / repair_history from any prior manifest
+        # so the review→repair driver's accumulating state is not clobbered
+        # when ValidateWorkspace re-writes the manifest each iteration.
+        existing = _load_manifest_from_disk(handle.manifest_path())
+        manifest = (
+            existing
+            if existing is not None
+            else _build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml")
+        )
         manifest = manifest.model_copy(
             update={
                 "task_ir_paths": tuple(sorted(handle.tasks_ir_dir().glob("*.yaml"))),
@@ -494,6 +533,11 @@ class HumanReview(PlanTask):
         contract = default_compiler.dict_to_contract(contract_dict)
 
         plan_id = handle.plan_id
+        # Surface failed-check identifiers for the review view so the
+        # reviewer can target the offending tasks via
+        # ``ApprovalDecision.target_*``. Empty tuple on first pass / when
+        # everything passed.
+        failures = tuple(check.name for check in validation_result.checks if not check.passed)
         view = PlanReviewView(
             plan_id=plan_id,
             experiment_workspace_path=handle.root(),
@@ -502,6 +546,8 @@ class HumanReview(PlanTask):
             contract=contract,
             validation_passed=validation_result.passed,
             validation_summary=validation_result.summary,
+            previous_validation_failures=failures,
+            repair_iteration=ctx.deps.repair_iteration,
         )
 
         decision = await ctx.deps.gate_policy.human_review(view)

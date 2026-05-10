@@ -324,3 +324,157 @@ def test_check_result_rejects_invalid_severity() -> None:
             passed=False,
             severity="critical",  # type: ignore[arg-type]
         )
+
+
+# ── repairs_dir / latest_decision_path / archive (planmode-review-repair-loop) ──
+
+
+def test_repairs_dir_creates_isolated_iteration_directories(workspace: Workspace) -> None:
+    """``repairs_dir(n)`` creates ``<plan_id>/repairs/iter-<n>/`` lazily; each
+    iteration is an independent directory under ``repairs/``."""
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rep")
+    iter0 = handle.repairs_dir(0)
+    iter1 = handle.repairs_dir(1)
+    assert iter0 != iter1
+    assert iter0.exists() and iter0.is_dir()
+    assert iter1.exists() and iter1.is_dir()
+    assert iter0.name == "iter-0"
+    assert iter1.name == "iter-1"
+    assert iter0.parent == iter1.parent
+    assert iter0.parent.name == "repairs"
+    assert iter0.parent.parent == handle.root()
+
+
+def test_latest_decision_path_does_not_create_file(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="ld")
+    p = handle.latest_decision_path()
+    assert p == handle.root() / "repairs" / "latest_decision.yaml"
+    assert not p.exists()
+
+
+def test_archive_artifacts_for_repair_copies_five_subtrees(workspace: Workspace) -> None:
+    """Before each repair iteration, the live ``report/ plan/ ir/ src/ tests/``
+    state is archived under ``repairs/iter-<n>/`` so post-repair overwrites
+    of the live trees do not destroy the prior attempt."""
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="arch")
+    # Populate each live subtree with one marker file so we can verify
+    # the archive contains them after copy.
+    for subdir, fname in (
+        (handle.report_dir(), "digest.md"),
+        (handle.plan_dir(), "implementation_plan.md"),
+        (handle.ir_dir(), "workflow.yaml"),
+        (handle.src_dir(), "marker.py"),
+        (handle.tests_dir(), "marker.py"),
+    ):
+        (subdir / fname).write_text("v1")
+
+    handle.archive_artifacts_for_repair(0)
+    iter0 = handle.repairs_dir(0)
+    for sub, fname in (
+        ("report", "digest.md"),
+        ("plan", "implementation_plan.md"),
+        ("ir", "workflow.yaml"),
+        ("src", "marker.py"),
+        ("tests", "marker.py"),
+    ):
+        archived = iter0 / sub / fname
+        assert archived.exists(), f"missing archived file {archived}"
+        assert archived.read_text() == "v1"
+
+
+def test_archive_isolates_live_overwrites(workspace: Workspace) -> None:
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="iso")
+    (handle.report_dir() / "digest.md").write_text("v1")
+    handle.archive_artifacts_for_repair(0)
+    # Overwrite the live tree — archive must remain pinned at "v1".
+    (handle.report_dir() / "digest.md").write_text("v2")
+    archived = handle.repairs_dir(0) / "report" / "digest.md"
+    assert archived.read_text() == "v1"
+
+
+def test_plan_manifest_repair_iterations_default_zero() -> None:
+    """Pre-existing manifests serialized without the new fields must still
+    deserialize cleanly with default values."""
+    manifest = PlanManifest(
+        plan_id="x",
+        created_at=datetime(2026, 5, 10, tzinfo=UTC),
+        report_source="report.md",
+        workflow_ir_path=Path("ir/workflow.yaml"),
+    )
+    assert manifest.repair_iterations == 0
+    assert manifest.repair_history == ()
+
+
+def test_plan_manifest_repair_history_round_trips_through_yaml(workspace: Workspace) -> None:
+    from molexp.agent.modes.plan.schemas import RepairIterationRecord
+
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="hist")
+    record = RepairIterationRecord(
+        iteration=0,
+        target_node_ids=("DraftImplementationPlan",),
+        target_task_ids=("prepare",),
+        cascade_downstream=True,
+        archived_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+        feedback="rework equilibration",
+    )
+    manifest = PlanManifest(
+        plan_id="hist",
+        created_at=datetime(2026, 5, 10, tzinfo=UTC),
+        report_source="r",
+        workflow_ir_path=Path("ir/workflow.yaml"),
+        repair_iterations=1,
+        repair_history=(record,),
+    )
+    written = handle.write_manifest(manifest)
+    loaded = yaml.safe_load(written.read_text())
+    assert loaded["repair_iterations"] == 1
+    assert loaded["repair_history"][0]["target_node_ids"] == ["DraftImplementationPlan"]
+    assert loaded["repair_history"][0]["target_task_ids"] == ["prepare"]
+    assert loaded["repair_history"][0]["cascade_downstream"] is True
+
+
+def test_repairs_dir_and_manifest_iteration(workspace: Workspace) -> None:
+    """End-to-end: two repair rounds populate two distinct iter-<n>/ dirs
+    and the manifest's `repair_iterations` accumulates to 2.
+
+    This is the named acceptance test (ac-008 / ac-009 / ac-010 referenced
+    by the spec's Tasks list)."""
+    from molexp.agent.modes.plan.schemas import RepairIterationRecord
+
+    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="acc")
+    (handle.report_dir() / "digest.md").write_text("round-0")
+    handle.archive_artifacts_for_repair(0)
+
+    (handle.report_dir() / "digest.md").write_text("round-1")
+    handle.archive_artifacts_for_repair(1)
+
+    iter0_text = (handle.repairs_dir(0) / "report" / "digest.md").read_text()
+    iter1_text = (handle.repairs_dir(1) / "report" / "digest.md").read_text()
+    assert iter0_text == "round-0"
+    assert iter1_text == "round-1"
+
+    manifest = PlanManifest(
+        plan_id="acc",
+        created_at=datetime(2026, 5, 10, tzinfo=UTC),
+        report_source="r",
+        workflow_ir_path=Path("ir/workflow.yaml"),
+        repair_iterations=2,
+        repair_history=(
+            RepairIterationRecord(
+                iteration=0,
+                target_node_ids=("DraftImplementationPlan",),
+                archived_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
+            ),
+            RepairIterationRecord(
+                iteration=1,
+                target_task_ids=("prepare",),
+                archived_at=datetime(2026, 5, 10, 12, 5, tzinfo=UTC),
+            ),
+        ),
+    )
+    written = handle.write_manifest(manifest)
+    loaded = yaml.safe_load(written.read_text())
+    assert loaded["repair_iterations"] == 2
+    assert len(loaded["repair_history"]) == 2
+    assert loaded["repair_history"][0]["iteration"] == 0
+    assert loaded["repair_history"][1]["iteration"] == 1

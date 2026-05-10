@@ -165,9 +165,24 @@ class PlanDeps:
         gate_policy: Approval gate consulted by ``HumanReview``.
             Defaults to :class:`AutoApproveGatePolicy` so non-interactive
             callers (tests, CLI happy paths) don't have to wire one in.
+        repair_target_tasks: Optional subset of experiment-task ids that
+            ``GenerateTaskTests`` / ``GenerateTaskImplementations`` are
+            permitted to regenerate this round. ``None`` means "regenerate
+            every task brief" (the default fresh-pass behavior); a
+            non-None tuple restricts the LLM call to the listed task ids
+            so untouched tasks reuse last-iteration outputs from disk.
+            Set by :func:`drive_with_repair` between iterations; tasks
+            never read this directly outside the two codegen nodes.
+        repair_iteration: Zero on the first round; incremented before
+            each repair iteration. Surfaced into the
+            :class:`~molexp.agent.modes.plan.schemas.PlanReviewView`
+            constructed by ``HumanReview`` so reviewers see which round
+            they are in.
     """
 
     provider: Provider
     policy: PlanModelPolicy
     workspace_handle: PlanWorkspaceHandle
     gate_policy: GatePolicy = field(default_factory=AutoApproveGatePolicy)
+    repair_target_tasks: tuple[str, ...] | None = None
+    repair_iteration: int = 0

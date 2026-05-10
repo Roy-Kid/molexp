@@ -99,6 +99,7 @@ from .types import (
     MissingRouteError,
     OutEdges,
     ParallelExecutionError,
+    RepairBudgetExceeded,
     UnconditionalEdges,
     UnknownRouteError,
     UnknownTaskError,
@@ -135,6 +136,7 @@ __all__ = [
     "OutEdges",
     "ParallelExecutionError",
     # Protocols (for third-party integration)
+    "RepairBudgetExceeded",
     "Runnable",
     "Severity",
     "Streamable",

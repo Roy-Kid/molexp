@@ -10,8 +10,11 @@ Replaces the old in-memory PlanSpec / ApprovedPlan family with the
   :class:`molexp.workflow.WorkflowContract.TaskIO` carrying the
   natural-language responsibility / success-criteria fields a code
   generator needs.
-- :class:`ApprovalDecision` — kept for sub-spec 06's ``HumanReview``
-  node.
+- :class:`ApprovalDecision` — :class:`HumanReview` node's verdict;
+  carries the structured repair targets consumed by the
+  ``planmode-review-repair-loop`` driver.
+- :class:`RepairIterationRecord` — per-iteration audit record stored
+  on the manifest's ``repair_history`` tuple.
 - ``*Result`` types (one per workflow node) — frozen, *path-bearing*
   return values. Downstream nodes consume :class:`Path` references,
   never embedded blobs, so the workspace is the single source of
@@ -28,7 +31,10 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.modes.plan.workspace_layout import CheckResult
+from molexp.agent.modes.plan.workspace_layout import (
+    CheckResult,
+    RepairIterationRecord,
+)
 from molexp.workflow import WorkflowContract
 
 __all__ = [
@@ -39,6 +45,7 @@ __all__ = [
     "PlanBrief",
     "PlanBriefResult",
     "PlanReviewView",
+    "RepairIterationRecord",
     "ReportDigest",
     "SkeletonResult",
     "TaskIRBrief",
@@ -56,15 +63,41 @@ __all__ = [
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
 
-# ── Approval (kept for sub-spec 06) ────────────────────────────────────────
+# ── Approval ───────────────────────────────────────────────────────────────
 
 
 class ApprovalDecision(BaseModel):
-    """Human-review verdict.
+    """Human-review verdict consumed by the ``HumanReview`` node and the
+    review→repair loop driver.
 
-    Used by sub-spec 06's ``HumanReview`` node; kept here so
-    intermediate sub-specs that don't yet wire human review have a
-    stable place to import the type from.
+    The first three fields encode the basic approve / reject signal (kept
+    backward-compatible with serialized payloads predating the repair-loop
+    extension). The four ``target_*`` / ``cascade_downstream`` / ``feedback``
+    fields encode a *structured rejection*: which plan-level nodes to
+    re-run, which experiment-task ids to regenerate, whether downstream
+    nodes should cascade, and an optional natural-language hint for the
+    next LLM round.
+
+    Attributes:
+        approved: ``True`` to accept the materialized plan, ``False`` to
+            request a repair iteration.
+        reason: Free-form short justification (one sentence).
+        override_validation: When ``True``, accepts a plan whose
+            :class:`ValidationResult.passed` was ``False``; the manifest
+            is then marked ``approved_with_override``.
+        target_node_ids: Plan-level node names (e.g. ``"DraftImplementationPlan"``,
+            ``"CompileWorkflowIR"``) that the repair loop should re-execute.
+            Empty tuple when only ``target_task_ids`` rework is requested
+            or when ``approved`` is ``True``.
+        target_task_ids: Experiment-task ids (e.g. ``"prepare"``) whose
+            generated test / implementation modules need a fresh LLM pass
+            via ``GenerateTaskTests`` / ``GenerateTaskImplementations``.
+        cascade_downstream: When ``True``, every downstream node of the
+            ``target_node_ids`` selection is added to the partial-rerun
+            subgraph (``Workflow.subgraph(..., include_downstream=True)``).
+        feedback: Optional natural-language note persisted to
+            ``repairs/iter-<n>/decision.yaml`` and threaded into the next
+            iteration's LLM prompt under ``repair_feedback``.
     """
 
     model_config = _FROZEN
@@ -72,6 +105,17 @@ class ApprovalDecision(BaseModel):
     approved: bool
     reason: str = ""
     override_validation: bool = False
+    target_node_ids: tuple[str, ...] = ()
+    target_task_ids: tuple[str, ...] = ()
+    cascade_downstream: bool = False
+    feedback: str = ""
+
+
+# ``RepairIterationRecord`` lives in ``workspace_layout.py`` to break the
+# circular import chain (workspace_layout exports CheckResult here, and
+# PlanManifest needs to embed RepairIterationRecord). It is re-exported
+# from this module so downstream callers can import it from the same
+# place as :class:`ApprovalDecision`.
 
 
 # ── Natural-language digests ───────────────────────────────────────────────
@@ -312,6 +356,12 @@ class PlanReviewView(BaseModel):
         contract: Typed workflow contract.
         validation_passed: Echo of :class:`ValidationResult.passed`.
         validation_summary: Echo of :class:`ValidationResult.summary`.
+        previous_validation_failures: Identifiers of validation checks that
+            failed in the prior iteration (empty on the very first round).
+            Surfaced so a human reviewer can see what triggered the most
+            recent rejection.
+        repair_iteration: Zero on the first round; increments by one each
+            time the review→repair loop re-enters with a rejection.
     """
 
     model_config = _FROZEN
@@ -323,6 +373,8 @@ class PlanReviewView(BaseModel):
     contract: WorkflowContract
     validation_passed: bool
     validation_summary: str
+    previous_validation_failures: tuple[str, ...] = ()
+    repair_iteration: int = 0
 
 
 class HandoffResult(BaseModel):

@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import uuid
+from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -22,7 +23,7 @@ from typing import TYPE_CHECKING
 from mollog import get_logger
 from pydantic_graph import Graph, GraphRun
 
-from ..protocols import JSONMapping, RunContextLike, UserDeps
+from ..protocols import JSONMapping, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
 from .compiler import CompiledWorkflow, WorkflowGraphCompiler
 from .node import WorkflowStep
@@ -138,6 +139,59 @@ class GraphWorkflowRuntime:
         return self._compiled[wf_id]
 
     @staticmethod
+    def _build_initial_state(
+        spec: Workflow,
+        seed_outputs: Mapping[str, TaskOutput] | None,
+    ) -> WorkflowState:
+        """Construct the initial :class:`WorkflowState`, optionally seeded.
+
+        When ``seed_outputs`` is non-empty:
+
+        * Every key is validated against the spec's registered task names
+          so unknown names fail fast (the ``planmode-review-repair-loop``
+          ``ac-006`` contract).
+        * Seeded names land in ``state.completed`` (so the data-dep
+          satisfaction check passes for tasks that depend on them) and
+          ``state.seeded`` (so the frontier filter skips invoking the
+          seeded task's body).
+        * The initial ``state.pending_targets`` is computed by forward-
+          walking the spec's ``depends_on`` graph from each seeded name
+          and collecting non-seeded children. This bypasses the spec's
+          ``entry_frontier`` so that workflows where the seeded set
+          covers the entry frontier still advance to downstream nodes.
+        """
+        if not seed_outputs:
+            return WorkflowState()
+        registered = {t.name for t in spec._tasks}
+        unknown = sorted(set(seed_outputs) - registered)
+        if unknown:
+            raise ValueError(
+                f"Workflow.execute(seed_outputs=...): unknown task name(s) "
+                f"{unknown!r}; registered tasks: {sorted(registered)}"
+            )
+
+        # Build a forward map: name → list of children (downstream tasks).
+        forward: dict[str, list[str]] = {}
+        for t in spec._tasks:
+            for dep in t.depends_on:
+                forward.setdefault(dep, []).append(t.name)
+
+        seeded_set = set(seed_outputs)
+        pending: list[str] = []
+        seen: set[str] = set()
+        for seed_name in seed_outputs:
+            for child in forward.get(seed_name, ()):
+                if child in seeded_set or child in seen:
+                    continue
+                seen.add(child)
+                pending.append(child)
+
+        state = WorkflowState.from_seed(seed_outputs)
+        if pending:
+            state = state.set_pending(pending)
+        return state
+
+    @staticmethod
     def _build_deps(
         compiled: CompiledWorkflow,
         *,
@@ -179,9 +233,18 @@ class GraphWorkflowRuntime:
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         execution_id: str | None = None,
+        seed_outputs: Mapping[str, TaskOutput] | None = None,
     ) -> WorkflowResult:
-        """Run the workflow to completion and return a WorkflowResult."""
+        """Run the workflow to completion and return a WorkflowResult.
+
+        ``seed_outputs`` (optional) pre-populates the initial state with
+        already-known task outputs; see :meth:`Workflow.execute` for the
+        full contract.
+        """
         compiled = self._get_compiled(spec)
+
+        # Validate seed_outputs FAIL-FAST before any IO / scheduling work.
+        state = self._build_initial_state(spec, seed_outputs)
 
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
@@ -196,7 +259,6 @@ class GraphWorkflowRuntime:
                 config=config,
                 deps=deps,
             )
-            state = WorkflowState()
 
             persistence = (
                 RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
@@ -261,9 +323,18 @@ class GraphWorkflowRuntime:
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         execution_id: str | None = None,
+        seed_outputs: Mapping[str, TaskOutput] | None = None,
     ) -> WorkflowExecution:
-        """Launch workflow as background asyncio task."""
+        """Launch workflow as background asyncio task.
+
+        See :meth:`execute` for ``seed_outputs`` semantics; the same
+        fail-fast validation applies before scheduling the background
+        task.
+        """
         compiled = self._get_compiled(spec)
+        # Fail-fast on bad seeds so the caller observes the ValueError
+        # synchronously, not via an awaited handle.
+        seed_state = self._build_initial_state(spec, seed_outputs)
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
         execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
@@ -283,7 +354,7 @@ class GraphWorkflowRuntime:
                     config=config,
                     deps=deps,
                 )
-                state = WorkflowState()
+                state = seed_state
                 run_result = await _GRAPH.run(WorkflowStep(0), state=state, deps=workflow_deps)
                 result_state = run_result.output
                 handle._result = WorkflowResult(
@@ -389,9 +460,14 @@ class GraphWorkflowRuntime:
         run_dir: str | Path | None = None,
         config: JSONMapping | None = None,
         deps: UserDeps = None,
+        seed_outputs: Mapping[str, TaskOutput] | None = None,
     ) -> AbstractAsyncContextManager[GraphRun[WorkflowState, WorkflowDeps, WorkflowState]]:
-        """Return an async context manager for step-by-step iteration."""
+        """Return an async context manager for step-by-step iteration.
+
+        See :meth:`execute` for ``seed_outputs`` semantics.
+        """
         compiled = self._get_compiled(spec)
+        state = self._build_initial_state(spec, seed_outputs)
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         workflow_deps = self._build_deps(
             compiled,
@@ -400,7 +476,6 @@ class GraphWorkflowRuntime:
             config=config,
             deps=deps,
         )
-        state = WorkflowState()
         return _GRAPH.iter(WorkflowStep(0), state=state, deps=workflow_deps)
 
     # ── stream ───────────────────────────────────────────────────────────────
@@ -413,6 +488,7 @@ class GraphWorkflowRuntime:
         run_dir: str | Path | None = None,
         config: JSONMapping | None = None,
         deps: UserDeps = None,
+        seed_outputs: Mapping[str, TaskOutput] | None = None,
     ) -> AbstractAsyncContextManager[GraphRun[WorkflowState, WorkflowDeps, WorkflowState]]:
         """Alias for iter() — streaming Actor support in a future phase."""
         return self.iter(
@@ -421,6 +497,7 @@ class GraphWorkflowRuntime:
             run_dir=run_dir,
             config=config,
             deps=deps,
+            seed_outputs=seed_outputs,
         )
 
 

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from .protocols import (
@@ -126,6 +126,32 @@ class ParallelDecl:
         self.body = body
         self.join = join
         self.max_concurrency = max_concurrency
+
+
+class _BoundaryStubTask:
+    """Placeholder task registered by :meth:`Workflow.subgraph` for boundary
+    upstreams (tasks referenced by ``depends_on`` but excluded from the
+    selection).
+
+    Never runs in practice — :meth:`Workflow.execute(seed_outputs=...)`
+    must supply the upstream value, and the runtime's seed-skipping
+    logic filters the stub out of the frontier before invocation. If
+    the body is ever invoked it means the caller forgot to seed the
+    boundary value, so the body raises a clear :class:`RuntimeError`.
+    """
+
+    __slots__ = ("name",)
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    async def execute(self, ctx: object) -> object:
+        del ctx
+        raise RuntimeError(
+            f"Subgraph boundary stub {self.name!r} was invoked. This means "
+            f"Workflow.execute() was called without seed_outputs[{self.name!r}]. "
+            "Provide a seeded value for every boundary upstream of the subgraph."
+        )
 
 
 class TaskRegistration:
@@ -319,6 +345,7 @@ class Workflow:
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         execution_id: str | None = None,
+        seed_outputs: Mapping[str, TaskOutput] | None = None,
     ) -> WorkflowResult:
         """Run the workflow to completion and return the result.
 
@@ -335,6 +362,15 @@ class Workflow:
             deps: Optional user dependencies forwarded to ``TaskContext.deps``.
             execution_id: Optional explicit ID for the execution
                 (defaults to a fresh ``exec-<…>`` derived from run_id).
+            seed_outputs: Optional pre-populated ``task_name → output``
+                map. Each named task is treated as already-completed:
+                the runtime injects the value into the results dict and
+                marks the task ``completed`` so downstream nodes
+                consume the seed via ``ctx.inputs`` without re-running
+                the task body. Used by the PlanMode review→repair loop
+                to skip boundary-upstream re-execution after
+                :meth:`subgraph`. Unknown task names raise
+                :class:`ValueError` before any task body runs.
         """
         return await self._get_runtime().execute(
             self,
@@ -343,6 +379,7 @@ class Workflow:
             config=config,
             deps=deps,
             execution_id=execution_id,
+            seed_outputs=seed_outputs,
         )
 
     async def start(
@@ -353,8 +390,12 @@ class Workflow:
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         execution_id: str | None = None,
+        seed_outputs: Mapping[str, TaskOutput] | None = None,
     ) -> WorkflowExecution:
-        """Start the workflow asynchronously and return a handle."""
+        """Start the workflow asynchronously and return a handle.
+
+        See :meth:`execute` for ``seed_outputs`` semantics.
+        """
         return await self._get_runtime().start(
             self,
             run_context=run_context,
@@ -362,6 +403,7 @@ class Workflow:
             config=config,
             deps=deps,
             execution_id=execution_id,
+            seed_outputs=seed_outputs,
         )
 
     # ── Happy-path one-liner ────────────────────────────────────────────
@@ -588,6 +630,135 @@ class Workflow:
             workflow_id=_stable_workflow_id(name, tasks),
             tasks=tasks,
             mode="batch",
+        )
+
+    # ── Partial-rerun primitive ─────────────────────────────────────────
+
+    def subgraph(
+        self,
+        start_nodes: Iterable[str],
+        *,
+        include_downstream: bool = False,
+    ) -> Workflow:
+        """Return a frozen :class:`Workflow` over a subset of this spec's nodes.
+
+        Used by the PlanMode review→repair loop to construct a partial-
+        rerun spec — e.g. "re-run only ``DraftImplementationPlan`` and
+        everything downstream from it" — without invalidating the rest
+        of the materialized artifacts.
+
+        For each *boundary upstream* (a task referenced by a selected
+        node's ``depends_on`` but itself outside the selection), the
+        returned spec registers a :class:`_BoundaryStubTask` placeholder
+        with that upstream's name. The stub's body raises if invoked, so
+        the caller is forced to supply the upstream value via
+        ``Workflow.execute(seed_outputs=...)``; the runtime's seed-
+        skipping logic ensures the stub never actually runs when seeded.
+
+        The returned spec is a fresh frozen :class:`Workflow` with a
+        recomputed ``workflow_id`` reflecting the new topology. Control
+        edges (``wf.control`` / ``wf.branch`` / ``wf.loop`` / explicit
+        entries) are intentionally **not** carried over: the use case is
+        partial-rerun of a pure data DAG and re-applying the original
+        control wiring would re-introduce loops the caller is trying to
+        break out of.
+
+        Args:
+            start_nodes: Names of tasks to include. Must be non-empty
+                and every name must already be registered on the spec.
+            include_downstream: When ``True``, every transitively
+                reachable downstream task (forward edges in the data
+                DAG) is added to the selection.
+
+        Returns:
+            New :class:`Workflow` whose ``_tasks`` contains the
+            selection (in the original registration order) plus a
+            :class:`_BoundaryStubTask` for each boundary upstream.
+            ``depends_on`` is preserved intact so that downstream tasks
+            still observe the boundary value via ``ctx.inputs`` once
+            ``seed_outputs`` is provided.
+
+        Raises:
+            ValueError: If *start_nodes* is empty, or contains a name
+                that is not a registered task on this spec.
+        """
+        # Materialize once so we can iterate twice + report a stable order.
+        selection = list(start_nodes)
+        if not selection:
+            raise ValueError(
+                "Workflow.subgraph: start_nodes must not be empty; provide at "
+                "least one registered task name to include in the partial spec."
+            )
+        registered = {t.name: t for t in self._tasks}
+        unknown = [name for name in selection if name not in registered]
+        if unknown:
+            raise ValueError(
+                f"Workflow.subgraph: unknown task name(s) {unknown!r}; "
+                f"registered tasks: {sorted(registered)}"
+            )
+
+        chosen: set[str] = set(selection)
+        if include_downstream:
+            # Forward-closure walk through the data-DAG (depends_on edges).
+            forward: dict[str, list[str]] = {name: [] for name in registered}
+            for t in self._tasks:
+                for dep in t.depends_on:
+                    forward.setdefault(dep, []).append(t.name)
+            frontier = list(selection)
+            while frontier:
+                node = frontier.pop()
+                for child in forward.get(node, ()):
+                    if child not in chosen:
+                        chosen.add(child)
+                        frontier.append(child)
+
+        # Preserve registration order so deterministic iteration (and
+        # the workflow_id hash) matches user expectations. Walk the
+        # original task list and either copy the registration verbatim
+        # (when in selection) or skip (otherwise).
+        new_tasks: list[TaskRegistration] = []
+        boundary_upstreams: list[str] = []
+        seen_boundaries: set[str] = set()
+        for t in self._tasks:
+            if t.name not in chosen:
+                continue
+            new_tasks.append(
+                TaskRegistration(
+                    name=t.name,
+                    fn_or_class=t.fn_or_class,
+                    depends_on=list(t.depends_on),
+                    is_actor=t.is_actor,
+                    remote=t.remote,
+                    task_type=t.task_type,
+                    config=t.config,
+                    dependent_params=t.dependent_params,
+                )
+            )
+            for dep in t.depends_on:
+                if dep not in chosen and dep not in seen_boundaries:
+                    seen_boundaries.add(dep)
+                    boundary_upstreams.append(dep)
+
+        # Register a stub for each boundary upstream so the compiler's
+        # depends_on check finds the name. Insert stubs at the front so
+        # they appear before any task that depends on them; this keeps
+        # the topological frontier computation deterministic.
+        stub_tasks: list[TaskRegistration] = [
+            TaskRegistration(
+                name=bname,
+                fn_or_class=_BoundaryStubTask(bname),
+                depends_on=[],
+            )
+            for bname in boundary_upstreams
+        ]
+        new_tasks = stub_tasks + new_tasks
+
+        return Workflow(
+            name=self.name,
+            workflow_id=_stable_workflow_id(self.name, new_tasks),
+            tasks=new_tasks,
+            mode=self._mode,
+            version=self.version_label,
         )
 
 

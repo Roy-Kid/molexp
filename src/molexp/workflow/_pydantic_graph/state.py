@@ -50,6 +50,31 @@ class WorkflowState:
     parallel_runs: dict[str, int] = field(default_factory=dict)
     failed: bool = False
     error: str | None = None
+    # Names that arrived already-completed via ``Workflow.execute(seed_outputs=...)``.
+    # The frontier scheduler filters these out of every frame so they are
+    # consumed via ``state.results`` but never re-executed. Distinct from
+    # ``completed`` because loops legitimately rerun tasks already in
+    # ``completed`` whereas seeded entries should never run.
+    seeded: frozenset[str] = field(default_factory=frozenset)
+
+    @classmethod
+    def from_seed(cls, seed: Mapping[str, TaskOutput]) -> WorkflowState:
+        """Construct an initial state seeded with already-known task outputs.
+
+        Used by the PlanMode review→repair loop (``Workflow.execute(
+        seed_outputs=...)``): each seeded entry is treated as a task
+        that already finished successfully, so its name lands in both
+        ``completed`` and ``seeded``. The data-dep satisfaction check
+        sees the names in ``completed`` (so downstream is ready); the
+        frontier filter sees them in ``seeded`` (so the body never
+        runs).
+        """
+        names = frozenset(seed)
+        return cls(
+            results=dict(seed),
+            completed=names,
+            seeded=names,
+        )
 
     def record(self, step_name: str, output: TaskOutput) -> WorkflowState:
         """Return a new state with the given task's output recorded.
@@ -65,6 +90,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            seeded=self.seeded,
         )
 
     def mark_completed(self, names: Iterable[str]) -> WorkflowState:
@@ -77,6 +103,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            seeded=self.seeded,
         )
 
     def set_pending(self, targets: Iterable[str]) -> WorkflowState:
@@ -89,6 +116,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            seeded=self.seeded,
         )
 
     def with_loop_counter(self, until_name: str, count: int) -> WorkflowState:
@@ -101,6 +129,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=self.failed,
             error=self.error,
+            seeded=self.seeded,
         )
 
     def with_parallel_run(self, body_name: str, count: int) -> WorkflowState:
@@ -125,6 +154,7 @@ class WorkflowState:
             parallel_runs=dict(self.parallel_runs),
             failed=True,
             error=f"Step '{step_name}' failed: {exc}",
+            seeded=self.seeded,
         )
 
     def _sync_from(self, other: WorkflowState) -> None:
@@ -142,6 +172,7 @@ class WorkflowState:
         self.parallel_runs = other.parallel_runs
         self.failed = other.failed
         self.error = other.error
+        self.seeded = other.seeded
 
 
 @dataclass

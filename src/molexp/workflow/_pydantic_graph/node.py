@@ -146,6 +146,12 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
         else:
             frame = list(state.pending_targets)
 
+        # ``Workflow.execute(seed_outputs=...)`` marks tasks as already-completed.
+        # Filter them out of the frame so the body never runs; downstream
+        # tasks still find their values in ``state.results``.
+        if state.seeded:
+            frame = [name for name in frame if name not in state.seeded]
+
         ready, deferred = self._partition_by_data_deps(frame, deps, state)
 
         if not ready:
