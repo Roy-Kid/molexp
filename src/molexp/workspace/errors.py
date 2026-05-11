@@ -81,9 +81,25 @@ class RunExistsError(_WorkspaceConflictError):
     _entity_kind = "run"
 
 
+class FolderMoveCollisionError(ValueError):
+    """Raised by ``Folder.move_to`` when the destination already exists.
+
+    Distinct from ``*ExistsError`` because the colliding party is not a
+    workspace entity but any pre-existing path at the move destination.
+    The message names both source and target paths so the caller can act
+    without re-running the operation.
+    """
+
+    def __init__(self, src: str, dst: str) -> None:
+        super().__init__(f"cannot move {src!r} to {dst!r}: destination exists")
+        self.src = src
+        self.dst = dst
+
+
 __all__ = [
     "ExperimentExistsError",
     "ExperimentNotFoundError",
+    "FolderMoveCollisionError",
     "ProjectExistsError",
     "ProjectNotFoundError",
     "RunExistsError",

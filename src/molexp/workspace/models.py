@@ -36,6 +36,34 @@ class ErrorInfo(BaseModel, frozen=True):
 #   2. Parents never store child lists.  ``list_projects()`` scans the
 #      filesystem; directory presence is the only truth.
 #   3. No ``updated_at``.  If you need "last modified", read the file mtime.
+#      EXCEPTION: ``FolderMetadata`` (introduced by the
+#      unify-folder-abstraction chain) carries an explicit ``updated_at``
+#      because filesystem ``mtime`` is unreliable across rsync / git
+#      checkout / cross-host copy and can't anchor the global folder
+#      index. The deviation is scoped to the new ``FolderMetadata`` model;
+#      legacy entity metadata above keeps the mtime-based design.
+
+
+class FolderMetadata(BaseModel, frozen=True):
+    """Lifecycle metadata for the unified ``Folder`` abstraction.
+
+    Carries the minimum every folder needs regardless of business
+    semantics: stable id (slugified ``name``), human-readable ``name``,
+    dotted-ASCII ``kind`` for child filtering, and monotonic
+    ``created_at``/``updated_at`` timestamps. The ``extra`` slot lets
+    business subclasses (``SessionFolder`` / ``CacheFolder`` / ``PlanFolder``)
+    stash custom fields without forking the schema.
+
+    The ``updated_at`` field is a deliberate deviation from rule 3 above
+    — see the comment block preceding this class for the rationale.
+    """
+
+    id: str
+    name: str
+    kind: str
+    created_at: datetime = Field(default_factory=datetime.now)
+    updated_at: datetime = Field(default_factory=datetime.now)
+    extra: dict[str, JSONValue] = Field(default_factory=dict)
 
 
 class ComputeTarget(BaseModel, frozen=True):

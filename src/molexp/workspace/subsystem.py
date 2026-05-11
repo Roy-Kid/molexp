@@ -18,25 +18,18 @@ shadow another dotfile. Workspace assigns no semantics to particular
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
+# Stable kind grammar (lowercase ASCII, dot-separated, no path
+# traversal) is owned by ``molexp.workspace.folder`` since the
+# unify-folder-abstraction-01 sub-spec — subsystem reverse-imports the
+# canonical ``_KIND_PATTERN`` and ``_validate_kind`` so behaviour stays
+# identical until sub-spec 03 deletes this module. The redundant
+# ``as`` aliases mark the re-export intent so ruff F401 stays clean.
+from .folder import _KIND_PATTERN as _KIND_PATTERN
+from .folder import _validate_kind as _validate_kind
+
 SUBSYSTEMS_DIRNAME = ".subsystems"
-
-# Stable kind keys: lowercase ASCII, segments separated by ``.``,
-# segment characters ``[a-z0-9_-]``, no leading dot, no path traversal.
-_KIND_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*$")
-
-
-def _validate_kind(kind: str) -> None:
-    if not isinstance(kind, str) or not kind:
-        raise ValueError("subsystem kind must be a non-empty string")
-    if not _KIND_PATTERN.fullmatch(kind):
-        raise ValueError(
-            f"invalid subsystem kind {kind!r}: must be dotted lowercase ASCII "
-            "(e.g. 'foo.bar', 'baz'); no path separators, leading dots, "
-            "uppercase, or whitespace allowed"
-        )
 
 
 class SubsystemStore:

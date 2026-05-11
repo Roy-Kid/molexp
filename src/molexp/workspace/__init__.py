@@ -40,17 +40,20 @@ from .context import Context
 from .errors import (
     ExperimentExistsError,
     ExperimentNotFoundError,
+    FolderMoveCollisionError,
     ProjectExistsError,
     ProjectNotFoundError,
     RunExistsError,
     RunNotFoundError,
 )
 from .experiment import Experiment
+from .folder import Folder
 from .models import (
     ComputeTarget,
     ErrorInfo,
     ExecutionRecord,
     ExperimentMetadata,
+    FolderMetadata,
     ProjectMetadata,
     RunMetadata,
     WorkspaceMetadata,
@@ -91,8 +94,12 @@ __all__ = [
     "Experiment",
     # Workspace error hierarchy
     "ExperimentExistsError",
-    "ExperimentNotFoundError",
     "ExperimentMetadata",
+    "ExperimentNotFoundError",
+    # Folder abstraction (unify-folder-abstraction-01)
+    "Folder",
+    "FolderMetadata",
+    "FolderMoveCollisionError",
     "GridSpace",
     "LogAsset",
     "OutputAsset",
@@ -119,16 +126,16 @@ __all__ = [
     "WorkspaceMetadata",
     # Compute target helpers
     "add_target",
-    "get_target",
-    "has_target",
-    "list_targets",
-    "remove_target",
-    "target_run_dir",
     # Atomic JSON I/O — used by workflow layer's persistence + agent
     # layer's session storage.
     "atomic_write_json",
     # Atomic plain-text I/O — companion to atomic_write_json for
     # markdown reports / generated source previews / log snapshots.
     "atomic_write_text",
+    "get_target",
+    "has_target",
+    "list_targets",
+    "remove_target",
+    "target_run_dir",
     "to_transport",
 ]
