@@ -232,6 +232,16 @@ def _ensure_node_result_map() -> dict[str, type[BaseModel]]:
     return _NODE_RESULT_TYPE
 
 
+_MANIFEST_EXTENSION_KEYS: frozenset[str] = frozenset({"handoff", "plan_mode"})
+"""Keys layered onto manifest.yaml by ``_persist_manifest_with_handoff``
+that are not part of the strict ``PlanManifest`` schema."""
+
+
+def strip_manifest_extensions(data: dict[str, Any]) -> dict[str, Any]:
+    """Return *data* with :data:`_MANIFEST_EXTENSION_KEYS` removed."""
+    return {k: v for k, v in data.items() if k not in _MANIFEST_EXTENSION_KEYS}
+
+
 # ── PlanFolder (Folder subclass) ───────────────────────────────────────────
 
 
@@ -458,11 +468,7 @@ class PlanFolder(Folder):
         data = yaml.safe_load(path.read_text())
         if not isinstance(data, dict):
             raise ValueError(f"Manifest at {path} is not a YAML mapping")
-        # Strip extension sections so PlanManifest's strict schema accepts it.
-        payload = {
-            k: v for k, v in data.items() if k not in {"handoff", "plan_mode"}
-        }
-        return PlanManifest(**payload)
+        return PlanManifest(**strip_manifest_extensions(data))
 
     def _write_raw_manifest(self, manifest_fields: dict[str, Any]) -> Path:
         """Write ``manifest_fields`` to ``manifest_path()``, preserving extension sections.
@@ -502,10 +508,7 @@ class PlanFolder(Folder):
             return _build_manifest_stub_plan_folder(
                 self.plan_id, self.ir_dir() / "workflow.yaml"
             )
-        payload = {
-            k: v for k, v in data.items() if k not in {"handoff", "plan_mode"}
-        }
-        return PlanManifest(**payload)
+        return PlanManifest(**strip_manifest_extensions(data))
 
     # ── Repair-iteration archive ─────────────────────────────────────────
 

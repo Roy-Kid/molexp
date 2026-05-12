@@ -86,6 +86,7 @@ from molexp.agent.modes.plan.plan_folder import (
     PlanFolder,
     PlanManifest,
     ValidationReport,
+    strip_manifest_extensions,
 )
 from molexp.agent.review import StepView
 from molexp.workflow import (
@@ -205,8 +206,9 @@ class PlanTask(Task):
             _LOG.error(f"[plan] {format_node_label(node_name)} failed: {type(exc).__name__}: {exc}")
             raise
 
-        # Persist every result to the PlanFolder so resume can
-        # reconstruct seed_outputs from disk.
+        # Persist the result before policy review: if rejected, the
+        # repair subgraph overwrites this file on re-execution. Storing
+        # early means even rejected artifacts are inspectable on disk.
         if isinstance(result, BaseModel):
             ctx.deps.plan_folder.write_node_result(node_name, result)
 
@@ -1834,8 +1836,7 @@ def _load_manifest_from_disk(manifest_path: Path) -> PlanManifest | None:
     raw = yaml.safe_load(manifest_path.read_text())
     if not isinstance(raw, dict):
         return None
-    # Drop extension sections so PlanManifest's strict schema accepts it.
-    raw_payload = {k: v for k, v in raw.items() if k not in {"handoff", "plan_mode"}}
+    raw_payload = strip_manifest_extensions(raw)
     try:
         return PlanManifest.model_validate(raw_payload)
     except Exception:

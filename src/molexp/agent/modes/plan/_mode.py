@@ -322,7 +322,7 @@ class PlanMode(AgentMode):
             initial_seed_outputs = self._plan_folder.load_seed_outputs()
             _LOG.info(
                 f"[plan] resume from={self._resume_from} "
-                f"completed={list(self._plan_folder.load_manifest().completed_nodes)} "
+                f"completed={list(initial_seed_outputs.keys())} "
                 f"remaining={remaining}"
             )
         else:
