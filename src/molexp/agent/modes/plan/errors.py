@@ -73,7 +73,7 @@ class CapabilityDiscoveryRequired(WorkflowError):
     """Capability discovery is needed but cannot proceed.
 
     Raised by ``NullCapabilityProbe.discover`` when its input report
-    sets ``discovery_required=True`` (no probe configured, molmcp
+    sets ``discovery_required=True`` (no source configured, source
     unavailable, or the probe declined the request). The
     ``planmode-review-repair-loop`` driver maps this exception to a
     re-run of ``DraftCapabilityNeeds`` + ``DiscoverCapabilities`` with

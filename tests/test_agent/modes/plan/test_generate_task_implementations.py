@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
@@ -34,19 +34,19 @@ _SKIPPED_BATCH = CapabilityEvidenceBatch(discovery_skipped=True)
 
 
 @pytest.fixture
-def impl_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="impl_gen")
+def impl_handle(tmp_path: Path) -> PlanFolder:
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="impl_gen"))
 
 
 @pytest.mark.asyncio
 async def test_generate_impl_writes_llm_source_for_non_stub_tasks(
-    impl_handle: PlanWorkspaceHandle,
+    impl_handle: PlanFolder,
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
         router=fake,
         policy=PlanModelPolicy(),
-        workspace_handle=impl_handle,
+        plan_folder=impl_handle,
     )
     briefs = (TaskIRBrief(task_id="prepare", responsibility="weigh"),)
     ctx = TaskContext(
@@ -77,13 +77,13 @@ async def test_generate_impl_writes_llm_source_for_non_stub_tasks(
 
 @pytest.mark.asyncio
 async def test_generate_impl_writes_stub_body_for_is_stub_brief(
-    impl_handle: PlanWorkspaceHandle,
+    impl_handle: PlanFolder,
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
         router=fake,
         policy=PlanModelPolicy(),
-        workspace_handle=impl_handle,
+        plan_folder=impl_handle,
     )
     briefs = (TaskIRBrief(task_id="stub_task", responsibility="todo", is_stub=True),)
     ctx = TaskContext(
@@ -109,7 +109,7 @@ async def test_generate_impl_writes_stub_body_for_is_stub_brief(
 
 @pytest.mark.asyncio
 async def test_generate_impl_writes_stub_body_when_module_marks_self_stub(
-    impl_handle: PlanWorkspaceHandle,
+    impl_handle: PlanFolder,
 ) -> None:
     """The provider returns ``is_stub=True`` even though the brief did not
     mark the task as stub — the impl task respects the module-level flag
@@ -131,7 +131,7 @@ async def test_generate_impl_writes_stub_body_when_module_marks_self_stub(
     deps = PlanDeps(
         router=fake,
         policy=PlanModelPolicy(),
-        workspace_handle=impl_handle,
+        plan_folder=impl_handle,
     )
     briefs = (TaskIRBrief(task_id="self_stub", responsibility="meh"),)
     ctx = TaskContext(

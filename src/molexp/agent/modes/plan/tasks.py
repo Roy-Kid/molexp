@@ -14,7 +14,7 @@ guesses:
 Each node consumes its upstream ``ctx.inputs`` — a single bare value
 when the node has one upstream, a ``dict[str, *Result]`` keyed by
 upstream node name when it has more — materializes its product
-through :class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`,
+through :class:`~molexp.agent.modes.plan.plan_folder.PlanFolder`,
 and returns a frozen ``*Result`` carrying *path references* — never
 embedded blobs. Downstream nodes operate on file handles, the
 workspace is the single source of truth for materialized content.
@@ -81,10 +81,10 @@ from molexp.agent.modes.plan.schemas import (
     WorkflowContract,
     WorkflowIRResult,
 )
-from molexp.agent.modes.plan.workspace_layout import (
+from molexp.agent.modes.plan.plan_folder import (
     CheckResult,
+    PlanFolder,
     PlanManifest,
-    PlanWorkspaceHandle,
     ValidationReport,
 )
 from molexp.agent.review import StepView
@@ -283,7 +283,7 @@ def _build_step_view(node_name: str, result: Any, deps: PlanDeps) -> StepView:  
     is read from :attr:`PlanDeps.repair_iteration` so the reviewer
     sees which round they are in.
     """
-    plan_id = deps.workspace_handle.plan_id
+    plan_id = deps.plan_folder.plan_id
     summary = f"{node_name} complete"
     artifact_paths: tuple[Path, ...] = ()
     payload: dict[str, Any] | None = None
@@ -359,7 +359,7 @@ class IngestReport(PlanTask):
             raise ValueError("IngestReport requires a non-empty 'user_input' in config.")
         _LOG.debug(f"{_tag('IngestReport')} start chars={len(user_input)}")
 
-        report_dir = ctx.deps.workspace_handle.report_dir()
+        report_dir = ctx.deps.plan_folder.report_dir()
         report_path = report_dir / "original.md"
         _write_text(report_path, user_input)
 
@@ -386,7 +386,7 @@ class DraftReportDigest(PlanLLMTask):
         report_text = Path(ingest.report_path).read_text(encoding="utf-8")
         digest = await self.invoke_llm(ctx, user=report_text, schema=ReportDigest)
 
-        digest_path = ctx.deps.workspace_handle.report_dir() / "digest.md"
+        digest_path = ctx.deps.plan_folder.report_dir() / "digest.md"
         _write_text(digest_path, _render_digest_markdown(digest))
         goal_chars = len(digest.experimental_goal or "")
         _LOG.debug(f"{_tag('DraftReportDigest')} done path={digest_path} goal_chars={goal_chars}")
@@ -422,7 +422,7 @@ class DraftImplementationPlan(PlanLLMTask):
             user=digest_result.digest.model_dump_json(),
             schema=PlanBrief,
         )
-        plan_path = ctx.deps.workspace_handle.plan_dir() / "implementation_plan.md"
+        plan_path = ctx.deps.plan_folder.plan_dir() / "implementation_plan.md"
         _write_text(plan_path, _render_plan_brief_markdown(plan_brief))
         _LOG.debug(
             f"{_tag('DraftImplementationPlan')} done path={plan_path} "
@@ -470,7 +470,7 @@ class CompileWorkflowIR(PlanLLMTask):
             ),
             schema=WorkflowContract,
         )
-        ir_path = ctx.deps.workspace_handle.ir_dir() / "workflow.yaml"
+        ir_path = ctx.deps.plan_folder.ir_dir() / "workflow.yaml"
         contract_dict = default_compiler.contract_to_dict(contract)
         _write_text(ir_path, default_compiler.ir_to_yaml(contract_dict))
         _LOG.debug(f"{_tag('CompileWorkflowIR')} done path={ir_path} tasks={len(contract.task_io)}")
@@ -503,7 +503,7 @@ class CompileTaskIR(PlanLLMTask):
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskIRResult:
         ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
         evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
-        tasks_ir_dir = ctx.deps.workspace_handle.tasks_ir_dir()
+        tasks_ir_dir = ctx.deps.plan_folder.tasks_ir_dir()
         task_ios = ir_result.contract.task_io
         n_tasks = len(task_ios)
         tier = ctx.deps.policy.tier_for("CompileTaskIR")
@@ -586,8 +586,8 @@ class GenerateWorkflowSkeleton(PlanTask):
         )
 
         contract = ir_result.contract
-        package_path = ctx.deps.workspace_handle.experiment_pkg_dir()
-        tasks_pkg = ctx.deps.workspace_handle.tasks_pkg_dir()
+        package_path = ctx.deps.plan_folder.experiment_pkg_dir()
+        tasks_pkg = ctx.deps.plan_folder.tasks_pkg_dir()
 
         # __init__.py (top-level package)
         package_init = package_path / "__init__.py"
@@ -643,7 +643,7 @@ class GenerateTaskTests(PlanLLMTask):
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
         evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
 
-        handle = ctx.deps.workspace_handle
+        handle = ctx.deps.plan_folder
         repair_targets = ctx.deps.repair_target_tasks
         _targets_repr = list(repair_targets) if repair_targets else None
         _LOG.debug(
@@ -717,7 +717,7 @@ class GenerateTaskImplementations(PlanLLMTask):
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
         evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
 
-        handle = ctx.deps.workspace_handle
+        handle = ctx.deps.plan_folder
         repair_targets = ctx.deps.repair_target_tasks
         _targets_repr = list(repair_targets) if repair_targets else None
         _LOG.debug(
@@ -780,7 +780,7 @@ class ValidateWorkspace(PlanTask):
         _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult)
         _LOG.debug(f"{_tag('ValidateWorkspace')} start")
 
-        handle = ctx.deps.workspace_handle
+        handle = ctx.deps.plan_folder
         checks = _run_workspace_validation(
             handle,
             task_ir=ir_result,
@@ -846,7 +846,7 @@ class HumanReview(PlanTask):
         # Re-read upstream artefacts from the workspace to assemble the
         # review view + handoff. We pull from disk rather than threading
         # them all via ctx.inputs to keep the workflow fan-in shallow.
-        handle = ctx.deps.workspace_handle
+        handle = ctx.deps.plan_folder
         digest = await _read_yaml_into(
             handle.report_dir() / "digest.md", ReportDigest, fallback="digest"
         )
@@ -944,7 +944,7 @@ class FinalHandoffCheck(PlanTask):
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, HandoffResult]) -> HandoffResult:
         prior = ctx.inputs
-        handle = ctx.deps.workspace_handle
+        handle = ctx.deps.plan_folder
         _LOG.debug(
             f"{_tag('FinalHandoffCheck')} start prior_status={prior.status} "
             f"approved={prior.decision.approved}"
@@ -1311,7 +1311,7 @@ def _render_stub_implementation_module(task_id: str) -> str:
 
 
 def _run_workspace_validation(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     *,
     task_ir: TaskIRResult,
     module_name: str,
@@ -1442,7 +1442,7 @@ def _run_workspace_validation(
     return checks
 
 
-def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult]:
+def _capability_evidence_checks(handle: PlanFolder) -> list[CheckResult]:
     """Phase 6 dual-signal capability evidence check.
 
     For each generated module under ``src/experiment/tasks/*.py`` and
@@ -1566,7 +1566,7 @@ def _tracked_namespaces_for_checks(batch: CapabilityEvidenceBatch) -> tuple[str,
     return tuple(sorted(tracked))
 
 
-def _collect_generated_sources(handle: PlanWorkspaceHandle) -> list[tuple[Path, str]]:
+def _collect_generated_sources(handle: PlanFolder) -> list[tuple[Path, str]]:
     """Read every generated task implementation + test module from disk."""
     out: list[tuple[Path, str]] = []
     for d, glob in (
@@ -1586,7 +1586,7 @@ def _collect_generated_sources(handle: PlanWorkspaceHandle) -> list[tuple[Path, 
 
 
 def _load_contract_for_validation(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     checks: list[CheckResult],
 ) -> WorkflowContract | None:
     ir_yaml_path = handle.ir_dir() / "workflow.yaml"
@@ -1618,7 +1618,7 @@ def _load_contract_for_validation(
 
 
 def _run_handoff_validation(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     handoff: PlanRunHandoff,
     *,
     contract: WorkflowContract | None = None,
@@ -1845,7 +1845,7 @@ def _build_manifest_stub(plan_id: str, workflow_ir_path: Path) -> PlanManifest:
 
 
 def _persist_manifest_with_handoff(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     manifest: PlanManifest,
     handoff: PlanRunHandoff,
     *,

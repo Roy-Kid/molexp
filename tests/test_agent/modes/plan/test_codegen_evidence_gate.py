@@ -47,7 +47,7 @@ from molexp.agent.modes.plan.tasks import (
     GenerateTaskImplementations,
     GenerateTaskTests,
 )
-from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.router import ModelTier, Router, RouterTextResult
 from molexp.agent.types import UsageBreakdown
 from molexp.workflow.context import TaskContext
@@ -122,8 +122,8 @@ def test_scripted_router_satisfies_protocol() -> None:
 
 
 @pytest.fixture
-def gate_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="gate_plan")
+def gate_handle(tmp_path: Path) -> PlanFolder:
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="gate_plan"))
 
 
 def _evidence(api_ref: str) -> CapabilityEvidence:
@@ -143,7 +143,7 @@ def _evidence(api_ref: str) -> CapabilityEvidence:
 
 
 def _ctx(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     router: ScriptedRouter,
     briefs: tuple[TaskIRBrief, ...],
     batch: CapabilityEvidenceBatch,
@@ -151,7 +151,7 @@ def _ctx(
     deps = PlanDeps(
         router=router,  # type: ignore[arg-type]
         policy=PlanModelPolicy(),
-        workspace_handle=handle,
+        plan_folder=handle,
     )
     return TaskContext(
         state=None,
@@ -206,7 +206,7 @@ _GOOD_IMPL_SOURCE = (
 
 
 @pytest.mark.asyncio
-async def test_happy_path_gate_passes(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_happy_path_gate_passes(gate_handle: PlanFolder) -> None:
     """When schema, source, and batch agree, codegen succeeds."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)
     batch = CapabilityEvidenceBatch(
@@ -232,7 +232,7 @@ async def test_happy_path_gate_passes(gate_handle: PlanWorkspaceHandle) -> None:
 
 
 @pytest.mark.asyncio
-async def test_discovery_skipped_bypasses_gate(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_discovery_skipped_bypasses_gate(gate_handle: PlanFolder) -> None:
     """When ``batch.discovery_skipped=True``, even un-blocked source passes."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)
     batch = CapabilityEvidenceBatch(discovery_skipped=True)
@@ -254,7 +254,7 @@ async def test_discovery_skipped_bypasses_gate(gate_handle: PlanWorkspaceHandle)
 
 
 @pytest.mark.asyncio
-async def test_declared_block_mismatch_raises(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_declared_block_mismatch_raises(gate_handle: PlanFolder) -> None:
     """Schema's ``evidence_refs`` ≠ source's ``__capability_evidence__`` → raise."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)
     batch = CapabilityEvidenceBatch(
@@ -289,7 +289,7 @@ async def test_declared_block_mismatch_raises(gate_handle: PlanWorkspaceHandle) 
 
 
 @pytest.mark.asyncio
-async def test_unevidenced_in_code_raises(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_unevidenced_in_code_raises(gate_handle: PlanFolder) -> None:
     """Source references a Molcrafts ref absent from the discovery batch."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)
     batch = CapabilityEvidenceBatch(
@@ -325,7 +325,7 @@ async def test_unevidenced_in_code_raises(gate_handle: PlanWorkspaceHandle) -> N
 
 
 @pytest.mark.asyncio
-async def test_undeclared_in_code_raises(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_undeclared_in_code_raises(gate_handle: PlanFolder) -> None:
     """Source uses a Molcrafts ref the declared block does not list."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)
     batch = CapabilityEvidenceBatch(
@@ -367,7 +367,7 @@ async def test_undeclared_in_code_raises(gate_handle: PlanWorkspaceHandle) -> No
 
 
 @pytest.mark.asyncio
-async def test_declared_but_unused_raises(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_declared_but_unused_raises(gate_handle: PlanFolder) -> None:
     """Declared block lists a ref the source AST never references."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)
     batch = CapabilityEvidenceBatch(
@@ -407,7 +407,7 @@ async def test_declared_but_unused_raises(gate_handle: PlanWorkspaceHandle) -> N
 
 
 @pytest.mark.asyncio
-async def test_is_stub_true_skips_gate(gate_handle: PlanWorkspaceHandle) -> None:
+async def test_is_stub_true_skips_gate(gate_handle: PlanFolder) -> None:
     """``is_stub=True`` makes GenerateTaskImplementations write a stub body
     and skip the gate even when the LLM-emitted source would have failed."""
     briefs = (TaskIRBrief(task_id="prepare", responsibility="prep"),)

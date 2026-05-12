@@ -21,7 +21,7 @@ from molexp.agent.mode import AgentRunResult
 from molexp.agent.modes.plan import (
     PlanMode,
     PlanRunHandoff,
-    PlanWorkspaceHandle,
+    PlanFolder,
 )
 from molexp.agent.modes.plan.schemas import TaskImplementationModule
 from molexp.agent.session import AgentSession
@@ -32,16 +32,16 @@ from .conftest import FakeRouter, canned_presets
 
 
 @pytest.fixture
-def full_pipeline_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="full_pipeline")
+def full_pipeline_handle(tmp_path: Path) -> PlanFolder:
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="full-pipeline"))
 
 
 @pytest.mark.asyncio
 async def test_pipeline_full_run_through_human_review(
-    full_pipeline_handle: PlanWorkspaceHandle,
+    full_pipeline_handle: PlanFolder,
 ) -> None:
     router = FakeRouter()
-    mode = PlanMode(workspace_handle=full_pipeline_handle)
+    mode = PlanMode(plan_folder=full_pipeline_handle)
     session = AgentSession()
     result = await mode.run(
         router=router,
@@ -58,7 +58,7 @@ async def test_pipeline_full_run_through_human_review(
     handoff_dict = plan_compat["handoff"]
     assert isinstance(handoff_dict, dict)
     rebuilt = PlanRunHandoff.model_validate(handoff_dict)
-    assert rebuilt.plan_id == "full_pipeline"
+    assert rebuilt.plan_id == "full-pipeline"
     assert rebuilt.entrypoint_symbol == "create_workflow"
 
     module = _import_generated_workflow(full_pipeline_handle)
@@ -78,11 +78,11 @@ async def test_pipeline_full_run_through_human_review(
 
 @pytest.mark.asyncio
 async def test_pipeline_full_records_per_node_outputs(
-    full_pipeline_handle: PlanWorkspaceHandle,
+    full_pipeline_handle: PlanFolder,
 ) -> None:
     """Every one of the 13 pipeline nodes lands its *Result in outputs."""
     router = FakeRouter()
-    mode = PlanMode(workspace_handle=full_pipeline_handle)
+    mode = PlanMode(plan_folder=full_pipeline_handle)
     result = await mode.run(
         router=router,
         session=AgentSession(),
@@ -109,7 +109,7 @@ async def test_pipeline_full_records_per_node_outputs(
 
 @pytest.mark.asyncio
 async def test_pipeline_full_materializes_capability_artifacts(
-    full_pipeline_handle: PlanWorkspaceHandle,
+    full_pipeline_handle: PlanFolder,
 ) -> None:
     """PYDA-18 — needs.yaml + evidence.yaml end up on disk after a full run.
 
@@ -120,7 +120,7 @@ async def test_pipeline_full_materializes_capability_artifacts(
     presence.
     """
     router = FakeRouter()
-    mode = PlanMode(workspace_handle=full_pipeline_handle)
+    mode = PlanMode(plan_folder=full_pipeline_handle)
     await mode.run(
         router=router,
         session=AgentSession(),
@@ -136,7 +136,7 @@ async def test_pipeline_full_materializes_capability_artifacts(
 
 @pytest.mark.asyncio
 async def test_auto_approved_but_non_importable_workspace_is_not_ready_for_run(
-    full_pipeline_handle: PlanWorkspaceHandle,
+    full_pipeline_handle: PlanFolder,
 ) -> None:
     presets: dict[type[BaseModel], object] = canned_presets()
     impls = dict(presets[TaskImplementationModule])  # type: ignore[arg-type]
@@ -151,7 +151,7 @@ async def test_auto_approved_but_non_importable_workspace_is_not_ready_for_run(
         ),
     )
     presets[TaskImplementationModule] = impls
-    mode = PlanMode(workspace_handle=full_pipeline_handle)
+    mode = PlanMode(plan_folder=full_pipeline_handle)
     result = await mode.run(
         router=FakeRouter(presets=presets),
         session=AgentSession(),
@@ -165,7 +165,7 @@ async def test_auto_approved_but_non_importable_workspace_is_not_ready_for_run(
     assert "handoff_entrypoint_imports" in full_pipeline_handle.validation_report_path().read_text()
 
 
-def _import_generated_workflow(handle: PlanWorkspaceHandle):
+def _import_generated_workflow(handle: PlanFolder):
     source_root = str(handle.src_dir())
     root_name = "experiment"
     old_modules = {

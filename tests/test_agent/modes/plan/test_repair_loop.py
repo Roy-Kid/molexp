@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.modes.plan import PlanWorkspaceHandle, RepairBudgetExceeded
+from molexp.agent.modes.plan import PlanFolder, RepairBudgetExceeded
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import PlanReviewView
@@ -75,12 +75,12 @@ class _AlwaysReject:
 
 
 @pytest.fixture
-def repair_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="rep_loop")
+def repair_handle(tmp_path: Path) -> PlanFolder:
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="rep_loop"))
 
 
 def _build_deps(
-    handle: PlanWorkspaceHandle, *, final_policy: ReviewPolicy | None = None
+    handle: PlanFolder, *, final_policy: ReviewPolicy | None = None
 ) -> PlanDeps:
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
 
@@ -88,7 +88,7 @@ def _build_deps(
     return PlanDeps(
         router=FakeProvider(),  # type: ignore[arg-type]
         policy=STANDARD_PLAN_POLICY,
-        workspace_handle=handle,
+        plan_folder=handle,
         final_policy_lookup=lambda: resolved,
     )
 
@@ -97,7 +97,7 @@ def _build_deps(
 
 
 @pytest.mark.asyncio
-async def test_first_pass_approval(repair_handle: PlanWorkspaceHandle) -> None:
+async def test_first_pass_approval(repair_handle: PlanFolder) -> None:
     """ac-011 — policy approves on iteration 0 → drive_with_repair runs PLAN_WORKFLOW
     exactly once and writes no archives."""
     gate = _ApproveOnPass(approve_at=0)
@@ -116,7 +116,7 @@ async def test_first_pass_approval(repair_handle: PlanWorkspaceHandle) -> None:
 
 @pytest.mark.asyncio
 async def test_review_view_carries_iteration_state(
-    repair_handle: PlanWorkspaceHandle,
+    repair_handle: PlanFolder,
 ) -> None:
     """ac-002 — second-iteration `PlanReviewView` carries `repair_iteration=1`."""
     gate = _ApproveOnPass(approve_at=1)
@@ -131,7 +131,7 @@ async def test_review_view_carries_iteration_state(
 
 
 @pytest.mark.asyncio
-async def test_partial_rerun_round(repair_handle: PlanWorkspaceHandle) -> None:
+async def test_partial_rerun_round(repair_handle: PlanFolder) -> None:
     """ac-012 — second iteration runs a subgraph shaped by the rejection.
 
     The first pass writes test_prepare.py, test_couple.py, test_isolate.py.
@@ -163,7 +163,7 @@ async def test_partial_rerun_round(repair_handle: PlanWorkspaceHandle) -> None:
 
 @pytest.mark.asyncio
 async def test_repair_feedback_is_injected_into_next_llm_round(
-    repair_handle: PlanWorkspaceHandle,
+    repair_handle: PlanFolder,
 ) -> None:
     """Reviewer feedback becomes first-class repair context for the next LLM call."""
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
@@ -173,7 +173,7 @@ async def test_repair_feedback_is_injected_into_next_llm_round(
     deps = PlanDeps(
         router=router,  # type: ignore[arg-type]
         policy=STANDARD_PLAN_POLICY,
-        workspace_handle=repair_handle,
+        plan_folder=repair_handle,
         final_policy_lookup=lambda: gate,
     )
 
@@ -191,7 +191,7 @@ async def test_repair_feedback_is_injected_into_next_llm_round(
 
 
 @pytest.mark.asyncio
-async def test_per_task_repair_filter(repair_handle: PlanWorkspaceHandle) -> None:
+async def test_per_task_repair_filter(repair_handle: PlanFolder) -> None:
     """ac-007 — when repair_target_tasks=("prepare",), only prepare's test/impl
     files get fresh content; couple/isolate keep their iter-0 content."""
     gate = _ApproveOnPass(approve_at=1)
@@ -213,7 +213,7 @@ async def test_per_task_repair_filter(repair_handle: PlanWorkspaceHandle) -> Non
 
 
 @pytest.mark.asyncio
-async def test_max_iterations_budget(repair_handle: PlanWorkspaceHandle) -> None:
+async def test_max_iterations_budget(repair_handle: PlanFolder) -> None:
     """ac-013 — exhausting max_iterations surfaces RepairBudgetExceeded
     and the returned WorkflowResult's HandoffResult has status=='rejected'."""
     gate = _AlwaysReject()
@@ -266,7 +266,7 @@ class _RejectStepOnce:
 
 @pytest.mark.asyncio
 async def test_step_rejection_replays_only_rejected_step_and_downstream(
-    repair_handle: PlanWorkspaceHandle,
+    repair_handle: PlanFolder,
 ) -> None:
     """A step-policy rejection of ``DraftImplementationPlan`` rebuilds a
     subgraph that recomputes that step plus its downstream cascade —
@@ -281,7 +281,7 @@ async def test_step_rejection_replays_only_rejected_step_and_downstream(
     deps = PlanDeps(
         router=router,  # type: ignore[arg-type]
         policy=STANDARD_PLAN_POLICY,
-        workspace_handle=repair_handle,
+        plan_folder=repair_handle,
         step_policy_lookup=lambda: step_policy,
     )
 
@@ -313,7 +313,7 @@ async def test_step_rejection_replays_only_rejected_step_and_downstream(
 
 @pytest.mark.asyncio
 async def test_step_rejection_archives_and_logs_decision(
-    repair_handle: PlanWorkspaceHandle,
+    repair_handle: PlanFolder,
 ) -> None:
     """Step-level rejection persists a ``RepairIterationRecord`` and the
     archived iter-0 tree just like a plan-final rejection — so the audit
@@ -325,7 +325,7 @@ async def test_step_rejection_archives_and_logs_decision(
     deps = PlanDeps(
         router=router,  # type: ignore[arg-type]
         policy=STANDARD_PLAN_POLICY,
-        workspace_handle=repair_handle,
+        plan_folder=repair_handle,
         step_policy_lookup=lambda: step_policy,
     )
 
@@ -442,7 +442,7 @@ class _ProbeFlipsAfterFirstFail:
 
 @pytest.mark.asyncio
 async def test_capability_exception_drives_repair_iteration(
-    repair_handle: PlanWorkspaceHandle,
+    repair_handle: PlanFolder,
 ) -> None:
     """End-to-end: a probe-raised CapabilityDiscoveryRequired triggers
     one repair iteration and the manifest records the synthetic decision."""
@@ -450,7 +450,7 @@ async def test_capability_exception_drives_repair_iteration(
     deps = deps.__class__(  # replace capability_probe via plain re-construction
         router=deps.router,
         policy=deps.policy,
-        workspace_handle=deps.workspace_handle,
+        plan_folder=deps.plan_folder,
         step_policy_lookup=deps.step_policy_lookup,
         final_policy_lookup=deps.final_policy_lookup,
         capability_probe=_ProbeFlipsAfterFirstFail(),
@@ -474,7 +474,7 @@ async def test_capability_exception_drives_repair_iteration(
 
 @pytest.mark.asyncio
 async def test_capability_exception_exhausts_budget(
-    repair_handle: PlanWorkspaceHandle,
+    repair_handle: PlanFolder,
 ) -> None:
     """A probe that always raises eventually exhausts the budget and re-raises."""
     from molexp.agent.modes.plan.errors import CapabilityDiscoveryRequired
@@ -497,7 +497,7 @@ async def test_capability_exception_exhausts_budget(
     deps = deps.__class__(
         router=deps.router,
         policy=deps.policy,
-        workspace_handle=deps.workspace_handle,
+        plan_folder=deps.plan_folder,
         step_policy_lookup=deps.step_policy_lookup,
         final_policy_lookup=deps.final_policy_lookup,
         capability_probe=_AlwaysFails(),

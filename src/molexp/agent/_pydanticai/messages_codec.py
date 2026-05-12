@@ -3,7 +3,9 @@
 The agent layer keeps a ``model_messages`` field on
 :class:`~molexp.agent.session.AgentSession` so that the LLM-native
 conversation context survives across turns (and across process
-restarts, when paired with :class:`~molexp.agent.sessions.SessionCatalog`).
+restarts, when paired with :class:`~molexp.agent.folders.AgentSession`
+— the on-disk ``Folder`` subclass that persists each session's
+``messages.jsonl``).
 
 The shape of those messages — :class:`pydantic_ai.messages.ModelMessage` —
 is owned by pydantic-ai. Per the agent layer's import-boundary
@@ -19,14 +21,15 @@ Design notes
 
 * The codec validates an opaque ``Iterable[Any]`` on the write side and
   returns ``tuple[Any, ...]`` on the read side. Callers (the agent
-  layer's :class:`SessionCatalog`) treat the elements as opaque values
-  — only this module reaches into the pydantic-ai type.
+  layer's :class:`~molexp.agent.folders.AgentSession`) treat the
+  elements as opaque values — only this module reaches into the
+  pydantic-ai type.
 * ``ModelMessagesTypeAdapter`` is a ``TypeAdapter[list[ModelMessage]]``;
   ``validate_json`` returns ``list[ModelMessage]`` which we coerce to a
   tuple so the caller's persisted state is immutable by convention.
 * Empty / missing on-disk files are not this module's concern —
-  :class:`SessionCatalog` checks for ``Path.exists()`` before calling
-  :func:`load_model_messages`.
+  :class:`~molexp.agent.folders.AgentSession` checks for
+  ``Path.exists()`` before calling :func:`load_model_messages`.
 """
 
 from __future__ import annotations

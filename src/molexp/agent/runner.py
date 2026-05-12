@@ -21,11 +21,13 @@ Exactly one must be supplied. Zero or two-or-more raise
 Named sessions
 ==============
 
-When ``workspace=<path>`` is supplied, the runner can vend named,
-persisted conversations through :meth:`AgentRunner.session`. Each call
-to ``runner.run(session, ...)`` then writes the session's pydantic-ai
-``ModelMessage`` history back to disk under
-``<workspace>/.subsystems/agent.sessions/<session_id>/model_messages.json``,
+When ``workspace=<path>`` is supplied, the runner mounts a persistent
+:class:`~molexp.agent.folders.Agent` :class:`Folder` under the workspace
+root (named after the mode — ``chat`` / ``plan`` / ``review``) and vends
+named conversations through :meth:`AgentRunner.session`. Each
+``runner.run(session, ...)`` then writes the session's pydantic-ai
+``ModelMessage`` history back to
+``<workspace>/agents/<mode_name>/agent_sessions/<session_id>/messages.jsonl``,
 so a later ``runner.session(session_id)`` restores the full
 conversation context — pydantic-ai sees prior turns on every call.
 
@@ -47,9 +49,9 @@ from molexp.agent.router import ModelTier, Router, TierModels
 if TYPE_CHECKING:
     from pydantic_ai.tools import Tool
 
+    from molexp.agent.folders import Agent as AgentFolder
     from molexp.agent.mode import AgentMode, AgentRunResult
     from molexp.agent.session import AgentSession
-    from molexp.agent.sessions import SessionCatalog
 
 
 _LOG = get_logger(__name__)
@@ -111,7 +113,7 @@ class AgentRunner:
         else:
             assert models is not None  # narrowed by the count check above
             self._tier_models = _normalize_tier_map(models)
-        self._session_catalog: SessionCatalog | None = None
+        self._agent_folder: AgentFolder | None = None
 
     @property
     def model(self) -> object | None:
@@ -157,26 +159,33 @@ class AgentRunner:
     def session(self, session_id: str) -> AgentSession:
         """Return an :class:`AgentSession` named ``session_id``.
 
-        When a workspace is configured, the runner restores any
-        previously persisted pydantic-ai ``ModelMessage`` history from
-        ``<workspace>/.subsystems/agent.sessions/<session_id>/model_messages.json``
-        so the LLM sees prior turns on the next :meth:`run` call. With
-        no workspace (or no prior history), the returned session
-        starts empty — every subsequent ``run`` still threads its
-        messages back into the same in-memory session.
+        When a workspace is configured, the runner mounts (or attaches
+        to) an :class:`~molexp.agent.folders.Agent` ``Folder`` named
+        after the active :class:`~molexp.agent.mode.AgentMode`
+        (``chat`` / ``plan`` / ``review``) under the workspace root and
+        restores any previously persisted pydantic-ai ``ModelMessage``
+        history from
+        ``<workspace>/agents/<mode>/agent_sessions/<session_id>/messages.jsonl``.
+        Without a workspace (or any prior history), the returned
+        session starts empty — every subsequent ``run`` still threads
+        its messages back into the same in-memory session.
 
         Multiple calls with the same ``session_id`` return *new*
-        :class:`AgentSession` instances; the persistence layer is the
-        shared state. Callers that need a single live instance should
-        cache the returned value themselves.
+        runtime :class:`AgentSession` instances; the persistence layer
+        is the shared state. Callers that need a single live instance
+        should cache the returned value themselves.
         """
         from molexp.agent.session import AgentSession
 
-        catalog = self._catalog()
+        agent_folder = self._ensure_agent_folder()
         restored: tuple[Any, ...] = ()
-        if catalog is not None:
+        if agent_folder is not None:
             try:
-                restored = catalog.read_model_messages(session_id)
+                if agent_folder.has_session(session_id):
+                    sess_folder = agent_folder.get_session(session_id)
+                    restored = sess_folder.read_messages()
+                else:
+                    agent_folder.add_session(session_id)
             except Exception as exc:  # pragma: no cover — schema drift / corrupt file
                 _LOG.warning(
                     f"[runner] session({session_id!r}): failed to restore "
@@ -185,44 +194,57 @@ class AgentRunner:
                 restored = ()
         return AgentSession(session_id=session_id, model_messages=restored)
 
-    def _catalog(self) -> SessionCatalog | None:
-        """Lazily build a :class:`SessionCatalog` bound to ``self.workspace``.
+    def _ensure_agent_folder(self) -> AgentFolder | None:
+        """Lazily mount the persistent :class:`Agent` folder for this runner.
 
         Returns ``None`` when no workspace was configured at runner
-        construction. Catalog creation is cheap (no I/O until the
-        first write); we still memoize so repeated calls hit the same
-        instance.
+        construction. The folder is named after the mode's ``name``
+        attribute (``chat`` / ``plan`` / ``review``), defaulting to
+        ``"default"`` when the mode does not declare one — keeping the
+        runner usable with custom :class:`AgentMode` subclasses that
+        omit the conventional class attribute.
         """
-        if self._session_catalog is not None:
-            return self._session_catalog
+        if self._agent_folder is not None:
+            return self._agent_folder
         if self.workspace is None:
             return None
         try:
-            from molexp.agent.sessions import SessionCatalog
+            from molexp.agent.folders import Agent as AgentFolder
             from molexp.workspace import Workspace
 
-            self._session_catalog = SessionCatalog(Workspace(self.workspace))
+            ws = Workspace(self.workspace)
+            agent_name = getattr(self.mode, "name", "") or "default"
+            if ws.has_folder(agent_name, cls=AgentFolder):
+                self._agent_folder = ws.get_folder(agent_name, cls=AgentFolder)
+            else:
+                self._agent_folder = cast(
+                    AgentFolder, ws.add_folder(AgentFolder(name=agent_name))
+                )
         except OSError as exc:
             _LOG.warning(
-                f"[runner] could not open SessionCatalog for {self.workspace!r}: "
+                f"[runner] could not open Agent folder for {self.workspace!r}: "
                 f"{exc!r}; sessions will be in-memory only."
             )
             return None
-        return self._session_catalog
+        return self._agent_folder
 
     def _persist_session_messages(self, session: AgentSession) -> None:
         """Write the session's pydantic-ai ``ModelMessage`` history to disk.
 
-        No-ops when no workspace is set, or when the catalog could not
-        be opened (read-only filesystem, etc.). Failures here are
+        No-ops when no workspace is set, or when the Agent folder could
+        not be opened (read-only filesystem, etc.). Failures here are
         non-fatal: persistence is best-effort so a one-off write
         problem never breaks a chat run.
         """
-        catalog = self._catalog()
-        if catalog is None:
+        agent_folder = self._ensure_agent_folder()
+        if agent_folder is None:
             return
         try:
-            catalog.write_model_messages(session.session_id, session.model_messages)
+            if agent_folder.has_session(session.session_id):
+                sess_folder = agent_folder.get_session(session.session_id)
+            else:
+                sess_folder = agent_folder.add_session(session.session_id)
+            sess_folder.write_messages(session.model_messages)
         except OSError as exc:
             _LOG.warning(
                 f"[runner] session({session.session_id!r}): failed to persist "

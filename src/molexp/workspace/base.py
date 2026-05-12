@@ -37,8 +37,9 @@ def atomic_write_json(path: Path, data: object) -> None:
 
     Public surface — re-exported through ``molexp.workspace`` so the
     workflow layer's ``RunStorePersistence`` and the agent layer's
-    ``SessionCatalog`` can write through workspace's atomicity guarantee
-    without reaching into a private helper.
+    :class:`Agent` / :class:`AgentSession` folder subclasses can write
+    through workspace's atomicity guarantee without reaching into a
+    private helper.
 
     Args:
         path: Destination file path.

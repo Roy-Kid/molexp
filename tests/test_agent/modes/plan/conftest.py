@@ -2,8 +2,8 @@
 
 Provides:
 
-- :func:`make_workspace_handle` — builds a :class:`PlanWorkspaceHandle`
-  rooted under a per-test ``tmp_path`` workspace.
+- :func:`make_plan_folder` — builds a :class:`PlanFolder`
+  mounted under a per-test ``tmp_path`` workspace.
 - :class:`FakeRouter` — in-memory :class:`Router` implementation that
   returns canned schema instances for the new task schemas
   (``ReportDigest`` / ``PlanBrief`` / ``WorkflowContract`` /
@@ -20,12 +20,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import pytest
 from pydantic import BaseModel
 
-from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.modes.plan.schemas import (
     PlanBrief,
     ReportDigest,
@@ -47,10 +47,10 @@ from molexp.workspace import Workspace
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 
-def make_workspace_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    """Build a fresh :class:`PlanWorkspaceHandle` under ``tmp_path``."""
+def make_plan_folder(tmp_path: Path) -> PlanFolder:
+    """Build a fresh :class:`PlanFolder` under ``tmp_path``."""
     workspace = Workspace(tmp_path / "ws")
-    return PlanWorkspaceHandle.materialize(workspace, plan_id="test_plan")
+    return cast("PlanFolder", workspace.add_folder(PlanFolder(name="test-plan")))
 
 
 def canned_presets() -> dict[type[BaseModel], BaseModel]:
@@ -222,9 +222,18 @@ FakeProvider = FakeRouter
 
 
 @pytest.fixture
-def workspace_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    """Per-test fresh :class:`PlanWorkspaceHandle`."""
-    return make_workspace_handle(tmp_path)
+def plan_folder(tmp_path: Path) -> PlanFolder:
+    """Per-test fresh :class:`PlanFolder`."""
+    return make_plan_folder(tmp_path)
+
+
+@pytest.fixture
+def workspace_handle(plan_folder: PlanFolder) -> PlanFolder:
+    """Legacy fixture name kept so tests still using ``workspace_handle`` work.
+
+    Returns the same :class:`PlanFolder` instance as :func:`plan_folder`.
+    """
+    return plan_folder
 
 
 @pytest.fixture

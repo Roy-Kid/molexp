@@ -81,12 +81,13 @@ import logging
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import cast
 
 import mollog
 
 from molexp.agent import AgentRunner, AgentSession, HumanPolicy
 from molexp.agent.modes import PlanMode
-from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.modes.plan.preflight import check_plan_runtime
 from molexp.agent.router import ModelTier
 from molexp.workspace import Workspace
@@ -181,9 +182,9 @@ async def main() -> int:
         preflight_status = await _preflight_or_exit(workspace)
         if preflight_status is not None:
             return preflight_status
-        handle = PlanWorkspaceHandle.materialize(workspace, plan_id="demo")
+        handle = cast(PlanFolder, workspace.add_folder(PlanFolder(name="demo")))
         mode = PlanMode(
-            workspace_handle=handle,
+            plan_folder=handle,
             step_policy=HumanPolicy(),  # CLI prompt after every non-terminal node
             final_policy=HumanPolicy(),  # CLI walk task-by-task at the plan-final review
             # 1 fresh pass + up to 3 replan rounds; the repair loop

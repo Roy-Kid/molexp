@@ -27,14 +27,18 @@ from pydantic import BaseModel, ConfigDict
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
-from molexp.agent.modes.plan.protocols import CapabilityProbe, PlanDeps
+from molexp.agent.modes.plan.protocols import (
+    CapabilityDiscoveryService,
+    CapabilityProbe,
+    PlanDeps,
+)
 from molexp.agent.modes.plan.schemas import (
     DigestResult,
     HandoffResult,
     PlanBriefResult,
     SkeletonResult,
 )
-from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.review import BypassPolicy, ReviewPolicy
 from molexp.agent.types import Message
 
@@ -58,7 +62,7 @@ class PlanModeConfig(BaseModel):
     Attributes:
         artifacts_root: Optional override for the workspace root
             directory; ``None`` means inherit from the supplied
-            :class:`PlanWorkspaceHandle`.
+            :class:`PlanFolder`.
         max_iterations: Reserved for sub-spec 06's repair loop.
             Currently unused — v1 has no repair cycle.
         temperature: Reserved for future provider tuning.
@@ -98,9 +102,8 @@ class PlanMode(AgentMode):
 
     Construction takes:
 
-    - ``workspace_handle`` (required) — the
-      :class:`PlanWorkspaceHandle` rooted at the experiment workspace
-      this run will write into.
+    - ``plan_folder`` (required) — the :class:`PlanFolder` mounted on
+      the workspace this run will write into.
     - ``model_policy`` — :class:`PlanModelPolicy` defining
       tier-per-node assignments. Defaults to ``STANDARD_PLAN_POLICY``.
     - ``step_policy`` — initial per-step
@@ -136,7 +139,7 @@ class PlanMode(AgentMode):
     SIGINT handler, or another coroutine that decides "stop asking,
     just go"::
 
-        mode = PlanMode(workspace_handle=..., final_policy=HumanPolicy())
+        mode = PlanMode(plan_folder=..., final_policy=HumanPolicy())
         # ... runner.run(...) executes in a task ...
         mode.set_final_policy(BypassPolicy())  # next HumanReview auto-approves
 
@@ -152,10 +155,11 @@ class PlanMode(AgentMode):
     def __init__(
         self,
         *,
-        workspace_handle: PlanWorkspaceHandle,
+        plan_folder: PlanFolder,
         model_policy: PlanModelPolicy | None = None,
         step_policy: ReviewPolicy | None = None,
         final_policy: ReviewPolicy | None = None,
+        capability_discovery: CapabilityDiscoveryService | None = None,
         capability_probe: CapabilityProbe | None = None,
         artifacts_root: Path | None = None,
         max_iterations: int = 8,
@@ -166,13 +170,14 @@ class PlanMode(AgentMode):
             max_iterations=max_iterations,
             temperature=temperature,
         )
-        self._workspace_handle = workspace_handle
+        self._plan_folder = plan_folder
         self._model_policy = model_policy if model_policy is not None else STANDARD_PLAN_POLICY
         self._step_policy: ReviewPolicy = step_policy if step_policy is not None else BypassPolicy()
         self._final_policy: ReviewPolicy = (
             final_policy if final_policy is not None else BypassPolicy()
         )
         self._capability_probe: CapabilityProbe | None = capability_probe
+        self._capability_discovery: CapabilityDiscoveryService | None = capability_discovery
 
     def get_step_policy(self) -> ReviewPolicy:
         """Return the current per-step review policy."""
@@ -191,7 +196,7 @@ class PlanMode(AgentMode):
         self._final_policy = policy
 
     def get_capability_probe(self) -> CapabilityProbe | None:
-        """Return the configured :class:`CapabilityProbe`, or ``None``.
+        """Return the configured compatibility :class:`CapabilityProbe`, or ``None``.
 
         ``None`` means PlanMode will resolve to a
         :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
@@ -203,15 +208,21 @@ class PlanMode(AgentMode):
         return self._capability_probe
 
     def set_capability_probe(self, probe: CapabilityProbe | None) -> None:
-        """Inject a :class:`CapabilityProbe` for use by the discovery nodes.
+        """Inject a compatibility :class:`CapabilityProbe`.
 
-        Called by :class:`AgentRunner` during ``run()`` to wire in a
-        :class:`PydanticAICapabilityProbe` when molmcp is configured.
-        Tests construct PlanMode with the probe directly via the
-        constructor; this setter exists so the runner doesn't have to
-        re-create the mode just to inject the probe.
+        Prefer :meth:`set_capability_discovery` for new code. This
+        method remains so existing tests and callers can provide the
+        older lower-level abstraction directly.
         """
         self._capability_probe = probe
+
+    def get_capability_discovery(self) -> CapabilityDiscoveryService | None:
+        """Return the configured capability discovery service."""
+        return self._capability_discovery
+
+    def set_capability_discovery(self, service: CapabilityDiscoveryService | None) -> None:
+        """Inject a capability discovery service for the workflow."""
+        self._capability_discovery = service
 
     async def run(
         self,
@@ -223,8 +234,8 @@ class PlanMode(AgentMode):
         router.clear_usage()
         session.append(Message(role="user", content=user_input))
         _LOG.info(
-            f"[plan] start plan_id={self._workspace_handle.plan_id} "
-            f"workspace={self._workspace_handle.root()}"
+            f"[plan] start plan_id={self._plan_folder.plan_id} "
+            f"workspace={self._plan_folder.root()}"
         )
         _LOG.debug(
             f"[plan-mode] max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
@@ -233,10 +244,11 @@ class PlanMode(AgentMode):
         deps = PlanDeps(
             router=router,
             policy=self._model_policy,
-            workspace_handle=self._workspace_handle,
+            plan_folder=self._plan_folder,
             step_policy_lookup=lambda: self._step_policy,
             final_policy_lookup=lambda: self._final_policy,
             capability_probe=self._capability_probe,
+            capability_discovery=self._capability_discovery,
         )
         t0 = time.monotonic()
         result = await drive_with_repair(
@@ -270,12 +282,12 @@ class PlanMode(AgentMode):
                 f"PlanMode {handoff_result.status} "
                 f"plan_id={handoff_result.handoff.plan_id} "
                 f"ready_for_run={handoff_result.ready_for_run} at "
-                f"{self._workspace_handle.root()}."
+                f"{self._plan_folder.root()}."
             )
         elif isinstance(skeleton_result, SkeletonResult):
             summary = (
                 f"PlanMode materialized {skeleton_result.workflow_py_path} "
-                f"under {self._workspace_handle.root()}."
+                f"under {self._plan_folder.root()}."
             )
         else:
             summary = "PlanMode pipeline did not reach the skeleton-generation step."
@@ -314,7 +326,7 @@ class PlanMode(AgentMode):
         }
 
         mode_state: dict[str, Any] = {
-            "workspace_path": self._workspace_handle.root(),
+            "workspace_path": self._plan_folder.root(),
             "outputs": {
                 name: (payload.model_dump() if isinstance(payload, BaseModel) else payload)
                 for name, payload in outputs.items()

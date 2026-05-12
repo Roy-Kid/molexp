@@ -38,13 +38,13 @@ from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
 )
 from molexp.agent.modes.plan.tasks import _capability_evidence_checks
-from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.workspace import Workspace
 
 
 @pytest.fixture
-def ws_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="vc_check")
+def ws_handle(tmp_path: Path) -> PlanFolder:
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="vc_check"))
 
 
 def _evidence(api_ref: str) -> CapabilityEvidence:
@@ -63,16 +63,16 @@ def _evidence(api_ref: str) -> CapabilityEvidence:
     )
 
 
-def _write_evidence(handle: PlanWorkspaceHandle, batch: CapabilityEvidenceBatch) -> None:
+def _write_evidence(handle: PlanFolder, batch: CapabilityEvidenceBatch) -> None:
     handle.write_capability_evidence(batch)
 
 
-def _write_task_module(handle: PlanWorkspaceHandle, name: str, source: str) -> None:
+def _write_task_module(handle: PlanFolder, name: str, source: str) -> None:
     path = handle.tasks_pkg_dir() / f"{name}.py"
     path.write_text(source, encoding="utf-8")
 
 
-def _write_test_module(handle: PlanWorkspaceHandle, name: str, source: str) -> None:
+def _write_test_module(handle: PlanFolder, name: str, source: str) -> None:
     path = handle.tests_dir() / f"test_{name}.py"
     path.write_text(source, encoding="utf-8")
 
@@ -88,7 +88,7 @@ def _check_named(checks, name: str):
 # ── Boundary cases ─────────────────────────────────────────────────────────
 
 
-def test_no_evidence_yaml_yields_info_pass(ws_handle: PlanWorkspaceHandle) -> None:
+def test_no_evidence_yaml_yields_info_pass(ws_handle: PlanFolder) -> None:
     """When evidence.yaml is missing, the validator emits a single info pass."""
     checks = _capability_evidence_checks(ws_handle)
     assert len(checks) == 1
@@ -97,7 +97,7 @@ def test_no_evidence_yaml_yields_info_pass(ws_handle: PlanWorkspaceHandle) -> No
     assert checks[0].severity == "info"
 
 
-def test_discovery_skipped_passes_both_signals(ws_handle: PlanWorkspaceHandle) -> None:
+def test_discovery_skipped_passes_both_signals(ws_handle: PlanFolder) -> None:
     """``discovery_skipped=True`` short-circuits both signals to passed=True."""
     _write_evidence(ws_handle, CapabilityEvidenceBatch(discovery_skipped=True))
     checks = _capability_evidence_checks(ws_handle)
@@ -110,7 +110,7 @@ def test_discovery_skipped_passes_both_signals(ws_handle: PlanWorkspaceHandle) -
     assert ast_check.detail == "discovery_skipped"
 
 
-def test_evidence_yaml_corrupt_yields_error_check(ws_handle: PlanWorkspaceHandle) -> None:
+def test_evidence_yaml_corrupt_yields_error_check(ws_handle: PlanFolder) -> None:
     """Unparseable evidence.yaml flags a single error check."""
     cap_dir = ws_handle.capability_dir()
     (cap_dir / "evidence.yaml").write_text("not: [a valid: yaml")  # malformed
@@ -124,7 +124,7 @@ def test_evidence_yaml_corrupt_yields_error_check(ws_handle: PlanWorkspaceHandle
 # ── PYDA-19 — three required diff branches ────────────────────────────────
 
 
-def test_declared_only_missing(ws_handle: PlanWorkspaceHandle) -> None:
+def test_declared_only_missing(ws_handle: PlanFolder) -> None:
     """Declared block names a ref absent from evidence; AST is clean."""
     _write_evidence(
         ws_handle,
@@ -154,7 +154,7 @@ def test_declared_only_missing(ws_handle: PlanWorkspaceHandle) -> None:
     assert ast_check.passed is True
 
 
-def test_ast_only_missing(ws_handle: PlanWorkspaceHandle) -> None:
+def test_ast_only_missing(ws_handle: PlanFolder) -> None:
     """AST uses a ref absent from evidence; declared block omits it too."""
     _write_evidence(
         ws_handle,
@@ -184,7 +184,7 @@ def test_ast_only_missing(ws_handle: PlanWorkspaceHandle) -> None:
     assert "molexp.workflow.Actor" in ast_check.detail
 
 
-def test_both_missing(ws_handle: PlanWorkspaceHandle) -> None:
+def test_both_missing(ws_handle: PlanFolder) -> None:
     """A ref absent from evidence AND declared by the block AND used in AST."""
     _write_evidence(
         ws_handle,
@@ -215,7 +215,7 @@ def test_both_missing(ws_handle: PlanWorkspaceHandle) -> None:
     assert "molexp.workflow.Actor" in ast_check.detail
 
 
-def test_clean_workspace_passes_both_signals(ws_handle: PlanWorkspaceHandle) -> None:
+def test_clean_workspace_passes_both_signals(ws_handle: PlanFolder) -> None:
     """Source uses + declares only refs that are in evidence → both signals pass."""
     _write_evidence(
         ws_handle,
@@ -243,7 +243,7 @@ def test_clean_workspace_passes_both_signals(ws_handle: PlanWorkspaceHandle) -> 
     assert ast_check.passed is True
 
 
-def test_evidence_yaml_round_trips_through_pydantic(ws_handle: PlanWorkspaceHandle) -> None:
+def test_evidence_yaml_round_trips_through_pydantic(ws_handle: PlanFolder) -> None:
     """Sanity: write_capability_evidence + reload via the validator preserves shape."""
     batch = CapabilityEvidenceBatch(
         evidence=(_evidence("molexp.workflow.Task"),),

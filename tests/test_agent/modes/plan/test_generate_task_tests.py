@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
@@ -33,19 +33,19 @@ _SKIPPED_BATCH = CapabilityEvidenceBatch(discovery_skipped=True)
 
 
 @pytest.fixture
-def gen_tests_handle(tmp_path: Path) -> PlanWorkspaceHandle:
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="gen_tests")
+def gen_tests_handle(tmp_path: Path) -> PlanFolder:
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="gen_tests"))
 
 
 @pytest.mark.asyncio
 async def test_generate_task_tests_emits_three_modules_plus_structure(
-    gen_tests_handle: PlanWorkspaceHandle,
+    gen_tests_handle: PlanFolder,
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
         router=fake,
         policy=PlanModelPolicy(),
-        workspace_handle=gen_tests_handle,
+        plan_folder=gen_tests_handle,
     )
     briefs = (
         TaskIRBrief(task_id="prepare", responsibility="weigh"),
@@ -85,13 +85,13 @@ async def test_generate_task_tests_emits_three_modules_plus_structure(
 
 @pytest.mark.asyncio
 async def test_generate_task_tests_stub_emits_pytest_skip(
-    gen_tests_handle: PlanWorkspaceHandle,
+    gen_tests_handle: PlanFolder,
 ) -> None:
     fake = FakeProvider()
     deps = PlanDeps(
         router=fake,
         policy=PlanModelPolicy(),
-        workspace_handle=gen_tests_handle,
+        plan_folder=gen_tests_handle,
     )
     briefs = (TaskIRBrief(task_id="stub_task", responsibility="todo", is_stub=True),)
     ctx = TaskContext(

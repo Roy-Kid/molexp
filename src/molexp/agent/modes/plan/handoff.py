@@ -29,7 +29,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.modes.plan.workspace_layout import PlanManifest, ValidationReport
+from molexp.agent.modes.plan.plan_folder import PlanManifest, ValidationReport
 
 __all__ = ["PlanRunHandoff"]
 

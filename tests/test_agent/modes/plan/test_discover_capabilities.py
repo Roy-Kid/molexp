@@ -34,7 +34,7 @@ from molexp.agent.modes.plan.tasks_capability import (
     DiscoverCapabilities,
     NullCapabilityProbe,
 )
-from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 
 from .conftest import FakeRouter
 
@@ -98,19 +98,19 @@ class RaisingProbe:
 
 
 @pytest.fixture
-def workspace_handle(tmp_path: Path) -> PlanWorkspaceHandle:
+def workspace_handle(tmp_path: Path) -> PlanFolder:
     from molexp.workspace import Workspace
 
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="dcap_plan")
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="dcap_plan"))
 
 
-def _make_deps(handle: PlanWorkspaceHandle, probe: object) -> PlanDeps:
+def _make_deps(handle: PlanFolder, probe: object) -> PlanDeps:
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
 
     return PlanDeps(
         router=FakeRouter(),
         policy=STANDARD_PLAN_POLICY,
-        workspace_handle=handle,
+        plan_folder=handle,
         capability_probe=probe,  # type: ignore[arg-type]
     )
 
@@ -146,7 +146,7 @@ def _evidence(api_ref: str = "molpy.builders.peptide.PeptideBuilder") -> Capabil
 
 @pytest.mark.asyncio
 async def test_discover_aggregates_evidence_into_workspace(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """Evidence rows land in capability/evidence.yaml verbatim."""
     batch = CapabilityEvidenceBatch(
@@ -175,7 +175,7 @@ async def test_discover_aggregates_evidence_into_workspace(
 
 @pytest.mark.asyncio
 async def test_discover_aggregates_missing_into_markdown(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """Missing rows render to capability/missing.md as a table."""
     needs = (CapabilityNeed(task_id="prepare", capability="construct peptide"),)
@@ -205,7 +205,7 @@ async def test_discover_aggregates_missing_into_markdown(
 
 @pytest.mark.asyncio
 async def test_discover_skipped_short_circuit_persists(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """``discovery_skipped=True`` is preserved through write back."""
     batch = CapabilityEvidenceBatch(
@@ -230,7 +230,7 @@ async def test_discover_skipped_short_circuit_persists(
 
 @pytest.mark.asyncio
 async def test_null_probe_blocks_when_node_invoked_with_discovery_required(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """``DiscoverCapabilities`` re-raises CapabilityDiscoveryRequired.
 
@@ -251,7 +251,7 @@ async def test_null_probe_blocks_when_node_invoked_with_discovery_required(
 
 @pytest.mark.asyncio
 async def test_discover_propagates_probe_capability_required(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """A probe that itself raises CapabilityDiscoveryRequired bubbles up."""
     deps = _make_deps(workspace_handle, RaisingProbe())
@@ -267,7 +267,7 @@ async def test_discover_propagates_probe_capability_required(
 
 @pytest.mark.asyncio
 async def test_discover_falls_back_to_null_probe_when_deps_unset(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """``deps.capability_probe=None`` resolves to NullCapabilityProbe at run time."""
     deps = _make_deps(workspace_handle, probe=None)  # type: ignore[arg-type]

@@ -18,7 +18,7 @@ from molexp.agent.modes.plan import (
     PLAN_WORKFLOW,
     PlanMode,
     PlanModelPolicy,
-    PlanWorkspaceHandle,
+    PlanFolder,
     SkeletonCompileError,
 )
 from molexp.agent.modes.plan._pipeline import build_plan_workflow
@@ -265,7 +265,7 @@ def test_tasks_py_has_no_path_write_text_calls() -> None:
             # The forbidden pattern: ``something.write_text(...)``.
             pytest.fail(
                 f"tasks.py calls .{node.attr}(...) at line {node.lineno}; "
-                "use ctx.deps.workspace_handle helpers instead."
+                "use ctx.deps.plan_folder helpers instead."
             )
     # Also: no direct ``open(..., 'w')`` call.
     for node in ast.walk(tree):
@@ -276,7 +276,7 @@ def test_tasks_py_has_no_path_write_text_calls() -> None:
         ):
             pytest.fail(
                 f"tasks.py calls open(...) at line {node.lineno}; "
-                "use ctx.deps.workspace_handle helpers instead."
+                "use ctx.deps.plan_folder helpers instead."
             )
 
 
@@ -285,12 +285,12 @@ def test_tasks_py_has_no_path_write_text_calls() -> None:
 
 @pytest.mark.asyncio
 async def test_ingest_report_writes_original_md(
-    workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
+    workspace_handle: PlanFolder, fake_provider: FakeProvider
 ) -> None:
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
-        workspace_handle=workspace_handle,
+        plan_folder=workspace_handle,
     )
     result = await PLAN_WORKFLOW.execute(
         config={"user_input": "user-supplied report text"}, deps=deps
@@ -304,7 +304,7 @@ async def test_ingest_report_writes_original_md(
 
 @pytest.mark.asyncio
 async def test_ingest_report_rejects_empty_input(
-    workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
+    workspace_handle: PlanFolder, fake_provider: FakeProvider
 ) -> None:
     """The workflow runtime catches the ValueError IngestReport raises and
     returns ``WorkflowResult(status='failed')`` rather than propagating
@@ -312,7 +312,7 @@ async def test_ingest_report_rejects_empty_input(
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
-        workspace_handle=workspace_handle,
+        plan_folder=workspace_handle,
     )
     result = await PLAN_WORKFLOW.execute(config={"user_input": ""}, deps=deps)
     assert result.status == "failed"
@@ -325,13 +325,13 @@ async def test_ingest_report_rejects_empty_input(
 
 @pytest.mark.asyncio
 async def test_pipeline_end_to_end_creates_all_artifacts(
-    workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
+    workspace_handle: PlanFolder, fake_provider: FakeProvider
 ) -> None:
     """ac-008 — the load-bearing integration test."""
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
-        workspace_handle=workspace_handle,
+        plan_folder=workspace_handle,
     )
     result = await PLAN_WORKFLOW.execute(
         config={"user_input": "Investigate Suzuki coupling at varying temperatures."},
@@ -375,7 +375,7 @@ async def test_pipeline_end_to_end_creates_all_artifacts(
 
 @pytest.mark.asyncio
 async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
-    workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
+    workspace_handle: PlanFolder, fake_provider: FakeProvider
 ) -> None:
     """Driving the task directly (outside the workflow runtime) lets the
     raised :class:`SkeletonCompileError` propagate — the workflow
@@ -389,7 +389,7 @@ async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
-        workspace_handle=workspace_handle,
+        plan_folder=workspace_handle,
     )
     ir_contract = await fake_provider.complete_structured(
         tier=ModelTier.DEFAULT,
@@ -439,9 +439,9 @@ async def test_generate_workflow_skeleton_raises_skeleton_compile_error(
 
 @pytest.mark.asyncio
 async def test_plan_mode_run_exposes_workspace_path_and_back_compat_shim(
-    workspace_handle: PlanWorkspaceHandle, fake_provider: FakeProvider
+    workspace_handle: PlanFolder, fake_provider: FakeProvider
 ) -> None:
-    mode = PlanMode(workspace_handle=workspace_handle)
+    mode = PlanMode(plan_folder=workspace_handle)
     session = AgentSession()
     result = await mode.run(
         router=fake_provider,
@@ -477,7 +477,7 @@ async def test_plan_mode_run_exposes_workspace_path_and_back_compat_shim(
 
 @pytest.mark.asyncio
 async def test_custom_policy_observed_by_provider_invoke(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """A non-default :class:`PlanModelPolicy` lands on every router call."""
     router = FakeProvider()
@@ -485,7 +485,7 @@ async def test_custom_policy_observed_by_provider_invoke(
     deps = PlanDeps(
         router=router,
         policy=custom,
-        workspace_handle=workspace_handle,
+        plan_folder=workspace_handle,
     )
     await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)
     assert router.calls, "fake router should have been invoked"

@@ -84,13 +84,14 @@ def test_build_discovery_agent_attaches_mcp_via_toolsets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("molexp.agent._pydanticai.capability_probe.Agent", _AgentSpy)
-    build_discovery_agent(
+    agent, server = build_discovery_agent(
         "test-model",
         command="molmcp",
         args=(),
         env={"FOO": "bar"},
         retries=2,
     )
+    assert isinstance(agent, _AgentSpy)
     captured = _AgentSpy.last_kwargs
     assert captured is not None
     assert captured["output_type"] is CapabilityEvidenceBatch
@@ -103,6 +104,7 @@ def test_build_discovery_agent_attaches_mcp_via_toolsets(
     from pydantic_ai.mcp import MCPServerStdio
 
     assert isinstance(toolsets[0], MCPServerStdio)
+    assert server is toolsets[0]
     assert captured["retries"] == 2
 
 

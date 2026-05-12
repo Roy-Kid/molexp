@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -29,7 +29,7 @@ from molexp.workspace import Workspace
 
 
 def _make_ctx(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     *,
     briefs: tuple[TaskIRBrief, ...],
 ) -> TaskContext:
@@ -37,7 +37,7 @@ def _make_ctx(
     deps = PlanDeps(
         router=_NoopRouter(),  # type: ignore[arg-type]
         policy=PlanModelPolicy(),
-        workspace_handle=handle,
+        plan_folder=handle,
     )
     test_paths = tuple(handle.tests_dir() / f"test_{b.task_id}.py" for b in briefs)
     impl_paths = tuple(handle.tasks_pkg_dir() / f"{b.task_id}.py" for b in briefs)
@@ -67,9 +67,9 @@ class _NoopRouter:
 
 
 @pytest.fixture
-def valid_handle(tmp_path: Path) -> PlanWorkspaceHandle:
+def valid_handle(tmp_path: Path) -> PlanFolder:
     """Workspace seeded with all the artifacts ValidateWorkspace expects."""
-    handle = PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="valid_ws")
+    handle = Workspace(tmp_path / "ws").add_folder(PlanFolder(name="valid_ws"))
     # Required paths (the validator checks each for existence).
     (handle.report_dir() / "original.md").write_text("report")
     (handle.plan_dir() / "implementation_plan.md").write_text("plan")
@@ -86,7 +86,7 @@ def valid_handle(tmp_path: Path) -> PlanWorkspaceHandle:
 
 
 def _write_contract_and_workflow(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     briefs: tuple[TaskIRBrief, ...],
 ) -> None:
     contract = WorkflowContract(
@@ -123,7 +123,7 @@ def _class_name(task_id: str) -> str:
 
 @pytest.mark.asyncio
 async def test_validate_workspace_passes_when_all_artifacts_present(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     briefs = (
         TaskIRBrief(task_id="prepare", responsibility="weigh"),
@@ -150,7 +150,7 @@ async def test_validate_workspace_passes_when_all_artifacts_present(
 
 @pytest.mark.asyncio
 async def test_validate_workspace_fails_when_impl_missing(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     briefs = (TaskIRBrief(task_id="missing_impl", responsibility="x"),)
     # Test file present but impl module missing — that should be an
@@ -166,7 +166,7 @@ async def test_validate_workspace_fails_when_impl_missing(
 
 @pytest.mark.asyncio
 async def test_validate_workspace_fails_when_test_missing(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     briefs = (TaskIRBrief(task_id="missing_test", responsibility="x"),)
     (valid_handle.tasks_pkg_dir() / "missing_test.py").write_text("")
@@ -178,7 +178,7 @@ async def test_validate_workspace_fails_when_test_missing(
 
 @pytest.mark.asyncio
 async def test_validate_workspace_fails_on_invalid_workflow_dependency(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     briefs = (TaskIRBrief(task_id="child", responsibility="x"),)
     (valid_handle.tasks_pkg_dir() / "child.py").write_text(
@@ -220,7 +220,7 @@ async def test_validate_workspace_fails_on_invalid_workflow_dependency(
 
 @pytest.mark.asyncio
 async def test_validate_workspace_fails_on_invalid_workflow_py(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     """A workflow.py that does not parse should surface a compile error."""
     (valid_handle.experiment_pkg_dir() / "workflow.py").write_text("def def def\n")
@@ -232,7 +232,7 @@ async def test_validate_workspace_fails_on_invalid_workflow_py(
 
 @pytest.mark.asyncio
 async def test_validate_workspace_warns_on_empty_contract(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     ctx = _make_ctx(valid_handle, briefs=())
     result = await ValidateWorkspace().execute(ctx)
@@ -243,7 +243,7 @@ async def test_validate_workspace_warns_on_empty_contract(
 
 @pytest.mark.asyncio
 async def test_validate_workspace_writes_validation_report(
-    valid_handle: PlanWorkspaceHandle,
+    valid_handle: PlanFolder,
 ) -> None:
     briefs = (TaskIRBrief(task_id="t", responsibility="r"),)
     (valid_handle.tasks_pkg_dir() / "t.py").write_text("")

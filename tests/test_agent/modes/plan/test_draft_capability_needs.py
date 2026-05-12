@@ -35,7 +35,7 @@ from molexp.agent.modes.plan.tasks_capability import (
     DraftCapabilityNeeds,
     NullCapabilityProbe,
 )
-from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 
 from .conftest import FakeRouter, canned_presets
 
@@ -76,19 +76,19 @@ class StubCapabilityProbe:
 
 
 @pytest.fixture
-def workspace_handle(tmp_path: Path) -> PlanWorkspaceHandle:
+def workspace_handle(tmp_path: Path) -> PlanFolder:
     from molexp.workspace import Workspace
 
-    return PlanWorkspaceHandle.materialize(Workspace(tmp_path / "ws"), plan_id="dcap_plan")
+    return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="dcap_plan"))
 
 
-def _make_deps(handle: PlanWorkspaceHandle, probe: object) -> PlanDeps:
+def _make_deps(handle: PlanFolder, probe: object) -> PlanDeps:
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
 
     return PlanDeps(
         router=FakeRouter(),
         policy=STANDARD_PLAN_POLICY,
-        workspace_handle=handle,
+        plan_folder=handle,
         capability_probe=probe,  # type: ignore[arg-type]
     )
 
@@ -108,7 +108,7 @@ def _make_inputs() -> PlanBriefResult:
     )
 
 
-def _ctx_stub(deps: PlanDeps, inputs: object) -> object:
+def _ctx_stub(deps: PlanDeps, inputs: object, *, user_input: str = "") -> object:
     """Build the minimal :class:`TaskContext`-shaped object the node needs.
 
     The node only reads ``ctx.deps`` and ``ctx.inputs`` so a plain
@@ -122,6 +122,7 @@ def _ctx_stub(deps: PlanDeps, inputs: object) -> object:
     obj = _Ctx()
     obj.deps = deps  # type: ignore[attr-defined]
     obj.inputs = inputs  # type: ignore[attr-defined]
+    obj.config = {"user_input": user_input}  # type: ignore[attr-defined]
     return obj
 
 
@@ -130,7 +131,7 @@ def _ctx_stub(deps: PlanDeps, inputs: object) -> object:
 
 @pytest.mark.asyncio
 async def test_draft_needs_three_state_empty_with_discovery_required(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """Empty needs + discovery_required=True is preserved verbatim."""
     report = CapabilityNeedReport(
@@ -155,7 +156,7 @@ async def test_draft_needs_three_state_empty_with_discovery_required(
 
 @pytest.mark.asyncio
 async def test_draft_needs_three_state_empty_with_discovery_skipped(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """Empty needs + discovery_required=False short-circuits downstream discovery."""
     report = CapabilityNeedReport(
@@ -176,7 +177,7 @@ async def test_draft_needs_three_state_empty_with_discovery_skipped(
 
 @pytest.mark.asyncio
 async def test_draft_needs_three_state_non_empty(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """Non-empty needs round-trip through ``capability/needs.yaml``."""
     needs = (
@@ -256,7 +257,7 @@ async def test_null_probe_returns_skipped_batch_for_pure_stdlib() -> None:
 
 @pytest.mark.asyncio
 async def test_draft_capability_needs_falls_back_to_null_probe_when_unset(
-    workspace_handle: PlanWorkspaceHandle,
+    workspace_handle: PlanFolder,
 ) -> None:
     """No probe configured → DraftCapabilityNeeds calls NullCapabilityProbe.
 
@@ -272,3 +273,30 @@ async def test_draft_capability_needs_falls_back_to_null_probe_when_unset(
 
     assert result.discovery_required is False
     assert result.rationale_summary == "no probe configured"
+
+
+@pytest.mark.asyncio
+async def test_raw_user_input_required_namespace_forces_discovery(
+    workspace_handle: PlanFolder,
+) -> None:
+    """Explicit raw-input constraints survive PlanBrief abstraction."""
+    report = CapabilityNeedReport(
+        discovery_required=False,
+        needs=(),
+        rationale_summary="planner abstracted implementation details",
+    )
+    probe = StubCapabilityProbe(report)
+    deps = _make_deps(workspace_handle, probe)
+    node = DraftCapabilityNeeds()
+
+    result = await node.execute(
+        _ctx_stub(
+            deps,
+            _make_inputs(),
+            user_input="You need to explicitly use molpy for chain construction.",
+        )  # type: ignore[arg-type]
+    )
+
+    assert result.discovery_required is True
+    assert any(h.namespace == "molpy" and h.strength == "required" for h in result.hints)
+    assert any("molpy" in need.query_hints for need in result.needs)

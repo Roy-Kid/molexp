@@ -41,7 +41,7 @@ from molexp.agent.modes.plan.capability import (
     CapabilityNeedReport,
     MissingCapability,
 )
-from molexp.agent.modes.plan.workspace_layout import (
+from molexp.agent.modes.plan.plan_folder import (
     CheckResult,
     RepairIterationRecord,
 )
@@ -80,8 +80,8 @@ __all__ = [
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
 
-# ``RepairIterationRecord`` lives in ``workspace_layout.py`` to break the
-# circular import chain (workspace_layout exports CheckResult here, and
+# ``RepairIterationRecord`` lives in ``plan_folder.py`` to break the
+# circular import chain (plan_folder exports CheckResult here, and
 # PlanManifest needs to embed RepairIterationRecord). It is re-exported
 # from this module so downstream callers can import it from the same
 # place as :class:`ReviewDecision`.
@@ -291,7 +291,7 @@ class TaskImplementationModule(BaseModel):
         evidence_refs: Tuple of ``api_ref`` values the LLM declares it
             used; Phase 5 codegen asserts this matches the source's
             ``__capability_evidence__`` literal. ``is_stub=True`` is
-            permitted to ship an empty tuple (no Molcrafts API calls
+            permitted to ship an empty tuple (no external API calls
             in stub bodies).
     """
 

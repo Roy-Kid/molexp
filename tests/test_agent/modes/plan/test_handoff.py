@@ -16,7 +16,7 @@ import yaml
 from molexp.agent.modes.plan import (
     PlanManifest,
     PlanRunHandoff,
-    PlanWorkspaceHandle,
+    PlanFolder,
     ValidationReport,
 )
 from molexp.agent.modes.plan.policy import PlanModelPolicy
@@ -91,13 +91,13 @@ async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
     from molexp.agent.modes.plan import PLAN_WORKFLOW
 
     workspace = Workspace(tmp_path / "ws")
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="manifest_handoff")
+    handle = workspace.add_folder(PlanFolder(name="manifest-handoff"))
     fake_provider = FakeProvider()
     bypass = BypassPolicy()
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
-        workspace_handle=handle,
+        plan_folder=handle,
         final_policy_lookup=lambda: bypass,
     )
     result = await PLAN_WORKFLOW.execute(
@@ -116,7 +116,7 @@ async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
     assert "handoff" in raw, "manifest.yaml missing handoff block after approval"
 
     rebuilt = PlanRunHandoff.model_validate(raw["handoff"])
-    assert rebuilt.plan_id == "manifest_handoff"
+    assert rebuilt.plan_id == "manifest-handoff"
     assert rebuilt.entrypoint_module == "experiment.workflow"
     assert rebuilt.entrypoint_symbol == "create_workflow"
 
@@ -134,12 +134,12 @@ async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Pa
     from molexp.agent.modes.plan import PLAN_WORKFLOW
 
     workspace = Workspace(tmp_path / "ws")
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rejected_plan")
+    handle = workspace.add_folder(PlanFolder(name="rejected-plan"))
     rejecting = _RejectingPolicy()
     deps = PlanDeps(
         router=FakeProvider(),
         policy=PlanModelPolicy(),
-        workspace_handle=handle,
+        plan_folder=handle,
         final_policy_lookup=lambda: rejecting,
     )
     result = await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)

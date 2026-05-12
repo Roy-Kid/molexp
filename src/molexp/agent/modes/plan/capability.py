@@ -1,31 +1,35 @@
-"""Capability discovery schemas + codegen-evidence validator (Phase 3).
+"""Capability discovery schemas + codegen-evidence validator.
 
 Owns the five frozen pydantic models the PlanMode capability-discovery
 pipeline uses plus a pure-AST validator that codegen nodes invoke
 after writing each generated module to disk.
 
-pydantic-ai does **not** provide a capability-discovery layer:
-pydantic-ai's remit is model-side execution (tool dispatch / MCP /
-retries / message history / structured output). The PlanMode workflow
-adds an LLM-driven *need-drafting* step followed by an
-*evidence-gathering* step driven through an MCP server (molmcp), and
-the resulting evidence has to round-trip through codegen so the
-validator can refuse unevidenced API usage. That orchestration is
-molexp's own; the discovery agent itself uses pydantic-ai natively
-(see ``_pydanticai/capability_probe.py`` in Phase 4).
+PlanMode deals only in structured needs, hints, evidence, and
+validation misses. Source-specific discovery policy and transport
+selection live behind the agent-level discovery service.
 """
 
 from __future__ import annotations
 
 import ast
+from collections.abc import Iterable
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from molexp.agent.capability_hints import (
+    LEGACY_VALIDATION_NAMESPACES as MOLCRAFTS_NAMESPACES,
+)
+from molexp.agent.capability_hints import (
+    CapabilityHint,
+    validate_hint_constraints,
+)
 
 __all__ = [
     "MOLCRAFTS_NAMESPACES",
     "CapabilityEvidence",
     "CapabilityEvidenceBatch",
+    "CapabilityHint",
     "CapabilityNeed",
     "CapabilityNeedReport",
     "MissReason",
@@ -38,24 +42,6 @@ __all__ = [
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
 
-MOLCRAFTS_NAMESPACES: tuple[str, ...] = (
-    "molpy",
-    "molexp",
-    "molvis",
-    "molpack",
-    "molnex",
-    "molq",
-    "mollog",
-    "molcfg",
-)
-"""Top-level package prefixes the capability validator scans for.
-
-Used as the namespace filter inside :func:`validate_codegen_evidence`
-and the future ``ValidateWorkspace.capability_evidence_check`` (Phase
-6). Adding a namespace here only expands validation scope; it does
-**not** switch discovery on or off — that decision is owned by the
-LLM in ``DraftCapabilityNeeds``."""
-
 
 MissReason = Literal[
     "mcp_no_match",
@@ -64,11 +50,12 @@ MissReason = Literal[
     "unevidenced_in_code",
     "undeclared_in_code",
     "declared_but_unused",
+    "required_namespace_missing",
+    "required_namespace_unused",
+    "fallback_reason_missing",
+    "forbidden_hand_rolled_output",
 ]
-"""Closed enumeration of the six valid :attr:`MissingCapability.reason`
-values. The first three are emitted by the discovery agent
-(``DiscoverCapabilities``); the last three by
-:func:`validate_codegen_evidence` after codegen."""
+"""Closed enumeration of valid :attr:`MissingCapability.reason` values."""
 
 
 # ── Frozen pydantic models ─────────────────────────────────────────────────
@@ -97,10 +84,10 @@ class CapabilityNeed(BaseModel):
         expected_kind: Hint about what shape the symbol should take.
             Canonical strings: ``"class"`` / ``"callable"`` / ``"module"`` /
             ``"constant"`` / ``"protocol"`` / ``"namespace"``. Unknown
-            values are not enforced at the type level (different MCP
-            servers may surface other kinds).
+            values are not enforced at the type level (different
+            sources may surface other kinds).
         query_hints: Optional query keywords passed to the discovery
-            agent's MCP search call to bias the result.
+            source to bias the result.
     """
 
     model_config = _FROZEN
@@ -118,8 +105,7 @@ class CapabilityNeedReport(BaseModel):
     Attributes:
         discovery_required: ``False`` lets the rest of the pipeline
             short-circuit discovery entirely (e.g. when the LLM is sure
-            the task is pure-stdlib). ``True`` forces ``DiscoverCapabilities``
-            to actually run the MCP-attached agent.
+            the task is pure-stdlib). ``True`` forces concrete discovery.
         needs: Drafted needs; may be empty when ``discovery_required`` is
             ``False``.
         rationale_summary: One paragraph explaining the discovery
@@ -132,6 +118,7 @@ class CapabilityNeedReport(BaseModel):
     discovery_required: bool
     needs: tuple[CapabilityNeed, ...] = ()
     rationale_summary: str = ""
+    hints: tuple[CapabilityHint, ...] = ()
 
 
 class CapabilityEvidence(BaseModel):
@@ -142,13 +129,11 @@ class CapabilityEvidence(BaseModel):
             :class:`CapabilityNeed` — typically ``f"{task_id}:{capability}"``.
             Lets discovery results match back to their need without
             embedding the full need object.
-        source: Discovery channel that produced this evidence (e.g.
-            ``"molmcp"``). Future probes may surface ``"rag"`` /
-            ``"docs"`` / etc.
-        package: Top-level Molcrafts package (must be one of
-            :data:`MOLCRAFTS_NAMESPACES`).
-        module: Fully-qualified module path (``"molpy.builders.peptide"``).
-        symbol: Symbol name within the module (``"PeptideBuilder"``).
+        source: Discovery channel that produced this evidence.
+        namespace: Top-level namespace this evidence belongs to.
+        package: Compatibility package field for older evidence rows.
+        module: Fully-qualified module path.
+        symbol: Symbol name within the module.
         kind: Symbol kind (``"class"`` / ``"callable"`` / etc.).
         signature: Canonical Python signature line.
         doc_summary: First-paragraph summary of the symbol's docstring.
@@ -156,19 +141,21 @@ class CapabilityEvidence(BaseModel):
             ``f"{module}.{symbol}"``. **Primary key for the
             codegen-evidence diff** in :func:`validate_codegen_evidence`.
         confidence: ``0.0..1.0`` confidence score returned by the
-            discovery agent.
+            discovery source.
     """
 
     model_config = _FROZEN
 
     need_fingerprint: str
     source: str
+    namespace: str = ""
     package: str
     module: str
     symbol: str
     kind: str
     signature: str
     doc_summary: str = ""
+    usage_notes: tuple[str, ...] = ()
     api_ref: str
     confidence: float = 1.0
 
@@ -176,7 +163,7 @@ class CapabilityEvidence(BaseModel):
 class MissingCapability(BaseModel):
     """One row in the missing-capability ledger.
 
-    Produced by both the discovery agent (for ``mcp_*`` reasons) and by
+    Produced by both the discovery service (for source miss reasons) and by
     :func:`validate_codegen_evidence` (for ``unevidenced_in_code`` /
     ``undeclared_in_code`` / ``declared_but_unused``).
 
@@ -184,13 +171,13 @@ class MissingCapability(BaseModel):
         need: Originating :class:`CapabilityNeed`. ``None`` for
             validator-emitted misses where no upstream need maps to the
             offending ref (the diff is keyed on ``api_ref`` only).
-        reason: One of the six values defined by :data:`MissReason`;
+        reason: One of the values defined by :data:`MissReason`;
             constrained at the type level.
         detail: Human-readable description; for validator-emitted misses
             includes the offending ``api_ref`` so the repair loop can
             re-target discovery.
         repairable: Whether the repair loop should retry. ``False``
-            signals a permanent miss (no MCP server can resolve this).
+            signals a permanent miss.
     """
 
     model_config = _FROZEN
@@ -206,8 +193,7 @@ class CapabilityEvidenceBatch(BaseModel):
 
     Attributes:
         evidence: All resolved evidence rows.
-        missing: Needs that could not be evidenced — usually from the
-            ``mcp_*`` family (no match / low confidence / timeout).
+        missing: Needs that could not be evidenced.
         discovery_skipped: Set when ``discovery_required`` was ``False``
             upstream; tells codegen + validator to relax the
             ``__capability_evidence__`` block requirement entirely.
@@ -218,6 +204,9 @@ class CapabilityEvidenceBatch(BaseModel):
     evidence: tuple[CapabilityEvidence, ...] = ()
     missing: tuple[MissingCapability, ...] = ()
     discovery_skipped: bool = False
+    hints: tuple[CapabilityHint, ...] = ()
+    tracked_namespaces: tuple[str, ...] = ()
+    fallback_reasons: tuple[str, ...] = ()
 
 
 # ── AST validator ──────────────────────────────────────────────────────────
@@ -270,7 +259,8 @@ def validate_codegen_evidence(
 
     tree = ast.parse(source)
     declared_refs = extract_declared_refs(tree)
-    ast_refs = extract_ast_refs(tree)
+    tracked_namespaces = _tracked_namespaces(batch)
+    ast_refs = extract_ast_refs(tree, namespaces=tracked_namespaces)
     evidence_refs = {e.api_ref for e in batch.evidence}
 
     misses: list[MissingCapability] = []
@@ -306,6 +296,44 @@ def validate_codegen_evidence(
                 need=None,
                 reason="declared_but_unused",
                 detail=f"{ref} declared in __capability_evidence__ but not used",
+                repairable=True,
+            )
+        )
+
+    used_refs = ast_refs | declared_refs
+    for hint in batch.hints:
+        if hint.strength == "required" and not _namespace_is_used(hint.namespace, used_refs):
+            misses.append(
+                MissingCapability(
+                    need=None,
+                    reason="required_namespace_unused",
+                    detail=f"required namespace {hint.namespace} was not used by generated code",
+                    repairable=True,
+                )
+            )
+        if (
+            hint.strength == "preferred"
+            and not _namespace_is_used(hint.namespace, used_refs | evidence_refs)
+            and not any(hint.namespace in reason for reason in batch.fallback_reasons)
+        ):
+            misses.append(
+                MissingCapability(
+                    need=None,
+                    reason="fallback_reason_missing",
+                    detail=(
+                        f"preferred namespace {hint.namespace} was not used and no "
+                        "fallback reason was recorded"
+                    ),
+                    repairable=True,
+                )
+            )
+
+    for violation in validate_hint_constraints(source, batch.hints):
+        misses.append(
+            MissingCapability(
+                need=None,
+                reason=violation.reason,  # type: ignore[arg-type]
+                detail=violation.detail,
                 repairable=True,
             )
         )
@@ -363,8 +391,12 @@ def _literal_string_tuple(node: ast.expr) -> set[str]:
     return {item for item in value if isinstance(item, str)}
 
 
-def extract_ast_refs(tree: ast.Module) -> set[str]:
-    """Reconstruct Molcrafts-prefixed dotted paths from imports + attribute chains.
+def extract_ast_refs(
+    tree: ast.Module,
+    *,
+    namespaces: Iterable[str] | None = None,
+) -> set[str]:
+    """Reconstruct tracked dotted paths from imports + attribute chains.
 
     Walks every :class:`ast.ImportFrom` and :class:`ast.Attribute` node.
     Bare :class:`ast.Import` nodes (``import X``) are skipped — those
@@ -376,15 +408,15 @@ def extract_ast_refs(tree: ast.Module) -> set[str]:
     are dynamic and cannot be cross-referenced statically.
 
     Only *maximal* attribute chains are kept (a chain is dropped if any
-    longer chain has it as a strict prefix) so a nested chain like
-    ``molpy.builders.peptide.PeptideBuilder`` does not also surface as
-    ``molpy.builders.peptide`` and ``molpy.builders``.
+    longer chain has it as a strict prefix) so nested chains do not
+    also surface their intermediate module prefixes.
     """
+    tracked = frozenset(namespaces if namespaces is not None else MOLCRAFTS_NAMESPACES)
     import_refs: set[str] = set()
     raw_chains: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and node.module:
-            if not _starts_with_namespace(node.module):
+            if not _starts_with_namespace(node.module, tracked):
                 continue
             for alias in node.names:
                 if alias.name == "*":
@@ -395,7 +427,7 @@ def extract_ast_refs(tree: ast.Module) -> set[str]:
             if chain is None or "." not in chain:
                 continue
             root = chain.split(".", 1)[0]
-            if root in MOLCRAFTS_NAMESPACES:
+            if root in tracked:
                 raw_chains.add(chain)
 
     maximal = {
@@ -406,9 +438,9 @@ def extract_ast_refs(tree: ast.Module) -> set[str]:
     return import_refs | maximal
 
 
-def _starts_with_namespace(module: str) -> bool:
+def _starts_with_namespace(module: str, namespaces: Iterable[str]) -> bool:
     head, _, _ = module.partition(".")
-    return head in MOLCRAFTS_NAMESPACES
+    return head in namespaces
 
 
 def _attribute_chain(node: ast.Attribute) -> str | None:
@@ -427,3 +459,20 @@ def _attribute_chain(node: ast.Attribute) -> str | None:
     parts.append(current.id)
     parts.reverse()
     return ".".join(parts)
+
+
+def _tracked_namespaces(batch: CapabilityEvidenceBatch) -> tuple[str, ...]:
+    tracked = set(batch.tracked_namespaces)
+    tracked.update(hint.namespace for hint in batch.hints)
+    for evidence in batch.evidence:
+        namespace = evidence.namespace or evidence.package
+        if namespace:
+            tracked.add(namespace)
+    if not tracked:
+        tracked.update(MOLCRAFTS_NAMESPACES)
+    return tuple(sorted(tracked))
+
+
+def _namespace_is_used(namespace: str, refs: Iterable[str]) -> bool:
+    prefix = f"{namespace}."
+    return any(ref == namespace or ref.startswith(prefix) for ref in refs)

@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from molexp.agent.capability_discovery import CapabilityDiscoveryService
 from molexp.agent.modes.plan.context import PlanRepairContext
 from molexp.agent.router import ModelTier, Router
 
@@ -33,11 +34,12 @@ if TYPE_CHECKING:
     )
     from molexp.agent.modes.plan.policy import PlanModelPolicy
     from molexp.agent.modes.plan.schemas import PlanBrief
-    from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+    from molexp.agent.modes.plan.plan_folder import PlanFolder
     from molexp.agent.review import ReviewPolicy
 
 
 __all__ = [
+    "CapabilityDiscoveryService",
     "CapabilityProbe",
     "ModelTier",
     "PlanDeps",
@@ -53,25 +55,23 @@ __all__ = [
 class CapabilityProbe(Protocol):
     """Two-method abstraction over capability discovery.
 
-    PlanMode's ``DraftCapabilityNeeds`` and ``DiscoverCapabilities``
-    nodes delegate the LLM call + MCP plumbing to this Protocol so the
-    nodes themselves stay free of ``pydantic_ai`` imports. Phase 4
-    provides two concrete implementations:
+    Compatibility abstraction under the newer
+    :class:`CapabilityDiscoveryService` service. Discovery nodes should
+    depend on the service; this probe remains for tests and older
+    callers that inject a lower-level source directly.
 
     - :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
-      — fallback when no MCP server is configured;
+      — fallback when no source is configured;
       :meth:`draft_needs` returns
       ``CapabilityNeedReport(discovery_required=False, …)``,
       :meth:`discover` raises
       :class:`~molexp.agent.modes.plan.errors.CapabilityDiscoveryRequired`
       whenever its input flips ``discovery_required=True``.
     - :class:`molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe`
-      — wraps two ``pydantic_ai.Agent`` instances (a no-tool structured
-      agent for needs drafting, an MCP-attached agent for evidence
-      collection).
+      — concrete source-backed implementation.
 
     Tests inject ``StubCapabilityProbe`` implementations so the suite
-    never reaches a real LLM or MCP server.
+    never reaches a real external source.
     """
 
     async def draft_needs(
@@ -112,14 +112,13 @@ class CapabilityProbe(Protocol):
         Returns:
             :class:`CapabilityEvidenceBatch` populated with one
             :class:`CapabilityEvidence` per resolved need plus any
-            :class:`MissingCapability` rows the MCP probe could not
+            :class:`MissingCapability` rows the source could not
             satisfy. ``discovery_skipped`` is propagated from
             ``report.discovery_required``.
 
         Raises:
             CapabilityDiscoveryRequired: When the report demands
-                discovery but the probe is unable to perform it (no MCP
-                server configured, etc.).
+                discovery but the probe is unable to perform it.
         """
         ...
 
@@ -157,9 +156,9 @@ class PlanDeps:
             (:class:`~molexp.agent.modes.plan.policy.PlanModelPolicy`).
             Each task resolves its tier via
             ``policy.tier_for(type(self).__name__)``.
-        workspace_handle: On-disk experiment-workspace handle
-            (:class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`).
-            All artifact writes route through this handle's API; tasks
+        plan_folder: On-disk plan workspace
+            (:class:`~molexp.agent.modes.plan.plan_folder.PlanFolder`).
+            All artifact writes route through this folder's API; tasks
             never touch ``Path.write_text`` directly.
         step_policy_lookup: Live lookup for the per-step review policy
             fired by :class:`PlanTask` after every node's ``_execute``
@@ -200,13 +199,13 @@ class PlanDeps:
             threaded through every ``dataclass.replace`` the repair
             loop performs so the log accumulates across iterations.
         capability_probe: :class:`CapabilityProbe` implementation
-            consumed by Phase 4's ``DraftCapabilityNeeds`` and
-            ``DiscoverCapabilities`` nodes. Defaults to ``None`` so
-            existing pipelines (Phases 0-3) keep constructing
-            :class:`PlanDeps` unchanged; ``AgentRunner.run`` (updated
-            in Phase 4) lazily wires in either a
-            ``PydanticAICapabilityProbe`` (when molmcp is configured)
-            or a ``NullCapabilityProbe`` (fallback).
+            retained as a compatibility escape hatch. New wiring should
+            prefer :attr:`capability_discovery`, which owns hint
+            extraction plus the underlying probe.
+        capability_discovery: service consumed by
+            ``DraftCapabilityNeeds`` and ``DiscoverCapabilities``.
+            PlanMode only calls this abstract service; transport,
+            policy, and source-specific lookup stay behind the service.
         repair_context: Structured feedback from the previous rejection
             when this is a repair iteration. First pass uses the empty
             context. LLM nodes render this centrally into their prompts
@@ -215,13 +214,14 @@ class PlanDeps:
 
     router: Router
     policy: PlanModelPolicy
-    workspace_handle: PlanWorkspaceHandle
+    plan_folder: PlanFolder
     step_policy_lookup: Callable[[], ReviewPolicy] = field(default_factory=_default_bypass_lookup)
     final_policy_lookup: Callable[[], ReviewPolicy] = field(default_factory=_default_bypass_lookup)
     repair_target_tasks: tuple[str, ...] | None = None
     repair_iteration: int = 0
     step_outputs_log: dict[str, Any] = field(default_factory=dict)
     capability_probe: CapabilityProbe | None = None
+    capability_discovery: CapabilityDiscoveryService | None = None
     repair_context: PlanRepairContext = field(default_factory=PlanRepairContext)
 
     @property

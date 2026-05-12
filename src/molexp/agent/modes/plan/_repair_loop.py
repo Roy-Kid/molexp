@@ -53,7 +53,7 @@ from molexp.agent.modes.plan.schemas import (
     RepairIterationRecord,
     ReviewDecision,
 )
-from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.workflow import Workflow, WorkflowResult
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ async def drive_with_repair(
         ``status`` is forced to ``"rejected"`` so downstream consumers
         observe the cap deterministically.
     """
-    handle: PlanWorkspaceHandle = deps.workspace_handle
+    handle: PlanFolder = deps.plan_folder
     spec: Workflow = PLAN_WORKFLOW
     seed_outputs: dict[str, Any] | None = None
     iteration = 0
@@ -281,7 +281,7 @@ def _synthesize_capability_decision(
       second-and-later ``("DraftCapabilityNeeds", "DiscoverCapabilities")``.
 
     The decision is written to disk via
-    :func:`PlanWorkspaceHandle.write_latest_decision` and embedded in
+    :func:`PlanFolder.write_latest_decision` and embedded in
     the manifest's ``repair_history`` for telemetry, so the spec's
     target-step mapping survives in the audit log even when the
     pipeline is re-run from scratch.
@@ -369,7 +369,7 @@ def _force_rejected(
 
 
 def _append_repair_history(
-    handle: PlanWorkspaceHandle,
+    handle: PlanFolder,
     iteration: int,
     decision: ReviewDecision,
 ) -> None:

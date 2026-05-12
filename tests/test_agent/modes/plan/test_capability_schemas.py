@@ -32,6 +32,7 @@ from molexp.agent.modes.plan.capability import (
     MOLCRAFTS_NAMESPACES,
     CapabilityEvidence,
     CapabilityEvidenceBatch,
+    CapabilityHint,
     CapabilityNeed,
     CapabilityNeedReport,
     MissingCapability,
@@ -343,3 +344,51 @@ def test_validator_detail_carries_ref() -> None:
     batch = CapabilityEvidenceBatch(evidence=(), missing=(), discovery_skipped=False)
     misses = validate_codegen_evidence(source, batch)
     assert all("molpy.foo" in m.detail for m in misses)
+
+
+def test_required_hint_requires_namespace_usage() -> None:
+    source = "__capability_evidence__: tuple[str, ...] = ()\n"
+    batch = CapabilityEvidenceBatch(
+        discovery_skipped=False,
+        hints=(CapabilityHint(namespace="molpy", strength="required"),),
+        tracked_namespaces=("molpy",),
+    )
+
+    misses = validate_codegen_evidence(source, batch)
+    assert {m.reason for m in misses} == {"required_namespace_unused"}
+
+
+def test_preferred_hint_without_usage_requires_fallback_reason() -> None:
+    source = "__capability_evidence__: tuple[str, ...] = ()\n"
+    batch = CapabilityEvidenceBatch(
+        discovery_skipped=False,
+        hints=(CapabilityHint(namespace="molpack", strength="preferred"),),
+        tracked_namespaces=("molpack",),
+    )
+
+    misses = validate_codegen_evidence(source, batch)
+    assert {m.reason for m in misses} == {"fallback_reason_missing"}
+
+
+def test_no_hand_rolled_lammps_data_constraint() -> None:
+    source = (
+        "__capability_evidence__: tuple[str, ...] = ()\n"
+        "from pathlib import Path\n"
+        "def write_data(path: Path) -> None:\n"
+        "    text = 'Masses\\n\\n1 12.0\\n\\nAtoms\\n\\n1 1 0.0 0.0 0.0\\n'\n"
+        "    path.write_text(text)\n"
+    )
+    batch = CapabilityEvidenceBatch(
+        discovery_skipped=False,
+        hints=(
+            CapabilityHint(
+                namespace="lammps",
+                strength="required",
+                constraint_tags=("no_hand_rolled_lammps_data",),
+            ),
+        ),
+        tracked_namespaces=("lammps",),
+    )
+
+    misses = validate_codegen_evidence(source, batch)
+    assert "forbidden_hand_rolled_output" in {m.reason for m in misses}

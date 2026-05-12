@@ -1,23 +1,29 @@
-"""Contract tests for the PlanMode experiment-workspace layout helper.
+"""Contract tests for the PlanMode plan-folder layout helper.
 
-Covers acceptance criteria ac-001..ac-009 for sub-spec
-``planmode-workspace-pipeline-03-experiment-workspace-layout``.
+:class:`PlanFolder` is the agent-layer :class:`molexp.workspace.Folder`
+subclass that owns the on-disk layout of a single PlanMode plan. It
+replaces the legacy ``PlanWorkspaceHandle`` (and its
+``.subsystems/agent.plan-experiments/<id>/`` storage path).
+
+Covers the lazy directory semantics, atomic writers, and YAML
+round-trips that the rest of the plan-mode pipeline relies on.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
 from molexp.agent.modes.plan import (
-    AGENT_PLAN_EXPERIMENTS_KIND,
+    AGENT_PLAN_KIND,
     CheckResult,
+    PlanFolder,
     PlanManifest,
-    PlanWorkspaceHandle,
     ValidationReport,
 )
 from molexp.agent.modes.plan.capability import (
@@ -35,51 +41,34 @@ def workspace(tmp_path: Path) -> Workspace:
     return Workspace(tmp_path / "ws")
 
 
-# ── PlanWorkspaceHandle.materialize / attach (ac-002) ──────────────────────
+def _mount(workspace: Workspace, plan_id: str | None = None) -> PlanFolder:
+    """Mount a fresh :class:`PlanFolder` on ``workspace`` and return it."""
+    return cast(PlanFolder, workspace.add_folder(PlanFolder(name=plan_id)))
 
 
-def test_materialize_uses_agent_plan_experiments_subsystem(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace)
-    assert isinstance(handle.plan_id, str)
-    assert handle.plan_id != ""
-
-    expected_root = (
-        workspace.root / ".subsystems" / AGENT_PLAN_EXPERIMENTS_KIND / handle.plan_id
-    )
-    assert handle.root() == expected_root
+# ── PlanFolder construction / mounting ─────────────────────────────────────
 
 
-def test_materialize_twice_yields_distinct_plan_ids(workspace: Workspace) -> None:
-    h1 = PlanWorkspaceHandle.materialize(workspace)
-    h2 = PlanWorkspaceHandle.materialize(workspace)
-    assert h1.plan_id != h2.plan_id
+def test_mount_uses_plans_subdir(workspace: Workspace) -> None:
+    plan_folder = _mount(workspace, plan_id="my-plan")
+    assert plan_folder.plan_id == "my-plan"
+    assert plan_folder.kind == AGENT_PLAN_KIND
+    assert plan_folder.root() == workspace.root / "plans" / "my-plan"
 
 
-def test_attach_reuses_existing_plan_id(workspace: Workspace) -> None:
-    h1 = PlanWorkspaceHandle.materialize(workspace, plan_id="plan_fixed")
-    h2 = PlanWorkspaceHandle.attach(workspace, plan_id="plan_fixed")
-    assert h1.plan_id == h2.plan_id == "plan_fixed"
-    assert h1.root() == h2.root()
+def test_mount_without_name_auto_generates_plan_id(workspace: Workspace) -> None:
+    plan_folder = _mount(workspace)
+    assert isinstance(plan_folder.plan_id, str) and plan_folder.plan_id
 
 
-def test_materialize_with_explicit_plan_id_uses_it(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="my_plan")
-    assert handle.plan_id == "my_plan"
+def test_mount_twice_is_idempotent(workspace: Workspace) -> None:
+    """``add_folder`` returns the cached instance on slug collision."""
+    p1 = _mount(workspace, plan_id="dup")
+    p2 = _mount(workspace, plan_id="dup")
+    assert p1 is p2
 
 
-def test_construction_is_side_effect_free_until_first_dir_call(
-    workspace: Workspace,
-) -> None:
-    PlanWorkspaceHandle.materialize(workspace, plan_id="lazy_plan")
-    # The subsystem root may have been created by Workspace's eager
-    # init, but the per-plan directory should not exist yet.
-    expected_per_plan = (
-        workspace.root / ".subsystems" / AGENT_PLAN_EXPERIMENTS_KIND / "lazy_plan"
-    )
-    assert not expected_per_plan.exists()
-
-
-# ── *_dir() lazy creation (ac-003) ─────────────────────────────────────────
+# ── *_dir() lazy creation ──────────────────────────────────────────────────
 
 
 _DIR_METHOD_TO_REL_PATH: list[tuple[str, tuple[str, ...]]] = [
@@ -92,8 +81,6 @@ _DIR_METHOD_TO_REL_PATH: list[tuple[str, tuple[str, ...]]] = [
     ("tasks_pkg_dir", ("src", "experiment", "tasks")),
     ("tests_dir", ("tests",)),
     ("configs_dir", ("configs",)),
-    ("runs_dir", ("runs",)),
-    ("results_dir", ("results",)),
 ]
 
 
@@ -103,15 +90,12 @@ def test_dir_method_creates_documented_path_lazily(
     method_name: str,
     rel_segments: tuple[str, ...],
 ) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id=f"plan_{method_name}")
-    expected = handle.root() / Path(*rel_segments) if rel_segments else handle.root()
-    # Pre-condition: the deepest segment does not exist yet (root() in
-    # the previous line created the plan root, which is fine — the
-    # contract is that the *_dir target itself is created on first call).
+    plan_folder = _mount(workspace, plan_id=f"plan-{method_name.replace('_', '-')}")
+    expected = plan_folder.root() / Path(*rel_segments) if rel_segments else plan_folder.root()
     if rel_segments:
         assert not expected.exists()
 
-    method = getattr(handle, method_name)
+    method = getattr(plan_folder, method_name)
     result = method()
 
     assert result == expected
@@ -120,40 +104,40 @@ def test_dir_method_creates_documented_path_lazily(
 
 
 def test_dir_methods_are_idempotent(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="idem")
-    p1 = handle.report_dir()
-    p2 = handle.report_dir()
+    plan_folder = _mount(workspace, plan_id="idem")
+    p1 = plan_folder.report_dir()
+    p2 = plan_folder.report_dir()
     assert p1 == p2
     assert p1.exists()
 
 
 def test_deep_dir_cascades_parents(workspace: Workspace) -> None:
     """tasks_pkg_dir() works without first calling experiment_pkg_dir()."""
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cascade")
-    target = handle.tasks_pkg_dir()
+    plan_folder = _mount(workspace, plan_id="cascade")
+    target = plan_folder.tasks_pkg_dir()
     assert target.is_dir()
     assert target.parent.name == "experiment"
     assert target.parent.parent.name == "src"
 
 
-# ── Path-only helpers (ac-004) ─────────────────────────────────────────────
+# ── Path-only helpers ──────────────────────────────────────────────────────
 
 
 def test_manifest_path_does_not_create_file(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="m")
-    path = handle.manifest_path()
+    plan_folder = _mount(workspace, plan_id="m")
+    path = plan_folder.manifest_path()
     assert path.name == "manifest.yaml"
     assert not path.exists()
 
 
 def test_validation_report_path_does_not_create_file(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="v")
-    path = handle.validation_report_path()
+    plan_folder = _mount(workspace, plan_id="v")
+    path = plan_folder.validation_report_path()
     assert path.name == "validation_report.md"
     assert not path.exists()
 
 
-# ── PlanManifest (ac-005) ──────────────────────────────────────────────────
+# ── PlanManifest ──────────────────────────────────────────────────────────
 
 
 def _sample_manifest(plan_id: str = "p") -> PlanManifest:
@@ -226,14 +210,14 @@ def test_plan_manifest_model_policy_snapshot_default_none() -> None:
     assert m.model_policy_snapshot is None
 
 
-# ── write_manifest YAML round-trip (ac-006) ────────────────────────────────
+# ── write_manifest YAML round-trip ────────────────────────────────────────
 
 
 def test_write_manifest_round_trips_via_safe_load(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rt_manifest")
-    manifest = _sample_manifest(plan_id="rt_manifest")
-    written_path = handle.write_manifest(manifest)
-    assert written_path == handle.manifest_path()
+    plan_folder = _mount(workspace, plan_id="rt-manifest")
+    manifest = _sample_manifest(plan_id="rt-manifest")
+    written_path = plan_folder.write_manifest(manifest)
+    assert written_path == plan_folder.manifest_path()
     assert written_path.exists()
 
     loaded = yaml.safe_load(written_path.read_text())
@@ -241,7 +225,7 @@ def test_write_manifest_round_trips_via_safe_load(workspace: Workspace) -> None:
     assert loaded == expected
 
 
-# ── ValidationReport.to_markdown + write_validation_report (ac-007) ────────
+# ── ValidationReport.to_markdown + write_validation_report ─────────────────
 
 
 def test_validation_report_to_markdown_contains_required_text() -> None:
@@ -254,7 +238,6 @@ def test_validation_report_to_markdown_contains_required_text() -> None:
     assert "x" in md
     assert "error" in md
     assert "s" in md
-    # Header line must be present.
     assert md.startswith("# ")
 
 
@@ -274,7 +257,7 @@ def test_validation_report_to_markdown_passed_state_in_header() -> None:
 
 
 def test_write_validation_report_persists_atomically(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rt_report")
+    plan_folder = _mount(workspace, plan_id="rt-report")
     report = ValidationReport(
         passed=False,
         checks=(
@@ -288,10 +271,10 @@ def test_write_validation_report_persists_atomically(workspace: Workspace) -> No
         ),
         summary="1 of 2 passed",
     )
-    written_path = handle.write_validation_report(report)
-    assert written_path == handle.validation_report_path()
+    written_path = plan_folder.write_validation_report(report)
+    assert written_path == plan_folder.validation_report_path()
     assert written_path.exists()
-    data_path = handle.validation_report_data_path()
+    data_path = plan_folder.validation_report_data_path()
     assert data_path.exists()
     text = written_path.read_text()
     assert "ir_parseable" in text
@@ -303,18 +286,19 @@ def test_write_validation_report_persists_atomically(workspace: Workspace) -> No
     assert data["checks"][1]["name"] == "impl_present"
 
 
-# ── Re-exports (ac-009) ────────────────────────────────────────────────────
+# ── Re-exports ────────────────────────────────────────────────────────────
 
 
 def test_public_names_reachable_from_modes_plan() -> None:
     import molexp.agent.modes.plan as plan_pkg
 
     for name in (
-        "PlanWorkspaceHandle",
+        "PlanFolder",
         "PlanManifest",
         "ValidationReport",
         "CheckResult",
         "PlanStatus",
+        "AGENT_PLAN_KIND",
     ):
         assert hasattr(plan_pkg, name)
         assert name in plan_pkg.__all__
@@ -337,15 +321,14 @@ def test_check_result_rejects_invalid_severity() -> None:
         )
 
 
-# ── repairs_dir / latest_decision_path / archive (planmode-review-repair-loop) ──
+# ── repairs_dir / latest_decision_path / archive ──────────────────────────
 
 
 def test_repairs_dir_creates_isolated_iteration_directories(workspace: Workspace) -> None:
-    """``repairs_dir(n)`` creates ``<plan_id>/repairs/iter-<n>/`` lazily; each
-    iteration is an independent directory under ``repairs/``."""
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rep")
-    iter0 = handle.repairs_dir(0)
-    iter1 = handle.repairs_dir(1)
+    """``repairs_dir(n)`` creates ``<plan>/repairs/iter-<n>/`` lazily."""
+    plan_folder = _mount(workspace, plan_id="rep")
+    iter0 = plan_folder.repairs_dir(0)
+    iter1 = plan_folder.repairs_dir(1)
     assert iter0 != iter1
     assert iter0.exists() and iter0.is_dir()
     assert iter1.exists() and iter1.is_dir()
@@ -353,34 +336,30 @@ def test_repairs_dir_creates_isolated_iteration_directories(workspace: Workspace
     assert iter1.name == "iter-1"
     assert iter0.parent == iter1.parent
     assert iter0.parent.name == "repairs"
-    assert iter0.parent.parent == handle.root()
+    assert iter0.parent.parent == plan_folder.root()
 
 
 def test_latest_decision_path_does_not_create_file(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="ld")
-    p = handle.latest_decision_path()
-    assert p == handle.root() / "repairs" / "latest_decision.yaml"
+    plan_folder = _mount(workspace, plan_id="ld")
+    p = plan_folder.latest_decision_path()
+    assert p == plan_folder.root() / "repairs" / "latest_decision.yaml"
     assert not p.exists()
 
 
 def test_archive_artifacts_for_repair_copies_five_subtrees(workspace: Workspace) -> None:
-    """Before each repair iteration, the live ``report/ plan/ ir/ src/ tests/``
-    state is archived under ``repairs/iter-<n>/`` so post-repair overwrites
-    of the live trees do not destroy the prior attempt."""
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="arch")
-    # Populate each live subtree with one marker file so we can verify
-    # the archive contains them after copy.
+    """Live ``report/ plan/ ir/ src/ tests/`` snapshotted under ``repairs/iter-<n>/``."""
+    plan_folder = _mount(workspace, plan_id="arch")
     for subdir, fname in (
-        (handle.report_dir(), "digest.md"),
-        (handle.plan_dir(), "implementation_plan.md"),
-        (handle.ir_dir(), "workflow.yaml"),
-        (handle.src_dir(), "marker.py"),
-        (handle.tests_dir(), "marker.py"),
+        (plan_folder.report_dir(), "digest.md"),
+        (plan_folder.plan_dir(), "implementation_plan.md"),
+        (plan_folder.ir_dir(), "workflow.yaml"),
+        (plan_folder.src_dir(), "marker.py"),
+        (plan_folder.tests_dir(), "marker.py"),
     ):
         (subdir / fname).write_text("v1")
 
-    handle.archive_artifacts_for_repair(0)
-    iter0 = handle.repairs_dir(0)
+    plan_folder.archive_artifacts_for_repair(0)
+    iter0 = plan_folder.repairs_dir(0)
     for sub, fname in (
         ("report", "digest.md"),
         ("plan", "implementation_plan.md"),
@@ -394,18 +373,15 @@ def test_archive_artifacts_for_repair_copies_five_subtrees(workspace: Workspace)
 
 
 def test_archive_isolates_live_overwrites(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="iso")
-    (handle.report_dir() / "digest.md").write_text("v1")
-    handle.archive_artifacts_for_repair(0)
-    # Overwrite the live tree — archive must remain pinned at "v1".
-    (handle.report_dir() / "digest.md").write_text("v2")
-    archived = handle.repairs_dir(0) / "report" / "digest.md"
+    plan_folder = _mount(workspace, plan_id="iso")
+    (plan_folder.report_dir() / "digest.md").write_text("v1")
+    plan_folder.archive_artifacts_for_repair(0)
+    (plan_folder.report_dir() / "digest.md").write_text("v2")
+    archived = plan_folder.repairs_dir(0) / "report" / "digest.md"
     assert archived.read_text() == "v1"
 
 
 def test_plan_manifest_repair_iterations_default_zero() -> None:
-    """Pre-existing manifests serialized without the new fields must still
-    deserialize cleanly with default values."""
     manifest = PlanManifest(
         plan_id="x",
         created_at=datetime(2026, 5, 10, tzinfo=UTC),
@@ -419,7 +395,7 @@ def test_plan_manifest_repair_iterations_default_zero() -> None:
 def test_plan_manifest_repair_history_round_trips_through_yaml(workspace: Workspace) -> None:
     from molexp.agent.modes.plan.schemas import RepairIterationRecord
 
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="hist")
+    plan_folder = _mount(workspace, plan_id="hist")
     record = RepairIterationRecord(
         iteration=0,
         target_steps=("DraftImplementationPlan",),
@@ -436,7 +412,7 @@ def test_plan_manifest_repair_history_round_trips_through_yaml(workspace: Worksp
         repair_iterations=1,
         repair_history=(record,),
     )
-    written = handle.write_manifest(manifest)
+    written = plan_folder.write_manifest(manifest)
     loaded = yaml.safe_load(written.read_text())
     assert loaded["repair_iterations"] == 1
     assert loaded["repair_history"][0]["target_steps"] == ["DraftImplementationPlan"]
@@ -445,22 +421,18 @@ def test_plan_manifest_repair_history_round_trips_through_yaml(workspace: Worksp
 
 
 def test_repairs_dir_and_manifest_iteration(workspace: Workspace) -> None:
-    """End-to-end: two repair rounds populate two distinct iter-<n>/ dirs
-    and the manifest's `repair_iterations` accumulates to 2.
-
-    This is the named acceptance test (ac-008 / ac-009 / ac-010 referenced
-    by the spec's Tasks list)."""
+    """End-to-end: two repair rounds populate two distinct iter-<n>/ dirs."""
     from molexp.agent.modes.plan.schemas import RepairIterationRecord
 
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="acc")
-    (handle.report_dir() / "digest.md").write_text("round-0")
-    handle.archive_artifacts_for_repair(0)
+    plan_folder = _mount(workspace, plan_id="acc")
+    (plan_folder.report_dir() / "digest.md").write_text("round-0")
+    plan_folder.archive_artifacts_for_repair(0)
 
-    (handle.report_dir() / "digest.md").write_text("round-1")
-    handle.archive_artifacts_for_repair(1)
+    (plan_folder.report_dir() / "digest.md").write_text("round-1")
+    plan_folder.archive_artifacts_for_repair(1)
 
-    iter0_text = (handle.repairs_dir(0) / "report" / "digest.md").read_text()
-    iter1_text = (handle.repairs_dir(1) / "report" / "digest.md").read_text()
+    iter0_text = (plan_folder.repairs_dir(0) / "report" / "digest.md").read_text()
+    iter1_text = (plan_folder.repairs_dir(1) / "report" / "digest.md").read_text()
     assert iter0_text == "round-0"
     assert iter1_text == "round-1"
 
@@ -483,7 +455,7 @@ def test_repairs_dir_and_manifest_iteration(workspace: Workspace) -> None:
             ),
         ),
     )
-    written = handle.write_manifest(manifest)
+    written = plan_folder.write_manifest(manifest)
     loaded = yaml.safe_load(written.read_text())
     assert loaded["repair_iterations"] == 2
     assert len(loaded["repair_history"]) == 2
@@ -491,19 +463,19 @@ def test_repairs_dir_and_manifest_iteration(workspace: Workspace) -> None:
     assert loaded["repair_history"][1]["iteration"] == 1
 
 
-# ── Capability writers (Phase 3 — PYDA-10) ─────────────────────────────────
+# ── Capability writers ─────────────────────────────────────────────────────
 
 
 def test_capability_dir_created_lazily(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
-    capability = handle.capability_dir()
+    plan_folder = _mount(workspace, plan_id="cap-plan")
+    capability = plan_folder.capability_dir()
     assert capability.name == "capability"
     assert capability.is_dir()
-    assert capability.parent == handle.root()
+    assert capability.parent == plan_folder.root()
 
 
 def test_write_capability_needs_round_trips_through_yaml(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    plan_folder = _mount(workspace, plan_id="cap-plan")
     report = CapabilityNeedReport(
         discovery_required=True,
         needs=(
@@ -517,7 +489,7 @@ def test_write_capability_needs_round_trips_through_yaml(workspace: Workspace) -
         ),
         rationale_summary="prepare task needs a peptide builder",
     )
-    path = handle.write_capability_needs(report)
+    path = plan_folder.write_capability_needs(report)
     assert path.name == "needs.yaml"
     loaded = yaml.safe_load(path.read_text())
     assert loaded["discovery_required"] is True
@@ -526,7 +498,7 @@ def test_write_capability_needs_round_trips_through_yaml(workspace: Workspace) -
 
 
 def test_write_capability_evidence_round_trips_through_yaml(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    plan_folder = _mount(workspace, plan_id="cap-plan")
     batch = CapabilityEvidenceBatch(
         evidence=(
             CapabilityEvidence(
@@ -545,7 +517,7 @@ def test_write_capability_evidence_round_trips_through_yaml(workspace: Workspace
         missing=(),
         discovery_skipped=False,
     )
-    path = handle.write_capability_evidence(batch)
+    path = plan_folder.write_capability_evidence(batch)
     assert path.name == "evidence.yaml"
     loaded = yaml.safe_load(path.read_text())
     assert loaded["discovery_skipped"] is False
@@ -553,7 +525,7 @@ def test_write_capability_evidence_round_trips_through_yaml(workspace: Workspace
 
 
 def test_write_capability_missing_renders_markdown_table(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
+    plan_folder = _mount(workspace, plan_id="cap-plan")
     misses = (
         MissingCapability(
             need=CapabilityNeed(
@@ -571,7 +543,7 @@ def test_write_capability_missing_renders_markdown_table(workspace: Workspace) -
             repairable=True,
         ),
     )
-    path = handle.write_capability_missing(misses)
+    path = plan_folder.write_capability_missing(misses)
     assert path.name == "missing.md"
     body = path.read_text()
     assert "# Missing capabilities" in body
@@ -582,8 +554,8 @@ def test_write_capability_missing_renders_markdown_table(workspace: Workspace) -
 
 
 def test_write_capability_missing_handles_empty_input(workspace: Workspace) -> None:
-    handle = PlanWorkspaceHandle.materialize(workspace, plan_id="cap_plan")
-    path = handle.write_capability_missing(())
+    plan_folder = _mount(workspace, plan_id="cap-plan")
+    path = plan_folder.write_capability_missing(())
     body = path.read_text()
     assert "# Missing capabilities" in body
     assert "_(none)_" in body
