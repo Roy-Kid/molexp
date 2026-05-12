@@ -58,7 +58,9 @@ MOLMCP_USAGE_INSTRUCTIONS = (
     "lammps, molexp) through `molmcp__*` tools. Before writing fresh "
     "Python or LAMMPS input by hand, inspect the available `molmcp__*` "
     "tools — they expose battle-tested builders, parametrizers, and "
-    "inspectors for the same tasks."
+    "inspectors for the same tasks. Any tool that takes a "
+    "`workspace` parameter expects the absolute path supplied in the "
+    "session preamble (see the `Workspace:` line) — pass it verbatim."
 )
 """Per-server prompt fragment surfaced to the LLM. The runner
 concatenates the strings from every active entry's
@@ -67,7 +69,7 @@ concatenates the strings from every active entry's
 
 
 _MOLMCP_DEFAULT_COMMAND = "molmcp"
-_MOLMCP_DEFAULT_ARGS: tuple[str, ...] = ("gateway",)
+_MOLMCP_DEFAULT_ARGS: tuple[str, ...] = ()
 
 
 MCP_DEFAULTS: tuple[tuple[str, dict[str, Any]], ...] = (
@@ -190,7 +192,7 @@ def _write_servers(config_path: Path, servers: dict[str, Any]) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = config_path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"mcpServers": servers}, indent=2, ensure_ascii=False))
-    os.replace(tmp, config_path)
+    tmp.replace(config_path)
 
 
 def _read_sentinel(sentinel_path: Path) -> set[str]:
@@ -211,4 +213,4 @@ def _write_sentinel(sentinel_path: Path, seeded_names: Iterable[str]) -> None:
     tmp = sentinel_path.with_suffix(".tmp")
     payload = {"seeded": sorted(set(seeded_names))}
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    os.replace(tmp, sentinel_path)
+    tmp.replace(sentinel_path)

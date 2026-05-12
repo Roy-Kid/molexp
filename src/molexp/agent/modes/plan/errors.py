@@ -1,6 +1,6 @@
 """Domain exceptions for the PlanMode pipeline.
 
-Three exceptions are exposed:
+Four exceptions are exposed:
 
 - :class:`SkeletonCompileError` — ``GenerateWorkflowSkeleton`` raises
   this when the Python source it emits fails :func:`compile`.
@@ -16,12 +16,19 @@ Three exceptions are exposed:
   ``__capability_evidence__`` literal. The repair loop re-runs
   ``DiscoverCapabilities`` on the first miss and escalates to
   ``DraftCapabilityNeeds`` + ``DiscoverCapabilities`` on the second.
+- :class:`StepRejected` — raised by :class:`~molexp.agent.modes.plan.tasks.PlanTask`
+  immediately after a per-step :class:`~molexp.agent.review.ReviewPolicy`
+  returns ``approved=False``.  Carries the
+  :class:`~molexp.agent.review.ReviewDecision` and the
+  :class:`~molexp.agent.review.StepView` so the repair driver knows
+  which step was rejected and what feedback the reviewer left.
 
-The capability exceptions subclass :class:`molexp.workflow.WorkflowError`
-so the workflow runtime propagates them to ``drive_with_repair`` instead
-of swallowing them into a generic ``status="failed"`` result. Without
-that propagation the repair loop has no signal to act on (the runtime
-returns ``WorkflowResult(outputs={})`` for caught exceptions).
+The capability exceptions and :class:`StepRejected` subclass
+:class:`molexp.workflow.WorkflowError` so the workflow runtime
+propagates them to ``drive_with_repair`` instead of swallowing them
+into a generic ``status="failed"`` result. Without that propagation the
+repair loop has no signal to act on (the runtime returns
+``WorkflowResult(outputs={})`` for caught exceptions).
 :class:`SkeletonCompileError` stays as :class:`RuntimeError` because the
 existing pipeline relies on it bubbling out of the workflow runtime in a
 specific way that pre-dates the capability gate.
@@ -29,11 +36,17 @@ specific way that pre-dates the capability gate.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from molexp.workflow import WorkflowError
+
+if TYPE_CHECKING:
+    from molexp.agent.review import ReviewDecision, StepView
 
 __all__ = [
     "CapabilityDiscoveryRequired",
     "SkeletonCompileError",
+    "StepRejected",
     "UnevidencedApiReference",
 ]
 
@@ -120,4 +133,30 @@ class UnevidencedApiReference(WorkflowError):
         self.refs = refs
         self.reason = reason
         self.detail = detail
+        super().__init__(message)
+
+
+class StepRejected(WorkflowError):
+    """A per-step :class:`~molexp.agent.review.ReviewPolicy` returned
+    ``approved=False``.
+
+    Raised by :class:`~molexp.agent.modes.plan.tasks.PlanTask` after a
+    node's ``_execute()`` returns but before its result is propagated
+    downstream.  The repair driver maps this exception to a re-run of
+    ``decision.target_steps`` (defaulting to the rejected step itself
+    when the tuple is empty), cascading downstream if
+    ``decision.cascade_downstream`` is True.
+
+    Attributes:
+        view: The :class:`~molexp.agent.review.StepView` the policy was
+            asked to review.  Surfaces ``step_id`` for the repair loop.
+        decision: The :class:`~molexp.agent.review.ReviewDecision`
+            returned by the policy — its ``feedback`` and target fields
+            drive the next iteration.
+    """
+
+    def __init__(self, view: StepView, decision: ReviewDecision) -> None:
+        self.view = view
+        self.decision = decision
+        message = f"step {view.step_id!r} rejected by review policy: reason={decision.reason!r}"
         super().__init__(message)

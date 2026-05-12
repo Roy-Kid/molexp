@@ -29,7 +29,7 @@ def test_construction_no_network_io() -> None:
 
     real_socket = socket.socket
 
-    def deny(*args, **kwargs):
+    def deny(*args: object, **kwargs: object) -> None:
         raise AssertionError("AgentRunner construction touched the network")
 
     with patch("socket.socket", side_effect=deny):
@@ -326,20 +326,132 @@ def test_runner_drops_obsolete_molcrafts_surface() -> None:
 # ── ac-015: public surface unchanged ──────────────────────────────────────
 
 
+# ── Named-session lookup + persistence ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_runner_session_without_workspace_returns_fresh_in_memory_session(
+    hermetic_user_dir,
+) -> None:
+    """Without a workspace, ``runner.session(id)`` is in-memory only."""
+    runner = AgentRunner(mode=ChatMode(), model="openai:gpt-5.2")
+    s = runner.session("anything")
+    assert s.session_id == "anything"
+    assert s.model_messages == ()
+
+
+@pytest.mark.asyncio
+async def test_runner_session_restores_persisted_model_messages(
+    tmp_path, hermetic_user_dir
+) -> None:
+    """``runner.session(id)`` loads pydantic-ai history written by a prior turn.
+
+    Drives a real two-call sequence through a ``TestModel``-backed router:
+    first call seeds the on-disk ``model_messages.json`` via the runner's
+    write-after-run; second call (with a *new* runner + a *new* session
+    object addressed by the same id) restores that history and the LLM
+    sees both turns.
+    """
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import UserPromptPart
+    from pydantic_ai.models.test import TestModel
+
+    workspace = tmp_path / "ws-sessions"
+    workspace.mkdir()
+
+    test_model = TestModel()
+    runner_a = AgentRunner(
+        mode=ChatMode(config=ChatModeConfig()),
+        model=test_model,  # type: ignore[arg-type]
+        workspace=workspace,
+    )
+    session_a = runner_a.session("chat-with-roy")
+    assert session_a.model_messages == ()
+    await runner_a.run(session_a, "first")
+    assert len(session_a.model_messages) >= 2
+
+    # A *brand-new* runner against the same workspace + same session id
+    # should restore the history. This is the "process restart" path.
+    runner_b = AgentRunner(
+        mode=ChatMode(config=ChatModeConfig()),
+        model=test_model,  # type: ignore[arg-type]
+        workspace=workspace,
+    )
+    session_b = runner_b.session("chat-with-roy")
+    assert len(session_b.model_messages) == len(session_a.model_messages)
+
+    # Drive a second turn; the assembled request must reference "first"
+    # AND the new "second" prompt.
+    await runner_b.run(session_b, "second")
+    user_prompts: list[str] = []
+    for msg in session_b.model_messages:
+        for part in getattr(msg, "parts", []) or []:
+            if isinstance(part, UserPromptPart):
+                user_prompts.append(part.content if isinstance(part.content, str) else "")
+    assert "first" in user_prompts
+    assert "second" in user_prompts
+
+
+@pytest.mark.asyncio
+async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir) -> None:
+    """Different ``session_id`` values keep their histories separate on disk."""
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.test import TestModel
+
+    workspace = tmp_path / "ws-isolation"
+    workspace.mkdir()
+
+    test_model = TestModel()
+    runner = AgentRunner(
+        mode=ChatMode(config=ChatModeConfig()),
+        model=test_model,  # type: ignore[arg-type]
+        workspace=workspace,
+    )
+    s_alpha = runner.session("alpha")
+    s_beta = runner.session("beta")
+    await runner.run(s_alpha, "alpha-turn")
+    await runner.run(s_beta, "beta-turn")
+
+    # Reopen both via fresh lookups; each should have only its own turn.
+    restored_alpha = runner.session("alpha")
+    restored_beta = runner.session("beta")
+    assert len(restored_alpha.model_messages) >= 2
+    assert len(restored_beta.model_messages) >= 2
+
+    def _flatten_user_prompts(messages: tuple[object, ...]) -> list[str]:
+        from pydantic_ai.messages import UserPromptPart
+
+        out: list[str] = []
+        for msg in messages:
+            for part in getattr(msg, "parts", []) or []:
+                if isinstance(part, UserPromptPart):
+                    out.append(part.content if isinstance(part.content, str) else "")
+        return out
+
+    alpha_prompts = _flatten_user_prompts(restored_alpha.model_messages)
+    beta_prompts = _flatten_user_prompts(restored_beta.model_messages)
+    assert "alpha-turn" in alpha_prompts and "beta-turn" not in alpha_prompts
+    assert "beta-turn" in beta_prompts and "alpha-turn" not in beta_prompts
+
+
 def test_public_surface_unchanged() -> None:
     """ac-015 — molexp.agent re-exports the mode-orchestration core plus the
-    workflow-orthogonal policy primitives. Policies live at the agent
-    layer parallel to ``mode.py`` because any workflow-bearing mode
-    consumes them; see ``feedback_policy_at_agent_layer.md``. Concrete
-    interactive gates ship under the owning mode's subpackage (e.g.
-    ``molexp.agent.modes.plan.PromptGatePolicy``) and are deliberately
-    NOT part of this top-level surface."""
+    workflow-orthogonal review primitives. The review module lives at
+    the agent layer parallel to ``mode.py`` because any
+    workflow-bearing mode consumes it.  :class:`HumanPolicy` is
+    UI-agnostic — the rendering surface is the ``ask`` callable, of
+    which :func:`cli_ask` is the bundled default."""
     assert tuple(sorted(molexp.agent.__all__)) == (
         "AgentMode",
         "AgentRunResult",
         "AgentRunner",
         "AgentSession",
-        "AutoApproveGatePolicy",
-        "GatePolicy",
-        "static_gate_policy_lookup",
+        "AutoPolicy",
+        "BypassPolicy",
+        "HumanPolicy",
+        "ReviewDecision",
+        "ReviewPolicy",
+        "ReviewView",
+        "StepView",
+        "cli_ask",
     )

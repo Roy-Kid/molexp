@@ -134,3 +134,50 @@ def test_invalid_session_id_rejected(workspace: Workspace) -> None:
     for bad in ("../escape", "a/b", "."):
         with pytest.raises(ValueError):
             catalog.create(_session_dict(bad))
+
+
+# ── pydantic-ai ModelMessage round trip ───────────────────────────────────
+
+
+def test_read_model_messages_missing_returns_empty(workspace: Workspace) -> None:
+    """Sessions that never persisted history read back as the empty tuple."""
+    catalog = SessionCatalog(workspace)
+    assert catalog.read_model_messages("never-written") == ()
+
+
+def test_write_then_read_round_trips_pydantic_ai_messages(workspace: Workspace) -> None:
+    """Persisted pydantic-ai messages survive a write/read cycle on disk."""
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
+
+    catalog = SessionCatalog(workspace)
+    original = (
+        ModelRequest(parts=[UserPromptPart(content="ping")]),
+        ModelResponse(parts=[TextPart(content="pong")]),
+    )
+    catalog.write_model_messages("s-mm", original)
+
+    expected_path = (
+        workspace.root / ".subsystems" / SESSIONS_SUBSYSTEM_KIND / "s-mm" / "model_messages.json"
+    )
+    assert expected_path.exists(), "write should leave a model_messages.json on disk"
+
+    restored = catalog.read_model_messages("s-mm")
+    assert list(restored) == list(original)
+
+
+def test_write_empty_messages_deletes_existing_file(workspace: Workspace) -> None:
+    """Persisting ``()`` is idempotent cleanup, not a stale empty file."""
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    catalog = SessionCatalog(workspace)
+    catalog.write_model_messages("s-clean", (ModelRequest(parts=[UserPromptPart(content="x")]),))
+    path = (
+        workspace.root / ".subsystems" / SESSIONS_SUBSYSTEM_KIND / "s-clean" / "model_messages.json"
+    )
+    assert path.exists()
+
+    catalog.write_model_messages("s-clean", ())
+    assert not path.exists()
+    assert catalog.read_model_messages("s-clean") == ()

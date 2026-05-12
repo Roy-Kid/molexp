@@ -17,6 +17,21 @@ Three mutually-exclusive ways to specify the model:
 
 Exactly one must be supplied. Zero or two-or-more raise
 :class:`AgentRunnerConfigError` at construction.
+
+Named sessions
+==============
+
+When ``workspace=<path>`` is supplied, the runner can vend named,
+persisted conversations through :meth:`AgentRunner.session`. Each call
+to ``runner.run(session, ...)`` then writes the session's pydantic-ai
+``ModelMessage`` history back to disk under
+``<workspace>/.subsystems/agent.sessions/<session_id>/model_messages.json``,
+so a later ``runner.session(session_id)`` restores the full
+conversation context — pydantic-ai sees prior turns on every call.
+
+Without a workspace, sessions are in-memory only; the history still
+threads through within one process via the same :class:`AgentSession`
+instance.
 """
 
 from __future__ import annotations
@@ -25,6 +40,8 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+from mollog import get_logger
+
 from molexp.agent.router import ModelTier, Router, TierModels
 
 if TYPE_CHECKING:
@@ -32,6 +49,10 @@ if TYPE_CHECKING:
 
     from molexp.agent.mode import AgentMode, AgentRunResult
     from molexp.agent.session import AgentSession
+    from molexp.agent.sessions import SessionCatalog
+
+
+_LOG = get_logger(__name__)
 
 
 __all__ = ["AgentRunner", "AgentRunnerConfigError"]
@@ -90,6 +111,7 @@ class AgentRunner:
         else:
             assert models is not None  # narrowed by the count check above
             self._tier_models = _normalize_tier_map(models)
+        self._session_catalog: SessionCatalog | None = None
 
     @property
     def model(self) -> object | None:
@@ -122,11 +144,90 @@ class AgentRunner:
 
         self._inject_capability_probe()
 
-        return await self.mode.run(
+        result = await self.mode.run(
             router=self._router,
             session=session,
             user_input=user_input,
         )
+        self._persist_session_messages(session)
+        return result
+
+    # ── Named session lookup ────────────────────────────────────────────────
+
+    def session(self, session_id: str) -> AgentSession:
+        """Return an :class:`AgentSession` named ``session_id``.
+
+        When a workspace is configured, the runner restores any
+        previously persisted pydantic-ai ``ModelMessage`` history from
+        ``<workspace>/.subsystems/agent.sessions/<session_id>/model_messages.json``
+        so the LLM sees prior turns on the next :meth:`run` call. With
+        no workspace (or no prior history), the returned session
+        starts empty — every subsequent ``run`` still threads its
+        messages back into the same in-memory session.
+
+        Multiple calls with the same ``session_id`` return *new*
+        :class:`AgentSession` instances; the persistence layer is the
+        shared state. Callers that need a single live instance should
+        cache the returned value themselves.
+        """
+        from molexp.agent.session import AgentSession
+
+        catalog = self._catalog()
+        restored: tuple[Any, ...] = ()
+        if catalog is not None:
+            try:
+                restored = catalog.read_model_messages(session_id)
+            except Exception as exc:  # pragma: no cover — schema drift / corrupt file
+                _LOG.warning(
+                    f"[runner] session({session_id!r}): failed to restore "
+                    f"model_messages ({exc!r}); starting fresh."
+                )
+                restored = ()
+        return AgentSession(session_id=session_id, model_messages=restored)
+
+    def _catalog(self) -> SessionCatalog | None:
+        """Lazily build a :class:`SessionCatalog` bound to ``self.workspace``.
+
+        Returns ``None`` when no workspace was configured at runner
+        construction. Catalog creation is cheap (no I/O until the
+        first write); we still memoize so repeated calls hit the same
+        instance.
+        """
+        if self._session_catalog is not None:
+            return self._session_catalog
+        if self.workspace is None:
+            return None
+        try:
+            from molexp.agent.sessions import SessionCatalog
+            from molexp.workspace import Workspace
+
+            self._session_catalog = SessionCatalog(Workspace(self.workspace))
+        except OSError as exc:
+            _LOG.warning(
+                f"[runner] could not open SessionCatalog for {self.workspace!r}: "
+                f"{exc!r}; sessions will be in-memory only."
+            )
+            return None
+        return self._session_catalog
+
+    def _persist_session_messages(self, session: AgentSession) -> None:
+        """Write the session's pydantic-ai ``ModelMessage`` history to disk.
+
+        No-ops when no workspace is set, or when the catalog could not
+        be opened (read-only filesystem, etc.). Failures here are
+        non-fatal: persistence is best-effort so a one-off write
+        problem never breaks a chat run.
+        """
+        catalog = self._catalog()
+        if catalog is None:
+            return
+        try:
+            catalog.write_model_messages(session.session_id, session.model_messages)
+        except OSError as exc:
+            _LOG.warning(
+                f"[runner] session({session.session_id!r}): failed to persist "
+                f"model_messages ({exc!r}); next turn will start fresh."
+            )
 
     def _inject_capability_probe(self) -> None:
         """Lazily build a :class:`CapabilityProbe` and hand it to the mode.
@@ -239,20 +340,23 @@ class AgentRunner:
         return None
 
     def _compose_system_prompt(self) -> str:
-        """Concatenate ``usage_instructions`` from every active MCP entry.
+        """Concatenate MCP ``usage_instructions`` + the workspace path note.
 
         Opens an :class:`~molexp.agent.mcp.store.McpStore` against
         ``self.workspace`` (or a workspace-less store when
         ``self.workspace`` is ``None``), filters to entries that are
         valid, non-shadowed, and carry a non-empty
         ``usage_instructions`` string, and joins them with ``\\n\\n``.
-        Returns the empty string when no workspace is set or no active
-        entries contribute a preamble.
+        When ``self.workspace`` is set, a final ``Workspace: <path>``
+        line is appended — MCP tools that take a ``workspace``
+        parameter (e.g. ``molmcp__molexp_list_projects``) expect the
+        LLM to read that line and pass the path verbatim.
 
-        Construction errors (read-only HOME, malformed config) are
-        non-fatal: the preamble simply comes back empty so the agent
-        still runs without MCP-derived guidance.
+        Returns the empty string when there is no preamble *and* no
+        workspace to advertise. Construction errors (read-only HOME,
+        malformed config) are non-fatal: the preamble simply degrades.
         """
+        fragments: list[str] = []
         try:
             from molexp.agent.mcp.store import McpStore
 
@@ -260,13 +364,15 @@ class AgentRunner:
             store = McpStore(workspace_root)
             entries = store.list()
         except OSError:
-            return ""
+            entries = []
 
-        fragments = [
+        fragments.extend(
             entry.usage_instructions
             for entry in entries
             if entry.valid and not entry.shadowed and entry.usage_instructions
-        ]
+        )
+        if self.workspace is not None:
+            fragments.append(f"Workspace: {Path(self.workspace).resolve()}")
         return "\n\n".join(fragments)
 
 

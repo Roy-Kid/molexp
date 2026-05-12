@@ -16,11 +16,13 @@ from molexp.plugins.submit_molq import dashboard
 def molq_setup(tmp_path, monkeypatch, client):
     """Same isolation as the dashboard tests, plus the FastAPI client.
 
-    Redirecting Path.home() ensures Submitor.from_profile reads our test
-    config and writes its SQLite store into ``tmp_path/.molq/``.
+    Setting ``MOLCRAFTS_HOME`` redirects molcfg's base so molq's
+    ``default_config_path`` / ``default_jobs_db_path`` land under
+    ``tmp_path``. No ``Path.home`` patching is needed (molcfg reads
+    ``$HOME``/``$MOLCRAFTS_HOME`` directly).
     """
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-    config_dir = tmp_path / ".molq"
+    monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
+    config_dir = tmp_path / "molq" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     (config_dir / "config.toml").write_text(
         f"""

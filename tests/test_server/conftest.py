@@ -22,6 +22,22 @@ def _isolate_workflow_bindings():
     Workflow._reset_registry()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_molcrafts_home(tmp_path, monkeypatch):
+    """Redirect molcfg's project-config base to a tmp dir for each test.
+
+    Routes that dispatch through the molq plugin auto-bootstrap a
+    ``JobStore`` via :func:`molq.store.default_jobs_db_path`, which
+    delegates to :func:`molcfg.project_config_dir`. Setting
+    ``MOLCRAFTS_HOME`` redirects the *bootstrap location* (and any
+    other molcfg-managed paths) under ``tmp_path`` so tests don't
+    touch the developer's real ``~/.molcrafts`` tree.
+    """
+    fake_home = tmp_path / "_molcrafts_home"
+    fake_home.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setenv("MOLCRAFTS_HOME", str(fake_home))
+
+
 @pytest.fixture
 def workspace(tmp_path):
     return Workspace(root=tmp_path, name="Test")

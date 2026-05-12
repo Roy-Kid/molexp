@@ -7,6 +7,12 @@ workspace's :class:`SubsystemStore`) and upserts a flat row into the agent's
 own session-row index (kept here as a JSON file under the same subsystem
 directory, since workspace no longer hosts a sessions section).
 
+Per-session pydantic-ai ``ModelMessage`` history lives alongside as
+``model_messages.json`` — the LLM-native conversation context that
+:class:`~molexp.agent.session.AgentSession` carries between turns. The
+codec lives under :mod:`molexp.agent._pydanticai.messages_codec` so
+this file stays free of pydantic-ai imports.
+
 History: this logic used to live in ``molexp.workspace.sessions`` as the
 ``SessionLibrary`` class. The rectification spec (2026-05-09) moved it up
 to the agent layer because it was inherently agent-shaped (knew about
@@ -18,10 +24,14 @@ from __future__ import annotations
 
 import json
 import shutil
-from typing import TYPE_CHECKING, Protocol, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from molexp._typing import JSONValue
 from molexp.workspace import atomic_write_json
+
+_SessionRow = dict[str, JSONValue]
+_SessionRowList = list[_SessionRow]
 
 if TYPE_CHECKING:
     from molexp.workspace import Workspace
@@ -32,6 +42,7 @@ if TYPE_CHECKING:
 SESSIONS_SUBSYSTEM_KIND = "agent.sessions"
 SESSION_METADATA_FILENAME = "session.json"
 SESSION_INDEX_FILENAME = "_index.json"
+MODEL_MESSAGES_FILENAME = "model_messages.json"
 
 
 class _SessionMetadataLike(Protocol):
@@ -126,14 +137,14 @@ class SessionCatalog:
     # ── Path vending ──────────────────────────────────────────────────────
 
     @property
-    def _store_dir(self):
+    def _store_dir(self) -> Path:
         return self._workspace.subsystem_store(SESSIONS_SUBSYSTEM_KIND).dir()
 
     @property
-    def _index_path(self):
+    def _index_path(self) -> Path:
         return self._store_dir / SESSION_INDEX_FILENAME
 
-    def _session_dir(self, session_id: str):
+    def _session_dir(self, session_id: str) -> Path:
         if not session_id:
             raise ValueError("session_id must be a non-empty string")
         if "/" in session_id or "\\" in session_id or session_id in {".", ".."}:
@@ -145,7 +156,7 @@ class SessionCatalog:
         if not path.exists():
             return {}
         try:
-            with open(path) as fh:
+            with path.open() as fh:
                 data = json.load(fh)
         except (OSError, json.JSONDecodeError):
             return {}
@@ -189,7 +200,7 @@ class SessionCatalog:
         self._save_index(index)
         return row
 
-    def list(self) -> list[dict[str, JSONValue]]:
+    def list(self) -> _SessionRowList:
         """Return every session row from the index."""
         return list(self._load_index().values())
 
@@ -209,8 +220,56 @@ class SessionCatalog:
         index.pop(session_id, None)
         self._save_index(index)
 
+    # ── pydantic-ai ModelMessage history ──────────────────────────────────
+
+    def read_model_messages(self, session_id: str) -> tuple[Any, ...]:
+        """Load the persisted pydantic-ai ``ModelMessage`` tuple for one session.
+
+        Returns the empty tuple when no history file exists (a fresh
+        session never persisted, or one that has not yet had a turn).
+        Decoding errors propagate; callers that want graceful fallback
+        on schema drift can wrap this in ``try/except``.
+        """
+        path = self._session_dir(session_id) / MODEL_MESSAGES_FILENAME
+        if not path.exists():
+            return ()
+        # Codec lives under the ``_pydanticai/`` firewall — imported
+        # lazily so ``import molexp.agent.sessions`` does not eagerly
+        # pull in ``pydantic_ai``.
+        from molexp.agent._pydanticai.messages_codec import load_model_messages
+
+        return load_model_messages(path.read_bytes())
+
+    def write_model_messages(
+        self,
+        session_id: str,
+        messages: tuple[Any, ...],
+    ) -> None:
+        """Persist the pydantic-ai ``ModelMessage`` tuple atomically.
+
+        Writes nothing and removes any prior file when ``messages`` is
+        empty — keeps the on-disk state tidy and means a never-used
+        session leaves no stale ``model_messages.json``.
+        """
+        session_dir = self._session_dir(session_id)
+        session_dir.mkdir(parents=True, exist_ok=True)
+        path = session_dir / MODEL_MESSAGES_FILENAME
+        if not messages:
+            if path.exists():
+                path.unlink()
+            return
+        # Codec lives under the ``_pydanticai/`` firewall — see
+        # :func:`read_model_messages` for the reasoning.
+        from molexp.agent._pydanticai.messages_codec import dump_model_messages
+
+        payload = dump_model_messages(messages)
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_bytes(payload)
+        tmp.replace(path)
+
 
 __all__ = [
+    "MODEL_MESSAGES_FILENAME",
     "SESSIONS_SUBSYSTEM_KIND",
     "SESSION_METADATA_FILENAME",
     "SessionCatalog",

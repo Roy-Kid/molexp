@@ -418,7 +418,7 @@ def test_plan_manifest_repair_history_round_trips_through_yaml(workspace: Worksp
     handle = PlanWorkspaceHandle.materialize(workspace, plan_id="hist")
     record = RepairIterationRecord(
         iteration=0,
-        target_node_ids=("DraftImplementationPlan",),
+        target_steps=("DraftImplementationPlan",),
         target_task_ids=("prepare",),
         cascade_downstream=True,
         archived_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
@@ -435,7 +435,7 @@ def test_plan_manifest_repair_history_round_trips_through_yaml(workspace: Worksp
     written = handle.write_manifest(manifest)
     loaded = yaml.safe_load(written.read_text())
     assert loaded["repair_iterations"] == 1
-    assert loaded["repair_history"][0]["target_node_ids"] == ["DraftImplementationPlan"]
+    assert loaded["repair_history"][0]["target_steps"] == ["DraftImplementationPlan"]
     assert loaded["repair_history"][0]["target_task_ids"] == ["prepare"]
     assert loaded["repair_history"][0]["cascade_downstream"] is True
 
@@ -469,7 +469,7 @@ def test_repairs_dir_and_manifest_iteration(workspace: Workspace) -> None:
         repair_history=(
             RepairIterationRecord(
                 iteration=0,
-                target_node_ids=("DraftImplementationPlan",),
+                target_steps=("DraftImplementationPlan",),
                 archived_at=datetime(2026, 5, 10, 12, 0, tzinfo=UTC),
             ),
             RepairIterationRecord(

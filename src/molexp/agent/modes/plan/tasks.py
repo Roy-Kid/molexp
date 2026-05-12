@@ -1,10 +1,12 @@
 """Concrete tasks for the materialize-to-workspace PlanMode pipeline.
 
-The nodes of the current pipeline (Phase 5 = 13 nodes):
+The 13 nodes — capability discovery runs *before* IR compilation so
+the workflow IR / per-task IR are typed from real evidence instead of
+guesses:
 
     IngestReport → DraftReportDigest → DraftImplementationPlan
-        → CompileWorkflowIR → CompileTaskIR
         → DraftCapabilityNeeds → DiscoverCapabilities
+        → CompileWorkflowIR → CompileTaskIR
         → GenerateWorkflowSkeleton
         → GenerateTaskTests / GenerateTaskImplementations
         → ValidateWorkspace → HumanReview → FinalHandoffCheck
@@ -48,12 +50,12 @@ from molexp.agent.modes.plan.capability import (
 )
 from molexp.agent.modes.plan.errors import (
     SkeletonCompileError,
+    StepRejected,
     UnevidencedApiReference,
 )
 from molexp.agent.modes.plan.handoff import PlanRunHandoff
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
-    ApprovalDecision,
     DigestResult,
     HandoffResult,
     IngestReportResult,
@@ -61,6 +63,7 @@ from molexp.agent.modes.plan.schemas import (
     PlanBriefResult,
     PlanReviewView,
     ReportDigest,
+    ReviewDecision,
     SkeletonResult,
     TaskImplementationModule,
     TaskImplementationsResult,
@@ -78,6 +81,7 @@ from molexp.agent.modes.plan.workspace_layout import (
     PlanWorkspaceHandle,
     ValidationReport,
 )
+from molexp.agent.review import StepView
 from molexp.workflow import (
     Task,
     TaskContext,
@@ -110,20 +114,21 @@ _LOG = get_logger(__name__)
 
 # ── Pipeline-step labelling ─────────────────────────────────────────────────
 #
-# Stable execution order of the 13 PlanMode pipeline nodes (Phase 5
-# inserted DraftCapabilityNeeds + DiscoverCapabilities between
-# CompileTaskIR and the codegen fan-out). Lives here rather than in
-# :mod:`_pipeline` to keep ``tasks.py`` the single source of node-name
-# truth — the builder reads class names, this tuple lists them in
-# topological order so logs can show ``[plan-node 5/13 ...]``.
+# Stable execution order of the 13 PlanMode pipeline nodes —
+# discovery (DraftCapabilityNeeds + DiscoverCapabilities) sits
+# between DraftImplementationPlan and IR compilation so the IR is
+# typed from real evidence. Lives here rather than in :mod:`_pipeline`
+# to keep ``tasks.py`` the single source of node-name truth — the
+# builder reads class names, this tuple lists them in topological
+# order so logs can show ``[plan-node 5/13 ...]``.
 _PIPELINE_ORDER: tuple[str, ...] = (
     "IngestReport",
     "DraftReportDigest",
     "DraftImplementationPlan",
-    "CompileWorkflowIR",
-    "CompileTaskIR",
     "DraftCapabilityNeeds",
     "DiscoverCapabilities",
+    "CompileWorkflowIR",
+    "CompileTaskIR",
     "GenerateWorkflowSkeleton",
     "GenerateTaskTests",
     "GenerateTaskImplementations",
@@ -141,11 +146,90 @@ def _tag(name: str) -> str:
     return f"[plan-node {idx}/{_PIPELINE_TOTAL} {name}]" if idx else f"[plan-node ?/? {name}]"
 
 
+# ── Shared LLM guidance ────────────────────────────────────────────────────
+
+
+_DISCOVERY_FIRST_RULE = (
+    "Capability-discovery-first rule (binding).\n\n"
+    "Before choosing implementation details, Task inputs / outputs, or "
+    "project-specific types, you MUST rely on capability evidence "
+    "returned by the project's capability-discovery stage. Use the "
+    "evidence to decide:\n"
+    "  - which existing capability implements the step;\n"
+    "  - what inputs that capability requires;\n"
+    "  - what output it produces;\n"
+    "  - which TaskIO types should be declared.\n\n"
+    "Do not guess project symbols, APIs, types, services, or helper "
+    "names. Primitive payloads may use Python built-ins (str, int, "
+    "float, bool, bytes, Path, list[...], dict[...]). Project-specific "
+    "objects require evidence-backed symbols drawn from the capability "
+    "evidence batch.\n\n"
+    "If evidence is missing or insufficient for a step, mark it as "
+    "'discovery_required' (or 'unresolved' / 'stubbed' where the schema "
+    "allows) instead of inventing a plausible implementation. The "
+    "repair loop will re-run discovery for those steps; an invented "
+    "name burns budget and forces a rejection."
+)
+
+
 # ── Bases ──────────────────────────────────────────────────────────────────
 
 
+# Terminal nodes that drive their own review interaction.  The PlanTask
+# template method skips the step-policy hook for these so the user
+# does not see a redundant "approve HumanReview?" prompt right after
+# the actual final-review walkthrough.
+_FINAL_STEP_NAMES: frozenset[str] = frozenset({"HumanReview", "FinalHandoffCheck"})
+
+
 class PlanTask(Task):
-    """Base for every task inside the materialize-to-workspace pipeline."""
+    """Base for every task inside the materialize-to-workspace pipeline.
+
+    Implements the per-step review hook as a template method: subclasses
+    override :meth:`_execute` to do the work, and the base's
+    :meth:`execute` wraps each invocation with a
+    :class:`~molexp.agent.review.ReviewPolicy` consultation.
+
+    The hook fires *after* ``_execute`` returns and before the result is
+    propagated downstream.  If
+    ``ctx.deps.step_policy.review(StepView(...))`` returns
+    ``approved=False``, the base raises :class:`StepRejected` carrying
+    the view + decision so the repair loop driver can re-run the
+    rejected step.  ``approved=True`` (the default
+    :class:`~molexp.agent.review.BypassPolicy` answer) returns the
+    result verbatim — the wrapper is invisible.
+
+    Terminal nodes (``HumanReview`` / ``FinalHandoffCheck``) drive their
+    own review interaction through ``ctx.deps.final_policy``; the
+    step-policy hook is skipped for them so the user does not see a
+    redundant prompt at the end of the pipeline.
+    """
+
+    async def execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
+        result = await self._execute(ctx)
+        node_name = type(self).__name__
+        if node_name in _FINAL_STEP_NAMES:
+            return result
+
+        step_policy = ctx.deps.step_policy
+        view = _build_step_view(node_name, result, ctx.deps)
+        decision = await step_policy.review(view)
+        if decision.approved:
+            # Cache the approved output so the repair driver can seed a
+            # boundary stub if a later step gets rejected — see
+            # _repair_loop._next_round_inputs_from_log.
+            ctx.deps.step_outputs_log[node_name] = result
+            return result
+        raise StepRejected(view, decision)
+
+    async def _execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
+        """Subclass hook — perform the node's work and return its result.
+
+        Subclasses MUST override this method.  Do not override
+        :meth:`execute`: the base method threads the per-step review
+        policy around every call.
+        """
+        raise NotImplementedError
 
 
 class PlanLLMTask(PlanTask):
@@ -181,6 +265,49 @@ class PlanLLMTask(PlanTask):
         )
 
 
+def _build_step_view(node_name: str, result: Any, deps: PlanDeps) -> StepView:  # noqa: ANN401
+    """Construct a :class:`StepView` for the per-step review hook.
+
+    Extracts a path-bearing summary by walking ``result.model_dump()``
+    when the result is a pydantic model, otherwise falls back to a
+    minimal view with no artifact paths.  The repair-iteration counter
+    is read from :attr:`PlanDeps.repair_iteration` so the reviewer
+    sees which round they are in.
+    """
+    plan_id = deps.workspace_handle.plan_id
+    summary = f"{node_name} complete"
+    artifact_paths: tuple[Path, ...] = ()
+    payload: dict[str, Any] | None = None
+    if isinstance(result, BaseModel):
+        payload = result.model_dump(mode="python")
+        artifact_paths = _extract_paths(payload)
+    return StepView(
+        plan_id=plan_id,
+        step_id=node_name,
+        summary=summary,
+        artifact_paths=artifact_paths,
+        payload=payload,
+        repair_iteration=deps.repair_iteration,
+    )
+
+
+def _extract_paths(payload: dict[str, Any]) -> tuple[Path, ...]:
+    """Walk a result payload and collect every ``Path``-valued field.
+
+    Looks at top-level values and one level of tuples/lists.  Skips
+    nested dicts because every PlanMode ``*Result`` keeps paths at the
+    top level — adding deeper recursion would surface unrelated paths
+    from embedded contracts.
+    """
+    paths: list[Path] = []
+    for value in payload.values():
+        if isinstance(value, Path):
+            paths.append(value)
+        elif isinstance(value, (list, tuple)):
+            paths.extend(item for item in value if isinstance(item, Path))
+    return tuple(paths)
+
+
 # ── Node 1: IngestReport ───────────────────────────────────────────────────
 
 
@@ -192,7 +319,7 @@ class IngestReport(PlanTask):
     invariant).
     """
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, None]) -> IngestReportResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, None]) -> IngestReportResult:
         user_input = ctx.config.get("user_input")
         if not isinstance(user_input, str) or not user_input.strip():
             raise ValueError("IngestReport requires a non-empty 'user_input' in config.")
@@ -219,7 +346,7 @@ class DraftReportDigest(PlanLLMTask):
         "and any missing information."
     )
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, IngestReportResult]) -> DigestResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, IngestReportResult]) -> DigestResult:
         ingest = ctx.inputs
         _LOG.info(f"{_tag('DraftReportDigest')} start report_path={ingest.report_path}")
         report_text = Path(ingest.report_path).read_text(encoding="utf-8")
@@ -240,11 +367,18 @@ class DraftImplementationPlan(PlanLLMTask):
 
     SYSTEM_PROMPT = (
         "Given the ReportDigest, draft a PlanBrief covering an overview, "
-        "the chosen experimental method with rationale, and an ordered list "
-        "of stages."
+        "the chosen experimental method with rationale, and an ordered "
+        "list of stages.\n\n"
+        "Stages are natural-language phrases describing what each step "
+        "achieves, not which library to call. Capability discovery runs "
+        "in the next stage and binds each step to concrete project "
+        "capabilities — do not commit to specific symbol names, class "
+        "names, or library APIs here. If you know a step has no project "
+        "support today, say so in 'rationale' so the discovery stage can "
+        "record the gap."
     )
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, DigestResult]) -> PlanBriefResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, DigestResult]) -> PlanBriefResult:
         digest_result = ctx.inputs
         _LOG.info(
             f"{_tag('DraftImplementationPlan')} start digest_path={digest_result.digest_path}"
@@ -270,18 +404,36 @@ class CompileWorkflowIR(PlanLLMTask):
     """Compile the plan brief into a typed :class:`WorkflowContract`."""
 
     SYSTEM_PROMPT = (
-        "Translate the PlanBrief into a WorkflowContract: list every task "
-        "(task_io with inputs/outputs/artifacts), declare dependencies via "
-        "the 'source' field on each input, and list the validation_checks "
-        "you want enforced."
+        _DISCOVERY_FIRST_RULE + "\n\nTranslate the PlanBrief into a WorkflowContract using the "
+        "supplied capability evidence batch as the source of truth for "
+        "every project-specific type:\n"
+        "  - list every task (task_io with inputs / outputs / artifacts);\n"
+        "  - declare dependencies via the 'source' field on each input;\n"
+        "  - list the validation_checks you want enforced.\n\n"
+        "Derive each input / output 'type' field from the evidence:\n"
+        "  - primitive payloads use Python built-ins (str, int, float, "
+        "    bool, bytes, Path);\n"
+        "  - project-specific payloads use the api_ref of the evidence "
+        "    row that documents the producing / consuming symbol;\n"
+        "  - when no evidence row supports a step's type, set the type "
+        "    field to 'discovery_required' instead of inventing one.\n\n"
+        "When the evidence batch is empty or marked discovery_skipped, "
+        "stick to primitives and 'discovery_required' sentinels — never "
+        "fabricate project symbols."
     )
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, PlanBriefResult]) -> WorkflowIRResult:
-        plan_result = ctx.inputs
-        _LOG.info(f"{_tag('CompileWorkflowIR')} start plan_path={plan_result.plan_path}")
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> WorkflowIRResult:
+        plan_result = _expect_input(ctx.inputs, "DraftImplementationPlan", PlanBriefResult)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
+        _LOG.info(
+            f"{_tag('CompileWorkflowIR')} start plan_path={plan_result.plan_path} "
+            f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
+        )
         contract = await self.invoke_llm(
             ctx,
-            user=plan_result.plan_brief.model_dump_json(),
+            user=_augment_user_with_ir_evidence(
+                plan_result.plan_brief.model_dump_json(), evidence_batch
+            ),
             schema=WorkflowContract,
         )
         ir_path = ctx.deps.workspace_handle.ir_dir() / "workflow.yaml"
@@ -303,25 +455,34 @@ class CompileTaskIR(PlanLLMTask):
     """
 
     SYSTEM_PROMPT = (
-        "Given one TaskIO entry from a WorkflowContract, draft a TaskIRBrief "
-        "covering its responsibility, success criteria, failure conditions, "
-        "and minimal test expectations. Set is_stub=true only if you cannot "
-        "describe a concrete implementation."
+        _DISCOVERY_FIRST_RULE + "\n\nGiven one TaskIO entry from a WorkflowContract plus the "
+        "capability evidence batch, draft a TaskIRBrief covering its "
+        "responsibility, success criteria, failure conditions, and "
+        "minimal test expectations.\n\n"
+        "'responsibility' MUST name the evidenced symbol the task uses "
+        "(api_ref drawn from the evidence batch). 'success_criteria' "
+        "and 'test_expectations' should assert on the documented return "
+        "shape of that symbol. Set is_stub=true when no evidence row "
+        "supports the task — never invent a symbol to fill the gap."
     )
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, WorkflowIRResult]) -> TaskIRResult:
-        ir_result = ctx.inputs
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskIRResult:
+        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
         tasks_ir_dir = ctx.deps.workspace_handle.tasks_ir_dir()
         task_ios = ir_result.contract.task_io
         n_tasks = len(task_ios)
         tier = ctx.deps.policy.tier_for("CompileTaskIR")
-        _LOG.info(f"{_tag('CompileTaskIR')} start tasks={n_tasks} (parallel)")
+        _LOG.info(
+            f"{_tag('CompileTaskIR')} start tasks={n_tasks} (parallel) "
+            f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
+        )
 
         async def _draft_one(task_io: TaskIO) -> TaskIRBrief:
             brief = await ctx.deps.router.complete_structured(
                 tier=tier,
                 system=self.SYSTEM_PROMPT,
-                user=task_io.model_dump_json(),
+                user=_augment_user_with_ir_evidence(task_io.model_dump_json(), evidence_batch),
                 schema=TaskIRBrief,
                 node_id=f"CompileTaskIR/{task_io.task_id}",
             )
@@ -370,7 +531,7 @@ class GenerateWorkflowSkeleton(PlanTask):
     them).
     """
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> SkeletonResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> SkeletonResult:
         # Read three upstreams: the workflow contract for topology, the
         # task IR result to confirm the per-task IR has been written,
         # and the capability evidence batch for chain ordering.
@@ -424,13 +585,20 @@ class GenerateTaskTests(PlanLLMTask):
     """
 
     SYSTEM_PROMPT = (
-        "Given a TaskIRBrief plus its TaskIO declaration, draft a pytest "
-        "module that exercises the task. If is_stub=True, emit a single "
-        "test that calls pytest.skip('stub'). Otherwise, write at least "
-        "one happy-path test referencing the documented inputs / outputs."
+        _DISCOVERY_FIRST_RULE + "\n\nGiven a TaskIRBrief plus its TaskIO declaration, draft a "
+        "pytest module that exercises the task. If is_stub=True, emit a "
+        "single test that calls pytest.skip('stub'). Otherwise, write at "
+        "least one happy-path test referencing the documented inputs / "
+        "outputs.\n\n"
+        "Tests MUST import only from project namespaces named in the "
+        "capability evidence batch plus stdlib. Use the documented "
+        "symbols, signatures, and return shapes verbatim — construct "
+        "fixtures from evidenced types, run the task, assert the result "
+        "matches the documented type and attributes. Do not fabricate "
+        "symbol names that are not in the evidence batch."
     )
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskTestsResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskTestsResult:
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
         evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
@@ -492,13 +660,17 @@ class GenerateTaskImplementations(PlanLLMTask):
     """
 
     SYSTEM_PROMPT = (
-        "Given a TaskIRBrief plus its TaskIO declaration, write a Python "
-        "module implementing the task as a molexp.workflow.Task subclass "
-        "with `async def execute(ctx)`. Set is_stub=true if you cannot "
-        "produce a runnable body."
+        _DISCOVERY_FIRST_RULE + "\n\nGiven a TaskIRBrief plus its TaskIO declaration, write a "
+        "Python module implementing the task as a molexp.workflow.Task "
+        "subclass with `async def execute(ctx)`. The body MUST call into "
+        "symbols listed in the capability evidence batch — never write a "
+        "hand-rolled algorithm when an evidenced function exists. Set "
+        "is_stub=true when no evidence row in the batch can satisfy "
+        "this task; the stub will raise NotImplementedError and the "
+        "repair loop will re-run discovery for the missing capability."
     )
 
-    async def execute(
+    async def _execute(
         self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
     ) -> TaskImplementationsResult:
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
@@ -559,7 +731,7 @@ class ValidateWorkspace(PlanTask):
     ``validation_report.md`` and ``validation_report.yaml``.
     """
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ValidationResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ValidationResult:
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         # GenerateTaskImplementations / GenerateTaskTests outputs are
         # validated through the on-disk artifacts; pull them only to
@@ -617,14 +789,14 @@ class ValidateWorkspace(PlanTask):
 
 
 class HumanReview(PlanTask):
-    """Gate the plan with a :class:`GatePolicy`.
+    """Gate the plan with the final-review :class:`~molexp.agent.review.ReviewPolicy`.
 
     Human approval is deliberately separate from RunMode readiness.
     The next node, ``FinalHandoffCheck``, is the only node allowed to
     mark the workspace ``ready_for_run``.
     """
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
         validation_result = ctx.inputs
         _LOG.info(
             f"{_tag('HumanReview')} start iter={ctx.deps.repair_iteration} "
@@ -650,7 +822,7 @@ class HumanReview(PlanTask):
         plan_id = handle.plan_id
         # Surface failed-check identifiers for the review view so the
         # reviewer can target the offending tasks via
-        # ``ApprovalDecision.target_*``. Empty tuple on first pass / when
+        # ``ReviewDecision.target_*``. Empty tuple on first pass / when
         # everything passed.
         failures = tuple(check.name for check in validation_result.checks if not check.passed)
         view = PlanReviewView(
@@ -665,10 +837,10 @@ class HumanReview(PlanTask):
             repair_iteration=ctx.deps.repair_iteration,
         )
 
-        decision = await ctx.deps.gate_policy.human_review(view)
+        decision = await ctx.deps.final_policy.review(view)
         _LOG.info(
             f"{_tag('HumanReview')} decision approved={decision.approved} "
-            f"target_nodes={list(decision.target_node_ids)} "
+            f"target_steps={list(decision.target_steps)} "
             f"target_tasks={list(decision.target_task_ids)} "
             f"cascade={decision.cascade_downstream}"
         )
@@ -730,7 +902,7 @@ class HumanReview(PlanTask):
 class FinalHandoffCheck(PlanTask):
     """Run the final RunMode-style load and contract validation gate."""
 
-    async def execute(self, ctx: TaskContext[None, PlanDeps, HandoffResult]) -> HandoffResult:
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, HandoffResult]) -> HandoffResult:
         prior = ctx.inputs
         handle = ctx.deps.workspace_handle
         _LOG.info(
@@ -789,6 +961,55 @@ class FinalHandoffCheck(PlanTask):
 
 
 # ── Helpers (extended for sub-spec 06) ─────────────────────────────────────
+
+
+def _augment_user_with_ir_evidence(user: str, batch: CapabilityEvidenceBatch) -> str:
+    """Append a YAML-rendered evidence block to an IR-compilation prompt.
+
+    Used by ``CompileWorkflowIR`` and ``CompileTaskIR`` — both decide
+    project-specific TaskIO types from the discovery batch, but they
+    are *not* writing executable modules, so they do not need the
+    ``__capability_evidence__`` literal contract that codegen nodes
+    obey (that lives in :func:`_augment_user_with_evidence`).
+
+    When ``batch.discovery_skipped`` is True or the batch carries no
+    evidence rows, returns ``user`` plus a short note instructing the
+    LLM to stick to primitive types and ``"discovery_required"``
+    sentinels. The discovery-first rule is already in the system
+    prompt; the appendix is the binding evidence list.
+    """
+    if batch.discovery_skipped or not batch.evidence:
+        return (
+            f"{user}\n\n"
+            "## Discovered project evidence\n\n"
+            "No evidence rows are available for this step. Use Python "
+            "primitives for primitive payloads and the sentinel string "
+            '"discovery_required" for any project-specific type. Do '
+            "not invent project symbols, classes, or helper names."
+        )
+    evidence_payload = [
+        {
+            "api_ref": e.api_ref,
+            "signature": e.signature,
+            "doc_summary": e.doc_summary,
+        }
+        for e in batch.evidence
+    ]
+    appendix = yaml.safe_dump(
+        {"discovered_evidence": evidence_payload},
+        sort_keys=False,
+        default_flow_style=False,
+    )
+    return (
+        f"{user}\n\n"
+        "## Discovered project evidence (binding)\n\n"
+        "Project-specific TaskIO types MUST reference one of the "
+        "api_ref values listed below. Primitive payloads use Python "
+        "built-ins. For steps with no matching evidence row, set the "
+        'type field to "discovery_required" — do not invent a '
+        "replacement.\n\n"
+        f"{appendix}"
+    )
 
 
 def _augment_user_with_evidence(user: str, batch: CapabilityEvidenceBatch) -> str:
@@ -1484,7 +1705,7 @@ def _summarize_checks(checks: tuple[CheckResult, ...] | list[CheckResult]) -> st
     )
 
 
-def _review_status(*, decision: ApprovalDecision, validation_passed: bool) -> str:
+def _review_status(*, decision: ReviewDecision, validation_passed: bool) -> str:
     if validation_passed and decision.approved:
         return "approved"
     if validation_passed:
@@ -1496,7 +1717,7 @@ def _review_status(*, decision: ApprovalDecision, validation_passed: bool) -> st
 
 def _final_status(
     *,
-    decision: ApprovalDecision,
+    decision: ReviewDecision,
     validation_passed: bool,
     ready_for_run: bool,
 ) -> str:
@@ -1565,7 +1786,7 @@ def _persist_manifest_with_handoff(
     manifest: PlanManifest,
     handoff: PlanRunHandoff,
     *,
-    decision: ApprovalDecision,
+    decision: ReviewDecision,
     ready_for_run: bool,
     validation_passed: bool,
     validation_summary: str,

@@ -1,14 +1,15 @@
-"""ApprovalDecision schema extension + back-compat tests.
+"""ReviewDecision schema + PlanReviewView back-compat tests.
 
-Locks the `target_node_ids / target_task_ids / cascade_downstream / feedback`
-extension contract from the ``planmode-review-repair-loop`` spec
-(acceptance criterion ``ac-001``). The four new fields MUST be optional
-with defaults so legacy JSON payloads (no new fields) deserialize cleanly.
+Locks the `target_steps / target_task_ids / cascade_downstream / feedback`
+extension contract on :class:`~molexp.agent.review.ReviewDecision` so
+the on-disk repair-history payloads stay deserialisable across the
+rename from ``ApprovalDecision``.  Optional defaults mean a minimal
+``ReviewDecision(approved=...)`` constructor still works.
 
 The companion :class:`PlanReviewView` extension (``previous_validation_failures``
-and ``repair_iteration``) is exercised here as a related back-compat check
-(criterion ``ac-002``); the runtime path through ``HumanReview.execute`` is
-covered separately in ``test_repair_loop.py``.
+and ``repair_iteration``) is exercised here as a related back-compat
+check; the runtime path through ``HumanReview._execute`` is covered
+separately in ``test_repair_loop.py``.
 """
 
 from __future__ import annotations
@@ -19,10 +20,10 @@ import pytest
 from pydantic import ValidationError
 
 from molexp.agent.modes.plan.schemas import (
-    ApprovalDecision,
     PlanBrief,
     PlanReviewView,
     ReportDigest,
+    ReviewDecision,
     WorkflowContract,
 )
 
@@ -39,79 +40,79 @@ def _contract() -> WorkflowContract:
     return WorkflowContract(workflow_id="workflow_test01", task_io=())
 
 
-# ── ApprovalDecision new fields ────────────────────────────────────────────
+# ── ReviewDecision repair fields ───────────────────────────────────────────
 
 
-def test_approval_decision_new_fields_default_to_empty_or_false() -> None:
-    """The four new repair fields default to () / () / False / "" so existing
+def test_review_decision_new_fields_default_to_empty_or_false() -> None:
+    """The repair fields default to () / () / False / "" so existing
     constructors that only pass `approved` / `reason` / `override_validation`
     continue to work unchanged."""
-    decision = ApprovalDecision(approved=False)
-    assert decision.target_node_ids == ()
+    decision = ReviewDecision(approved=False)
+    assert decision.target_steps == ()
     assert decision.target_task_ids == ()
     assert decision.cascade_downstream is False
     assert decision.feedback == ""
 
 
-def test_approval_decision_accepts_repair_targets() -> None:
-    decision = ApprovalDecision(
+def test_review_decision_accepts_repair_targets() -> None:
+    decision = ReviewDecision(
         approved=False,
         reason="needs replan",
-        target_node_ids=("DraftImplementationPlan",),
+        target_steps=("DraftImplementationPlan",),
         target_task_ids=("prepare", "couple"),
         cascade_downstream=True,
         feedback="rework the equilibration step",
     )
     assert decision.approved is False
-    assert decision.target_node_ids == ("DraftImplementationPlan",)
+    assert decision.target_steps == ("DraftImplementationPlan",)
     assert decision.target_task_ids == ("prepare", "couple")
     assert decision.cascade_downstream is True
     assert decision.feedback == "rework the equilibration step"
 
 
-def test_approval_decision_remains_frozen_with_new_fields() -> None:
-    decision = ApprovalDecision(approved=True)
+def test_review_decision_remains_frozen_with_new_fields() -> None:
+    decision = ReviewDecision(approved=True)
     with pytest.raises(ValidationError):
         decision.feedback = "mutated"  # type: ignore[misc]
     with pytest.raises(ValidationError):
-        decision.target_node_ids = ("X",)  # type: ignore[misc]
+        decision.target_steps = ("X",)  # type: ignore[misc]
 
 
-def test_approval_decision_back_compat_legacy_json() -> None:
-    """A legacy serialized payload without the four new keys must round-trip
-    cleanly into the new schema with defaults filled in."""
-    legacy_payload = {"approved": True, "reason": "ok", "override_validation": False}
-    decision = ApprovalDecision.model_validate(legacy_payload)
+def test_review_decision_minimal_payload() -> None:
+    """A minimal payload (no repair fields) round-trips into the new schema
+    with defaults filled in."""
+    minimal_payload = {"approved": True, "reason": "ok", "override_validation": False}
+    decision = ReviewDecision.model_validate(minimal_payload)
     assert decision.approved is True
     assert decision.reason == "ok"
     assert decision.override_validation is False
-    # New fields are filled with defaults — back-compat invariant.
-    assert decision.target_node_ids == ()
+    # Repair fields fall back to defaults.
+    assert decision.target_steps == ()
     assert decision.target_task_ids == ()
     assert decision.cascade_downstream is False
     assert decision.feedback == ""
 
 
-def test_approval_decision_extra_forbid_still_active() -> None:
-    """`extra="forbid"` is preserved through the extension — unknown keys
-    still error so typos do not silently no-op."""
+def test_review_decision_extra_forbid_still_active() -> None:
+    """`extra="forbid"` is preserved — unknown keys still error so typos
+    do not silently no-op."""
     with pytest.raises(ValidationError):
-        ApprovalDecision.model_validate(
+        ReviewDecision.model_validate(
             {"approved": True, "no_such_field": "oops"},
         )
 
 
-def test_approval_decision_target_ids_coerce_to_tuples() -> None:
+def test_review_decision_target_ids_coerce_to_tuples() -> None:
     """Pydantic should coerce list inputs into the declared tuple type so
     that JSON arrays (the on-disk form) round-trip without manual conversion."""
-    decision = ApprovalDecision.model_validate(
+    decision = ReviewDecision.model_validate(
         {
             "approved": False,
-            "target_node_ids": ["DraftImplementationPlan", "CompileWorkflowIR"],
+            "target_steps": ["DraftImplementationPlan", "CompileWorkflowIR"],
             "target_task_ids": ["prepare"],
         },
     )
-    assert decision.target_node_ids == ("DraftImplementationPlan", "CompileWorkflowIR")
+    assert decision.target_steps == ("DraftImplementationPlan", "CompileWorkflowIR")
     assert decision.target_task_ids == ("prepare",)
 
 

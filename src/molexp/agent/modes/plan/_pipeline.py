@@ -1,20 +1,22 @@
 """Builder for the materialize-to-workspace PlanMode pipeline.
 
-Thirteen nodes::
+Thirteen nodes — capability discovery sits *before* IR compilation so
+the workflow IR and per-task IR are written from real evidence
+instead of guessed types::
 
     IngestReport → DraftReportDigest → DraftImplementationPlan
+        → DraftCapabilityNeeds → DiscoverCapabilities
         → CompileWorkflowIR → CompileTaskIR
-        → DraftCapabilityNeeds → DiscoverCapabilities          [Phase 4]
         → GenerateWorkflowSkeleton
         → GenerateTaskTests / GenerateTaskImplementations  (parallel)
         → ValidateWorkspace → HumanReview → FinalHandoffCheck
 
 The pipeline is a pure data-edge DAG — no control edges, no
-``wf.loop`` primitive. ``GenerateWorkflowSkeleton`` (and the two
-parallel codegen siblings) reads three upstreams (its two original
-inputs plus the new ``DiscoverCapabilities`` output), so its
-``ctx.inputs`` is a ``dict[str, *Result]`` keyed by upstream node
-name; the rest take a single bare upstream value.
+``wf.loop`` primitive. ``CompileWorkflowIR``, ``CompileTaskIR``, and
+each codegen node read multiple upstreams (their plan-brief / IR /
+TaskIR inputs plus the ``DiscoverCapabilities`` evidence batch), so
+their ``ctx.inputs`` is a ``dict[str, *Result]`` keyed by upstream
+node name; the rest take a single bare upstream value.
 """
 
 from __future__ import annotations
@@ -55,8 +57,8 @@ def build_plan_workflow() -> Workflow:
     Pipeline shape::
 
         IngestReport → DraftReportDigest → DraftImplementationPlan
-            → CompileWorkflowIR → CompileTaskIR
             → DraftCapabilityNeeds → DiscoverCapabilities
+            → CompileWorkflowIR → CompileTaskIR
             → GenerateWorkflowSkeleton
             → GenerateTaskTests / GenerateTaskImplementations
             → ValidateWorkspace → HumanReview → FinalHandoffCheck
@@ -70,11 +72,13 @@ def build_plan_workflow() -> Workflow:
     review node, then ``FinalHandoffCheck`` verifies the RunMode
     entrypoint before the workflow terminates.
 
-    The capability-discovery pair (``DraftCapabilityNeeds`` →
-    ``DiscoverCapabilities``) sits between ``CompileTaskIR`` and the
-    codegen fan-out so every codegen node receives the
+    Capability discovery (``DraftCapabilityNeeds`` →
+    ``DiscoverCapabilities``) runs *between* the implementation-plan
+    draft and the workflow IR so ``CompileWorkflowIR`` /
+    ``CompileTaskIR`` write typed TaskIO from real evidence instead
+    of guessing project-specific types. The same
     :class:`~molexp.agent.modes.plan.capability.CapabilityEvidenceBatch`
-    needed for the AST evidence gate (Phase 5).
+    is fanned out to every codegen node for the AST evidence gate.
     """
     builder = WorkflowBuilder(name="plan_mode", entry="IngestReport")
     builder.add(IngestReport(), name="IngestReport", next_="DraftReportDigest")
@@ -88,30 +92,30 @@ def build_plan_workflow() -> Workflow:
         DraftImplementationPlan(),
         name="DraftImplementationPlan",
         depends_on=["DraftReportDigest"],
-        next_="CompileWorkflowIR",
-    )
-    builder.add(
-        CompileWorkflowIR(),
-        name="CompileWorkflowIR",
-        depends_on=["DraftImplementationPlan"],
-        next_="CompileTaskIR",
-    )
-    builder.add(
-        CompileTaskIR(),
-        name="CompileTaskIR",
-        depends_on=["CompileWorkflowIR"],
         next_="DraftCapabilityNeeds",
     )
     builder.add(
         DraftCapabilityNeeds(),
         name="DraftCapabilityNeeds",
-        depends_on=["DraftImplementationPlan", "CompileWorkflowIR", "CompileTaskIR"],
+        depends_on=["DraftImplementationPlan"],
         next_="DiscoverCapabilities",
     )
     builder.add(
         DiscoverCapabilities(),
         name="DiscoverCapabilities",
         depends_on=["DraftCapabilityNeeds"],
+        next_="CompileWorkflowIR",
+    )
+    builder.add(
+        CompileWorkflowIR(),
+        name="CompileWorkflowIR",
+        depends_on=["DraftImplementationPlan", "DiscoverCapabilities"],
+        next_="CompileTaskIR",
+    )
+    builder.add(
+        CompileTaskIR(),
+        name="CompileTaskIR",
+        depends_on=["CompileWorkflowIR", "DiscoverCapabilities"],
         next_="GenerateWorkflowSkeleton",
     )
     builder.add(

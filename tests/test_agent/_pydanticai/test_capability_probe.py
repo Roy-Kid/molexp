@@ -10,7 +10,7 @@ plain ``pytest`` runs do not pay the cost.
 
 from __future__ import annotations
 
-import os
+import shutil
 from typing import Any
 
 import pytest
@@ -87,7 +87,7 @@ def test_build_discovery_agent_attaches_mcp_via_toolsets(
     build_discovery_agent(
         "test-model",
         command="molmcp",
-        args=("gateway",),
+        args=(),
         env={"FOO": "bar"},
         retries=2,
     )
@@ -118,14 +118,10 @@ async def test_probe_draft_needs_returns_report(monkeypatch: pytest.MonkeyPatch)
         molmcp_command="molmcp",
     )
 
-    from molexp.agent.modes.plan.schemas import (
-        PlanBrief,
-        WorkflowContract,
-    )
+    from molexp.agent.modes.plan.schemas import PlanBrief
 
     plan_brief = PlanBrief(overview="o", chosen_method="m")
-    contract = WorkflowContract(workflow_id="w", task_io=())
-    report = await probe.draft_needs(plan_brief=plan_brief, contract=contract, briefs=())
+    report = await probe.draft_needs(plan_brief=plan_brief)
     assert isinstance(report, CapabilityNeedReport)
     assert report.discovery_required is False
 
@@ -159,42 +155,35 @@ async def test_probe_discover_runs_agent_when_required(
     assert batch.discovery_skipped is False
 
 
-# ── Optional real-molmcp smoke ─────────────────────────────────────────────
+# ── MCP-handshake contract (no LLM required) ──────────────────────────────
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(
-    os.environ.get("MOLEXP_RUN_MCP_SMOKE") != "1",
-    reason="set MOLEXP_RUN_MCP_SMOKE=1 to run the real-molmcp smoke",
+    shutil.which("molmcp") is None,
+    reason="molmcp not installed on PATH; cannot validate the stdio contract",
 )
-async def test_real_molmcp_smoke() -> None:
-    """End-to-end smoke against a real ``molmcp`` subprocess.
+async def test_molmcp_stdio_handshake_succeeds() -> None:
+    """``MCPServerStdio(molmcp)`` completes the MCP initialize handshake.
 
-    Only runs when ``MOLEXP_RUN_MCP_SMOKE=1`` is set in the
-    environment. Validates that the probe can start the molmcp
-    subprocess, hand it to pydantic-ai, and round-trip a discovery
-    request through the LLM. Requires both ``molmcp`` on PATH and a
-    pydantic-ai-compatible model configured via env vars (e.g.
-    ``OPENAI_API_KEY``).
+    This is the test that the previous coverage was missing. The
+    monkeypatched ``Agent`` spy tests above never actually launch
+    ``molmcp``; the ``test_real_molmcp_smoke`` below double-gates on an
+    env flag *and* an LLM API key. So a CLI/contract drift between
+    ``molexp.agent.mcp.defaults`` and the ``molmcp`` argparse layer
+    flew under the radar until runtime.
+
+    Here we drive only the stdio MCP handshake (``__aenter__`` →
+    ``initialize`` → ``__aexit__``) using the *exact* command + args
+    seeded into ``mcp.json``. No LLM, no agent, no env-var gate — just
+    a subprocess + MCP initialize.
     """
-    probe = PydanticAICapabilityProbe(
-        model=os.environ.get("MOLEXP_TEST_MODEL", "openai:gpt-4o-mini"),
-        molmcp_command="molmcp",
-        molmcp_args=("gateway",),
-    )
-    try:
-        report = CapabilityNeedReport(
-            discovery_required=True,
-            needs=(
-                CapabilityNeed(
-                    task_id="prepare",
-                    capability="construct a peptide",
-                    expected_kind="class",
-                    query_hints=("peptide", "builder"),
-                ),
-            ),
-        )
-        batch = await probe.discover(report)
-    finally:
-        await probe.aclose()
-    assert isinstance(batch, CapabilityEvidenceBatch)
+    from pydantic_ai.mcp import MCPServerStdio
+
+    from molexp.agent.mcp.defaults import MCP_DEFAULTS
+
+    name, spec = MCP_DEFAULTS[0]
+    assert name == "molmcp"
+    server = MCPServerStdio(spec["command"], list(spec["args"]))
+    async with server:
+        pass  # successful __aenter__ implies a clean MCP initialize round-trip

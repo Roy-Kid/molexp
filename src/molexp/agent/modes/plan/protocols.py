@@ -2,28 +2,26 @@
 
 PlanMode's ``ctx.deps`` is a frozen :class:`PlanDeps` aggregate of
 runtime services — the LLM router, the tier policy, the on-disk
-experiment-workspace handle, and a callable lookup for the
-workflow-orthogonal :class:`~molexp.agent.policy.GatePolicy`.
-``ctx.config`` carries JSON-only values (``user_input`` etc.);
-``ctx.deps`` carries the callables and stateful services that don't
-fit through a JSON channel.
+experiment-workspace handle, and two callable lookups for the
+workflow-orthogonal :class:`~molexp.agent.review.ReviewPolicy` hooks
+(per-step and plan-final).  ``ctx.config`` carries JSON-only values
+(``user_input`` etc.); ``ctx.deps`` carries the callables and stateful
+services that don't fit through a JSON channel.
 
 Cross-mode types — :class:`Router` / :class:`ModelTier` from
 :mod:`molexp.agent.router` — are re-exported here so
 ``from molexp.agent.modes.plan.protocols import …`` style imports
 keep working for plan-specific code without leaking the agent-layer
-location. Approval-gate types (:class:`GatePolicy`,
-:class:`AutoApproveGatePolicy`, :func:`static_gate_policy_lookup`)
-are deliberately NOT re-exported — they live at
-:mod:`molexp.agent.policy` parallel to ``mode.py`` because any mode
-with a multi-step workflow consumes them.
+location. The :class:`~molexp.agent.review.ReviewPolicy` protocol and
+its built-in policies live at :mod:`molexp.agent.review` parallel to
+``mode.py`` because any mode with a multi-step workflow consumes them.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from molexp.agent.router import ModelTier, Router
 
@@ -33,31 +31,15 @@ if TYPE_CHECKING:
         CapabilityNeedReport,
     )
     from molexp.agent.modes.plan.policy import PlanModelPolicy
-    from molexp.agent.modes.plan.schemas import (
-        ApprovalDecision,
-        PlanBrief,
-        PlanReviewView,
-        TaskIRBrief,
-    )
+    from molexp.agent.modes.plan.schemas import PlanBrief
     from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
-    from molexp.agent.policy import GatePolicy
-    from molexp.workflow import WorkflowContract
+    from molexp.agent.review import ReviewPolicy
 
-    type PlanGatePolicy = GatePolicy[PlanReviewView, ApprovalDecision]
-else:
-    # At runtime ``PlanGatePolicy`` is just a forward-ref string. It is
-    # only consumed in annotations (which are strings under
-    # ``from __future__ import annotations``), so the runtime value
-    # never needs to be a real class — keeping it as a string lets us
-    # avoid a runtime import of ``GatePolicy`` here, which in turn
-    # keeps the legacy-protocol-name guard test simple.
-    PlanGatePolicy = "GatePolicy[PlanReviewView, ApprovalDecision]"
 
 __all__ = [
     "CapabilityProbe",
     "ModelTier",
     "PlanDeps",
-    "PlanGatePolicy",
     "Router",
 ]
 
@@ -94,16 +76,18 @@ class CapabilityProbe(Protocol):
         self,
         *,
         plan_brief: PlanBrief,
-        contract: WorkflowContract,
-        briefs: tuple[TaskIRBrief, ...],
     ) -> CapabilityNeedReport:
-        """Draft per-task capability needs.
+        """Draft per-stage capability needs from the implementation plan.
+
+        Runs before the workflow IR is compiled — the only upstream
+        artefact is the natural-language plan brief. Discovery
+        consumes the resulting report; ``CompileWorkflowIR`` /
+        ``CompileTaskIR`` then write typed TaskIO from the evidence
+        batch instead of guessing project-specific types.
 
         Args:
             plan_brief: Implementation-plan brief produced by
                 ``DraftImplementationPlan``.
-            contract: Typed workflow contract from ``CompileWorkflowIR``.
-            briefs: Per-task IR briefs from ``CompileTaskIR``.
 
         Returns:
             Structured :class:`CapabilityNeedReport`. Setting
@@ -136,13 +120,22 @@ class CapabilityProbe(Protocol):
         ...
 
 
-def _default_gate_policy_lookup() -> Callable[[], PlanGatePolicy]:
-    """Default factory: constant lookup over an :class:`AutoApproveGatePolicy`
-    bound to ``ApprovalDecision(approved=True)``."""
-    from molexp.agent.modes.plan.schemas import ApprovalDecision
-    from molexp.agent.policy import AutoApproveGatePolicy, static_gate_policy_lookup
+def _default_bypass_lookup() -> Callable[[], ReviewPolicy]:
+    """Default factory: constant lookup over a
+    :class:`~molexp.agent.review.BypassPolicy`.
 
-    return static_gate_policy_lookup(AutoApproveGatePolicy(ApprovalDecision(approved=True)))
+    Used by both the per-step hook and the plan-final hook when callers
+    do not configure either explicitly; behaviour is "never block,
+    always approve".
+    """
+    from molexp.agent.review import BypassPolicy
+
+    policy = BypassPolicy()
+
+    def _lookup() -> ReviewPolicy:
+        return policy
+
+    return _lookup
 
 
 # ── PlanDeps aggregate ─────────────────────────────────────────────────────
@@ -164,14 +157,20 @@ class PlanDeps:
             (:class:`~molexp.agent.modes.plan.workspace_layout.PlanWorkspaceHandle`).
             All artifact writes route through this handle's API; tasks
             never touch ``Path.write_text`` directly.
-        gate_policy_lookup: Live lookup for the approval gate consulted
-            by ``HumanReview``. Stored as a callable (not the policy
-            itself) so the lifecycle owner — :class:`PlanMode` — can
-            hot-swap the policy mid-run while ``PlanDeps`` itself stays
-            frozen. Defaults to a constant lookup over an
-            :class:`~molexp.agent.policy.AutoApproveGatePolicy` bound to
-            ``ApprovalDecision(approved=True)``. Read sites should use
-            the convenience :attr:`gate_policy` property below.
+        step_policy_lookup: Live lookup for the per-step review policy
+            fired by :class:`PlanTask` after every node's ``_execute``
+            completes (except terminal nodes that own their own review
+            interaction).  Stored as a callable so the lifecycle owner
+            — :class:`PlanMode` — can hot-swap the policy mid-run while
+            :class:`PlanDeps` itself stays frozen.  Defaults to a
+            :class:`~molexp.agent.review.BypassPolicy` lookup so
+            existing pipelines run unattended.  Read sites should use
+            the convenience :attr:`step_policy` property.
+        final_policy_lookup: Live lookup for the plan-final review
+            policy consulted by ``HumanReview``.  Same hot-swap
+            machinery as :attr:`step_policy_lookup`; defaults to the
+            same bypass policy.  Read sites should use
+            :attr:`final_policy`.
         repair_target_tasks: Optional subset of experiment-task ids that
             ``GenerateTaskTests`` / ``GenerateTaskImplementations`` are
             permitted to regenerate this round. ``None`` means "regenerate
@@ -185,6 +184,17 @@ class PlanDeps:
             :class:`~molexp.agent.modes.plan.schemas.PlanReviewView`
             constructed by ``HumanReview`` so reviewers see which round
             they are in.
+        step_outputs_log: Mutable dict mapping plan-node name → most
+            recent approved output.  Populated by
+            :meth:`~molexp.agent.modes.plan.tasks.PlanTask.execute`
+            immediately after the per-step
+            :class:`~molexp.agent.review.ReviewPolicy` approves a step.
+            Lets :func:`drive_with_repair` seed boundary stubs when a
+            :class:`StepRejected` exception interrupts the run — so
+            rejecting one step replays only that step (plus cascade),
+            not the whole pipeline from scratch.  The same dict is
+            threaded through every ``dataclass.replace`` the repair
+            loop performs so the log accumulates across iterations.
         capability_probe: :class:`CapabilityProbe` implementation
             consumed by Phase 4's ``DraftCapabilityNeeds`` and
             ``DiscoverCapabilities`` nodes. Defaults to ``None`` so
@@ -198,20 +208,19 @@ class PlanDeps:
     router: Router
     policy: PlanModelPolicy
     workspace_handle: PlanWorkspaceHandle
-    gate_policy_lookup: Callable[[], PlanGatePolicy] = field(
-        default_factory=_default_gate_policy_lookup
-    )
+    step_policy_lookup: Callable[[], ReviewPolicy] = field(default_factory=_default_bypass_lookup)
+    final_policy_lookup: Callable[[], ReviewPolicy] = field(default_factory=_default_bypass_lookup)
     repair_target_tasks: tuple[str, ...] | None = None
     repair_iteration: int = 0
+    step_outputs_log: dict[str, Any] = field(default_factory=dict)
     capability_probe: CapabilityProbe | None = None
 
     @property
-    def gate_policy(self) -> PlanGatePolicy:
-        """Live :class:`GatePolicy` — calls :attr:`gate_policy_lookup` each access.
+    def step_policy(self) -> ReviewPolicy:
+        """Live per-step :class:`ReviewPolicy` — reads through the lookup each access."""
+        return self.step_policy_lookup()
 
-        Read-side ergonomics: existing call sites such as
-        ``await ctx.deps.gate_policy.human_review(view)`` keep working
-        unchanged, but each access reads through the lookup so a
-        :class:`PlanMode` setter swap propagates immediately.
-        """
-        return self.gate_policy_lookup()
+    @property
+    def final_policy(self) -> ReviewPolicy:
+        """Live plan-final :class:`ReviewPolicy` — reads through the lookup each access."""
+        return self.final_policy_lookup()

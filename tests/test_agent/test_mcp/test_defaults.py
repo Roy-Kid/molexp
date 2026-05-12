@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-import os
+import shutil
 import stat
+import subprocess
 import sys
 
 import pytest
@@ -30,12 +31,43 @@ def test_mcp_defaults_shape():
     assert name == "molmcp"
     assert spec["type"] == "stdio"
     assert spec["command"] == "molmcp"
-    assert spec["args"] == ["gateway"]
+    assert spec["args"] == []
     usage = spec["usage_instructions"]
     assert isinstance(usage, str) and usage
     assert "molmcp__" in usage
     assert "molcrafts" in usage
     assert any(token in usage for token in ("molpy", "molpack", "molrs", "lammps", "molexp"))
+    # After the workspace-as-tool-parameter refactor, the prompt must
+    # tell the LLM how to fill the `workspace` argument.
+    assert "workspace" in usage.lower()
+
+
+# ── Contract: the seeded command + args must be invocable ────────────────
+
+
+@pytest.mark.unit
+@pytest.mark.skipif(
+    shutil.which("molmcp") is None,
+    reason="molmcp not installed on PATH; cannot validate the contract",
+)
+def test_seeded_molmcp_command_is_invocable():
+    """The exact ``command + args`` we seed must be accepted by ``molmcp``.
+
+    Regression guard: the seeded ``command + args`` need to drive the
+    ``molmcp`` CLI cleanly through ``--help``. Originally caught a
+    drift where ``defaults.py`` shipped ``("gateway",)`` while the
+    ``molmcp`` CLI no longer had a ``gateway`` subcommand;
+    ``test_mcp_defaults_shape`` only asserted the constant equals
+    itself — this test asserts the constant is *usable*.
+    """
+    name, spec = MCP_DEFAULTS[0]
+    assert name == "molmcp"
+    cmd = [spec["command"], *spec["args"], "--help"]
+    result = subprocess.run(cmd, capture_output=True, timeout=15, text=True)
+    assert result.returncode == 0, (
+        f"`{' '.join(cmd)}` failed: rc={result.returncode}\n"
+        f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
+    )
 
 
 # ── ac-005: fresh-tempdir seeding ─────────────────────────────────────────
@@ -58,7 +90,7 @@ def test_seed_writes_fresh_user_config(tmp_path):
     data = json.loads(config.read_text())
     assert "molmcp" in data["mcpServers"]
     assert data["mcpServers"]["molmcp"]["command"] == "molmcp"
-    assert data["mcpServers"]["molmcp"]["args"] == ["gateway"]
+    assert data["mcpServers"]["molmcp"]["args"] == []
     assert data["mcpServers"]["molmcp"]["usage_instructions"] == MOLMCP_USAGE_INSTRUCTIONS
 
     sentinel_data = json.loads(sentinel.read_text())
@@ -114,7 +146,7 @@ def test_seed_default_command_when_env_unset(tmp_path, monkeypatch):
 
     data = json.loads(config.read_text())
     assert data["mcpServers"]["molmcp"]["command"] == "molmcp"
-    assert data["mcpServers"]["molmcp"]["args"] == ["gateway"]
+    assert data["mcpServers"]["molmcp"]["args"] == []
 
 
 # ── ac-008: disable-by-deletion ───────────────────────────────────────────
@@ -177,16 +209,16 @@ def test_seed_read_only_home_warns(tmp_path, monkeypatch):
 
     warnings: list[str] = []
     monkeypatch.setattr(
-        defaults_mod._LOG, "warning", lambda msg, *a, **kw: warnings.append(str(msg))
+        defaults_mod._LOG, "warning", lambda msg, *_a, **_kw: warnings.append(str(msg))
     )
 
-    os.chmod(user_dir, stat.S_IRUSR | stat.S_IXUSR)  # 0500 — read+execute, no write
+    user_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # 0500 — read+execute, no write
     try:
         changed = seed_user_defaults(config, sentinel)
         assert changed is False
         assert any("seed" in w.lower() for w in warnings), warnings
     finally:
-        os.chmod(user_dir, stat.S_IRWXU)
+        user_dir.chmod(stat.S_IRWXU)
 
     assert not config.exists()
 
@@ -201,14 +233,14 @@ def test_store_list_survives_read_only_home(tmp_path, monkeypatch):
     fake_home.mkdir()
     monkeypatch.setattr(mcp_mod, "USER_DIR", fake_home)
 
-    os.chmod(fake_home, stat.S_IRUSR | stat.S_IXUSR)
+    fake_home.chmod(stat.S_IRUSR | stat.S_IXUSR)
     try:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         store = McpStore(workspace)
         assert store.list() == []
     finally:
-        os.chmod(fake_home, stat.S_IRWXU)
+        fake_home.chmod(stat.S_IRWXU)
 
 
 # ── Round-trip safety: seeded entry survives McpStore.list() ──────────────
@@ -228,7 +260,7 @@ def test_seeded_entry_round_trips_via_list(tmp_path, monkeypatch):
     entry = rows[0]
     assert entry.transport == "stdio"
     assert entry.command == "molmcp"
-    assert entry.args == ("gateway",)
+    assert entry.args == ()
     assert entry.usage_instructions == MOLMCP_USAGE_INSTRUCTIONS
     assert entry.valid is True
 

@@ -27,16 +27,15 @@ from pydantic import BaseModel, ConfigDict
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
-from molexp.agent.modes.plan.protocols import CapabilityProbe, PlanDeps, PlanGatePolicy
+from molexp.agent.modes.plan.protocols import CapabilityProbe, PlanDeps
 from molexp.agent.modes.plan.schemas import (
-    ApprovalDecision,
     DigestResult,
     HandoffResult,
     PlanBriefResult,
     SkeletonResult,
 )
 from molexp.agent.modes.plan.workspace_layout import PlanWorkspaceHandle
-from molexp.agent.policy import AutoApproveGatePolicy
+from molexp.agent.review import BypassPolicy, ReviewPolicy
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
@@ -104,11 +103,17 @@ class PlanMode(AgentMode):
       this run will write into.
     - ``model_policy`` — :class:`PlanModelPolicy` defining
       tier-per-node assignments. Defaults to ``STANDARD_PLAN_POLICY``.
-    - ``gate_policy`` — initial :class:`~molexp.agent.policy.GatePolicy`
-      consulted at the ``HumanReview`` gate. Defaults to
-      :class:`~molexp.agent.policy.AutoApproveGatePolicy` bound to
-      ``ApprovalDecision(approved=True)``. Hot-swappable mid-run via
-      :meth:`set_gate_policy` — see below.
+    - ``step_policy`` — initial per-step
+      :class:`~molexp.agent.review.ReviewPolicy` fired after every
+      non-terminal node's ``_execute``.  Defaults to
+      :class:`~molexp.agent.review.BypassPolicy` (never blocks).
+      Hot-swappable mid-run via :meth:`set_step_policy`.
+    - ``final_policy`` — initial plan-final
+      :class:`~molexp.agent.review.ReviewPolicy` consulted by
+      ``HumanReview``.  Defaults to :class:`BypassPolicy` (auto-approve)
+      so existing scripts that never wired up a gate keep their
+      non-interactive behaviour.  Hot-swappable via
+      :meth:`set_final_policy`.
     - ``artifacts_root``, ``max_iterations``, ``temperature`` — spare
       knobs threaded into :class:`PlanModeConfig`. ``max_iterations``
       caps the review→repair loop budget; the others are
@@ -122,24 +127,24 @@ class PlanMode(AgentMode):
     (``PLAN_WORKFLOW.execute(...)``) build :class:`PlanDeps`
     explicitly and supply the router on that side.
 
-    Mid-run gate swap
-    -----------------
+    Mid-run policy swap
+    -------------------
 
-    Use :meth:`set_gate_policy` / :meth:`get_gate_policy` to replace or
-    inspect the active gate at any time during a running plan — for
-    example from a UI button, a SIGINT handler, or another coroutine
-    that decides "stop asking, just go"::
+    Use :meth:`set_step_policy` / :meth:`get_step_policy` (and the
+    ``final_*`` pair) to replace or inspect the active policies at any
+    time during a running plan — for example from a UI button, a
+    SIGINT handler, or another coroutine that decides "stop asking,
+    just go"::
 
-        mode = PlanMode(workspace_handle=..., gate_policy=PromptGatePolicy())
+        mode = PlanMode(workspace_handle=..., final_policy=HumanPolicy())
         # ... runner.run(...) executes in a task ...
-        mode.set_gate_policy(  # next HumanReview auto-approves
-            AutoApproveGatePolicy(ApprovalDecision(approved=True))
-        )
+        mode.set_final_policy(BypassPolicy())  # next HumanReview auto-approves
 
-    The deps the :class:`HumanReview` node receives carries a
-    :attr:`PlanDeps.gate_policy_lookup` callable that closes over this
-    instance's ``_gate_policy`` slot, so each gate consultation reads
-    the latest assigned policy.
+    The deps each node receives carries
+    :attr:`~molexp.agent.modes.plan.protocols.PlanDeps.step_policy_lookup`
+    and ``final_policy_lookup`` callables that close over this
+    instance's ``_step_policy`` / ``_final_policy`` slots, so each
+    consultation reads the latest assigned policy.
     """
 
     name = "plan"
@@ -149,7 +154,8 @@ class PlanMode(AgentMode):
         *,
         workspace_handle: PlanWorkspaceHandle,
         model_policy: PlanModelPolicy | None = None,
-        gate_policy: PlanGatePolicy | None = None,
+        step_policy: ReviewPolicy | None = None,
+        final_policy: ReviewPolicy | None = None,
         capability_probe: CapabilityProbe | None = None,
         artifacts_root: Path | None = None,
         max_iterations: int = 8,
@@ -162,27 +168,27 @@ class PlanMode(AgentMode):
         )
         self._workspace_handle = workspace_handle
         self._model_policy = model_policy if model_policy is not None else STANDARD_PLAN_POLICY
-        self._gate_policy: PlanGatePolicy = (
-            gate_policy
-            if gate_policy is not None
-            else AutoApproveGatePolicy(ApprovalDecision(approved=True))
+        self._step_policy: ReviewPolicy = step_policy if step_policy is not None else BypassPolicy()
+        self._final_policy: ReviewPolicy = (
+            final_policy if final_policy is not None else BypassPolicy()
         )
         self._capability_probe: CapabilityProbe | None = capability_probe
 
-    def get_gate_policy(self) -> PlanGatePolicy:
-        """Return the current gate policy consulted by ``HumanReview``."""
-        return self._gate_policy
+    def get_step_policy(self) -> ReviewPolicy:
+        """Return the current per-step review policy."""
+        return self._step_policy
 
-    def set_gate_policy(self, policy: PlanGatePolicy) -> None:
-        """Replace the active gate policy; effective from the next consultation.
+    def set_step_policy(self, policy: ReviewPolicy) -> None:
+        """Replace the active per-step policy; takes effect on the next node."""
+        self._step_policy = policy
 
-        ``HumanReview`` resolves the policy through
-        :attr:`~molexp.agent.modes.plan.protocols.PlanDeps.gate_policy_lookup`
-        on every invocation, so a call to this method during a running
-        plan takes effect on the next iteration's review without
-        rebuilding deps.
-        """
-        self._gate_policy = policy
+    def get_final_policy(self) -> ReviewPolicy:
+        """Return the current plan-final review policy consulted by ``HumanReview``."""
+        return self._final_policy
+
+    def set_final_policy(self, policy: ReviewPolicy) -> None:
+        """Replace the active plan-final policy; takes effect on the next review."""
+        self._final_policy = policy
 
     def get_capability_probe(self) -> CapabilityProbe | None:
         """Return the configured :class:`CapabilityProbe`, or ``None``.
@@ -226,7 +232,8 @@ class PlanMode(AgentMode):
             router=router,
             policy=self._model_policy,
             workspace_handle=self._workspace_handle,
-            gate_policy_lookup=lambda: self._gate_policy,
+            step_policy_lookup=lambda: self._step_policy,
+            final_policy_lookup=lambda: self._final_policy,
             capability_probe=self._capability_probe,
         )
         t0 = time.monotonic()

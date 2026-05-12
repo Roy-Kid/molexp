@@ -30,8 +30,6 @@ pydantic-ai ``Agent`` (see ``_pydanticai/capability_probe.py``).
 
 from __future__ import annotations
 
-from typing import Any
-
 from mollog import get_logger
 
 from molexp.agent.modes.plan.capability import (
@@ -43,12 +41,8 @@ from molexp.agent.modes.plan.protocols import CapabilityProbe, PlanDeps
 from molexp.agent.modes.plan.schemas import (
     PlanBrief,
     PlanBriefResult,
-    TaskIRBrief,
-    TaskIRResult,
-    WorkflowContract,
-    WorkflowIRResult,
 )
-from molexp.agent.modes.plan.tasks import PlanLLMTask, PlanTask, _expect_input
+from molexp.agent.modes.plan.tasks import PlanLLMTask, PlanTask
 from molexp.workflow import TaskContext
 
 __all__ = [
@@ -80,10 +74,8 @@ class NullCapabilityProbe:
         self,
         *,
         plan_brief: PlanBrief,
-        contract: WorkflowContract,
-        briefs: tuple[TaskIRBrief, ...],
     ) -> CapabilityNeedReport:
-        del plan_brief, contract, briefs
+        del plan_brief
         return CapabilityNeedReport(
             discovery_required=False,
             needs=(),
@@ -108,13 +100,17 @@ class NullCapabilityProbe:
 
 
 class DraftCapabilityNeeds(PlanLLMTask):
-    """Ask the probe to draft per-task capability needs.
+    """Ask the probe to draft per-stage capability needs.
 
-    Reads the ``DraftImplementationPlan``'s :class:`PlanBriefResult`,
-    the ``CompileWorkflowIR``'s :class:`WorkflowIRResult`, and the
-    ``CompileTaskIR``'s :class:`TaskIRResult`. Delegates to
-    ``ctx.deps.capability_probe.draft_needs(...)`` and writes the
-    structured report to ``capability/needs.yaml``.
+    Runs immediately after ``DraftImplementationPlan`` so the workflow
+    IR is not yet compiled — the only upstream is the
+    :class:`PlanBriefResult`. The probe drafts one
+    :class:`CapabilityNeed` per stage that plausibly requires project
+    code; the report is persisted to ``capability/needs.yaml`` and
+    forwarded to ``DiscoverCapabilities`` which then queries the
+    project MCP for concrete evidence. ``CompileWorkflowIR`` /
+    ``CompileTaskIR`` are downstream of discovery and consume the
+    evidence batch.
 
     Inherits :class:`PlanLLMTask` so the policy table can route this
     node to the heavy tier, even though the actual LLM call happens
@@ -125,22 +121,16 @@ class DraftCapabilityNeeds(PlanLLMTask):
 
     async def execute(
         self,
-        ctx: TaskContext[None, PlanDeps, dict[str, Any]],
+        ctx: TaskContext[None, PlanDeps, PlanBriefResult],
     ) -> CapabilityNeedReport:
-        plan_brief = _expect_input(ctx.inputs, "DraftImplementationPlan", PlanBriefResult)
-        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
-        task_ir = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        plan_brief = ctx.inputs
 
         probe = _resolve_probe(ctx.deps)
         _LOG.info(
-            f"[plan-node DraftCapabilityNeeds] start tasks={len(task_ir.briefs)} "
+            f"[plan-node DraftCapabilityNeeds] start stages={len(plan_brief.plan_brief.stages)} "
             f"probe={type(probe).__name__}"
         )
-        report = await probe.draft_needs(
-            plan_brief=plan_brief.plan_brief,
-            contract=ir_result.contract,
-            briefs=task_ir.briefs,
-        )
+        report = await probe.draft_needs(plan_brief=plan_brief.plan_brief)
         ctx.deps.workspace_handle.write_capability_needs(report)
         _LOG.info(
             "[plan-node DraftCapabilityNeeds] done "

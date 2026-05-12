@@ -3,19 +3,20 @@
 The entire ``molexp.agent`` layer is rebuilt around four user-visible
 mode-orchestration names — :class:`AgentRunner`, :class:`AgentMode`,
 :class:`AgentRunResult`, :class:`AgentSession` — plus a small set of
-workflow-orthogonal **policy** primitives (:class:`GatePolicy`,
-:class:`AutoApproveGatePolicy`, :func:`static_gate_policy_lookup`)
-that any mode with a multi-step workflow consumes. Concrete modes
-(``PlanMode``, ``ChatMode``, ``ReviewMode``) live under
-:mod:`molexp.agent.modes`; concrete *interactive* gates ship under
-their owning mode's subpackage (e.g.
-:class:`~molexp.agent.modes.plan.PromptGatePolicy` for PlanMode) so
-the cross-mode surface stays small.
+workflow-orthogonal review primitives (:class:`ReviewPolicy`,
+:class:`ReviewDecision`, :class:`ReviewView`, :class:`StepView`,
+:class:`BypassPolicy`, :class:`AutoPolicy`, :class:`HumanPolicy`,
+:func:`cli_ask`) that any mode with a multi-step workflow consumes.
+Concrete modes (``PlanMode``, ``ChatMode``, ``ReviewMode``) live under
+:mod:`molexp.agent.modes`.
 
-The policy module sits parallel to ``mode.py`` because gates are NOT
-mode-specific concepts — putting them under a single mode's
+The review module sits parallel to ``mode.py`` because the policies are
+NOT mode-specific concepts — putting them under a single mode's
 subpackage would force duplication or upward imports as soon as a
-second workflow-bearing mode lands.
+second workflow-bearing mode lands.  :class:`HumanPolicy` is UI-agnostic
+by construction: the rendering surface is the ``ask`` callable
+(:func:`cli_ask` is the default; web / Slack / mobile push are drop-in
+replacements).
 
 Layer position: **agent uses workflow + workspace**. The agent imports
 the public surface of both downstream layers — ``Workspace`` /
@@ -67,10 +68,15 @@ under ``tests/test_agent/`` for the binding rules.
 """
 
 from molexp.agent.mode import AgentMode, AgentRunResult
-from molexp.agent.policy import (
-    AutoApproveGatePolicy,
-    GatePolicy,
-    static_gate_policy_lookup,
+from molexp.agent.review import (
+    AutoPolicy,
+    BypassPolicy,
+    HumanPolicy,
+    ReviewDecision,
+    ReviewPolicy,
+    ReviewView,
+    StepView,
+    cli_ask,
 )
 from molexp.agent.runner import AgentRunner
 from molexp.agent.session import AgentSession
@@ -80,7 +86,12 @@ __all__ = [
     "AgentRunResult",
     "AgentRunner",
     "AgentSession",
-    "AutoApproveGatePolicy",
-    "GatePolicy",
-    "static_gate_policy_lookup",
+    "AutoPolicy",
+    "BypassPolicy",
+    "HumanPolicy",
+    "ReviewDecision",
+    "ReviewPolicy",
+    "ReviewView",
+    "StepView",
+    "cli_ask",
 ]

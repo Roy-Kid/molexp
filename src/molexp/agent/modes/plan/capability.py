@@ -77,16 +77,23 @@ values. The first three are emitted by the discovery agent
 class CapabilityNeed(BaseModel):
     """One unit of capability needed by an experiment task.
 
-    Drafted by ``DraftCapabilityNeeds`` from the per-task IR briefs and
+    Drafted by ``DraftCapabilityNeeds`` from the plan-brief stages and
     persisted under ``capability/needs.yaml``.
 
     Attributes:
-        task_id: Experiment-task id this need belongs to (matches the
-            corresponding ``TaskIRBrief.task_id``).
+        task_id: Opaque stable identifier the need attaches to.
+            Discovery runs *before* the workflow IR is compiled, so at
+            draft time this is a free-form stage label drawn from
+            ``PlanBrief.stages`` (or any identifier the LLM can echo
+            consistently — ``"stage:0"``, ``"build_system"``, …). When
+            the IR compiler later emits the matching task, the
+            ``TaskIRBrief.task_id`` is expected to reuse the same
+            string; the validator does not assert on this beyond
+            evidence-batch lookups keyed by ``api_ref``.
         capability: Natural-language description (one phrase) of what
-            the task needs — e.g. ``"construct a peptide from amino-acid codes"``.
+            the step needs — e.g. ``"construct a peptide from amino-acid codes"``.
         rationale: One sentence saying *why* the capability is needed
-            for the task to succeed.
+            for the step to succeed.
         expected_kind: Hint about what shape the symbol should take.
             Canonical strings: ``"class"`` / ``"callable"`` / ``"module"`` /
             ``"constant"`` / ``"protocol"`` / ``"namespace"``. Unknown

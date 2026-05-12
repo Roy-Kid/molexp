@@ -14,7 +14,6 @@ pydantic-ai or any real MCP server.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -31,10 +30,6 @@ from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
     PlanBrief,
     PlanBriefResult,
-    TaskIRBrief,
-    TaskIRResult,
-    WorkflowContract,
-    WorkflowIRResult,
 )
 from molexp.agent.modes.plan.tasks_capability import (
     DraftCapabilityNeeds,
@@ -56,17 +51,14 @@ class StubCapabilityProbe:
 
     def __init__(self, report: CapabilityNeedReport) -> None:
         self._report = report
-        self.draft_calls: list[tuple[object, object, tuple[TaskIRBrief, ...]]] = []
+        self.draft_calls: list[PlanBrief] = []
 
     async def draft_needs(
         self,
         *,
-        plan_brief: object,
-        contract: object,
-        briefs: Sequence[TaskIRBrief],
+        plan_brief: PlanBrief,
     ) -> CapabilityNeedReport:
-        recorded = (plan_brief, contract, tuple(briefs))
-        self.draft_calls.append(recorded)
+        self.draft_calls.append(plan_brief)
         return self._report
 
     async def discover(self, report: CapabilityNeedReport) -> CapabilityEvidenceBatch:
@@ -95,34 +87,22 @@ def _make_deps(handle: PlanWorkspaceHandle, probe: object) -> PlanDeps:
     )
 
 
-def _make_inputs() -> dict[str, object]:
+def _make_inputs() -> PlanBriefResult:
+    """Return the single bare upstream input the reordered pipeline supplies.
+
+    DraftCapabilityNeeds now runs immediately after DraftImplementationPlan
+    so its only upstream is the :class:`PlanBriefResult`.
+    """
     presets = canned_presets()
     plan_brief = presets[PlanBrief]
-    contract = presets[WorkflowContract]
     assert isinstance(plan_brief, PlanBrief)
-    assert isinstance(contract, WorkflowContract)
-    plan_brief_result = PlanBriefResult(
+    return PlanBriefResult(
         plan_path=Path("plan/implementation_plan.md"),
         plan_brief=plan_brief,
     )
-    workflow_ir_result = WorkflowIRResult(
-        workflow_yaml_path=Path("ir/workflow.yaml"),
-        contract=contract,
-    )
-    briefs_dict = presets[TaskIRBrief]
-    assert isinstance(briefs_dict, dict)
-    task_ir_result = TaskIRResult(
-        task_ir_paths=tuple(Path(f"ir/tasks/{tid}.yaml") for tid in briefs_dict),
-        briefs=tuple(briefs_dict.values()),
-    )
-    return {
-        "DraftImplementationPlan": plan_brief_result,
-        "CompileWorkflowIR": workflow_ir_result,
-        "CompileTaskIR": task_ir_result,
-    }
 
 
-def _ctx_stub(deps: PlanDeps, inputs: dict[str, object]) -> object:
+def _ctx_stub(deps: PlanDeps, inputs: object) -> object:
     """Build the minimal :class:`TaskContext`-shaped object the node needs.
 
     The node only reads ``ctx.deps`` and ``ctx.inputs`` so a plain
@@ -233,16 +213,8 @@ async def test_null_probe_default_returns_discovery_not_required() -> None:
     probe = NullCapabilityProbe()
     presets = canned_presets()
     plan_brief = presets[PlanBrief]
-    contract = presets[WorkflowContract]
-    briefs_dict = presets[TaskIRBrief]
     assert isinstance(plan_brief, PlanBrief)
-    assert isinstance(contract, WorkflowContract)
-    assert isinstance(briefs_dict, dict)
-    report = await probe.draft_needs(
-        plan_brief=plan_brief,
-        contract=contract,
-        briefs=tuple(briefs_dict.values()),
-    )
+    report = await probe.draft_needs(plan_brief=plan_brief)
     assert report.discovery_required is False
     assert report.needs == ()
 

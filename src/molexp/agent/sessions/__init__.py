@@ -7,6 +7,7 @@ workspace's :class:`SubsystemStore`.
 """
 
 from molexp.agent.sessions.catalog import (
+    MODEL_MESSAGES_FILENAME,
     SESSION_METADATA_FILENAME,
     SESSIONS_SUBSYSTEM_KIND,
     SessionCatalog,
@@ -15,8 +16,9 @@ from molexp.agent.sessions.store import SessionStore
 from molexp.agent.sessions.types import SessionMetadata
 
 __all__ = [
-    "SESSION_METADATA_FILENAME",
+    "MODEL_MESSAGES_FILENAME",
     "SESSIONS_SUBSYSTEM_KIND",
+    "SESSION_METADATA_FILENAME",
     "SessionCatalog",
     "SessionMetadata",
     "SessionStore",

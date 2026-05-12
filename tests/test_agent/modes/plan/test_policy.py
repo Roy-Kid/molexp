@@ -209,10 +209,18 @@ def test_plan_deps_required_fields() -> None:
 
 def test_plan_deps_drops_legacy_service_fields() -> None:
     fields = PlanDeps.__dataclass_fields__
-    # Sub-spec 06 reintroduced ``gate_policy`` for the HumanReview gate;
-    # it is NOT in the legacy-removed set anymore.
-    legacy = {"repair_policy", "store", "artifact_writer", "model_policy"}
+    # ``gate_policy_lookup`` was renamed to ``step_policy_lookup`` and
+    # ``final_policy_lookup`` when the review hooks were split into two
+    # orthogonal slots.
+    legacy = {
+        "repair_policy",
+        "store",
+        "artifact_writer",
+        "model_policy",
+        "gate_policy_lookup",
+    }
     assert legacy.isdisjoint(fields.keys())
+    assert {"step_policy_lookup", "final_policy_lookup"}.issubset(fields.keys())
 
 
 # ── Public re-exports (ac-009) ─────────────────────────────────────────────

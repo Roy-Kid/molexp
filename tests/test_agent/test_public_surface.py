@@ -3,13 +3,13 @@
 The original "four-name contract" covered the mode-orchestration core
 (:class:`AgentRunner`, :class:`AgentMode`, :class:`AgentRunResult`,
 :class:`AgentSession`). It has been extended with workflow-orthogonal
-policy primitives — :class:`GatePolicy`, :class:`AutoApproveGatePolicy`,
-:func:`static_gate_policy_lookup` — because policies are not
-mode-specific and any workflow-bearing mode consumes them. See
-``feedback_policy_at_agent_layer.md``. Concrete *interactive* gates
-(e.g. :class:`~molexp.agent.modes.plan.PromptGatePolicy`) ship under
-their owning mode's subpackage and are not part of the cross-mode
-surface.
+review primitives — :class:`ReviewPolicy`, :class:`ReviewDecision`,
+:class:`ReviewView`, :class:`StepView`, :class:`BypassPolicy`,
+:class:`AutoPolicy`, :class:`HumanPolicy`, :func:`cli_ask` — because
+the review hook is not mode-specific and any workflow-bearing mode
+consumes it.  :class:`HumanPolicy` is UI-agnostic by construction —
+the rendering surface is the ``ask`` callable, of which
+:func:`cli_ask` is the bundled default.
 """
 
 from __future__ import annotations
@@ -27,10 +27,15 @@ def test_agent_all_is_the_public_contract() -> None:
         "AgentMode",
         "AgentRunResult",
         "AgentSession",
-        # Workflow-orthogonal policies (parallel to mode).
-        "GatePolicy",
-        "AutoApproveGatePolicy",
-        "static_gate_policy_lookup",
+        # Workflow-orthogonal review primitives (parallel to mode).
+        "ReviewPolicy",
+        "ReviewDecision",
+        "ReviewView",
+        "StepView",
+        "BypassPolicy",
+        "AutoPolicy",
+        "HumanPolicy",
+        "cli_ask",
     }
 
 

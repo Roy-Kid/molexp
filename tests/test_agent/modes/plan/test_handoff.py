@@ -21,8 +21,7 @@ from molexp.agent.modes.plan import (
 )
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
-from molexp.agent.modes.plan.schemas import ApprovalDecision
-from molexp.agent.policy import AutoApproveGatePolicy, static_gate_policy_lookup
+from molexp.agent.review import BypassPolicy, ReviewDecision, ReviewView
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
@@ -85,21 +84,21 @@ def test_handoff_yaml_roundtrip() -> None:
 
 @pytest.mark.asyncio
 async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
-    """Driving PLAN_WORKFLOW end-to-end against AutoApproveGatePolicy
-    persists the handoff into manifest.yaml; reloading via yaml.safe_load
-    round-trips back into a PlanRunHandoff with field-equal result."""
+    """Driving PLAN_WORKFLOW end-to-end against the default
+    :class:`BypassPolicy` plan-final hook persists the handoff into
+    manifest.yaml; reloading via yaml.safe_load round-trips back into a
+    PlanRunHandoff with field-equal result."""
     from molexp.agent.modes.plan import PLAN_WORKFLOW
 
     workspace = Workspace(tmp_path / "ws")
     handle = PlanWorkspaceHandle.materialize(workspace, plan_id="manifest_handoff")
     fake_provider = FakeProvider()
+    bypass = BypassPolicy()
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
         workspace_handle=handle,
-        gate_policy_lookup=static_gate_policy_lookup(
-            AutoApproveGatePolicy(ApprovalDecision(approved=True))
-        ),
+        final_policy_lookup=lambda: bypass,
     )
     result = await PLAN_WORKFLOW.execute(
         config={"user_input": "Investigate Suzuki coupling at varying temperatures."},
@@ -125,9 +124,9 @@ async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
 # ── HumanReview rejection branch ───────────────────────────────────────────
 
 
-class _RejectingGate:
-    async def human_review(self, _view: object) -> ApprovalDecision:
-        return ApprovalDecision(approved=False, reason="rejected for testing")
+class _RejectingPolicy:
+    async def review(self, _view: ReviewView) -> ReviewDecision:
+        return ReviewDecision(approved=False, reason="rejected for testing")
 
 
 @pytest.mark.asyncio
@@ -136,11 +135,12 @@ async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Pa
 
     workspace = Workspace(tmp_path / "ws")
     handle = PlanWorkspaceHandle.materialize(workspace, plan_id="rejected_plan")
+    rejecting = _RejectingPolicy()
     deps = PlanDeps(
         router=FakeProvider(),
         policy=PlanModelPolicy(),
         workspace_handle=handle,
-        gate_policy_lookup=static_gate_policy_lookup(_RejectingGate()),  # type: ignore[arg-type]
+        final_policy_lookup=lambda: rejecting,
     )
     result = await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)
     # On rejection: the workspace remains reviewable but is not ready for RunMode.

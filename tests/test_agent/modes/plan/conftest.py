@@ -198,7 +198,10 @@ class FakeRouter:
             assert isinstance(entries, dict), f"{schema.__name__} preset must be a dict"
             import json
 
-            payload = json.loads(user)
+            # IR / codegen prompts may append an evidence appendix after
+            # the JSON body — use raw_decode so the trailing markdown
+            # block does not break parsing.
+            payload, _end = json.JSONDecoder().raw_decode(user)
             task_id = payload["task_id"]
             return entries[task_id]  # type: ignore[return-value]
         value = self._presets[schema]

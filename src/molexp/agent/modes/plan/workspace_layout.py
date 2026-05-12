@@ -40,7 +40,7 @@ if TYPE_CHECKING:
         CapabilityNeedReport,
         MissingCapability,
     )
-    from molexp.agent.modes.plan.schemas import ApprovalDecision
+    from molexp.agent.review import ReviewDecision
 
 __all__ = [
     "AGENT_PLAN_EXPERIMENTS_KIND",
@@ -161,7 +161,7 @@ class RepairIterationRecord(BaseModel):
     model_config = _FROZEN
 
     iteration: int
-    target_node_ids: tuple[str, ...] = ()
+    target_steps: tuple[str, ...] = ()
     target_task_ids: tuple[str, ...] = ()
     cascade_downstream: bool = False
     archived_at: datetime
@@ -373,8 +373,8 @@ class PlanWorkspaceHandle:
         """``<plan_id>/repairs/latest_decision.yaml`` — does **not** create the file.
 
         The repair-loop driver writes the most recent
-        :class:`~molexp.agent.modes.plan.schemas.ApprovalDecision` here so
-        a re-attached driver (or an out-of-band inspection tool) can see
+        :class:`~molexp.agent.review.ReviewDecision` here so a
+        re-attached driver (or an out-of-band inspection tool) can see
         what the previous gate decided without re-loading the manifest.
         """
         return self._resolve(("repairs", "latest_decision.yaml"))
@@ -437,8 +437,8 @@ class PlanWorkspaceHandle:
         atomic_write_text(data_path, text)
         return path
 
-    def write_latest_decision(self, decision: ApprovalDecision) -> Path:
-        """Persist the most recent :class:`ApprovalDecision` to
+    def write_latest_decision(self, decision: ReviewDecision) -> Path:
+        """Persist the most recent :class:`ReviewDecision` to
         ``<plan_id>/repairs/latest_decision.yaml`` so an out-of-band
         reader can recover the rejection without parsing the manifest."""
         path = self.latest_decision_path()

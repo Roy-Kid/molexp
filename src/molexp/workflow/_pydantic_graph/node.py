@@ -155,7 +155,9 @@ class WorkflowStep(BaseNode[WorkflowState, WorkflowDeps, WorkflowState]):
         ready, deferred = self._partition_by_data_deps(frame, deps, state)
 
         if not ready:
-            if deferred:
+            if (
+                deferred
+            ):  # pragma: no cover - defensive: compile-time UnreachableTaskError preempts this
                 raise WorkflowDeadlockError(
                     f"Workflow stalled at level {self.level_index}: pending "
                     f"targets {deferred!r} have unsatisfied data dependencies "

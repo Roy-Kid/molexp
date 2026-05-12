@@ -11,8 +11,8 @@ Acceptance criteria covered:
   rejected status.
 - ``PYDA-17`` — :class:`CapabilityDiscoveryRequired` and
   :class:`UnevidencedApiReference` are mapped to synthetic
-  :class:`ApprovalDecision` rows whose ``target_node_ids`` follow the
-  spec's escalation policy.
+  :class:`~molexp.agent.review.ReviewDecision` rows whose ``target_steps``
+  follow the spec's escalation policy.
 """
 
 from __future__ import annotations
@@ -23,52 +23,48 @@ import pytest
 
 from molexp.agent.modes.plan import PlanWorkspaceHandle, RepairBudgetExceeded
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
-from molexp.agent.modes.plan.protocols import PlanDeps, PlanGatePolicy
-from molexp.agent.modes.plan.schemas import (
-    ApprovalDecision,
-    PlanReviewView,
-)
-from molexp.agent.policy import (
-    AutoApproveGatePolicy,
-    GatePolicy,
-    static_gate_policy_lookup,
-)
+from molexp.agent.modes.plan.protocols import PlanDeps
+from molexp.agent.modes.plan.schemas import PlanReviewView
+from molexp.agent.review import BypassPolicy, ReviewDecision, ReviewPolicy, ReviewView
 from molexp.workspace import Workspace
 
 from .conftest import FakeProvider
 
-# ── Stub gates used by the tests ───────────────────────────────────────────
+# ── Stub policies used by the tests ────────────────────────────────────────
 
 
-class _ApproveOnPass(GatePolicy[PlanReviewView, ApprovalDecision]):
-    """Records each ``human_review`` invocation; approves on the configured pass."""
+class _ApproveOnPass:
+    """Records each ``review`` invocation; approves on the configured pass."""
 
     def __init__(self, approve_at: int) -> None:
         self.approve_at = approve_at
         self.calls: list[PlanReviewView] = []
 
-    async def human_review(self, view: PlanReviewView) -> ApprovalDecision:
+    async def review(self, view: ReviewView) -> ReviewDecision:
+        # Plan-final hook receives PlanReviewView instances; record them
+        # for the test assertions below.
+        assert isinstance(view, PlanReviewView)
         self.calls.append(view)
         if len(self.calls) - 1 >= self.approve_at:
-            return ApprovalDecision(approved=True)
-        return ApprovalDecision(
+            return ReviewDecision(approved=True)
+        return ReviewDecision(
             approved=False,
             reason="needs another pass",
-            target_node_ids=("DraftImplementationPlan",),
+            target_steps=("DraftImplementationPlan",),
             target_task_ids=("prepare",),
             cascade_downstream=True,
             feedback="iterate",
         )
 
 
-class _AlwaysReject(GatePolicy[PlanReviewView, ApprovalDecision]):
+class _AlwaysReject:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def human_review(self, view: PlanReviewView) -> ApprovalDecision:
+    async def review(self, view: ReviewView) -> ReviewDecision:
         del view
         self.calls += 1
-        return ApprovalDecision(
+        return ReviewDecision(
             approved=False,
             reason="no",
             target_task_ids=("prepare",),
@@ -84,20 +80,16 @@ def repair_handle(tmp_path: Path) -> PlanWorkspaceHandle:
 
 
 def _build_deps(
-    handle: PlanWorkspaceHandle, *, gate_policy: PlanGatePolicy | None = None
+    handle: PlanWorkspaceHandle, *, final_policy: ReviewPolicy | None = None
 ) -> PlanDeps:
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
 
-    resolved = (
-        gate_policy
-        if gate_policy is not None
-        else AutoApproveGatePolicy(ApprovalDecision(approved=True))
-    )
+    resolved = final_policy if final_policy is not None else BypassPolicy()
     return PlanDeps(
         router=FakeProvider(),  # type: ignore[arg-type]
         policy=STANDARD_PLAN_POLICY,
         workspace_handle=handle,
-        gate_policy_lookup=static_gate_policy_lookup(resolved),
+        final_policy_lookup=lambda: resolved,
     )
 
 
@@ -106,10 +98,10 @@ def _build_deps(
 
 @pytest.mark.asyncio
 async def test_first_pass_approval(repair_handle: PlanWorkspaceHandle) -> None:
-    """ac-011 — gate approves on iteration 0 → drive_with_repair runs PLAN_WORKFLOW
+    """ac-011 — policy approves on iteration 0 → drive_with_repair runs PLAN_WORKFLOW
     exactly once and writes no archives."""
     gate = _ApproveOnPass(approve_at=0)
-    deps = _build_deps(repair_handle, gate_policy=gate)
+    deps = _build_deps(repair_handle, final_policy=gate)
 
     result = await drive_with_repair(deps, "report", max_iterations=4)
 
@@ -128,7 +120,7 @@ async def test_review_view_carries_iteration_state(
 ) -> None:
     """ac-002 — second-iteration `PlanReviewView` carries `repair_iteration=1`."""
     gate = _ApproveOnPass(approve_at=1)
-    deps = _build_deps(repair_handle, gate_policy=gate)
+    deps = _build_deps(repair_handle, final_policy=gate)
 
     result = await drive_with_repair(deps, "report", max_iterations=4)
 
@@ -148,7 +140,7 @@ async def test_partial_rerun_round(repair_handle: PlanWorkspaceHandle) -> None:
     from the prior round (verified via mtime / content stability).
     """
     gate = _ApproveOnPass(approve_at=1)
-    deps = _build_deps(repair_handle, gate_policy=gate)
+    deps = _build_deps(repair_handle, final_policy=gate)
 
     result = await drive_with_repair(deps, "report", max_iterations=4)
 
@@ -164,7 +156,7 @@ async def test_partial_rerun_round(repair_handle: PlanWorkspaceHandle) -> None:
     assert manifest_data["repair_iterations"] == 1
     assert len(manifest_data["repair_history"]) == 1
     record = manifest_data["repair_history"][0]
-    assert record["target_node_ids"] == ["DraftImplementationPlan"]
+    assert record["target_steps"] == ["DraftImplementationPlan"]
     assert record["target_task_ids"] == ["prepare"]
     assert record["cascade_downstream"] is True
 
@@ -174,7 +166,7 @@ async def test_per_task_repair_filter(repair_handle: PlanWorkspaceHandle) -> Non
     """ac-007 — when repair_target_tasks=("prepare",), only prepare's test/impl
     files get fresh content; couple/isolate keep their iter-0 content."""
     gate = _ApproveOnPass(approve_at=1)
-    deps = _build_deps(repair_handle, gate_policy=gate)
+    deps = _build_deps(repair_handle, final_policy=gate)
 
     await drive_with_repair(deps, "report", max_iterations=4)
 
@@ -196,7 +188,7 @@ async def test_max_iterations_budget(repair_handle: PlanWorkspaceHandle) -> None
     """ac-013 — exhausting max_iterations surfaces RepairBudgetExceeded
     and the returned WorkflowResult's HandoffResult has status=='rejected'."""
     gate = _AlwaysReject()
-    deps = _build_deps(repair_handle, gate_policy=gate)
+    deps = _build_deps(repair_handle, final_policy=gate)
 
     with pytest.warns(RepairBudgetExceeded):
         result = await drive_with_repair(deps, "report", max_iterations=2)
@@ -209,6 +201,120 @@ async def test_max_iterations_budget(repair_handle: PlanWorkspaceHandle) -> None
     status = getattr(handoff, "status", None) or handoff["status"]  # type: ignore[index]
     assert status == "rejected"
     assert gate.calls == 2
+
+
+# ── Step-level rejection → subgraph rerun ────────────────────────────────
+
+
+class _RejectStepOnce:
+    """Step policy that rejects ``reject_step`` exactly once.
+
+    All other steps approve unconditionally so the pipeline drives
+    through the materialization once, hits the rejection, and then
+    completes on the partial rerun.  ``call_log`` records the
+    ``step_id`` of every consultation so tests can assert which steps
+    fired in each iteration.
+    """
+
+    def __init__(self, *, reject_step: str) -> None:
+        self.reject_step = reject_step
+        self.rejected_count = 0
+        self.call_log: list[str] = []
+
+    async def review(self, view: ReviewView) -> ReviewDecision:
+        self.call_log.append(view.step_id)
+        if view.step_id == self.reject_step and self.rejected_count == 0:
+            self.rejected_count += 1
+            return ReviewDecision(
+                approved=False,
+                reason=f"step {self.reject_step} rejected once",
+                target_steps=(self.reject_step,),
+                cascade_downstream=True,
+                feedback="please redo",
+            )
+        return ReviewDecision(approved=True)
+
+
+@pytest.mark.asyncio
+async def test_step_rejection_replays_only_rejected_step_and_downstream(
+    repair_handle: PlanWorkspaceHandle,
+) -> None:
+    """A step-policy rejection of ``DraftImplementationPlan`` rebuilds a
+    subgraph that recomputes that step plus its downstream cascade —
+    earlier steps (``IngestReport`` / ``DraftReportDigest``) MUST NOT be
+    rerun.  Observable signal: ``FakeProvider.calls`` for the LLM-bearing
+    upstream nodes stays at exactly one call after the repair completes.
+    """
+    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
+
+    router = FakeProvider()
+    step_policy = _RejectStepOnce(reject_step="DraftImplementationPlan")
+    deps = PlanDeps(
+        router=router,  # type: ignore[arg-type]
+        policy=STANDARD_PLAN_POLICY,
+        workspace_handle=repair_handle,
+        step_policy_lookup=lambda: step_policy,
+    )
+
+    result = await drive_with_repair(deps, "report", max_iterations=4)
+
+    assert result.status == "completed"
+
+    # DraftReportDigest is the only LLM-bearing step strictly upstream
+    # of the rejected node; it should have been called exactly once
+    # across both iterations.
+    upstream_calls = [c for c in router.calls if c[0].startswith("DraftReportDigest")]
+    assert len(upstream_calls) == 1, (
+        f"DraftReportDigest should NOT be re-invoked on the partial rerun; "
+        f"got {len(upstream_calls)} calls: {upstream_calls}"
+    )
+
+    # DraftImplementationPlan, by contrast, is the rejected step and
+    # MUST run twice (initial reject + repair).
+    rejected_calls = [c for c in router.calls if c[0].startswith("DraftImplementationPlan")]
+    assert len(rejected_calls) == 2, (
+        f"DraftImplementationPlan should run twice (initial + repair); "
+        f"got {len(rejected_calls)} calls: {rejected_calls}"
+    )
+
+    # The step policy should record one rejection followed by approvals.
+    assert step_policy.rejected_count == 1
+    assert "DraftImplementationPlan" in step_policy.call_log
+
+
+@pytest.mark.asyncio
+async def test_step_rejection_archives_and_logs_decision(
+    repair_handle: PlanWorkspaceHandle,
+) -> None:
+    """Step-level rejection persists a ``RepairIterationRecord`` and the
+    archived iter-0 tree just like a plan-final rejection — so the audit
+    trail is the same regardless of which hook flagged the run."""
+    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
+
+    router = FakeProvider()
+    step_policy = _RejectStepOnce(reject_step="DraftImplementationPlan")
+    deps = PlanDeps(
+        router=router,  # type: ignore[arg-type]
+        policy=STANDARD_PLAN_POLICY,
+        workspace_handle=repair_handle,
+        step_policy_lookup=lambda: step_policy,
+    )
+
+    await drive_with_repair(deps, "report", max_iterations=4)
+
+    # iter-0 archive exists.
+    iter0 = repair_handle.repairs_dir(0)
+    assert (iter0 / "plan").exists()
+
+    # Manifest carries a single repair_history row targeting the
+    # rejected step with cascade_downstream=True.
+    import yaml
+
+    manifest_data = yaml.safe_load(repair_handle.manifest_path().read_text())
+    assert manifest_data["repair_iterations"] == 1
+    record = manifest_data["repair_history"][0]
+    assert record["target_steps"] == ["DraftImplementationPlan"]
+    assert record["cascade_downstream"] is True
 
 
 # ── PYDA-17 — capability-exception → synthetic decision ───────────────────
@@ -227,7 +333,7 @@ def test_synthesize_decision_for_missing_capability() -> None:
     decision = _synthesize_capability_decision(exc, unevidenced_count=0)
 
     assert decision.approved is False
-    assert decision.target_node_ids == ("DraftCapabilityNeeds", "DiscoverCapabilities")
+    assert decision.target_steps == ("DraftCapabilityNeeds", "DiscoverCapabilities")
     assert decision.cascade_downstream is True
 
 
@@ -243,7 +349,7 @@ def test_synthesize_decision_for_unevidenced_first_iteration() -> None:
         detail="not in evidence batch",
     )
     decision = _synthesize_capability_decision(exc, unevidenced_count=0)
-    assert decision.target_node_ids == ("DiscoverCapabilities",)
+    assert decision.target_steps == ("DiscoverCapabilities",)
     assert decision.cascade_downstream is True
 
 
@@ -258,7 +364,7 @@ def test_synthesize_decision_for_unevidenced_second_iteration_escalates() -> Non
         detail="still wrong",
     )
     decision = _synthesize_capability_decision(exc, unevidenced_count=1)
-    assert decision.target_node_ids == ("DraftCapabilityNeeds", "DiscoverCapabilities")
+    assert decision.target_steps == ("DraftCapabilityNeeds", "DiscoverCapabilities")
 
 
 # ── End-to-end: capability-exception drives a repair iteration ────────────
@@ -279,10 +385,8 @@ class _ProbeFlipsAfterFirstFail:
         self,
         *,
         plan_brief: object,
-        contract: object,
-        briefs: object,
     ) -> object:
-        del plan_brief, contract, briefs
+        del plan_brief
         from molexp.agent.modes.plan.capability import CapabilityNeed, CapabilityNeedReport
 
         return CapabilityNeedReport(
@@ -317,7 +421,8 @@ async def test_capability_exception_drives_repair_iteration(
         router=deps.router,
         policy=deps.policy,
         workspace_handle=deps.workspace_handle,
-        gate_policy_lookup=deps.gate_policy_lookup,
+        step_policy_lookup=deps.step_policy_lookup,
+        final_policy_lookup=deps.final_policy_lookup,
         capability_probe=_ProbeFlipsAfterFirstFail(),
     )
 
@@ -330,10 +435,10 @@ async def test_capability_exception_drives_repair_iteration(
     manifest_data = yaml.safe_load(repair_handle.manifest_path().read_text())
     assert manifest_data["repair_iterations"] >= 1
     # The first repair record is from the capability exception, with
-    # the spec's target_node_ids mapping.
+    # the spec's target_steps mapping.
     record = manifest_data["repair_history"][0]
-    assert "DraftCapabilityNeeds" in record["target_node_ids"]
-    assert "DiscoverCapabilities" in record["target_node_ids"]
+    assert "DraftCapabilityNeeds" in record["target_steps"]
+    assert "DiscoverCapabilities" in record["target_steps"]
     assert record["cascade_downstream"] is True
 
 
@@ -358,7 +463,8 @@ async def test_capability_exception_exhausts_budget(
         router=deps.router,
         policy=deps.policy,
         workspace_handle=deps.workspace_handle,
-        gate_policy_lookup=deps.gate_policy_lookup,
+        step_policy_lookup=deps.step_policy_lookup,
+        final_policy_lookup=deps.final_policy_lookup,
         capability_probe=_AlwaysFails(),
     )
 

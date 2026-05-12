@@ -121,10 +121,10 @@ def test_subsumed_schemas_are_no_longer_importable(removed: str) -> None:
     )
 
 
-def test_approval_decision_remains_importable() -> None:
-    from molexp.agent.modes.plan.schemas import ApprovalDecision
+def test_review_decision_remains_importable() -> None:
+    from molexp.agent.modes.plan.schemas import ReviewDecision
 
-    decision = ApprovalDecision(approved=True, reason="ok")
+    decision = ReviewDecision(approved=True, reason="ok")
     assert decision.approved is True
 
 
@@ -155,13 +155,19 @@ def test_new_schemas_importable_and_frozen(schema_name: str) -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        # ``GatePolicy`` / ``AutoApproveGatePolicy`` /
-        # ``static_gate_policy_lookup`` are workflow-orthogonal and
-        # live at the agent layer (:mod:`molexp.agent.policy`); they
-        # are explicitly NOT defined under ``protocols.py``.
+        # Workflow-orthogonal review primitives live at the agent layer
+        # (:mod:`molexp.agent.review`); they are explicitly NOT defined
+        # under ``protocols.py``.  ``PlanGatePolicy`` was the type-alias
+        # tying GatePolicy to PlanReviewView/ApprovalDecision — gone
+        # with the rename.
         "GatePolicy",
         "AutoApproveGatePolicy",
         "static_gate_policy_lookup",
+        "PlanGatePolicy",
+        "ReviewPolicy",
+        "BypassPolicy",
+        "AutoPolicy",
+        "HumanPolicy",
         "IdentityRepairPolicy",
         "InMemoryPlanStore",
         "NoOpArtifactWriter",
@@ -489,12 +495,12 @@ async def test_custom_policy_observed_by_provider_invoke(
         )
 
 
-# ── ApprovalDecision still importable (sanity) ─────────────────────────────
+# ── ReviewDecision still importable (sanity) ──────────────────────────────
 
 
-def test_approval_decision_round_trips() -> None:
-    from molexp.agent.modes.plan.schemas import ApprovalDecision
+def test_review_decision_round_trips() -> None:
+    from molexp.agent.modes.plan.schemas import ReviewDecision
 
-    original = ApprovalDecision(approved=False, reason="missing data")
-    rebuilt = ApprovalDecision.model_validate_json(original.model_dump_json())
+    original = ReviewDecision(approved=False, reason="missing data")
+    rebuilt = ReviewDecision.model_validate_json(original.model_dump_json())
     assert rebuilt == original

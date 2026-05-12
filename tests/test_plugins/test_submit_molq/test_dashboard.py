@@ -103,11 +103,14 @@ class TestComputeStats:
 def molq_config(tmp_path, monkeypatch):
     """Isolate the molq store + config under tmp_path for the duration of the test.
 
-    Submitor.from_profile uses a default JobStore at ``~/.molq/jobs.db`` — we
-    redirect ``Path.home()`` so test runs never touch the developer's real store.
+    ``Submitor.from_profile`` auto-bootstraps a ``JobStore`` at
+    ``molcfg.project_config_dir('molq') / 'jobs.db'``. Setting
+    ``MOLCRAFTS_HOME`` redirects molcfg's base under ``tmp_path`` so
+    the store, config, and any other molcfg-managed paths land in
+    test scratch.
     """
-    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
-    config_dir = tmp_path / ".molq"
+    monkeypatch.setenv("MOLCRAFTS_HOME", str(tmp_path))
+    config_dir = tmp_path / "molq" / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     config_path = config_dir / "config.toml"
     jobs_dir = tmp_path / "jobs"

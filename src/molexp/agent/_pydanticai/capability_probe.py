@@ -1,16 +1,19 @@
-"""``PydanticAICapabilityProbe`` — pydantic-ai-native capability discovery (Phase 4).
+"""``PydanticAICapabilityProbe`` — pydantic-ai-native capability discovery.
 
 Wraps two ``pydantic_ai.Agent`` instances behind the
 :class:`~molexp.agent.modes.plan.protocols.CapabilityProbe` Protocol:
 
 * :func:`build_needs_agent` — structured agent (no tools) that maps
-  the plan brief / contract / per-task briefs into a
+  the plan brief into a
   :class:`~molexp.agent.modes.plan.capability.CapabilityNeedReport`.
+  Runs *before* the workflow IR is compiled so its only input is the
+  plan brief's natural-language stages.
 * :func:`build_discovery_agent` — structured agent attached to the
-  molmcp MCP server through ``toolsets=[MCPServerStdio(...)]``. The
+  project MCP server through ``toolsets=[MCPServerStdio(...)]``. The
   pydantic-ai SDK drives the agent ↔ MCP loop end-to-end (tool listing,
   call dispatch, retries, output parsing); the
-  :class:`CapabilityEvidenceBatch` it returns is consumed verbatim.
+  :class:`CapabilityEvidenceBatch` it returns is consumed verbatim by
+  ``CompileWorkflowIR`` / ``CompileTaskIR`` to type the workflow IR.
 
 **Behavioural constraint** (rectification spec, Phase 4): no
 hand-rolled MCP dispatch loops, no manual tool-call iteration, no
@@ -41,11 +44,7 @@ from molexp.agent.modes.plan.capability import (
     CapabilityNeedReport,
 )
 from molexp.agent.modes.plan.errors import CapabilityDiscoveryRequired
-from molexp.agent.modes.plan.schemas import (
-    PlanBrief,
-    TaskIRBrief,
-    WorkflowContract,
-)
+from molexp.agent.modes.plan.schemas import PlanBrief
 
 # pydantic-ai's ``Agent(model=...)`` accepts any of these shapes.
 # Mirror the alias router.py uses so the capability_probe surface matches.
@@ -74,29 +73,38 @@ per call via :func:`build_discovery_agent`'s ``retries`` kwarg or
 
 
 _NEEDS_SYSTEM_PROMPT = (
-    "You are a capability-needs drafter for a molecular-simulation "
-    "experiment-planning system. Given a natural-language implementation "
-    "plan, the typed workflow contract, and the per-task briefs, decide "
-    "whether the experiment will need any Molcrafts (molpy / molexp / "
-    "molvis / molpack / molnex / molq / mollog / molcfg) APIs that the "
-    "code generator does not already know about.\n\n"
-    "Set discovery_required=True only when at least one task plausibly "
-    "needs a Molcrafts symbol (a class, callable, constant). Set "
-    "discovery_required=False for pure-stdlib workflows. For each "
-    "drafted need, return a short capability description, a one-sentence "
-    "rationale, an expected_kind hint (class / callable / module / "
-    "constant), and optional query_hints biasing the discovery search."
+    "You are a capability-needs drafter. Given the user goal and the "
+    "current plan context, identify the project capabilities each step "
+    "will need from the project's source code.\n\n"
+    "For each required capability, return a short capability "
+    "description, a one-sentence rationale, an expected_kind hint "
+    "(class / callable / module / constant / protocol / namespace), "
+    "and optional query_hints biasing the downstream MCP search. Use "
+    "the natural-language stage label (or any other identifier present "
+    "in the input) as the task_id field — at this point in the "
+    "pipeline the IR's task_ids do not yet exist, so a stable stage "
+    "label is the source of truth.\n\n"
+    "Set discovery_required=True when at least one step plausibly "
+    "needs a project symbol the code generator does not already know "
+    "about. Set discovery_required=False only for pure-stdlib paths.\n\n"
+    "Do not write code. Do not design TaskIO yet. Only describe what "
+    "the project must supply for the plan to be implementable."
 )
 
 
 _DISCOVERY_SYSTEM_PROMPT = (
     "You are a capability-discovery agent. For every CapabilityNeed in "
-    "the input report, use the molmcp tools (list_modules, list_symbols, "
-    "search_source, get_signature, get_docstring) to find the Molcrafts "
-    "symbol that satisfies the need. Emit one CapabilityEvidence per "
-    "need (api_ref MUST equal f'{module}.{symbol}'). Record any need "
-    "you cannot satisfy as a MissingCapability with the appropriate "
-    "mcp_no_match / mcp_low_confidence / mcp_timeout reason. Set "
+    "the input report, query the project's MCP source-introspection "
+    "tools for relevant modules, functions, classes, signatures, "
+    "docstrings, and return shapes.\n\n"
+    "Emit one CapabilityEvidence per resolved need. The evidence must "
+    "be sufficient for downstream nodes to decide implementation "
+    "strategy and Task input / output types — fill in module, symbol, "
+    "kind, signature, doc_summary, and api_ref (where api_ref equals "
+    "f'{module}.{symbol}').\n\n"
+    "Record any need you cannot satisfy as a MissingCapability with "
+    "the appropriate mcp_no_match / mcp_low_confidence / mcp_timeout "
+    "reason; do not fabricate evidence to fill the gap. Set "
     "discovery_skipped=False on every batch you produce — the caller "
     "sets True only when discovery is short-circuited upstream."
 )
@@ -227,16 +235,14 @@ class PydanticAICapabilityProbe:
         self,
         *,
         plan_brief: PlanBrief,
-        contract: WorkflowContract,
-        briefs: tuple[TaskIRBrief, ...],
     ) -> CapabilityNeedReport:
-        """Run the needs-drafting agent.
+        """Run the needs-drafting agent against the plan brief.
 
-        The user prompt is a YAML-rendered bundle of the plan brief +
-        contract + briefs. pydantic-ai parses the LLM response into a
-        :class:`CapabilityNeedReport` directly via ``output_type``.
+        The user prompt is a YAML-rendered plan brief. pydantic-ai
+        parses the LLM response into a :class:`CapabilityNeedReport`
+        directly via ``output_type``.
         """
-        prompt = _render_needs_prompt(plan_brief, contract, briefs)
+        prompt = _render_needs_prompt(plan_brief)
         _LOG.info(f"[capability-probe] draft_needs prompt_chars={len(prompt)}")
         result = await self._needs_agent.run(prompt)
         report = result.output
@@ -303,23 +309,19 @@ class PydanticAICapabilityProbe:
 # ── Prompt rendering ──────────────────────────────────────────────────────
 
 
-def _render_needs_prompt(
-    plan_brief: PlanBrief,
-    contract: WorkflowContract,
-    briefs: tuple[TaskIRBrief, ...],
-) -> str:
-    """Bundle the plan brief, contract, and per-task briefs into one prompt.
+def _render_needs_prompt(plan_brief: PlanBrief) -> str:
+    """Bundle the plan brief into a YAML prompt for the needs agent.
 
-    YAML keeps the structure readable and matches how the rest of the
-    pipeline persists artefacts; pydantic-ai feeds the string to the
-    model verbatim.
+    Discovery runs before IR compilation so the plan brief is the only
+    upstream artefact at this point in the pipeline; the needs agent
+    drafts one :class:`CapabilityNeed` per stage that plausibly requires
+    project code. pydantic-ai feeds the YAML string to the model verbatim.
     """
-    payload = {
-        "plan_brief": plan_brief.model_dump(mode="json"),
-        "workflow_contract": contract.model_dump(mode="json"),
-        "task_briefs": [b.model_dump(mode="json") for b in briefs],
-    }
-    return yaml.safe_dump(payload, sort_keys=False, default_flow_style=False)
+    return yaml.safe_dump(
+        plan_brief.model_dump(mode="json"),
+        sort_keys=False,
+        default_flow_style=False,
+    )
 
 
 def _render_discovery_prompt(report: CapabilityNeedReport) -> str:
