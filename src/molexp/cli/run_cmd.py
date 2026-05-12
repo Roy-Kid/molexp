@@ -216,14 +216,14 @@ def _dispatch_runs(
         if override_path is not None and ws.root == override_path:
             rprint(f"[dim]--workspace override active: {ws.root}[/dim]")
 
-        for project in ws.registered_projects():
-            for exp in project.registered_experiments():
+        for project in ws.list_projects():
+            for exp in project.list_experiments():
                 if Workflow.for_experiment(exp) is None:
-                    rprint(
-                        f"[red]Error:[/red] Experiment {exp.name!r} has no workflow. "
-                        "Call workflow.bind_to(experiment) before me.entry()."
-                    )
-                    raise typer.Exit(1)
+                    # Unbound experiment — either an orphan left in the
+                    # workspace from a prior run, or a script bug. Skip
+                    # silently; the user's script is what binds workflows
+                    # to experiments via ``Workflow.bind_to(experiment)``.
+                    continue
 
                 seeds = exp.get_seeds()
                 total = exp.n_replicas
@@ -255,7 +255,7 @@ def _dispatch_runs(
                     from molexp.workspace import RunNotFoundError as _RunNotFound
 
                     try:
-                        existing = exp.run(run_id)
+                        existing = exp.get_run(run_id)
                     except _RunNotFound:
                         existing = None
                     if existing is not None and existing.status == "running":
@@ -292,7 +292,7 @@ def _dispatch_runs(
                             continue
                         mol_run = existing
                     else:
-                        mol_run = exp.Run(parameters=run_params, id=run_id)
+                        mol_run = exp.add_run(parameters=run_params, id=run_id)
 
                     created_runs.append((mol_run, seed))
                     icon = "[cyan]>[/cyan]" if resume else "[dim]o[/dim]"

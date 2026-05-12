@@ -158,20 +158,24 @@ def test_id_name_kind_validation_kind(tmp_path: Path, kind: str, valid: bool) ->
 
 # ── ac-004 ────────────────────────────────────────────────────────────────
 def test_parent_root_path_mutual_exclusion(tmp_path: Path) -> None:
-    """``parent`` and ``root_path`` are mutually exclusive; nesting walks chain.
+    """Construction shapes after the sub-spec 03 CRUD rewrite.
 
-    Covers ac-004:
-    - ``parent=None`` with ``root_path=None`` → ``ValueError``.
-    - ``parent=other`` with ``root_path`` set → ``ValueError``.
+    - ``parent=None`` with ``root_path=None`` is the **unmounted state** —
+      legal at construction time but ``.path()`` and ``.materialize()``
+      raise ``RuntimeError`` until ``parent.add_folder(child)`` mounts it.
+    - ``parent=other`` with ``root_path`` set → ``ValueError`` (still
+      mutually exclusive when both are non-None).
     - 3-level nesting walks correctly: ``leaf.path() == root / mid / leaf``.
     """
-    # parent=None with root_path=None → ValueError
-    with pytest.raises(ValueError):
-        Folder(parent=None, name="alpha", kind="test.root", root_path=None)
+    # parent=None with root_path=None is now ALLOWED (unmounted state).
+    unmounted = Folder(parent=None, name="alpha", kind="test.root", root_path=None)
+    assert unmounted._parent is None
+    with pytest.raises(RuntimeError, match="unmounted"):
+        unmounted.path()
 
     other = Folder(parent=None, name="other", kind="test.root", root_path=tmp_path)
 
-    # parent + root_path both given → ValueError
+    # parent + root_path both given → still ValueError.
     with pytest.raises(ValueError):
         Folder(parent=other, name="beta", kind="test.child", root_path=tmp_path)
 
@@ -327,19 +331,8 @@ def test_move_to_collision_raises(tmp_path: Path) -> None:
         folder.move_to(parent_b)
 
 
-# ── ac-009 ────────────────────────────────────────────────────────────────
-def test_kind_pattern_owned_by_folder_module() -> None:
-    """``_KIND_PATTERN`` is the *same object* in folder.py and subsystem.py.
-
-    Covers ac-009. ``subsystem.py`` must reverse-import the regex from
-    ``folder.py``; defining a duplicate literal is a regression. The
-    identity check (``is``) catches the duplicate-literal case because
-    ``re.compile`` returns a fresh object per call.
-    """
-    from molexp.workspace.folder import _KIND_PATTERN as folder_pattern
-    from molexp.workspace.subsystem import _KIND_PATTERN as subsystem_pattern
-
-    assert folder_pattern is subsystem_pattern
+# ── ac-009: legacy reverse-import (deleted by unify-folder-abstraction-03) ──
+# ``subsystem.py`` was removed; ``_KIND_PATTERN`` now lives only in folder.py.
 
 
 # ── ac-010 ────────────────────────────────────────────────────────────────

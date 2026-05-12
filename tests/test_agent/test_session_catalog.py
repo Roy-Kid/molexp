@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from molexp.agent.sessions import (
-    SESSIONS_SUBSYSTEM_KIND,
+    SESSIONS_DIRNAME,
     SessionCatalog,
 )
 from molexp.workspace import Workspace
@@ -51,7 +51,7 @@ def test_create_writes_session_json_under_subsystem_dir(workspace: Workspace) ->
     catalog = SessionCatalog(workspace)
     catalog.create(_session_dict("s-1"))
 
-    expected = workspace.root / ".subsystems" / SESSIONS_SUBSYSTEM_KIND / "s-1" / "session.json"
+    expected = workspace.root / SESSIONS_DIRNAME / "s-1" / "session.json"
     assert expected.exists(), f"session.json should live at {expected}"
     payload = json.loads(expected.read_text())
     assert payload["session_id"] == "s-1"
@@ -92,7 +92,7 @@ def test_get_returns_existing_row_or_none(workspace: Workspace) -> None:
 def test_delete_drops_row_and_directory(workspace: Workspace) -> None:
     catalog = SessionCatalog(workspace)
     catalog.create(_session_dict("s-d"))
-    session_dir = workspace.root / ".subsystems" / SESSIONS_SUBSYSTEM_KIND / "s-d"
+    session_dir = workspace.root / SESSIONS_DIRNAME / "s-d"
     assert session_dir.exists()
 
     catalog.delete("s-d")
@@ -158,7 +158,7 @@ def test_write_then_read_round_trips_pydantic_ai_messages(workspace: Workspace) 
     catalog.write_model_messages("s-mm", original)
 
     expected_path = (
-        workspace.root / ".subsystems" / SESSIONS_SUBSYSTEM_KIND / "s-mm" / "model_messages.json"
+        workspace.root / SESSIONS_DIRNAME / "s-mm" / "model_messages.json"
     )
     assert expected_path.exists(), "write should leave a model_messages.json on disk"
 
@@ -174,7 +174,7 @@ def test_write_empty_messages_deletes_existing_file(workspace: Workspace) -> Non
     catalog = SessionCatalog(workspace)
     catalog.write_model_messages("s-clean", (ModelRequest(parts=[UserPromptPart(content="x")]),))
     path = (
-        workspace.root / ".subsystems" / SESSIONS_SUBSYSTEM_KIND / "s-clean" / "model_messages.json"
+        workspace.root / SESSIONS_DIRNAME / "s-clean" / "model_messages.json"
     )
     assert path.exists()
 

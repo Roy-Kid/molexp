@@ -4,7 +4,7 @@ Inherits :class:`Folder` (sub-spec 02) so it participates in the
 unified workspace folder abstraction: ``kind`` is
 :data:`WORKSPACE_PROJECT_KIND`, ``parent`` is the owning
 :class:`Workspace`. Construction is side-effect free;
-``workspace.Project(...)`` materializes on disk at call-time
+``workspace.add_project(...)`` materializes on disk at call-time
 (idempotent: existing projects are loaded, missing ones are created).
 """
 
@@ -43,8 +43,8 @@ class Project(Folder):
     Example::
 
         ws = Workspace("./lab")
-        project = ws.Project("QM9")
-        exp = project.Experiment("baseline", params={"lr": 1e-3})
+        project = ws.add_project("QM9")
+        exp = project.add_experiment("baseline", params={"lr": 1e-3})
     """
 
     _exists_error_cls = ProjectExistsError
@@ -238,153 +238,60 @@ class Project(Folder):
         """Import a ``DataAsset`` into the project library."""
         return self.data_assets.import_asset(name, src, action, meta)
 
-    # ── Experiment operations (typed wrappers over attach/create_child/get_child) ──
+    # ── Experiment CRUD: typed semantic sugar over generic Folder CRUD ─────
 
-    def Experiment(
-        self,
-        name: str,
-        *,
-        id: str | None = None,
-        params: dict[str, Any] | None = None,
-        n_replicas: int = 1,
-        seeds: list[int] | None = None,
-        workflow_source: str | None = None,
-        workflow_type: str | None = None,
-        git_commit: str | None = None,
-        description: str = "",
-        tags: list[str] | None = None,
-        default_target: str | None = None,
-    ) -> Experiment:
-        """Idempotent constructor — return existing experiment if found, else create.
+    def add_experiment(self, name: str, **kwargs: Any) -> Experiment:
+        """Mount an experiment under this project (idempotent on slug).
 
-        If an experiment with the same ID (or slug from *name*) exists on
-        disk, it is loaded and returned.  Otherwise a new experiment is
-        constructed and materialized.
-
-        ``description`` and ``tags`` are only applied on first creation;
-        reloading an existing experiment does not overwrite them.
-
-        For "must be new" semantics, use :meth:`create_experiment`. For
-        "must already exist", use :meth:`experiment`.
+        One-line wrapper over generic ``add_folder``. The slugified
+        ``name`` doubles as the experiment id when no explicit ``id=``
+        kwarg is given — matching the legacy ``Project.Experiment``
+        factory semantics so ``add_experiment("counter")`` twice returns
+        the same instance.
         """
-        exp = self.attach(
-            name,
-            kind=WORKSPACE_EXPERIMENT_KIND,
-            child_cls=Experiment,
-            id=id,
-            params=params,
-            n_replicas=n_replicas,
-            seeds=seeds,
-            workflow_source=workflow_source,
-            workflow_type=workflow_type,
-            git_commit=git_commit,
-            description=description,
-            tags=tags,
-            default_target=default_target,
-        )
-        if not isinstance(exp, Experiment):  # pragma: no cover — defensive
-            raise TypeError(f"attach returned {type(exp).__name__}, expected Experiment")
+        slug = slugify(name)
+        explicit_id = kwargs.pop("id", None)
+        resolved_id = explicit_id if explicit_id is not None else slug
+        cached = self._experiments_cache.get(resolved_id)
+        if cached is not None:
+            return cached
+        child_dir = Experiment._child_dir(self, resolved_id)
+        if child_dir.is_dir():
+            existing = Experiment._from_disk(child_dir, self)
+            self._experiments_cache[existing.id] = existing
+            self._children_cache[existing.id] = existing
+            return existing
+        exp = Experiment(parent=self, name=name, id=resolved_id, **kwargs)
+        exp.materialize()
         self._experiments_cache[exp.id] = exp
+        self._children_cache[exp.id] = exp
+        self._upsert_index_row(exp)
+        return exp
+
+    def get_experiment(self, name: str) -> Experiment:
+        exp = self.get_folder(name, cls=Experiment)
+        self._experiments_cache[exp.id] = exp
+        return exp
+
+    def has_experiment(self, name: str) -> bool:
+        return self.has_folder(name, cls=Experiment)
+
+    def remove_experiment(self, name: str) -> None:
+        slug = slugify(name)
+        self._experiments_cache.pop(slug, None)
+        self.remove_folder(name, cls=Experiment)
+        self.workspace.catalog.remove_experiment(slug)
         self._refresh_experiments_index()
-        return exp
-
-    def create_experiment(
-        self,
-        name: str,
-        *,
-        id: str | None = None,
-        params: dict[str, Any] | None = None,
-        n_replicas: int = 1,
-        seeds: list[int] | None = None,
-        workflow_source: str | None = None,
-        workflow_type: str | None = None,
-        git_commit: str | None = None,
-        description: str = "",
-        tags: list[str] | None = None,
-        default_target: str | None = None,
-    ) -> Experiment:
-        """Strict constructor — raise :class:`ExperimentExistsError` if exists."""
-        exp = self.create_child(
-            name,
-            kind=WORKSPACE_EXPERIMENT_KIND,
-            child_cls=Experiment,
-            id=id,
-            params=params,
-            n_replicas=n_replicas,
-            seeds=seeds,
-            workflow_source=workflow_source,
-            workflow_type=workflow_type,
-            git_commit=git_commit,
-            description=description,
-            tags=tags,
-            default_target=default_target,
-        )
-        if not isinstance(exp, Experiment):  # pragma: no cover — defensive
-            raise TypeError(f"create_child returned {type(exp).__name__}, expected Experiment")
-        self._experiments_cache[exp.id] = exp
-        self._refresh_experiments_index()
-        return exp
-
-    def experiment(self, experiment_id: str) -> Experiment:
-        """Strict getter — raise :class:`ExperimentNotFoundError` if absent."""
-        exp = self.get_child(experiment_id, kind=WORKSPACE_EXPERIMENT_KIND, child_cls=Experiment)
-        if not isinstance(exp, Experiment):  # pragma: no cover — defensive
-            raise TypeError(f"get_child returned {type(exp).__name__}, expected Experiment")
-        self._experiments_cache[exp.id] = exp
-        return exp
-
-    def registered_experiments(self) -> list[Experiment]:
-        """Return only experiments explicitly registered in the current process.
-
-        Unlike :meth:`list_experiments`, this never scans the disk — it
-        returns exactly the ``Experiment`` instances that were constructed
-        via ``project.Experiment(...)`` in the running script.
-        """
-        return list(self._experiments_cache.values())
 
     def list_experiments(self) -> list[Experiment]:
-        """List all experiments (disk scan merged with in-memory cache).
-
-        For UI/CRUD/discovery. If you want only the experiments registered
-        by the current script, use :meth:`registered_experiments` instead.
-        """
-        seen: dict[str, Experiment] = dict(self._experiments_cache)
-        exp_dir_parent = self.project_dir / "experiments"
-        if exp_dir_parent.exists():
-            for entry in sorted(exp_dir_parent.iterdir()):
-                if entry.is_dir() and (entry / "experiment.json").exists():
-                    e = Experiment._from_disk(entry, self)
-                    seen.setdefault(e.id, e)
-        return list(seen.values())
+        """List all experiments in this project via the typed CRUD view."""
+        return self.list_folders(cls=Experiment)
 
     def children(self, kind: str | None = None) -> list[Folder]:
-        """List child folders, optionally filtered by ``kind``.
-
-        Project's only entity children are :class:`Experiment` instances
-        under ``experiments/``.
-        """
+        """List entity children (currently only :class:`Experiment`)."""
         if kind is not None and kind != WORKSPACE_EXPERIMENT_KIND:
             return []
         return list(self.list_experiments())
-
-    def delete_experiment(self, experiment_id: str) -> None:
-        """Delete an experiment directory and cascade-drop its catalog rows.
-
-        Raises:
-            KeyError: If the experiment is not found.
-        """
-        import shutil
-
-        exp_dir = self.project_dir / "experiments" / experiment_id
-        if not exp_dir.exists():
-            raise KeyError(f"Experiment '{experiment_id}' not found")
-        shutil.rmtree(exp_dir)
-        self._experiments_cache.pop(experiment_id, None)
-        self._children_cache.pop(experiment_id, None)
-        self.workspace.catalog.remove_experiment(experiment_id)
-        self._refresh_experiments_index()
-
-    # ── Internal ────────────────────────────────────────────────────────
 
     def _refresh_experiments_index(self) -> None:
         _rebuild_container_index(

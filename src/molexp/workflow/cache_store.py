@@ -4,14 +4,14 @@
 versioning, and LRU eviction policy. The actual *storage* — read / write /
 list / remove / atime — is delegated through the :class:`CacheStore`
 Protocol so the cache can sit on top of either a plain filesystem
-directory (``FileCacheStore``) or a workspace's private subsystem
-storage (``WorkspaceCacheStore``).
+directory (``FileCacheStore``) or the workspace's singleton ``CacheFolder``
+via ``ws.cache.as_cache_store()`` (returns a ``CacheStore``-conforming
+adapter — see ``molexp.workspace.cache.folder``).
 
-The rectification spec (2026-05-09) introduced this split so workflow
-no longer hardcodes a user-home cache directory; callers backed by a
-workspace get content-addressed entries under
-``<workspace_root>/.subsystems/workflow.cache/`` with workspace's
-atomic-write guarantee.
+Sub-spec ``unify-folder-abstraction-03-system-folder-migration``
+retired the standalone ``WorkspaceCacheStore`` class + the
+``workflow.cache`` subsystem-kind string in favour of the
+``CacheFolder.as_cache_store()`` adapter.
 """
 
 from __future__ import annotations
@@ -21,16 +21,7 @@ import os
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
-
-from molexp.workspace import atomic_write_json
-
-if TYPE_CHECKING:
-    from molexp.workspace import Workspace
-
-# Subsystem identity used by ``WorkspaceCacheStore``. The string is a
-# *workflow-layer* convention; workspace only validates the shape.
-WORKFLOW_CACHE_SUBSYSTEM_KIND = "workflow.cache"
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -84,8 +75,9 @@ class FileCacheStore:
     This is the right backing when a caller wants a cache that lives
     outside any workspace — e.g. the FastAPI server's process-local
     cache; library users running ad-hoc workflows; etc. Workspace-
-    aware callers should reach for :class:`WorkspaceCacheStore`
-    instead.
+    aware callers should reach for ``ws.cache.as_cache_store()``
+    instead (returns a ``CacheStore`` adapter rooted at
+    ``<workspace_root>/cache/``).
     """
 
     def __init__(self, store_dir: Path | str) -> None:
@@ -159,95 +151,7 @@ class FileCacheStore:
         return count
 
 
-# ── Workspace-backed implementation ─────────────────────────────────────
-
-
-class WorkspaceCacheStore:
-    """Workspace-backed :class:`CacheStore`.
-
-    Stores cache entries under
-    ``<workspace_root>/.subsystems/workflow.cache/<key>.json`` via
-    workspace's :class:`SubsystemStore`. Writes go through workspace's
-    public :func:`atomic_write_json` helper so atomicity is workspace's
-    guarantee, not the cache's reinvented one.
-
-    The same workspace can back multiple :class:`Caching` instances —
-    keys are content-addressed (snapshot key + input hash), so
-    collisions across pipelines are vanishingly unlikely.
-    """
-
-    def __init__(self, workspace: Workspace) -> None:
-        self._workspace = workspace
-        self._store = workspace.subsystem_store(WORKFLOW_CACHE_SUBSYSTEM_KIND)
-
-    @property
-    def workspace(self) -> Workspace:
-        return self._workspace
-
-    @property
-    def store_dir(self) -> Path:
-        # Lazily creates the directory on first call — matches the
-        # rest of workspace's "I/O on first touch" rule.
-        return self._store.dir()
-
-    def read(self, key: str) -> str | None:
-        path = _entry_path(self.store_dir, key)
-        if not path.exists():
-            return None
-        try:
-            return path.read_text()
-        except OSError:
-            return None
-
-    def write(self, key: str, content: str) -> None:
-        path = _entry_path(self.store_dir, key)
-        # ``atomic_write_json`` accepts the structural top-type
-        # ``object`` and serializes via ``json.dumps``. The cache
-        # already has a JSON string; round-trip through ``json.loads``
-        # so the on-disk format matches the file-store implementation
-        # (``.json`` files containing canonical JSON).
-        import json as _json
-
-        atomic_write_json(path, _json.loads(content))
-
-    def remove(self, key: str) -> bool:
-        path = _entry_path(self.store_dir, key)
-        if not path.exists():
-            return False
-        path.unlink(missing_ok=True)
-        return True
-
-    def keys(self) -> Iterable[str]:
-        d = self.store_dir
-        return tuple(p.stem for p in d.glob("*.json"))
-
-    def access_time(self, key: str) -> float:
-        path = _entry_path(self.store_dir, key)
-        if not path.exists():
-            return 0.0
-        return path.stat().st_mtime
-
-    def touch(self, key: str) -> None:
-        path = _entry_path(self.store_dir, key)
-        if path.exists():
-            path.touch()
-
-    def total_bytes(self) -> int:
-        d = self.store_dir
-        return sum(p.stat().st_size for p in d.glob("*.json"))
-
-    def clear(self) -> int:
-        d = self.store_dir
-        count = 0
-        for p in d.glob("*.json"):
-            p.unlink(missing_ok=True)
-            count += 1
-        return count
-
-
 __all__ = [
-    "WORKFLOW_CACHE_SUBSYSTEM_KIND",
     "CacheStore",
     "FileCacheStore",
-    "WorkspaceCacheStore",
 ]

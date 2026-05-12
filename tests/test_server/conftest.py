@@ -45,7 +45,7 @@ def workspace(tmp_path):
 
 @pytest.fixture
 def project(workspace):
-    return workspace.Project("test-project")
+    return workspace.add_project("test-project")
 
 
 class _NoopTask(Task):
@@ -69,7 +69,7 @@ def experiment(project):
     Tests that need a dispatch-ready experiment should use
     :func:`experiment_with_entrypoint` instead.
     """
-    return project.Experiment(
+    return project.add_experiment(
         "test-exp",
         workflow_source="train.py",
         params={"lr": 1e-4},
@@ -84,7 +84,7 @@ def experiment_with_entrypoint(project):
     ``resolve_spec_entrypoint`` returns a valid ``<file>:<varname>``
     handle.
     """
-    exp = project.Experiment(
+    exp = project.add_experiment(
         "test-exp",
         workflow_source="train.py",
         params={"lr": 1e-4},
@@ -95,7 +95,7 @@ def experiment_with_entrypoint(project):
 
 @pytest.fixture
 def run(experiment):
-    return experiment.Run(parameters={"lr": 1e-4})
+    return experiment.add_run(parameters={"lr": 1e-4})
 
 
 @pytest.fixture

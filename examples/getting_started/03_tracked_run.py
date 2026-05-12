@@ -29,12 +29,12 @@ async def main() -> None:
     print(f"workspace root: {root}\n")
 
     ws = me.Workspace(root, name="tracked-demo")
-    project = ws.Project("demo")
-    exp = project.Experiment("baseline", params={"lr": 1e-3})
+    project = ws.add_project("demo")
+    exp = project.add_experiment("baseline", params={"lr": 1e-3})
     spec = promote_callable(experiment_body, name="experiment_body")
     spec.bind_to(exp)
 
-    run = exp.Run(parameters={"seed": 42})
+    run = exp.add_run(parameters={"seed": 42})
     with run.start() as ctx:
         await spec.execute(run_context=ctx)
 

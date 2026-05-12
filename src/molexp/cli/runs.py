@@ -64,18 +64,18 @@ def run_create(
 
     try:
         try:
-            project = ws.project(project_id)
+            project = ws.get_project(project_id)
         except _ProjNotFound:
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
             raise typer.Exit(1) from None
 
         try:
-            experiment = project.experiment(experiment_id)
+            experiment = project.get_experiment(experiment_id)
         except _ExpNotFound:
             rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
             raise typer.Exit(1) from None
 
-        r = experiment.Run(parameters=parameters)
+        r = experiment.add_run(parameters=parameters)
         rprint(f"[green]OK[/green] Created run: {r.id}")
         rprint(f"  Project: {project_id}")
         rprint(f"  Experiment: {experiment_id}")
@@ -107,13 +107,13 @@ def run_list(
     )
 
     try:
-        project = ws.project(project_id)
+        project = ws.get_project(project_id)
     except _ProjNotFound:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
         raise typer.Exit(1) from None
 
     try:
-        experiment = project.experiment(experiment_id)
+        experiment = project.get_experiment(experiment_id)
     except _ExpNotFound:
         rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
         raise typer.Exit(1) from None
@@ -214,7 +214,7 @@ def run_cancel(
             for proj in ws.list_projects():
                 for exp in proj.list_experiments():
                     try:
-                        found = exp.run(rid)
+                        found = exp.get_run(rid)
                     except _RunNotFound:
                         continue
                     break
@@ -233,13 +233,13 @@ def run_cancel(
             raise typer.Exit(1)
 
         try:
-            project = ws.project(project_id)
+            project = ws.get_project(project_id)
         except _ProjNotFound:
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
             raise typer.Exit(1) from None
 
         try:
-            experiment = project.experiment(experiment_id)
+            experiment = project.get_experiment(experiment_id)
         except _ExpNotFound:
             rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
             raise typer.Exit(1) from None
@@ -382,19 +382,19 @@ def run_info(
     ws = get_workspace(path)
 
     try:
-        project = ws.project(project_id)
+        project = ws.get_project(project_id)
     except _ProjNotFound:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
         raise typer.Exit(1) from None
 
     try:
-        experiment = project.experiment(experiment_id)
+        experiment = project.get_experiment(experiment_id)
     except _ExpNotFound:
         rprint(f"[red]Error:[/red] Experiment not found: {experiment_id}")
         raise typer.Exit(1) from None
 
     try:
-        r = experiment.run(run_id)
+        r = experiment.get_run(run_id)
     except _RunNotFound:
         rprint(f"[red]Error:[/red] Run not found: {run_id}")
         raise typer.Exit(1) from None

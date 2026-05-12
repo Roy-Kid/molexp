@@ -34,12 +34,12 @@ async def main() -> None:
     print(f"workspace root: {workspace_root}")
 
     ws = me.Workspace(workspace_root, name="quickstart")
-    project = ws.Project("demo")
-    experiment = project.Experiment("train", params={"lr": 1e-3})
+    project = ws.add_project("demo")
+    experiment = project.add_experiment("train", params={"lr": 1e-3})
     spec = promote_callable(train, name="train")
     spec.bind_to(experiment)
 
-    run = experiment.Run(parameters={"seed": 0})
+    run = experiment.add_run(parameters={"seed": 0})
     with run.start() as ctx:
         result = await spec.execute(run_context=ctx)
 

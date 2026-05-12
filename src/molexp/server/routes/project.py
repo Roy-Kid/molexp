@@ -28,7 +28,7 @@ def list_projects(workspace=Depends(get_workspace)) -> list[ProjectResponse]:
 
 @router.get("/{id}", response_model=ProjectResponse)
 def get_project(id: str, workspace=Depends(get_workspace)) -> ProjectResponse:
-    project = workspace.project(id)
+    project = workspace.get_project(id)
     return ProjectResponse.from_model(project, experiment_count=len(project.list_experiments()))
 
 
@@ -37,14 +37,14 @@ def create_project(
     project: ProjectCreateRequest,
     workspace=Depends(get_workspace),
 ) -> ProjectResponse:
-    new_project = workspace.Project(project.name)
+    new_project = workspace.add_project(project.name)
     return ProjectResponse.from_model(new_project)
 
 
 @router.delete("/{id}", response_model=MessageResponse)
 def delete_project(id: str, workspace=Depends(get_workspace)) -> MessageResponse:
     try:
-        workspace.delete_project(id)
+        workspace.remove_project(id)
     except KeyError:
         raise ProjectNotFoundError(id)
     return MessageResponse(message="Project deleted")
@@ -58,13 +58,13 @@ def list_project_assets(
     id: str, limit: int = 100, workspace=Depends(get_workspace)
 ) -> list[AssetResponse]:
     """List every asset (any kind) in the project scope via the catalog."""
-    project = workspace.project(id)
+    project = workspace.get_project(id)
     return [AssetResponse.from_model(a) for a in project.assets.list()[:limit]]
 
 
 @router.get("/{id}/assets/{asset_id}", response_model=AssetResponse)
 def get_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:
-    project = workspace.project(id)
+    project = workspace.get_project(id)
     asset = project.assets.get(asset_id)
     if not asset:
         raise AssetNotFoundError(asset_id)
@@ -78,7 +78,7 @@ async def upload_project_asset(
     workspace=Depends(get_workspace),
 ) -> AssetResponse:
     """Upload a file into the project's ``DataAssetLibrary``."""
-    project = workspace.project(id)
+    project = workspace.get_project(id)
 
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -101,7 +101,7 @@ async def upload_project_asset(
 
 @router.get("/{id}/assets/{asset_id}/download")
 def download_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)):
-    project = workspace.project(id)
+    project = workspace.get_project(id)
     asset = project.assets.get(asset_id)
     if not asset:
         raise AssetNotFoundError(asset_id)

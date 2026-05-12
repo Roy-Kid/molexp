@@ -12,8 +12,8 @@ Example (user script)::
     from molexp.workflow import WorkflowBuilder
 
     ws = me.Workspace("./lab")
-    project = ws.Project("my-project")
-    exp = project.Experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
+    project = ws.add_project("my-project")
+    exp = project.add_experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
     train_spec = WorkflowBuilder(name="train").add(...).build()
     train_spec.bind_to(exp)
     me.entry(ws)
@@ -93,10 +93,10 @@ def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> Workflow | N
     target_exp_id = run.experiment.id
 
     for ws in workspaces:
-        for proj in ws.registered_projects():
+        for proj in ws.list_projects():
             if proj.id != target_project_id:
                 continue
-            for exp in proj.registered_experiments():
+            for exp in proj.list_experiments():
                 if exp.id == target_exp_id:
                     bound = _Workflow.for_experiment(exp)
                     if bound is not None:

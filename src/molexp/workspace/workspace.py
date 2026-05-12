@@ -6,22 +6,23 @@ constructor **does** ensure its root directory + ``workspace.json``
 exist, because every other level needs a materialized workspace as
 anchor.
 
-Child factories (``.Project(...)``) are idempotent: they load existing
+Child factories (``.add_project(...)``) are idempotent: they load existing
 children from disk or create + materialize new ones.
 """
 
 from __future__ import annotations
 
 import shutil
-import warnings
 from pathlib import Path
 
-from .assets import AssetCatalog, AssetScope, AssetsView, DataAssetLibrary
+from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import (
     _load_metadata,
     _rebuild_container_index,
     _save_metadata,
 )
+from .cache import CacheFolder
+from .catalog import AssetCatalog
 from .errors import ProjectExistsError, ProjectNotFoundError
 from .folder import (
     WORKSPACE_PROJECT_KIND,
@@ -30,7 +31,6 @@ from .folder import (
 )
 from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
-from .subsystem import SubsystemStore
 from .utils import slugify
 
 # CLI-level root override: set by ``molexp run -w PATH`` before executing the
@@ -64,8 +64,8 @@ class Workspace(Folder):
     Example::
 
         ws = Workspace("./lab")
-        project = ws.Project("QM9")
-        exp = project.Experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
+        project = ws.add_project("QM9")
+        exp = project.add_experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
     """
 
     _exists_error_cls = ProjectExistsError
@@ -107,7 +107,7 @@ class Workspace(Folder):
         self._data_assets: DataAssetLibrary | None = None
         self._catalog: AssetCatalog | None = None
         self._projects_cache: dict[str, Project] = {}
-        self._subsystem_stores: dict[str, SubsystemStore] = {}
+        self._cache_folder: CacheFolder | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
@@ -172,32 +172,23 @@ class Workspace(Folder):
             self._catalog = AssetCatalog(self.root)
         return self._catalog
 
-    def subsystem_store(self, kind: str) -> SubsystemStore:
-        """Vend a private :class:`SubsystemStore` for ``kind``.
+    # ── System folder accessors (singletons via lowercase property) ──────
 
-        Same kind returns the same instance per workspace. Construction
-        is side-effect-free; the directory is created on first
-        :meth:`SubsystemStore.dir` / :meth:`SubsystemStore.file` call.
+    @property
+    def cache(self) -> CacheFolder:  # type: ignore[override]
+        """The (single) :class:`CacheFolder` for this workspace.
 
-        Deprecated:
-            Use :meth:`attach` or a typed ``*Folder`` subclass. Slated
-            for removal in ``unify-folder-abstraction-03``; the
-            ``DeprecationWarning`` is the bridge that lets workflow /
-            agent callers migrate.
+        Lazily constructed; identity-stable. ``ws.cache is ws.cache``.
+        The underlying ``<root>/cache/`` directory is created on first
+        read/write through the folder.
         """
-        warnings.warn(
-            "Workspace.subsystem_store(kind=...) is deprecated; "
-            "use workspace.attach(...) or a typed *Folder subclass. "
-            "Will be removed in unify-folder-abstraction-03.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        cached = self._subsystem_stores.get(kind)
-        if cached is not None:
-            return cached
-        store = SubsystemStore(self.root, kind)
-        self._subsystem_stores[kind] = store
-        return store
+        if self._cache_folder is None:
+            self._cache_folder = CacheFolder(
+                parent=self,
+                name="cache",
+                kind="workspace.cache",
+            )
+        return self._cache_folder
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -236,111 +227,70 @@ class Workspace(Folder):
         # Constructor handles load-or-create idempotently.
         return cls(root)
 
-    # ── Project operations (typed wrappers over attach/create_child/get_child) ──
+    # ── Project CRUD: typed semantic sugar over generic Folder CRUD ────────
 
-    def Project(self, name: str) -> Project:
-        """Idempotent constructor — return existing project if found, else create.
+    def add_project(self, name: str) -> Project:
+        """Mount a project under this workspace (idempotent on slug).
 
-        Within the same process, repeated calls with the same name return
-        the **same** Project instance — preserving in-memory state such as
-        bound workflows on child experiments.
+        One-line wrapper over generic ``add_folder``:
+        ``ws.add_folder(Project(parent=ws, name=name))``.
 
-        For "must be new" semantics, use :meth:`create_project`. For
-        "must already exist" semantics, use :meth:`project`.
+        Returns the existing project on slug collision (in-memory cache
+        or on-disk dir); fresh-creates + materializes otherwise.
         """
         self._ensure_materialized()
-        proj = self.attach(name, kind=WORKSPACE_PROJECT_KIND, child_cls=Project)
-        if not isinstance(proj, Project):  # pragma: no cover — defensive
-            raise TypeError(f"attach returned {type(proj).__name__}, expected Project")
-        # Folder.attach caches on first create; mirror in legacy cache so
-        # any caller reaching for ``_projects_cache`` keeps working until
-        # sub-spec 03 cleans it up.
+        # Project's __init__ currently requires parent; pass self so the
+        # entity can compute its on-disk path without going through the
+        # unmounted state. add_folder then validates parent is self and
+        # skips the wire-up step.
+        slug = slugify(name)
+        cached = self._children_cache.get(slug)
+        if isinstance(cached, Project):
+            return cached
+        child_dir = Project._child_dir(self, slug)
+        if child_dir.is_dir():
+            existing = Project._from_disk(child_dir, self)
+            self._children_cache[slug] = existing
+            self._projects_cache[existing.id] = existing
+            return existing
+        proj = Project(parent=self, name=name)
+        proj.materialize()
+        self._children_cache[slug] = proj
         self._projects_cache[proj.id] = proj
+        self._upsert_index_row(proj)
+        return proj
+
+    def get_project(self, name: str) -> Project:
+        """Strict getter — raise :class:`ProjectNotFoundError` if absent."""
+        proj = self.get_folder(name, cls=Project)
+        self._projects_cache[proj.id] = proj
+        return proj
+
+    def has_project(self, name: str) -> bool:
+        return self.has_folder(name, cls=Project)
+
+    # ``list_projects`` is defined below as the legacy method; semantics
+    # match the generic ``list_folders(cls=Project)`` view, so we keep
+    # the legacy implementation for now to avoid behavioral drift.
+
+    def remove_project(self, name: str) -> None:
+        """Delete project directory + cascade-drop catalog rows + drop indices."""
+        slug = slugify(name)
+        if slug in self._projects_cache:
+            self._projects_cache.pop(slug, None)
+        self.remove_folder(name, cls=Project)
+        self.catalog.remove_project(slug)
         self._refresh_projects_index()
-        return proj
-
-    def create_project(self, name: str) -> Project:
-        """Strict constructor — raise :class:`ProjectExistsError` if exists.
-
-        Mirror of :meth:`Project` for callers (CLI / API server) that
-        require a fresh project and treat collision as an error.
-        """
-        self._ensure_materialized()
-        proj = self.create_child(name, kind=WORKSPACE_PROJECT_KIND, child_cls=Project)
-        if not isinstance(proj, Project):  # pragma: no cover — defensive
-            raise TypeError(f"create_child returned {type(proj).__name__}, expected Project")
-        self._projects_cache[proj.id] = proj
-        self._refresh_projects_index()
-        return proj
-
-    def project(self, name_or_id: str) -> Project:
-        """Strict getter — raise :class:`ProjectNotFoundError` if absent.
-
-        Accepts a project name or its slugified ID.
-        """
-        proj = self.get_child(name_or_id, kind=WORKSPACE_PROJECT_KIND, child_cls=Project)
-        if not isinstance(proj, Project):  # pragma: no cover — defensive
-            raise TypeError(f"get_child returned {type(proj).__name__}, expected Project")
-        self._projects_cache[proj.id] = proj
-        return proj
-
-    def registered_projects(self) -> list[Project]:
-        """Return only projects explicitly registered in the current process.
-
-        Unlike :meth:`list_projects`, this never scans the disk — it returns
-        exactly the ``Project`` instances that were constructed via
-        ``ws.Project(...)`` in the running script. Use this when the caller's
-        source of truth is the script, not the workspace directory (e.g.
-        ``molexp run`` dispatching workflows). Orphan project dirs left by
-        unrelated scripts are excluded.
-        """
-        return list(self._projects_cache.values())
 
     def list_projects(self) -> list[Project]:
-        """List all projects (disk scan merged with in-memory cache).
-
-        For UI/CRUD/discovery. If you want only the projects registered by
-        the current script, use :meth:`registered_projects` instead.
-        """
-        seen: dict[str, Project] = dict(self._projects_cache)
-        projects_dir = self.root / "projects"
-        if projects_dir.exists():
-            for entry in sorted(projects_dir.iterdir()):
-                if entry.is_dir() and (entry / "project.json").exists():
-                    proj = Project._from_disk(entry, self)
-                    seen.setdefault(proj.id, proj)
-        return list(seen.values())
+        """List all projects in this workspace via the typed CRUD view."""
+        return self.list_folders(cls=Project)
 
     def children(self, kind: str | None = None) -> list[Folder]:
-        """List child folders, optionally filtered by ``kind``.
-
-        Workspace's only entity children are :class:`Project` instances
-        under ``projects/``. Subsystem dirs (under ``.subsystems/``) and
-        the asset catalog (under ``.catalog/``) are deliberately excluded
-        — they're not entity children and don't have the lifecycle
-        contract that :meth:`Folder.children` returns. Sub-spec 03 makes
-        them typed system-folder subclasses.
-        """
+        """List entity children (currently only :class:`Project`)."""
         if kind is not None and kind != WORKSPACE_PROJECT_KIND:
             return []
         return list(self.list_projects())
-
-    def delete_project(self, project_id: str) -> None:
-        """Delete project directory and cascade-drop its catalog rows.
-
-        Raises:
-            KeyError: If project not found.
-        """
-        project_dir = self.root / "projects" / project_id
-        if not project_dir.exists():
-            raise KeyError(f"Project '{project_id}' not found")
-        shutil.rmtree(project_dir)
-        self._projects_cache.pop(project_id, None)
-        self._children_cache.pop(project_id, None)
-        self.catalog.remove_project(project_id)
-        self._refresh_projects_index()
-
-    # ── Internal ────────────────────────────────────────────────────────
 
     def _refresh_projects_index(self) -> None:
         _rebuild_container_index(

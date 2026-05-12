@@ -31,11 +31,11 @@ async def task(ctx: me.RunContext) -> None:
 async def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="molexp-arch-"))
     ws = me.Workspace(root, name="arch-demo")
-    project = ws.Project("demo")
-    exp = project.Experiment("baseline")
+    project = ws.add_project("demo")
+    exp = project.add_experiment("baseline")
     spec = promote_callable(task, name="task")
     spec.bind_to(exp)
-    run = exp.Run()
+    run = exp.add_run()
     with run.start() as ctx:
         await spec.execute(run_context=ctx)
 

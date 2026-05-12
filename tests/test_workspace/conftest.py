@@ -15,12 +15,12 @@ def workspace(tmp_path):
 
 @pytest.fixture
 def project(workspace):
-    return workspace.Project("test-project")
+    return workspace.add_project("test-project")
 
 
 @pytest.fixture
 def experiment(project):
-    return project.Experiment(
+    return project.add_experiment(
         "test-experiment",
         workflow_source="train.py",
         params={"lr": 1e-4},
@@ -30,7 +30,7 @@ def experiment(project):
 
 @pytest.fixture
 def run(experiment):
-    return experiment.Run(parameters={"lr": 1e-4})
+    return experiment.add_run(parameters={"lr": 1e-4})
 
 
 @pytest.fixture

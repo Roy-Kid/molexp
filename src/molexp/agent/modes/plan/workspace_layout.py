@@ -11,14 +11,14 @@ Subsystem reservation: the agent layer owns the kind string
 traversal — matches the workspace charter grammar). Each plan instance
 lives at ``<workspace_root>/.subsystems/agent.plan-experiments/<plan_id>/``;
 ``plan_id`` is generated at first :meth:`PlanWorkspaceHandle.materialize`
-and stable for the lifetime of the plan.
+and stable for the lifetime of the plan. Sub-spec 04 will retire this
+private subsystem dir in favour of a typed ``PlanFolder``.
 
 Lazy materialization: directory creation happens on first ``*_dir()``
-call (mirrors ``SubsystemStore.dir()``); construction itself is
-side-effect-free. ``manifest_path()`` and ``validation_report_path()``
-return the file paths without creating them — they exist only after
-:meth:`PlanWorkspaceHandle.write_manifest` / ``write_validation_report``
-runs.
+call; construction itself is side-effect-free. ``manifest_path()`` and
+``validation_report_path()`` return the file paths without creating
+them — they exist only after :meth:`PlanWorkspaceHandle.write_manifest`
+/ ``write_validation_report`` runs.
 """
 
 from __future__ import annotations
@@ -279,8 +279,15 @@ class PlanWorkspaceHandle:
     # -- Internal helpers ------------------------------------------------
 
     def _subsystem_root(self) -> Path:
-        """Return the kind-private subsystem root (creates it if needed)."""
-        return self._workspace.subsystem_store(AGENT_PLAN_EXPERIMENTS_KIND).dir()
+        """Return the kind-private subsystem root (creates it if needed).
+
+        Transitional: sub-spec 04 will replace this with a typed
+        :class:`PlanFolder`. Until then we compute the legacy path
+        directly so workspace's ``subsystem_store`` API can be retired.
+        """
+        path = self._workspace.root / ".subsystems" / AGENT_PLAN_EXPERIMENTS_KIND
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     def _ensure(self, segments: tuple[str, ...]) -> Path:
         """Resolve, mkdir, and return the path under the plan root."""

@@ -43,7 +43,9 @@ def test_materialize_uses_agent_plan_experiments_subsystem(workspace: Workspace)
     assert isinstance(handle.plan_id, str)
     assert handle.plan_id != ""
 
-    expected_root = workspace.subsystem_store(AGENT_PLAN_EXPERIMENTS_KIND).dir() / handle.plan_id
+    expected_root = (
+        workspace.root / ".subsystems" / AGENT_PLAN_EXPERIMENTS_KIND / handle.plan_id
+    )
     assert handle.root() == expected_root
 
 
@@ -71,7 +73,9 @@ def test_construction_is_side_effect_free_until_first_dir_call(
     PlanWorkspaceHandle.materialize(workspace, plan_id="lazy_plan")
     # The subsystem root may have been created by Workspace's eager
     # init, but the per-plan directory should not exist yet.
-    expected_per_plan = workspace.subsystem_store(AGENT_PLAN_EXPERIMENTS_KIND).dir() / "lazy_plan"
+    expected_per_plan = (
+        workspace.root / ".subsystems" / AGENT_PLAN_EXPERIMENTS_KIND / "lazy_plan"
+    )
     assert not expected_per_plan.exists()
 
 

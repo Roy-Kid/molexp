@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from .base import Asset, AssetScope
 
 if TYPE_CHECKING:
-    from .catalog import AssetCatalog
+    from ..catalog.index import AssetCatalog
 
 
 # Alias avoids the static-checker confusion where the ``list`` method name

@@ -84,7 +84,7 @@ class TestRunFilesAndActions:
         data = resp.json()
         assert data["sourceRunId"] == run.id
         assert data["newRunId"] != run.id
-        new_run = experiment.run(data["newRunId"])
+        new_run = experiment.get_run(data["newRunId"])
         assert new_run is not None
         assert new_run.parameters == run.parameters
 
@@ -92,7 +92,7 @@ class TestRunFilesAndActions:
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
         assert resp.status_code == 200
         assert resp.json()["status"] == "cancelled"
-        refreshed = experiment.run(run.id)
+        refreshed = experiment.get_run(run.id)
         assert refreshed.status == "cancelled"
 
     def test_run_export_returns_zip(self, client, project, experiment, run):
@@ -108,8 +108,8 @@ class TestRunFilesAndActions:
 
 class TestExperimentComparison:
     def test_comparison_aggregates_runs(self, client, project, experiment):
-        r1 = experiment.Run(parameters={"lr": 1e-3})
-        r2 = experiment.Run(parameters={"lr": 1e-4})
+        r1 = experiment.add_run(parameters={"lr": 1e-3})
+        r2 = experiment.add_run(parameters={"lr": 1e-4})
 
         with r1.start() as ctx:
             ctx.set_active_task("train")

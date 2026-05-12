@@ -46,7 +46,7 @@ class _WorkspaceConflictError(ValueError):
 
 
 class ProjectNotFoundError(_WorkspaceLookupError):
-    """Raised by ``Workspace.project(id)`` when no such project exists."""
+    """Raised by ``Workspace.get_project(id)`` when no such project exists."""
 
     _entity_kind = "project"
 

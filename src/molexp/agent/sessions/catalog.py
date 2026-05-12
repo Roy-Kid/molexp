@@ -36,10 +36,11 @@ _SessionRowList = list[_SessionRow]
 if TYPE_CHECKING:
     from molexp.workspace import Workspace
 
-# Subsystem identity. The string is an *agent-layer* convention; workspace
-# only validates the shape (lowercase, no path traversal) — it does not
-# attach semantics to ``agent.sessions``.
-SESSIONS_SUBSYSTEM_KIND = "agent.sessions"
+# Legacy on-disk root for flat session storage: ``<root>/sessions/<sid>/``.
+# New code should use :class:`molexp.agent.folders.Agent` /
+# :class:`molexp.agent.folders.AgentSession`, which mount sessions under
+# their owning Agent (``<root>/agents/<aid>/agent_sessions/<sid>/``).
+SESSIONS_DIRNAME = "sessions"
 SESSION_METADATA_FILENAME = "session.json"
 SESSION_INDEX_FILENAME = "_index.json"
 MODEL_MESSAGES_FILENAME = "model_messages.json"
@@ -138,7 +139,9 @@ class SessionCatalog:
 
     @property
     def _store_dir(self) -> Path:
-        return self._workspace.subsystem_store(SESSIONS_SUBSYSTEM_KIND).dir()
+        path = self._workspace.root / SESSIONS_DIRNAME
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @property
     def _index_path(self) -> Path:
@@ -270,7 +273,7 @@ class SessionCatalog:
 
 __all__ = [
     "MODEL_MESSAGES_FILENAME",
-    "SESSIONS_SUBSYSTEM_KIND",
+    "SESSIONS_DIRNAME",
     "SESSION_METADATA_FILENAME",
     "SessionCatalog",
 ]

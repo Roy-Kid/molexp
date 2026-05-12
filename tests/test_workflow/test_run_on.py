@@ -50,8 +50,8 @@ def _failing_workflow() -> Workflow:
 @pytest.mark.asyncio
 async def test_run_on_returns_workflow_result(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="trivial-exp")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="trivial-exp")
     wf = _trivial_workflow()
 
     result = await wf.run_on(exp)
@@ -63,8 +63,8 @@ async def test_run_on_returns_workflow_result(tmp_path):
 @pytest.mark.asyncio
 async def test_run_on_does_not_auto_bind(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="trivial-exp")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="trivial-exp")
     wf = _trivial_workflow()
 
     assert Workflow.for_experiment(exp) is None
@@ -76,8 +76,8 @@ async def test_run_on_does_not_auto_bind(tmp_path):
 @pytest.mark.asyncio
 async def test_run_on_creates_a_run_under_the_experiment(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="trivial-exp")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="trivial-exp")
     wf = _trivial_workflow()
 
     runs_before = exp.list_runs()
@@ -90,8 +90,8 @@ async def test_run_on_creates_a_run_under_the_experiment(tmp_path):
 @pytest.mark.asyncio
 async def test_run_on_failure_propagates_and_records_failed_status(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="failing-exp")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="failing-exp")
     wf = _failing_workflow()
 
     # The underlying workflow runtime catches task exceptions and stores

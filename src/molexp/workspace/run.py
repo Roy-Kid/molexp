@@ -757,7 +757,7 @@ class Run(Folder):
 
     Example::
 
-        run = experiment.Run(parameters={"lr": 0.001})
+        run = experiment.add_run(parameters={"lr": 0.001})
         with run.start() as ctx:
             result = my_workflow(ctx)
             ctx.set_result("output", result)

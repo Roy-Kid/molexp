@@ -68,19 +68,19 @@ def _get_experiment(workspace, project_id: str, experiment_id: str):
     to map missing entities onto their HTTP 404 responses.
     """
     try:
-        project = workspace.project(project_id)
+        project = workspace.get_project(project_id)
     except WorkspaceProjectNotFoundError:
         return None
     try:
-        return project.experiment(experiment_id)
+        return project.get_experiment(experiment_id)
     except WorkspaceExperimentNotFoundError:
         return None
 
 
 def _get_run_or_none(experiment, run_id: str):
-    """Wrap ``experiment.run(run_id)`` to map ``RunNotFoundError`` → ``None``."""
+    """Wrap ``experiment.get_run(run_id)`` to map ``RunNotFoundError`` → ``None``."""
     try:
-        return experiment.run(run_id)
+        return experiment.get_run(run_id)
     except WorkspaceRunNotFoundError:
         return None
 
@@ -196,7 +196,7 @@ def create_run(
                 detail=f"compute target {run_req.target!r} is not registered on this workspace",
             ) from exc
 
-    run = experiment.Run(
+    run = experiment.add_run(
         parameters=run_req.parameters,
         target=run_req.target,
         workflow_snapshot=_synthesize_snapshot(experiment),
@@ -533,7 +533,7 @@ def rerun_run(
                 detail=f"compute target {inherited_target!r} is not registered on this workspace",
             ) from exc
 
-    new_run = experiment.Run(
+    new_run = experiment.add_run(
         parameters=dict(run.parameters),
         target=inherited_target,
         workflow_snapshot=_synthesize_snapshot(experiment),

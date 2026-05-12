@@ -12,9 +12,9 @@ from molexp.workspace.models import ExecutionRecord
 def _seed_run(
     workspace, *, project_id, experiment_id, parameters, executor_info=None, status="pending"
 ):
-    project = workspace.Project(project_id)
-    experiment = project.Experiment(experiment_id, workflow_source="train.py", params=parameters)
-    run = experiment.Run(parameters=parameters)
+    project = workspace.add_project(project_id)
+    experiment = project.add_experiment(experiment_id, workflow_source="train.py", params=parameters)
+    run = experiment.add_run(parameters=parameters)
     updates = {"status": status}
     if executor_info is not None:
         updates["executor_info"] = executor_info

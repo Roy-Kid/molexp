@@ -36,10 +36,10 @@ from molexp.workspace.assets import (
 
 def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
     ws = Workspace(root=root, name="Test")
-    proj = ws.Project("demo")
-    exp = proj.Experiment("baseline", params={"lr": 1e-3})
+    proj = ws.add_project("demo")
+    exp = proj.add_experiment("baseline", params={"lr": 1e-3})
     for i in range(n_runs):
-        r = exp.Run(parameters={"seed": i})
+        r = exp.add_run(parameters={"seed": i})
         with r.start() as ctx:
             ctx.artifact.save("metrics.json", {"loss": 0.1 * i})
             ctx.log("train").append(f"run {i} starting")
@@ -60,7 +60,7 @@ class TestCatalogRebuild:
         assert len(before["assets"]) >= 9  # 3 runs × (artifact + log + ckpt)
 
         # Wipe and rebuild
-        shutil.rmtree(tmp_path / "lab" / ".catalog")
+        shutil.rmtree(tmp_path / "lab" / "catalog")
         fresh = Workspace(tmp_path / "lab")
         report = fresh.catalog.rebuild()
 
@@ -102,8 +102,8 @@ class TestRunPortability:
         # Build destination workspace scaffolding
         dst_root = tmp_path / "destination"
         dst_ws = Workspace(dst_root, name="Destination")
-        dst_proj = dst_ws.Project("demo")
-        dst_exp = dst_proj.Experiment("baseline", params={"lr": 1e-3})
+        dst_proj = dst_ws.add_project("demo")
+        dst_exp = dst_proj.add_experiment("baseline", params={"lr": 1e-3})
 
         # Move the physical run directory
         src_run_dir = (
@@ -229,7 +229,7 @@ class TestProducerPropagation:
 
     def test_task_id_set_via_set_active_task(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Test")
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             ctx.set_active_task("train")
             asset = ctx.artifact.save("m.json", {"x": 1})
@@ -242,7 +242,7 @@ class TestProducerPropagation:
 class TestConcurrentWrites:
     def test_parallel_artifact_writes_all_registered(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Test")
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         N = 20
         with run.start() as ctx, ThreadPoolExecutor(max_workers=4) as pool:
             futs = [pool.submit(ctx.artifact.save, f"a{i}.json", {"i": i}) for i in range(N)]

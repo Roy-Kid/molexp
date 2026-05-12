@@ -37,12 +37,12 @@ def create_execution(
     materialized so worker processes can pick it up off disk.
     """
     try:
-        project = workspace.project(request.project_id)
+        project = workspace.get_project(request.project_id)
     except WorkspaceProjectNotFoundError:
         raise ProjectNotFoundError(request.project_id) from None
 
     try:
-        experiment = project.experiment(request.experiment_id)
+        experiment = project.get_experiment(request.experiment_id)
     except WorkspaceExperimentNotFoundError:
         raise ExperimentNotFoundError(request.project_id, request.experiment_id) from None
 
@@ -54,7 +54,7 @@ def create_execution(
         spec = Workflow.from_dict(request.workflow_json)
         spec.bind_to(experiment)
 
-    new_run = experiment.Run(parameters=request.parameters)
+    new_run = experiment.add_run(parameters=request.parameters)
     return RunResponse.from_model(new_run)
 
 

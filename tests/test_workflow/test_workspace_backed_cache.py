@@ -1,9 +1,10 @@
-"""``Caching`` over a ``WorkspaceCacheStore`` writes under workspace's subsystem dir.
+"""``Caching`` over ``ws.cache.as_cache_store()`` writes under ``<root>/cache/``.
 
-Verifies the rectification spec's Phase 2 contract — workflow's cache
-sits inside the workspace it serves, not in ``~/.molexp/cache/``.
-Touches the public surface only (``Caching``, ``WorkspaceCacheStore``,
-``WORKFLOW_CACHE_SUBSYSTEM_KIND``).
+Verifies the unify-folder-abstraction sub-spec 03 contract — workflow's
+cache sits inside the workspace it serves (via the singleton
+``CacheFolder`` exposed at ``ws.cache``), not in ``~/.molexp/cache/``.
+Touches the public surface only (``Caching``, the ``CacheStore``
+adapter returned by ``ws.cache.as_cache_store()``).
 """
 
 from __future__ import annotations
@@ -15,10 +16,8 @@ from pathlib import Path
 import pytest
 
 from molexp.workflow import (
-    WORKFLOW_CACHE_SUBSYSTEM_KIND,
     Caching,
     TaskSnapshot,
-    WorkspaceCacheStore,
 )
 from molexp.workspace import Workspace
 
@@ -42,22 +41,22 @@ def snapshot() -> TaskSnapshot:
     )
 
 
-def test_workspace_backed_cache_writes_under_subsystem_dir(
+def test_workspace_backed_cache_writes_under_cache_dir(
     workspace: Workspace, snapshot: TaskSnapshot
 ) -> None:
-    cache = Caching(store=WorkspaceCacheStore(workspace))
+    cache = Caching(store=workspace.cache.as_cache_store())
     cache.put(snapshot, inputs={"x": 1}, result={"y": 2})
 
-    expected_dir = workspace.root / ".subsystems" / WORKFLOW_CACHE_SUBSYSTEM_KIND
+    expected_dir = workspace.root / "cache"
     assert expected_dir.exists(), (
-        f"WorkspaceCacheStore should write under {expected_dir}, but the dir is missing"
+        f"ws.cache.as_cache_store() should write under {expected_dir}, but the dir is missing"
     )
     files = list(expected_dir.glob("*.json"))
     assert len(files) == 1, f"expected exactly one cache entry; got {len(files)}"
 
 
 def test_workspace_backed_cache_round_trip(workspace: Workspace, snapshot: TaskSnapshot) -> None:
-    cache = Caching(store=WorkspaceCacheStore(workspace))
+    cache = Caching(store=workspace.cache.as_cache_store())
     cache.put(snapshot, inputs={"x": 1}, result={"y": 2})
 
     hit = cache.get(snapshot, inputs={"x": 1})
@@ -67,19 +66,17 @@ def test_workspace_backed_cache_round_trip(workspace: Workspace, snapshot: TaskS
 def test_workspace_backed_cache_different_inputs_miss(
     workspace: Workspace, snapshot: TaskSnapshot
 ) -> None:
-    cache = Caching(store=WorkspaceCacheStore(workspace))
+    cache = Caching(store=workspace.cache.as_cache_store())
     cache.put(snapshot, inputs={"x": 1}, result={"y": 2})
 
     assert cache.get(snapshot, inputs={"x": 999}) is None
 
 
 def test_workspace_cache_entry_is_valid_json(workspace: Workspace, snapshot: TaskSnapshot) -> None:
-    cache = Caching(store=WorkspaceCacheStore(workspace))
+    cache = Caching(store=workspace.cache.as_cache_store())
     cache.put(snapshot, inputs={"x": 1}, result={"y": 2})
 
-    entry_path = next(
-        (workspace.root / ".subsystems" / WORKFLOW_CACHE_SUBSYSTEM_KIND).glob("*.json")
-    )
+    entry_path = next((workspace.root / "cache").glob("*.json"))
     payload = json.loads(entry_path.read_text())
     assert payload["snapshot_key"] == snapshot.key
     assert payload["task_id"] == "t1"
@@ -95,10 +92,4 @@ def test_caching_constructor_rejects_both_store_and_dir(
     workspace: Workspace, tmp_path: Path
 ) -> None:
     with pytest.raises(ValueError, match="not accept both"):
-        Caching(store=WorkspaceCacheStore(workspace), store_dir=tmp_path / "fs-cache")
-
-
-def test_workspace_subsystem_kind_constant_is_namespaced() -> None:
-    # The kind name is an *agent-level* convention: workspace just
-    # vends it. The constant is exported as a stability anchor.
-    assert WORKFLOW_CACHE_SUBSYSTEM_KIND == "workflow.cache"
+        Caching(store=workspace.cache.as_cache_store(), store_dir=tmp_path / "fs-cache")

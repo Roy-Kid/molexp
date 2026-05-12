@@ -2,22 +2,15 @@
 
 Introduces ``Folder``: a plain Python class providing the contract every
 directory under a workspace satisfies — lazy mkdir, atomic JSON, id /
-name / kind validation, parent pointer, children listing, lifecycle
+name / kind validation, parent pointer, generic five-verb CRUD
+(``add_folder`` / ``get_folder`` / ``has_folder`` / ``list_folders`` /
+``remove_folder``), auto-derived per-class index filenames, lifecycle
 metadata, and delete / move operations.
-
-This sub-spec ships only the base class. Sub-spec 02 will refactor
-``Workspace`` / ``Project`` / ``Experiment`` / ``Run`` to inherit from
-it; sub-spec 03 introduces the system folders (``SessionFolder`` /
-``CacheFolder`` / ``CatalogFolder``); sub-spec 04 adds ``PlanFolder``
-in the agent layer. Until those sub-specs land, no existing entity
-inherits ``Folder``.
 
 The :data:`_KIND_PATTERN` regex (lowercase ASCII, dot-separated,
 segment chars ``[a-z0-9_-]``, no leading dot, no path traversal, no
-whitespace) was originally defined in :mod:`molexp.workspace.subsystem`
-to validate ``SubsystemStore`` kinds. It moves here because ``Folder``
-is the new canonical owner of that grammar; ``subsystem.py``
-reverse-imports it so behaviour is preserved.
+whitespace) is the canonical grammar for ``Folder.kind`` and the
+slugified-id form of ``Folder.name``.
 """
 
 from __future__ import annotations
@@ -25,10 +18,9 @@ from __future__ import annotations
 import json
 import re
 import shutil
-from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import ClassVar, TypeVar, cast
 
 from molexp._typing import JSONValue
 
@@ -36,6 +28,8 @@ from .base import _load_metadata, _reconstruct, _save_metadata, atomic_write_jso
 from .errors import FolderMoveCollisionError
 from .models import FolderMetadata
 from .utils import slugify
+
+F = TypeVar("F", bound="Folder")
 
 # ── Folder kind taxonomy ─────────────────────────────────────────────────────
 #
@@ -62,6 +56,14 @@ deletes that class).
 _METADATA_FILENAME = "metadata.json"
 
 _FORBIDDEN_FILE_NAMES = {".", ".."}
+
+# Auto-derived index filename: ``cls.__name__`` → snake_case → ``<name>.json``.
+# Used by ``Folder._index_filename()`` so every Folder subclass gets a
+# class-named children index file without per-subclass enumeration:
+# ``Project`` → ``project.json``; ``AgentSession`` → ``agent_session.json``;
+# ``Workspace`` → ``workspace.json`` (overlaps with the workspace's own
+# metadata filename, which lives at a different path — no on-disk collision).
+_CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 
 
 def _validate_kind(kind: str) -> None:
@@ -168,13 +170,15 @@ class Folder:
     def __init__(
         self,
         *,
-        parent: Folder | None,
+        parent: Folder | None = None,
         name: str,
         kind: str,
         root_path: Path | None = None,
     ) -> None:
-        if parent is None and root_path is None:
-            raise ValueError("Folder: either parent or root_path must be provided")
+        # parent=None + root_path=None  → unmounted (no path yet; cannot
+        # materialize until ``parent.add_folder(self)`` mounts it).
+        # parent=Folder                  → mounted under another folder.
+        # root_path=Path                 → IS the root (Workspace only).
         if parent is not None and root_path is not None:
             raise ValueError(
                 "Folder: parent and root_path are mutually exclusive — "
@@ -236,11 +240,44 @@ class Folder:
 
         Used by :meth:`children` and :meth:`delete` so reads on
         non-materialized folders don't side-effect a directory creation.
+
+        Raises:
+            RuntimeError: When the folder is in the unmounted state
+                (``parent`` and ``root_path`` both ``None``) — i.e. the
+                instance was constructed but not yet attached to a parent
+                via ``parent.add_folder(self)``.
         """
         if self._parent is None:
-            assert self._root_path is not None
+            if self._root_path is None:
+                raise RuntimeError(
+                    f"folder {self._name!r} (kind={self._kind!r}) is unmounted — "
+                    "construct via parent.add_folder(child) or pass root_path="
+                )
             return self._root_path / self._name
         return self._parent._compute_path() / self._name
+
+    # ── Auto-derived per-class index filename ──────────────────────────────
+
+    @classmethod
+    def _index_filename(cls) -> str:
+        """Return ``<cls.__name__ as snake_case>.json``.
+
+        The children index of any Folder subclass ``X`` is stored at
+        ``<parent_path>/<x_snake>.json``. ``Folder`` → ``folder.json``;
+        ``Project`` → ``project.json``; ``Experiment`` → ``experiment.json``;
+        ``Run`` → ``run.json``; ``Workspace`` → ``workspace.json``;
+        ``AgentSession`` → ``agent_session.json``.
+
+        Same-name collisions with the parent's own metadata file (e.g.
+        a Project's own ``project.json`` vs. a children index ``project.json``)
+        are avoided by virtue of different paths — the parent's metadata
+        sits at ``<parent_path>/<parent_class_snake>.json`` while the
+        children index sits at ``<self_path>/<child_class_snake>.json``.
+
+        Constraint: a Folder must not have direct children of its own
+        class (would collide self-metadata with child-index filename).
+        """
+        return _CAMEL_TO_SNAKE.sub("_", cls.__name__).lower() + ".json"
 
     # ── Atomic JSON IO ─────────────────────────────────────────────────────
 
@@ -363,137 +400,295 @@ class Folder:
             },
         )
 
-    def attach(
-        self,
-        name: str,
-        *,
-        kind: str,
-        child_cls: type[Folder] | None = None,
-        **child_kwargs: object,
-    ) -> Folder:
-        """Idempotent child constructor — load existing or create + materialize.
+    # ── Generic five-verb CRUD ─────────────────────────────────────────────
+    #
+    # ``add_folder / get_folder / has_folder / list_folders / remove_folder``
+    # operate on any ``Folder`` subclass via the ``cls=`` kwarg. Typed
+    # subclasses layer one-line ``add_<noun> / get_<noun> / has_<noun> /
+    # list_<noun>s / remove_<noun>`` sugar on top.
 
-        Returns the existing child (from in-memory cache or on-disk
-        directory) if present, otherwise constructs + materializes a
-        new one. The derived id (slugified ``name``) is injected as
-        the ``id`` kwarg so entity ``__init__`` records the same id
-        the cache + child-dir lookup used.
+    def add_folder(self, child: Folder) -> Folder:
+        """Mount a pre-constructed unmounted ``Folder`` as a child of ``self``.
+
+        - Wires ``child._parent = self``.
+        - Materializes ``child`` on disk (its own ``<cls>.json`` metadata).
+        - Appends a row to ``self.path() / child.__class__._index_filename()``.
+        - Caches ``child`` in ``self._children_cache``.
+
+        **Idempotent on (slug, kind)**: if a child with the same slugified
+        name and kind already exists (in-memory cache or on-disk dir),
+        returns the existing one — the passed-in ``child`` is dropped.
 
         Args:
-            name: Human-readable child name; slugified to form the id.
-            kind: Folder kind (``_KIND_PATTERN`` taxonomy); persisted on the child.
-            child_cls: Concrete :class:`Folder` subclass to instantiate. Defaults
-                to :class:`Folder` itself.
-            **child_kwargs: Forwarded to the child constructor on fresh creation.
+            child: A freshly-constructed ``Folder`` subclass instance whose
+                ``_parent`` is ``None`` (unmounted state). Re-mounting an
+                already-mounted folder raises ``ValueError``.
 
         Returns:
-            The child instance — typed as ``child_cls`` (downcast at the call site).
+            The mounted child — same instance as ``child`` on fresh mount,
+            or the cached / on-disk instance on idempotent collision.
         """
-        target_cls: type[Folder] = Folder if child_cls is None else child_cls
-        derived_id = _slugify_name_to_id(name)
-        cached = self._children_cache.get(derived_id)
-        if cached is not None and isinstance(cached, target_cls):
+        if child._parent is not None or child._root_path is not None:
+            raise ValueError(
+                f"folder {child._name!r} (kind={child._kind!r}) is already mounted; "
+                "add_folder() accepts only unmounted folders"
+            )
+        target_cls = type(child)
+        slug = child._name  # already slugified by __init__
+        # Idempotent: check cache first, then on-disk.
+        cached = self._children_cache.get(slug)
+        if cached is not None and cached._kind == child._kind:
             return cached
-        child_dir = target_cls._child_dir(self, derived_id)
+        child_dir = target_cls._child_dir(self, slug)
         if child_dir.is_dir():
-            child = target_cls._from_disk(child_dir, self)
-        else:
-            if child_kwargs.get("id") is None:
-                child_kwargs["id"] = derived_id
-            # Type checkers see ``target_cls`` as ``type[Folder]`` whose
-            # ``__init__`` rejects the entity-specific ``**child_kwargs``.
-            # The actual entity ``__init__`` (e.g. ``Experiment.__init__``)
-            # accepts the kwargs; cast to ``Callable[..., Folder]`` to
-            # silence the spurious arity diagnostic.
-            ctor = cast("Callable[..., Folder]", target_cls)
-            child = ctor(parent=self, name=name, kind=kind, **child_kwargs)
-            child.materialize()
-        self._children_cache[derived_id] = child
-        return child
-
-    def create_child(
-        self,
-        name: str,
-        *,
-        kind: str,
-        child_cls: type[Folder] | None = None,
-        **child_kwargs: object,
-    ) -> Folder:
-        """Strict child constructor — collision is an error.
-
-        Mirror of :meth:`attach` for callers that must own the create
-        moment (CLI / API). The exception class is decided by the typed
-        ``child_cls`` so entity factories surface a meaningful
-        ``ProjectExistsError`` / ``ExperimentExistsError`` /
-        ``RunExistsError`` instead of a generic Folder error.
-
-        Args:
-            name: Human-readable child name; slugified to form the id.
-            kind: Folder kind (``_KIND_PATTERN`` taxonomy); persisted on the child.
-            child_cls: Concrete :class:`Folder` subclass to instantiate.
-            **child_kwargs: Forwarded to the child constructor.
-
-        Returns:
-            The freshly materialized child.
-
-        Raises:
-            Exception: Of type ``child_cls._exists_error_cls`` when a child with
-                the derived id already exists in cache or on disk.
-        """
-        target_cls: type[Folder] = Folder if child_cls is None else child_cls
-        derived_id = _slugify_name_to_id(name)
-        if derived_id in self._children_cache:
-            raise target_cls._exists_error_cls(derived_id)
-        if target_cls._child_dir(self, derived_id).is_dir():
-            raise target_cls._exists_error_cls(derived_id)
-        if child_kwargs.get("id") is None:
-            child_kwargs["id"] = derived_id
-        ctor = cast("Callable[..., Folder]", target_cls)
-        child = ctor(parent=self, name=name, kind=kind, **child_kwargs)
+            existing = target_cls._from_disk(child_dir, self)
+            self._children_cache[slug] = existing
+            return existing
+        # Fresh mount.
+        child._parent = self
+        child._root_path = None
         child.materialize()
-        self._children_cache[derived_id] = child
+        self._children_cache[slug] = child
+        self._upsert_index_row(child)
         return child
 
-    def get_child(
-        self,
-        name_or_id: str,
-        *,
-        kind: str | None = None,
-        child_cls: type[Folder] | None = None,
-    ) -> Folder:
+    def get_folder(self, name: str, *, cls: type[F]) -> F:
         """Strict getter — return the existing child or raise.
 
-        ``kind=None`` skips the kind check (useful when callers only
-        have an id). Tries the literal ``name_or_id`` first, then its
-        slugified form.
+        Tries the literal ``name`` first, then ``slugify(name)``. ``cls``
+        decides both the kind filter (via ``cls`` instance check) and the
+        typed reconstruction (via ``cls._from_disk``).
 
         Args:
-            name_or_id: Either the slug-id or a human-readable name.
-            kind: If given, the loaded child's ``kind`` must match exactly.
-            child_cls: Concrete :class:`Folder` subclass used to reconstruct
-                the on-disk row.
-
-        Returns:
-            The cached or freshly loaded child.
+            name: Either the slug-id or the human-readable name.
+            cls: Concrete ``Folder`` subclass to filter by + reconstruct as.
 
         Raises:
-            Exception: Of type ``child_cls._not_found_error_cls`` when no child
-                resolves under either ``name_or_id`` or its slug.
+            Exception: Of type ``cls._not_found_error_cls`` when no child
+                resolves under either ``name`` or its slug as an instance
+                of ``cls``.
         """
-        target_cls: type[Folder] = Folder if child_cls is None else child_cls
-        for candidate in (name_or_id, slugify(name_or_id)):
+        for candidate in (name, slugify(name)):
             if not candidate:
                 continue
             cached = self._children_cache.get(candidate)
-            if cached is not None and (kind is None or cached.kind == kind):
+            if isinstance(cached, cls):
                 return cached
-            child_dir = target_cls._child_dir(self, candidate)
+            child_dir = cls._child_dir(self, candidate)
             if child_dir.is_dir():
-                loaded = target_cls._from_disk(child_dir, self)
-                if kind is None or loaded.kind == kind:
+                loaded = cls._from_disk(child_dir, self)
+                if isinstance(loaded, cls):
                     self._children_cache[loaded._name] = loaded
-                    return loaded
-        raise target_cls._not_found_error_cls(name_or_id)
+                    return cast(F, loaded)
+        raise cls._not_found_error_cls(name)
+
+    def has_folder(self, name: str, *, cls: type[Folder]) -> bool:
+        """Existence check — never raises, never materializes anything."""
+        for candidate in (name, slugify(name)):
+            if not candidate:
+                continue
+            cached = self._children_cache.get(candidate)
+            if isinstance(cached, cls):
+                return True
+            if cls._child_dir(self, candidate).is_dir():
+                return True
+        return False
+
+    def list_folders(self, *, cls: type[F] | None = None) -> list[F]:
+        """List children, optionally filtered by class.
+
+        Reads the per-class index file (``<self_path>/<cls_snake>.json``)
+        as the **authoritative source of truth**. If the index is missing
+        on first access, performs an opportunistic :meth:`sync_folders`
+        to bring it in line with the on-disk directory contents — so
+        the first call after a fresh checkout never returns spurious
+        empties.
+
+        Without ``cls``: returns all ``Folder`` children discovered on
+        disk (any class — falls back to vanilla ``Folder`` reconstruction).
+
+        Index ↔ directory drift is **not** a normal state. Use
+        :meth:`sync_folders` when external tooling has touched the
+        on-disk layout out-of-band; otherwise ``add_folder`` /
+        ``remove_folder`` keep the two in sync.
+        """
+        self_path = self._compute_path()
+        if not self_path.is_dir():
+            return []
+        out: list[F] = []
+        if cls is None:
+            # Vanilla discovery: scan immediate subdirs for any metadata.json.
+            for entry in sorted(self_path.iterdir()):
+                if not entry.is_dir():
+                    continue
+                meta_file = entry / _METADATA_FILENAME
+                if not meta_file.exists():
+                    continue
+                child_meta = _load_metadata(FolderMetadata, meta_file)
+                child = _reconstruct(
+                    Folder,
+                    {
+                        "_parent": self,
+                        "_name": child_meta.id,
+                        "_kind": child_meta.kind,
+                        "_root_path": None,
+                        "_metadata": child_meta,
+                        "_children_cache": {},
+                    },
+                )
+                out.append(cast(F, child))
+            return out
+        # Typed discovery: read the per-class index file.
+        index_path = self_path / cls._index_filename()
+        if not index_path.exists():
+            # Opportunistic sync: rebuild the index from disk so subsequent
+            # reads are O(1) per row. Skips when the container dir is empty.
+            self.sync_folders(cls=cls)
+            if not index_path.exists():
+                return []
+        try:
+            with index_path.open() as fh:
+                raw: object = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            return []
+        if not isinstance(raw, dict):
+            return []
+        for slug in raw:
+            cached = self._children_cache.get(str(slug))
+            if isinstance(cached, cls):
+                out.append(cast(F, cached))
+                continue
+            child_dir = cls._child_dir(self, str(slug))
+            if not child_dir.is_dir():
+                # Stale row — index drifted from disk. Skip; caller can
+                # ``sync_folders`` to clean up.
+                continue
+            try:
+                loaded = cls._from_disk(child_dir, self)
+            except (FileNotFoundError, OSError):
+                continue
+            if isinstance(loaded, cls):
+                self._children_cache[loaded._name] = loaded
+                out.append(cast(F, loaded))
+        return out
+
+    def sync_folders(self, *, cls: type[Folder]) -> None:
+        """Reconcile the per-class index file with on-disk reality.
+
+        Walks ``<self_path>/<cls._container_dir>``, identifies every
+        directory that reconstructs cleanly as an instance of ``cls``,
+        and atomically rewrites ``<self_path>/<cls_snake>.json`` so its
+        rows exactly match what is on disk. Adds rows for new
+        directories, drops rows for vanished ones.
+
+        Called automatically by :meth:`list_folders` on first read when
+        the index file is missing. Use explicitly when external tooling
+        (rsync, manual rm, legacy migration) has touched the directory
+        out-of-band.
+        """
+        container = cls._container_dir(self)
+        index_path = self._compute_path() / cls._index_filename()
+        if not container.is_dir():
+            if index_path.exists():
+                index_path.unlink()
+            return
+        rows: dict[str, dict[str, JSONValue]] = {}
+        for entry in sorted(container.iterdir()):
+            if not entry.is_dir():
+                continue
+            try:
+                child = cls._from_disk(entry, self)
+            except (FileNotFoundError, OSError):
+                continue
+            if isinstance(child, cls):
+                rows[child._name] = child._to_index_row()
+        atomic_write_json(index_path, rows)
+
+    def remove_folder(self, name: str, *, cls: type[Folder]) -> None:
+        """Delete child dir + drop its row from the index file + drop cache."""
+        for candidate in (name, slugify(name)):
+            if not candidate:
+                continue
+            child_dir = cls._child_dir(self, candidate)
+            if child_dir.is_dir():
+                shutil.rmtree(child_dir)
+                self._children_cache.pop(candidate, None)
+                self._remove_index_row(cls, candidate)
+                return
+            cached = self._children_cache.get(candidate)
+            if isinstance(cached, cls):
+                self._children_cache.pop(candidate, None)
+                self._remove_index_row(cls, candidate)
+                return
+        raise cls._not_found_error_cls(name)
+
+    # ── Per-class container dir + index helpers ────────────────────────────
+
+    @classmethod
+    def _container_dir(cls, parent: Folder) -> Path:
+        """Return the directory holding sibling-instances of ``cls`` under ``parent``.
+
+        Default: ``parent.path() / <cls.__name__ snake_case>s`` plural —
+        e.g. ``projects/``, ``experiments/``, ``runs/``. Typed subclasses
+        that already override ``_child_dir`` derive their container from
+        that hook automatically (one entry up). Subclasses with a custom
+        layout (e.g. ``Run`` uses ``runs/run-<id>/``) can override this
+        directly.
+        """
+        sample = cls._child_dir(parent, "_probe_")
+        # Strip the slug component; the parent of any individual child
+        # dir IS the container dir.
+        return sample.parent
+
+    def _upsert_index_row(self, child: Folder) -> None:
+        """Append/refresh ``child``'s row in this folder's children index.
+
+        Row schema: derived from the child's persisted ``FolderMetadata``
+        (id / name / kind / created_at / updated_at). Subclasses that want
+        richer index columns override ``_index_row_for(child)``.
+
+        Atomic: writes through ``atomic_write_json``.
+        """
+        path = self._compute_path() / type(child)._index_filename()
+        rows: dict[str, dict[str, JSONValue]] = {}
+        if path.exists():
+            try:
+                with path.open() as fh:
+                    raw: object = json.load(fh)
+            except (OSError, json.JSONDecodeError):
+                raw = None
+            if isinstance(raw, dict):
+                for k, v in raw.items():
+                    if isinstance(v, dict):
+                        rows[str(k)] = cast("dict[str, JSONValue]", v)
+        rows[child._name] = child._to_index_row()
+        atomic_write_json(path, rows)
+
+    def _remove_index_row(self, cls: type[Folder], slug: str) -> None:
+        path = self._compute_path() / cls._index_filename()
+        if not path.exists():
+            return
+        try:
+            with path.open() as fh:
+                raw: object = json.load(fh)
+        except (OSError, json.JSONDecodeError):
+            return
+        if not isinstance(raw, dict):
+            return
+        if slug not in raw:
+            return
+        raw.pop(slug)
+        atomic_write_json(path, raw)
+
+    def _to_index_row(self) -> dict[str, JSONValue]:
+        """Return the schema this Folder uses when its parent indexes it.
+
+        Default: project ``FolderMetadata`` via ``model_dump(mode='json')``.
+        Entity subclasses (``Project`` / ``Experiment`` / ``Run`` /
+        ``Agent`` / ``AgentSession`` / ``PlanFolder``) override to expose
+        richer columns from their entity-specific metadata.
+        """
+        return cast("dict[str, JSONValue]", self._metadata.model_dump(mode="json"))
 
     # ── Delete + move ──────────────────────────────────────────────────────
 

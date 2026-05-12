@@ -21,7 +21,7 @@ from molexp._typing import TaskOutput
 from ..utils import compute_content_hash, generate_asset_id
 from .artifact import ArtifactAsset
 from .base import Asset, AssetScope, Producer
-from .catalog import AssetCatalog
+from ..catalog.index import AssetCatalog
 from .checkpoint import CheckpointAsset
 from .log import LogAsset
 from .manifest import AssetManifest

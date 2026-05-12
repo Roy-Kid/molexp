@@ -28,12 +28,12 @@ def experiment_create(
 
     try:
         try:
-            project = ws.project(project_id)
+            project = ws.get_project(project_id)
         except ProjectNotFoundError:
             rprint(f"[red]Error:[/red] Project not found: {project_id}")
             raise typer.Exit(1) from None
 
-        experiment = project.Experiment(name)
+        experiment = project.add_experiment(name)
         rprint(f"[green]OK[/green] Created experiment: {experiment.id}")
         rprint(f"  Name: {experiment.name}")
         rprint(f"  Project: {project_id}")
@@ -54,7 +54,7 @@ def experiment_list(
 
     ws = get_workspace(path)
     try:
-        project = ws.project(project_id)
+        project = ws.get_project(project_id)
     except ProjectNotFoundError:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
         raise typer.Exit(1) from None

@@ -29,7 +29,7 @@ class TestContentHash:
 
     def test_artifact_asset_content_hash_present(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Lab")
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             asset = ctx.artifact.save("payload.bin", KNOWN_BYTES)
 
@@ -37,7 +37,7 @@ class TestContentHash:
 
     def test_log_asset_content_hash_is_none(self, tmp_path):
         ws = Workspace(tmp_path / "lab", name="Lab")
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             ctx.log("train").append("hi")
             log_assets = list(run.experiment.list_runs()[0].run_dir.iterdir())
@@ -58,7 +58,7 @@ class TestProducerInputs:
         ws = Workspace(tmp_path / "lab", name="Lab")
         upstream = ws.data_assets.import_asset("input", src)
 
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             mid = ctx.artifact.save("mid.json", {"x": 1}, consumed=[upstream])
             final = ctx.artifact.save("final.json", {"y": 2}, consumed=[upstream, mid])
@@ -75,7 +75,7 @@ class TestLineageTraversal:
         ws = Workspace(tmp_path / "lab", name="Lab")
         a = ws.data_assets.import_asset("a", src)
 
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             b = ctx.artifact.save("b.json", {"step": "b"}, consumed=[a])
             c = ctx.artifact.save("c.json", {"step": "c"}, consumed=[b])
@@ -90,7 +90,7 @@ class TestLineageTraversal:
         # Defensive: if a producer somehow lists its own asset_id, traversal
         # must terminate via the visited set.
         ws = Workspace(tmp_path / "lab", name="Lab")
-        run = ws.Project("p").Experiment("e").Run()
+        run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             asset = ctx.artifact.save("solo.json", {"x": 1})
 

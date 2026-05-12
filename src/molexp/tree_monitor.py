@@ -580,7 +580,7 @@ def _execute_delete(dialog: _DeleteDialog) -> list[str]:
                     if msg is not None:
                         warnings.append(msg)
                         continue  # do NOT delete if cancel failed
-                run.experiment.delete_run(run.id)
+                run.experiment.remove_run(run.id)
             elif node.kind == "execution":
                 assert (
                     isinstance(node.ref, tuple)
@@ -598,11 +598,11 @@ def _execute_delete(dialog: _DeleteDialog) -> list[str]:
             elif node.kind == "experiment":
                 assert isinstance(node.ref, Experiment)
                 exp = node.ref
-                exp.project.delete_experiment(exp.id)
+                exp.project.remove_experiment(exp.id)
             elif node.kind == "project":
                 assert isinstance(node.ref, Project)
                 proj = node.ref
-                proj.workspace.delete_project(proj.id)
+                proj.workspace.remove_project(proj.id)
         except Exception as exc:  # pragma: no cover - surface anything unexpected
             warnings.append(f"delete failed for {_describe_target(node)}: {exc}")
     return warnings

@@ -1,6 +1,6 @@
 """Workspace-level JSON catalog.
 
-One file: ``<workspace_root>/.catalog/index.json``.  Sections:
+One file: ``<workspace_root>/catalog/index.json``.  Sections:
 
     workspaces  projects  experiments  runs  executions  assets  consumes
 
@@ -17,12 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from ._adapter import ASSET_ADAPTER, parse_asset
-from .base import Asset, AssetScope
-from .manifest import MANIFEST_FILENAME, AssetManifest
+from ..assets._adapter import ASSET_ADAPTER, parse_asset
+from ..assets.base import Asset, AssetScope
+from ..assets.manifest import MANIFEST_FILENAME, AssetManifest
 
 CATALOG_SCHEMA_VERSION = 2
-CATALOG_DIRNAME = ".catalog"
+CATALOG_DIRNAME = "catalog"
 CATALOG_FILENAME = "index.json"
 
 _EMPTY_CATALOG: dict[str, Any] = {
@@ -498,4 +498,11 @@ def _iter_manifest_paths(workspace_root: Path):
 
 # Also expose AssetManifest here for convenience when scope entities
 # want to construct their own local manifest:
-__all__ = ["CATALOG_FILENAME", "AssetCatalog", "AssetManifest", "RebuildReport"]
+__all__ = [
+    "CATALOG_DIRNAME",
+    "CATALOG_FILENAME",
+    "CATALOG_SCHEMA_VERSION",
+    "AssetCatalog",
+    "AssetManifest",
+    "RebuildReport",
+]

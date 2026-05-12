@@ -17,9 +17,9 @@ runner = CliRunner()
 @pytest.fixture
 def seeded_workspace(tmp_path):
     ws = Workspace(root=tmp_path, name="prune-lab")
-    project = ws.Project("proj-a")
-    exp = project.Experiment("exp-x", workflow_source="s.py", params={})
-    run = exp.Run(parameters={"seed": 1})
+    project = ws.add_project("proj-a")
+    exp = project.add_experiment("exp-x", workflow_source="s.py", params={})
+    run = exp.add_run(parameters={"seed": 1})
 
     # Seed three executions: two failed, one succeeded.
     history = []
@@ -61,7 +61,7 @@ def test_prune_deletes_failed_executions(seeded_workspace):
     # Reload metadata and check history.
     from molexp.workspace import Workspace as _WS
 
-    reloaded = _WS.load(ws_path).project("proj-a").experiment("exp-x").run(run.id)
+    reloaded = _WS.load(ws_path).get_project("proj-a").get_experiment("exp-x").get_run(run.id)
     assert [e.execution_id for e in reloaded.metadata.execution_history] == [f"exec-{run.id}"]
 
 
@@ -98,9 +98,9 @@ def test_prune_range_syntax(seeded_workspace):
 
 def test_prune_refuses_live_running_record(tmp_path):
     ws = Workspace(root=tmp_path, name="live-lab")
-    project = ws.Project("proj-a")
-    exp = project.Experiment("exp-x", workflow_source="s.py", params={})
-    run = exp.Run(parameters={})
+    project = ws.add_project("proj-a")
+    exp = project.add_experiment("exp-x", workflow_source="s.py", params={})
+    run = exp.add_run(parameters={})
 
     exec_id = f"exec-{run.id}"
     (run.run_dir / "executions" / exec_id).mkdir(parents=True)

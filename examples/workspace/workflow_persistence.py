@@ -42,13 +42,13 @@ async def main() -> None:
     _FAIL_ONCE_MARKER = root / "fail-once"
 
     ws = me.Workspace(root, name="persist-demo")
-    project = ws.Project("demo")
-    exp = project.Experiment("train")
+    project = ws.add_project("demo")
+    exp = project.add_experiment("train")
     spec = promote_callable(flaky_train, name="flaky_train")
     spec.bind_to(exp)
 
     cfg = ProfileConfig({"epochs": 5}, name="smoke")
-    run = exp.Run(parameters={"seed": 0})
+    run = exp.add_run(parameters={"seed": 0})
 
     # ``execute()`` captures task failures and records them on the run
     # without re-raising — inspect ``result.status`` instead.

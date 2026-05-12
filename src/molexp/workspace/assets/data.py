@@ -18,7 +18,7 @@ from ..utils import compute_content_hash, generate_asset_id
 from .base import Asset, AssetScope, Producer
 
 if TYPE_CHECKING:
-    from .catalog import AssetCatalog
+    from ..catalog.index import AssetCatalog
 
 
 ImportAction = Literal["copy", "move", "symlink", "hardlink"]

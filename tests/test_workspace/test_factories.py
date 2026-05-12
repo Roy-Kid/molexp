@@ -1,16 +1,15 @@
-"""SRP factory split + workspace error hierarchy.
+"""Typed semantic-sugar CRUD + workspace error hierarchy.
 
-Covers acceptance criteria ac-001, ac-002, ac-003 of the
-``oop-api-rectification`` spec:
+Covers the post-rectification ``unify-folder-abstraction-03`` spec
+acceptance — workspace entities all subclass ``Folder`` and expose a
+snake_case verb-noun CRUD (``add_* / get_* / has_* / list_*s / remove_*``)
+that is one-line sugar over the generic ``Folder.add_folder / get_folder
+/ has_folder / list_folders / remove_folder``. All ``add_*`` verbs are
+**idempotent** on slugified name (return the cached / on-disk instance
+on collision); strict ``get_*`` raises typed ``*NotFoundError``.
 
-- ``workspace/errors.py`` exists with six concrete exception classes
-- ``Workspace.Project / .create_project / .project`` enforce
-  idempotent / strict-create / strict-get semantics; mirrored on
-  ``Project.Experiment / .create_experiment / .experiment`` and
-  ``Experiment.Run / .create_run / .run``
-- ``Workspace.get_project`` / ``Project.get_experiment`` /
-  ``Experiment.get_run`` are removed — the strict lowercase getters
-  replace them.
+The legacy PascalCase / ``create_*`` / lowercase-strict-get / ``delete_*``
+triplets are retired by the same spec.
 """
 
 from __future__ import annotations
@@ -47,124 +46,109 @@ def test_errors_module_carries_entity_id_in_message():
     assert "demo-exp" in str(ExperimentExistsError("demo-exp"))
 
 
-# ── Workspace SRP factory split ────────────────────────────────────────────
+# ── Workspace CRUD ─────────────────────────────────────────────────────────
 
 
-def test_workspace_Project_is_idempotent(tmp_path):
+def test_workspace_add_project_is_idempotent(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    p1 = ws.Project(name="demo")
-    p2 = ws.Project(name="demo")
+    p1 = ws.add_project(name="demo")
+    p2 = ws.add_project(name="demo")
     assert p1 is p2
     assert p1.name == "demo"
 
 
-def test_workspace_create_project_raises_on_collision(tmp_path):
+def test_workspace_get_project_is_strict_getter(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    ws.create_project(name="demo")
-    with pytest.raises(ProjectExistsError) as exc:
-        ws.create_project(name="demo")
-    assert "demo" in str(exc.value)
-
-
-def test_workspace_project_is_strict_getter(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    ws.Project(name="demo")
-    got = ws.project("demo")
+    ws.add_project(name="demo")
+    got = ws.get_project("demo")
     assert got.name == "demo"
 
 
-def test_workspace_project_raises_on_missing(tmp_path):
+def test_workspace_get_project_raises_on_missing(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
     with pytest.raises(ProjectNotFoundError) as exc:
-        ws.project("never-created")
+        ws.get_project("never-created")
     assert "never-created" in str(exc.value)
 
 
-def test_workspace_get_project_is_removed(tmp_path):
+def test_workspace_exposes_typed_semantic_sugar(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    assert not hasattr(ws, "get_project")
+    assert hasattr(ws, "add_project")
+    assert hasattr(ws, "get_project")
+    assert hasattr(ws, "has_project")
+    assert hasattr(ws, "list_projects")
+    assert hasattr(ws, "remove_project")
 
 
-# ── Project SRP factory split ──────────────────────────────────────────────
+# ── Project CRUD ───────────────────────────────────────────────────────────
 
 
-def test_project_Experiment_is_idempotent(tmp_path):
+def test_project_add_experiment_is_idempotent(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    e1 = proj.Experiment(name="counter")
-    e2 = proj.Experiment(name="counter")
+    proj = ws.add_project(name="demo")
+    e1 = proj.add_experiment(name="counter")
+    e2 = proj.add_experiment(name="counter")
     assert e1 is e2
 
 
-def test_project_create_experiment_raises_on_collision(tmp_path):
+def test_project_get_experiment_is_strict_getter(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    proj.create_experiment(name="counter")
-    with pytest.raises(ExperimentExistsError):
-        proj.create_experiment(name="counter")
-
-
-def test_project_experiment_is_strict_getter(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    proj.Experiment(name="counter")
-    got = proj.experiment("counter")
+    proj = ws.add_project(name="demo")
+    proj.add_experiment(name="counter")
+    got = proj.get_experiment("counter")
     assert got.name == "counter"
 
 
-def test_project_experiment_raises_on_missing(tmp_path):
+def test_project_get_experiment_raises_on_missing(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
+    proj = ws.add_project(name="demo")
     with pytest.raises(ExperimentNotFoundError):
-        proj.experiment("never-created")
+        proj.get_experiment("never-created")
 
 
-def test_project_get_experiment_is_removed(tmp_path):
+def test_project_exposes_typed_semantic_sugar(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    assert not hasattr(proj, "get_experiment")
+    proj = ws.add_project(name="demo")
+    assert hasattr(proj, "add_experiment")
+    assert hasattr(proj, "get_experiment")
+    assert hasattr(proj, "has_experiment")
+    assert hasattr(proj, "remove_experiment")
 
 
-# ── Experiment SRP factory split ───────────────────────────────────────────
+# ── Experiment CRUD ────────────────────────────────────────────────────────
 
 
-def test_experiment_Run_is_idempotent(tmp_path):
+def test_experiment_add_run_is_idempotent(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="counter")
-    r1 = exp.Run(parameters={"lr": 1e-3}, id="r1")
-    r2 = exp.Run(parameters={"lr": 1e-3}, id="r1")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="counter")
+    r1 = exp.add_run(parameters={"lr": 1e-3}, id="r1")
+    r2 = exp.add_run(parameters={"lr": 1e-3}, id="r1")
     assert r1.id == r2.id == "r1"
 
 
-def test_experiment_create_run_raises_on_collision(tmp_path):
+def test_experiment_get_run_is_strict_getter(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="counter")
-    exp.create_run(parameters={"lr": 1e-3}, id="r1")
-    with pytest.raises(RunExistsError):
-        exp.create_run(parameters={"lr": 1e-3}, id="r1")
-
-
-def test_experiment_run_is_strict_getter(tmp_path):
-    ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="counter")
-    exp.Run(parameters={"lr": 1e-3}, id="r1")
-    got = exp.run("r1")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="counter")
+    exp.add_run(parameters={"lr": 1e-3}, id="r1")
+    got = exp.get_run("r1")
     assert got.id == "r1"
 
 
-def test_experiment_run_raises_on_missing(tmp_path):
+def test_experiment_get_run_raises_on_missing(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="counter")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="counter")
     with pytest.raises(RunNotFoundError):
-        exp.run("never-created")
+        exp.get_run("never-created")
 
 
-def test_experiment_get_run_is_removed(tmp_path):
+def test_experiment_exposes_typed_semantic_sugar(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
-    proj = ws.Project(name="demo")
-    exp = proj.Experiment(name="counter")
-    assert not hasattr(exp, "get_run")
+    proj = ws.add_project(name="demo")
+    exp = proj.add_experiment(name="counter")
+    assert hasattr(exp, "add_run")
+    assert hasattr(exp, "get_run")
+    assert hasattr(exp, "has_run")
+    assert hasattr(exp, "remove_run")

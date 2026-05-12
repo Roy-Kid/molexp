@@ -4,8 +4,8 @@ Hierarchy: Workspace -> Project -> Experiment -> Run
 
 Workspace is the bottom of the molexp dependency DAG: it knows about
 filesystem layout, atomic JSON I/O, content-addressed assets, and
-generic subsystem storage — and nothing about workflows, sessions,
-agents, or LLMs. The workflow layer uses workspace for caching and
+typed system folders — and nothing about workflows, sessions, agents,
+or LLMs. The workflow layer uses workspace for caching and
 persistence; the agent layer uses workspace for session storage.
 Cross-layer payloads are stored as opaque JSON dicts here; the
 upstream layers own the typed shape and own the typed parsing on
@@ -15,8 +15,13 @@ Each scope exposes:
 
 - ``{scope}.assets``       — read-only catalog view (typed Asset queries)
 - ``{scope}.data_assets``  — ``DataAssetLibrary`` for importing user inputs
-- ``workspace.catalog``    — full workspace-level ``AssetCatalog``
-- ``workspace.subsystem_store(kind)`` — generic per-kind private dir
+- ``workspace.catalog``    — full workspace-level ``AssetCatalog`` (singleton property)
+- ``workspace.cache``      — ``CacheFolder`` (singleton property; exposes ``as_cache_store()``)
+
+Upstream layers extend the workspace tree by importing the public
+``Folder`` base class and mounting their own subclasses via the
+generic five-verb CRUD — see ``molexp.agent.folders`` for the
+``Agent`` / ``AgentSession`` pair.
 """
 
 from .assets import (
@@ -36,6 +41,8 @@ from .assets import (
     Producer,
 )
 from .base import atomic_write_json, atomic_write_text
+from .cache import WORKSPACE_CACHE_KIND, CacheFolder
+from .catalog import WORKSPACE_CATALOG_KIND
 from .context import Context
 from .errors import (
     ExperimentExistsError,
@@ -67,7 +74,6 @@ from .models import (
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
 from .run import Run, RunContext, RunStatus
-from .subsystem import SubsystemStore
 from .targets import (
     add_target,
     get_target,
@@ -81,6 +87,8 @@ from .workspace import Workspace
 
 __all__ = [
     # Folder kind taxonomy (unify-folder-abstraction-02)
+    "WORKSPACE_CACHE_KIND",
+    "WORKSPACE_CATALOG_KIND",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",
@@ -92,6 +100,8 @@ __all__ = [
     "AssetManifest",
     "AssetScope",
     "AssetsView",
+    # System folders (unify-folder-abstraction-03)
+    "CacheFolder",
     "CheckpointAsset",
     "ComputeTarget",
     # Context
@@ -128,8 +138,6 @@ __all__ = [
     "RunMetadata",
     "RunNotFoundError",
     "RunStatus",
-    # Subsystem storage primitive
-    "SubsystemStore",
     "UniformSpace",
     # Entities
     "Workspace",

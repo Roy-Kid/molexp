@@ -24,7 +24,7 @@ def project_create(
     ws = get_workspace(path)
 
     try:
-        project = ws.project(name)
+        project = ws.get_project(name)
         rprint(f"[green]OK[/green] Created project: {project.id}")
         rprint(f"  Name: {project.name}")
     except Exception as e:
@@ -73,7 +73,7 @@ def project_info(
 
     ws = get_workspace(path)
     try:
-        project = ws.project(project_id)
+        project = ws.get_project(project_id)
     except ProjectNotFoundError:
         rprint(f"[red]Error:[/red] Project not found: {project_id}")
         raise typer.Exit(1) from None

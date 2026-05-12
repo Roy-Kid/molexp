@@ -41,23 +41,22 @@ cluster workers) can recover it via
 Layer position: **workflow uses workspace, agent uses both**. The
 graph algorithm (compiler, scheduler, IR round-trip) is workspace-
 agnostic, but caching and run-state persistence delegate through
-workspace storage primitives — :class:`WorkspaceCacheStore`
-(backed by ``Workspace.subsystem_store("workflow.cache")``) for the
-content-addressed result cache, and :func:`molexp.workspace.atomic_write_json`
-for ``workflow.json`` snapshots under the run dir. Cross-layer
-payloads coming *down* from the agent flow through duck-typed
-``run_context`` (opaque) or ``Mapping[str, JSONValue]`` config — see
-``§ Layer charters`` in CLAUDE.md and the import-guard tests under
+workspace storage primitives — the workspace's singleton
+``CacheFolder`` (``ws.cache.as_cache_store()`` returns a
+``CacheStore``-conforming adapter) for the content-addressed result
+cache, and :func:`molexp.workspace.atomic_write_json` for
+``workflow.json`` snapshots under the run dir. Cross-layer payloads
+coming *down* from the agent flow through duck-typed ``run_context``
+(opaque) or ``Mapping[str, JSONValue]`` config — see ``§ Layer
+charters`` in CLAUDE.md and the import-guard tests under
 ``tests/test_workflow/`` for the binding rules.
 """
 
 from ._pydantic_graph.runtime import make_execution_id
 from .cache import Caching
 from .cache_store import (
-    WORKFLOW_CACHE_SUBSYSTEM_KIND,
     CacheStore,
     FileCacheStore,
-    WorkspaceCacheStore,
 )
 from .compiler import (
     WorkflowCompiler,
@@ -163,7 +162,6 @@ __all__ = [
     "Workflow",
     # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec)
     "WorkflowCompiler",
-    "WORKFLOW_CACHE_SUBSYSTEM_KIND",
     # Sidecar contract wrapper
     "WorkflowContract",
     "WorkflowDeadlockError",
@@ -178,7 +176,6 @@ __all__ = [
     "WorkflowVersionConflictError",
     # Builder for the Workflow (decorator + OOP, calls .build() to freeze)
     "WorkflowBuilder",
-    "WorkspaceCacheStore",
     "default_compiler",
     "default_registry",
     # Default validation check tuple (applied when contract.validation_checks is empty)

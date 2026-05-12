@@ -6,16 +6,20 @@ from datetime import datetime
 
 import pytest
 
-from molexp.workspace import Workspace
+from molexp.workspace import (
+    ExperimentNotFoundError,
+    RunNotFoundError,
+    Workspace,
+)
 from molexp.workspace.models import ExecutionRecord
 
 
 def _build(tmp_path):
     ws = Workspace(root=tmp_path, name="lab")
     ws.materialize()
-    p = ws.Project("proj-a")
-    e = p.Experiment("exp-x", workflow_source="s.py", params={})
-    r = e.Run(parameters={"seed": 1})
+    p = ws.add_project("proj-a")
+    e = p.add_experiment("exp-x", workflow_source="s.py", params={})
+    r = e.add_run(parameters={"seed": 1})
 
     # Seed two execution dirs + history entries
     hist = []
@@ -66,21 +70,21 @@ class TestDeleteRun:
         _ws, _p, e, r = _build(tmp_path)
         run_dir = r.run_dir
         assert run_dir.exists()
-        e.delete_run(r.id)
+        e.remove_run(r.id)
         assert not run_dir.exists()
 
     def test_cascades_executions_in_catalog(self, tmp_path):
         ws, _p, e, r = _build(tmp_path)
         r.save()
         assert ws.catalog.query_executions(run_id=r.id)
-        e.delete_run(r.id)
+        e.remove_run(r.id)
         assert ws.catalog.query_executions(run_id=r.id) == []
         assert ws.catalog.query_runs(experiment_id=e.id) == []
 
     def test_unknown_run_raises(self, tmp_path):
         _ws, _p, e, _r = _build(tmp_path)
-        with pytest.raises(KeyError):
-            e.delete_run("nope")
+        with pytest.raises(RunNotFoundError):
+            e.remove_run("nope")
 
 
 class TestDeleteExperiment:
@@ -88,28 +92,28 @@ class TestDeleteExperiment:
         _ws, p, e, _r = _build(tmp_path)
         exp_dir = e.experiment_dir
         assert exp_dir.exists()
-        p.delete_experiment(e.id)
+        p.remove_experiment(e.id)
         assert not exp_dir.exists()
 
     def test_cascades_runs_and_executions(self, tmp_path):
         ws, p, e, r = _build(tmp_path)
         r.save()
         assert ws.catalog.query_runs(experiment_id=e.id)
-        p.delete_experiment(e.id)
+        p.remove_experiment(e.id)
         assert ws.catalog.query_runs(experiment_id=e.id) == []
         assert ws.catalog.query_executions(run_id=r.id) == []
 
     def test_unknown_experiment_raises(self, tmp_path):
         _ws, p, _e, _r = _build(tmp_path)
-        with pytest.raises(KeyError):
-            p.delete_experiment("nope")
+        with pytest.raises(ExperimentNotFoundError):
+            p.remove_experiment("nope")
 
 
 class TestDeleteProject:
     def test_cascades_everything(self, tmp_path):
         ws, p, e, r = _build(tmp_path)
         r.save()
-        ws.delete_project(p.id)
+        ws.remove_project(p.id)
         assert not p.project_dir.exists()
         assert ws.catalog.query_runs(experiment_id=e.id) == []
         assert ws.catalog.query_executions(run_id=r.id) == []

@@ -65,9 +65,9 @@ class RecordingTransport:
 def _make_run(tmp_path: Path):
     ws = Workspace(tmp_path)
     ws.materialize()
-    project = ws.Project("p")
-    experiment = project.Experiment("e", params={})
-    run = experiment.Run(parameters={"seed": 1})
+    project = ws.add_project("p")
+    experiment = project.add_experiment("e", params={})
+    run = experiment.add_run(parameters={"seed": 1})
     return ws, project, experiment, run
 
 

@@ -55,12 +55,12 @@ async def main() -> None:
     external.write_text("x,y\n1,2\n3,4\n")
     ws.data_assets.import_asset("toy-dataset", external)
 
-    project = ws.Project("demo")
-    exp = project.Experiment("train")
+    project = ws.add_project("demo")
+    exp = project.add_experiment("train")
     spec = promote_callable(train, name="train")
     spec.bind_to(exp)
 
-    run = exp.Run()
+    run = exp.add_run()
     with run.start() as ctx:
         await spec.execute(run_context=ctx)
 

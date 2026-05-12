@@ -421,7 +421,7 @@ class Workflow:
 
         Convenience wrapper for the canonical pattern::
 
-            run = experiment.Run(parameters=parameters)
+            run = experiment.add_run(parameters=parameters)
             with run.start(profile_config=profile_config) as run_ctx:
                 return await self.execute(run_context=run_ctx, deps=deps, config=config)
 
@@ -444,7 +444,7 @@ class Workflow:
         # never construct a Run.
         params_dict: dict[str, JSONValue] | None
         params_dict = dict(parameters) if parameters is not None else None
-        run = experiment.Run(parameters=params_dict)  # type: ignore[attr-defined]
+        run = experiment.add_run(parameters=params_dict)  # type: ignore[attr-defined]
         with run.start(profile_config=profile_config) as run_ctx:
             result = await self.execute(
                 run_context=run_ctx,

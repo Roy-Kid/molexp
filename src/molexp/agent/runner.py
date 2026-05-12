@@ -142,7 +142,7 @@ class AgentRunner:
                 kwargs["system_prompt"] = preamble
             self._router = PydanticAIRouter(**kwargs)
 
-        self._inject_capability_probe()
+        self._inject_capability_discovery()
 
         result = await self.mode.run(
             router=self._router,
@@ -229,29 +229,29 @@ class AgentRunner:
                 f"model_messages ({exc!r}); next turn will start fresh."
             )
 
-    def _inject_capability_probe(self) -> None:
-        """Lazily build a :class:`CapabilityProbe` and hand it to the mode.
+    def _inject_capability_discovery(self) -> None:
+        """Lazily build a capability discovery service and hand it to the mode.
 
         Skipped when:
 
-        * The mode does not expose ``set_capability_probe`` /
-          ``get_capability_probe`` (only :class:`PlanMode` and any
-          subclass do today).
-        * The mode already carries a non-``None`` probe — the user
+        * The mode does not expose ``set_capability_discovery`` /
+          ``get_capability_discovery``.
+        * The mode already carries a non-``None`` service — the user
           configured one explicitly via the constructor or setter.
 
-        When the runner is responsible for the probe, it picks the
-        first valid, non-shadowed, secret-resolved
-        :class:`~molexp.agent.mcp.store.StdioSpec` named ``"molmcp"`` in
-        the workspace's MCP config and constructs a
-        :class:`~molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe`
-        bound to the runner's HEAVY tier model. Any failure in that
-        chain — no workspace, no molmcp entry, custom router with no
-        tier_models, MCP-store I/O error — falls back to a
-        :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
-        so PlanMode still runs (with discovery short-circuited).
+        The service composes a hint policy with the runner's configured
+        capability probe. If no source is available, the service wraps a
+        null probe so the workflow can still complete pure-stdlib paths.
         """
         mode = self.mode
+        service_getter = getattr(mode, "get_capability_discovery", None)
+        service_setter = getattr(mode, "set_capability_discovery", None)
+        if callable(service_getter) and callable(service_setter):
+            if service_getter() is not None:
+                return
+            service_setter(self._build_capability_discovery())
+            return
+
         getter = getattr(mode, "get_capability_probe", None)
         setter = getattr(mode, "set_capability_probe", None)
         if not callable(getter) or not callable(setter):
@@ -259,6 +259,12 @@ class AgentRunner:
         if getter() is not None:
             return
         setter(self._build_capability_probe())
+
+    def _build_capability_discovery(self) -> object:
+        """Return a fresh capability discovery service for this runner."""
+        from molexp.agent.capability_discovery import DefaultCapabilityDiscoveryService
+
+        return DefaultCapabilityDiscoveryService(probe=self._build_capability_probe())
 
     def _build_capability_probe(self) -> object:
         """Return a fresh :class:`CapabilityProbe` for this runner.
@@ -303,8 +309,8 @@ class AgentRunner:
         equals ``"molmcp"`` and whose transport is ``"stdio"``. Returns
         a dict with ``command`` / ``args`` / ``env`` keys after secret
         substitution. Read-only / missing config / unresolved-secrets
-        all fall through to ``None`` — :func:`_inject_capability_probe`
-        then routes to :class:`NullCapabilityProbe`.
+        all fall through to ``None`` so the discovery service can route
+        to :class:`NullCapabilityProbe`.
         """
         try:
             from molexp.agent.mcp.store import McpStore

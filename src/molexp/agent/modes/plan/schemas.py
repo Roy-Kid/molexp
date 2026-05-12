@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict
 from molexp.agent.modes.plan.capability import (
     CapabilityEvidence,
     CapabilityEvidenceBatch,
+    CapabilityHint,
     CapabilityNeed,
     CapabilityNeedReport,
     MissingCapability,
@@ -50,6 +51,7 @@ from molexp.workflow import WorkflowContract
 __all__ = [
     "CapabilityEvidence",
     "CapabilityEvidenceBatch",
+    "CapabilityHint",
     "CapabilityNeed",
     "CapabilityNeedReport",
     "DigestResult",

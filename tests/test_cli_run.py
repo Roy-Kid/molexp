@@ -33,8 +33,8 @@ def _write_script(
                 "from molexp.workflow import promote_callable",
                 "",
                 f"ws = me.Workspace({str(workspace_root)!r})",
-                "project = ws.Project('demo')",
-                "exp = project.Experiment('train')",
+                "project = ws.add_project('demo')",
+                "exp = project.add_experiment('train')",
                 "",
                 "def train(ctx: me.RunContext) -> None:",
                 f"    {body}",
@@ -108,7 +108,7 @@ class TestRunCommand:
         assert result.exit_code == 0, result.output
 
         ws = Workspace.load(workspace_root)
-        runs = ws.project("demo").experiment("train").list_runs()
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
         assert len(runs) == 1
 
         run = runs[0]
@@ -148,7 +148,7 @@ class TestRunCommand:
             app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
         )
         ws = Workspace.load(workspace_root)
-        runs = ws.project("demo").experiment("train").list_runs()
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
         assert len(runs) == 1
         assert runs[0].status == "failed"
         assert runs[0].metadata.profile == "smoke"
@@ -169,7 +169,7 @@ class TestRunCommand:
         assert result.exit_code == 0, result.output
 
         ws = Workspace.load(workspace_root)
-        runs = ws.project("demo").experiment("train").list_runs()
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
         assert len(runs) == 1
         assert runs[0].status == "succeeded"
 
@@ -211,7 +211,7 @@ class TestRunCommand:
         assert result.exit_code == 0, result.output
 
         ws = Workspace.load(workspace_root)
-        runs = ws.project("demo").experiment("train").list_runs()
+        runs = ws.get_project("demo").get_experiment("train").list_runs()
         # Two distinct runs, one per profile
         assert len(runs) == 2
         profiles = {r.metadata.profile for r in runs}

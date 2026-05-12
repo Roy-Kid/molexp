@@ -11,16 +11,16 @@ Features:
 - Format version field for forward-compatible schema evolution
 - Pluggable backing storage via :class:`CacheStore`
   (``FileCacheStore`` for plain directories,
-  ``WorkspaceCacheStore`` for workspace-rooted caches)
+  ``ws.cache.as_cache_store()`` for workspace-rooted caches)
 
 Usage::
 
     # Workspace-backed (recommended for in-process workflow runs):
     from molexp.workspace import Workspace
-    from molexp.workflow import Caching, WorkspaceCacheStore
+    from molexp.workflow import Caching
 
     ws = Workspace("./lab")
-    cache = Caching(store=WorkspaceCacheStore(ws), max_entries=1000)
+    cache = Caching(store=ws.cache.as_cache_store(), max_entries=1000)
 
     # Or plain filesystem (no workspace needed):
     from pathlib import Path
@@ -102,7 +102,7 @@ class Caching:
 
     - ``Caching(store=<CacheStore>)`` — supply any store directly. The
       preferred form for workspace-backed caches:
-      ``Caching(store=WorkspaceCacheStore(ws))``.
+      ``Caching(store=ws.cache.as_cache_store())``.
     - ``Caching(store_dir=<Path>)`` — backward-compat shorthand that
       builds a :class:`FileCacheStore` rooted at *store_dir*.
 

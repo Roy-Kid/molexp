@@ -736,7 +736,7 @@ class GenerateTaskImplementations(PlanLLMTask):
             if module.is_stub:
                 # Stubs ship empty `__capability_evidence__: () = ()` and
                 # skip the AST diff entirely (spec: stubs allowed to
-                # raise NotImplementedError; no Molcrafts API calls).
+                # raise NotImplementedError; no external API calls).
                 return _render_stub_implementation_module(brief.task_id)
             _gate_evidence(
                 source=module.source,
@@ -1085,14 +1085,27 @@ def _augment_user_with_evidence(user: str, batch: CapabilityEvidenceBatch) -> st
         }
         for e in batch.evidence
     ]
+    hints_payload = [
+        {
+            "namespace": hint.namespace,
+            "strength": hint.strength,
+            "query_hints": list(hint.query_hints),
+            "reason": hint.reason,
+        }
+        for hint in batch.hints
+    ]
     appendix = yaml.safe_dump(
-        {"discovered_molcrafts_evidence": evidence_payload},
+        {
+            "discovered_capability_evidence": evidence_payload,
+            "discovery_hints": hints_payload,
+            "fallback_reasons": list(batch.fallback_reasons),
+        },
         sort_keys=False,
         default_flow_style=False,
     )
     return (
         f"{user}\n\n"
-        "## Discovered Molcrafts evidence (binding)\n\n"
+        "## Discovered capability evidence (binding)\n\n"
         "You may reference only the api_ref values listed below.\n\n"
         "Generated module REQUIREMENTS:\n"
         "1. Set the schema's `evidence_refs` field to the api_ref values you actually used.\n"
@@ -1439,9 +1452,8 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
     1. **declared_refs** — the module-level
        ``__capability_evidence__`` literal MUST list only ``api_ref``
        values that appear in ``evidence.yaml``.
-    2. **ast_refs** — every Molcrafts dotted-path reference the AST
-       walker discovers (filtered by
-       :data:`MOLCRAFTS_NAMESPACES`) MUST also appear in
+    2. **ast_refs** — every tracked dotted-path reference the AST
+       walker discovers MUST also appear in
        ``evidence.yaml``.
 
     Both signals diff against the *same* evidence-batch ``api_ref`` set,
@@ -1502,6 +1514,7 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
         ]
 
     evidence_refs = {e.api_ref for e in batch.evidence}
+    tracked_namespaces = _tracked_namespaces_for_checks(batch)
     sources = _collect_generated_sources(handle)
     declared_misses: list[str] = []
     ast_misses: list[str] = []
@@ -1515,7 +1528,7 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
         declared = extract_declared_refs(tree)
         for ref in sorted(declared - evidence_refs):
             declared_misses.append(f"{path.name}:{ref}")
-        ast_refs = extract_ast_refs(tree)
+        ast_refs = extract_ast_refs(tree, namespaces=tracked_namespaces)
         for ref in sorted(ast_refs - evidence_refs):
             ast_misses.append(f"{path.name}:{ref}")
 
@@ -1537,10 +1550,20 @@ def _capability_evidence_checks(handle: PlanWorkspaceHandle) -> list[CheckResult
             detail=(
                 "; ".join(ast_misses)
                 if ast_misses
-                else "all Molcrafts AST refs covered by evidence.yaml"
+                else "all tracked AST refs covered by evidence.yaml"
             ),
         ),
     ]
+
+
+def _tracked_namespaces_for_checks(batch: CapabilityEvidenceBatch) -> tuple[str, ...]:
+    tracked = set(batch.tracked_namespaces)
+    tracked.update(hint.namespace for hint in batch.hints)
+    for evidence in batch.evidence:
+        namespace = evidence.namespace or evidence.package
+        if namespace:
+            tracked.add(namespace)
+    return tuple(sorted(tracked))
 
 
 def _collect_generated_sources(handle: PlanWorkspaceHandle) -> list[tuple[Path, str]]:

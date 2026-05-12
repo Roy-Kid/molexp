@@ -66,11 +66,11 @@ spec = WorkflowBuilder(name="counter").add(Seed()).add(Record(), depends_on=["se
 async def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="molexp-ctx-"))
     ws = me.Workspace(root, name="ctx-demo")
-    project = ws.Project("demo")
-    exp = project.Experiment("counter")
+    project = ws.add_project("demo")
+    exp = project.add_experiment("counter")
     spec.bind_to(exp)
 
-    run = exp.Run()
+    run = exp.add_run()
     cfg = ProfileConfig({"scale": 10}, name="smoke")
     with run.start(profile_config=cfg) as ctx:
         result = await spec.execute(run_context=ctx, deps=Deps(prefix="step"))

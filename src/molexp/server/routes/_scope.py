@@ -29,7 +29,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
         return None
 
     try:
-        project = workspace.project(scope.ids[0])
+        project = workspace.get_project(scope.ids[0])
     except ProjectNotFoundError:
         return None
     if scope.kind == "project":
@@ -38,7 +38,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
     if len(scope.ids) < 2:
         return None
     try:
-        experiment = project.experiment(scope.ids[1])
+        experiment = project.get_experiment(scope.ids[1])
     except ExperimentNotFoundError:
         return None
     if scope.kind == "experiment":
@@ -48,7 +48,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
         if len(scope.ids) < 3:
             return None
         try:
-            run = experiment.run(scope.ids[2])
+            run = experiment.get_run(scope.ids[2])
         except RunNotFoundError:
             return None
         return run.run_dir

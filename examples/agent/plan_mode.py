@@ -41,14 +41,14 @@ Out of the box this script demonstrates two non-default behaviours:
      independently.  Rejected task ids cascade into the next iteration's
      codegen via :attr:`ReviewDecision.target_task_ids`.
 
-To skip a hook entirely, pass :class:`~molexp.agent.BypassPolicy`.  For
-example, ``step_policy=BypassPolicy()`` would silence the per-step
-prompts and only ask once at the end.
+This demo intentionally leaves both hooks interactive.  ``--smoke`` does
+not bypass review; it only swaps in a shorter PEO → LAMMPS prompt so the
+same human-approved workflow can be exercised with a smaller request.
 
 Run directly::
 
     python examples/agent/plan_mode.py            # full interactive demo
-    python examples/agent/plan_mode.py --smoke    # non-interactive smoke test
+    python examples/agent/plan_mode.py --smoke    # same flow, shorter prompt
     python examples/agent/plan_mode.py --debug    # include verbose router/node details
 
 The script runs a preflight check before any LLM calls: provider key,
@@ -61,12 +61,10 @@ DeepSeek, ``OPENAI_API_KEY`` for OpenAI) and adjust :data:`TIER_MODELS`
 to point at real models. Each iteration does ~10-20 LLM calls; the
 review prompts run between iterations.
 
-The ``--smoke`` mode runs a short PEO-chain → LAMMPS-inputs prompt
-with :class:`~molexp.agent.BypassPolicy` on both review hooks and a
-shrunk repair budget; it is the fast, hands-off variant of the demo
-intended to confirm the discovery node still reaches for the
-molcrafts MCP rather than hand-rolling LAMMPS files. Inspect the
-generated tree afterwards to see what the planner produced.
+The ``--smoke`` flag uses a short PEO-chain → LAMMPS-inputs prompt
+intended to confirm the discovery node still reaches for the molcrafts
+MCP rather than hand-rolling LAMMPS files.  The execution path remains
+the same interactive human-review PlanMode path.
 
 The temporary workspace uses ``TemporaryDirectory(delete=False)`` so
 the generated tree survives the script. The path is printed at the
@@ -86,7 +84,7 @@ from tempfile import TemporaryDirectory
 
 import mollog
 
-from molexp.agent import AgentRunner, AgentSession, BypassPolicy, HumanPolicy
+from molexp.agent import AgentRunner, AgentSession, HumanPolicy
 from molexp.agent.modes import PlanMode
 from molexp.agent.modes.plan import PlanWorkspaceHandle
 from molexp.agent.modes.plan.preflight import check_plan_runtime
@@ -95,6 +93,7 @@ from molexp.workspace import Workspace
 
 _DEBUG = "--debug" in sys.argv[1:]
 _SKIP_PREFLIGHT = "--skip-preflight" in sys.argv[1:]
+_SMOKE = "--smoke" in sys.argv[1:]
 
 mollog.configure(level="DEBUG" if _DEBUG else "INFO")
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -166,6 +165,16 @@ async def _preflight_or_exit(workspace: Workspace) -> int | None:
     return 2
 
 
+def _selected_report() -> str:
+    """Return the prompt selected by CLI flags."""
+    return SMOKE_TEST_REPORT if _SMOKE else REPORT
+
+
+def _run_title() -> str:
+    """Return the display title for the selected prompt."""
+    return "Smoke prompt run finished" if _SMOKE else "Run finished"
+
+
 async def main() -> int:
     with TemporaryDirectory(delete=False) as tmp:
         workspace = Workspace(Path(tmp) / "ws")
@@ -191,73 +200,13 @@ async def main() -> int:
             workspace=workspace.root,
         )
         session = AgentSession()
-        result = await runner.run(session, REPORT)
+        result = await runner.run(session, _selected_report())
 
         plan = (result.mode_state or {}).get("plan", {})
 
         print()
         print("=" * 72)
-        print("Run finished")
-        print("=" * 72)
-        print(result.text)
-        print()
-        print(f"approved      : {plan.get('approved')}")
-        print(f"ready_for_run : {plan.get('ready_for_run')}")
-        print(f"status        : {plan.get('status')}")
-        print(f"workspace at  : {handle.root()}")
-        print(f"manifest at   : {handle.manifest_path()}")
-
-        print()
-        print("=" * 72)
-        print("Token usage:")
-        print("=" * 72)
-        print(result.usage_breakdown.render_table())
-
-        print()
-        print("=" * 72)
-        print("Generated artefacts (open these in your editor to inspect):")
-        print("=" * 72)
-        _print_tree(handle.root())
-        print()
-        print(f"Tip: cd {handle.root()}")
-        return 0
-
-
-async def smoke_test() -> int:
-    """Non-interactive PEO-chain → LAMMPS-inputs smoke run.
-
-    Mirrors :func:`main` but swaps both review hooks for
-    :class:`~molexp.agent.BypassPolicy` and shrinks the repair budget
-    to two iterations so the script runs end-to-end without a human
-    at the keyboard. The generated tree is left on disk for manual
-    inspection.
-    """
-    with TemporaryDirectory(delete=False) as tmp:
-        workspace = Workspace(Path(tmp) / "ws")
-        preflight_status = await _preflight_or_exit(workspace)
-        if preflight_status is not None:
-            return preflight_status
-        handle = PlanWorkspaceHandle.materialize(workspace, plan_id="smoke")
-        mode = PlanMode(
-            workspace_handle=handle,
-            step_policy=BypassPolicy(),
-            final_policy=BypassPolicy(),
-            # 1 fresh pass + 1 replan; smoke test is meant to be fast.
-            max_iterations=2,
-        )
-        runner = AgentRunner(
-            mode=mode,
-            models=TIER_MODELS,
-            workspace=workspace.root,
-        )
-        session = AgentSession()
-        result = await runner.run(session, SMOKE_TEST_REPORT)
-
-        plan = (result.mode_state or {}).get("plan", {})
-
-        print()
-        print("=" * 72)
-        print("Smoke test finished")
+        print(_run_title())
         print("=" * 72)
         print(result.text)
         print()
@@ -284,5 +233,4 @@ async def smoke_test() -> int:
 
 
 if __name__ == "__main__":
-    entry = smoke_test if "--smoke" in sys.argv[1:] else main
-    sys.exit(asyncio.run(entry()))
+    sys.exit(asyncio.run(main()))

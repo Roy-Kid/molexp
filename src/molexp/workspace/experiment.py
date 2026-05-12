@@ -14,11 +14,11 @@ with a workflow is the caller's concern. Use the workflow layer to
 build a ``WorkflowSpec`` and pass the workspace ``Run`` to its
 ``execute(run=...)`` method:
 
-    >>> exp = project.Experiment("lr-1e-3", params={"lr": 1e-3})
-    >>> run = exp.Run()
+    >>> exp = project.add_experiment("lr-1e-3", params={"lr": 1e-3})
+    >>> run = exp.add_run()
     >>> result = await my_workflow_spec.execute(run=run)
 
-Construction is side-effect free; ``project.Experiment(...)``
+Construction is side-effect free; ``project.add_experiment(...)``
 materializes on disk at call-time (idempotent: if an experiment with
 the same slug already exists, it is loaded and returned).
 """
@@ -60,12 +60,12 @@ class Experiment(Folder):
 
     Example::
 
-        exp = project.Experiment(
+        exp = project.add_experiment(
             "lr-1e-3",
             params={"lr": 1e-3},
             n_replicas=3,
         )
-        run = exp.Run()
+        run = exp.add_run()
         # Workflow execution is the caller's concern; workspace just
         # provides the Run that workflow.execute(run=...) operates on.
     """
@@ -291,9 +291,9 @@ class Experiment(Folder):
             }
         )
 
-    # ── Run operations (typed wrappers over attach/create_child/get_child) ──
+    # ── Run CRUD: typed semantic sugar over generic Folder CRUD ────────────
 
-    def Run(
+    def add_run(
         self,
         parameters: dict[str, JSONValue] | None = None,
         *,
@@ -301,66 +301,47 @@ class Experiment(Folder):
         target: str | None = None,
         workflow_snapshot: dict[str, JSONValue] | None = None,
     ) -> Run:
-        """Idempotent constructor — return existing run if found, else create.
+        """Mount a run under this experiment (idempotent on id).
 
-        If a run with the same ID already exists on disk, load and
-        return it. Otherwise, construct + materialize a new Run.
-
-        ``workflow_snapshot`` is an opaque JSON-shaped payload — the
-        canonical structure lives in
-        :class:`molexp.workflow.snapshot_ref.WorkflowSnapshotRef` but
-        workspace doesn't know that type.
-
-        For "must be new" semantics, use :meth:`create_run`. For
-        "must already exist", use :meth:`run`.
+        One-line wrapper over generic ``add_folder``. Signature matches
+        the legacy ``Experiment.Run`` factory: ``parameters`` as first
+        positional; an explicit ``id=`` overrides auto-generation.
         """
         resolved_id = id if id is not None else generate_id()
         resolved_target = target if target is not None else self._entity_metadata.default_target
-        r = self.attach(
-            resolved_id,
-            kind=WORKSPACE_RUN_KIND,
-            child_cls=Run,
+        cached = self._children_cache.get(resolved_id)
+        if isinstance(cached, Run):
+            return cached
+        child_dir = Run._child_dir(self, resolved_id)
+        if child_dir.is_dir():
+            existing = Run._from_disk(child_dir, self)
+            self._children_cache[resolved_id] = existing
+            return existing
+        r = Run(
+            parent=self,
+            name=resolved_id,
             id=resolved_id,
             parameters=parameters,
             workflow_snapshot=workflow_snapshot,
             target=resolved_target,
         )
-        if not isinstance(r, Run):  # pragma: no cover — defensive
-            raise TypeError(f"attach returned {type(r).__name__}, expected Run")
-        self._refresh_runs_index()
+        r.materialize()
+        self._children_cache[resolved_id] = r
+        self._upsert_index_row(r)
         return r
 
-    def create_run(
-        self,
-        parameters: dict[str, JSONValue] | None = None,
-        *,
-        id: str | None = None,
-        target: str | None = None,
-        workflow_snapshot: dict[str, JSONValue] | None = None,
-    ) -> Run:
-        """Strict constructor — raise :class:`RunExistsError` if exists."""
-        resolved_id = id if id is not None else generate_id()
-        resolved_target = target if target is not None else self._entity_metadata.default_target
-        r = self.create_child(
-            resolved_id,
-            kind=WORKSPACE_RUN_KIND,
-            child_cls=Run,
-            id=resolved_id,
-            parameters=parameters,
-            workflow_snapshot=workflow_snapshot,
-            target=resolved_target,
-        )
-        if not isinstance(r, Run):  # pragma: no cover — defensive
-            raise TypeError(f"create_child returned {type(r).__name__}, expected Run")
-        self._refresh_runs_index()
-        return r
+    def get_run(self, run_id: str) -> Run:
+        return self.get_folder(run_id, cls=Run)
 
-    def run(self, run_id: str) -> Run:
-        """Strict getter — raise :class:`RunNotFoundError` if absent."""
-        r = self.get_child(run_id, kind=WORKSPACE_RUN_KIND, child_cls=Run)
-        if not isinstance(r, Run):  # pragma: no cover — defensive
-            raise TypeError(f"get_child returned {type(r).__name__}, expected Run")
-        return r
+    def has_run(self, run_id: str) -> bool:
+        return self.has_folder(run_id, cls=Run)
+
+    def remove_run(self, run_id: str) -> None:
+        self.remove_folder(run_id, cls=Run)
+        self.project.workspace.catalog.remove_run(run_id)
+        self._refresh_runs_index()
+
+    # ── Internal helpers ────────────────────────────────────────────────
 
     def list_runs(self) -> list[Run]:
         """List all runs by scanning the ``runs/`` directory."""
@@ -374,32 +355,10 @@ class Experiment(Folder):
         return result
 
     def children(self, kind: str | None = None) -> list[Folder]:
-        """List child folders, optionally filtered by ``kind``.
-
-        Experiment's only entity children are :class:`Run` instances
-        under ``runs/``.
-        """
+        """List entity children (currently only :class:`Run`)."""
         if kind is not None and kind != WORKSPACE_RUN_KIND:
             return []
         return list(self.list_runs())
-
-    def delete_run(self, run_id: str) -> None:
-        """Delete a run directory and cascade-drop its catalog rows.
-
-        Raises:
-            KeyError: If the run is not found.
-        """
-        import shutil
-
-        run_dir = self.experiment_dir / "runs" / f"run-{run_id}"
-        if not run_dir.exists():
-            raise KeyError(f"Run '{run_id}' not found")
-        shutil.rmtree(run_dir)
-        self._children_cache.pop(run_id, None)
-        self.project.workspace.catalog.remove_run(run_id)
-        self._refresh_runs_index()
-
-    # ── Internal ────────────────────────────────────────────────────────
 
     def _refresh_runs_index(self) -> None:
         _rebuild_container_index(

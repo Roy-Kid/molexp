@@ -54,8 +54,8 @@ def train(ctx: me.RunContext) -> None:
 
 
 ws = me.Workspace(WORKSPACE_ROOT, name="run-profiles-demo")
-project = ws.Project("demo")
-exp = project.Experiment("train")
+project = ws.add_project("demo")
+exp = project.add_experiment("train")
 promote_callable(train, name="train").bind_to(exp)
 
 me.entry(ws)
