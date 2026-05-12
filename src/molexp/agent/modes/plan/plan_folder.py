@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import shutil
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -168,6 +168,7 @@ class PlanManifest(BaseModel):
     status: PlanStatus = "draft"
     repair_iterations: int = 0
     repair_history: tuple[RepairIterationRecord, ...] = ()
+    completed_nodes: tuple[str, ...] = ()
 
 
 class PlanFolderMetadata(FolderMetadata):
@@ -179,6 +180,56 @@ class PlanFolderMetadata(FolderMetadata):
     """
 
     model_config = ConfigDict(frozen=True)
+
+
+# ── Node → Result type mapping (resume) ────────────────────────────────────
+
+_NODE_RESULT_TYPE: dict[str, type[BaseModel]] = {}
+"""Populated lazily by :func:`_ensure_node_result_map` on first use.
+
+Maps each PlanMode pipeline node name to its ``*Result`` pydantic type.
+"""
+
+
+def _ensure_node_result_map() -> dict[str, type[BaseModel]]:
+    """Populate ``_NODE_RESULT_TYPE`` on first call; return cached afterward."""
+    if _NODE_RESULT_TYPE:
+        return _NODE_RESULT_TYPE
+    from molexp.agent.modes.plan.capability import (
+        CapabilityEvidenceBatch,
+        CapabilityNeedReport,
+    )
+    from molexp.agent.modes.plan.schemas import (
+        DigestResult,
+        HandoffResult,
+        IngestReportResult,
+        PlanBriefResult,
+        SkeletonResult,
+        TaskImplementationsResult,
+        TaskIRResult,
+        TaskTestsResult,
+        ValidationResult,
+        WorkflowIRResult,
+    )
+
+    _NODE_RESULT_TYPE.update(
+        {
+            "IngestReport": IngestReportResult,
+            "DraftReportDigest": DigestResult,
+            "DraftImplementationPlan": PlanBriefResult,
+            "DraftCapabilityNeeds": CapabilityNeedReport,
+            "DiscoverCapabilities": CapabilityEvidenceBatch,
+            "CompileWorkflowIR": WorkflowIRResult,
+            "CompileTaskIR": TaskIRResult,
+            "GenerateWorkflowSkeleton": SkeletonResult,
+            "GenerateTaskTests": TaskTestsResult,
+            "GenerateTaskImplementations": TaskImplementationsResult,
+            "ValidateWorkspace": ValidationResult,
+            "HumanReview": HandoffResult,
+            "FinalHandoffCheck": HandoffResult,
+        }
+    )
+    return _NODE_RESULT_TYPE
 
 
 # ── PlanFolder (Folder subclass) ───────────────────────────────────────────
@@ -332,6 +383,129 @@ class PlanFolder(Folder):
     def manifest_path(self) -> Path:
         """``<plan>/manifest.yaml`` — does **not** create the file."""
         return self._resolve("manifest.yaml")
+
+    # ── Checkpoint / resume ─────────────────────────────────────────────
+
+    def results_dir(self) -> Path:
+        """``<plan>/results/`` — per-node persisted output YAML files."""
+        return self._ensure("results")
+
+    def write_node_result(self, node_name: str, result: BaseModel) -> Path:
+        """Persist a node's output as YAML in ``results/<node_name>.yaml``."""
+        path = self.results_dir() / f"{node_name}.yaml"
+        text = yaml.safe_dump(
+            result.model_dump(mode="json"),
+            sort_keys=False,
+            default_flow_style=False,
+        )
+        atomic_write_text(path, text)
+        return path
+
+    def load_node_result(self, node_name: str) -> BaseModel:
+        """Deserialize ``results/<node_name>.yaml`` back to the matching ``*Result`` type."""
+        _ensure_node_result_map()
+        result_cls = _NODE_RESULT_TYPE.get(node_name)
+        if result_cls is None:
+            raise KeyError(
+                f"Unknown node {node_name!r}; known: {sorted(_NODE_RESULT_TYPE)}"
+            )
+        path = self.results_dir() / f"{node_name}.yaml"
+        if not path.exists():
+            raise FileNotFoundError(f"No result file for node {node_name!r} at {path}")
+        data = yaml.safe_load(path.read_text())
+        return result_cls(**data)
+
+    def checkpoint(self, node_name: str) -> None:
+        """Append ``node_name`` to ``manifest.completed_nodes`` and persist.
+
+        Creates a minimal manifest stub when no manifest exists yet.
+        Preserves extension sections (``handoff``, ``plan_mode``) written
+        by :func:`~molexp.agent.modes.plan.tasks._persist_manifest_with_handoff`.
+        """
+        manifest = self._load_or_create_manifest()
+        if node_name not in manifest.completed_nodes:
+            new_manifest = manifest.model_copy(
+                update={"completed_nodes": (*manifest.completed_nodes, node_name)}
+            )
+            self._write_raw_manifest(new_manifest.model_dump(mode="json"))
+
+    def reset_completed_nodes(self) -> None:
+        """Clear ``completed_nodes`` on the manifest and persist."""
+        manifest = self._load_or_create_manifest()
+        if manifest.completed_nodes:
+            new_manifest = manifest.model_copy(update={"completed_nodes": ()})
+            self._write_raw_manifest(new_manifest.model_dump(mode="json"))
+
+    def load_seed_outputs(self) -> dict[str, Any]:
+        """Return ``{node_name: deserialized_result}`` for every completed node."""
+        manifest = self._load_or_create_manifest()
+        result: dict[str, Any] = {}
+        for node_name in manifest.completed_nodes:
+            result[node_name] = self.load_node_result(node_name)
+        return result
+
+    def load_manifest(self) -> PlanManifest:
+        """Read and deserialize ``manifest.yaml``.
+
+        Raises ``FileNotFoundError`` when no manifest exists on disk.
+        Strips extension sections (``handoff``, ``plan_mode``) that
+        :func:`~molexp.agent.modes.plan.tasks._persist_manifest_with_handoff`
+        layers on top of the strict ``PlanManifest`` schema.
+        """
+        path = self.manifest_path()
+        if not path.exists():
+            raise FileNotFoundError(f"No manifest found at {path}")
+        data = yaml.safe_load(path.read_text())
+        if not isinstance(data, dict):
+            raise ValueError(f"Manifest at {path} is not a YAML mapping")
+        # Strip extension sections so PlanManifest's strict schema accepts it.
+        payload = {
+            k: v for k, v in data.items() if k not in {"handoff", "plan_mode"}
+        }
+        return PlanManifest(**payload)
+
+    def _write_raw_manifest(self, manifest_fields: dict[str, Any]) -> Path:
+        """Write ``manifest_fields`` to ``manifest_path()``, preserving extension sections.
+
+        Reads the existing manifest file (if present), merges the new
+        PlanManifest fields on top, and writes back — so ``handoff`` /
+        ``plan_mode`` extension sections written by
+        :func:`~molexp.agent.modes.plan.tasks._persist_manifest_with_handoff`
+        survive the round-trip.
+        """
+        path = self.manifest_path()
+        existing: dict[str, Any] = {}
+        if path.exists():
+            raw = yaml.safe_load(path.read_text())
+            if isinstance(raw, dict):
+                existing = raw
+        merged = {**existing, **manifest_fields}
+        text = yaml.safe_dump(merged, sort_keys=False, default_flow_style=False)
+        atomic_write_text(path, text)
+        return path
+
+    def _load_or_create_manifest(self) -> PlanManifest:
+        """Return the current manifest, or synthesize a minimal stub.
+
+        Avoids a hard ``FileNotFoundError`` for callers
+        (:meth:`checkpoint`, :meth:`reset_completed_nodes`,
+        :meth:`load_seed_outputs`) that need to operate before the full
+        manifest is written by ``ValidateWorkspace``.
+        """
+        path = self.manifest_path()
+        if not path.exists():
+            return _build_manifest_stub_plan_folder(
+                self.plan_id, self.ir_dir() / "workflow.yaml"
+            )
+        data = yaml.safe_load(path.read_text())
+        if not isinstance(data, dict):
+            return _build_manifest_stub_plan_folder(
+                self.plan_id, self.ir_dir() / "workflow.yaml"
+            )
+        payload = {
+            k: v for k, v in data.items() if k not in {"handoff", "plan_mode"}
+        }
+        return PlanManifest(**payload)
 
     # ── Repair-iteration archive ─────────────────────────────────────────
 
@@ -506,6 +680,16 @@ class PlanFolder(Folder):
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _build_manifest_stub_plan_folder(plan_id: str, workflow_ir_path: Path) -> PlanManifest:
+    """Minimal :class:`PlanManifest` for checkpoint before full manifest exists."""
+    return PlanManifest(
+        plan_id=plan_id,
+        created_at=datetime.now(tz=UTC),
+        report_source="report/original.md",
+        workflow_ir_path=workflow_ir_path,
+    )
 
 
 def _new_plan_id() -> str:

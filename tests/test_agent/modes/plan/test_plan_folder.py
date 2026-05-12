@@ -559,3 +559,191 @@ def test_write_capability_missing_handles_empty_input(workspace: Workspace) -> N
     body = path.read_text()
     assert "# Missing capabilities" in body
     assert "_(none)_" in body
+
+
+# ── ac-003: PlanManifest.completed_nodes ──────────────────────────────────
+
+
+def test_plan_manifest_completed_nodes_default() -> None:
+    """ac-003: completed_nodes defaults to empty tuple."""
+    manifest = PlanManifest(
+        plan_id="test",
+        created_at=datetime.now(tz=UTC),
+        report_source="test",
+        workflow_ir_path=Path("ir/workflow.yaml"),
+    )
+    assert manifest.completed_nodes == ()
+
+
+def test_plan_manifest_completed_nodes_roundtrip() -> None:
+    """ac-003: completed_nodes survives model_dump + reconstruct round-trip."""
+    manifest = PlanManifest(
+        plan_id="test",
+        created_at=datetime.now(tz=UTC),
+        report_source="test",
+        workflow_ir_path=Path("ir/workflow.yaml"),
+        completed_nodes=("IngestReport", "DraftReportDigest"),
+    )
+    data = manifest.model_dump(mode="json")
+    reloaded = PlanManifest(**data)
+    assert reloaded.completed_nodes == ("IngestReport", "DraftReportDigest")
+
+
+# ── ac-004: PlanFolder.write_node_result ──────────────────────────────────
+
+
+def test_write_node_result_creates_yaml(workspace: Workspace) -> None:
+    """ac-004: write_node_result writes result as YAML in results/<name>.yaml."""
+    from molexp.agent.modes.plan.schemas import IngestReportResult
+
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    result = IngestReportResult(report_path=Path("/tmp/report.md"), report_hash="abc123")
+    path = plan_folder.write_node_result("IngestReport", result)
+
+    assert path.name == "IngestReport.yaml"
+    assert path.parent.name == "results"
+    assert path.exists()
+    loaded = yaml.safe_load(path.read_text())
+    assert loaded["report_hash"] == "abc123"
+
+
+def test_write_node_result_overwrite(workspace: Workspace) -> None:
+    """ac-004: repeated write_node_result overwrites previous file."""
+    from molexp.agent.modes.plan.schemas import IngestReportResult
+
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    r1 = IngestReportResult(report_path=Path("/tmp/a.md"), report_hash="aaa")
+    r2 = IngestReportResult(report_path=Path("/tmp/b.md"), report_hash="bbb")
+
+    plan_folder.write_node_result("IngestReport", r1)
+    plan_folder.write_node_result("IngestReport", r2)
+
+    path = plan_folder.results_dir() / "IngestReport.yaml"
+    loaded = yaml.safe_load(path.read_text())
+    assert loaded["report_hash"] == "bbb"
+
+
+# ── ac-005: PlanFolder.load_node_result ───────────────────────────────────
+
+
+def test_load_node_result_deserializes_correct_type(workspace: Workspace) -> None:
+    """ac-005: load_node_result returns the correct BaseModel subclass."""
+    from molexp.agent.modes.plan.schemas import IngestReportResult
+
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    original = IngestReportResult(report_path=Path("/tmp/r.md"), report_hash="def456")
+    plan_folder.write_node_result("IngestReport", original)
+
+    loaded = plan_folder.load_node_result("IngestReport")
+    assert isinstance(loaded, IngestReportResult)
+    assert loaded.report_hash == "def456"
+
+
+def test_load_node_result_raises_on_unknown_node(workspace: Workspace) -> None:
+    """ac-005: load_node_result raises for unknown node names."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    with pytest.raises(KeyError, match="Unknown node"):
+        plan_folder.load_node_result("NonExistentNode")
+
+
+# ── ac-006: PlanFolder.checkpoint ─────────────────────────────────────────
+
+
+def test_checkpoint_appends_to_completed_nodes(workspace: Workspace) -> None:
+    """ac-006: checkpoint appends node name to manifest completed_nodes."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    plan_folder.checkpoint("IngestReport")
+    plan_folder.checkpoint("DraftReportDigest")
+
+    manifest = plan_folder.load_manifest()
+    assert manifest.completed_nodes == ("IngestReport", "DraftReportDigest")
+
+    # Reload from disk to verify persistence
+    manifest2 = plan_folder.load_manifest()
+    assert manifest2.completed_nodes == ("IngestReport", "DraftReportDigest")
+
+
+def test_checkpoint_without_manifest_creates_stub(workspace: Workspace) -> None:
+    """ac-006: checkpoint creates a minimal manifest stub when none exists."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    # No manifest written yet — checkpoint should create a stub
+    plan_folder.checkpoint("IngestReport")
+    manifest = plan_folder.load_manifest()
+    assert "IngestReport" in manifest.completed_nodes
+
+
+# ── ac-007: PlanFolder.reset_completed_nodes ──────────────────────────────
+
+
+def test_reset_completed_nodes_clears(workspace: Workspace) -> None:
+    """ac-007: reset_completed_nodes clears completed_nodes."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    plan_folder.checkpoint("IngestReport")
+    assert len(plan_folder.load_manifest().completed_nodes) == 1
+
+    plan_folder.reset_completed_nodes()
+    assert plan_folder.load_manifest().completed_nodes == ()
+
+
+# ── ac-008: PlanFolder.load_seed_outputs ───────────────────────────────────
+
+
+def test_load_seed_outputs_returns_completed_results_map(workspace: Workspace) -> None:
+    """ac-008: load_seed_outputs returns {node_name: result} for all completed nodes."""
+    from molexp.agent.modes.plan.schemas import IngestReportResult
+
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    r1 = IngestReportResult(report_path=Path("/tmp/r.md"), report_hash="h1")
+    plan_folder.write_node_result("IngestReport", r1)
+    plan_folder.checkpoint("IngestReport")
+
+    seed_outputs = plan_folder.load_seed_outputs()
+    assert "IngestReport" in seed_outputs
+    assert isinstance(seed_outputs["IngestReport"], IngestReportResult)
+    assert seed_outputs["IngestReport"].report_hash == "h1"
+
+
+def test_load_seed_outputs_empty_with_no_completed_nodes(workspace: Workspace) -> None:
+    """ac-008: load_seed_outputs returns empty dict when nothing completed."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    assert plan_folder.load_seed_outputs() == {}
+
+
+# ── ac-009: PlanFolder.load_manifest ──────────────────────────────────────
+
+
+def test_load_manifest_raises_on_missing(workspace: Workspace) -> None:
+    """ac-009: load_manifest raises FileNotFoundError when no manifest exists."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    with pytest.raises(FileNotFoundError, match="No manifest found"):
+        plan_folder.load_manifest()
+
+
+def test_load_manifest_returns_plan_manifest(workspace: Workspace) -> None:
+    """ac-009: load_manifest returns a PlanManifest instance when present."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    manifest = PlanManifest(
+        plan_id="resume-plan",
+        created_at=datetime.now(tz=UTC),
+        report_source="test",
+        workflow_ir_path=Path("ir/wf.yaml"),
+        completed_nodes=("IngestReport",),
+    )
+    plan_folder.write_manifest(manifest)
+
+    loaded = plan_folder.load_manifest()
+    assert isinstance(loaded, PlanManifest)
+    assert loaded.plan_id == "resume-plan"
+    assert loaded.completed_nodes == ("IngestReport",)
+
+
+# ── results_dir ───────────────────────────────────────────────────────────
+
+
+def test_results_dir_is_created_lazily(workspace: Workspace) -> None:
+    """results_dir() returns the results/ subdirectory, creating it on demand."""
+    plan_folder = _mount(workspace, plan_id="resume-plan")
+    results = plan_folder.results_dir()
+    assert results.name == "results"
+    assert results.exists()
+    assert results.is_dir()

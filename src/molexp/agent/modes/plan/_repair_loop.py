@@ -91,6 +91,8 @@ async def drive_with_repair(
     user_input: str,
     *,
     max_iterations: int,
+    initial_spec: Workflow | None = None,
+    initial_seed_outputs: dict[str, Any] | None = None,
 ) -> WorkflowResult:
     """Run :data:`PLAN_WORKFLOW` with a structured review→repair loop.
 
@@ -102,6 +104,12 @@ async def drive_with_repair(
         max_iterations: Hard cap on completed review→repair cycles. The
             first run counts as iteration 0; the cap fires when the
             (iteration + 1)-th rejection arrives.
+        initial_spec: Optional :class:`Workflow` to execute on the first
+            iteration instead of :data:`PLAN_WORKFLOW`. Used by
+            :meth:`PlanMode.resume` to continue from a checkpoint.
+        initial_seed_outputs: Optional seed outputs for
+            ``initial_spec``'s boundary stubs. Mirrors the per-iteration
+            ``seed_outputs`` contract of :meth:`Workflow.execute`.
 
     Returns:
         The final :class:`WorkflowResult`. On approval, the result is
@@ -111,8 +119,8 @@ async def drive_with_repair(
         observe the cap deterministically.
     """
     handle: PlanFolder = deps.plan_folder
-    spec: Workflow = PLAN_WORKFLOW
-    seed_outputs: dict[str, Any] | None = None
+    spec: Workflow = initial_spec if initial_spec is not None else PLAN_WORKFLOW
+    seed_outputs: dict[str, Any] | None = initial_seed_outputs
     iteration = 0
     unevidenced_count = 0
     repair_context = PlanRepairContext()

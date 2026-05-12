@@ -47,10 +47,33 @@ if TYPE_CHECKING:
     from molexp.agent.session import AgentSession
 
 
-__all__ = ["PlanMode", "PlanModeConfig", "PlanResult"]
+__all__ = [
+    "PlanMode",
+    "PlanModeConfig",
+    "PlanResult",
+    "_compute_resume_frontier",
+]
 
 
 _LOG = get_logger(__name__)
+
+
+# ── Resume helpers ──────────────────────────────────────────────────────────
+
+
+def _compute_resume_frontier(
+    completed: tuple[str, ...],
+    order: tuple[str, ...],
+) -> str:
+    """Return the first node in *order* that is not in *completed*.
+
+    Returns ``""`` when every node in *order* is present in *completed*.
+    """
+    completed_set = set(completed)
+    for node in order:
+        if node not in completed_set:
+            return node
+    return ""
 
 
 # ── Public configs / results ────────────────────────────────────────────────
@@ -178,6 +201,51 @@ class PlanMode(AgentMode):
         )
         self._capability_probe: CapabilityProbe | None = capability_probe
         self._capability_discovery: CapabilityDiscoveryService | None = capability_discovery
+        self._resume_from: str | None = None
+
+    @classmethod
+    def resume(
+        cls,
+        *,
+        plan_folder: PlanFolder,
+        model_policy: PlanModelPolicy | None = None,
+        step_policy: ReviewPolicy | None = None,
+        final_policy: ReviewPolicy | None = None,
+        capability_discovery: CapabilityDiscoveryService | None = None,
+        capability_probe: CapabilityProbe | None = None,
+        max_iterations: int | None = None,
+    ) -> PlanMode:
+        """Reconstruct a :class:`PlanMode` from a persisted :class:`PlanFolder`.
+
+        Reads the manifest to determine which pipeline nodes have already
+        completed, then configures the returned instance so the next
+        :meth:`run` call continues from the first incomplete node.
+
+        Raises :exc:`ValueError` when the PlanFolder has no completed
+        nodes — use the normal constructor to start a fresh plan.
+        """
+        manifest = plan_folder.load_manifest()
+        if not manifest.completed_nodes:
+            raise ValueError(
+                f"PlanFolder {plan_folder.plan_id!r} has no completed nodes "
+                "— nothing to resume from. Use PlanMode() to start fresh."
+            )
+        from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
+
+        resume_from = _compute_resume_frontier(
+            manifest.completed_nodes, PLAN_PIPELINE_ORDER
+        )
+        instance = cls(
+            plan_folder=plan_folder,
+            model_policy=model_policy,
+            step_policy=step_policy,
+            final_policy=final_policy,
+            capability_discovery=capability_discovery,
+            capability_probe=capability_probe,
+            max_iterations=max_iterations if max_iterations is not None else 8,
+        )
+        instance._resume_from = resume_from
+        return instance
 
     def get_step_policy(self) -> ReviewPolicy:
         """Return the current per-step review policy."""
@@ -241,6 +309,25 @@ class PlanMode(AgentMode):
             f"[plan-mode] max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
         )
 
+        # ── Resume: build subgraph + seed_outputs from checkpoint ──────
+        initial_spec = None
+        initial_seed_outputs = None
+        if self._resume_from:
+            from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
+            from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
+
+            resume_idx = PLAN_PIPELINE_ORDER.index(self._resume_from)
+            remaining = list(PLAN_PIPELINE_ORDER[resume_idx:])
+            initial_spec = PLAN_WORKFLOW.subgraph(remaining, include_downstream=True)
+            initial_seed_outputs = self._plan_folder.load_seed_outputs()
+            _LOG.info(
+                f"[plan] resume from={self._resume_from} "
+                f"completed={list(self._plan_folder.load_manifest().completed_nodes)} "
+                f"remaining={remaining}"
+            )
+        else:
+            self._plan_folder.reset_completed_nodes()
+
         deps = PlanDeps(
             router=router,
             policy=self._model_policy,
@@ -252,7 +339,11 @@ class PlanMode(AgentMode):
         )
         t0 = time.monotonic()
         result = await drive_with_repair(
-            deps, user_input, max_iterations=self.config.max_iterations
+            deps,
+            user_input,
+            max_iterations=self.config.max_iterations,
+            initial_spec=initial_spec,
+            initial_seed_outputs=initial_seed_outputs,
         )
         elapsed = time.monotonic() - t0
         breakdown = router.snapshot_usage()

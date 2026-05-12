@@ -205,7 +205,13 @@ class PlanTask(Task):
             _LOG.error(f"[plan] {format_node_label(node_name)} failed: {type(exc).__name__}: {exc}")
             raise
 
+        # Persist every result to the PlanFolder so resume can
+        # reconstruct seed_outputs from disk.
+        if isinstance(result, BaseModel):
+            ctx.deps.plan_folder.write_node_result(node_name, result)
+
         if node_name in _FINAL_STEP_NAMES:
+            ctx.deps.plan_folder.checkpoint(node_name)
             _LOG.info(format_progress_done(node_name, _progress_summary(result)))
             return result
 
@@ -217,6 +223,7 @@ class PlanTask(Task):
             # boundary stub if a later step gets rejected — see
             # _repair_loop._next_round_inputs_from_log.
             ctx.deps.step_outputs_log[node_name] = result
+            ctx.deps.plan_folder.checkpoint(node_name)
             _LOG.info(format_progress_done(node_name, _progress_summary(result)))
             return result
         _LOG.info(

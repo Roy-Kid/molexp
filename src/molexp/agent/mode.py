@@ -48,6 +48,14 @@ class AgentMode(ABC):
     Subclasses set ``name`` to a stable identifier and implement
     :meth:`run`. The ``router`` keyword is supplied by ``AgentRunner``;
     user code does not call ``run`` directly.
+
+    Resume contract
+    ---------------
+    :meth:`resume` is a classmethod that reconstructs a mode instance
+    from persisted state. The default raises :exc:`NotImplementedError`;
+    subclasses override it to read their own on-disk format (e.g.
+    :class:`~molexp.agent.modes.plan.PlanMode` restores from a
+    :class:`~molexp.agent.modes.plan.plan_folder.PlanFolder`).
     """
 
     name: str = ""
@@ -60,6 +68,15 @@ class AgentMode(ABC):
         session: AgentSession,
         user_input: str,
     ) -> AgentRunResult: ...
+
+    @classmethod
+    def resume(cls, **kwargs: Any) -> AgentMode:
+        """Reconstruct this mode from persisted state.
+
+        Subclasses override this to read their own on-disk format.
+        The default raises :exc:`NotImplementedError`.
+        """
+        raise NotImplementedError(f"{cls.__name__} does not support resume")
 
 
 __all__ = ["AgentMode", "AgentRunResult"]
