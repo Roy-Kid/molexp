@@ -48,6 +48,12 @@ from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
     validate_codegen_evidence,
 )
+from molexp.agent.modes.plan.context import (
+    PLAN_PIPELINE_ORDER,
+    format_node_label,
+    format_progress_done,
+    format_progress_start,
+)
 from molexp.agent.modes.plan.errors import (
     SkeletonCompileError,
     StepRejected,
@@ -121,29 +127,14 @@ _LOG = get_logger(__name__)
 # to keep ``tasks.py`` the single source of node-name truth — the
 # builder reads class names, this tuple lists them in topological
 # order so logs can show ``[plan-node 5/13 ...]``.
-_PIPELINE_ORDER: tuple[str, ...] = (
-    "IngestReport",
-    "DraftReportDigest",
-    "DraftImplementationPlan",
-    "DraftCapabilityNeeds",
-    "DiscoverCapabilities",
-    "CompileWorkflowIR",
-    "CompileTaskIR",
-    "GenerateWorkflowSkeleton",
-    "GenerateTaskTests",
-    "GenerateTaskImplementations",
-    "ValidateWorkspace",
-    "HumanReview",
-    "FinalHandoffCheck",
-)
+_PIPELINE_ORDER: tuple[str, ...] = PLAN_PIPELINE_ORDER
 _PIPELINE_TOTAL = len(_PIPELINE_ORDER)
 _PIPELINE_INDEX: dict[str, int] = {n: i for i, n in enumerate(_PIPELINE_ORDER, 1)}
 
 
 def _tag(name: str) -> str:
     """Format the ``[plan-node N/13 NodeName]`` prefix for a log line."""
-    idx = _PIPELINE_INDEX.get(name)
-    return f"[plan-node {idx}/{_PIPELINE_TOTAL} {name}]" if idx else f"[plan-node ?/? {name}]"
+    return f"[plan-debug {format_node_label(name)}]"
 
 
 # ── Shared LLM guidance ────────────────────────────────────────────────────
@@ -206,9 +197,16 @@ class PlanTask(Task):
     """
 
     async def execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
-        result = await self._execute(ctx)
         node_name = type(self).__name__
+        _LOG.info(format_progress_start(node_name, iteration=ctx.deps.repair_iteration))
+        try:
+            result = await self._execute(ctx)
+        except Exception as exc:
+            _LOG.error(f"[plan] {format_node_label(node_name)} failed: {type(exc).__name__}: {exc}")
+            raise
+
         if node_name in _FINAL_STEP_NAMES:
+            _LOG.info(format_progress_done(node_name, _progress_summary(result)))
             return result
 
         step_policy = ctx.deps.step_policy
@@ -219,7 +217,12 @@ class PlanTask(Task):
             # boundary stub if a later step gets rejected — see
             # _repair_loop._next_round_inputs_from_log.
             ctx.deps.step_outputs_log[node_name] = result
+            _LOG.info(format_progress_done(node_name, _progress_summary(result)))
             return result
+        _LOG.info(
+            f"[plan] {format_node_label(node_name)} rejected; scheduling repair "
+            f"steps={list(decision.target_steps) or [node_name]}"
+        )
         raise StepRejected(view, decision)
 
     async def _execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
@@ -256,6 +259,12 @@ class PlanLLMTask(PlanTask):
         # breakdown attribute work to the right artefact.
         node_name = type(self).__name__
         node_id = f"{node_name}/{node_id_suffix}" if node_id_suffix else node_name
+        task_id = node_id_suffix if node_id_suffix else ""
+        user = ctx.deps.repair_context.append_to_prompt(
+            user,
+            node_id=node_id,
+            task_id=task_id,
+        )
         return await ctx.deps.router.complete_structured(
             tier=ctx.deps.policy.tier_for(node_name),
             system=self.SYSTEM_PROMPT,
@@ -291,6 +300,31 @@ def _build_step_view(node_name: str, result: Any, deps: PlanDeps) -> StepView:  
     )
 
 
+def _progress_summary(result: Any) -> str:  # noqa: ANN401
+    """Return one terse progress suffix for a node result."""
+    if not isinstance(result, BaseModel):
+        return ""
+    fields = result.model_dump(mode="python")
+    for key in ("status", "passed", "ready_for_run"):
+        if key in fields:
+            return f"{key}={fields[key]}"
+    for key in ("task_ir_paths", "test_paths", "impl_paths", "evidence", "missing"):
+        value = fields.get(key)
+        if isinstance(value, (tuple, list)):
+            return f"{key}={len(value)}"
+    for key in (
+        "digest_path",
+        "plan_path",
+        "workflow_yaml_path",
+        "workflow_py_path",
+        "report_path",
+    ):
+        value = fields.get(key)
+        if isinstance(value, Path):
+            return value.name
+    return ""
+
+
 def _extract_paths(payload: dict[str, Any]) -> tuple[Path, ...]:
     """Walk a result payload and collect every ``Path``-valued field.
 
@@ -323,14 +357,14 @@ class IngestReport(PlanTask):
         user_input = ctx.config.get("user_input")
         if not isinstance(user_input, str) or not user_input.strip():
             raise ValueError("IngestReport requires a non-empty 'user_input' in config.")
-        _LOG.info(f"{_tag('IngestReport')} start chars={len(user_input)}")
+        _LOG.debug(f"{_tag('IngestReport')} start chars={len(user_input)}")
 
         report_dir = ctx.deps.workspace_handle.report_dir()
         report_path = report_dir / "original.md"
         _write_text(report_path, user_input)
 
         digest_hash = hashlib.sha256(user_input.encode("utf-8")).hexdigest()
-        _LOG.info(f"{_tag('IngestReport')} done path={report_path} sha256={digest_hash[:12]}")
+        _LOG.debug(f"{_tag('IngestReport')} done path={report_path} sha256={digest_hash[:12]}")
         return IngestReportResult(report_path=report_path, report_hash=digest_hash)
 
 
@@ -348,14 +382,14 @@ class DraftReportDigest(PlanLLMTask):
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, IngestReportResult]) -> DigestResult:
         ingest = ctx.inputs
-        _LOG.info(f"{_tag('DraftReportDigest')} start report_path={ingest.report_path}")
+        _LOG.debug(f"{_tag('DraftReportDigest')} start report_path={ingest.report_path}")
         report_text = Path(ingest.report_path).read_text(encoding="utf-8")
         digest = await self.invoke_llm(ctx, user=report_text, schema=ReportDigest)
 
         digest_path = ctx.deps.workspace_handle.report_dir() / "digest.md"
         _write_text(digest_path, _render_digest_markdown(digest))
         goal_chars = len(digest.experimental_goal or "")
-        _LOG.info(f"{_tag('DraftReportDigest')} done path={digest_path} goal_chars={goal_chars}")
+        _LOG.debug(f"{_tag('DraftReportDigest')} done path={digest_path} goal_chars={goal_chars}")
         return DigestResult(digest_path=digest_path, digest=digest)
 
 
@@ -380,7 +414,7 @@ class DraftImplementationPlan(PlanLLMTask):
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, DigestResult]) -> PlanBriefResult:
         digest_result = ctx.inputs
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('DraftImplementationPlan')} start digest_path={digest_result.digest_path}"
         )
         plan_brief = await self.invoke_llm(
@@ -390,7 +424,7 @@ class DraftImplementationPlan(PlanLLMTask):
         )
         plan_path = ctx.deps.workspace_handle.plan_dir() / "implementation_plan.md"
         _write_text(plan_path, _render_plan_brief_markdown(plan_brief))
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('DraftImplementationPlan')} done path={plan_path} "
             f"stages={len(plan_brief.stages)}"
         )
@@ -425,7 +459,7 @@ class CompileWorkflowIR(PlanLLMTask):
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> WorkflowIRResult:
         plan_result = _expect_input(ctx.inputs, "DraftImplementationPlan", PlanBriefResult)
         evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('CompileWorkflowIR')} start plan_path={plan_result.plan_path} "
             f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
         )
@@ -439,7 +473,7 @@ class CompileWorkflowIR(PlanLLMTask):
         ir_path = ctx.deps.workspace_handle.ir_dir() / "workflow.yaml"
         contract_dict = default_compiler.contract_to_dict(contract)
         _write_text(ir_path, default_compiler.ir_to_yaml(contract_dict))
-        _LOG.info(f"{_tag('CompileWorkflowIR')} done path={ir_path} tasks={len(contract.task_io)}")
+        _LOG.debug(f"{_tag('CompileWorkflowIR')} done path={ir_path} tasks={len(contract.task_io)}")
         return WorkflowIRResult(workflow_yaml_path=ir_path, contract=contract)
 
 
@@ -473,16 +507,22 @@ class CompileTaskIR(PlanLLMTask):
         task_ios = ir_result.contract.task_io
         n_tasks = len(task_ios)
         tier = ctx.deps.policy.tier_for("CompileTaskIR")
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('CompileTaskIR')} start tasks={n_tasks} (parallel) "
             f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
         )
 
         async def _draft_one(task_io: TaskIO) -> TaskIRBrief:
+            user = _augment_user_with_ir_evidence(task_io.model_dump_json(), evidence_batch)
+            user = ctx.deps.repair_context.append_to_prompt(
+                user,
+                node_id=f"CompileTaskIR/{task_io.task_id}",
+                task_id=task_io.task_id,
+            )
             brief = await ctx.deps.router.complete_structured(
                 tier=tier,
                 system=self.SYSTEM_PROMPT,
-                user=_augment_user_with_ir_evidence(task_io.model_dump_json(), evidence_batch),
+                user=user,
                 schema=TaskIRBrief,
                 node_id=f"CompileTaskIR/{task_io.task_id}",
             )
@@ -512,7 +552,7 @@ class CompileTaskIR(PlanLLMTask):
             briefs.append(brief)
 
         n_stub = sum(1 for b in briefs if b.is_stub)
-        _LOG.info(f"{_tag('CompileTaskIR')} done briefs={len(briefs)} stubs={n_stub}")
+        _LOG.debug(f"{_tag('CompileTaskIR')} done briefs={len(briefs)} stubs={n_stub}")
         return TaskIRResult(task_ir_paths=tuple(paths), briefs=tuple(briefs))
 
 
@@ -541,7 +581,7 @@ class GenerateWorkflowSkeleton(PlanTask):
         ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
         _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
         _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('GenerateWorkflowSkeleton')} start tasks={len(ir_result.contract.task_io)}"
         )
 
@@ -565,7 +605,7 @@ class GenerateWorkflowSkeleton(PlanTask):
         _validate_python(_TASKS_INIT_BODY, str(tasks_init))
         _write_text(tasks_init, _TASKS_INIT_BODY)
 
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('GenerateWorkflowSkeleton')} done workflow_py={workflow_py} pkg={package_path}"
         )
         return SkeletonResult(workflow_py_path=workflow_py, package_path=package_path)
@@ -606,7 +646,7 @@ class GenerateTaskTests(PlanLLMTask):
         handle = ctx.deps.workspace_handle
         repair_targets = ctx.deps.repair_target_tasks
         _targets_repr = list(repair_targets) if repair_targets else None
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('GenerateTaskTests')} start briefs={len(ir_result.briefs)} "
             f"repair_targets={_targets_repr} "
             f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
@@ -642,7 +682,7 @@ class GenerateTaskTests(PlanLLMTask):
         # Topology-pin test always lands.
         handle.write_workflow_structure_test(_render_workflow_structure_test("ir/workflow.yaml"))
 
-        _LOG.info(f"{_tag('GenerateTaskTests')} done test_modules={len(paths)}")
+        _LOG.debug(f"{_tag('GenerateTaskTests')} done test_modules={len(paths)}")
         return TaskTestsResult(test_paths=paths)
 
 
@@ -680,7 +720,7 @@ class GenerateTaskImplementations(PlanLLMTask):
         handle = ctx.deps.workspace_handle
         repair_targets = ctx.deps.repair_target_tasks
         _targets_repr = list(repair_targets) if repair_targets else None
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('GenerateTaskImplementations')} start briefs={len(ir_result.briefs)} "
             f"repair_targets={_targets_repr} "
             f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
@@ -716,7 +756,7 @@ class GenerateTaskImplementations(PlanLLMTask):
             write=handle.write_task_implementation,
         )
 
-        _LOG.info(f"{_tag('GenerateTaskImplementations')} done impl_modules={len(paths)}")
+        _LOG.debug(f"{_tag('GenerateTaskImplementations')} done impl_modules={len(paths)}")
         return TaskImplementationsResult(impl_paths=paths)
 
 
@@ -738,7 +778,7 @@ class ValidateWorkspace(PlanTask):
         # ensure the upstream order ran.
         _expect_input(ctx.inputs, "GenerateTaskTests", TaskTestsResult)
         _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult)
-        _LOG.info(f"{_tag('ValidateWorkspace')} start")
+        _LOG.debug(f"{_tag('ValidateWorkspace')} start")
 
         handle = ctx.deps.workspace_handle
         checks = _run_workspace_validation(
@@ -752,7 +792,7 @@ class ValidateWorkspace(PlanTask):
         summary = _summarize_checks(checks)
         failed_names = [c.name for c in checks if not c.passed]
         if passed:
-            _LOG.info(f"{_tag('ValidateWorkspace')} passed checks={len(checks)}")
+            _LOG.debug(f"{_tag('ValidateWorkspace')} passed checks={len(checks)}")
         else:
             _LOG.warning(
                 f"{_tag('ValidateWorkspace')} failed checks={len(checks)} failures={failed_names}"
@@ -798,7 +838,7 @@ class HumanReview(PlanTask):
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
         validation_result = ctx.inputs
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('HumanReview')} start iter={ctx.deps.repair_iteration} "
             f"validation_passed={validation_result.passed}"
         )
@@ -838,7 +878,7 @@ class HumanReview(PlanTask):
         )
 
         decision = await ctx.deps.final_policy.review(view)
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('HumanReview')} decision approved={decision.approved} "
             f"target_steps={list(decision.target_steps)} "
             f"target_tasks={list(decision.target_task_ids)} "
@@ -884,7 +924,7 @@ class HumanReview(PlanTask):
             status=new_status,
         )
 
-        _LOG.info(f"{_tag('HumanReview')} done status={new_status}")
+        _LOG.debug(f"{_tag('HumanReview')} done status={new_status}")
         return HandoffResult(
             handoff=handoff,
             decision=decision,
@@ -905,7 +945,7 @@ class FinalHandoffCheck(PlanTask):
     async def _execute(self, ctx: TaskContext[None, PlanDeps, HandoffResult]) -> HandoffResult:
         prior = ctx.inputs
         handle = ctx.deps.workspace_handle
-        _LOG.info(
+        _LOG.debug(
             f"{_tag('FinalHandoffCheck')} start prior_status={prior.status} "
             f"approved={prior.decision.approved}"
         )
@@ -920,7 +960,7 @@ class FinalHandoffCheck(PlanTask):
         )
         failed_final = [c.name for c in final_checks if not c.passed]
         if validation_passed:
-            _LOG.info(
+            _LOG.debug(
                 f"{_tag('FinalHandoffCheck')} done status={status} ready_for_run={ready_for_run}"
             )
         else:

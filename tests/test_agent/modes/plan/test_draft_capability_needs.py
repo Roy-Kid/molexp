@@ -57,12 +57,18 @@ class StubCapabilityProbe:
         self,
         *,
         plan_brief: PlanBrief,
+        repair_context: object | None = None,
     ) -> CapabilityNeedReport:
+        del repair_context
         self.draft_calls.append(plan_brief)
         return self._report
 
-    async def discover(self, report: CapabilityNeedReport) -> CapabilityEvidenceBatch:
-        del report
+    async def discover(
+        self,
+        report: CapabilityNeedReport,
+        repair_context: object | None = None,
+    ) -> CapabilityEvidenceBatch:
+        del report, repair_context
         return CapabilityEvidenceBatch(discovery_skipped=True)
 
 

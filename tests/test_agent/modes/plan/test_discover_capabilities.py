@@ -15,7 +15,6 @@ pydantic-ai or any real MCP server.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
@@ -57,13 +56,17 @@ class StubDiscoveryProbe:
         self,
         *,
         plan_brief: object,
-        contract: object,
-        briefs: Sequence[object],
+        repair_context: object | None = None,
     ) -> CapabilityNeedReport:
-        del plan_brief, contract, briefs
+        del plan_brief, repair_context
         return CapabilityNeedReport(discovery_required=False)
 
-    async def discover(self, report: CapabilityNeedReport) -> CapabilityEvidenceBatch:
+    async def discover(
+        self,
+        report: CapabilityNeedReport,
+        repair_context: object | None = None,
+    ) -> CapabilityEvidenceBatch:
+        del repair_context
         self.discover_calls.append(report)
         return self._batch
 
@@ -75,13 +78,17 @@ class RaisingProbe:
         self,
         *,
         plan_brief: object,
-        contract: object,
-        briefs: Sequence[object],
+        repair_context: object | None = None,
     ) -> CapabilityNeedReport:
-        del plan_brief, contract, briefs
+        del plan_brief, repair_context
         return CapabilityNeedReport(discovery_required=True)
 
-    async def discover(self, report: CapabilityNeedReport) -> CapabilityEvidenceBatch:
+    async def discover(
+        self,
+        report: CapabilityNeedReport,
+        repair_context: object | None = None,
+    ) -> CapabilityEvidenceBatch:
+        del report, repair_context
         raise CapabilityDiscoveryRequired(
             "Forced for test", reason="test", detail="raise from discover"
         )

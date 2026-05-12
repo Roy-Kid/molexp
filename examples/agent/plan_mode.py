@@ -49,6 +49,12 @@ Run directly::
 
     python examples/agent/plan_mode.py            # full interactive demo
     python examples/agent/plan_mode.py --smoke    # non-interactive smoke test
+    python examples/agent/plan_mode.py --debug    # include verbose router/node details
+
+The script runs a preflight check before any LLM calls: provider key,
+``pydantic-ai`` availability, ``molmcp`` MCP config, executable lookup,
+and a stdio MCP handshake.  Pass ``--skip-preflight`` only when you are
+intentionally debugging a failing environment.
 
 Set the provider's API key env var (e.g. ``DEEPSEEK_API_KEY`` for
 DeepSeek, ``OPENAI_API_KEY`` for OpenAI) and adjust :data:`TIER_MODELS`
@@ -83,10 +89,14 @@ import mollog
 from molexp.agent import AgentRunner, AgentSession, BypassPolicy, HumanPolicy
 from molexp.agent.modes import PlanMode
 from molexp.agent.modes.plan import PlanWorkspaceHandle
+from molexp.agent.modes.plan.preflight import check_plan_runtime
 from molexp.agent.router import ModelTier
 from molexp.workspace import Workspace
 
-mollog.configure(level="INFO")
+_DEBUG = "--debug" in sys.argv[1:]
+_SKIP_PREFLIGHT = "--skip-preflight" in sys.argv[1:]
+
+mollog.configure(level="DEBUG" if _DEBUG else "INFO")
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 # Router already logs every LLM call with timing + token counts; the
 # raw httpx "HTTP/1.1 200 OK" line is redundant noise. Silence it.
@@ -135,9 +145,33 @@ def _print_tree(root: Path) -> None:
         print(f"  {rel:<{width}}  {size:>8} B")
 
 
+async def _preflight_or_exit(workspace: Workspace) -> int | None:
+    """Run environment checks before spending LLM calls."""
+    if _SKIP_PREFLIGHT:
+        print("PlanMode preflight skipped (--skip-preflight).")
+        return None
+
+    report = await check_plan_runtime(
+        workspace=workspace.root,
+        models=TIER_MODELS,
+        require_molmcp=True,
+        verify_molmcp_stdio=True,
+    )
+    print(report.render())
+    if report.passed:
+        print()
+        return None
+    print()
+    print("Fix the failed preflight check(s), or pass --skip-preflight to run anyway.")
+    return 2
+
+
 async def main() -> int:
     with TemporaryDirectory(delete=False) as tmp:
         workspace = Workspace(Path(tmp) / "ws")
+        preflight_status = await _preflight_or_exit(workspace)
+        if preflight_status is not None:
+            return preflight_status
         handle = PlanWorkspaceHandle.materialize(workspace, plan_id="demo")
         mode = PlanMode(
             workspace_handle=handle,
@@ -200,6 +234,9 @@ async def smoke_test() -> int:
     """
     with TemporaryDirectory(delete=False) as tmp:
         workspace = Workspace(Path(tmp) / "ws")
+        preflight_status = await _preflight_or_exit(workspace)
+        if preflight_status is not None:
+            return preflight_status
         handle = PlanWorkspaceHandle.materialize(workspace, plan_id="smoke")
         mode = PlanMode(
             workspace_handle=handle,

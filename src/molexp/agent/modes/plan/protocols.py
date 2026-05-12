@@ -23,6 +23,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from molexp.agent.modes.plan.context import PlanRepairContext
 from molexp.agent.router import ModelTier, Router
 
 if TYPE_CHECKING:
@@ -40,6 +41,7 @@ __all__ = [
     "CapabilityProbe",
     "ModelTier",
     "PlanDeps",
+    "PlanRepairContext",
     "Router",
 ]
 
@@ -76,6 +78,7 @@ class CapabilityProbe(Protocol):
         self,
         *,
         plan_brief: PlanBrief,
+        repair_context: PlanRepairContext | None = None,
     ) -> CapabilityNeedReport:
         """Draft per-stage capability needs from the implementation plan.
 
@@ -99,6 +102,7 @@ class CapabilityProbe(Protocol):
     async def discover(
         self,
         report: CapabilityNeedReport,
+        repair_context: PlanRepairContext | None = None,
     ) -> CapabilityEvidenceBatch:
         """Resolve needs into concrete API evidence.
 
@@ -203,6 +207,10 @@ class PlanDeps:
             in Phase 4) lazily wires in either a
             ``PydanticAICapabilityProbe`` (when molmcp is configured)
             or a ``NullCapabilityProbe`` (fallback).
+        repair_context: Structured feedback from the previous rejection
+            when this is a repair iteration. First pass uses the empty
+            context. LLM nodes render this centrally into their prompts
+            so reviewer feedback is not lost between iterations.
     """
 
     router: Router
@@ -214,6 +222,7 @@ class PlanDeps:
     repair_iteration: int = 0
     step_outputs_log: dict[str, Any] = field(default_factory=dict)
     capability_probe: CapabilityProbe | None = None
+    repair_context: PlanRepairContext = field(default_factory=PlanRepairContext)
 
     @property
     def step_policy(self) -> ReviewPolicy:

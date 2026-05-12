@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 from mollog import get_logger
 
 from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
+from molexp.agent.modes.plan.context import PlanRepairContext
 from molexp.agent.modes.plan.errors import (
     CapabilityDiscoveryRequired,
     StepRejected,
@@ -114,12 +115,19 @@ async def drive_with_repair(
     seed_outputs: dict[str, Any] | None = None
     iteration = 0
     unevidenced_count = 0
+    repair_context = PlanRepairContext()
 
-    _LOG.info(f"[plan-repair] start max_iterations={max_iterations} workspace={handle.root()}")
+    _LOG.info(f"[plan] repair budget: {max_iterations} iteration(s)")
     while True:
-        current_deps = replace(deps, repair_iteration=iteration)
+        current_deps = replace(
+            deps,
+            repair_iteration=iteration,
+            repair_context=repair_context,
+        )
         seed_keys = list(seed_outputs.keys()) if seed_outputs else None
-        _LOG.info(f"[plan-repair] iter={iteration} running spec={spec.name} seed_keys={seed_keys}")
+        if iteration:
+            _LOG.info(f"[plan] repair iteration {iteration} start")
+        _LOG.debug(f"[plan-repair] iter={iteration} running spec={spec.name} seed_keys={seed_keys}")
         try:
             result = await spec.execute(
                 config={"user_input": user_input},
@@ -165,7 +173,16 @@ async def drive_with_repair(
                 # log (its output was discarded when StepRejected was
                 # raised), so the subgraph will recompute it.
                 spec, seed_outputs = _next_round_inputs_from_log(deps.step_outputs_log, decision)
-                deps = replace(deps, repair_target_tasks=decision.target_task_ids or None)
+                repair_context = PlanRepairContext.from_decision(
+                    iteration=iteration + 1,
+                    decision=decision,
+                    source=f"step:{exc.view.step_id}",
+                )
+                deps = replace(
+                    deps,
+                    repair_target_tasks=decision.target_task_ids or None,
+                    repair_context=repair_context,
+                )
                 # Clear cached outputs for nodes the subgraph will
                 # rebuild — otherwise stale entries shadow the rerun.
                 _purge_log_for_subgraph(deps.step_outputs_log, spec)
@@ -177,7 +194,16 @@ async def drive_with_repair(
             # overwrite their already-written artefacts in place.
             spec = PLAN_WORKFLOW
             seed_outputs = None
-            deps = replace(deps, repair_target_tasks=None)
+            repair_context = PlanRepairContext.from_decision(
+                iteration=iteration + 1,
+                decision=decision,
+                source="capability_gate",
+            )
+            deps = replace(
+                deps,
+                repair_target_tasks=None,
+                repair_context=repair_context,
+            )
             deps.step_outputs_log.clear()
             iteration += 1
             continue
@@ -190,8 +216,7 @@ async def drive_with_repair(
 
         if handoff.decision.approved:
             _LOG.info(
-                f"[plan-repair] iter={iteration} approved status={handoff.status} "
-                f"ready_for_run={handoff.ready_for_run}"
+                f"[plan] approved: status={handoff.status} ready_for_run={handoff.ready_for_run}"
             )
             return result
 
@@ -213,10 +238,9 @@ async def drive_with_repair(
         # Archive the live tree, persist the decision, update the manifest.
         decision = handoff.decision
         _LOG.info(
-            f"[plan-repair] iter={iteration} rejected "
-            f"target_steps={list(decision.target_steps)} "
-            f"target_tasks={list(decision.target_task_ids)} "
-            f"cascade={decision.cascade_downstream} — archiving"
+            "[plan] review requested repair: "
+            f"steps={list(decision.target_steps) or 'default'} "
+            f"tasks={list(decision.target_task_ids) or 'all'}"
         )
         handle.archive_artifacts_for_repair(iteration)
         handle.write_latest_decision(decision)
@@ -224,9 +248,15 @@ async def drive_with_repair(
 
         # Build the next iteration's spec + seeds.
         spec, seed_outputs = _next_round_inputs(result, decision)
+        repair_context = PlanRepairContext.from_decision(
+            iteration=iteration + 1,
+            decision=decision,
+            source="final_review",
+        )
         deps = replace(
             deps,
             repair_target_tasks=decision.target_task_ids or None,
+            repair_context=repair_context,
         )
         iteration += 1
 

@@ -36,6 +36,7 @@ from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
     CapabilityNeedReport,
 )
+from molexp.agent.modes.plan.context import PlanRepairContext
 from molexp.agent.modes.plan.errors import CapabilityDiscoveryRequired
 from molexp.agent.modes.plan.protocols import CapabilityProbe, PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -74,7 +75,9 @@ class NullCapabilityProbe:
         self,
         *,
         plan_brief: PlanBrief,
+        repair_context: PlanRepairContext | None = None,
     ) -> CapabilityNeedReport:
+        del repair_context
         del plan_brief
         return CapabilityNeedReport(
             discovery_required=False,
@@ -82,7 +85,12 @@ class NullCapabilityProbe:
             rationale_summary="no probe configured",
         )
 
-    async def discover(self, report: CapabilityNeedReport) -> CapabilityEvidenceBatch:
+    async def discover(
+        self,
+        report: CapabilityNeedReport,
+        repair_context: PlanRepairContext | None = None,
+    ) -> CapabilityEvidenceBatch:
+        del repair_context
         if report.discovery_required:
             raise CapabilityDiscoveryRequired(
                 "NullCapabilityProbe cannot perform discovery; configure molmcp.",
@@ -119,20 +127,23 @@ class DraftCapabilityNeeds(PlanLLMTask):
     own model selection.
     """
 
-    async def execute(
+    async def _execute(
         self,
         ctx: TaskContext[None, PlanDeps, PlanBriefResult],
     ) -> CapabilityNeedReport:
         plan_brief = ctx.inputs
 
         probe = _resolve_probe(ctx.deps)
-        _LOG.info(
+        _LOG.debug(
             f"[plan-node DraftCapabilityNeeds] start stages={len(plan_brief.plan_brief.stages)} "
             f"probe={type(probe).__name__}"
         )
-        report = await probe.draft_needs(plan_brief=plan_brief.plan_brief)
+        report = await probe.draft_needs(
+            plan_brief=plan_brief.plan_brief,
+            repair_context=ctx.deps.repair_context,
+        )
         ctx.deps.workspace_handle.write_capability_needs(report)
-        _LOG.info(
+        _LOG.debug(
             "[plan-node DraftCapabilityNeeds] done "
             f"discovery_required={report.discovery_required} needs={len(report.needs)}"
         )
@@ -154,18 +165,18 @@ class DiscoverCapabilities(PlanTask):
     and runs the MCP-attached agent loop internally.
     """
 
-    async def execute(
+    async def _execute(
         self,
         ctx: TaskContext[None, PlanDeps, CapabilityNeedReport],
     ) -> CapabilityEvidenceBatch:
         report = ctx.inputs
         probe = _resolve_probe(ctx.deps)
-        _LOG.info(
+        _LOG.debug(
             f"[plan-node DiscoverCapabilities] start needs={len(report.needs)} "
             f"discovery_required={report.discovery_required} probe={type(probe).__name__}"
         )
         try:
-            batch = await probe.discover(report)
+            batch = await probe.discover(report, repair_context=ctx.deps.repair_context)
         except CapabilityDiscoveryRequired:
             _LOG.warning(
                 "[plan-node DiscoverCapabilities] failed — discovery required but no probe"
@@ -175,7 +186,7 @@ class DiscoverCapabilities(PlanTask):
         handle = ctx.deps.workspace_handle
         handle.write_capability_evidence(batch)
         handle.write_capability_missing(batch.missing)
-        _LOG.info(
+        _LOG.debug(
             "[plan-node DiscoverCapabilities] done "
             f"evidence={len(batch.evidence)} missing={len(batch.missing)} "
             f"skipped={batch.discovery_skipped}"

@@ -43,6 +43,7 @@ from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
     CapabilityNeedReport,
 )
+from molexp.agent.modes.plan.context import PlanRepairContext
 from molexp.agent.modes.plan.errors import CapabilityDiscoveryRequired
 from molexp.agent.modes.plan.schemas import PlanBrief
 
@@ -235,6 +236,7 @@ class PydanticAICapabilityProbe:
         self,
         *,
         plan_brief: PlanBrief,
+        repair_context: PlanRepairContext | None = None,
     ) -> CapabilityNeedReport:
         """Run the needs-drafting agent against the plan brief.
 
@@ -242,17 +244,21 @@ class PydanticAICapabilityProbe:
         parses the LLM response into a :class:`CapabilityNeedReport`
         directly via ``output_type``.
         """
-        prompt = _render_needs_prompt(plan_brief)
-        _LOG.info(f"[capability-probe] draft_needs prompt_chars={len(prompt)}")
+        prompt = _render_needs_prompt(plan_brief, repair_context=repair_context)
+        _LOG.debug(f"[capability-probe] draft_needs prompt_chars={len(prompt)}")
         result = await self._needs_agent.run(prompt)
         report = result.output
-        _LOG.info(
+        _LOG.debug(
             "[capability-probe] draft_needs done "
             f"discovery_required={report.discovery_required} needs={len(report.needs)}"
         )
         return report
 
-    async def discover(self, report: CapabilityNeedReport) -> CapabilityEvidenceBatch:
+    async def discover(
+        self,
+        report: CapabilityNeedReport,
+        repair_context: PlanRepairContext | None = None,
+    ) -> CapabilityEvidenceBatch:
         """Run the MCP-attached evidence-gathering agent.
 
         Returns an empty + ``discovery_skipped=True`` batch when the
@@ -267,14 +273,14 @@ class PydanticAICapabilityProbe:
         needs or invoke MCP tools by hand.
         """
         if not report.discovery_required:
-            _LOG.info("[capability-probe] discover skipped — discovery_required=False")
+            _LOG.debug("[capability-probe] discover skipped — discovery_required=False")
             return CapabilityEvidenceBatch(
                 evidence=(),
                 missing=(),
                 discovery_skipped=True,
             )
-        prompt = _render_discovery_prompt(report)
-        _LOG.info(
+        prompt = _render_discovery_prompt(report, repair_context=repair_context)
+        _LOG.debug(
             f"[capability-probe] discover start needs={len(report.needs)} "
             f"prompt_chars={len(prompt)}"
         )
@@ -299,7 +305,7 @@ class PydanticAICapabilityProbe:
                 detail=f"{type(exc).__name__}: {exc}",
             ) from exc
         batch = result.output
-        _LOG.info(
+        _LOG.debug(
             "[capability-probe] discover done "
             f"evidence={len(batch.evidence)} missing={len(batch.missing)}"
         )
@@ -309,7 +315,11 @@ class PydanticAICapabilityProbe:
 # ── Prompt rendering ──────────────────────────────────────────────────────
 
 
-def _render_needs_prompt(plan_brief: PlanBrief) -> str:
+def _render_needs_prompt(
+    plan_brief: PlanBrief,
+    *,
+    repair_context: PlanRepairContext | None = None,
+) -> str:
     """Bundle the plan brief into a YAML prompt for the needs agent.
 
     Discovery runs before IR compilation so the plan brief is the only
@@ -317,18 +327,30 @@ def _render_needs_prompt(plan_brief: PlanBrief) -> str:
     drafts one :class:`CapabilityNeed` per stage that plausibly requires
     project code. pydantic-ai feeds the YAML string to the model verbatim.
     """
+    payload = plan_brief.model_dump(mode="json")
+    block = repair_context.prompt_block(node_id="DraftCapabilityNeeds") if repair_context else ""
+    if block:
+        payload["repair_context"] = block
     return yaml.safe_dump(
-        plan_brief.model_dump(mode="json"),
+        payload,
         sort_keys=False,
         default_flow_style=False,
     )
 
 
-def _render_discovery_prompt(report: CapabilityNeedReport) -> str:
+def _render_discovery_prompt(
+    report: CapabilityNeedReport,
+    *,
+    repair_context: PlanRepairContext | None = None,
+) -> str:
     """Render the report as a JSON document for the discovery agent.
 
     JSON (rather than YAML) keeps the per-need fields tightly packed so
     the model sees one need per document line — easier to plan
     individual tool calls against.
     """
-    return json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=False)
+    payload = report.model_dump(mode="json")
+    block = repair_context.prompt_block(node_id="DiscoverCapabilities") if repair_context else ""
+    if block:
+        payload["repair_context"] = block
+    return json.dumps(payload, indent=2, ensure_ascii=False)

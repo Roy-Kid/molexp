@@ -223,9 +223,11 @@ class PlanMode(AgentMode):
         router.clear_usage()
         session.append(Message(role="user", content=user_input))
         _LOG.info(
-            f"[plan-mode] run start workspace={self._workspace_handle.root()} "
-            f"plan_id={self._workspace_handle.plan_id} "
-            f"max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
+            f"[plan] start plan_id={self._workspace_handle.plan_id} "
+            f"workspace={self._workspace_handle.root()}"
+        )
+        _LOG.debug(
+            f"[plan-mode] max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
         )
 
         deps = PlanDeps(
@@ -323,18 +325,17 @@ class PlanMode(AgentMode):
         session.append(Message(role="assistant", content=view.summary))
         session.mode_state["plan"] = plan_compat
         _LOG.info(
-            f"[plan-mode] run done {elapsed:.1f}s status={status} "
+            f"[plan] done in {elapsed:.1f}s: status={status} "
             f"approved={approved} ready_for_run={ready_for_run}"
         )
         _LOG.info(
-            f"[plan-mode] usage in={breakdown.total.input_tokens} "
-            f"out={breakdown.total.output_tokens} total={breakdown.total.total_tokens} "
-            f"reqs={breakdown.total.requests}"
+            f"[plan] LLM usage: {breakdown.total.requests} request(s), "
+            f"{breakdown.total.total_tokens} token(s)"
         )
         # Multi-line breakdown table at the end so it's the last thing
         # the user sees; one chunk so it doesn't get interleaved with
         # other loggers' output.
-        _LOG.info("[plan-mode] usage breakdown:\n" + breakdown.render_table())
+        _LOG.debug("[plan-mode] usage breakdown:\n" + breakdown.render_table())
         return AgentRunResult(
             text=view.summary,
             messages=tuple(session.history),

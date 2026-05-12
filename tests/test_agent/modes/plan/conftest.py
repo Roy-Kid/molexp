@@ -166,6 +166,7 @@ class FakeRouter:
     ) -> None:
         self._presets = dict(presets) if presets is not None else canned_presets()
         self.calls: list[tuple[str, ModelTier, str]] = []
+        self.prompts: list[tuple[str, str]] = []
 
     async def complete_text(
         self,
@@ -192,6 +193,7 @@ class FakeRouter:
     ) -> SchemaT:
         del system
         self.calls.append((node_id, tier, schema.__name__))
+        self.prompts.append((node_id, user))
         per_task_schemas = (TaskIRBrief, TaskTestModule, TaskImplementationModule)
         if schema in per_task_schemas:
             entries = self._presets[schema]

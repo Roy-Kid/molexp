@@ -162,6 +162,35 @@ async def test_partial_rerun_round(repair_handle: PlanWorkspaceHandle) -> None:
 
 
 @pytest.mark.asyncio
+async def test_repair_feedback_is_injected_into_next_llm_round(
+    repair_handle: PlanWorkspaceHandle,
+) -> None:
+    """Reviewer feedback becomes first-class repair context for the next LLM call."""
+    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
+
+    router = FakeProvider()
+    gate = _ApproveOnPass(approve_at=1)
+    deps = PlanDeps(
+        router=router,  # type: ignore[arg-type]
+        policy=STANDARD_PLAN_POLICY,
+        workspace_handle=repair_handle,
+        final_policy_lookup=lambda: gate,
+    )
+
+    await drive_with_repair(deps, "report", max_iterations=4)
+
+    plan_prompts = [
+        prompt
+        for node_id, prompt in router.prompts
+        if node_id.startswith("DraftImplementationPlan")
+    ]
+    assert len(plan_prompts) == 2
+    assert "## Repair context (binding)" in plan_prompts[1]
+    assert "Reviewer feedback:" in plan_prompts[1]
+    assert "iterate" in plan_prompts[1]
+
+
+@pytest.mark.asyncio
 async def test_per_task_repair_filter(repair_handle: PlanWorkspaceHandle) -> None:
     """ac-007 — when repair_target_tasks=("prepare",), only prepare's test/impl
     files get fresh content; couple/isolate keep their iter-0 content."""
@@ -385,8 +414,9 @@ class _ProbeFlipsAfterFirstFail:
         self,
         *,
         plan_brief: object,
+        repair_context: object | None = None,
     ) -> object:
-        del plan_brief
+        del plan_brief, repair_context
         from molexp.agent.modes.plan.capability import CapabilityNeed, CapabilityNeedReport
 
         return CapabilityNeedReport(
@@ -394,8 +424,8 @@ class _ProbeFlipsAfterFirstFail:
             needs=(CapabilityNeed(task_id="prepare", capability="x"),),
         )
 
-    async def discover(self, report: object) -> object:
-        del report
+    async def discover(self, report: object, repair_context: object | None = None) -> object:
+        del report, repair_context
         from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
         from molexp.agent.modes.plan.errors import CapabilityDiscoveryRequired
 
@@ -455,7 +485,12 @@ async def test_capability_exception_exhausts_budget(
 
             return CapabilityNeedReport(discovery_required=True)
 
-        async def discover(self, _report: object) -> object:
+        async def discover(
+            self,
+            _report: object,
+            repair_context: object | None = None,
+        ) -> object:
+            del repair_context
             raise CapabilityDiscoveryRequired("nope", reason="nope")
 
     deps = _build_deps(repair_handle)

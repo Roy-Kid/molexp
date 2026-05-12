@@ -227,7 +227,7 @@ class PydanticAIRouter:
         """
         del system  # see docstring; kept in signature for protocol stability
         agent = self._text_agent(tier)
-        _LOG.info(
+        _LOG.debug(
             f"[router] text tier={tier.value} model={self._tier_models[tier]} "
             f"prompt_chars={len(prompt)} history={len(message_history)}"
         )
@@ -250,7 +250,7 @@ class PydanticAIRouter:
             attempt=1,
             duration_seconds=elapsed,
         )
-        _LOG.info(
+        _LOG.debug(
             f"[router] text tier={tier.value} ok {elapsed:.2f}s "
             f"out_chars={len(text)} in={record.input_tokens} out={record.output_tokens} "
             f"total={record.total_tokens}"
@@ -320,7 +320,7 @@ class PydanticAIRouter:
                     outcome=Outcome.ok,
                 ),
             )
-            _LOG.info(
+            _LOG.debug(
                 f"[router] structured node={node_id} tier={tier.value} "
                 f"model={self._tier_models[tier]} schema={schema.__name__} "
                 f"attempt={attempt} prompt_chars={len(user)}"
@@ -391,7 +391,7 @@ class PydanticAIRouter:
                     attempt=attempt,
                     duration_seconds=elapsed,
                 )
-                _LOG.info(
+                _LOG.debug(
                     f"[router] structured node={node_id} schema={schema.__name__} "
                     f"attempt={attempt} ok {elapsed:.2f}s "
                     f"in={record.input_tokens} out={record.output_tokens} "
