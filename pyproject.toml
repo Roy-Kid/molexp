@@ -39,6 +39,11 @@ docs = [
     "zensical"
 ]
 
+[tool.uv.sources]
+molcrafts-mollog = { path = "../mollog", editable = true }
+molcrafts-molcfg = { path = "../molcfg", editable = true }
+molcrafts-molq = { path = "../molq", editable = true }
+
 [project.scripts]
 molexp = "molexp.cli:app"
 
