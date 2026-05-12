@@ -47,7 +47,13 @@ from .errors import (
     RunNotFoundError,
 )
 from .experiment import Experiment
-from .folder import Folder
+from .folder import (
+    WORKSPACE_EXPERIMENT_KIND,
+    WORKSPACE_PROJECT_KIND,
+    WORKSPACE_ROOT_KIND,
+    WORKSPACE_RUN_KIND,
+    Folder,
+)
 from .models import (
     ComputeTarget,
     ErrorInfo,
@@ -74,6 +80,11 @@ from .targets import (
 from .workspace import Workspace
 
 __all__ = [
+    # Folder kind taxonomy (unify-folder-abstraction-02)
+    "WORKSPACE_EXPERIMENT_KIND",
+    "WORKSPACE_PROJECT_KIND",
+    "WORKSPACE_ROOT_KIND",
+    "WORKSPACE_RUN_KIND",
     "ArtifactAsset",
     # Assets
     "Asset",

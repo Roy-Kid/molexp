@@ -1,27 +1,34 @@
 """Workspace: top-level container with project management.
 
-The Workspace is the root of the hierarchy.  Unlike lower levels, the
-workspace constructor **does** ensure its root directory + ``workspace.json``
-exist, because every other level needs a materialized workspace as anchor.
+The Workspace is the root of the hierarchy and the only :class:`Folder`
+whose ``parent`` is ``None``. Unlike lower levels, the workspace
+constructor **does** ensure its root directory + ``workspace.json``
+exist, because every other level needs a materialized workspace as
+anchor.
 
-Child factories (``.project()``) are idempotent: they load existing
+Child factories (``.Project(...)``) are idempotent: they load existing
 children from disk or create + materialize new ones.
 """
 
 from __future__ import annotations
 
 import shutil
+import warnings
 from pathlib import Path
 
 from .assets import AssetCatalog, AssetScope, AssetsView, DataAssetLibrary
 from .base import (
-    _list_children,
     _load_metadata,
     _rebuild_container_index,
-    _reconstruct,
     _save_metadata,
 )
-from .models import ProjectMetadata, WorkspaceMetadata
+from .errors import ProjectExistsError, ProjectNotFoundError
+from .folder import (
+    WORKSPACE_PROJECT_KIND,
+    WORKSPACE_ROOT_KIND,
+    Folder,
+)
+from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .subsystem import SubsystemStore
 from .utils import slugify
@@ -45,51 +52,99 @@ def set_cli_root_override(path: Path | str | None) -> None:
     _cli_root_override = Path(path).resolve() if path is not None else None
 
 
-class Workspace:
+class Workspace(Folder):
     """Top-level workspace with project management and global asset library.
+
+    Inherits :class:`Folder` (sub-spec 02): ``kind`` is
+    :data:`WORKSPACE_ROOT_KIND`, ``parent`` is ``None``. The workspace
+    is its own root — :meth:`_compute_path` returns :attr:`root`
+    directly rather than nesting one level deeper like other Folder
+    subclasses.
 
     Example::
 
         ws = Workspace("./lab")
-        project = ws.project("QM9")
-        exp = project.experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
+        project = ws.Project("QM9")
+        exp = project.Experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
     """
+
+    _exists_error_cls = ProjectExistsError
+    _not_found_error_cls = ProjectNotFoundError
 
     def __init__(self, root: Path | str, name: str | None = None) -> None:
         # CLI --workspace wins over script-hardcoded roots.
-        if _cli_root_override is not None:
-            self.root = _cli_root_override
-        else:
-            self.root = Path(root).resolve()
-        metadata_file = self.root / "workspace.json"
+        resolved_root = (
+            _cli_root_override if _cli_root_override is not None else Path(root).resolve()
+        )
+
+        metadata_file = resolved_root / "workspace.json"
         if metadata_file.exists():
-            self.metadata = _load_metadata(WorkspaceMetadata, metadata_file)
+            entity_meta = _load_metadata(WorkspaceMetadata, metadata_file)
         else:
-            if name is None:
-                name = self.root.name
-            self.metadata = WorkspaceMetadata(id=slugify(name), name=name)
+            display_name = name if name is not None else resolved_root.name
+            entity_meta = WorkspaceMetadata(id=slugify(display_name), name=display_name)
+
+        # Workspace bypasses ``Folder.__init__`` because the human-readable
+        # ``name`` may contain characters (e.g. spaces, uppercase) that the
+        # ``_KIND_PATTERN`` validator rejects — the slugified ``id`` is the
+        # kind-safe form persisted in :class:`FolderMetadata`.
+        self._parent = None
+        self._name = entity_meta.id
+        self._kind = WORKSPACE_ROOT_KIND
+        self._root_path = resolved_root
+        self._metadata = FolderMetadata(
+            id=entity_meta.id,
+            name=entity_meta.name,
+            kind=WORKSPACE_ROOT_KIND,
+            created_at=entity_meta.created_at,
+            updated_at=entity_meta.created_at,
+        )
+        self._children_cache = {}
+
+        # Entity-specific state
+        self.root = resolved_root
+        self._entity_metadata: WorkspaceMetadata = entity_meta
         self._data_assets: DataAssetLibrary | None = None
         self._catalog: AssetCatalog | None = None
         self._projects_cache: dict[str, Project] = {}
         self._subsystem_stores: dict[str, SubsystemStore] = {}
 
+    # ── Folder hooks ─────────────────────────────────────────────────────
+
+    def _compute_path(self) -> Path:
+        """Workspace IS its own on-disk dir; no parent nesting."""
+        return self.root
+
     def _ensure_materialized(self) -> None:
         if not (self.root / "workspace.json").exists():
             self.materialize()
 
-    # ── Properties ──────────────────────────────────────────────────────
+    # ── Properties (entity-specific) ─────────────────────────────────────
+
+    @property
+    def metadata(self) -> WorkspaceMetadata:  # type: ignore[override]
+        """Workspace-entity metadata (shadows :attr:`Folder.metadata`).
+
+        :attr:`Folder.folder_metadata` still returns the kind-uniform
+        :class:`FolderMetadata` view.
+        """
+        return self._entity_metadata
+
+    @metadata.setter
+    def metadata(self, value: WorkspaceMetadata) -> None:
+        self._entity_metadata = value
 
     @property
     def id(self) -> str:
-        return self.metadata.id
+        return self._entity_metadata.id
 
     @property
     def name(self) -> str:
-        return self.metadata.name
+        return self._entity_metadata.name
 
     @property
     def created_at(self):
-        return self.metadata.created_at
+        return self._entity_metadata.created_at
 
     @property
     def scope(self) -> AssetScope:
@@ -124,11 +179,19 @@ class Workspace:
         is side-effect-free; the directory is created on first
         :meth:`SubsystemStore.dir` / :meth:`SubsystemStore.file` call.
 
-        ``kind`` is opaque to workspace — it just validates the shape
-        (lowercase ASCII, no path traversal). Consumers (the agent
-        layer's ``SessionCatalog``, the workflow layer's cache backing,
-        etc.) decide what their kind string should be.
+        Deprecated:
+            Use :meth:`attach` or a typed ``*Folder`` subclass. Slated
+            for removal in ``unify-folder-abstraction-03``; the
+            ``DeprecationWarning`` is the bridge that lets workflow /
+            agent callers migrate.
         """
+        warnings.warn(
+            "Workspace.subsystem_store(kind=...) is deprecated; "
+            "use workspace.attach(...) or a typed *Folder subclass. "
+            "Will be removed in unify-folder-abstraction-03.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         cached = self._subsystem_stores.get(kind)
         if cached is not None:
             return cached
@@ -141,22 +204,23 @@ class Workspace:
     def materialize(self) -> None:
         """Create filesystem structure and persist metadata (non-recursive)."""
         self.root.mkdir(parents=True, exist_ok=True)
-        _save_metadata(self.metadata, self.root / "workspace.json")
+        _save_metadata(self._entity_metadata, self.root / "workspace.json")
         self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
-        _save_metadata(self.metadata, self.root / "workspace.json")
+        _save_metadata(self._entity_metadata, self.root / "workspace.json")
         self._catalog_upsert()
 
     def _catalog_upsert(self) -> None:
+        meta = self._entity_metadata
         self.catalog.upsert_workspace(
             {
-                "workspace_id": self.metadata.id,
+                "workspace_id": meta.id,
                 "root_path": str(self.root),
-                "name": self.metadata.name,
-                "created_at": self.metadata.created_at.isoformat(),
-                "updated_at": self.metadata.created_at.isoformat(),
+                "name": meta.name,
+                "created_at": meta.created_at.isoformat(),
+                "updated_at": meta.created_at.isoformat(),
             }
         )
 
@@ -169,20 +233,10 @@ class Workspace:
         metadata_file = root / "workspace.json"
         if not metadata_file.exists():
             raise FileNotFoundError(f"Workspace metadata not found at {metadata_file}")
-        meta = _load_metadata(WorkspaceMetadata, metadata_file)
-        return _reconstruct(
-            cls,
-            {
-                "root": root,
-                "metadata": meta,
-                "_data_assets": None,
-                "_catalog": None,
-                "_projects_cache": {},
-                "_subsystem_stores": {},
-            },
-        )
+        # Constructor handles load-or-create idempotently.
+        return cls(root)
 
-    # ── Project operations ──────────────────────────────────────────────
+    # ── Project operations (typed wrappers over attach/create_child/get_child) ──
 
     def Project(self, name: str) -> Project:
         """Idempotent constructor — return existing project if found, else create.
@@ -195,18 +249,15 @@ class Workspace:
         "must already exist" semantics, use :meth:`project`.
         """
         self._ensure_materialized()
-        project_id = slugify(name)
-        if project_id in self._projects_cache:
-            return self._projects_cache[project_id]
-        project_dir = self.root / "projects" / project_id
-        if project_dir.exists():
-            project = self._load_project_from_dir(project_dir)
-        else:
-            project = Project(name=name, workspace=self)
-            project.materialize()
-            self._refresh_projects_index()
-        self._projects_cache[project_id] = project
-        return project
+        proj = self.attach(name, kind=WORKSPACE_PROJECT_KIND, child_cls=Project)
+        if not isinstance(proj, Project):  # pragma: no cover — defensive
+            raise TypeError(f"attach returned {type(proj).__name__}, expected Project")
+        # Folder.attach caches on first create; mirror in legacy cache so
+        # any caller reaching for ``_projects_cache`` keeps working until
+        # sub-spec 03 cleans it up.
+        self._projects_cache[proj.id] = proj
+        self._refresh_projects_index()
+        return proj
 
     def create_project(self, name: str) -> Project:
         """Strict constructor — raise :class:`ProjectExistsError` if exists.
@@ -214,46 +265,31 @@ class Workspace:
         Mirror of :meth:`Project` for callers (CLI / API server) that
         require a fresh project and treat collision as an error.
         """
-        from .errors import ProjectExistsError
-
         self._ensure_materialized()
-        project_id = slugify(name)
-        if project_id in self._projects_cache:
-            raise ProjectExistsError(project_id)
-        project_dir = self.root / "projects" / project_id
-        if project_dir.exists():
-            raise ProjectExistsError(project_id)
-        project = Project(name=name, workspace=self)
-        project.materialize()
+        proj = self.create_child(name, kind=WORKSPACE_PROJECT_KIND, child_cls=Project)
+        if not isinstance(proj, Project):  # pragma: no cover — defensive
+            raise TypeError(f"create_child returned {type(proj).__name__}, expected Project")
+        self._projects_cache[proj.id] = proj
         self._refresh_projects_index()
-        self._projects_cache[project_id] = project
-        return project
+        return proj
 
     def project(self, name_or_id: str) -> Project:
         """Strict getter — raise :class:`ProjectNotFoundError` if absent.
 
-        Replaces the old get-or-create ``project(name)`` and the deprecated
-        ``get_project(...)`` (which returned ``None``). Accepts a project
-        name or its slugified ID.
+        Accepts a project name or its slugified ID.
         """
-        from .errors import ProjectNotFoundError
-
-        for candidate in (name_or_id, slugify(name_or_id)):
-            if candidate in self._projects_cache:
-                return self._projects_cache[candidate]
-            project_dir = self.root / "projects" / candidate
-            if project_dir.exists():
-                project = self._load_project_from_dir(project_dir)
-                self._projects_cache[project.id] = project
-                return project
-        raise ProjectNotFoundError(name_or_id)
+        proj = self.get_child(name_or_id, kind=WORKSPACE_PROJECT_KIND, child_cls=Project)
+        if not isinstance(proj, Project):  # pragma: no cover — defensive
+            raise TypeError(f"get_child returned {type(proj).__name__}, expected Project")
+        self._projects_cache[proj.id] = proj
+        return proj
 
     def registered_projects(self) -> list[Project]:
         """Return only projects explicitly registered in the current process.
 
         Unlike :meth:`list_projects`, this never scans the disk — it returns
         exactly the ``Project`` instances that were constructed via
-        ``ws.project(...)`` in the running script. Use this when the caller's
+        ``ws.Project(...)`` in the running script. Use this when the caller's
         source of truth is the script, not the workspace directory (e.g.
         ``molexp run`` dispatching workflows). Orphan project dirs left by
         unrelated scripts are excluded.
@@ -267,21 +303,27 @@ class Workspace:
         the current script, use :meth:`registered_projects` instead.
         """
         seen: dict[str, Project] = dict(self._projects_cache)
-        scanned = _list_children(
-            children_dir=self.root / "projects",
-            metadata_filename="project.json",
-            metadata_cls=ProjectMetadata,
-            child_cls=Project,
-            attrs_factory=lambda m: {
-                "workspace": self,
-                "metadata": m,
-                "_data_assets": None,
-                "_experiments_cache": {},
-            },
-        )
-        for p in scanned:
-            seen.setdefault(p.id, p)
+        projects_dir = self.root / "projects"
+        if projects_dir.exists():
+            for entry in sorted(projects_dir.iterdir()):
+                if entry.is_dir() and (entry / "project.json").exists():
+                    proj = Project._from_disk(entry, self)
+                    seen.setdefault(proj.id, proj)
         return list(seen.values())
+
+    def children(self, kind: str | None = None) -> list[Folder]:
+        """List child folders, optionally filtered by ``kind``.
+
+        Workspace's only entity children are :class:`Project` instances
+        under ``projects/``. Subsystem dirs (under ``.subsystems/``) and
+        the asset catalog (under ``.catalog/``) are deliberately excluded
+        — they're not entity children and don't have the lifecycle
+        contract that :meth:`Folder.children` returns. Sub-spec 03 makes
+        them typed system-folder subclasses.
+        """
+        if kind is not None and kind != WORKSPACE_PROJECT_KIND:
+            return []
+        return list(self.list_projects())
 
     def delete_project(self, project_id: str) -> None:
         """Delete project directory and cascade-drop its catalog rows.
@@ -294,6 +336,7 @@ class Workspace:
             raise KeyError(f"Project '{project_id}' not found")
         shutil.rmtree(project_dir)
         self._projects_cache.pop(project_id, None)
+        self._children_cache.pop(project_id, None)
         self.catalog.remove_project(project_id)
         self._refresh_projects_index()
 
@@ -305,16 +348,4 @@ class Workspace:
             index_filename="projects.json",
             metadata_filename="project.json",
             fields=["id", "name", "description", "created_at"],
-        )
-
-    def _load_project_from_dir(self, project_dir: Path) -> Project:
-        meta = _load_metadata(ProjectMetadata, project_dir / "project.json")
-        return _reconstruct(
-            Project,
-            {
-                "workspace": self,
-                "metadata": meta,
-                "_data_assets": None,
-                "_experiments_cache": {},
-            },
         )

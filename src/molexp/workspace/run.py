@@ -18,7 +18,7 @@ import traceback
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, cast
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
@@ -73,11 +73,14 @@ from .base import (
     _save_metadata,
 )
 from .context import Context
+from .errors import RunExistsError, RunNotFoundError
+from .folder import WORKSPACE_RUN_KIND, Folder
 from .metrics import MetricsWriter
 from .models import (
     ErrorInfo,
     ExecutionMetadata,
     ExecutionRecord,
+    FolderMetadata,
     RunMetadata,
 )
 from .utils import generate_asset_id, generate_id
@@ -743,42 +746,137 @@ class RunContext:
 # ── Run ─────────────────────────────────────────────────────────────────────
 
 
-class Run:
+class Run(Folder):
     """Single execution instance within an experiment.
+
+    Inherits :class:`Folder` (sub-spec 02): ``kind`` is
+    :data:`WORKSPACE_RUN_KIND`, ``parent`` is the owning
+    :class:`Experiment`. The on-disk directory uses the ``run-<id>``
+    prefix preserved from the pre-refactor layout — see
+    :meth:`_child_dir`.
 
     Example::
 
-        run = experiment.run(parameters={"lr": 0.001})
+        run = experiment.Run(parameters={"lr": 0.001})
         with run.start() as ctx:
             result = my_workflow(ctx)
             ctx.set_result("output", result)
     """
 
+    _exists_error_cls = RunExistsError
+    _not_found_error_cls = RunNotFoundError
+
     def __init__(
         self,
-        experiment: Experiment,
+        *,
+        parent: Experiment | None = None,
+        name: str | None = None,
+        kind: str = WORKSPACE_RUN_KIND,
+        experiment: Experiment | None = None,
         parameters: dict[str, JSONValue] | None = None,
         id: str | None = None,
         workflow_snapshot: dict[str, JSONValue] | None = None,
         target: str | None = None,
+        _entity_metadata: RunMetadata | None = None,
     ) -> None:
-        self.experiment = experiment
-        self.metadata = RunMetadata(
-            id=id or generate_id(),
-            parameters=parameters or {},
-            workflow_snapshot=workflow_snapshot,
-            target=target,
+        resolved_parent = parent if parent is not None else experiment
+        if resolved_parent is None:
+            raise ValueError("Run: parent (or experiment) is required")
+        # ``name`` (Folder convention) is the Run's id — Run has no
+        # human-readable name distinct from its slug.
+        meta = (
+            _entity_metadata
+            if _entity_metadata is not None
+            else RunMetadata(
+                id=id or name or generate_id(),
+                parameters=parameters or {},
+                workflow_snapshot=workflow_snapshot,
+                target=target,
+            )
         )
+
+        self._parent = resolved_parent
+        self._name = meta.id
+        self._kind = kind
+        self._root_path = None
+        self._metadata = FolderMetadata(
+            id=meta.id,
+            name=meta.id,  # Run has no separate display name
+            kind=kind,
+            created_at=meta.created_at,
+            updated_at=meta.created_at,
+        )
+        self._children_cache = {}
+
+        # Entity-specific state
+        self._entity_metadata: RunMetadata = meta
+
+    # ── Folder hooks ─────────────────────────────────────────────────────
+
+    def _compute_path(self) -> Path:
+        return self.run_dir
+
+    @classmethod
+    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
+        """:class:`Folder.attach` hook — runs live under ``runs/run-<id>/``.
+
+        The ``run-`` prefix is preserved from the pre-refactor layout
+        to keep legacy workspaces loadable without migration.
+        """
+        return parent.path() / "runs" / f"run-{derived_id}"
+
+    @classmethod
+    def _from_disk(cls, child_dir: Path, parent: Folder) -> Run:
+        """:class:`Folder.attach` hook — load ``run.json`` and rebuild entity state."""
+        meta = _load_metadata(RunMetadata, child_dir / "run.json")
+        return _reconstruct(
+            cls,
+            {
+                "_parent": parent,
+                "_name": meta.id,
+                "_kind": WORKSPACE_RUN_KIND,
+                "_root_path": None,
+                "_metadata": FolderMetadata(
+                    id=meta.id,
+                    name=meta.id,
+                    kind=WORKSPACE_RUN_KIND,
+                    created_at=meta.created_at,
+                    updated_at=meta.created_at,
+                ),
+                "_children_cache": {},
+                "_entity_metadata": meta,
+            },
+        )
+
+    def children(self, kind: str | None = None) -> list[Folder]:
+        """Run has no entity children — executions live under ``executions/``
+        but are not Folder-tracked (sub-spec 03 may revisit)."""
+        return []
 
     # ── Properties ──────────────────────────────────────────────────────
 
     @property
+    def experiment(self) -> Experiment:
+        """The owning :class:`Experiment` (alias for :attr:`Folder.parent`)."""
+        if self._parent is None:  # pragma: no cover — Run always has a parent
+            raise RuntimeError("Run has no parent experiment")
+        return cast("Experiment", self._parent)
+
+    @property
+    def metadata(self) -> RunMetadata:  # type: ignore[override]
+        return self._entity_metadata
+
+    @metadata.setter
+    def metadata(self, value: RunMetadata) -> None:
+        self._entity_metadata = value
+
+    @property
     def id(self) -> str:
-        return self.metadata.id
+        return self._entity_metadata.id
 
     @property
     def parameters(self) -> dict[str, JSONValue]:
-        return self.metadata.parameters
+        return self._entity_metadata.parameters
 
     @property
     def fingerprint(self) -> RunFingerprint:
