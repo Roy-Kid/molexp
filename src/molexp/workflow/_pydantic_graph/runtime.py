@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import uuid
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -93,20 +92,23 @@ def _record_run_failure(run_context: RunContextLike | None, error: str | None) -
 
 
 def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
-    """Build an execution ID derived from run_id.
+    """Build a human-readable execution ID.
 
     First execution: ``exec-{run_id}``
     Retries:         ``exec-{run_id}-2``, ``exec-{run_id}-3``, …
 
-    Falls back to a random ``exec-{8 hex}`` when *run_id* is unavailable.
+    Falls back to a human-readable random name (e.g. ``exec-serene-mixing-reddy``)
+    when *run_id* is unavailable.
 
     Spec 04 §6 — promoted to the public API. Re-exported as
     :func:`molexp.workflow.make_execution_id`. ``submit_molq`` plugins
     must use the public name; reaching into ``_pydantic_graph`` for
     this helper is rejected by ``test_submit_molq_plugins_do_not_reach_into_pydantic_graph``.
     """
+    from molexp.workflow._names import generate_name
+
     if run_id is None:
-        return f"exec-{uuid.uuid4().hex[:8]}"
+        return f"exec-{generate_name()}"
 
     base = f"exec-{run_id}"
     if run_dir is None:

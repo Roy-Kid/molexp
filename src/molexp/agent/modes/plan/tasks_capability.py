@@ -34,7 +34,7 @@ from molexp.agent.modes.plan.schemas import (
     PlanBrief,
     PlanBriefResult,
 )
-from molexp.agent.modes.plan.tasks import PlanLLMTask, PlanTask
+from molexp.agent.modes.plan.tasks import PlanTask
 from molexp.workflow import TaskContext
 
 __all__ = [
@@ -97,7 +97,7 @@ class NullCapabilityProbe:
 # ── Pipeline nodes ────────────────────────────────────────────────────────
 
 
-class DraftCapabilityNeeds(PlanLLMTask):
+class DraftCapabilityNeeds(PlanTask):
     """Ask the discovery service to draft per-stage capability needs.
 
     Runs immediately after ``DraftImplementationPlan`` so the workflow
@@ -106,13 +106,11 @@ class DraftCapabilityNeeds(PlanLLMTask):
     :class:`CapabilityNeed` per stage that plausibly requires project
     code; the report is persisted to ``capability/needs.yaml`` and
     forwarded to ``DiscoverCapabilities`` which then resolves concrete
-    evidence. ``CompileWorkflowIR`` /
-    ``CompileTaskIR`` are downstream of discovery and consume the
-    evidence batch.
+    evidence. ``CompileWorkflowIR`` / ``CompileTaskIR`` are downstream
+    of discovery and consume the evidence batch.
 
-    Inherits :class:`PlanLLMTask` so the policy table can route this
-    node consistently, even though the actual implementation may live
-    behind the service rather than :meth:`PlanLLMTask.invoke_llm`.
+    Pure :class:`PlanTask` — delegates to the discovery service rather
+    than invoking an LLM directly.
     """
 
     async def _execute(

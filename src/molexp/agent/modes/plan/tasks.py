@@ -60,8 +60,16 @@ from molexp.agent.modes.plan.errors import (
     UnevidencedApiReference,
 )
 from molexp.agent.modes.plan.handoff import PlanRunHandoff
+from molexp.agent.modes.plan.plan_folder import (
+    CheckResult,
+    PlanFolder,
+    PlanManifest,
+    ValidationReport,
+    strip_manifest_extensions,
+)
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
+    ClarificationResult,
     DigestResult,
     HandoffResult,
     IngestReportResult,
@@ -81,13 +89,6 @@ from molexp.agent.modes.plan.schemas import (
     WorkflowContract,
     WorkflowIRResult,
 )
-from molexp.agent.modes.plan.plan_folder import (
-    CheckResult,
-    PlanFolder,
-    PlanManifest,
-    ValidationReport,
-    strip_manifest_extensions,
-)
 from molexp.agent.review import StepView
 from molexp.workflow import (
     Task,
@@ -100,6 +101,7 @@ from molexp.workflow import (
 from molexp.workspace import atomic_write_text
 
 __all__ = [
+    "ClarifyMissingInformation",
     "CompileTaskIR",
     "CompileWorkflowIR",
     "DraftImplementationPlan",
@@ -117,20 +119,6 @@ __all__ = [
 
 
 _LOG = get_logger(__name__)
-
-
-# ── Pipeline-step labelling ─────────────────────────────────────────────────
-#
-# Stable execution order of the 13 PlanMode pipeline nodes —
-# discovery (DraftCapabilityNeeds + DiscoverCapabilities) sits
-# between DraftImplementationPlan and IR compilation so the IR is
-# typed from real evidence. Lives here rather than in :mod:`_pipeline`
-# to keep ``tasks.py`` the single source of node-name truth — the
-# builder reads class names, this tuple lists them in topological
-# order so logs can show ``[plan-node 5/13 ...]``.
-_PIPELINE_ORDER: tuple[str, ...] = PLAN_PIPELINE_ORDER
-_PIPELINE_TOTAL = len(_PIPELINE_ORDER)
-_PIPELINE_INDEX: dict[str, int] = {n: i for i, n in enumerate(_PIPELINE_ORDER, 1)}
 
 
 def _tag(name: str) -> str:
@@ -209,6 +197,8 @@ class PlanTask(Task):
         # Persist the result before policy review: if rejected, the
         # repair subgraph overwrites this file on re-execution. Storing
         # early means even rejected artifacts are inspectable on disk.
+        # Workflow-persistence snapshots (RunStorePersistence) are the
+        # primary resume source; this YAML copy is a fallback.
         if isinstance(result, BaseModel):
             ctx.deps.plan_folder.write_node_result(node_name, result)
 
@@ -402,6 +392,77 @@ class DraftReportDigest(PlanLLMTask):
         return DigestResult(digest_path=digest_path, digest=digest)
 
 
+# ── Node 2b: ClarifyMissingInformation ──────────────────────────────────────
+
+
+class ClarifyMissingInformation(PlanTask):
+    """Ask the user to clarify any missing information in the report digest.
+
+    When :attr:`ReportDigest.missing_information` is non-empty, this node
+    presents each gap to the user via the step-policy's review interaction
+    and collects free-text clarifications from the feedback field. The
+    answers are threaded into the downstream ``DraftImplementationPlan``
+    prompt so the LLM sees the resolved context.
+
+    When the digest has no missing information the node passes through
+    instantly — no LLM invocation, no review prompt.
+
+    Overrides :meth:`execute` to bypass the template-method's duplicate
+    review call: the step-policy consultation here is a **data-collection
+    prompt** (not an approval gate), and calling it again in the template
+    would show the user a redundant prompt.
+    """
+
+    async def execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
+        node_name = type(self).__name__
+        _LOG.info(format_progress_start(node_name, iteration=ctx.deps.repair_iteration))
+        result = await self._execute(ctx)
+        if isinstance(result, BaseModel):
+            ctx.deps.plan_folder.write_node_result(node_name, result)
+        ctx.deps.step_outputs_log[node_name] = result
+        ctx.deps.plan_folder.checkpoint(node_name)
+        _LOG.info(format_progress_done(node_name, _progress_summary(result)))
+        return result
+
+    async def _execute(
+        self,
+        ctx: TaskContext[None, PlanDeps, DigestResult],
+    ) -> ClarificationResult:
+        digest_result = ctx.inputs
+        digest = digest_result.digest
+        missing = digest.missing_information
+
+        if not missing:
+            _LOG.debug(f"{_tag('ClarifyMissingInformation')} pass — no missing items")
+            return ClarificationResult(digest=digest)
+
+        _LOG.debug(
+            f"{_tag('ClarifyMissingInformation')} asking user about {len(missing)} missing item(s)"
+        )
+        from molexp.agent.review import StepView
+
+        view = StepView(
+            plan_id=ctx.deps.plan_folder.plan_id,
+            step_id="ClarifyMissingInformation",
+            summary=f"Report has {len(missing)} missing detail(s):\n"
+            + "\n".join(f"  • {item}" for item in missing),
+            artifact_paths=(),
+            payload={"missing_information": list(missing)},
+        )
+        decision = await ctx.deps.step_policy.review(view)
+
+        raw = decision.feedback.strip() if decision.feedback else ""
+        clarifications: tuple[str, ...] = ()
+        if raw:
+            clarifications = tuple(line.strip() for line in raw.split("\n") if line.strip())
+
+        _LOG.debug(f"{_tag('ClarifyMissingInformation')} done clarifications={len(clarifications)}")
+        return ClarificationResult(
+            clarifications=clarifications,
+            digest=digest,
+        )
+
+
 # ── Node 3: DraftImplementationPlan ────────────────────────────────────────
 
 
@@ -418,17 +479,49 @@ class DraftImplementationPlan(PlanLLMTask):
         "capabilities — do not commit to specific symbol names, class "
         "names, or library APIs here. If you know a step has no project "
         "support today, say so in 'rationale' so the discovery stage can "
-        "record the gap."
+        "record the gap.\n\n"
+        "If the ReportDigest has missing_information entries and user "
+        "clarifications are provided, resolve every ambiguity they cover. "
+        "If the user did NOT supply clarifications (the prompt carries no "
+        "## USER CLARIFICATIONS section), fill every missing_information "
+        "gap yourself with the most reasonable assumption you can make. "
+        "Record each assumption in the rationale so downstream reviewers "
+        "can see what you inferred."
     )
 
-    async def _execute(self, ctx: TaskContext[None, PlanDeps, DigestResult]) -> PlanBriefResult:
-        digest_result = ctx.inputs
+    async def _execute(
+        self, ctx: TaskContext[None, PlanDeps, ClarificationResult]
+    ) -> PlanBriefResult:
+        clar_result = ctx.inputs
+        digest = clar_result.digest
         _LOG.debug(
-            f"{_tag('DraftImplementationPlan')} start digest_path={digest_result.digest_path}"
+            f"{_tag('DraftImplementationPlan')} start "
+            f"clarifications={len(clar_result.clarifications)}"
         )
+        user_prompt = digest.model_dump_json()
+        if clar_result.clarifications:
+            user_prompt = "\n\n".join(
+                [
+                    user_prompt,
+                    "## USER CLARIFICATIONS\n"
+                    + "\n".join(f"- {c}" for c in clar_result.clarifications),
+                ]
+            )
+        elif digest.missing_information:
+            user_prompt = "\n\n".join(
+                [
+                    user_prompt,
+                    "## NOTE\n"
+                    "The user did not provide clarifications for the "
+                    "missing_information listed above. Use your best "
+                    "judgment to fill every gap with a reasonable "
+                    "assumption. Record each assumption you make in the "
+                    "rationale field.",
+                ]
+            )
         plan_brief = await self.invoke_llm(
             ctx,
-            user=digest_result.digest.model_dump_json(),
+            user=user_prompt,
             schema=PlanBrief,
         )
         plan_path = ctx.deps.plan_folder.plan_dir() / "implementation_plan.md"
@@ -466,8 +559,9 @@ class CompileWorkflowIR(PlanLLMTask):
     )
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> WorkflowIRResult:
-        plan_result = _expect_input(ctx.inputs, "DraftImplementationPlan", PlanBriefResult)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
+        node = type(self).__name__
+        plan_result = _expect_input(ctx.inputs, "DraftImplementationPlan", PlanBriefResult, caller=node)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
         _LOG.debug(
             f"{_tag('CompileWorkflowIR')} start plan_path={plan_result.plan_path} "
             f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
@@ -510,8 +604,9 @@ class CompileTaskIR(PlanLLMTask):
     )
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskIRResult:
-        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
+        node = type(self).__name__
+        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult, caller=node)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
         tasks_ir_dir = ctx.deps.plan_folder.tasks_ir_dir()
         task_ios = ir_result.contract.task_io
         n_tasks = len(task_ios)
@@ -581,15 +676,16 @@ class GenerateWorkflowSkeleton(PlanTask):
     """
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> SkeletonResult:
+        node = type(self).__name__
         # Read three upstreams: the workflow contract for topology, the
         # task IR result to confirm the per-task IR has been written,
         # and the capability evidence batch for chain ordering.
         # Skeleton output is templated (not LLM-driven), so the evidence
         # gate's source-AST diff doesn't apply here — the chain
         # dependency exists only so codegen happens after discovery.
-        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult)
-        _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
-        _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
+        ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult, caller=node)
+        _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult, caller=node)
+        _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
         _LOG.debug(
             f"{_tag('GenerateWorkflowSkeleton')} start tasks={len(ir_result.contract.task_io)}"
         )
@@ -648,9 +744,10 @@ class GenerateTaskTests(PlanLLMTask):
     )
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskTestsResult:
-        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
-        _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
+        node = type(self).__name__
+        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult, caller=node)
+        _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult, caller=node)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
 
         handle = ctx.deps.plan_folder
         repair_targets = ctx.deps.repair_target_tasks
@@ -722,9 +819,10 @@ class GenerateTaskImplementations(PlanLLMTask):
     async def _execute(
         self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]
     ) -> TaskImplementationsResult:
-        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
-        _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch)
+        node = type(self).__name__
+        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult, caller=node)
+        _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult, caller=node)
+        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
 
         handle = ctx.deps.plan_folder
         repair_targets = ctx.deps.repair_target_tasks
@@ -781,12 +879,13 @@ class ValidateWorkspace(PlanTask):
     """
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> ValidationResult:
-        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult)
+        node = type(self).__name__
+        ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult, caller=node)
         # GenerateTaskImplementations / GenerateTaskTests outputs are
         # validated through the on-disk artifacts; pull them only to
         # ensure the upstream order ran.
-        _expect_input(ctx.inputs, "GenerateTaskTests", TaskTestsResult)
-        _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult)
+        _expect_input(ctx.inputs, "GenerateTaskTests", TaskTestsResult, caller=node)
+        _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult, caller=node)
         _LOG.debug(f"{_tag('ValidateWorkspace')} start")
 
         handle = ctx.deps.plan_folder
@@ -811,13 +910,7 @@ class ValidateWorkspace(PlanTask):
         # Preserve repair_iterations / repair_history from any prior manifest
         # so the review→repair driver's accumulating state is not clobbered
         # when ValidateWorkspace re-writes the manifest each iteration.
-        existing = _load_manifest_from_disk(handle.manifest_path())
-        manifest = (
-            existing
-            if existing is not None
-            else _build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml")
-        )
-        manifest = manifest.model_copy(
+        manifest = handle.load_or_create_manifest().model_copy(
             update={
                 "task_ir_paths": tuple(sorted(handle.tasks_ir_dir().glob("*.yaml"))),
                 "model_policy_snapshot": ctx.deps.policy.model_dump(mode="json"),
@@ -845,25 +938,35 @@ class HumanReview(PlanTask):
     mark the workspace ``ready_for_run``.
     """
 
-    async def _execute(self, ctx: TaskContext[None, PlanDeps, ValidationResult]) -> HandoffResult:
-        validation_result = ctx.inputs
+    async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> HandoffResult:
+        validation_result: ValidationResult = _expect_input(
+            ctx.inputs, "ValidateWorkspace", ValidationResult, caller="HumanReview"
+        )
         _LOG.debug(
             f"{_tag('HumanReview')} start iter={ctx.deps.repair_iteration} "
             f"validation_passed={validation_result.passed}"
         )
 
-        # Re-read upstream artefacts from the workspace to assemble the
-        # review view + handoff. We pull from disk rather than threading
-        # them all via ctx.inputs to keep the workflow fan-in shallow.
         handle = ctx.deps.plan_folder
-        digest = await _read_yaml_into(
-            handle.report_dir() / "digest.md", ReportDigest, fallback="digest"
-        )
-        plan_brief = await _read_yaml_into(
-            handle.plan_dir() / "implementation_plan.md",
-            PlanBrief,
-            fallback="plan",
-        )
+        # Digest and plan_brief are declared in the DAG as explicit
+        # dependencies; read the structured form from the input dict when
+        # available, falling back to on-disk markdown for robustness.
+        digest_result = ctx.inputs.get("DraftReportDigest")
+        plan_result = ctx.inputs.get("DraftImplementationPlan")
+        if isinstance(digest_result, DigestResult):
+            digest = digest_result.digest
+        else:
+            digest = await _read_yaml_into(
+                handle.report_dir() / "digest.md", ReportDigest, fallback="digest"
+            )
+        if isinstance(plan_result, PlanBriefResult):
+            plan_brief = plan_result.plan_brief
+        else:
+            plan_brief = await _read_yaml_into(
+                handle.plan_dir() / "implementation_plan.md",
+                PlanBrief,
+                fallback="plan",
+            )
         contract_yaml = handle.ir_dir() / "workflow.yaml"
         contract_dict = yaml.safe_load(contract_yaml.read_text())
         contract = default_compiler.dict_to_contract(contract_dict)
@@ -895,7 +998,6 @@ class HumanReview(PlanTask):
         )
 
         # Build the handoff regardless — both branches consume it.
-        existing_manifest = _load_manifest_from_disk(handle.manifest_path())
         validation_report = ValidationReport(
             passed=validation_result.passed,
             summary=validation_result.summary,
@@ -904,9 +1006,9 @@ class HumanReview(PlanTask):
             decision=decision,
             validation_passed=validation_result.passed,
         )
-        manifest_for_handoff = (
-            existing_manifest or _build_manifest_stub(plan_id, contract_yaml)
-        ).model_copy(update={"status": new_status})
+        manifest_for_handoff = handle.load_or_create_manifest().model_copy(
+            update={"status": new_status}
+        )
         handoff = PlanRunHandoff(
             plan_id=plan_id,
             experiment_workspace_path=handle.root(),
@@ -1443,7 +1545,7 @@ def _run_workspace_validation(
         else (),
         entrypoint_module=module_name,
         entrypoint_symbol=symbol_name,
-        manifest_snapshot=_build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml"),
+        manifest_snapshot=handle.load_or_create_manifest(),
         validation_report_snapshot=ValidationReport(passed=False),
         created_at=_utcnow(),
     )
@@ -1830,28 +1932,6 @@ async def _read_yaml_into[T: BaseModel](path: Path, model: type[T], *, fallback:
     raise NotImplementedError(f"_read_yaml_into does not handle {model.__name__}")
 
 
-def _load_manifest_from_disk(manifest_path: Path) -> PlanManifest | None:
-    if not manifest_path.exists():
-        return None
-    raw = yaml.safe_load(manifest_path.read_text())
-    if not isinstance(raw, dict):
-        return None
-    raw_payload = strip_manifest_extensions(raw)
-    try:
-        return PlanManifest.model_validate(raw_payload)
-    except Exception:
-        return None
-
-
-def _build_manifest_stub(plan_id: str, workflow_ir_path: Path) -> PlanManifest:
-    return PlanManifest(
-        plan_id=plan_id,
-        created_at=_utcnow(),
-        report_source="report/original.md",
-        workflow_ir_path=workflow_ir_path,
-    )
-
-
 def _persist_manifest_with_handoff(
     handle: PlanFolder,
     manifest: PlanManifest,
@@ -1899,16 +1979,12 @@ def _utcnow() -> datetime:
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 
-def _expect_input[T](inputs: object, key: str, expected: type[T]) -> T:
+def _expect_input[T](inputs: object, key: str, expected: type[T], *, caller: str) -> T:
     """Pull and type-narrow one upstream from a multi-dep ``ctx.inputs``.
 
-    The caller's class name is reconstructed from :func:`sys._getframe`
-    so the error message points at the actual node — Phase 5 wires four
-    distinct callers (``GenerateWorkflowSkeleton`` /
-    ``GenerateTaskTests`` / ``GenerateTaskImplementations`` /
-    ``ValidateWorkspace``) through this helper.
+    ``caller`` should be the invoking task's class name so error messages
+    point at the actual node.
     """
-    caller = _caller_class_name() or "Plan node"
     if not isinstance(inputs, dict):
         raise TypeError(f"{caller} expected dict-shaped ctx.inputs; got {type(inputs).__name__}")
     inputs_dict = cast("dict[str, object]", inputs)
@@ -1919,22 +1995,6 @@ def _expect_input[T](inputs: object, key: str, expected: type[T]) -> T:
             f"type {expected.__name__}; got {type(value).__name__}"
         )
     return value
-
-
-def _caller_class_name() -> str | None:
-    """Walk one frame up to fetch the caller's ``self.__class__.__name__``.
-
-    Returns ``None`` when the caller is not a bound method (e.g. a
-    free-function call from a test). The lookup is intentionally
-    shallow — it inspects exactly one frame and tolerates absent
-    ``self`` rather than scanning the stack, so it stays cheap on the
-    happy path.
-    """
-    frame = sys._getframe(2)  # caller-of-caller
-    self_obj = frame.f_locals.get("self")
-    if self_obj is None:
-        return None
-    return type(self_obj).__name__
 
 
 def _write_text(path: Path, content: str) -> None:
@@ -2000,6 +2060,15 @@ def _render_plan_brief_markdown(plan: PlanBrief) -> str:
     if plan.stages:
         lines.extend(["", "## Stages", ""])
         lines.extend(f"{i}. {stage}" for i, stage in enumerate(plan.stages, start=1))
+        # Mermaid flowchart alongside the numbered list.
+        lines.extend(["", "### Flowchart", "", "```mermaid", "graph TD"])
+        for i, stage in enumerate(plan.stages):
+            node_id = f"stage{i + 1}"
+            safe_label = stage.replace('"', "'")
+            lines.append(f'    {node_id}["{i + 1}. {safe_label}"]')
+        for i in range(len(plan.stages) - 1):
+            lines.append(f"    stage{i + 1} --> stage{i + 2}")
+        lines.extend(["```", ""])
     return "\n".join(lines) + "\n"
 
 

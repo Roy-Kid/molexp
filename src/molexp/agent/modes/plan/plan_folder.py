@@ -9,7 +9,7 @@ workspace stays unaware of the ``agent.plan`` kind.
 Mount points::
 
     ws = Workspace("./lab")
-    pf = ws.add_folder(PlanFolder(name="my-plan"))     # workspace-level
+    pf = ws.add_folder(PlanFolder(name="my-plan"))  # workspace-level
     # or under an experiment:
     exp = ws.add_project("proj").add_experiment("exp")
     pf = exp.add_folder(PlanFolder(name="my-plan"))
@@ -42,7 +42,6 @@ Construction is side-effect free; ``parent.add_folder(plan)`` /
 from __future__ import annotations
 
 import shutil
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -200,6 +199,7 @@ def _ensure_node_result_map() -> dict[str, type[BaseModel]]:
         CapabilityNeedReport,
     )
     from molexp.agent.modes.plan.schemas import (
+        ClarificationResult,
         DigestResult,
         HandoffResult,
         IngestReportResult,
@@ -216,6 +216,7 @@ def _ensure_node_result_map() -> dict[str, type[BaseModel]]:
         {
             "IngestReport": IngestReportResult,
             "DraftReportDigest": DigestResult,
+            "ClarifyMissingInformation": ClarificationResult,
             "DraftImplementationPlan": PlanBriefResult,
             "DraftCapabilityNeeds": CapabilityNeedReport,
             "DiscoverCapabilities": CapabilityEvidenceBatch,
@@ -390,6 +391,22 @@ class PlanFolder(Folder):
         """``<plan>/capability/`` — capability needs / evidence / misses."""
         return self._ensure("capability")
 
+    def executions_dir(self) -> Path:
+        """``<plan>/executions/`` — workflow-persistence execution snapshots."""
+        return self._ensure("executions")
+
+    def latest_execution_id(self) -> str | None:
+        """Return the most recent execution id under ``executions/``, or ``None``."""
+        exec_dir = self._resolve("executions")
+        if not exec_dir.exists():
+            return None
+        dirs = sorted(
+            [d for d in exec_dir.iterdir() if d.is_dir()],
+            key=lambda d: d.stat().st_mtime,
+            reverse=True,
+        )
+        return dirs[0].name if dirs else None
+
     def manifest_path(self) -> Path:
         """``<plan>/manifest.yaml`` — does **not** create the file."""
         return self._resolve("manifest.yaml")
@@ -416,9 +433,7 @@ class PlanFolder(Folder):
         _ensure_node_result_map()
         result_cls = _NODE_RESULT_TYPE.get(node_name)
         if result_cls is None:
-            raise KeyError(
-                f"Unknown node {node_name!r}; known: {sorted(_NODE_RESULT_TYPE)}"
-            )
+            raise KeyError(f"Unknown node {node_name!r}; known: {sorted(_NODE_RESULT_TYPE)}")
         path = self.results_dir() / f"{node_name}.yaml"
         if not path.exists():
             raise FileNotFoundError(f"No result file for node {node_name!r} at {path}")
@@ -432,7 +447,7 @@ class PlanFolder(Folder):
         Preserves extension sections (``handoff``, ``plan_mode``) written
         by :func:`~molexp.agent.modes.plan.tasks._persist_manifest_with_handoff`.
         """
-        manifest = self._load_or_create_manifest()
+        manifest = self.load_or_create_manifest()
         if node_name not in manifest.completed_nodes:
             new_manifest = manifest.model_copy(
                 update={"completed_nodes": (*manifest.completed_nodes, node_name)}
@@ -441,14 +456,14 @@ class PlanFolder(Folder):
 
     def reset_completed_nodes(self) -> None:
         """Clear ``completed_nodes`` on the manifest and persist."""
-        manifest = self._load_or_create_manifest()
+        manifest = self.load_or_create_manifest()
         if manifest.completed_nodes:
             new_manifest = manifest.model_copy(update={"completed_nodes": ()})
             self._write_raw_manifest(new_manifest.model_dump(mode="json"))
 
     def load_seed_outputs(self) -> dict[str, Any]:
         """Return ``{node_name: deserialized_result}`` for every completed node."""
-        manifest = self._load_or_create_manifest()
+        manifest = self.load_or_create_manifest()
         result: dict[str, Any] = {}
         for node_name in manifest.completed_nodes:
             result[node_name] = self.load_node_result(node_name)
@@ -490,24 +505,18 @@ class PlanFolder(Folder):
         atomic_write_text(path, text)
         return path
 
-    def _load_or_create_manifest(self) -> PlanManifest:
+    def load_or_create_manifest(self) -> PlanManifest:
         """Return the current manifest, or synthesize a minimal stub.
 
-        Avoids a hard ``FileNotFoundError`` for callers
-        (:meth:`checkpoint`, :meth:`reset_completed_nodes`,
-        :meth:`load_seed_outputs`) that need to operate before the full
-        manifest is written by ``ValidateWorkspace``.
+        Avoids a hard ``FileNotFoundError`` for callers that need to
+        operate before the full manifest is written by ``ValidateWorkspace``.
         """
         path = self.manifest_path()
         if not path.exists():
-            return _build_manifest_stub_plan_folder(
-                self.plan_id, self.ir_dir() / "workflow.yaml"
-            )
+            return _build_manifest_stub_plan_folder(self.plan_id, self.ir_dir() / "workflow.yaml")
         data = yaml.safe_load(path.read_text())
         if not isinstance(data, dict):
-            return _build_manifest_stub_plan_folder(
-                self.plan_id, self.ir_dir() / "workflow.yaml"
-            )
+            return _build_manifest_stub_plan_folder(self.plan_id, self.ir_dir() / "workflow.yaml")
         return PlanManifest(**strip_manifest_extensions(data))
 
     # ── Repair-iteration archive ─────────────────────────────────────────
@@ -529,7 +538,7 @@ class PlanFolder(Folder):
             if not live.exists() or not live.is_dir():
                 continue
             target = archive_root / sub
-            shutil.copytree(live, target, dirs_exist_ok=False)
+            shutil.copytree(live, target, dirs_exist_ok=True)
 
     def validation_report_path(self) -> Path:
         """``<plan>/validation_report.md`` — does **not** create the file."""
@@ -696,8 +705,7 @@ def _build_manifest_stub_plan_folder(plan_id: str, workflow_ir_path: Path) -> Pl
 
 
 def _new_plan_id() -> str:
-    """Generate a fresh plan id (UUIDv7 hex on 3.14+, UUIDv4 otherwise)."""
-    factory = getattr(uuid, "uuid7", None)
-    if factory is None:
-        return uuid.uuid4().hex
-    return factory().hex
+    """Generate a fresh human-readable plan id (e.g. ``serene-mixing-reddy``)."""
+    from molexp.workflow import generate_name
+
+    return generate_name()

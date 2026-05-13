@@ -40,6 +40,10 @@ from mollog import get_logger
 from pydantic_ai import Agent, models
 from pydantic_ai.mcp import MCPServerStdio
 
+import contextlib
+import os
+from collections.abc import Iterator
+
 from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
     CapabilityNeedReport,
@@ -61,6 +65,29 @@ __all__ = [
 _LOG = get_logger(__name__)
 
 
+@contextlib.contextmanager
+def _silence_process_stdio() -> Iterator[None]:
+    """Temporarily point stdout/stderr fds at ``os.devnull``.
+
+    Some MCP servers print startup banners directly from the child
+    process.  Redirecting Python's ``sys.stderr`` is not enough because
+    the child inherits OS-level file descriptors.
+    """
+    saved_out = os.dup(1)
+    saved_err = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    try:
+        os.dup2(devnull, 1)
+        os.dup2(devnull, 2)
+        yield
+    finally:
+        os.dup2(saved_out, 1)
+        os.dup2(saved_err, 2)
+        os.close(saved_out)
+        os.close(saved_err)
+        os.close(devnull)
+
+
 _DEFAULT_DISCOVERY_RETRIES = 3
 """Default ``output_retries`` cascade for the discovery agent.
 
@@ -69,6 +96,31 @@ tool-call failures, and one structured-output validation slip without
 making the cap visibly long when every retry actually fails. Tunable
 per call via :func:`build_discovery_agent`'s ``retries`` kwarg or
 :class:`PydanticAICapabilityProbe`'s constructor."""
+
+
+_STDLIB_NOISE: frozenset[str] = frozenset(
+    {
+        "Any",
+        "Callable",
+        "Dict",
+        "Engine",
+        "IO",
+        "Iterator",
+        "List",
+        "Optional",
+        "Path",
+        "Protocol",
+        "Tuple",
+        "Type",
+        "Union",
+        "builtins",
+        "pathlib",
+        "subprocess",
+        "typing",
+    }
+)
+"""Symbols that ``list_symbols`` returns but are stdlib re-exports or
+noise — skip them during enrichment."""
 
 
 # ── System prompts ────────────────────────────────────────────────────────
@@ -99,7 +151,7 @@ _DISCOVERY_SYSTEM_PROMPT = (
     "the input report, use the project's MCP source-introspection "
     "tools to find modules, functions, classes, signatures, docstrings, "
     "and return shapes.\n\n"
-    "Every user prompt includes an \"Available MCP tools\" block with "
+    'Every user prompt includes an "Available MCP tools" block with '
     "the live tool list fetched from the MCP server at runtime — it "
     "documents every tool's name, parameters, and types. Always match "
     "parameter names exactly as listed there; never guess or substitute "
@@ -121,7 +173,20 @@ _DISCOVERY_SYSTEM_PROMPT = (
     "the appropriate mcp_no_match / mcp_low_confidence / mcp_timeout "
     "reason; do not fabricate evidence to fill the gap. Set "
     "discovery_skipped=False on every batch you produce — the caller "
-    "sets True only when discovery is short-circuited upstream."
+    "sets True only when discovery is short-circuited upstream.\n\n"
+    "TRANSITIVE DISCOVERY (CRITICAL). After resolving a primary "
+    "symbol, list all public symbols of its module and document every "
+    "companion class, function, or constant that the downstream codegen "
+    "could plausibly need. For example, finding a LAMMPSEngine class "
+    "must also document the emitter, writers, log parsers, and data "
+    "readers in the same module that the implementation and tests will "
+    "import. A batch that contains only the primary class and omits its "
+    "documented companion utilities is incomplete — downstream codegen "
+    "cannot restrict itself to a single api_ref when the primary's "
+    "own docstring and signature reference companion symbols by name. "
+    "For every primary evidence row you emit, emit additional evidence "
+    "rows for each companion symbol that appears in the primary's "
+    "signature, doc_summary, or usage_notes."
 )
 
 
@@ -248,6 +313,23 @@ class PydanticAICapabilityProbe:
     async def __aexit__(self, *exc_info: object) -> None:
         await self.aclose()
 
+    # ── Public helpers ───────────────────────────────────────────────────
+
+    async def enrich_existing(
+        self,
+        batch: CapabilityEvidenceBatch,
+    ) -> CapabilityEvidenceBatch:
+        """Enrich an existing evidence batch with companion symbols.
+
+        Does NOT invoke the LLM — only scans tracked modules via MCP
+        ``list_symbols`` and appends missing companion entries.  Safe to
+        call on a batch loaded from disk (e.g. during resume) before
+        feeding it into codegen nodes.
+
+        Delegates to :func:`_enrich_batch`.
+        """
+        return await _enrich_batch(batch, self._mcp_server, log_tag="enrich_existing")
+
     # ── Protocol methods ──────────────────────────────────────────────────
 
     async def draft_needs(
@@ -297,18 +379,17 @@ class PydanticAICapabilityProbe:
                 discovery_skipped=True,
             )
 
-        try:
-            tools = await self._mcp_server.list_tools()
-            _LOG.debug(
-                f"[capability-probe] discover preflight tools={len(tools)}"
-            )
-        except Exception:
-            _LOG.warning(
-                "[capability-probe] discover preflight failed — "
-                "MCP server may not be running; proceeding without tool list",
-                exc_info=True,
-            )
-            tools = []
+        with _silence_process_stdio():
+            try:
+                tools = await self._mcp_server.list_tools()
+                _LOG.debug(f"[capability-probe] discover preflight tools={len(tools)}")
+            except Exception:
+                _LOG.warning(
+                    "[capability-probe] discover preflight failed — "
+                    "MCP server may not be running; proceeding without tool list",
+                    exc_info=True,
+                )
+                tools = []
 
         prompt = _render_discovery_prompt(
             report,
@@ -320,8 +401,26 @@ class PydanticAICapabilityProbe:
             f"prompt_chars={len(prompt)}"
         )
         try:
-            async with self._discovery_agent:
-                result = await self._discovery_agent.run(prompt)
+            with _silence_process_stdio():
+                async with self._discovery_agent:
+                    result = await self._discovery_agent.run(prompt)
+                    batch = result.output
+
+                    # ── Transitive enrichment ──────────────────────────
+                    # The LLM returns the primary symbol for each need but
+                    # often omits companion classes/functions (emitters,
+                    # writers, parsers) that downstream codegen will
+                    # import.  Enumerate every evidence module's public
+                    # symbols and add the missing companions so the AST
+                    # evidence gate does not reject generated code for
+                    # referencing an undocumented helper.
+                    enriched = await _enrich_batch(batch, self._mcp_server)
+                    _LOG.debug(
+                        "[capability-probe] discover done "
+                        f"evidence={len(batch.evidence)}→{len(enriched.evidence)} "
+                        f"missing={len(batch.missing)}"
+                    )
+                    return enriched
         except Exception as exc:
             # Catching `Exception` here is intentional: this is the
             # pydantic-ai / MCP SDK boundary, where any number of
@@ -339,12 +438,160 @@ class PydanticAICapabilityProbe:
                 reason="mcp_error",
                 detail=f"{type(exc).__name__}: {exc}",
             ) from exc
-        batch = result.output
-        _LOG.debug(
-            "[capability-probe] discover done "
-            f"evidence={len(batch.evidence)} missing={len(batch.missing)}"
-        )
+
+
+# ── Transitive enrichment ────────────────────────────────────────────────────
+
+
+async def _enrich_batch(
+    batch: CapabilityEvidenceBatch,
+    server: MCPServerStdio,
+    *,
+    log_tag: str = "enrich",
+) -> CapabilityEvidenceBatch:
+    """Expand *batch* with companion symbols referenced by existing evidence.
+
+    A primary evidence entry (e.g. ``LAMMPSEngine``) often mentions
+    companion classes, writers, emitters, and parsers in its
+    ``usage_notes``, ``signature``, and ``doc_summary`` fields.
+    Those companions live in neighbouring modules and must be registered
+    as separate evidence rows so the downstream AST gate does not reject
+    generated code that imports them.
+
+    Strategy:
+    1. Collect every ``module.symbol`` token referenced in the textual
+       fields of existing evidence rows.
+    2. For each referenced module, call ``list_symbols`` to enumerate its
+       public surface.
+    3. For each symbol that matches a known companion (by name mention)
+       but is absent from the batch, fetch its signature and docstring
+       and append a new evidence row.
+    """
+    if batch.discovery_skipped:
         return batch
+
+    from molexp.agent.modes.plan.capability import CapabilityEvidence
+
+    # ── 1. Collect modules from tracked_namespaces + evidence modules ────
+    existing_refs: set[str] = {e.api_ref for e in batch.evidence}
+    evidence_modules: set[str] = {e.module for e in batch.evidence if e.module}
+    tracked = set(getattr(batch, "tracked_namespaces", ()))
+    # Filter to plausible Python modules (contain a dot or are known packages)
+    candidate_modules = {
+        ns for ns in tracked | evidence_modules
+        if "." in ns and not ns.startswith("hint:")
+    }
+
+    if not candidate_modules:
+        _LOG.debug(f"[capability-probe] {log_tag}: no candidate modules to scan")
+        return batch
+
+    # ── 2. List symbols per candidate module ─────────────────────────────
+    new_evidence: list[CapabilityEvidence] = []
+    for mod in sorted(candidate_modules):
+        try:
+            raw = await server.direct_call_tool("list_symbols", {"symbol": mod})
+        except Exception:
+            _LOG.debug(f"[capability-probe] {log_tag}: list_symbols({mod!r}) failed, skipping")
+            continue
+
+        text = _extract_text(raw.content)
+        if text is None:
+            continue
+        try:
+            listed = json.loads(text)
+        except json.JSONDecodeError:
+            _LOG.debug(f"[capability-probe] {log_tag}: list_symbols({mod!r}) not JSON")
+            continue
+        if not isinstance(listed, dict):
+            continue
+
+        # ── 3. For each symbol not already evidenced, gather metadata ──
+        for sym_name, summary in sorted(listed.items()):
+            api_ref = f"{mod}.{sym_name}"
+            if api_ref in existing_refs:
+                continue
+            # Skip dunder / private symbols and stdlib re-exports
+            if sym_name.startswith("_") or sym_name in _STDLIB_NOISE:
+                continue
+
+            try:
+                sig_raw = await server.direct_call_tool(
+                    "get_signature", {"symbol": api_ref}
+                )
+                doc_raw = await server.direct_call_tool(
+                    "get_docstring", {"symbol": api_ref}
+                )
+            except Exception:
+                continue
+
+            signature = _extract_text(sig_raw.content) or ""
+            doc_summary = _extract_text(doc_raw.content) or ""
+            if not signature and not doc_summary:
+                continue
+
+            kind = _guess_evidence_kind(summary)
+            new_evidence.append(
+                CapabilityEvidence(
+                    need_fingerprint=f"enrich:{api_ref}",
+                    source="mcp",
+                    namespace=mod.split(".", 1)[0],
+                    package=mod.split(".", 1)[0],
+                    module=mod,
+                    symbol=sym_name,
+                    kind=kind,
+                    signature=signature,
+                    doc_summary=doc_summary,
+                    api_ref=api_ref,
+                    confidence=1.0,
+                )
+            )
+            existing_refs.add(api_ref)
+            _LOG.debug(f"[capability-probe] {log_tag}: added {api_ref}")
+
+    if not new_evidence:
+        return batch
+
+    _LOG.info(
+        f"[capability-probe] {log_tag}: {len(new_evidence)} new companion(s) across "
+        f"{len(candidate_modules)} module(s)"
+    )
+    return batch.model_copy(
+        update={"evidence": (*batch.evidence, *new_evidence)}
+    )
+
+
+def _extract_text(content: object) -> str | None:
+    """Pull a text blob from an MCP ``CallToolResult.content`` list.
+
+    MCP returns ``[TextContent(type="text", text="..."),
+    EmbeddedResource(...), ...]``.  We take the first text part.
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text" and "text" in item:
+                    return str(item["text"])
+            elif hasattr(item, "text"):
+                return str(item.text)
+    return None
+
+
+def _guess_evidence_kind(summary: str) -> str:
+    """Infer an evidence ``kind`` from a ``list_symbols`` summary line.
+
+    *summary* is the string value produced by ``list_symbols``, e.g.
+    ``"class — LAMMPS molecular dynamics engine."``.
+    """
+    if not summary:
+        return "callable"
+    lower = summary.lower()
+    for kind in ("class", "function", "module", "constant", "protocol"):
+        if kind in lower:
+            return kind
+    return "callable"
 
 
 # ── Prompt rendering ──────────────────────────────────────────────────────

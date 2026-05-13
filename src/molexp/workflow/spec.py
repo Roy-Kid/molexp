@@ -317,6 +317,33 @@ class Workflow:
             self._runtime = GraphWorkflowRuntime()
         return self._runtime
 
+    # ── Subgraph boundary introspection ──────────────────────────────────
+
+    @property
+    def boundary_names(self) -> frozenset[str]:
+        """Names of boundary-stub tasks on this spec.
+
+        Boundary stubs are :class:`_BoundaryStubTask` placeholders registered
+        by :meth:`subgraph` for upstream dependencies that lie outside the
+        selected subgraph. They never execute; :meth:`execute` seeds their
+        values via ``seed_outputs``.
+
+        Returns an empty frozenset when this spec is a full pipeline (no
+        subgraph boundaries exist).
+        """
+        return frozenset(
+            t.name for t in self._tasks if isinstance(t.fn_or_class, _BoundaryStubTask)
+        )
+
+    @property
+    def non_boundary_names(self) -> frozenset[str]:
+        """Names of runnable (non-stub) tasks on this spec.
+
+        Complement of :attr:`boundary_names` — every task whose ``fn_or_class``
+        is not a :class:`_BoundaryStubTask`.
+        """
+        return frozenset(t.name for t in self._tasks) - self.boundary_names
+
     # ── Cross-replicate reducer ─────────────────────────────────────────
 
     @property

@@ -26,6 +26,7 @@ from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes.plan._repair_loop import drive_with_repair
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
 from molexp.agent.modes.plan.protocols import (
     CapabilityDiscoveryService,
@@ -38,7 +39,6 @@ from molexp.agent.modes.plan.schemas import (
     PlanBriefResult,
     SkeletonResult,
 )
-from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.review import BypassPolicy, ReviewPolicy
 from molexp.agent.types import Message
 
@@ -74,6 +74,71 @@ def _compute_resume_frontier(
         if node not in completed_set:
             return node
     return ""
+
+
+def _load_from_workflow_snapshots(
+    plan_folder: PlanFolder,
+    pipeline_order: tuple[str, ...],
+) -> tuple[tuple[str, ...], dict[str, Any]]:
+    """Read completed nodes + outputs from the latest ``workflow.json`` snapshot.
+
+    Returns ``(completed_nodes, seed_outputs)``. Returns empty tuple/dict
+    when no persisted snapshots exist.  Outputs are deserialized into
+    their proper pydantic ``*Result`` types via
+    :func:`~molexp.agent.modes.plan.plan_folder._ensure_node_result_map`.
+    """
+    import json
+
+    from molexp.agent.modes.plan.plan_folder import _ensure_node_result_map
+
+    exec_id = plan_folder.latest_execution_id()
+    if exec_id is None:
+        return (), {}
+
+    wf_json = plan_folder._resolve("executions") / exec_id / "workflow.json"
+    if not wf_json.exists():
+        return (), {}
+
+    try:
+        data = json.loads(wf_json.read_text())
+    except (json.JSONDecodeError, OSError):
+        return (), {}
+
+    steps: list[dict[str, Any]] = data.get("steps", [])
+    if not steps:
+        return (), {}
+
+    result_types = _ensure_node_result_map()
+
+    # Collect all outputs from all completed steps, deserializing into
+    # pydantic models so downstream tasks receive typed objects via
+    # ctx.inputs rather than raw dicts.
+    all_outputs: dict[str, Any] = {}
+    completed_names: list[str] = []
+    for step in steps:
+        if step.get("status") != "success":
+            continue
+        for name, output in step.get("outputs", {}).items():
+            if name in all_outputs or not isinstance(output, dict):
+                continue
+            result_cls = result_types.get(name)
+            if result_cls is not None:
+                try:
+                    all_outputs[name] = result_cls(**output)
+                except Exception:
+                    all_outputs[name] = output
+            else:
+                all_outputs[name] = output
+            if name in pipeline_order:
+                completed_names.append(name)
+
+    # Preserve pipeline order for completed nodes.
+    ordered_completed: list[str] = []
+    for node in pipeline_order:
+        if node in completed_names:
+            ordered_completed.append(node)
+
+    return tuple(ordered_completed), all_outputs
 
 
 # ── Public configs / results ────────────────────────────────────────────────
@@ -202,6 +267,7 @@ class PlanMode(AgentMode):
         self._capability_probe: CapabilityProbe | None = capability_probe
         self._capability_discovery: CapabilityDiscoveryService | None = capability_discovery
         self._resume_from: str | None = None
+        self._resume_seed_outputs: dict[str, Any] | None = None
 
     @classmethod
     def resume(
@@ -217,24 +283,35 @@ class PlanMode(AgentMode):
     ) -> PlanMode:
         """Reconstruct a :class:`PlanMode` from a persisted :class:`PlanFolder`.
 
-        Reads the manifest to determine which pipeline nodes have already
-        completed, then configures the returned instance so the next
-        :meth:`run` call continues from the first incomplete node.
+        Reads the latest workflow-persistence snapshot
+        (``<plan>/executions/<id>/workflow.json``) written by
+        :class:`~molexp.workflow._pydantic_graph.runtime.RunStorePersistence`
+        to determine which pipeline nodes have already completed. The
+        configured instance continues from the first incomplete node on
+        the next :meth:`run` call.
+
+        Falls back to the legacy manifest-based checkpoint when no
+        ``workflow.json`` snapshots exist.
 
         Raises :exc:`ValueError` when the PlanFolder has no completed
         nodes — use the normal constructor to start a fresh plan.
         """
-        manifest = plan_folder.load_manifest()
-        if not manifest.completed_nodes:
-            raise ValueError(
-                f"PlanFolder {plan_folder.plan_id!r} has no completed nodes "
-                "— nothing to resume from. Use PlanMode() to start fresh."
-            )
         from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
 
-        resume_from = _compute_resume_frontier(
-            manifest.completed_nodes, PLAN_PIPELINE_ORDER
-        )
+        # Primary path: read from workflow persistence snapshots.
+        completed, seed_outputs = _load_from_workflow_snapshots(plan_folder, PLAN_PIPELINE_ORDER)
+        # Fallback: legacy manifest-based checkpoint.
+        if not completed:
+            manifest = plan_folder.load_manifest()
+            if not manifest.completed_nodes:
+                raise ValueError(
+                    f"PlanFolder {plan_folder.plan_id!r} has no completed nodes "
+                    "— nothing to resume from. Use PlanMode() to start fresh."
+                )
+            completed = manifest.completed_nodes
+            seed_outputs = plan_folder.load_seed_outputs()
+
+        resume_from = _compute_resume_frontier(completed, PLAN_PIPELINE_ORDER)
         instance = cls(
             plan_folder=plan_folder,
             model_policy=model_policy,
@@ -245,6 +322,7 @@ class PlanMode(AgentMode):
             max_iterations=max_iterations if max_iterations is not None else 8,
         )
         instance._resume_from = resume_from
+        instance._resume_seed_outputs = seed_outputs
         return instance
 
     def get_step_policy(self) -> ReviewPolicy:
@@ -301,17 +379,20 @@ class PlanMode(AgentMode):
     ) -> AgentRunResult:
         router.clear_usage()
         session.append(Message(role="user", content=user_input))
-        _LOG.info(
-            f"[plan] start plan_id={self._plan_folder.plan_id} "
-            f"workspace={self._plan_folder.root()}"
-        )
+        plan_dir = self._plan_folder.path()
+        _LOG.info(f"[plan] start plan_id={self._plan_folder.plan_id} workspace={plan_dir}")
         _LOG.debug(
             f"[plan-mode] max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
         )
 
-        # ── Resume: build subgraph + seed_outputs from checkpoint ──────
+        # ── Execution directory + workflow persistence ──────────────────
+        from molexp.workflow import make_execution_id
+
+        run_dir = str(plan_dir)
+        execution_id: str | None = None
         initial_spec = None
         initial_seed_outputs = None
+
         if self._resume_from:
             from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
             from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
@@ -319,14 +400,58 @@ class PlanMode(AgentMode):
             resume_idx = PLAN_PIPELINE_ORDER.index(self._resume_from)
             remaining = list(PLAN_PIPELINE_ORDER[resume_idx:])
             initial_spec = PLAN_WORKFLOW.subgraph(remaining, include_downstream=True)
-            initial_seed_outputs = self._plan_folder.load_seed_outputs()
+            # Filter seed outputs to only registered tasks in the subgraph
+            # (boundary stubs + selected nodes).  Upstream-of-boundary nodes
+            # (e.g. IngestReport when the frontier starts at
+            # ClarifyMissingInformation) are not in the subgraph and must
+            # not appear in seed_outputs.
+            registered = {t.name for t in initial_spec._tasks}
+            raw_seeds = self._resume_seed_outputs or {}
+            initial_seed_outputs = {
+                k: v for k, v in raw_seeds.items() if k in registered
+            }
             _LOG.info(
                 f"[plan] resume from={self._resume_from} "
                 f"completed={list(initial_seed_outputs.keys())} "
                 f"remaining={remaining}"
             )
+            # ── Enrich stale evidence before codegen ──────────────────
+            # The seed evidence batch was produced by an earlier run that
+            # may not have had companion-symbol enrichment.  If we skip
+            # this, the first codegen iteration will fail on every
+            # missing companion and the repair loop must re-run
+            # DiscoverCapabilities — a wasted round-trip.
+            from molexp.agent._pydanticai.capability_probe import (
+                PydanticAICapabilityProbe,
+            )
+            from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
+
+            if (
+                isinstance(self._capability_probe, PydanticAICapabilityProbe)
+                and "DiscoverCapabilities" in initial_seed_outputs
+            ):
+                evidence = initial_seed_outputs["DiscoverCapabilities"]
+                if isinstance(evidence, CapabilityEvidenceBatch) and not evidence.discovery_skipped:
+                    try:
+                        enriched = await self._capability_probe.enrich_existing(evidence)
+                        initial_seed_outputs["DiscoverCapabilities"] = enriched
+                        _LOG.info(
+                            f"[plan] resume enriched evidence: "
+                            f"{len(evidence.evidence)}→{len(enriched.evidence)} "
+                            f"evidence rows"
+                        )
+                    except Exception:
+                        _LOG.warning(
+                            "[plan] resume evidence enrichment failed; "
+                            "codegen may trigger repair loop",
+                            exc_info=True,
+                        )
+
+            # Use the latest execution_id for the resume execution dir.
+            execution_id = self._plan_folder.latest_execution_id()
         else:
-            self._plan_folder.reset_completed_nodes()
+            execution_id = make_execution_id(self._plan_folder.plan_id, plan_dir)
+            _LOG.info(f"[plan] fresh run execution_id={execution_id}")
 
         deps = PlanDeps(
             router=router,
@@ -344,6 +469,8 @@ class PlanMode(AgentMode):
             max_iterations=self.config.max_iterations,
             initial_spec=initial_spec,
             initial_seed_outputs=initial_seed_outputs,
+            run_dir=run_dir,
+            execution_id=execution_id,
         )
         elapsed = time.monotonic() - t0
         breakdown = router.snapshot_usage()
@@ -373,13 +500,10 @@ class PlanMode(AgentMode):
                 f"PlanMode {handoff_result.status} "
                 f"plan_id={handoff_result.handoff.plan_id} "
                 f"ready_for_run={handoff_result.ready_for_run} at "
-                f"{self._plan_folder.root()}."
+                f"{plan_dir}."
             )
         elif isinstance(skeleton_result, SkeletonResult):
-            summary = (
-                f"PlanMode materialized {skeleton_result.workflow_py_path} "
-                f"under {self._plan_folder.root()}."
-            )
+            summary = f"PlanMode materialized {skeleton_result.workflow_py_path} under {plan_dir}."
         else:
             summary = "PlanMode pipeline did not reach the skeleton-generation step."
 
@@ -417,7 +541,7 @@ class PlanMode(AgentMode):
         }
 
         mode_state: dict[str, Any] = {
-            "workspace_path": self._plan_folder.root(),
+            "workspace_path": plan_dir,
             "outputs": {
                 name: (payload.model_dump() if isinstance(payload, BaseModel) else payload)
                 for name, payload in outputs.items()

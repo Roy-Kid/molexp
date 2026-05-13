@@ -257,7 +257,7 @@ def test_compute_resume_frontier_returns_first_uncompleted() -> None:
 
     completed = ("IngestReport", "DraftReportDigest")
     frontier = _compute_resume_frontier(completed, PLAN_PIPELINE_ORDER)
-    assert frontier == "DraftImplementationPlan"
+    assert frontier == "ClarifyMissingInformation"
 
 
 def test_compute_resume_frontier_empty_when_all_completed() -> None:

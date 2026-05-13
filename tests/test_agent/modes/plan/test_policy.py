@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from molexp.agent.modes.plan import (
+from molexp.agent.modes.plan.policy import (
     PLAN_NODE_NAMES,
     STANDARD_PLAN_POLICY,
     PlanModelPolicy,
@@ -28,19 +28,19 @@ from molexp.agent.modes.plan.protocols import ModelTier, PlanDeps
 def test_tier_for_returns_override_when_present() -> None:
     policy = PlanModelPolicy(
         default_tier=ModelTier.DEFAULT,
-        node_tiers={"IntakeTask": ModelTier.CHEAP},
+        node_tiers={"IngestReport": ModelTier.CHEAP},
     )
-    assert policy.tier_for("IntakeTask") is ModelTier.CHEAP
+    assert policy.tier_for("IngestReport") is ModelTier.CHEAP
 
 
 def test_tier_for_returns_default_when_node_unmapped() -> None:
     policy = PlanModelPolicy(default_tier=ModelTier.DEFAULT)
-    assert policy.tier_for("MethodTask") is ModelTier.DEFAULT
+    assert policy.tier_for("IngestReport") is ModelTier.DEFAULT
 
 
 def test_tier_for_unknown_but_allowed_node_returns_default() -> None:
     policy = PlanModelPolicy(default_tier=ModelTier.HEAVY)
-    assert policy.tier_for("HandoffTask") is ModelTier.HEAVY
+    assert policy.tier_for("FinalHandoffCheck") is ModelTier.HEAVY
 
 
 # ── Validation (ac-002) ────────────────────────────────────────────────────
@@ -71,42 +71,22 @@ def test_plan_node_names_is_frozenset_of_str() -> None:
     assert all(isinstance(n, str) for n in PLAN_NODE_NAMES)
 
 
-def test_plan_node_names_covers_legacy_pipeline_classes() -> None:
-    """The legacy 14-task ids stay in the bridging set so an
-    operator can still author a policy referring to them."""
-    expected = {
-        "IntakeTask",
-        "GoalTask",
-        "ContextTask",
-        "MethodTask",
-        "DecompositionTask",
-        "ProtocolTask",
-        "PreviewTask",
-        "GateATask",
-        "CodegenTask",
-        "CompileTask",
-        "DryRunTask",
-        "GateBTask",
-        "RepairTask",
-        "HandoffTask",
-    }
-    assert expected.issubset(PLAN_NODE_NAMES)
-
-
-def test_plan_node_names_covers_subspec_05_node_ids() -> None:
+def test_plan_node_names_covers_current_pipeline() -> None:
     expected = {
         "IngestReport",
         "DraftReportDigest",
+        "ClarifyMissingInformation",
         "ValidateWorkspace",
         "DraftImplementationPlan",
         "CompileWorkflowIR",
         "CompileTaskIR",
+        "DraftCapabilityNeeds",
+        "DiscoverCapabilities",
         "GenerateWorkflowSkeleton",
         "GenerateTaskTests",
         "GenerateTaskImplementations",
         "HumanReview",
         "FinalHandoffCheck",
-        "RepairOnValidationFailure",
     }
     assert expected.issubset(PLAN_NODE_NAMES)
 
@@ -119,35 +99,21 @@ def test_plan_node_names_covers_subspec_05_node_ids() -> None:
     [
         ("IngestReport", ModelTier.CHEAP),
         ("DraftReportDigest", ModelTier.CHEAP),
+        ("ClarifyMissingInformation", ModelTier.CHEAP),
         ("ValidateWorkspace", ModelTier.CHEAP),
         ("DraftImplementationPlan", ModelTier.DEFAULT),
         ("CompileWorkflowIR", ModelTier.DEFAULT),
         ("CompileTaskIR", ModelTier.DEFAULT),
+        ("DraftCapabilityNeeds", ModelTier.HEAVY),
+        ("DiscoverCapabilities", ModelTier.HEAVY),
         ("GenerateWorkflowSkeleton", ModelTier.DEFAULT),
         ("GenerateTaskTests", ModelTier.DEFAULT),
         ("GenerateTaskImplementations", ModelTier.HEAVY),
         ("HumanReview", ModelTier.CHEAP),
         ("FinalHandoffCheck", ModelTier.CHEAP),
-        ("RepairOnValidationFailure", ModelTier.HEAVY),
     ],
 )
-def test_standard_policy_subspec_05_table(node: str, expected_tier: ModelTier) -> None:
-    assert STANDARD_PLAN_POLICY.tier_for(node) is expected_tier
-
-
-@pytest.mark.parametrize(
-    ("node", "expected_tier"),
-    [
-        ("IntakeTask", ModelTier.CHEAP),
-        ("GoalTask", ModelTier.CHEAP),
-        ("ContextTask", ModelTier.CHEAP),
-        ("MethodTask", ModelTier.DEFAULT),
-        ("DecompositionTask", ModelTier.HEAVY),
-        ("ProtocolTask", ModelTier.HEAVY),
-        ("CodegenTask", ModelTier.HEAVY),
-    ],
-)
-def test_standard_policy_preserves_legacy_tier_table(node: str, expected_tier: ModelTier) -> None:
+def test_standard_policy_table(node: str, expected_tier: ModelTier) -> None:
     assert STANDARD_PLAN_POLICY.tier_for(node) is expected_tier
 
 
@@ -226,10 +192,8 @@ def test_plan_deps_drops_legacy_service_fields() -> None:
 # ── Public re-exports (ac-009) ─────────────────────────────────────────────
 
 
-def test_planmode_modes_plan_re_exports_policy_names() -> None:
-    import molexp.agent.modes.plan as plan_pkg
+def test_policy_module_exports_policy_names() -> None:
+    import molexp.agent.modes.plan.policy as policy_pkg
 
-    assert plan_pkg.PlanModelPolicy is PlanModelPolicy
-    assert plan_pkg.STANDARD_PLAN_POLICY is STANDARD_PLAN_POLICY
-    assert "PlanModelPolicy" in plan_pkg.__all__
-    assert "STANDARD_PLAN_POLICY" in plan_pkg.__all__
+    assert policy_pkg.PlanModelPolicy is PlanModelPolicy
+    assert policy_pkg.STANDARD_PLAN_POLICY is STANDARD_PLAN_POLICY

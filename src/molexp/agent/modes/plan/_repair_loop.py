@@ -48,12 +48,12 @@ from molexp.agent.modes.plan.errors import (
     StepRejected,
     UnevidencedApiReference,
 )
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.modes.plan.schemas import (
     HandoffResult,
     RepairIterationRecord,
     ReviewDecision,
 )
-from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.workflow import Workflow, WorkflowResult
 
 if TYPE_CHECKING:
@@ -93,6 +93,8 @@ async def drive_with_repair(
     max_iterations: int,
     initial_spec: Workflow | None = None,
     initial_seed_outputs: dict[str, Any] | None = None,
+    run_dir: str | None = None,
+    execution_id: str | None = None,
 ) -> WorkflowResult:
     """Run :data:`PLAN_WORKFLOW` with a structured review→repair loop.
 
@@ -110,6 +112,12 @@ async def drive_with_repair(
         initial_seed_outputs: Optional seed outputs for
             ``initial_spec``'s boundary stubs. Mirrors the per-iteration
             ``seed_outputs`` contract of :meth:`Workflow.execute`.
+        run_dir: Path under which ``executions/<id>/`` directories are
+            created. When set, :class:`RunStorePersistence` snapshots
+            state after every pipeline step, enabling crash-recovery
+            resume via ``workflow.json`` snapshots.
+        execution_id: Execution id for the first iteration. Auto-
+            generated when omitted.
 
     Returns:
         The final :class:`WorkflowResult`. On approval, the result is
@@ -141,6 +149,8 @@ async def drive_with_repair(
                 config={"user_input": user_input},
                 deps=current_deps,
                 seed_outputs=seed_outputs,
+                run_dir=run_dir,
+                execution_id=execution_id,
             )
         except (CapabilityDiscoveryRequired, UnevidencedApiReference, StepRejected) as exc:
             if isinstance(exc, StepRejected):
@@ -180,7 +190,13 @@ async def drive_with_repair(
                 # The rejected step itself is intentionally NOT in the
                 # log (its output was discarded when StepRejected was
                 # raised), so the subgraph will recompute it.
-                spec, seed_outputs = _next_round_inputs_from_log(deps.step_outputs_log, decision)
+                current_seed = seed_outputs
+                spec, seed_outputs = _next_round_inputs_from_log(
+                    deps.step_outputs_log,
+                    decision,
+                    current_seed_outputs=current_seed,
+                    handle=handle,
+                )
                 repair_context = PlanRepairContext.from_decision(
                     iteration=iteration + 1,
                     decision=decision,
@@ -191,15 +207,40 @@ async def drive_with_repair(
                     repair_target_tasks=decision.target_task_ids or None,
                     repair_context=repair_context,
                 )
-                # Clear cached outputs for nodes the subgraph will
-                # rebuild — otherwise stale entries shadow the rerun.
                 _purge_log_for_subgraph(deps.step_outputs_log, spec)
                 iteration += 1
                 continue
 
-            # Capability exceptions still have no partial outputs
-            # attached, so rewind to the full pipeline. Earlier nodes
-            # overwrite their already-written artefacts in place.
+            if isinstance(exc, UnevidencedApiReference):
+                # Unevidenced codegen — raised during
+                # GenerateTaskTests / GenerateTaskImplementations after
+                # upstream steps were already approved.  Build a subgraph
+                # from the decision's target_steps so we don't re-run
+                # IngestReport through DraftImplementationPlan.
+                current_seed = seed_outputs
+                spec, seed_outputs = _next_round_inputs_from_log(
+                    deps.step_outputs_log,
+                    decision,
+                    current_seed_outputs=current_seed,
+                    handle=handle,
+                )
+                repair_context = PlanRepairContext.from_decision(
+                    iteration=iteration + 1,
+                    decision=decision,
+                    source="capability_gate:unevidenced",
+                )
+                deps = replace(
+                    deps,
+                    repair_target_tasks=decision.target_task_ids or None,
+                    repair_context=repair_context,
+                )
+                _purge_log_for_subgraph(deps.step_outputs_log, spec)
+                iteration += 1
+                continue
+
+            # CapabilityDiscoveryRequired — raised from
+            # DiscoverCapabilities before any downstream steps ran.  No
+            # partial outputs exist, so rewind to the full pipeline.
             spec = PLAN_WORKFLOW
             seed_outputs = None
             repair_context = PlanRepairContext.from_decision(
@@ -256,6 +297,8 @@ async def drive_with_repair(
 
         # Build the next iteration's spec + seeds.
         spec, seed_outputs = _next_round_inputs(result, decision)
+        if run_dir is not None and execution_id is not None:
+            execution_id = _next_execution_id(execution_id, iteration + 1)
         repair_context = PlanRepairContext.from_decision(
             iteration=iteration + 1,
             decision=decision,
@@ -270,6 +313,11 @@ async def drive_with_repair(
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+
+def _next_execution_id(base: str, iteration: int) -> str:
+    """Build an execution id for a repair iteration (e.g. ``serene-mixing-reddy-r1``)."""
+    return f"{base}-r{iteration}"
 
 
 def _synthesize_capability_decision(
@@ -384,31 +432,11 @@ def _append_repair_history(
     """Bump ``manifest.repair_iterations`` and append a
     :class:`RepairIterationRecord` to ``manifest.repair_history``.
 
-    Reads through :func:`_load_manifest_from_disk` so the existing
-    ``handoff`` / ``plan_mode`` extension blocks (written by
-    ``_persist_manifest_with_handoff`` in :mod:`tasks`) are stripped
-    before the strict :class:`PlanManifest` validator runs.
-
-    When the pipeline aborts before ``ValidateWorkspace`` writes a
-    manifest (e.g. ``CapabilityDiscoveryRequired`` thrown from the
-    middle of the DAG), this helper synthesizes a minimal stub via
-    :func:`_build_manifest_stub` so the repair history still
-    accumulates. Without that stub the iteration counter never
-    increments and downstream telemetry loses the audit trail.
+    Uses :meth:`PlanFolder.load_or_create_manifest` to load the current
+    manifest (or synthesize a minimal stub when aborted before
+    ``ValidateWorkspace`` wrote one), then appends the record.
     """
-    from molexp.agent.modes.plan.tasks import (
-        _build_manifest_stub,
-        _load_manifest_from_disk,
-    )
-
-    manifest_path = handle.manifest_path()
-    manifest = _load_manifest_from_disk(manifest_path) if manifest_path.exists() else None
-    if manifest is None:
-        # Exception-driven recovery: no ValidateWorkspace ran yet, so
-        # synthesize the minimal manifest the rest of the pipeline
-        # expects. Subsequent ValidateWorkspace runs will preserve our
-        # repair_iterations / repair_history fields via model_copy.
-        manifest = _build_manifest_stub(handle.plan_id, handle.ir_dir() / "workflow.yaml")
+    manifest = handle.load_or_create_manifest()
     record = RepairIterationRecord(
         iteration=iteration,
         target_steps=decision.target_steps,
@@ -429,6 +457,9 @@ def _append_repair_history(
 def _next_round_inputs_from_log(
     step_outputs_log: dict[str, Any],
     decision: ReviewDecision,
+    *,
+    current_seed_outputs: dict[str, Any] | None = None,
+    handle: PlanFolder | None = None,
 ) -> tuple[Workflow, dict[str, Any]]:
     """Build the next iteration's subgraph + seed_outputs from a per-step log.
 
@@ -443,21 +474,29 @@ def _next_round_inputs_from_log(
     ``True`` for step-level rejections (the rejected step's downstream
     almost always needs a rebuild), and require every boundary stub of
     the resulting subgraph to be present in the log.
+
+    Boundary values are resolved in three tiers: (1) ``step_outputs_log``
+    (freshly approved in the current iteration), (2) ``current_seed_outputs``
+    (seeded from a prior iteration), and (3) ``handle.load_node_result``
+    (persisted by :meth:`PlanTask.execute` after every approval, surviving
+    resume and log-clearing paths).
     """
     target_steps = list(decision.target_steps)
     cascade = decision.cascade_downstream
     spec = PLAN_WORKFLOW.subgraph(target_steps, include_downstream=cascade)
 
-    from molexp.workflow.spec import _BoundaryStubTask
-
     seed_outputs: dict[str, Any] = {}
     missing: list[str] = []
-    for task_reg in spec._tasks:
-        if not isinstance(task_reg.fn_or_class, _BoundaryStubTask):
-            continue
-        boundary_name = task_reg.name
+    for boundary_name in spec.boundary_names:
         if boundary_name in step_outputs_log:
             seed_outputs[boundary_name] = step_outputs_log[boundary_name]
+        elif current_seed_outputs and boundary_name in current_seed_outputs:
+            seed_outputs[boundary_name] = current_seed_outputs[boundary_name]
+        elif handle is not None:
+            try:
+                seed_outputs[boundary_name] = handle.load_node_result(boundary_name)
+            except (FileNotFoundError, KeyError):
+                missing.append(boundary_name)
         else:
             missing.append(boundary_name)
 
@@ -477,14 +516,7 @@ def _purge_log_for_subgraph(step_outputs_log: dict[str, Any], spec: Workflow) ->
     fresh; their stale cached outputs would otherwise survive into the
     next iteration's seed if rejection happens again.
     """
-    from molexp.workflow.spec import _BoundaryStubTask
-
-    fresh_names = {
-        task_reg.name
-        for task_reg in spec._tasks
-        if not isinstance(task_reg.fn_or_class, _BoundaryStubTask)
-    }
-    for name in fresh_names:
+    for name in spec.non_boundary_names:
         step_outputs_log.pop(name, None)
 
 
@@ -509,17 +541,10 @@ def _next_round_inputs(
 
     spec = PLAN_WORKFLOW.subgraph(target_steps, include_downstream=cascade)
 
-    # Boundary upstream tasks are registered on the subgraph as
-    # ``_BoundaryStubTask`` instances (see ``Workflow.subgraph``); their
-    # values must come from the previous run's outputs.
-    from molexp.workflow.spec import _BoundaryStubTask
-
+    # Boundary upstream values must come from the previous run's outputs.
     seed_outputs: dict[str, Any] = {}
     missing: list[str] = []
-    for task_reg in spec._tasks:
-        if not isinstance(task_reg.fn_or_class, _BoundaryStubTask):
-            continue
-        boundary_name = task_reg.name
+    for boundary_name in spec.boundary_names:
         if boundary_name in prev_result.outputs:
             seed_outputs[boundary_name] = prev_result.outputs[boundary_name]
         else:

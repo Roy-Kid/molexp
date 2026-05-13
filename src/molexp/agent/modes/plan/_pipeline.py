@@ -24,6 +24,7 @@ from __future__ import annotations
 from mollog import get_logger
 
 from molexp.agent.modes.plan.tasks import (
+    ClarifyMissingInformation,
     CompileTaskIR,
     CompileWorkflowIR,
     DraftImplementationPlan,
@@ -86,12 +87,18 @@ def build_plan_workflow() -> Workflow:
         DraftReportDigest(),
         name="DraftReportDigest",
         depends_on=["IngestReport"],
+        next_="ClarifyMissingInformation",
+    )
+    builder.add(
+        ClarifyMissingInformation(),
+        name="ClarifyMissingInformation",
+        depends_on=["DraftReportDigest"],
         next_="DraftImplementationPlan",
     )
     builder.add(
         DraftImplementationPlan(),
         name="DraftImplementationPlan",
-        depends_on=["DraftReportDigest"],
+        depends_on=["ClarifyMissingInformation"],
         next_="DraftCapabilityNeeds",
     )
     builder.add(
@@ -146,7 +153,7 @@ def build_plan_workflow() -> Workflow:
     builder.add(
         HumanReview(),
         name="HumanReview",
-        depends_on=["ValidateWorkspace"],
+        depends_on=["DraftReportDigest", "DraftImplementationPlan", "ValidateWorkspace"],
         next_="FinalHandoffCheck",
     )
     builder.add(

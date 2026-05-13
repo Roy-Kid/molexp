@@ -13,12 +13,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from molexp.agent.modes.plan import (
-    PlanManifest,
-    PlanRunHandoff,
-    PlanFolder,
-    ValidationReport,
-)
+from molexp.agent.modes.plan import PlanFolder, PlanRunHandoff
+from molexp.agent.modes.plan.plan_folder import PlanManifest, ValidationReport
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.review import BypassPolicy, ReviewDecision, ReviewView
@@ -88,7 +84,7 @@ async def test_manifest_handoff_persisted(tmp_path: Path) -> None:
     :class:`BypassPolicy` plan-final hook persists the handoff into
     manifest.yaml; reloading via yaml.safe_load round-trips back into a
     PlanRunHandoff with field-equal result."""
-    from molexp.agent.modes.plan import PLAN_WORKFLOW
+    from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
 
     workspace = Workspace(tmp_path / "ws")
     handle = workspace.add_folder(PlanFolder(name="manifest-handoff"))
@@ -131,7 +127,7 @@ class _RejectingPolicy:
 
 @pytest.mark.asyncio
 async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Path) -> None:
-    from molexp.agent.modes.plan import PLAN_WORKFLOW
+    from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
 
     workspace = Workspace(tmp_path / "ws")
     handle = workspace.add_folder(PlanFolder(name="rejected-plan"))

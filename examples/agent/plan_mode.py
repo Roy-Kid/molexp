@@ -72,6 +72,17 @@ end — ``cd`` there to inspect ``report/digest.md``,
 ``plan/implementation_plan.md``, ``ir/workflow.yaml``,
 ``ir/tasks/*.yaml``, ``src/experiment/...``, ``tests/*``,
 ``validation_report.md``, and ``manifest.yaml``.
+
+Resume::
+
+    python examples/agent/plan_mode.py --resume /path/to/workspace
+    python examples/agent/plan_mode.py --resume --workspace /path/to/workspace
+
+Pass the workspace path printed at the end of the previous run.
+PlanMode reads the latest workflow-persistence snapshot under
+``<plan>/executions/`` and continues from the first incomplete
+pipeline node. Model, policy, and other runtime settings are re-
+supplied by the script; only the pipeline state is persisted.
 """
 
 from __future__ import annotations
@@ -95,6 +106,19 @@ from molexp.workspace import Workspace
 _DEBUG = "--debug" in sys.argv[1:]
 _SKIP_PREFLIGHT = "--skip-preflight" in sys.argv[1:]
 _SMOKE = "--smoke" in sys.argv[1:]
+_RESUME = "--resume" in sys.argv[1:]
+
+# --resume requires a workspace path. Parse it from --workspace <path>
+# or from the first positional arg after --resume.
+_RESUME_WORKSPACE: Path | None = None
+if _RESUME:
+    for i, arg in enumerate(sys.argv[1:], start=1):
+        if arg == "--workspace" and i < len(sys.argv) - 1:
+            _RESUME_WORKSPACE = Path(sys.argv[i + 1])
+            break
+        if arg == "--resume" and i < len(sys.argv) - 1 and not sys.argv[i + 1].startswith("--"):
+            _RESUME_WORKSPACE = Path(sys.argv[i + 1])
+            break
 
 mollog.configure(level="DEBUG" if _DEBUG else "INFO")
 logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -177,24 +201,35 @@ def _run_title() -> str:
 
 
 async def main() -> int:
-    with TemporaryDirectory(delete=False) as tmp:
-        workspace = Workspace(Path(tmp) / "ws")
-        preflight_status = await _preflight_or_exit(workspace)
-        if preflight_status is not None:
-            return preflight_status
-        handle = cast(PlanFolder, workspace.add_folder(PlanFolder(name="demo")))
-        mode = PlanMode(
+    # ── Resume path: re-open existing workspace, resume PlanFolder ───
+    if _RESUME:
+        if _RESUME_WORKSPACE is None:
+            print(
+                "usage: python examples/agent/plan_mode.py --resume <workspace_path>\n"
+                "  or:  python examples/agent/plan_mode.py --resume --workspace <workspace_path>",
+                file=sys.stderr,
+            )
+            return 2
+        if not _RESUME_WORKSPACE.exists():
+            print(f"Workspace not found: {_RESUME_WORKSPACE}", file=sys.stderr)
+            return 2
+        workspace = Workspace(_RESUME_WORKSPACE)
+        plans = workspace.list_folders(cls=PlanFolder)
+        if not plans:
+            print(f"No PlanFolder found in workspace: {_RESUME_WORKSPACE}", file=sys.stderr)
+            return 2
+        # Use the most recently modified PlanFolder.
+        plans.sort(key=lambda p: p.path().stat().st_mtime if p.path().exists() else 0, reverse=True)
+        handle = plans[0]
+        print(f"Resuming PlanFolder: {handle.plan_id}")
+        print(f"  plan root : {handle.root()}")
+        print(f"  executions: {handle.executions_dir()}")
+        mode = PlanMode.resume(
             plan_folder=handle,
-            step_policy=HumanPolicy(),  # CLI prompt after every non-terminal node
-            final_policy=HumanPolicy(),  # CLI walk task-by-task at the plan-final review
-            # 1 fresh pass + up to 3 replan rounds; the repair loop
-            # raises RepairBudgetExceeded if the user never approves.
+            step_policy=HumanPolicy(),
+            final_policy=HumanPolicy(),
             max_iterations=4,
         )
-        # Pass workspace=workspace.root so the runner's MCP lookup also
-        # sees a per-workspace .mcp.json (when present); the user-scope
-        # ~/.molexp/mcp.json — including the auto-seeded ``molmcp`` —
-        # is read regardless.
         runner = AgentRunner(
             mode=mode,
             models=TIER_MODELS,
@@ -202,35 +237,63 @@ async def main() -> int:
         )
         session = AgentSession()
         result = await runner.run(session, _selected_report())
+    else:
+        # ── Fresh-run path ──────────────────────────────────────────
+        with TemporaryDirectory(delete=False) as tmp:
+            workspace = Workspace(Path(tmp) / "ws")
+            preflight_status = await _preflight_or_exit(workspace)
+            if preflight_status is not None:
+                return preflight_status
+            handle = cast(PlanFolder, workspace.add_folder(PlanFolder(name="demo")))
+            mode = PlanMode(
+                plan_folder=handle,
+                step_policy=HumanPolicy(),  # CLI prompt after every non-terminal node
+                final_policy=HumanPolicy(),  # CLI walk task-by-task at the plan-final review
+                # 1 fresh pass + up to 3 replan rounds; the repair loop
+                # raises RepairBudgetExceeded if the user never approves.
+                max_iterations=4,
+            )
+            # Pass workspace=workspace.root so the runner's MCP lookup also
+            # sees a per-workspace .mcp.json (when present); the user-scope
+            # ~/.molexp/mcp.json — including the auto-seeded ``molmcp`` —
+            # is read regardless.
+            runner = AgentRunner(
+                mode=mode,
+                models=TIER_MODELS,
+                workspace=workspace.root,
+            )
+            session = AgentSession()
+            result = await runner.run(session, _selected_report())
 
-        plan = (result.mode_state or {}).get("plan", {})
+    plan = (result.mode_state or {}).get("plan", {})
 
-        print()
-        print("=" * 72)
-        print(_run_title())
-        print("=" * 72)
-        print(result.text)
-        print()
-        print(f"approved      : {plan.get('approved')}")
-        print(f"ready_for_run : {plan.get('ready_for_run')}")
-        print(f"status        : {plan.get('status')}")
-        print(f"workspace at  : {handle.root()}")
-        print(f"manifest at   : {handle.manifest_path()}")
+    print()
+    print("=" * 72)
+    print(_run_title())
+    print("=" * 72)
+    print(result.text)
+    print()
+    print(f"approved      : {plan.get('approved')}")
+    print(f"ready_for_run : {plan.get('ready_for_run')}")
+    print(f"status        : {plan.get('status')}")
+    print(f"workspace at  : {handle.root()}")
+    print(f"manifest at   : {handle.manifest_path()}")
 
-        print()
-        print("=" * 72)
-        print("Token usage:")
-        print("=" * 72)
-        print(result.usage_breakdown.render_table())
+    print()
+    print("=" * 72)
+    print("Token usage:")
+    print("=" * 72)
+    print(result.usage_breakdown.render_table())
 
-        print()
-        print("=" * 72)
-        print("Generated artefacts (open these in your editor to inspect):")
-        print("=" * 72)
-        _print_tree(handle.root())
-        print()
-        print(f"Tip: cd {handle.root()}")
-        return 0
+    print()
+    print("=" * 72)
+    print("Generated artefacts (open these in your editor to inspect):")
+    print("=" * 72)
+    _print_tree(handle.root())
+    print()
+    print(f"Tip: cd {handle.root()}")
+    print(f"Resume: python examples/agent/plan_mode.py --resume {workspace.root}")
+    return 0
 
 
 if __name__ == "__main__":

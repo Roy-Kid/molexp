@@ -52,6 +52,7 @@ charters`` in CLAUDE.md and the import-guard tests under
 ``tests/test_workflow/`` for the binding rules.
 """
 
+from ._names import generate_name
 from ._pydantic_graph.runtime import make_execution_id
 from .cache import Caching
 from .cache_store import (
@@ -125,6 +126,7 @@ __all__ = [
     "CycleError",
     "EdgeShapeError",
     "FileCacheStore",
+    "generate_name",
     # Workflow terminator (re-exported from pydantic_graph)
     "End",
     "EntryAmbiguousError",

@@ -14,14 +14,10 @@ import pytest
 import yaml
 
 from molexp.agent.mode import AgentRunResult
-from molexp.agent.modes.plan import (
-    PLAN_WORKFLOW,
-    PlanMode,
-    PlanModelPolicy,
-    PlanFolder,
-    SkeletonCompileError,
-)
-from molexp.agent.modes.plan._pipeline import build_plan_workflow
+from molexp.agent.modes.plan import PlanFolder, PlanMode
+from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW, build_plan_workflow
+from molexp.agent.modes.plan.errors import SkeletonCompileError
+from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import ModelTier, PlanDeps
 from molexp.agent.modes.plan.schemas import (
     DigestResult,
@@ -55,18 +51,19 @@ from .conftest import FakeProvider
 # ── PLAN_WORKFLOW shape (ac-007) ───────────────────────────────────────────
 
 
-def test_plan_workflow_is_workflow_with_thirteen_named_nodes() -> None:
-    """FinalHandoffCheck gates the reviewed workspace before RunMode.
+def test_plan_workflow_is_workflow_with_fourteen_named_nodes() -> None:
+    """Plan pipeline covers all 14 nodes.
 
-    Phase 5 inserts ``DraftCapabilityNeeds`` + ``DiscoverCapabilities``
-    between ``CompileTaskIR`` and the codegen fan-out so each codegen
-    node receives the discovered capability evidence.
+    Capability discovery (``DraftCapabilityNeeds`` + ``DiscoverCapabilities``)
+    runs between ``DraftImplementationPlan`` and IR compilation so codegen
+    nodes receive discovered capability evidence.
     """
     assert isinstance(PLAN_WORKFLOW, Workflow)
     assert PLAN_WORKFLOW._entries == ("IngestReport",)
     assert {t.name for t in PLAN_WORKFLOW._tasks} == {
         "IngestReport",
         "DraftReportDigest",
+        "ClarifyMissingInformation",
         "DraftImplementationPlan",
         "CompileWorkflowIR",
         "CompileTaskIR",
@@ -79,7 +76,7 @@ def test_plan_workflow_is_workflow_with_thirteen_named_nodes() -> None:
         "HumanReview",
         "FinalHandoffCheck",
     }
-    assert len(PLAN_WORKFLOW._tasks) == 13
+    assert len(PLAN_WORKFLOW._tasks) == 14
 
 
 def test_build_plan_workflow_returns_independent_instance() -> None:

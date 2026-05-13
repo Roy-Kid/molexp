@@ -190,9 +190,7 @@ async def _check_molmcp(
     if not verify_stdio:
         return
     try:
-        from molexp.agent._pydanticai.mcp_check import check_mcp_stdio_handshake
-
-        await check_mcp_stdio_handshake(command, args)
+        await _check_mcp_stdio_handshake(command, args)
     except Exception as exc:
         checks.append(
             PlanPreflightCheck(
@@ -213,3 +211,46 @@ _PROVIDER_ENV: dict[str, str] = {
     "groq": "GROQ_API_KEY",
     "openai": "OPENAI_API_KEY",
 }
+
+
+async def _check_mcp_stdio_handshake(
+    command: str,
+    args: tuple[str, ...] = (),
+    *,
+    timeout_seconds: float = 5.0,
+) -> None:
+    """Open and close a stdio MCP server, raising on failure.
+
+    Lazy-imports pydantic-ai to keep the firewall clean (``import
+    molexp.agent`` does not eagerly load pydantic_ai).
+    """
+    import asyncio
+    import contextlib
+    import os
+    from collections.abc import Iterator
+
+    from pydantic_ai.mcp import MCPServerStdio
+
+    @contextlib.contextmanager
+    def _silence_process_stdio() -> Iterator[None]:
+        saved_out = os.dup(1)
+        saved_err = os.dup(2)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, 1)
+            os.dup2(devnull, 2)
+            yield
+        finally:
+            os.dup2(saved_out, 1)
+            os.dup2(saved_err, 2)
+            os.close(saved_out)
+            os.close(saved_err)
+            os.close(devnull)
+
+    async def _run() -> None:
+        server = MCPServerStdio(command, list(args))
+        async with server:
+            pass
+
+    with _silence_process_stdio():
+        await asyncio.wait_for(_run(), timeout=timeout_seconds)

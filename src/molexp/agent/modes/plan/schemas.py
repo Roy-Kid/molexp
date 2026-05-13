@@ -193,6 +193,21 @@ class DigestResult(BaseModel):
     digest: ReportDigest
 
 
+class ClarificationResult(BaseModel):
+    """``ClarifyMissingInformation`` output — user-supplied clarifications.
+
+    When ``ReportDigest.missing_information`` is empty, this node is a
+    no-op pass-through.  Otherwise the review policy prompts the user to
+    supply answers, which are stored here and threaded into the
+    downstream ``DraftImplementationPlan`` prompt.
+    """
+
+    model_config = _FROZEN
+
+    clarifications: tuple[str, ...] = ()
+    digest: ReportDigest
+
+
 class PlanBriefResult(BaseModel):
     """``DraftImplementationPlan`` output — plan path + structured brief."""
 

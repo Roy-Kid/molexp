@@ -503,14 +503,16 @@ def test_make_execution_id_public_export():
 
 
 def test_make_execution_id_no_run_id_returns_random_exec():
-    """With run_id=None, returns `exec-{8 hex chars}`."""
+    """With run_id=None, returns a human-readable ``exec-{name}`` id."""
     from molexp.workflow import make_execution_id
 
     eid = make_execution_id(run_id=None, run_dir=None)
     assert eid.startswith("exec-")
     suffix = eid.removeprefix("exec-")
-    assert len(suffix) == 8
-    int(suffix, 16)  # parses as hex
+    # Human-readable name like "serene-mixing-reddy" (three parts).
+    parts = suffix.split("-")
+    assert len(parts) == 3, f"expected 3-part name, got {suffix!r}"
+    assert all(p.isalpha() and p.islower() for p in parts)
 
 
 def test_make_execution_id_with_run_id_returns_base(tmp_path):

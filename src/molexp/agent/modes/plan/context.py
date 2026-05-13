@@ -27,6 +27,7 @@ __all__ = [
 PLAN_PIPELINE_ORDER: tuple[str, ...] = (
     "IngestReport",
     "DraftReportDigest",
+    "ClarifyMissingInformation",
     "DraftImplementationPlan",
     "DraftCapabilityNeeds",
     "DiscoverCapabilities",

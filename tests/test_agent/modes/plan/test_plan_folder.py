@@ -19,10 +19,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from molexp.agent.modes.plan import (
+from molexp.agent.modes.plan import PlanFolder
+from molexp.agent.modes.plan.plan_folder import (
     AGENT_PLAN_KIND,
     CheckResult,
-    PlanFolder,
     PlanManifest,
     ValidationReport,
 )
@@ -294,11 +294,10 @@ def test_public_names_reachable_from_modes_plan() -> None:
 
     for name in (
         "PlanFolder",
-        "PlanManifest",
-        "ValidationReport",
-        "CheckResult",
-        "PlanStatus",
-        "AGENT_PLAN_KIND",
+        "PlanMode",
+        "PlanModeConfig",
+        "PlanResult",
+        "PlanRunHandoff",
     ):
         assert hasattr(plan_pkg, name)
         assert name in plan_pkg.__all__

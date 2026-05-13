@@ -32,31 +32,11 @@ __all__ = [
 # ── Node-name vocabulary ───────────────────────────────────────────────────
 
 
-_CURRENT_NODE_NAMES: frozenset[str] = frozenset(
-    {
-        "IntakeTask",
-        "GoalTask",
-        "ContextTask",
-        "MethodTask",
-        "DecompositionTask",
-        "ProtocolTask",
-        "PreviewTask",
-        "GateATask",
-        "CodegenTask",
-        "CompileTask",
-        "DryRunTask",
-        "GateBTask",
-        "RepairTask",
-        "HandoffTask",
-    }
-)
-"""Class names of the present-day 14-task PlanMode pipeline."""
-
-
-_FUTURE_NODE_NAMES: frozenset[str] = frozenset(
+PLAN_NODE_NAMES: Final[frozenset[str]] = frozenset(
     {
         "IngestReport",
         "DraftReportDigest",
+        "ClarifyMissingInformation",
         "ValidateWorkspace",
         "DraftImplementationPlan",
         "CompileWorkflowIR",
@@ -68,18 +48,11 @@ _FUTURE_NODE_NAMES: frozenset[str] = frozenset(
         "GenerateTaskImplementations",
         "HumanReview",
         "FinalHandoffCheck",
-        "RepairOnValidationFailure",
     }
 )
-"""Node names introduced by sub-spec 05's pipeline rewrite."""
-
-
-PLAN_NODE_NAMES: Final[frozenset[str]] = _CURRENT_NODE_NAMES | _FUTURE_NODE_NAMES
 """Union of every node id any :class:`PlanModelPolicy` may reference.
 
-Bridging set — keeps the policy class valid against today's pipeline
-*and* sub-spec 05's renamed pipeline without churn at the rename
-boundary."""
+Construction-time validation rejects any key not in this set."""
 
 
 # ── Policy class ───────────────────────────────────────────────────────────
@@ -135,10 +108,9 @@ class PlanModelPolicy(BaseModel):
 STANDARD_PLAN_POLICY: Final[PlanModelPolicy] = PlanModelPolicy(
     default_tier=ModelTier.DEFAULT,
     node_tiers={
-        # Sub-spec 05 node names — operator-friendly cheap / default /
-        # heavy split per the user's tier table.
         "IngestReport": ModelTier.CHEAP,
         "DraftReportDigest": ModelTier.CHEAP,
+        "ClarifyMissingInformation": ModelTier.CHEAP,
         "ValidateWorkspace": ModelTier.CHEAP,
         "DraftImplementationPlan": ModelTier.DEFAULT,
         "CompileWorkflowIR": ModelTier.DEFAULT,
@@ -150,27 +122,9 @@ STANDARD_PLAN_POLICY: Final[PlanModelPolicy] = PlanModelPolicy(
         "GenerateTaskImplementations": ModelTier.HEAVY,
         "HumanReview": ModelTier.CHEAP,
         "FinalHandoffCheck": ModelTier.CHEAP,
-        "RepairOnValidationFailure": ModelTier.HEAVY,
-        # Current pipeline node names — preserve each task's
-        # pre-existing TIER ClassVar value so migration is
-        # behavior-equivalent.
-        "IntakeTask": ModelTier.CHEAP,
-        "GoalTask": ModelTier.CHEAP,
-        "ContextTask": ModelTier.CHEAP,
-        "MethodTask": ModelTier.DEFAULT,
-        "DecompositionTask": ModelTier.HEAVY,
-        "ProtocolTask": ModelTier.HEAVY,
-        "CodegenTask": ModelTier.HEAVY,
     },
 )
 """Default policy applied when ``PlanDeps.model_policy`` is unset.
 
-Two halves:
-
-- The sub-spec 05 entries set the tier table the user requested:
-  cheap for cleanup / digest / validation; default for design /
-  IR / skeleton / tests; heavy for full impl + repair.
-- The current-pipeline entries mirror each ``*Task`` class's prior
-  ``TIER`` ClassVar so the migration to policy-driven dispatch is
-  bit-equivalent for callers running today's 14-task workflow.
-"""
+Cheap tier for cleanup / digest / validation; default for design /
+IR / skeleton / tests; heavy for full impl + discovery."""
