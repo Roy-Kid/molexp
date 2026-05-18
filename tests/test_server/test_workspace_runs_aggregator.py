@@ -13,7 +13,9 @@ def _seed_run(
     workspace, *, project_id, experiment_id, parameters, executor_info=None, status="pending"
 ):
     project = workspace.add_project(project_id)
-    experiment = project.add_experiment(experiment_id, workflow_source="train.py", params=parameters)
+    experiment = project.add_experiment(
+        experiment_id, workflow_source="train.py", params=parameters
+    )
     run = experiment.add_run(parameters=parameters)
     updates = {"status": status}
     if executor_info is not None:

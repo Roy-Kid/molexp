@@ -17,7 +17,6 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from molexp.workflow.compiler import default_compiler
 from molexp.workflow.contract import (
     ArtifactDecl,
     TaskInputSpec,
@@ -27,6 +26,7 @@ from molexp.workflow.contract import (
     ValidationCheckId,
     WorkflowContract,
 )
+from molexp.workflow.serializer import default_compiler
 
 
 def _sample_contract() -> WorkflowContract:
@@ -165,8 +165,8 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
     """``spec_to_yaml`` ⇄ ``yaml_to_spec`` is byte-stable through the
     JSON IR (slugged-task workflows only, matching the existing
     JSON-IR convention)."""
+    from molexp.workflow.builder import WorkflowBuilder
     from molexp.workflow.registry import default_registry
-    from molexp.workflow.spec import WorkflowBuilder
     from molexp.workflow.task import Task
 
     class Inert(Task):

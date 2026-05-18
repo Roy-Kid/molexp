@@ -26,7 +26,7 @@ logger = get_logger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
     """Application lifespan: startup and shutdown events."""
     logger.info("MolExp server starting up")
     yield
@@ -198,7 +198,7 @@ def create_app(
     else:
 
         @app.get("/", tags=["system"])
-        def root():
+        def root():  # noqa: ANN202
             return {
                 "service": "molexp",
                 "docs": "/api/docs",

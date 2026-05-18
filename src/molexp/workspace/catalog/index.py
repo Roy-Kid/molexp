@@ -369,7 +369,7 @@ class AssetCatalog:
             if not manifest_path.exists():
                 continue
             try:
-                with open(manifest_path) as fh:
+                with open(manifest_path) as fh:  # noqa: PTH123
                     data = json.load(fh)
                 for entry in (data.get("assets") or {}).values():
                     asset = parse_asset(entry)
@@ -388,7 +388,7 @@ class AssetCatalog:
     def _load(self) -> dict:
         if not self.path.exists():
             return json.loads(json.dumps(_EMPTY_CATALOG))
-        with open(self.path) as fh:
+        with open(self.path) as fh:  # noqa: PTH123
             data = json.load(fh)
         if data.get("schema_version") != CATALOG_SCHEMA_VERSION:
             # Schema mismatch → rebuild is the answer; return empty for now,
@@ -464,13 +464,13 @@ def _read_json(path: Path) -> dict | None:
     if not path.exists():
         return None
     try:
-        with open(path) as fh:
+        with open(path) as fh:  # noqa: PTH123
             return json.load(fh)
     except (json.JSONDecodeError, OSError):
         return None
 
 
-def _iter_manifest_paths(workspace_root: Path):
+def _iter_manifest_paths(workspace_root: Path):  # noqa: ANN202
     """Yield every scope's assets.json path (workspace, projects, experiments, runs)."""
     yield workspace_root / MANIFEST_FILENAME
     projects_dir = workspace_root / "projects"

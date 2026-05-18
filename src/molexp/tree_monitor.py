@@ -43,7 +43,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal
 
 from molexp._typing import JSONValue
 from molexp.workspace import Experiment, Project, Run, Workspace
@@ -54,18 +54,18 @@ from molexp.workspace import Experiment, Project, Run, Workspace
 # both the run and the execution id into a tuple. The detail / delete
 # helpers narrow via ``isinstance`` (or the canonical destructuring for
 # the tuple variant).
-TreeNodeRef: TypeAlias = Workspace | Project | Experiment | Run | tuple[Run, str] | None
+type TreeNodeRef = Workspace | Project | Experiment | Run | tuple[Run, str] | None
 
-from rich.console import Console, Group, RenderableType
-from rich.layout import Layout
-from rich.live import Live
-from rich.panel import Panel
-from rich.syntax import Syntax
-from rich.table import Table
-from rich.text import Text
+from rich.console import Console, Group, RenderableType  # noqa: E402
+from rich.layout import Layout  # noqa: E402
+from rich.live import Live  # noqa: E402
+from rich.panel import Panel  # noqa: E402
+from rich.syntax import Syntax  # noqa: E402
+from rich.table import Table  # noqa: E402
+from rich.text import Text  # noqa: E402
 
-from molexp._run_cancel import try_cancel
-from molexp.plugins.submit_molq.metadata import normalize_executor_info
+from molexp._run_cancel import try_cancel  # noqa: E402
+from molexp.plugins.submit_molq.metadata import normalize_executor_info  # noqa: E402
 
 if TYPE_CHECKING:
     from molexp.workspace import Workspace

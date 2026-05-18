@@ -29,8 +29,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
 from mollog import get_logger
-from pydantic_graph import End, GraphRunContext
-from pydantic_graph.nodes import BaseNode
+from pydantic_graph import BaseNode, End, GraphRunContext
 
 from ..context import ActorContext
 from ..protocols import (
@@ -59,7 +58,7 @@ from ..types import (
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
-    from ..spec import TaskRegistration
+    from .._graph_decl import TaskRegistration
 
 logger = get_logger(__name__)
 

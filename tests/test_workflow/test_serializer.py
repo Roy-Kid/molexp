@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workflow.compiler import WorkflowCompiler, default_compiler
+from molexp.workflow.serializer import WorkflowCompiler, default_compiler
 
 
 def _sample_ir() -> dict:

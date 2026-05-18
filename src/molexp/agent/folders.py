@@ -37,7 +37,7 @@ for the runtime class.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from molexp._typing import JSONValue
 from molexp.agent.folders_metadata import (
@@ -237,9 +237,7 @@ class Agent(Folder):
     def _compute_path(self) -> Path:
         """Keep this in agreement with :meth:`_child_dir`."""
         if self._parent is None:
-            raise RuntimeError(
-                f"Agent {self._name!r} is unmounted — mount via parent.add_folder()"
-            )
+            raise RuntimeError(f"Agent {self._name!r} is unmounted — mount via parent.add_folder()")
         return type(self)._child_dir(self._parent, self._name)
 
     @classmethod
@@ -297,7 +295,7 @@ class Agent(Folder):
 
     # ── Typed semantic-sugar CRUD for AgentSession children ────────────────
 
-    def add_session(self, name: str, **kwargs: Any) -> AgentSession:
+    def add_session(self, name: str, **kwargs: Any) -> AgentSession:  # noqa: ANN401
         return cast(AgentSession, self.add_folder(AgentSession(name=name, **kwargs)))
 
     def get_session(self, name: str) -> AgentSession:

@@ -32,9 +32,9 @@ if TYPE_CHECKING:
         CapabilityEvidenceBatch,
         CapabilityNeedReport,
     )
+    from molexp.agent.modes.plan.plan_folder import PlanFolder
     from molexp.agent.modes.plan.policy import PlanModelPolicy
     from molexp.agent.modes.plan.schemas import PlanBrief
-    from molexp.agent.modes.plan.plan_folder import PlanFolder
     from molexp.agent.review import ReviewPolicy
 
 

@@ -26,4 +26,3 @@ export type WorkspaceRunRow = {
     latestSchedulerJobId?: (string | null);
     executions?: Array<WorkspaceExecutionRow>;
 };
-

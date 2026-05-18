@@ -123,7 +123,7 @@ def _discover_cli_uncached() -> tuple[CliPlugin, ...]:
     return tuple(discovered)
 
 
-def _safe_load(ep) -> CliPlugin | None:
+def _safe_load(ep) -> CliPlugin | None:  # noqa: ANN001
     """Load a single entry point, returning ``None`` on any error."""
     name = getattr(ep, "name", "<unknown>")
     try:

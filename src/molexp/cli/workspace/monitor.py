@@ -1,10 +1,4 @@
-"""``molexp watch`` — open the full-screen run dashboard for a workspace.
-
-Thin proxy around :class:`molexp.monitor.RunMonitor`, which in turn
-delegates rendering to ``molq.dashboard.RunDashboard``.  Collects every
-run in the workspace (optionally filtered by project / experiment) and
-hands the list to the dashboard.
-"""
+"""``molexp workspace monitor`` — job monitoring dashboard (TUI)."""
 
 from __future__ import annotations
 
@@ -14,24 +8,21 @@ from typing import Annotated, Any
 
 import typer
 
-from . import app
-from ._common import rprint
+from molexp.cli._common import rprint
+from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.workspace.target import RemoteTarget
 
 
 def _logical_cwd() -> Path:
-    """Return cwd preserving symlinks (uses $PWD if it points to cwd)."""
     pwd = os.environ.get("PWD")
-    if pwd and os.path.samefile(pwd, os.getcwd()):
+    if pwd and os.path.samefile(pwd, os.getcwd()):  # noqa: PTH109, PTH121
         return Path(pwd)
-    return Path(os.getcwd())
+    return Path(os.getcwd())  # noqa: PTH109
 
 
-@app.command()
-def watch(
-    workspace: Annotated[
-        Path | None,
-        typer.Argument(help="Workspace root (default: current directory)."),
-    ] = None,
+@workspace_app.command()
+def monitor(
+    ctx: typer.Context,
     project: Annotated[
         str | None,
         typer.Option("--project", "-p", help="Filter by project name or ID."),
@@ -45,26 +36,25 @@ def watch(
         typer.Option("--refresh", "-r", help="Refresh interval in seconds."),
     ] = 2.0,
 ) -> None:
-    """Open the molq run dashboard for every run in the workspace.
+    """Open the run dashboard for every run in the workspace.
 
-    Press ``q`` to close; jobs keep running in the background.  Use
-    ``molexp explore`` for the tree-style workspace browser instead.
+    Press ``q`` to close; jobs keep running in the background.
     """
-    if workspace is None:
-        ws_root = _logical_cwd()
-    elif workspace.is_absolute():
-        ws_root = workspace
-    else:
-        ws_root = _logical_cwd() / workspace
+    target = _get_ctx_target(ctx)
+
+    if isinstance(target, RemoteTarget):
+        rprint("[yellow]Remote job monitoring via workspace is not yet supported.[/yellow]")
+        rprint("Use [bold]molq monitor[/bold] directly for remote job dashboards.")
+        raise typer.Exit(1)
 
     try:
         from molexp.workspace import Workspace as _Workspace
 
-        ws = _Workspace.load(ws_root)
+        ws = _Workspace.load(target.path)
     except FileNotFoundError:
-        rprint(f"[red]Error:[/red] No workspace found at {ws_root}")
-        rprint("  Run [bold]molexp init[/bold] to create one, or pass a workspace path.")
-        raise typer.Exit(1)
+        rprint(f"[red]Error:[/red] No workspace found at {target.path}")
+        rprint("  Run [bold]molexp workspace . init[/bold] to create one.")
+        raise typer.Exit(1)  # noqa: B904
 
     runs: list[Any] = []
     for proj in ws.list_projects():

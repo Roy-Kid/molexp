@@ -31,8 +31,9 @@ import graphlib
 from collections import defaultdict
 from pathlib import Path
 
+from .._graph_decl import ParallelDecl, TaskRegistration
 from ..protocols import JSONMapping, RunContextLike, RunLike, TaskBody, UserDeps
-from ..spec import ParallelDecl, TaskRegistration, Workflow
+from ..spec import Workflow
 from ..types import (
     BranchEdges,
     CycleError,
@@ -109,7 +110,7 @@ class WorkflowGraphCompiler:
     def compile(self, spec: Workflow) -> CompiledWorkflow:
         self._validate_data_dag(spec)
         out_edges = self._compile_edge_sets(spec)
-        entry_frontier = self._resolve_entry_frontier(spec, out_edges)
+        entry_frontier = self._resolve_entry_frontier(spec)
         self._check_reachability(spec, out_edges, entry_frontier)
 
         # Single-track: stash each user-registered Task / Actor / callable
@@ -280,7 +281,6 @@ class WorkflowGraphCompiler:
     def _resolve_entry_frontier(
         self,
         spec: Workflow,
-        out_edges: dict[str, OutEdges],
     ) -> tuple[str, ...]:
         names = {t.name for t in spec._tasks}
 

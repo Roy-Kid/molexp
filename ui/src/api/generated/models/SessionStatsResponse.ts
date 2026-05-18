@@ -15,4 +15,3 @@ export type SessionStatsResponse = {
     completedAt?: (string | null);
     durationSeconds?: (number | null);
 };
-

@@ -17,6 +17,7 @@ from typing import cast
 import pytest
 
 from molexp.agent.modes.plan._mode import PlanMode
+from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
 from molexp.agent.modes.plan.plan_folder import PlanFolder, PlanManifest
 from molexp.agent.modes.plan.schemas import (
     DigestResult,
@@ -25,9 +26,7 @@ from molexp.agent.modes.plan.schemas import (
     PlanBriefResult,
     ReportDigest,
 )
-from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
 from molexp.workspace import Workspace
-
 
 # ── ac-010: PlanMode.resume raises when no completed_nodes ────────────────
 
@@ -37,9 +36,7 @@ def test_plan_mode_resume_raises_on_empty_completed_nodes(
 ) -> None:
     """ac-010: resume() raises ValueError when PlanFolder has no completed_nodes."""
     workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(
-        PlanFolder, workspace.add_folder(PlanFolder(name="test-plan"))
-    )
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
     manifest = PlanManifest(
         plan_id="test-plan",
         created_at=datetime.now(tz=UTC),
@@ -58,12 +55,8 @@ def test_plan_mode_resume_returns_plan_mode_instance(
 ) -> None:
     """ac-010: resume() returns a PlanMode instance when there are completed nodes."""
     workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(
-        PlanFolder, workspace.add_folder(PlanFolder(name="test-plan"))
-    )
-    result = IngestReportResult(
-        report_path=Path("/tmp/report.md"), report_hash="abc123"
-    )
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
+    result = IngestReportResult(report_path=Path("/tmp/report.md"), report_hash="abc123")
     plan_folder.write_node_result("IngestReport", result)
     plan_folder.checkpoint("IngestReport")
 
@@ -83,14 +76,12 @@ async def test_drive_with_repair_accepts_initial_spec_kwargs(
     """ac-011: drive_with_repair accepts and passes through initial_spec / initial_seed_outputs."""
     from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
     from molexp.agent.modes.plan._repair_loop import drive_with_repair
-    from molexp.agent.modes.plan.protocols import PlanDeps
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
+    from molexp.agent.modes.plan.protocols import PlanDeps
     from molexp.agent.review import BypassPolicy
 
     workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(
-        PlanFolder, workspace.add_folder(PlanFolder(name="test-plan"))
-    )
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
 
     # Use just the first node as a subgraph — it can run with standard deps
     sub = PLAN_WORKFLOW.subgraph(["IngestReport"], include_downstream=True)
@@ -142,14 +133,12 @@ async def test_plan_task_persists_result_and_checkpoint(
 ) -> None:
     """ac-012: PlanTask.execute writes result to results/ and calls checkpoint."""
     workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(
-        PlanFolder, workspace.add_folder(PlanFolder(name="test-plan"))
-    )
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
     router = fake_router
 
+    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
     from molexp.agent.modes.plan.protocols import PlanDeps
     from molexp.agent.modes.plan.tasks import IngestReport
-    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
     from molexp.agent.review import BypassPolicy
     from molexp.workflow import TaskContext
 
@@ -186,9 +175,7 @@ def test_resume_frontier_skips_completed_nodes(
 ) -> None:
     """ac-013: resumed PlanMode._resume_from is after all completed nodes."""
     workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(
-        PlanFolder, workspace.add_folder(PlanFolder(name="test-plan"))
-    )
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
 
     r1 = IngestReportResult(report_path=Path("/tmp/r.md"), report_hash="h1")
     plan_folder.write_node_result("IngestReport", r1)
@@ -209,9 +196,7 @@ def test_resume_from_mid_pipeline_loads_seed_outputs(
 ) -> None:
     """ac-014: after simulating mid-pipeline interrupt, resume rehydrates state."""
     workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(
-        PlanFolder, workspace.add_folder(PlanFolder(name="test-plan"))
-    )
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
 
     r1 = IngestReportResult(report_path=Path("/tmp/r.md"), report_hash="h1")
     r2 = DigestResult(

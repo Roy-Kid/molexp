@@ -8,4 +8,3 @@ export type MolqJobTransition = {
     toState: string;
     reason?: (string | null);
 };
-

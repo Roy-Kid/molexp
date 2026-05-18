@@ -12,4 +12,3 @@ export type RunMetricsResponse = {
     series?: Array<MetricSeriesResponse>;
     parseErrors?: number;
 };
-

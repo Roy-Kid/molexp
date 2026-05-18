@@ -22,12 +22,12 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 
 
 @router.get("", response_model=list[ProjectResponse])
-def list_projects(workspace=Depends(get_workspace)) -> list[ProjectResponse]:
+def list_projects(workspace=Depends(get_workspace)) -> list[ProjectResponse]:  # noqa: ANN001
     return [ProjectResponse.from_model(p) for p in workspace.list_projects()]
 
 
 @router.get("/{id}", response_model=ProjectResponse)
-def get_project(id: str, workspace=Depends(get_workspace)) -> ProjectResponse:
+def get_project(id: str, workspace=Depends(get_workspace)) -> ProjectResponse:  # noqa: ANN001
     project = workspace.get_project(id)
     return ProjectResponse.from_model(project, experiment_count=len(project.list_experiments()))
 
@@ -35,18 +35,18 @@ def get_project(id: str, workspace=Depends(get_workspace)) -> ProjectResponse:
 @router.post("", response_model=ProjectResponse, status_code=201)
 def create_project(
     project: ProjectCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> ProjectResponse:
     new_project = workspace.add_project(project.name)
     return ProjectResponse.from_model(new_project)
 
 
 @router.delete("/{id}", response_model=MessageResponse)
-def delete_project(id: str, workspace=Depends(get_workspace)) -> MessageResponse:
+def delete_project(id: str, workspace=Depends(get_workspace)) -> MessageResponse:  # noqa: ANN001
     try:
         workspace.remove_project(id)
     except KeyError:
-        raise ProjectNotFoundError(id)
+        raise ProjectNotFoundError(id)  # noqa: B904
     return MessageResponse(message="Project deleted")
 
 
@@ -55,7 +55,9 @@ def delete_project(id: str, workspace=Depends(get_workspace)) -> MessageResponse
 
 @router.get("/{id}/assets", response_model=list[AssetResponse])
 def list_project_assets(
-    id: str, limit: int = 100, workspace=Depends(get_workspace)
+    id: str,
+    limit: int = 100,
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> list[AssetResponse]:
     """List every asset (any kind) in the project scope via the catalog."""
     project = workspace.get_project(id)
@@ -63,7 +65,7 @@ def list_project_assets(
 
 
 @router.get("/{id}/assets/{asset_id}", response_model=AssetResponse)
-def get_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:
+def get_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:  # noqa: ANN001
     project = workspace.get_project(id)
     asset = project.assets.get(asset_id)
     if not asset:
@@ -75,7 +77,7 @@ def get_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)) 
 async def upload_project_asset(
     id: str,
     file: UploadFile = File(...),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> AssetResponse:
     """Upload a file into the project's ``DataAssetLibrary``."""
     project = workspace.get_project(id)
@@ -100,7 +102,7 @@ async def upload_project_asset(
 
 
 @router.get("/{id}/assets/{asset_id}/download")
-def download_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)):
+def download_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)):  # noqa: ANN001, ANN201
     project = workspace.get_project(id)
     asset = project.assets.get(asset_id)
     if not asset:
@@ -120,7 +122,7 @@ def download_project_asset(id: str, asset_id: str, workspace=Depends(get_workspa
 
     filename = asset.tags.get("original_filename") or file_path.name
     return StreamingResponse(
-        open(file_path, "rb"),
+        open(file_path, "rb"),  # noqa: PTH123
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

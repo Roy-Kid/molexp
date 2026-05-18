@@ -64,9 +64,7 @@ class CacheFolder(Folder):
         # the persisted file is canonical JSON — matches the historic
         # ``WorkspaceCacheStore.write`` contract.
         payload = json.loads(content)
-        fd, tmp_str = tempfile.mkstemp(
-            dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_"
-        )
+        fd, tmp_str = tempfile.mkstemp(dir=path.parent, suffix=".tmp", prefix=f".{path.stem}_")
         tmp_path = Path(tmp_str)
         try:
             with os.fdopen(fd, "w") as fh:

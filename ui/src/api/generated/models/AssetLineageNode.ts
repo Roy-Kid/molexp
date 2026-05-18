@@ -14,4 +14,3 @@ export type AssetLineageNode = {
     kind: string;
     scope_kind: string;
 };
-

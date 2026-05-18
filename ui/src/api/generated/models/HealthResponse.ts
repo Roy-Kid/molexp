@@ -7,4 +7,3 @@ export type HealthResponse = {
     workspace_available: boolean;
     capabilities?: Record<string, boolean>;
 };
-

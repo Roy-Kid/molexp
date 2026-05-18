@@ -26,8 +26,8 @@ from time import perf_counter
 from typing import cast
 
 from mollog import get_logger
-from pydantic_graph import End, exceptions
-from pydantic_graph.nodes import BaseNode
+from pydantic_graph import BaseNode, End
+from pydantic_graph.exceptions import GraphNodeStatusError
 from pydantic_graph.persistence import BaseStatePersistence, EndSnapshot, NodeSnapshot
 
 from molexp.workspace import atomic_write_json
@@ -171,7 +171,7 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
             raise LookupError(f"No snapshot found with id={snapshot_id!r}")
 
         assert isinstance(self._last_snapshot, NodeSnapshot), "Only NodeSnapshot can be recorded"
-        exceptions.GraphNodeStatusError.check(self._last_snapshot.status)
+        GraphNodeStatusError.check(self._last_snapshot.status)
         self._last_snapshot.status = "running"
         self._update_snapshot_status(snapshot_id, "running")
 

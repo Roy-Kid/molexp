@@ -50,7 +50,7 @@ def resolve_workspace_path(root: Path, path_str: str) -> Path:
 
 
 @router.get("/info", response_model=WorkspaceInfoResponse)
-def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoResponse:
+def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoResponse:  # noqa: ANN001
     """Get workspace information."""
     return WorkspaceInfoResponse(
         root=str(workspace.root),
@@ -66,7 +66,7 @@ def list_workspace_runs(
     backend: str | None = Query(default=None, description="Filter by executor backend"),
     status: str | None = Query(default=None, description="Filter by run status"),
     limit: int = Query(default=500, ge=1, le=2000),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> WorkspaceRunsResponse:
     """Cross-experiment list of runs, each with embedded execution attempts.
 
@@ -117,7 +117,7 @@ def list_workspace_files(
         None,
         description="Comma-separated optional enrichments (e.g. 'catalog')",
     ),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> dict:
     """Return a nested file tree rooted at the requested path.
 
@@ -184,7 +184,7 @@ def list_workspace_files(
 @router.get("/file", response_model=FileContentResponse)
 def read_workspace_file(
     path: str = Query("", description="Workspace-relative path to read"),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> FileContentResponse:
     """Read a text file from the workspace."""
     root = Path(workspace.root).resolve()
@@ -203,7 +203,7 @@ def read_workspace_file(
 @router.get("/file/blob")
 def read_workspace_file_blob(
     path: str = Query("", description="Workspace-relative path to read"),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> StreamingResponse:
     """Read a binary file from the workspace."""
     root = Path(workspace.root).resolve()
@@ -215,7 +215,7 @@ def read_workspace_file_blob(
         raise HTTPException(status_code=400, detail="Unsupported binary preview type")
 
     media_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
-    return StreamingResponse(open(target, "rb"), media_type=media_type)
+    return StreamingResponse(open(target, "rb"), media_type=media_type)  # noqa: PTH123
 
 
 @router.post("/open", response_model=WorkspaceInfoResponse)
@@ -241,7 +241,7 @@ def open_workspace(
 @router.post("/directories")
 def create_directory(
     request: DirectoryCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> dict:
     """Create a directory in the workspace."""
     if request.folder_id != "workspace":
@@ -257,7 +257,7 @@ def create_directory(
 @router.put("/files")
 def write_file(
     request: FileContentUpdateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> dict:
     """Create or update a file in the workspace."""
     if request.folder_id != "workspace":

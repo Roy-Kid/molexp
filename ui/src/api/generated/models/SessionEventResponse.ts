@@ -7,4 +7,3 @@ export type SessionEventResponse = {
     ts: string;
     payload?: Record<string, any>;
 };
-

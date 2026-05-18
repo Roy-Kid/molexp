@@ -7,4 +7,3 @@ export type AgentSessionListResponse = {
     sessions: Array<AgentSessionResponse>;
     total: number;
 };
-

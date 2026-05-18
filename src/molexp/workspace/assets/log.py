@@ -28,7 +28,7 @@ class LogAsset(Asset):
         target = self.absolute_path(scope_dir)
         target.parent.mkdir(parents=True, exist_ok=True)
         payload = line if line.endswith("\n") else line + "\n"
-        with open(target, "a", encoding=self.encoding) as fh:
+        with open(target, "a", encoding=self.encoding) as fh:  # noqa: PTH123
             fh.write(payload)
 
     def tail(self, scope_dir: Path, n: int = 100) -> list[str]:
@@ -36,7 +36,7 @@ class LogAsset(Asset):
         target = self.absolute_path(scope_dir)
         if not target.exists():
             return []
-        with open(target, encoding=self.encoding) as fh:
+        with open(target, encoding=self.encoding) as fh:  # noqa: PTH123
             return [line.rstrip("\n") for line in deque(fh, maxlen=n)]
 
     def stream(self, scope_dir: Path) -> Iterator[str]:
@@ -48,10 +48,10 @@ class LogAsset(Asset):
         target = self.absolute_path(scope_dir)
         if not target.exists():
             return
-        with open(target, encoding=self.encoding) as fh:
+        with open(target, encoding=self.encoding) as fh:  # noqa: PTH123
             for line in fh:
                 yield line.rstrip("\n")
 
     def size_bytes(self, scope_dir: Path) -> int:
         target = self.absolute_path(scope_dir)
-        return os.path.getsize(target) if target.exists() else 0
+        return os.path.getsize(target) if target.exists() else 0  # noqa: PTH202

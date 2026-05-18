@@ -25,7 +25,7 @@ from pathlib import Path
 
 import molexp as me
 from molexp.config import ProfileConfig
-from molexp.workflow import Task, TaskContext, Workflow, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, WorkflowBuilder
 
 
 @dataclass

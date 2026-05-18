@@ -20,7 +20,7 @@ from pathlib import Path
 
 import molexp as me
 from molexp.config import ProfileConfig
-from molexp.workflow import promote_callable, Workflow
+from molexp.workflow import promote_callable
 
 # Module-level marker so the body is importable as a fresh callable on
 # every attempt — ``promote_callable`` captures an entrypoint.

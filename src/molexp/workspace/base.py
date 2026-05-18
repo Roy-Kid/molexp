@@ -12,11 +12,14 @@ import os
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
 from molexp._typing import JSONValue
+
+if TYPE_CHECKING:
+    from .fs import FileSystem
 
 T = TypeVar("T")
 
@@ -51,11 +54,11 @@ def atomic_write_json(path: Path, data: object) -> None:
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2, default=str)
-        os.replace(tmp_path, path)
+        os.replace(tmp_path, path)  # noqa: PTH105
     except BaseException:
         # Clean up temp file on any failure (including KeyboardInterrupt)
         with contextlib.suppress(OSError):
-            os.unlink(tmp_path)
+            os.unlink(tmp_path)  # noqa: PTH108
         raise
 
 
@@ -97,40 +100,18 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
         raise
 
 
-def _save_metadata(metadata: BaseModel, path: Path) -> None:
-    """Write a Pydantic metadata model to a JSON file atomically.
-
-    The payload is wrapped with the current ``schema_version`` envelope
-    (see :mod:`molexp.workspace.schema_version`) so older molexp builds
-    can detect and refuse incompatible files.
-
-    Args:
-        metadata: Pydantic model to serialize.
-        path: Destination file path.
-    """
+def _save_metadata(metadata: BaseModel, path: str, *, fs: FileSystem | None = None) -> None:
+    """Write a Pydantic metadata model to a JSON file atomically."""
     from .schema_version import write_versioned_json
 
-    write_versioned_json(path, metadata.model_dump(mode="json"))
+    write_versioned_json(path, metadata.model_dump(mode="json"), fs=fs)
 
 
-def _load_metadata[T](metadata_cls: type[T], path: Path) -> T:
-    """Read a JSON file into a Pydantic metadata model.
-
-    Tolerates legacy files that lack ``schema_version`` (treated as
-    ``v0``); raises
-    :class:`~molexp.workspace.schema_version.IncompatibleSchemaError`
-    for files written by a future molexp.
-
-    Args:
-        metadata_cls: Target Pydantic model class.
-        path: Source JSON file path.
-
-    Returns:
-        Deserialized metadata model instance.
-    """
+def _load_metadata[T](metadata_cls: type[T], path: str, *, fs: FileSystem | None = None) -> T:
+    """Read a JSON file into a Pydantic metadata model."""
     from .schema_version import read_versioned_json
 
-    data = read_versioned_json(path)
+    data = read_versioned_json(path, fs=fs)
     return metadata_cls(**data)
 
 
@@ -200,7 +181,7 @@ def _rebuild_container_index(
             if not mfile.exists():
                 continue
             try:
-                with open(mfile) as fh:
+                with open(mfile) as fh:  # noqa: PTH123
                     data = json.load(fh)
             except (OSError, json.JSONDecodeError):
                 continue

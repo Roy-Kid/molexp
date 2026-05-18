@@ -12,4 +12,3 @@ export type SkillLaunchRequest = {
      */
     plan_mode?: (boolean | null);
 };
-

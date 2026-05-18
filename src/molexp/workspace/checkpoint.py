@@ -65,7 +65,7 @@ class Checkpoint:
         checkpoint_file = checkpoint_dir / f"{state.ckpt_id}.json"
 
         # Write checkpoint data
-        with open(checkpoint_file, "w") as f:
+        with open(checkpoint_file, "w") as f:  # noqa: PTH123
             json.dump(state.model_dump(mode="json"), f, indent=2, default=str)
 
         # Update latest symlink
@@ -90,7 +90,7 @@ class Checkpoint:
             FileNotFoundError: If checkpoint file doesn't exist
             json.JSONDecodeError: If checkpoint file is invalid
         """
-        with open(checkpoint_path) as f:
+        with open(checkpoint_path) as f:  # noqa: PTH123
             data = json.load(f)
 
         return CheckpointState(**data)

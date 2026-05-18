@@ -1,4 +1,4 @@
-"""Workflow compiler — convert between IR, Python script, Mermaid, and Spec.
+"""Workflow serializer — convert between IR, Python script, Mermaid, YAML, and Spec.
 
 The workflow has four equivalent surfaces:
 

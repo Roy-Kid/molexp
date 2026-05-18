@@ -15,7 +15,7 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import promote_callable, Workflow
+from molexp.workflow import promote_callable
 
 
 async def train(ctx: me.RunContext) -> None:

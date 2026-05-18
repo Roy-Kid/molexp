@@ -29,12 +29,12 @@ from molexp.agent.modes.plan.capability import (
     MissingCapability,
 )
 from molexp.agent.modes.plan.errors import CapabilityDiscoveryRequired
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.tasks_capability import (
     DiscoverCapabilities,
     NullCapabilityProbe,
 )
-from molexp.agent.modes.plan.plan_folder import PlanFolder
 
 from .conftest import FakeRouter
 

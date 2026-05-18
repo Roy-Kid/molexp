@@ -58,11 +58,11 @@ class Project(Folder):
         kind: str = WORKSPACE_PROJECT_KIND,
         id: str | None = None,
         workspace: Workspace | None = None,
+        fs: FileSystem | None = None,  # noqa: F821
         _entity_metadata: ProjectMetadata | None = None,
     ) -> None:
-        # ``parent`` (Folder convention) and ``workspace`` (entity alias)
-        # are accepted interchangeably for backwards compatibility with
-        # in-tree call sites; new code should pass ``parent=``.
+        from .fs_local import LocalFileSystem
+
         resolved_parent = parent if parent is not None else workspace
         if resolved_parent is None:
             raise ValueError("Project: parent (or workspace) is required")
@@ -76,13 +76,11 @@ class Project(Folder):
             )
         )
 
-        # Bypass Folder.__init__ — entity name may contain characters
-        # the kind-pattern rejects; the slugified id (entity-managed) is
-        # the kind-safe form.
         self._parent = resolved_parent
         self._name = meta.id
         self._kind = kind
         self._root_path = None
+        self._fs = fs or getattr(resolved_parent, "_fs", LocalFileSystem())
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.name,
@@ -92,25 +90,26 @@ class Project(Folder):
         )
         self._children_cache = {}
 
-        # Entity-specific state
         self._entity_metadata: ProjectMetadata = meta
         self._data_assets: DataAssetLibrary | None = None
         self._experiments_cache: dict[str, Experiment] = {}
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> Path:
+    def _compute_path(self) -> str:
         return self.project_dir
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
+    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
         """:class:`Folder.attach` hook — projects live under ``projects/<id>/``."""
-        return parent.path() / "projects" / derived_id
+        return parent._fs.join(parent.path(), "projects", derived_id)
 
     @classmethod
-    def _from_disk(cls, child_dir: Path, parent: Folder) -> Project:
+    def _from_disk(cls, child_dir: str, parent: Folder) -> Project:
         """:class:`Folder.attach` hook — load ``project.json`` and rebuild entity state."""
-        meta = _load_metadata(ProjectMetadata, child_dir / "project.json")
+        meta = _load_metadata(
+            ProjectMetadata, parent._fs.join(child_dir, "project.json"), fs=parent._fs
+        )
         return _reconstruct(
             cls,
             {
@@ -159,7 +158,7 @@ class Project(Folder):
         return self._entity_metadata.name
 
     @property
-    def created_at(self):
+    def created_at(self):  # noqa: ANN201
         return self._entity_metadata.created_at
 
     @property
@@ -179,8 +178,9 @@ class Project(Folder):
         return self._entity_metadata.config
 
     @property
-    def project_dir(self) -> Path:
-        return self.workspace.root / "projects" / self.id
+    def project_dir(self) -> str:
+        ws_root = self.workspace._compute_path()
+        return self._fs.join(ws_root, "projects", self.id)
 
     @property
     def scope(self) -> AssetScope:
@@ -203,13 +203,16 @@ class Project(Folder):
 
     def materialize(self) -> None:
         """Create filesystem structure and persist metadata (non-recursive)."""
-        self.project_dir.mkdir(parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self.project_dir / "project.json")
+        d = self.project_dir
+        self._fs.mkdir(d, parents=True, exist_ok=True)
+        meta_path = self._fs.join(d, "project.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
-        _save_metadata(self._entity_metadata, self.project_dir / "project.json")
+        meta_path = self._fs.join(self.project_dir, "project.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self._catalog_upsert()
 
     def _catalog_upsert(self) -> None:
@@ -222,13 +225,13 @@ class Project(Folder):
                 "description": meta.description,
                 "owner": meta.owner,
                 "tags": list(meta.tags),
-                "path": str(self.project_dir.relative_to(self.workspace.root)),
+                "path": "projects/" + self.id,
                 "created_at": meta.created_at.isoformat(),
                 "updated_at": meta.created_at.isoformat(),
             }
         )
 
-    def import_asset(
+    def import_asset(  # noqa: ANN201
         self,
         name: str,
         src: str | Path,
@@ -240,7 +243,7 @@ class Project(Folder):
 
     # ── Experiment CRUD: typed semantic sugar over generic Folder CRUD ─────
 
-    def add_experiment(self, name: str, **kwargs: Any) -> Experiment:
+    def add_experiment(self, name: str, **kwargs: Any) -> Experiment:  # noqa: ANN401
         """Mount an experiment under this project (idempotent on slug).
 
         One-line wrapper over generic ``add_folder``. The slugified
@@ -256,7 +259,7 @@ class Project(Folder):
         if cached is not None:
             return cached
         child_dir = Experiment._child_dir(self, resolved_id)
-        if child_dir.is_dir():
+        if self._fs.is_dir(child_dir):
             existing = Experiment._from_disk(child_dir, self)
             self._experiments_cache[existing.id] = existing
             self._children_cache[existing.id] = existing
@@ -295,7 +298,7 @@ class Project(Folder):
 
     def _refresh_experiments_index(self) -> None:
         _rebuild_container_index(
-            container_dir=self.project_dir / "experiments",
+            container_dir=self._fs.join(self.project_dir, "experiments"),
             index_filename="experiments.json",
             metadata_filename="experiment.json",
             fields=["id", "name", "description", "tags", "n_replicas", "created_at"],

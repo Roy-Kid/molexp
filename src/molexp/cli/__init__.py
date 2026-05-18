@@ -1,10 +1,16 @@
 """Command-line interface for molexp.
 
-The ``app`` Typer instance is created here; individual command modules
-are imported below for their registration side effects. After built-in
-commands are wired up, third-party plugins discovered through the
-``molexp.cli_plugins`` entry-point group also get a chance to attach
-subcommands via :func:`molexp.plugins.discover_cli_plugins`.
+The CLI is organised around ``molexp workspace <TARGET>`` as the primary
+entry point.  TARGET unifies local and remote workspaces into one concept::
+
+    molexp workspace . info              # local (cwd)
+    molexp workspace user@host:/path info  # remote (SCP-style)
+    molexp workspace @target-name info     # registered compute target
+
+Session and config management are top-level::
+
+    molexp session list
+    molexp config set key value
 """
 
 from __future__ import annotations
@@ -18,30 +24,27 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
-# Order matters only for --help display. Import for side-effect registration.
-from molexp.cli import (
-    asset,
-    experiment,
-    explore_cmd,
-    mcp_cmd,
-    project,
-    run_cmd,
-    runs,
-    serve_cmd,
-    target_cmd,
-    watch_cmd,
-    workspace_cmd,
-)
+# ── Primary entry point: workspace ────────────────────────────────────────────
+from molexp.cli.workspace import workspace_app  # noqa: E402
+
+app.add_typer(workspace_app, name="workspace")
+
+# ── Session management ────────────────────────────────────────────────────────
+from molexp.cli.session_cmd import session_app  # noqa: E402
+
+app.add_typer(session_app, name="session")
+
+# ── Global config ─────────────────────────────────────────────────────────────
+from molexp.cli.config_cmd import config_app  # noqa: E402
+
+app.add_typer(config_app, name="config")
+
+# ── Third-party CLI plugin discovery ──────────────────────────────────────────
 
 _logger = get_logger(__name__)
 
 
 def _register_third_party_cli_plugins(app: typer.Typer) -> None:
-    """Let every discovered third-party plugin attach its CLI commands.
-
-    Failure isolation: a single plugin raising during ``register``
-    is logged and skipped — the rest of the CLI must still boot.
-    """
     from molexp.plugins import discover_cli_plugins
 
     for plugin in discover_cli_plugins():

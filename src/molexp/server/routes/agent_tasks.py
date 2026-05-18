@@ -90,12 +90,12 @@ def _task_from_metadata(task: PersistedAgentTask) -> AgentTaskResponse:
     )
 
 
-def _workspace_root(workspace) -> str | None:
+def _workspace_root(workspace) -> str | None:  # noqa: ANN001
     root = getattr(workspace, "root", None)
     return str(root) if root is not None else None
 
 
-def _persist_task_response(workspace, task: AgentTaskResponse) -> None:
+def _persist_task_response(workspace, task: AgentTaskResponse) -> None:  # noqa: ANN001
     root = _workspace_root(workspace)
     if root is None:
         return
@@ -115,7 +115,7 @@ def _persist_task_response(workspace, task: AgentTaskResponse) -> None:
     )
 
 
-def _sync_review_items_for_task(workspace, task: AgentTaskResponse) -> AgentTaskResponse:
+def _sync_review_items_for_task(workspace, task: AgentTaskResponse) -> AgentTaskResponse:  # noqa: ANN001
     root = _workspace_root(workspace)
     if root is None:
         return task
@@ -145,7 +145,7 @@ def _sync_review_items_for_task(workspace, task: AgentTaskResponse) -> AgentTask
 
 
 def _resolve_plan_review_for_decision(
-    workspace,
+    workspace,  # noqa: ANN001
     task_id: str,
     request: PlanDecisionRequest,
 ) -> None:
@@ -163,7 +163,7 @@ def _resolve_plan_review_for_decision(
     )
 
 
-def _persisted_for_session(workspace, session_id: str) -> PersistedAgentTask | None:
+def _persisted_for_session(workspace, session_id: str) -> PersistedAgentTask | None:  # noqa: ANN001
     root = _workspace_root(workspace)
     if root is None:
         return None
@@ -178,7 +178,7 @@ def _persisted_for_session(workspace, session_id: str) -> PersistedAgentTask | N
     return None
 
 
-def _session_id_for_task(workspace, task_id: str) -> str:
+def _session_id_for_task(workspace, task_id: str) -> str:  # noqa: ANN001
     root = _workspace_root(workspace)
     if root is None:
         return task_id
@@ -186,7 +186,7 @@ def _session_id_for_task(workspace, task_id: str) -> str:
     return task.session_id if task is not None else task_id
 
 
-def _has_pending_review(workspace, task_id: str) -> bool:
+def _has_pending_review(workspace, task_id: str) -> bool:  # noqa: ANN001
     root = _workspace_root(workspace)
     if root is None:
         return False
@@ -199,7 +199,7 @@ def _has_pending_review(workspace, task_id: str) -> bool:
 @router.post("", response_model=AgentTaskResponse)
 async def create_agent_task(
     request: GoalCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> AgentTaskResponse:
     """Create a user-facing agent task.
 
@@ -214,7 +214,7 @@ async def create_agent_task(
 
 
 @router.get("", response_model=AgentTaskListResponse)
-def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:
+def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:  # noqa: ANN001
     """List active and historical agent tasks."""
     sessions = agent_routes.list_sessions(workspace=workspace)
     tasks: list[AgentTaskResponse] = []
@@ -246,7 +246,7 @@ def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:
 @router.get("/{task_id}", response_model=AgentTaskResponse)
 def get_agent_task(
     task_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> AgentTaskResponse:
     """Get a single agent task by task id."""
     session_id = _session_id_for_task(workspace, task_id)
@@ -273,7 +273,7 @@ def get_agent_task(
 @router.get("/{task_id}/events")
 async def stream_agent_task_events(
     task_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> StreamingResponse:
     """Stream task activity events.
 
@@ -289,7 +289,7 @@ async def stream_agent_task_events(
 async def respond_agent_task_approval(
     task_id: str,
     request: ApprovalRespondRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> dict:
     """Respond to a runtime approval request for this task."""
     return await agent_routes.respond_approval(
@@ -301,7 +301,7 @@ async def respond_agent_task_approval(
 async def respond_agent_task_plan(
     task_id: str,
     request: PlanDecisionRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> MessageResponse:
     """Approve or reject the current task plan."""
     session_id = _session_id_for_task(workspace, task_id)
@@ -315,7 +315,7 @@ async def respond_agent_task_plan(
 async def post_agent_task_message(
     task_id: str,
     request: UserMessageCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> MessageResponse:
     """Send a user message to a running agent task."""
     session_id = _session_id_for_task(workspace, task_id)

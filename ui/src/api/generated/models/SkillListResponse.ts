@@ -6,4 +6,3 @@ import type { SkillResponse } from './SkillResponse';
 export type SkillListResponse = {
     skills?: Array<SkillResponse>;
 };
-

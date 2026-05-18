@@ -12,4 +12,3 @@ export type ProjectResponse = {
     created: string;
     experimentCount?: (number | null);
 };
-

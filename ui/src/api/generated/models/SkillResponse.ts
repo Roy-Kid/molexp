@@ -24,4 +24,3 @@ export type SkillResponse = {
     createdAt?: string;
     updatedAt?: string;
 };
-

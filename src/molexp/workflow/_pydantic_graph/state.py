@@ -21,7 +21,7 @@ from ..protocols import (
 )
 
 if TYPE_CHECKING:
-    from ..spec import ParallelDecl, TaskRegistration
+    from .._graph_decl import ParallelDecl, TaskRegistration
     from ..types import OutEdges
 
 

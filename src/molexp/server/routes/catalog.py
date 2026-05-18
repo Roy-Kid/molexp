@@ -46,7 +46,7 @@ def _producer_info(asset: Asset) -> CatalogProducerInfo | None:
     )
 
 
-def _siblings(workspace, asset: Asset) -> list[CatalogSibling]:
+def _siblings(workspace, asset: Asset) -> list[CatalogSibling]:  # noqa: ANN001
     """Return other assets produced by the same task in the same scope."""
     if asset.producer is None or asset.producer.task_id is None:
         return []
@@ -72,7 +72,7 @@ def _siblings(workspace, asset: Asset) -> list[CatalogSibling]:
 @router.get("/by-path", response_model=CatalogByPathResponse)
 def catalog_by_path(
     path: str = Query(..., description="Workspace-relative or absolute path"),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> CatalogByPathResponse:
     """Reverse lookup: find the producer for a given workspace path.
 

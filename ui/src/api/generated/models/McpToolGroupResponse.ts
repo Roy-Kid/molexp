@@ -23,4 +23,3 @@ export namespace McpToolGroupResponse {
         WORKSPACE = 'workspace',
     }
 }
-

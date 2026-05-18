@@ -16,4 +16,3 @@ export type ReviewItemResponse = {
     resolutionComment?: (string | null);
     metadata?: Record<string, any>;
 };
-

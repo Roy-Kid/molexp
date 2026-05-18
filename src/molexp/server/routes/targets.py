@@ -4,7 +4,7 @@ These endpoints are the UI/API counterpart of ``molexp target add/remove/list/te
 A target is the (Transport × Scheduler) destination a run can be submitted to.
 The workspace (``workspace.json``) is the source of truth; this router is a
 thin adapter on top of :mod:`molexp.workspace.targets`.
-"""
+"""  # noqa: RUF002
 
 from __future__ import annotations
 

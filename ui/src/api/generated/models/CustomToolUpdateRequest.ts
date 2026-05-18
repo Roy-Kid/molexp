@@ -15,4 +15,3 @@ export type CustomToolUpdateRequest = {
     mutates?: (boolean | null);
     invoker?: (CustomToolHttpInvokerRequest | null);
 };
-

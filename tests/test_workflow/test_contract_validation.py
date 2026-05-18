@@ -238,7 +238,7 @@ def test_no_orphan_tasks_no_op_without_spec() -> None:
 
 
 def test_no_orphan_tasks_passes_when_spec_set_matches_contract() -> None:
-    from molexp.workflow.spec import WorkflowBuilder
+    from molexp.workflow.builder import WorkflowBuilder
     from molexp.workflow.task import Task
 
     class Inert(Task):
@@ -266,7 +266,7 @@ def test_no_orphan_tasks_passes_when_spec_set_matches_contract() -> None:
 
 
 def test_no_orphan_tasks_fails_when_spec_has_extra_task() -> None:
-    from molexp.workflow.spec import WorkflowBuilder
+    from molexp.workflow.builder import WorkflowBuilder
     from molexp.workflow.task import Task
 
     class Inert(Task):

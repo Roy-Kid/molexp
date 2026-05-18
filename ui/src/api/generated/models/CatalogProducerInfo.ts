@@ -10,4 +10,3 @@ export type CatalogProducerInfo = {
     taskId?: (string | null);
     executionId?: (string | null);
 };
-

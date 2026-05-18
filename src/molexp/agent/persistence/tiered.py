@@ -546,7 +546,7 @@ class TieredResourceStore[T: ResourceSpec]:
         tmp = path.parent / (path.name + ".tmp")
         try:
             tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-            os.replace(str(tmp), str(path))
+            os.replace(str(tmp), str(path))  # noqa: PTH105
         except Exception:
             with contextlib.suppress(OSError):
                 tmp.unlink(missing_ok=True)

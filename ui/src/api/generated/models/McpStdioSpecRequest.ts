@@ -14,4 +14,3 @@ export type McpStdioSpecRequest = {
      */
     env?: Record<string, string>;
 };
-

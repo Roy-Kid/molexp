@@ -46,7 +46,7 @@ def list_plugins() -> UiPluginListResponse:
     statically imported by the frontend and do **not** appear here. The
     response carries no UI semantics — those live in each bundle's own
     ``manifest.json``, fetched by the browser-side loader.
-    """
+    """  # noqa: RUF002
     plugins = [
         UiPluginResponse(
             id=plugin_id,

@@ -21,4 +21,3 @@ export namespace McpServerTestResponse {
         WORKSPACE = 'workspace',
     }
 }
-

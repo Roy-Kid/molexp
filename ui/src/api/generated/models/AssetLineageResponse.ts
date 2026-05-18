@@ -15,4 +15,3 @@ export type AssetLineageResponse = {
     ancestors?: Array<AssetLineageNode>;
     descendants?: Array<AssetLineageNode>;
 };
-

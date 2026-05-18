@@ -47,4 +47,3 @@ export type SkillCreateRequest = {
      */
     scope?: string;
 };
-

@@ -121,7 +121,7 @@ class DataAssetLibrary:
         )
 
         asset_dir.mkdir(parents=True, exist_ok=True)
-        with open(asset_dir / "asset.json", "w") as f:
+        with open(asset_dir / "asset.json", "w") as f:  # noqa: PTH123
             json.dump(asset.model_dump(mode="json"), f, indent=2)
 
         if self.catalog is not None:
@@ -137,7 +137,7 @@ class DataAssetLibrary:
         for asset_dir in self.root.iterdir():
             meta_file = asset_dir / "asset.json"
             if meta_file.exists():
-                with open(meta_file) as f:
+                with open(meta_file) as f:  # noqa: PTH123
                     data = json.load(f)
                 out.append(DataAsset.model_validate(data))
         return out

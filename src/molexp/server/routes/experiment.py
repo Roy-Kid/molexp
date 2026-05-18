@@ -23,7 +23,7 @@ router = APIRouter(prefix="/projects/{project_id}/experiments", tags=["experimen
 @router.get("", response_model=list[ExperimentResponse])
 def list_experiments(
     project_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> list[ExperimentResponse]:
     project = workspace.get_project(project_id)
     return [ExperimentResponse.from_model(e) for e in project.list_experiments()]
@@ -33,7 +33,7 @@ def list_experiments(
 def get_experiment(
     project_id: str,
     experiment_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> ExperimentResponse:
     project = workspace.get_project(project_id)
     experiment = project.get_experiment(experiment_id)
@@ -44,7 +44,7 @@ def get_experiment(
 def create_experiment(
     project_id: str,
     req: ExperimentCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> ExperimentResponse:
     project = workspace.get_project(project_id)
     if req.default_target is not None and not _target_exists(workspace, req.default_target):
@@ -63,7 +63,7 @@ def create_experiment(
     return ExperimentResponse.from_model(exp)
 
 
-def _target_exists(workspace, name: str) -> bool:
+def _target_exists(workspace, name: str) -> bool:  # noqa: ANN001
     return any(t.name == name for t in workspace.metadata.targets)
 
 
@@ -71,7 +71,7 @@ def _target_exists(workspace, name: str) -> bool:
 def get_experiment_comparison(
     project_id: str,
     experiment_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> ExperimentComparisonResponse:
     """Comparison matrix: parameter columns x run rows + final metric values per run."""
     project = workspace.get_project(project_id)
@@ -133,7 +133,7 @@ def get_experiment_comparison(
 def delete_experiment(
     project_id: str,
     experiment_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> MessageResponse:
     project = workspace.get_project(project_id)
     experiment = project.get_experiment(experiment_id)

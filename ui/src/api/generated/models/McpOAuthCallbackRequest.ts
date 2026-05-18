@@ -12,4 +12,3 @@ export type McpOAuthCallbackRequest = {
     code: string;
     state?: (string | null);
 };
-

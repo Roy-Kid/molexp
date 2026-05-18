@@ -1,7 +1,8 @@
 """Tests for Workflow + WorkflowBuilder."""
 
 from molexp.workflow import Task, TaskContext, WorkflowBuilder
-from molexp.workflow.spec import TaskRegistration, _stable_workflow_id
+from molexp.workflow._graph_decl import TaskRegistration
+from molexp.workflow._helpers import _stable_workflow_id
 
 
 class TestWorkflowDecorators:

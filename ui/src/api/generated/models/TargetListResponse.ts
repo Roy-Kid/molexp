@@ -10,4 +10,3 @@ export type TargetListResponse = {
     targets: Array<TargetResponse>;
     total: number;
 };
-

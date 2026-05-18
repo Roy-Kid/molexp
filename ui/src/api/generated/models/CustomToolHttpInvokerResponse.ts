@@ -24,4 +24,3 @@ export namespace CustomToolHttpInvokerResponse {
         DELETE = 'DELETE',
     }
 }
-

@@ -8,4 +8,3 @@
 export type _SimpleMessage = {
     message: string;
 };
-

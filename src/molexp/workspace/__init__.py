@@ -74,6 +74,17 @@ from .models import (
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
 from .run import Run, RunContext, RunStatus
+from .target import (
+    LocalTarget,
+    RemoteTarget,
+    Session,
+    SessionManager,
+    Target,
+    TargetNotFound,
+    parse_target,
+    resolve_target,
+    target_to_transport,
+)
 from .targets import (
     add_target,
     get_target,
@@ -122,6 +133,8 @@ __all__ = [
     "FolderMetadata",
     "FolderMoveCollisionError",
     "GridSpace",
+    # Target types + session management (unified workspace CLI)
+    "LocalTarget",
     "LogAsset",
     "OutputAsset",
     # Parameters
@@ -132,12 +145,17 @@ __all__ = [
     "ProjectExistsError",
     "ProjectMetadata",
     "ProjectNotFoundError",
+    "RemoteTarget",
     "Run",
     "RunContext",
     "RunExistsError",
     "RunMetadata",
     "RunNotFoundError",
     "RunStatus",
+    "Session",
+    "SessionManager",
+    "Target",
+    "TargetNotFound",
     "UniformSpace",
     # Entities
     "Workspace",
@@ -154,7 +172,10 @@ __all__ = [
     "get_target",
     "has_target",
     "list_targets",
+    "parse_target",
     "remove_target",
+    "resolve_target",
     "target_run_dir",
+    "target_to_transport",
     "to_transport",
 ]

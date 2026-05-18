@@ -281,8 +281,8 @@ class McpSecretsStore:
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(json.dumps({"secrets": secrets}, indent=2, ensure_ascii=False))
         with contextlib.suppress(OSError):
-            os.chmod(tmp, 0o600)
-        os.replace(tmp, self._path)
+            os.chmod(tmp, 0o600)  # noqa: PTH101
+        os.replace(tmp, self._path)  # noqa: PTH105
 
 
 # ── MCP store (the aggregate) ──────────────────────────────────────────────
@@ -647,7 +647,7 @@ def _write_servers(path: Path, servers: dict[str, JSONValue]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps({"mcpServers": servers}, indent=2, ensure_ascii=False))
-    os.replace(tmp, path)
+    os.replace(tmp, path)  # noqa: PTH105
 
 
 def _collect_refs(values: Iterable[JSONValue]) -> tuple[str, ...]:

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, Workflow, Workflow, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, Workflow, WorkflowBuilder
 
 
 def build_preprocess() -> Workflow:

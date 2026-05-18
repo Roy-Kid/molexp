@@ -32,6 +32,7 @@ def test_agent_run_result_is_frozen() -> None:
 
 # ── ac-001, ac-002: AgentMode.resume() contract ───────────────────────────
 
+
 def test_agent_mode_resume_raises_not_implemented_by_default() -> None:
     """ac-001: base class resume() raises NotImplementedError."""
     with pytest.raises(NotImplementedError, match="does not support resume"):
@@ -44,7 +45,9 @@ def test_agent_mode_resume_default_applies_to_subclass_without_override() -> Non
     class NoResume(AgentMode):
         name = "no-resume"
 
-        async def run(self, *, router: Router, session: AgentSession, user_input: str) -> AgentRunResult:
+        async def run(
+            self, *, router: Router, session: AgentSession, user_input: str
+        ) -> AgentRunResult:
             return AgentRunResult(text="ok")
 
     with pytest.raises(NotImplementedError, match="does not support resume"):
@@ -60,11 +63,13 @@ def test_agent_mode_subclass_can_override_resume() -> None:
         def __init__(self, value: str = "") -> None:
             self.value = value
 
-        async def run(self, *, router: Router, session: AgentSession, user_input: str) -> AgentRunResult:
+        async def run(
+            self, *, router: Router, session: AgentSession, user_input: str
+        ) -> AgentRunResult:
             return AgentRunResult(text=self.value)
 
         @classmethod
-        def resume(cls, **kwargs: Any) -> "WithResume":
+        def resume(cls, **kwargs: Any) -> WithResume:
             return cls(value=kwargs.get("value", "resumed"))
 
     instance = WithResume.resume(value="hello")

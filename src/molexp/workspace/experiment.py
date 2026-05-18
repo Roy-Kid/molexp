@@ -21,11 +21,10 @@ build a ``WorkflowSpec`` and pass the workspace ``Run`` to its
 Construction is side-effect free; ``project.add_experiment(...)``
 materializes on disk at call-time (idempotent: if an experiment with
 the same slug already exists, it is loaded and returned).
-"""
+"""  # noqa: RUF002
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -118,6 +117,12 @@ class Experiment(Folder):
         self._name = meta.id
         self._kind = kind
         self._root_path = None
+        self._fs = (
+            getattr(resolved_parent, "_fs", None)
+            or __import__(
+                "molexp.workspace.fs_local", fromlist=["LocalFileSystem"]
+            ).LocalFileSystem()
+        )
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.name,
@@ -133,18 +138,20 @@ class Experiment(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> Path:
+    def _compute_path(self) -> str:
         return self.experiment_dir
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
+    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
         """:class:`Folder.attach` hook — experiments live under ``experiments/<id>/``."""
-        return parent.path() / "experiments" / derived_id
+        return parent._fs.join(parent.path(), "experiments", derived_id)
 
     @classmethod
-    def _from_disk(cls, child_dir: Path, parent: Folder) -> Experiment:
+    def _from_disk(cls, child_dir: str, parent: Folder) -> Experiment:
         """:class:`Folder.attach` hook — load ``experiment.json`` and rebuild entity state."""
-        meta = _load_metadata(ExperimentMetadata, child_dir / "experiment.json")
+        meta = _load_metadata(
+            ExperimentMetadata, parent._fs.join(child_dir, "experiment.json"), fs=parent._fs
+        )
         return _reconstruct(
             cls,
             {
@@ -191,7 +198,7 @@ class Experiment(Folder):
         return self._entity_metadata.name
 
     @property
-    def created_at(self):
+    def created_at(self):  # noqa: ANN201
         return self._entity_metadata.created_at
 
     @property
@@ -228,8 +235,8 @@ class Experiment(Folder):
         return self.project.workspace
 
     @property
-    def experiment_dir(self) -> Path:
-        return self.project.project_dir / "experiments" / self.id
+    def experiment_dir(self) -> str:
+        return self._fs.join(self.project.project_dir, "experiments", self.id)
 
     @property
     def scope(self) -> AssetScope:
@@ -262,13 +269,18 @@ class Experiment(Folder):
 
     def materialize(self) -> None:
         """Create filesystem structure and persist metadata (non-recursive)."""
-        self.experiment_dir.mkdir(parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self.experiment_dir / "experiment.json")
+        d = self.experiment_dir
+        self._fs.mkdir(d, parents=True, exist_ok=True)
+        _save_metadata(self._entity_metadata, self._fs.join(d, "experiment.json"), fs=self._fs)
         self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
-        _save_metadata(self._entity_metadata, self.experiment_dir / "experiment.json")
+        _save_metadata(
+            self._entity_metadata,
+            self._fs.join(self.experiment_dir, "experiment.json"),
+            fs=self._fs,
+        )
         self._catalog_upsert()
 
     def _catalog_upsert(self) -> None:
@@ -285,7 +297,7 @@ class Experiment(Folder):
                 "n_replicas": meta.n_replicas,
                 "workflow_source": meta.workflow_source,
                 "workflow_type": meta.workflow_type,
-                "path": str(self.experiment_dir.relative_to(ws.root)),
+                "path": f"projects/{self.project.id}/experiments/{self.id}",
                 "created_at": meta.created_at.isoformat(),
                 "updated_at": meta.created_at.isoformat(),
             }
@@ -313,7 +325,7 @@ class Experiment(Folder):
         if isinstance(cached, Run):
             return cached
         child_dir = Run._child_dir(self, resolved_id)
-        if child_dir.is_dir():
+        if self._fs.is_dir(child_dir):
             existing = Run._from_disk(child_dir, self)
             self._children_cache[resolved_id] = existing
             return existing
@@ -346,12 +358,15 @@ class Experiment(Folder):
     def list_runs(self) -> list[Run]:
         """List all runs by scanning the ``runs/`` directory."""
         result: list[Run] = []
-        runs_dir = self.experiment_dir / "runs"
-        if not runs_dir.exists():
+        runs_dir = self._fs.join(self.experiment_dir, "runs")
+        if not self._fs.is_dir(runs_dir):
             return result
-        for entry in sorted(runs_dir.iterdir()):
-            if entry.is_dir() and (entry / "run.json").exists():
-                result.append(Run._from_disk(entry, self))
+        for entry_name in sorted(self._fs.listdir(runs_dir)):
+            entry_path = self._fs.join(runs_dir, entry_name)
+            if self._fs.is_dir(entry_path) and self._fs.exists(
+                self._fs.join(entry_path, "run.json")
+            ):
+                result.append(Run._from_disk(entry_path, self))
         return result
 
     def children(self, kind: str | None = None) -> list[Folder]:
@@ -362,7 +377,7 @@ class Experiment(Folder):
 
     def _refresh_runs_index(self) -> None:
         _rebuild_container_index(
-            container_dir=self.experiment_dir / "runs",
+            container_dir=self._fs.join(self.experiment_dir, "runs"),
             index_filename="runs.json",
             metadata_filename="run.json",
             fields=["id", "status", "parameters", "profile", "created_at", "finished_at"],

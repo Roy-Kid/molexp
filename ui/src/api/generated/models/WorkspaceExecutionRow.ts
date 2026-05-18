@@ -16,4 +16,3 @@ export type WorkspaceExecutionRow = {
     backend?: (string | null);
     backendMetadata?: Record<string, string>;
 };
-

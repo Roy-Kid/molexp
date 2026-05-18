@@ -18,10 +18,10 @@ from pathlib import Path
 
 from molexp._typing import TaskOutput
 
+from ..catalog.index import AssetCatalog
 from ..utils import compute_content_hash, generate_asset_id
 from .artifact import ArtifactAsset
 from .base import Asset, AssetScope, Producer
-from ..catalog.index import AssetCatalog
 from .checkpoint import CheckpointAsset
 from .log import LogAsset
 from .manifest import AssetManifest
@@ -42,7 +42,7 @@ class _AccessorBase:
         self._catalog = catalog
         self._producer_provider = producer_provider
 
-    def _register(self, asset) -> None:
+    def _register(self, asset) -> None:  # noqa: ANN001
         self._manifest.register(asset)
         if self._catalog is not None:
             self._catalog.register(asset)
@@ -82,7 +82,7 @@ class ArtifactAccessor(_AccessorBase):
 
             shutil.copy2(data, target)
         elif isinstance(data, (dict, list)):
-            with open(target, "w") as f:
+            with open(target, "w") as f:  # noqa: PTH123
                 json.dump(data, f, indent=2, default=str)
         else:
             target.write_text(str(data))
@@ -242,7 +242,7 @@ class CheckpointAccessor(_AccessorBase):
             "data": data or {},
             "timestamp": datetime.now().isoformat(),
         }
-        with open(target, "w") as f:
+        with open(target, "w") as f:  # noqa: PTH123
             json.dump(payload, f, indent=2, default=str)
 
         now = datetime.now()

@@ -8,4 +8,3 @@ export type AgentToolListResponse = {
     tools?: Array<AgentToolResponse>;
     mcpGroups?: Array<McpToolGroupResponse>;
 };
-

@@ -71,7 +71,7 @@ def get_settings() -> Settings:
 _workspace_cache: dict[str, Workspace] = {}
 
 
-def get_workspace():
+def get_workspace():  # noqa: ANN201
     """FastAPI dependency to get a cached Workspace instance.
 
     The workspace is cached by resolved path so that repeated requests

@@ -160,8 +160,8 @@ class FileTokenStorage(TokenStorage):
         tmp = self._path.with_suffix(".tmp")
         tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
         with contextlib.suppress(OSError):
-            os.chmod(tmp, 0o600)
-        os.replace(tmp, self._path)
+            os.chmod(tmp, 0o600)  # noqa: PTH101
+        os.replace(tmp, self._path)  # noqa: PTH105
 
 
 # ── Flow session — bridges SDK callbacks to FastAPI request/response ──────

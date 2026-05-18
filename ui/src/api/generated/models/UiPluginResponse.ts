@@ -15,4 +15,3 @@ export type UiPluginResponse = {
     manifestUrl: string;
     entryUrl: string;
 };
-

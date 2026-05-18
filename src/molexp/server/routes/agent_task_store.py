@@ -94,7 +94,7 @@ def write_agent_task_metadata(
     path = target_dir / METADATA_FILE
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    os.replace(tmp, path)
+    os.replace(tmp, path)  # noqa: PTH105
 
 
 def _now_iso() -> str:

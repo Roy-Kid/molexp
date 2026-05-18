@@ -5,12 +5,12 @@ and workspace-level catalog.  See
 ``docs/development/specs/unified-asset-model.md`` for the design.
 """
 
+from ..catalog.index import AssetCatalog
 from . import lineage
 from ._adapter import ASSET_ADAPTER, AnyAsset, parse_asset
 from .accessors import ArtifactAccessor, CheckpointAccessor, LogAccessor
 from .artifact import ArtifactAsset
 from .base import Asset, AssetScope, Producer
-from ..catalog.index import AssetCatalog
 from .checkpoint import CheckpointAsset
 from .data import DataAsset, DataAssetLibrary, ImportAction
 from .error import ErrorTraceAsset

@@ -26,4 +26,3 @@ export namespace CustomToolHttpInvokerRequest {
         DELETE = 'DELETE',
     }
 }
-

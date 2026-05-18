@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, Workflow, WorkflowBuilder
+from molexp.workflow import TaskContext, WorkflowBuilder
 
 
 # ── 1. Diamond fan-out ─────────────────────────────────────────────────────

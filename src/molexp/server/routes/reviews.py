@@ -24,7 +24,7 @@ from .review_store import (
 router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 
-def _workspace_root(workspace) -> str:
+def _workspace_root(workspace) -> str:  # noqa: ANN001
     root = getattr(workspace, "root", None)
     if root is None:
         raise HTTPException(status_code=500, detail="Workspace has no root path")
@@ -52,7 +52,7 @@ def _to_response(item: PersistedReviewItem) -> ReviewItemResponse:
     )
 
 
-def _get_review_or_404(workspace, review_id: str) -> PersistedReviewItem:
+def _get_review_or_404(workspace, review_id: str) -> PersistedReviewItem:  # noqa: ANN001
     item = read_review_metadata(_workspace_root(workspace), review_id)
     if item is None:
         raise HTTPException(status_code=404, detail=f"Review {review_id} not found")
@@ -63,7 +63,7 @@ def _get_review_or_404(workspace, review_id: str) -> PersistedReviewItem:
 def list_reviews(
     status: str | None = Query(default=None),
     kind: str | None = Query(default=None),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> ReviewListResponse:
     """List persisted review items."""
     rows = list_review_metadata(_workspace_root(workspace))
@@ -77,7 +77,7 @@ def list_reviews(
 @router.get("/{review_id}", response_model=ReviewItemResponse)
 def get_review(
     review_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> ReviewItemResponse:
     """Get one persisted review item."""
     return _to_response(_get_review_or_404(workspace, review_id))
@@ -87,7 +87,7 @@ def get_review(
 async def approve_review(
     review_id: str,
     request: ReviewDecisionRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> MessageResponse:
     """Approve a review item and apply its target decision."""
     item = _get_review_or_404(workspace, review_id)
@@ -115,7 +115,7 @@ async def approve_review(
 async def reject_review(
     review_id: str,
     request: ReviewDecisionRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> MessageResponse:
     """Reject a review item and notify its target when possible."""
     item = _get_review_or_404(workspace, review_id)

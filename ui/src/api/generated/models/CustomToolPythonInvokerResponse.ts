@@ -9,4 +9,3 @@ export type CustomToolPythonInvokerResponse = {
     kind?: string;
     target: string;
 };
-

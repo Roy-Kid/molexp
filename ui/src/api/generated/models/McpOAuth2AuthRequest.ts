@@ -18,4 +18,3 @@ export type McpOAuth2AuthRequest = {
      */
     clientId?: (string | null);
 };
-

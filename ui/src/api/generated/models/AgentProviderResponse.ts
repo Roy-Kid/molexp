@@ -17,4 +17,3 @@ export type AgentProviderResponse = {
     instructions?: string;
     supportedProviders?: Array<string>;
 };
-

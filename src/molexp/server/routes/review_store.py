@@ -120,7 +120,7 @@ def write_review_metadata(
     path = target_dir / METADATA_FILE
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
-    os.replace(tmp, path)
+    os.replace(tmp, path)  # noqa: PTH105
 
 
 def plan_review_id(task_id: str, request_id: str) -> str:

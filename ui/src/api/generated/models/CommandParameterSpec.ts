@@ -9,4 +9,3 @@ export type CommandParameterSpec = {
     name: string;
     required?: boolean;
 };
-

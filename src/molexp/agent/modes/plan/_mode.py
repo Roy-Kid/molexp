@@ -407,9 +407,7 @@ class PlanMode(AgentMode):
             # not appear in seed_outputs.
             registered = {t.name for t in initial_spec._tasks}
             raw_seeds = self._resume_seed_outputs or {}
-            initial_seed_outputs = {
-                k: v for k, v in raw_seeds.items() if k in registered
-            }
+            initial_seed_outputs = {k: v for k, v in raw_seeds.items() if k in registered}
             _LOG.info(
                 f"[plan] resume from={self._resume_from} "
                 f"completed={list(initial_seed_outputs.keys())} "

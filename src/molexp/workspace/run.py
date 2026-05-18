@@ -52,9 +52,9 @@ class _WorkflowLike(Protocol):
 if TYPE_CHECKING:
     from .experiment import Experiment
 
-from molexp.config import ProfileConfig
+from molexp.config import ProfileConfig  # noqa: E402
 
-from .assets import (
+from .assets import (  # noqa: E402
     ArtifactAccessor,
     AssetCatalog,
     AssetManifest,
@@ -65,25 +65,25 @@ from .assets import (
     LogAccessor,
     Producer,
 )
-from .assets.manifest import MANIFEST_FILENAME  # noqa: F401 (imported for side effects in tests)
-from .base import (
+from .assets.manifest import MANIFEST_FILENAME  # noqa: E402, F401
+from .base import (  # noqa: E402
     _load_metadata,
     _rebuild_container_index,
     _reconstruct,
     _save_metadata,
 )
-from .context import Context
-from .errors import RunExistsError, RunNotFoundError
-from .folder import WORKSPACE_RUN_KIND, Folder
-from .metrics import MetricsWriter
-from .models import (
+from .context import Context  # noqa: E402
+from .errors import RunExistsError, RunNotFoundError  # noqa: E402
+from .folder import WORKSPACE_RUN_KIND, Folder  # noqa: E402
+from .metrics import MetricsWriter  # noqa: E402
+from .models import (  # noqa: E402
     ErrorInfo,
     ExecutionMetadata,
     ExecutionRecord,
     FolderMetadata,
     RunMetadata,
 )
-from .utils import generate_asset_id, generate_id
+from .utils import generate_asset_id, generate_id  # noqa: E402
 
 logger = get_logger(__name__)
 
@@ -286,7 +286,7 @@ class RunContext:
         self._save_context()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, exc_val, exc_tb):  # noqa: ANN001, ANN204
         now = datetime.now()
         labels = self._labels_without_ownership()
         error_info: ErrorInfo | None = None
@@ -350,7 +350,7 @@ class RunContext:
     async def __aenter__(self) -> RunContext:
         return self.__enter__()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
         return self.__exit__(exc_type, exc_val, exc_tb)
 
     # ── Public API ──────────────────────────────────────────────────────
@@ -478,7 +478,7 @@ class RunContext:
 
     # ── Asset access ────────────────────────────────────────────────────
 
-    def register_asset(
+    def register_asset(  # noqa: ANN201
         self,
         name: str,
         src: Path | str,
@@ -490,7 +490,7 @@ class RunContext:
             name=name, src=src, action=action, meta=meta or {}
         )
 
-    def get_asset(self, name: str, scope: str = "project"):
+    def get_asset(self, name: str, scope: str = "project"):  # noqa: ANN201
         if scope == "experiment":
             return self.run.experiment.data_assets.get(name)
         if scope == "project":
@@ -499,7 +499,7 @@ class RunContext:
             return self.run.experiment.project.workspace.data_assets.get(name)
         raise ValueError(f"Unknown scope: {scope!r}")
 
-    def find_asset(self, name: str):
+    def find_asset(self, name: str):  # noqa: ANN201
         for scope in ("experiment", "project", "workspace"):
             asset = self.get_asset(name, scope=scope)
             if asset is not None:
@@ -713,7 +713,7 @@ class RunContext:
             labels.pop(key, None)
         return labels
 
-    def _save_error_details(self, exc_type, exc_val, exc_tb) -> None:
+    def _save_error_details(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
         """Persist an ``ErrorTraceAsset`` for the current execution."""
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
         exec_id = self._execution_id or "unbound"
@@ -799,6 +799,9 @@ class Run(Folder):
         self._name = meta.id
         self._kind = kind
         self._root_path = None
+        from molexp.workspace.fs_local import LocalFileSystem
+
+        self._fs = getattr(resolved_parent, "_fs", None) or LocalFileSystem()
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.id,  # Run has no separate display name
@@ -813,22 +816,18 @@ class Run(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> Path:
+    def _compute_path(self) -> str:
         return self.run_dir
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
-        """:class:`Folder.attach` hook — runs live under ``runs/run-<id>/``.
-
-        The ``run-`` prefix is preserved from the pre-refactor layout
-        to keep legacy workspaces loadable without migration.
-        """
-        return parent.path() / "runs" / f"run-{derived_id}"
+    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
+        """:class:`Folder.attach` hook — runs live under ``runs/run-<id>/``."""
+        return parent._fs.join(parent.path(), "runs", f"run-{derived_id}")
 
     @classmethod
-    def _from_disk(cls, child_dir: Path, parent: Folder) -> Run:
+    def _from_disk(cls, child_dir: str, parent: Folder) -> Run:
         """:class:`Folder.attach` hook — load ``run.json`` and rebuild entity state."""
-        meta = _load_metadata(RunMetadata, child_dir / "run.json")
+        meta = _load_metadata(RunMetadata, parent._fs.join(child_dir, "run.json"), fs=parent._fs)
         return _reconstruct(
             cls,
             {
@@ -848,7 +847,7 @@ class Run(Folder):
             },
         )
 
-    def children(self, kind: str | None = None) -> list[Folder]:
+    def children(self, kind: str | None = None) -> list[Folder]:  # noqa: ARG002
         """Run has no entity children — executions live under ``executions/``
         but are not Folder-tracked (sub-spec 03 may revisit)."""
         return []
@@ -906,11 +905,11 @@ class Run(Folder):
         return self.metadata.status
 
     @property
-    def run_dir(self) -> Path:
-        return self.experiment.experiment_dir / "runs" / f"run-{self.id}"
+    def run_dir(self) -> str:
+        return self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}")
 
     @property
-    def scope(self):
+    def scope(self):  # noqa: ANN201
         from .assets import AssetScope
 
         return AssetScope(
@@ -919,7 +918,7 @@ class Run(Folder):
         )
 
     @property
-    def assets(self):
+    def assets(self):  # noqa: ANN201
         """Scope-filtered catalog view (read-only queries) for this run."""
         from .assets import AssetsView
 
@@ -945,12 +944,13 @@ class Run(Folder):
     # ── Persistence ─────────────────────────────────────────────────────
 
     def materialize(self) -> None:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        _save_metadata(self.metadata, self.run_dir / "run.json")
+        d = self.run_dir
+        self._fs.mkdir(d, parents=True, exist_ok=True)
+        _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
         self._catalog_upsert()
 
     def save(self) -> None:
-        _save_metadata(self.metadata, self.run_dir / "run.json")
+        _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
         self._catalog_upsert()
 
     def _catalog_upsert(self) -> None:
@@ -963,7 +963,7 @@ class Run(Folder):
             "profile": self.metadata.profile,
             "config_hash": self.metadata.config_hash,
             "labels": dict(self.metadata.labels),
-            "path": str(self.run_dir.relative_to(ws.root)),
+            "path": f"runs/run-{self.id}",
             "created_at": self.metadata.created_at.isoformat(),
             "finished_at": (
                 self.metadata.finished_at.isoformat() if self.metadata.finished_at else None
@@ -1023,7 +1023,7 @@ class Run(Folder):
         self._sugar_ctx = self.start()
         return self._sugar_ctx.__enter__()
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
         ctx = self._sugar_ctx
         del self._sugar_ctx
         return ctx.__exit__(exc_type, exc_val, exc_tb)
@@ -1032,7 +1032,7 @@ class Run(Folder):
         self._sugar_ctx = self.start()
         return await self._sugar_ctx.__aenter__()
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
         ctx = self._sugar_ctx
         del self._sugar_ctx
         return await ctx.__aexit__(exc_type, exc_val, exc_tb)

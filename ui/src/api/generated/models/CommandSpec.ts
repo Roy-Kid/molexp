@@ -15,4 +15,3 @@ export type CommandSpec = {
     isBuiltin?: boolean;
     skillId?: (string | null);
 };
-

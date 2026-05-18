@@ -17,4 +17,3 @@ export type ExecutionCreateRequest = {
      */
     workflow_json?: (Record<string, any> | null);
 };
-

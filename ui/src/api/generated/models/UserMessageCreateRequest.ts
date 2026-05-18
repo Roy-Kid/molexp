@@ -15,4 +15,3 @@ export type UserMessageCreateRequest = {
      */
     request_id?: (string | null);
 };
-

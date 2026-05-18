@@ -19,9 +19,9 @@ from pydantic import BaseModel
 
 from molexp.agent.mode import AgentRunResult
 from molexp.agent.modes.plan import (
+    PlanFolder,
     PlanMode,
     PlanRunHandoff,
-    PlanFolder,
 )
 from molexp.agent.modes.plan.schemas import TaskImplementationModule
 from molexp.agent.session import AgentSession

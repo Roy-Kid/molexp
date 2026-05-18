@@ -24,14 +24,14 @@ from ._scope import resolve_scope_dir
 router = APIRouter(prefix="/assets", tags=["assets"])
 
 
-def _require_asset(workspace, asset_id: str):
+def _require_asset(workspace, asset_id: str):  # noqa: ANN001, ANN202
     asset = workspace.catalog.get(asset_id)
     if asset is None:
         raise AssetNotFoundError(asset_id)
     return asset
 
 
-def _resolve_scope_dir(workspace, scope: AssetScope) -> Path:
+def _resolve_scope_dir(workspace, scope: AssetScope) -> Path:  # noqa: ANN001
     path = resolve_scope_dir(workspace, scope)
     if path is None:
         raise HTTPException(400, f"Could not resolve scope: {scope!r}")
@@ -48,7 +48,7 @@ def list_assets(
     run_id: str | None = None,
     task_id: str | None = None,
     limit: int = 100,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> list[AssetResponse]:
     """Query assets from the workspace catalog with optional filters."""
     scope = None
@@ -68,13 +68,13 @@ def list_assets(
 
 
 @router.get("/{asset_id}", response_model=AssetResponse)
-def get_asset(asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:
+def get_asset(asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:  # noqa: ANN001
     asset = _require_asset(workspace, asset_id)
     return AssetResponse.from_model(asset)
 
 
 @router.get("/{asset_id}/lineage", response_model=AssetLineageResponse)
-def get_asset_lineage(asset_id: str, workspace=Depends(get_workspace)) -> AssetLineageResponse:
+def get_asset_lineage(asset_id: str, workspace=Depends(get_workspace)) -> AssetLineageResponse:  # noqa: ANN001
     """Return the asset's transitive ancestors and descendants.
 
     Walks the ``Producer.inputs`` DAG built by run-time tasks that
@@ -102,7 +102,7 @@ def get_asset_lineage(asset_id: str, workspace=Depends(get_workspace)) -> AssetL
 
 
 @router.get("/{asset_id}/content")
-def asset_content(asset_id: str, workspace=Depends(get_workspace)):
+def asset_content(asset_id: str, workspace=Depends(get_workspace)):  # noqa: ANN001, ANN201
     """Download the asset's file content."""
     asset = _require_asset(workspace, asset_id)
     scope_dir = _resolve_scope_dir(workspace, asset.scope)
@@ -119,14 +119,14 @@ def asset_content(asset_id: str, workspace=Depends(get_workspace)):
         raise AssetNotFoundError(asset_id)
 
     return StreamingResponse(
-        open(path, "rb"),
+        open(path, "rb"),  # noqa: PTH123
         media_type="application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{path.name}"'},
     )
 
 
 @router.get("/{asset_id}/tail", response_class=PlainTextResponse)
-def asset_tail(asset_id: str, n: int = 100, workspace=Depends(get_workspace)) -> str:
+def asset_tail(asset_id: str, n: int = 100, workspace=Depends(get_workspace)) -> str:  # noqa: ANN001
     """Return the last N lines (``LogAsset`` only)."""
     asset = _require_asset(workspace, asset_id)
     if not isinstance(asset, LogAsset):
@@ -141,7 +141,7 @@ def asset_tail(asset_id: str, n: int = 100, workspace=Depends(get_workspace)) ->
 @router.post("/data/import", response_model=AssetResponse, status_code=201)
 async def import_data_asset(
     file: UploadFile = File(...),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> AssetResponse:
     """Upload a file and register it as a workspace-scoped ``DataAsset``."""
     with tempfile.NamedTemporaryFile(delete=False) as tmp:

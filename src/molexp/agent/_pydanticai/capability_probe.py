@@ -30,7 +30,10 @@ This module is the second permitted ``import pydantic_ai`` site under
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+from collections.abc import Iterator
 from contextlib import AsyncExitStack
 from typing import cast
 
@@ -39,10 +42,6 @@ from mcp import types as mcp_types
 from mollog import get_logger
 from pydantic_ai import Agent, models
 from pydantic_ai.mcp import MCPServerStdio
-
-import contextlib
-import os
-from collections.abc import Iterator
 
 from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
@@ -478,8 +477,7 @@ async def _enrich_batch(
     tracked = set(getattr(batch, "tracked_namespaces", ()))
     # Filter to plausible Python modules (contain a dot or are known packages)
     candidate_modules = {
-        ns for ns in tracked | evidence_modules
-        if "." in ns and not ns.startswith("hint:")
+        ns for ns in tracked | evidence_modules if "." in ns and not ns.startswith("hint:")
     }
 
     if not candidate_modules:
@@ -516,12 +514,8 @@ async def _enrich_batch(
                 continue
 
             try:
-                sig_raw = await server.direct_call_tool(
-                    "get_signature", {"symbol": api_ref}
-                )
-                doc_raw = await server.direct_call_tool(
-                    "get_docstring", {"symbol": api_ref}
-                )
+                sig_raw = await server.direct_call_tool("get_signature", {"symbol": api_ref})
+                doc_raw = await server.direct_call_tool("get_docstring", {"symbol": api_ref})
             except Exception:
                 continue
 
@@ -556,9 +550,7 @@ async def _enrich_batch(
         f"[capability-probe] {log_tag}: {len(new_evidence)} new companion(s) across "
         f"{len(candidate_modules)} module(s)"
     )
-    return batch.model_copy(
-        update={"evidence": (*batch.evidence, *new_evidence)}
-    )
+    return batch.model_copy(update={"evidence": (*batch.evidence, *new_evidence)})
 
 
 def _extract_text(content: object) -> str | None:

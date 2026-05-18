@@ -13,4 +13,3 @@ export type AgentSystemPromptResponse = {
     planMode?: boolean;
     effective: string;
 };
-

@@ -64,7 +64,7 @@ def _discover_ui_uncached() -> dict[str, Path]:
     return discovered
 
 
-def _safe_resolve(ep) -> Path | None:
+def _safe_resolve(ep) -> Path | None:  # noqa: ANN001
     """Resolve a single entry point to a directory, ``None`` on error."""
     name = getattr(ep, "name", "<unknown>")
     try:

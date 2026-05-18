@@ -12,7 +12,6 @@ children from disk or create + materialize new ones.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
@@ -29,6 +28,8 @@ from .folder import (
     WORKSPACE_ROOT_KIND,
     Folder,
 )
+from .fs import FileSystem
+from .fs_local import LocalFileSystem
 from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
@@ -71,17 +72,24 @@ class Workspace(Folder):
     _exists_error_cls = ProjectExistsError
     _not_found_error_cls = ProjectNotFoundError
 
-    def __init__(self, root: Path | str, name: str | None = None) -> None:
-        # CLI --workspace wins over script-hardcoded roots.
-        resolved_root = (
-            _cli_root_override if _cli_root_override is not None else Path(root).resolve()
-        )
+    def __init__(
+        self, root: Path | str, name: str | None = None, *, fs: FileSystem | None = None
+    ) -> None:
+        self._fs = fs or LocalFileSystem()
 
-        metadata_file = resolved_root / "workspace.json"
-        if metadata_file.exists():
-            entity_meta = _load_metadata(WorkspaceMetadata, metadata_file)
+        # CLI --workspace wins over script-hardcoded roots (local only).
+        if _cli_root_override is not None and isinstance(self._fs, LocalFileSystem):
+            resolved_raw = str(_cli_root_override)
+        elif isinstance(self._fs, LocalFileSystem):
+            resolved_raw = self._fs.resolve(str(root))
         else:
-            display_name = name if name is not None else resolved_root.name
+            resolved_raw = str(root)  # Remote: use path as-is (tilde handled by remote shell)
+
+        metadata_path = self._fs.join(resolved_raw, "workspace.json")
+        if self._fs.exists(metadata_path):
+            entity_meta = _load_metadata(WorkspaceMetadata, metadata_path, fs=self._fs)
+        else:
+            display_name = name if name is not None else self._fs.basename(resolved_raw)
             entity_meta = WorkspaceMetadata(id=slugify(display_name), name=display_name)
 
         # Workspace bypasses ``Folder.__init__`` because the human-readable
@@ -91,7 +99,7 @@ class Workspace(Folder):
         self._parent = None
         self._name = entity_meta.id
         self._kind = WORKSPACE_ROOT_KIND
-        self._root_path = resolved_root
+        self._root_path = resolved_raw  # str (local) or remote path
         self._metadata = FolderMetadata(
             id=entity_meta.id,
             name=entity_meta.name,
@@ -102,7 +110,7 @@ class Workspace(Folder):
         self._children_cache = {}
 
         # Entity-specific state
-        self.root = resolved_root
+        self.root = Path(resolved_raw) if isinstance(self._fs, LocalFileSystem) else resolved_raw
         self._entity_metadata: WorkspaceMetadata = entity_meta
         self._data_assets: DataAssetLibrary | None = None
         self._catalog: AssetCatalog | None = None
@@ -111,12 +119,13 @@ class Workspace(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> Path:
+    def _compute_path(self) -> str:
         """Workspace IS its own on-disk dir; no parent nesting."""
-        return self.root
+        return self._root_path if isinstance(self._root_path, str) else str(self._root_path)
 
     def _ensure_materialized(self) -> None:
-        if not (self.root / "workspace.json").exists():
+        meta_path = self._fs.join(self._compute_path(), "workspace.json")
+        if not self._fs.exists(meta_path):
             self.materialize()
 
     # ── Properties (entity-specific) ─────────────────────────────────────
@@ -143,7 +152,7 @@ class Workspace(Folder):
         return self._entity_metadata.name
 
     @property
-    def created_at(self):
+    def created_at(self):  # noqa: ANN201
         return self._entity_metadata.created_at
 
     @property
@@ -194,13 +203,16 @@ class Workspace(Folder):
 
     def materialize(self) -> None:
         """Create filesystem structure and persist metadata (non-recursive)."""
-        self.root.mkdir(parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self.root / "workspace.json")
+        root_str = self._compute_path()
+        self._fs.mkdir(root_str, parents=True, exist_ok=True)
+        meta_path = self._fs.join(root_str, "workspace.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
-        _save_metadata(self._entity_metadata, self.root / "workspace.json")
+        meta_path = self._fs.join(self._compute_path(), "workspace.json")
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self._catalog_upsert()
 
     def _catalog_upsert(self) -> None:
@@ -208,52 +220,48 @@ class Workspace(Folder):
         self.catalog.upsert_workspace(
             {
                 "workspace_id": meta.id,
-                "root_path": str(self.root),
+                "root_path": self._compute_path(),
                 "name": meta.name,
                 "created_at": meta.created_at.isoformat(),
                 "updated_at": meta.created_at.isoformat(),
             }
         )
 
-    # ── Alternative constructors (kept for callers that still use them) ──
+    # ── Alternative constructors ─────────────────────────────────────────
 
     @classmethod
-    def load(cls, root: Path | str) -> Workspace:
+    def load(cls, root: Path | str, *, fs: FileSystem | None = None) -> Workspace:
         """Load an existing workspace from disk (raises if missing)."""
-        root = Path(root).resolve()
-        metadata_file = root / "workspace.json"
-        if not metadata_file.exists():
-            raise FileNotFoundError(f"Workspace metadata not found at {metadata_file}")
-        # Constructor handles load-or-create idempotently.
-        return cls(root)
+        _fs = fs or LocalFileSystem()
+        if isinstance(_fs, LocalFileSystem):
+            root_path = Path(root).resolve()
+            metadata_file = root_path / "workspace.json"
+            if not metadata_file.exists():
+                raise FileNotFoundError(f"Workspace metadata not found at {metadata_file}")
+            return cls(root, fs=fs)
+        # RemoteFileSystem path
+        root_str = str(root)
+        metadata_path = _fs.join(root_str, "workspace.json")
+        if not _fs.exists(metadata_path):
+            raise FileNotFoundError(f"Workspace metadata not found at {metadata_path}")
+        return cls(root, fs=fs)
 
     # ── Project CRUD: typed semantic sugar over generic Folder CRUD ────────
 
     def add_project(self, name: str) -> Project:
-        """Mount a project under this workspace (idempotent on slug).
-
-        One-line wrapper over generic ``add_folder``:
-        ``ws.add_folder(Project(parent=ws, name=name))``.
-
-        Returns the existing project on slug collision (in-memory cache
-        or on-disk dir); fresh-creates + materializes otherwise.
-        """
+        """Mount a project under this workspace (idempotent on slug)."""
         self._ensure_materialized()
-        # Project's __init__ currently requires parent; pass self so the
-        # entity can compute its on-disk path without going through the
-        # unmounted state. add_folder then validates parent is self and
-        # skips the wire-up step.
         slug = slugify(name)
         cached = self._children_cache.get(slug)
         if isinstance(cached, Project):
             return cached
         child_dir = Project._child_dir(self, slug)
-        if child_dir.is_dir():
+        if self._fs.is_dir(child_dir):
             existing = Project._from_disk(child_dir, self)
             self._children_cache[slug] = existing
             self._projects_cache[existing.id] = existing
             return existing
-        proj = Project(parent=self, name=name)
+        proj = Project(parent=self, name=name, fs=self._fs)
         proj.materialize()
         self._children_cache[slug] = proj
         self._projects_cache[proj.id] = proj
@@ -293,8 +301,9 @@ class Workspace(Folder):
         return list(self.list_projects())
 
     def _refresh_projects_index(self) -> None:
+        root_str = self._compute_path()
         _rebuild_container_index(
-            container_dir=self.root / "projects",
+            container_dir=self._fs.join(root_str, "projects"),
             index_filename="projects.json",
             metadata_filename="project.json",
             fields=["id", "name", "description", "created_at"],

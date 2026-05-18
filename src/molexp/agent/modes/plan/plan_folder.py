@@ -656,7 +656,7 @@ class PlanFolder(Folder):
 
     # ── Run hand-off (workspace ``Run`` semantic sugar) ──────────────────
 
-    def add_run(self, name: str, **kwargs: Any) -> Run:
+    def add_run(self, name: str, **kwargs: Any) -> Run:  # noqa: ANN401
         """Mount a workspace :class:`Run` under this plan for RunMode hand-off.
 
         Plans hand off to RunMode by allocating an idempotent run-slug

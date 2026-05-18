@@ -24,8 +24,9 @@ import inspect
 from collections.abc import Callable
 from pathlib import Path
 
+from .builder import WorkflowBuilder
 from .context import TaskContext
-from .spec import Workflow, WorkflowBuilder
+from .spec import Workflow
 from .task import Task
 
 

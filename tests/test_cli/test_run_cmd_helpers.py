@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-
 from molexp.cli.run_cmd import _watch_path_for
 
 

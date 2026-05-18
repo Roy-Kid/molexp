@@ -49,7 +49,6 @@ from molexp.agent.modes.plan.capability import (
     validate_codegen_evidence,
 )
 from molexp.agent.modes.plan.context import (
-    PLAN_PIPELINE_ORDER,
     format_node_label,
     format_progress_done,
     format_progress_start,
@@ -65,7 +64,6 @@ from molexp.agent.modes.plan.plan_folder import (
     PlanFolder,
     PlanManifest,
     ValidationReport,
-    strip_manifest_extensions,
 )
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -560,8 +558,12 @@ class CompileWorkflowIR(PlanLLMTask):
 
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> WorkflowIRResult:
         node = type(self).__name__
-        plan_result = _expect_input(ctx.inputs, "DraftImplementationPlan", PlanBriefResult, caller=node)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
+        plan_result = _expect_input(
+            ctx.inputs, "DraftImplementationPlan", PlanBriefResult, caller=node
+        )
+        evidence_batch = _expect_input(
+            ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node
+        )
         _LOG.debug(
             f"{_tag('CompileWorkflowIR')} start plan_path={plan_result.plan_path} "
             f"evidence={len(evidence_batch.evidence)} skipped={evidence_batch.discovery_skipped}"
@@ -606,7 +608,9 @@ class CompileTaskIR(PlanLLMTask):
     async def _execute(self, ctx: TaskContext[None, PlanDeps, dict[str, Any]]) -> TaskIRResult:
         node = type(self).__name__
         ir_result = _expect_input(ctx.inputs, "CompileWorkflowIR", WorkflowIRResult, caller=node)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
+        evidence_batch = _expect_input(
+            ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node
+        )
         tasks_ir_dir = ctx.deps.plan_folder.tasks_ir_dir()
         task_ios = ir_result.contract.task_io
         n_tasks = len(task_ios)
@@ -747,7 +751,9 @@ class GenerateTaskTests(PlanLLMTask):
         node = type(self).__name__
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult, caller=node)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult, caller=node)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
+        evidence_batch = _expect_input(
+            ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node
+        )
 
         handle = ctx.deps.plan_folder
         repair_targets = ctx.deps.repair_target_tasks
@@ -822,7 +828,9 @@ class GenerateTaskImplementations(PlanLLMTask):
         node = type(self).__name__
         ir_result = _expect_input(ctx.inputs, "CompileTaskIR", TaskIRResult, caller=node)
         _expect_input(ctx.inputs, "GenerateWorkflowSkeleton", SkeletonResult, caller=node)
-        evidence_batch = _expect_input(ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node)
+        evidence_batch = _expect_input(
+            ctx.inputs, "DiscoverCapabilities", CapabilityEvidenceBatch, caller=node
+        )
 
         handle = ctx.deps.plan_folder
         repair_targets = ctx.deps.repair_target_tasks
@@ -885,7 +893,9 @@ class ValidateWorkspace(PlanTask):
         # validated through the on-disk artifacts; pull them only to
         # ensure the upstream order ran.
         _expect_input(ctx.inputs, "GenerateTaskTests", TaskTestsResult, caller=node)
-        _expect_input(ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult, caller=node)
+        _expect_input(
+            ctx.inputs, "GenerateTaskImplementations", TaskImplementationsResult, caller=node
+        )
         _LOG.debug(f"{_tag('ValidateWorkspace')} start")
 
         handle = ctx.deps.plan_folder

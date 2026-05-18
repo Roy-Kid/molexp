@@ -217,9 +217,7 @@ class AgentRunner:
             if ws.has_folder(agent_name, cls=AgentFolder):
                 self._agent_folder = ws.get_folder(agent_name, cls=AgentFolder)
             else:
-                self._agent_folder = cast(
-                    AgentFolder, ws.add_folder(AgentFolder(name=agent_name))
-                )
+                self._agent_folder = cast(AgentFolder, ws.add_folder(AgentFolder(name=agent_name)))
         except OSError as exc:
             _LOG.warning(
                 f"[runner] could not open Agent folder for {self.workspace!r}: "

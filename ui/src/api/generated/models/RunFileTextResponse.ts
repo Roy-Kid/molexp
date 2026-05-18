@@ -10,4 +10,3 @@ export type RunFileTextResponse = {
     content: string;
     size: number;
 };
-

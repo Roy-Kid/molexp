@@ -181,7 +181,7 @@ class ServerManager:
 
         if follow:
             # Follow mode - tail -f style
-            with open(log_file) as f:
+            with open(log_file) as f:  # noqa: PTH123
                 # Seek to end minus N lines
                 f.seek(0, 2)  # Go to end
                 file_size = f.tell()
@@ -216,7 +216,7 @@ class ServerManager:
                         time.sleep(0.1)
         else:
             # Just read last N lines
-            with open(log_file) as f:
+            with open(log_file) as f:  # noqa: PTH123
                 all_lines = f.readlines()
                 for line in all_lines[-lines:]:
                     yield line.rstrip()
@@ -254,7 +254,7 @@ class ServerManager:
 
         if background:
             # Run in background
-            with open(self.server_log, "a") as log:
+            with open(self.server_log, "a") as log:  # noqa: PTH123
                 # Only detach from parent if kill_on_exit is False
                 # When kill_on_exit is True, keep it in the same process group
                 process = subprocess.Popen(
@@ -286,7 +286,7 @@ class ServerManager:
         cmd = ["npm", "run", "dev"]
 
         if background:
-            with open(self.ui_log, "a") as log:
+            with open(self.ui_log, "a") as log:  # noqa: PTH123
                 # Only detach from parent if kill_on_exit is False
                 # When kill_on_exit is True, keep it in the same process group
                 process = subprocess.Popen(
@@ -438,7 +438,7 @@ class ServerManager:
         atexit.register(self._cleanup_background_processes)
 
         # Also handle signals for graceful shutdown
-        def signal_handler(signum, frame) -> None:
+        def signal_handler(signum, frame) -> None:  # noqa: ANN001, ARG001
             self._cleanup_background_processes()
             sys.exit(0)
 

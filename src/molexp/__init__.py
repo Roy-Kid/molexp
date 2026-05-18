@@ -34,7 +34,7 @@ __all__ = [
 
 
 # Lazy imports — heavy sub-packages are only loaded on first access.
-def __getattr__(name: str):
+def __getattr__(name: str):  # noqa: ANN202
     if name == "workspace":
         from molexp import workspace as _ws
 

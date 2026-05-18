@@ -79,9 +79,7 @@ def repair_handle(tmp_path: Path) -> PlanFolder:
     return Workspace(tmp_path / "ws").add_folder(PlanFolder(name="rep_loop"))
 
 
-def _build_deps(
-    handle: PlanFolder, *, final_policy: ReviewPolicy | None = None
-) -> PlanDeps:
+def _build_deps(handle: PlanFolder, *, final_policy: ReviewPolicy | None = None) -> PlanDeps:
     from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
 
     resolved = final_policy if final_policy is not None else BypassPolicy()

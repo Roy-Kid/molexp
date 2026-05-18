@@ -12,4 +12,3 @@ export type ApprovalRespondRequest = {
      */
     approved: boolean;
 };
-

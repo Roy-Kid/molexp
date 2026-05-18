@@ -70,7 +70,7 @@ class AgentMode(ABC):
     ) -> AgentRunResult: ...
 
     @classmethod
-    def resume(cls, **kwargs: Any) -> AgentMode:
+    def resume(cls, **kwargs: Any) -> AgentMode:  # noqa: ANN401
         """Reconstruct this mode from persisted state.
 
         Subclasses override this to read their own on-disk format.

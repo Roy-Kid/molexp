@@ -37,156 +37,48 @@ Bind a built :class:`Workflow` to an experiment via
 ``wf.bind_to(experiment)`` so that downstream code (CLI / server /
 cluster workers) can recover it via
 :meth:`Workflow.for_experiment(experiment) <Workflow.for_experiment>`.
-
-Layer position: **workflow uses workspace, agent uses both**. The
-graph algorithm (compiler, scheduler, IR round-trip) is workspace-
-agnostic, but caching and run-state persistence delegate through
-workspace storage primitives — the workspace's singleton
-``CacheFolder`` (``ws.cache.as_cache_store()`` returns a
-``CacheStore``-conforming adapter) for the content-addressed result
-cache, and :func:`molexp.workspace.atomic_write_json` for
-``workflow.json`` snapshots under the run dir. Cross-layer payloads
-coming *down* from the agent flow through duck-typed ``run_context``
-(opaque) or ``Mapping[str, JSONValue]`` config — see ``§ Layer
-charters`` in CLAUDE.md and the import-guard tests under
-``tests/test_workflow/`` for the binding rules.
 """
 
 from ._names import generate_name
 from ._pydantic_graph.runtime import make_execution_id
+from .builder import WorkflowBuilder
 from .cache import Caching
-from .cache_store import (
-    CacheStore,
-    FileCacheStore,
-)
-from .compiler import (
-    WorkflowCompiler,
-    default_compiler,
-)
+from .cache_store import CacheStore
 from .context import ActorContext, TaskContext
-from .contract import (
-    ArtifactDecl,
-    Severity,
-    TaskInputSpec,
-    TaskIO,
-    TaskOutputSpec,
-    ValidationCheck,
-    ValidationCheckId,
-    ValidationIssue,
-    ValidationReport,
-    WorkflowContract,
-    default_validation_checks,
-    validate_workflow_contract,
-)
-from .promote import (
-    promote_callable,
-    resolve_callable_entrypoint,
-    resolve_spec_entrypoint,
-)
+from .contract import WorkflowContract
+from .promote import promote_callable, resolve_callable_entrypoint, resolve_spec_entrypoint
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
-from .snapshot import TaskSnapshot
-from .snapshot_ref import WorkflowSnapshotRef
-from .spec import Workflow, WorkflowBuilder
+from .serializer import WorkflowCompiler, default_compiler
+from .spec import Workflow
 from .task import Actor, Task
-from .types import (
-    BranchEdges,
-    CycleError,
-    EdgeShapeError,
-    End,
-    EntryAmbiguousError,
-    LoopMaxItersExceeded,
-    MissingRouteError,
-    OutEdges,
-    ParallelExecutionError,
-    UnconditionalEdges,
-    UnknownRouteError,
-    UnknownTaskError,
-    UnreachableTaskError,
-    WorkflowDeadlockError,
-    WorkflowError,
-    WorkflowExecution,
-    WorkflowResult,
-)
-from .version import (
-    TaskTopologyEntry,
-    WorkflowVersion,
-    WorkflowVersionConflictError,
-)
+from .types import End, WorkflowError, WorkflowExecution, WorkflowResult
+from .version import WorkflowVersion
 
 __all__ = [
     "Actor",
     "ActorContext",
-    # Sidecar contract layer (typed I/O + artifact decls + validation)
-    "ArtifactDecl",
-    "BranchEdges",
-    # Utilities
     "CacheStore",
     "Caching",
-    "CycleError",
-    "EdgeShapeError",
-    "FileCacheStore",
-    "generate_name",
-    # Workflow terminator (re-exported from pydantic_graph)
     "End",
-    "EntryAmbiguousError",
-    # Warnings (non-fatal)
-    "LoopMaxItersExceeded",
-    "MissingRouteError",
-    "OutEdges",
-    "ParallelExecutionError",
-    # Protocols (for third-party integration)
     "Runnable",
-    "Severity",
     "Streamable",
-    # Convenience base classes
     "Task",
-    # Contexts
     "TaskContext",
-    "TaskIO",
-    "TaskInputSpec",
-    "TaskOutputSpec",
-    "TaskSnapshot",
-    # Versioning
-    "TaskTopologyEntry",
-    # Task-type registry (for IR-driven workflows)
     "TaskTypeRegistry",
-    # Edge sum types (declarative IR vocabulary)
-    "UnconditionalEdges",
-    "UnknownRouteError",
-    "UnknownTaskError",
-    "UnreachableTaskError",
-    "ValidationCheck",
-    "ValidationCheckId",
-    "ValidationIssue",
-    "ValidationReport",
-    # Workflow building (unified OOP API)
     "Workflow",
-    # Compiler (IR ↔ Python ↔ Mermaid ↔ Spec)
+    "WorkflowBuilder",
     "WorkflowCompiler",
-    # Sidecar contract wrapper
     "WorkflowContract",
-    "WorkflowDeadlockError",
-    # Errors
     "WorkflowError",
     "WorkflowExecution",
-    # Execution
     "WorkflowResult",
-    # Snapshot reference (on-disk shape stored in run.json)
-    "WorkflowSnapshotRef",
     "WorkflowVersion",
-    "WorkflowVersionConflictError",
-    # Builder for the Workflow (decorator + OOP, calls .build() to freeze)
-    "WorkflowBuilder",
     "default_compiler",
     "default_registry",
-    # Default validation check tuple (applied when contract.validation_checks is empty)
-    "default_validation_checks",
+    "generate_name",
     "make_execution_id",
-    # Callable → Workflow promotion (worker re-import support)
     "promote_callable",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
-    # Static contract validation entry point
-    "validate_workflow_contract",
 ]

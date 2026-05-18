@@ -60,7 +60,7 @@ router = APIRouter(
 )
 
 
-def _get_experiment(workspace, project_id: str, experiment_id: str):
+def _get_experiment(workspace, project_id: str, experiment_id: str):  # noqa: ANN001, ANN202
     """Strict-getter chain — returns ``Experiment`` or ``None``.
 
     Translates the workspace-layer ``*NotFoundError`` exceptions to a
@@ -77,7 +77,7 @@ def _get_experiment(workspace, project_id: str, experiment_id: str):
         return None
 
 
-def _get_run_or_none(experiment, run_id: str):
+def _get_run_or_none(experiment, run_id: str):  # noqa: ANN001, ANN202
     """Wrap ``experiment.get_run(run_id)`` to map ``RunNotFoundError`` → ``None``."""
     try:
         return experiment.get_run(run_id)
@@ -114,7 +114,7 @@ def _synthesize_snapshot(experiment: Experiment) -> dict | None:
     return snap.model_dump(mode="json")
 
 
-def _dispatch_to_molq(target, run) -> None:
+def _dispatch_to_molq(target, run) -> None:  # noqa: ANN001
     """Submit *run* through molq onto *target*.
 
     Resources and scheduling come from the target's defaults — the API
@@ -151,7 +151,7 @@ def _dispatch_to_molq(target, run) -> None:
 def list_runs(
     project_id: str,
     experiment_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> list[RunResponse]:
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -164,7 +164,7 @@ def get_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunResponse:
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -180,7 +180,7 @@ def create_run(
     project_id: str,
     experiment_id: str,
     run_req: RunCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunResponse:
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -206,7 +206,7 @@ def create_run(
     return RunResponse.from_model(run)
 
 
-def _read_execution_logs(run, execution_id: str) -> RunLogsResponse:
+def _read_execution_logs(run, execution_id: str) -> RunLogsResponse:  # noqa: ANN001
     exec_dir: Path = run.run_dir / "executions" / execution_id
     stdout: str | None = None
     stderr: str | None = None
@@ -224,7 +224,7 @@ def get_run_logs(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunLogsResponse:
     """Return stdout/stderr for the most recent execution of a run."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -249,7 +249,7 @@ def get_run_execution_logs(
     experiment_id: str,
     run_id: str,
     execution_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunLogsResponse:
     """Return stdout/stderr for a specific execution attempt."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -270,7 +270,7 @@ def get_run_metrics(
     key: str | None = None,
     since_line: int = Query(default=0, ge=0),
     limit: int = Query(default=5000, ge=1, le=50000),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunMetricsResponse:
     """Return run-local metrics from ``metrics/metrics.jsonl``."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -304,7 +304,7 @@ def get_run_file_text(
     experiment_id: str,
     run_id: str,
     path: str = Query(..., description="Relative path under run_dir"),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunFileTextResponse:
     """Return the raw text content of a file under the run directory."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -336,7 +336,7 @@ def get_run_lammps_log(
     experiment_id: str,
     run_id: str,
     path: str = Query(..., description="Relative path of the log file under run_dir"),
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> LammpsLogResponse:
     """Parse a LAMMPS log file and return thermo stages.
 
@@ -399,7 +399,7 @@ def get_run_execution(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunExecutionResponse:
     """Return workflow execution state from workflow.json."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -440,7 +440,7 @@ def get_run_files(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunFilesResponse:
     """Return the on-disk file tree for a run, enriched with catalog metadata.
 
@@ -507,7 +507,7 @@ def rerun_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunRerunResponse:
     """Clone an existing run's parameters into a fresh run within the same experiment.
 
@@ -554,7 +554,7 @@ def kill_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunActionResponse:
     """Cancel a run.
 
@@ -592,7 +592,7 @@ def export_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> StreamingResponse:
     """Stream a zip archive of the run directory (artifacts, logs, metadata)."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
@@ -625,7 +625,7 @@ def update_run_status(
     experiment_id: str,
     run_id: str,
     status: dict[str, str],
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunStatusResponse:
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -638,7 +638,7 @@ def update_run_status(
     try:
         new_status = RunStatus(new_status_str)
     except ValueError:
-        raise InvalidStatusError(run.status, new_status_str)
+        raise InvalidStatusError(run.status, new_status_str)  # noqa: B904
 
     updates: dict = {"status": new_status.value}
     if new_status_str in ("succeeded", "failed", "cancelled"):

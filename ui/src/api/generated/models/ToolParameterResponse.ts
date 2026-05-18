@@ -7,4 +7,3 @@ export type ToolParameterResponse = {
     annotation?: string;
     required?: boolean;
 };
-

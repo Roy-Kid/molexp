@@ -67,7 +67,9 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(metadata_mod, "supported_schedulers", lambda: ("local", "slurm"))
     monkeypatch.setattr(submit_mod, "make_submit_handler", fake_make_submit_handler)
 
-    result = runner.invoke(app, ["run", str(script), "--scheduler", "local"])
+    result = runner.invoke(
+        app, ["workspace", str(workspace_root), "run", str(script), "--scheduler", "local"]
+    )
 
     assert result.exit_code == 0, result.output
     assert captured["scheduler"] == "local"
@@ -111,7 +113,7 @@ def test_run_cancel_uses_molq_handle(monkeypatch, tmp_path):
 
     result = runner.invoke(
         app,
-        ["runs", "cancel", run.id, "--path", str(workspace.root), "--yes"],
+        ["workspace", str(workspace.root), "runs", "cancel", run.id, "--yes"],
     )
 
     assert result.exit_code == 0, result.output

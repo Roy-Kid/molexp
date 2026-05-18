@@ -6,4 +6,3 @@ import type { CustomToolResponse } from './CustomToolResponse';
 export type CustomToolListResponse = {
     tools?: Array<CustomToolResponse>;
 };
-

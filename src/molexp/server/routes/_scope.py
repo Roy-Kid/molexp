@@ -17,7 +17,7 @@ from molexp.workspace import (
 from molexp.workspace.assets import AssetScope
 
 
-def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
+def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:  # noqa: ANN001
     """Return the on-disk directory for ``scope`` using the public workspace API.
 
     Returns ``None`` if any segment of the scope cannot be resolved.
@@ -56,7 +56,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:
     return None
 
 
-def split_workspace_relpath(workspace, abs_or_rel_path: str) -> Path:
+def split_workspace_relpath(workspace, abs_or_rel_path: str) -> Path:  # noqa: ANN001
     """Resolve a workspace-relative or absolute path against ``workspace.root``."""
     p = Path(abs_or_rel_path).expanduser()
     root = Path(workspace.root).resolve()

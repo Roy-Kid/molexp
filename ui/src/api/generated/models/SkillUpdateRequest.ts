@@ -16,4 +16,3 @@ export type SkillUpdateRequest = {
     denied_tools?: (Array<string> | null);
     requires_exit_tool?: (string | null);
 };
-

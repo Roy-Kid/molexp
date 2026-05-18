@@ -1,13 +1,16 @@
 """GraphWorkflowRuntime: pydantic-graph-backed workflow runtime.
 
 The single concrete runtime; molexp does not abstract over runtime
-backends because there is only one. All three execution modes are
-methods on this class:
+backends because there is only one.  Execution modes:
 
 - ``execute()`` — run to completion, return :class:`WorkflowResult`.
 - ``start()`` — launch in background, return :class:`WorkflowExecution`.
-- ``resume()`` — continue from persisted snapshot.
-- ``stream()`` / ``iter()`` — async step-by-step iteration.
+- ``iter()`` / ``stream()`` — async step-by-step iteration.
+
+``resume()`` is removed — the new ``GraphBuilder``-based API does not
+expose ``iter_from_persistence``.  Per-frame snapshots are still written
+by :class:`RunStorePersistence` for observability, but they are no longer
+injected into the graph runner.
 """
 
 from __future__ import annotations
@@ -15,18 +18,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from collections.abc import Mapping
-from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mollog import get_logger
-from pydantic_graph import Graph, GraphRun
+from pydantic_graph.graph_builder import GraphBuilder
 
 from ..protocols import JSONMapping, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
 from .compiler import CompiledWorkflow, WorkflowGraphCompiler
 from .node import WorkflowStep
-from .persistence import RunStorePersistence
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
@@ -36,14 +37,19 @@ logger = get_logger(__name__)
 
 _compiler = WorkflowGraphCompiler()
 
-# Single-track: ``WorkflowStep`` is the only pg BaseNode molexp exposes;
-# pg drives ``WorkflowStep(0) → WorkflowStep(1) → … → End`` and gives us
-# snapshot/resume bookkeeping for free.
-_GRAPH: Graph[WorkflowState, WorkflowDeps, WorkflowState] = Graph(
-    nodes=[WorkflowStep],
+# Single-track: ``WorkflowStep`` is the only pg BaseNode molexp exposes.
+# GraphBuilder auto-detects edges from WorkflowStep's return type hint
+# (``WorkflowStep | End[WorkflowState]``).
+_builder = GraphBuilder[WorkflowState, WorkflowDeps, None, WorkflowState](
+    name="workflow",
     state_type=WorkflowState,
-    run_end_type=WorkflowState,
+    deps_type=WorkflowDeps,
+    output_type=WorkflowState,
 )
+_ws_edge = _builder.node(WorkflowStep)
+_builder.add(_ws_edge)
+_builder.add_edge(_builder.start_node, _ws_edge.sources[0])
+_GRAPH = _builder.build()
 
 
 def _resolve_run_dir(
@@ -262,26 +268,7 @@ class GraphWorkflowRuntime:
                 deps=deps,
             )
 
-            persistence = (
-                RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
-                if resolved_run_dir is not None
-                else None
-            )
-
-            if persistence is not None:
-                run_result = await _GRAPH.run(
-                    WorkflowStep(0),
-                    state=state,
-                    deps=workflow_deps,
-                    persistence=persistence,
-                )
-            else:
-                run_result = await _GRAPH.run(
-                    WorkflowStep(0),
-                    state=state,
-                    deps=workflow_deps,
-                )
-            result_state = run_result.output
+            result_state: WorkflowState = await _GRAPH.run(state=state, deps=workflow_deps)
 
             # Propagate task-failure to the workspace's RunContext so it can
             # tag the final run.status as failed when the caller's
@@ -356,9 +343,7 @@ class GraphWorkflowRuntime:
                     config=config,
                     deps=deps,
                 )
-                state = seed_state
-                run_result = await _GRAPH.run(WorkflowStep(0), state=state, deps=workflow_deps)
-                result_state = run_result.output
+                result_state: WorkflowState = await _GRAPH.run(state=seed_state, deps=workflow_deps)
                 handle._result = WorkflowResult(
                     status="failed" if result_state.failed else "completed",
                     outputs=result_state.results,
@@ -379,79 +364,6 @@ class GraphWorkflowRuntime:
         handle._task = asyncio.create_task(_bg())
         return handle
 
-    # ── resume ───────────────────────────────────────────────────────────────
-
-    async def resume(
-        self,
-        spec: Workflow,
-        *,
-        run_dir: str | Path,
-        execution_id: str,
-        config: JSONMapping | None = None,
-        deps: UserDeps = None,
-        run_context: RunContextLike | None = None,
-    ) -> WorkflowExecution:
-        """Resume a workflow from persisted state.
-
-        Caller supplies *run_dir* explicitly (workflow layer no longer
-        knows about ``Workspace.Run``); *config* / *deps* are forwarded
-        as-is. *run_context* is optional — when present it is the duck-
-        typed payload exposed at ``TaskContext.run_context``.
-        """
-        if run_dir is None:
-            raise ValueError("Cannot resume workflow without a run directory")
-
-        compiled = self._get_compiled(spec)
-        resolved_run_dir = Path(run_dir)
-        workflow_deps = self._build_deps(
-            compiled,
-            run_context=run_context,
-            run_dir=resolved_run_dir,
-            config=config,
-            deps=deps,
-        )
-        persistence = RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
-
-        handle = _GraphWorkflowExecution(
-            execution_id=execution_id,
-            workflow_id=spec.workflow_id,
-            run_id=_get_run_id(run_context),
-        )
-
-        async def _bg() -> None:
-            try:
-                async with _GRAPH.iter_from_persistence(
-                    persistence=persistence,
-                    deps=workflow_deps,
-                ) as run_ctx:
-                    async for _node in run_ctx:
-                        pass
-                    result_state = (
-                        run_ctx.result.output
-                        if run_ctx.result
-                        else WorkflowState(failed=True, error="No result")
-                    )
-
-                handle._result = WorkflowResult(
-                    status="failed" if result_state.failed else "completed",
-                    outputs=result_state.results,
-                    run_id=handle.run_id,
-                    execution_id=execution_id,
-                )
-            except Exception:
-                handle._result = WorkflowResult(
-                    status="failed",
-                    outputs={},
-                    run_id=handle.run_id,
-                    execution_id=execution_id,
-                )
-                logger.exception(f"Resume of workflow {spec.name!r} failed")
-            finally:
-                handle._done_event.set()
-
-        handle._task = asyncio.create_task(_bg())
-        return handle
-
     # ── iter ─────────────────────────────────────────────────────────────────
 
     def iter(
@@ -463,7 +375,7 @@ class GraphWorkflowRuntime:
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
-    ) -> AbstractAsyncContextManager[GraphRun[WorkflowState, WorkflowDeps, WorkflowState]]:
+    ) -> Any:  # noqa: ANN401
         """Return an async context manager for step-by-step iteration.
 
         See :meth:`execute` for ``seed_outputs`` semantics.
@@ -478,7 +390,7 @@ class GraphWorkflowRuntime:
             config=config,
             deps=deps,
         )
-        return _GRAPH.iter(WorkflowStep(0), state=state, deps=workflow_deps)
+        return _GRAPH.iter(state=state, deps=workflow_deps)
 
     # ── stream ───────────────────────────────────────────────────────────────
 
@@ -491,7 +403,7 @@ class GraphWorkflowRuntime:
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
-    ) -> AbstractAsyncContextManager[GraphRun[WorkflowState, WorkflowDeps, WorkflowState]]:
+    ) -> Any:  # noqa: ANN401
         """Alias for iter() — streaming Actor support in a future phase."""
         return self.iter(
             spec,
@@ -504,7 +416,7 @@ class GraphWorkflowRuntime:
 
 
 class _GraphWorkflowExecution(WorkflowExecution):
-    """Concrete WorkflowExecution returned by start() / resume()."""
+    """Concrete WorkflowExecution returned by start()."""
 
     def __init__(self, execution_id: str, workflow_id: str, run_id: str | None) -> None:
         super().__init__(

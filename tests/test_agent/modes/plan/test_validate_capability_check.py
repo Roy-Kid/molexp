@@ -37,8 +37,8 @@ from molexp.agent.modes.plan.capability import (
     CapabilityEvidence,
     CapabilityEvidenceBatch,
 )
-from molexp.agent.modes.plan.tasks import _capability_evidence_checks
 from molexp.agent.modes.plan.plan_folder import PlanFolder
+from molexp.agent.modes.plan.tasks import _capability_evidence_checks
 from molexp.workspace import Workspace
 
 

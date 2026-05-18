@@ -45,7 +45,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """
 
     @app.exception_handler(MolExpError)
-    async def molexp_error_handler(request: Request, exc: MolExpError) -> JSONResponse:
+    async def molexp_error_handler(request: Request, exc: MolExpError) -> JSONResponse:  # noqa: ARG001
         """Handle MolExpError exceptions with consistent JSON responses."""
         return JSONResponse(
             status_code=exc.status_code,
@@ -53,7 +53,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(ValueError)
-    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:  # noqa: ARG001
         """Handle ValueError exceptions as validation errors."""
         return JSONResponse(
             status_code=400,
@@ -66,7 +66,7 @@ def register_exception_handlers(app: FastAPI) -> None:
         )
 
     @app.exception_handler(FileNotFoundError)
-    async def file_not_found_handler(request: Request, exc: FileNotFoundError) -> JSONResponse:
+    async def file_not_found_handler(request: Request, exc: FileNotFoundError) -> JSONResponse:  # noqa: ARG001
         """Handle Python FileNotFoundError."""
         return JSONResponse(
             status_code=404,
@@ -87,7 +87,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkspaceProjectNotFoundError)
     async def workspace_project_not_found_handler(
-        request: Request, exc: WorkspaceProjectNotFoundError
+        request: Request,  # noqa: ARG001
+        exc: WorkspaceProjectNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=404,
@@ -96,7 +97,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkspaceExperimentNotFoundError)
     async def workspace_experiment_not_found_handler(
-        request: Request, exc: WorkspaceExperimentNotFoundError
+        request: Request,  # noqa: ARG001
+        exc: WorkspaceExperimentNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=404,
@@ -105,7 +107,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkspaceRunNotFoundError)
     async def workspace_run_not_found_handler(
-        request: Request, exc: WorkspaceRunNotFoundError
+        request: Request,  # noqa: ARG001
+        exc: WorkspaceRunNotFoundError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=404,
@@ -114,7 +117,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkspaceProjectExistsError)
     async def workspace_project_exists_handler(
-        request: Request, exc: WorkspaceProjectExistsError
+        request: Request,  # noqa: ARG001
+        exc: WorkspaceProjectExistsError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=409,
@@ -123,7 +127,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkspaceExperimentExistsError)
     async def workspace_experiment_exists_handler(
-        request: Request, exc: WorkspaceExperimentExistsError
+        request: Request,  # noqa: ARG001
+        exc: WorkspaceExperimentExistsError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=409,
@@ -132,7 +137,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(WorkspaceRunExistsError)
     async def workspace_run_exists_handler(
-        request: Request, exc: WorkspaceRunExistsError
+        request: Request,  # noqa: ARG001
+        exc: WorkspaceRunExistsError,
     ) -> JSONResponse:
         return JSONResponse(
             status_code=409,

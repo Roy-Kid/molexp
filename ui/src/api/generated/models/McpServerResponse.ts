@@ -34,4 +34,3 @@ export namespace McpServerResponse {
         WORKSPACE = 'workspace',
     }
 }
-

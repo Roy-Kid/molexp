@@ -15,4 +15,3 @@ export type McpServerListResponse = {
     userPath: string;
     servers?: Array<McpServerResponse>;
 };
-

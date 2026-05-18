@@ -73,7 +73,7 @@ def _selected_names(sub: Workflow) -> set[str]:
     """Names of selected tasks — boundary stubs are filtered out so that
     tests can assert on the actual selection independently of the stub
     bookkeeping ``subgraph`` does internally."""
-    from molexp.workflow.spec import _BoundaryStubTask
+    from molexp.workflow._graph_decl import _BoundaryStubTask
 
     return {t.name for t in sub._tasks if not isinstance(t.fn_or_class, _BoundaryStubTask)}
 
@@ -95,7 +95,7 @@ def test_subgraph_registers_boundary_upstream_as_stub_so_compiler_accepts_depend
     that the compiler's ``depends_on`` validation does not reject the
     surviving task's reference. The stub's body raises if invoked, so
     callers MUST seed the boundary value via ``execute(seed_outputs=...)``."""
-    from molexp.workflow.spec import _BoundaryStubTask
+    from molexp.workflow._graph_decl import _BoundaryStubTask
 
     spec, _ = _build_chain()
     sub = spec.subgraph(["c"])

@@ -19,4 +19,3 @@ export type ReviewDecisionRequest = {
      */
     edited_workflow_ir?: (Record<string, any> | null);
 };
-

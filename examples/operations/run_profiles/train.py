@@ -24,7 +24,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import promote_callable, Workflow
+from molexp.workflow import promote_callable
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent / "_workspace"
 

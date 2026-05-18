@@ -14,4 +14,3 @@ export type AgentSessionResponse = {
     planMode?: boolean;
     skillId?: (string | null);
 };
-

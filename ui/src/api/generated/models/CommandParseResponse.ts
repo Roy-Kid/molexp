@@ -20,4 +20,3 @@ export namespace CommandParseResponse {
         ERROR = 'error',
     }
 }
-

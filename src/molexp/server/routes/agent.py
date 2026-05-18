@@ -54,7 +54,7 @@ def _gone() -> HTTPException:
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     name="agent_disabled",
 )
-async def agent_disabled(path: str) -> None:
+async def agent_disabled(path: str) -> None:  # noqa: ARG001
     raise _gone()
 
 
@@ -67,37 +67,48 @@ async def agent_disabled(path: str) -> None:
 
 
 async def create_session(
-    request: GoalCreateRequest, *, workspace: Workspace
+    request: GoalCreateRequest,  # noqa: ARG001
+    *,
+    workspace: Workspace,  # noqa: ARG001
 ) -> AgentSessionResponse:
     raise _gone()
 
 
-def list_sessions(*, workspace: Workspace) -> AgentSessionListResponse:
+def list_sessions(*, workspace: Workspace) -> AgentSessionListResponse:  # noqa: ARG001
     raise _gone()
 
 
-def get_session(session_id: str, *, workspace: Workspace) -> AgentSessionResponse:
+def get_session(session_id: str, *, workspace: Workspace) -> AgentSessionResponse:  # noqa: ARG001
     raise _gone()
 
 
-async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingResponse:
+async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingResponse:  # noqa: ARG001
     raise _gone()
 
 
 async def respond_approval(
-    session_id: str, request: ApprovalRespondRequest, *, workspace: Workspace
+    session_id: str,  # noqa: ARG001
+    request: ApprovalRespondRequest,  # noqa: ARG001
+    *,
+    workspace: Workspace,  # noqa: ARG001
 ) -> dict[str, object]:
     raise _gone()
 
 
 async def respond_plan(
-    session_id: str, request: PlanDecisionRequest, *, workspace: Workspace
+    session_id: str,  # noqa: ARG001
+    request: PlanDecisionRequest,  # noqa: ARG001
+    *,
+    workspace: Workspace,  # noqa: ARG001
 ) -> MessageResponse:
     raise _gone()
 
 
 async def post_user_message(
-    session_id: str, request: UserMessageCreateRequest, *, workspace: Workspace
+    session_id: str,  # noqa: ARG001
+    request: UserMessageCreateRequest,  # noqa: ARG001
+    *,
+    workspace: Workspace,  # noqa: ARG001
 ) -> MessageResponse:
     raise _gone()
 

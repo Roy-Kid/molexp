@@ -6,4 +6,3 @@ import type { CommandSpec } from './CommandSpec';
 export type CommandListResponse = {
     commands?: Array<CommandSpec>;
 };
-

@@ -7,4 +7,3 @@ export type MolqTargetListResponse = {
     targets: Array<MolqTargetSummary>;
     total: number;
 };
-

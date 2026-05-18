@@ -16,4 +16,3 @@ export type McpAuthSummary = {
     clientId?: (string | null);
     connected?: boolean;
 };
-

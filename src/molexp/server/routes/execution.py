@@ -28,7 +28,7 @@ router = APIRouter(prefix="", tags=["execution"])
 @router.post("/executions", response_model=RunResponse)
 def create_execution(
     request: ExecutionCreateRequest,
-    workspace=Depends(get_workspace),
+    workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunResponse:
     """Create a new execution in a specific project/experiment.
 
@@ -75,7 +75,7 @@ def get_execution_plan() -> JSONResponse:
 _cache_instance = None
 
 
-def _get_cache():
+def _get_cache():  # noqa: ANN202
     global _cache_instance
     if _cache_instance is None:
         store_dir = Path.home() / ".molexp" / "cache"

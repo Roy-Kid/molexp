@@ -15,4 +15,3 @@ export type ComparisonRunRow = {
     finished?: (string | null);
     error?: (Record<string, string> | null);
 };
-

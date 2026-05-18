@@ -16,4 +16,3 @@ export type ExecutionRecordResponse = {
     status: string;
     schedulerJobId?: (string | null);
 };
-

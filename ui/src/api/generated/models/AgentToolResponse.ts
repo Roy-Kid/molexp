@@ -16,4 +16,3 @@ export type AgentToolResponse = {
     requiresApproval?: boolean;
     source?: string;
 };
-

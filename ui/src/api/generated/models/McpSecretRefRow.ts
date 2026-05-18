@@ -10,4 +10,3 @@ export type McpSecretRefRow = {
     isSet: boolean;
     referencedBy?: Array<string>;
 };
-

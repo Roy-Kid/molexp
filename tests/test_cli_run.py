@@ -89,7 +89,16 @@ class TestRunCommand:
 
         result = runner.invoke(
             app,
-            ["run", str(script), "--config", str(molcfg), "--profile", "dry-run"],
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "dry-run",
+            ],
         )
         assert result.exit_code == 0, result.output
         assert "no workflow" not in result.output
@@ -103,7 +112,16 @@ class TestRunCommand:
 
         result = runner.invoke(
             app,
-            ["run", str(script), "--config", str(molcfg), "--profile", "dry-run"],
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "dry-run",
+            ],
         )
         assert result.exit_code == 0, result.output
 
@@ -145,7 +163,17 @@ class TestRunCommand:
 
         # First run: fails
         result = runner.invoke(
-            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+            app,
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "smoke",
+            ],
         )
         ws = Workspace.load(workspace_root)
         runs = ws.get_project("demo").get_experiment("train").list_runs()
@@ -157,6 +185,8 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
+                "workspace",
+                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
@@ -182,13 +212,33 @@ class TestRunCommand:
 
         # First run succeeds
         result = runner.invoke(
-            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+            app,
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "smoke",
+            ],
         )
         assert result.exit_code == 0, result.output
 
         # Second run: same profile — skipped because already succeeded
         result = runner.invoke(
-            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+            app,
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "smoke",
+            ],
         )
         assert result.exit_code == 0, result.output
         assert "skipped" in result.output
@@ -201,12 +251,32 @@ class TestRunCommand:
         _write_script(script, workspace_root)
 
         result = runner.invoke(
-            app, ["run", str(script), "--config", str(molcfg), "--profile", "dry-run"]
+            app,
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "dry-run",
+            ],
         )
         assert result.exit_code == 0, result.output
 
         result = runner.invoke(
-            app, ["run", str(script), "--config", str(molcfg), "--profile", "smoke"]
+            app,
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "smoke",
+            ],
         )
         assert result.exit_code == 0, result.output
 
@@ -225,7 +295,17 @@ class TestRunCommand:
         _write_script(script, workspace_root)
 
         result = runner.invoke(
-            app, ["run", str(script), "--config", str(molcfg), "--profile", "missing"]
+            app,
+            [
+                "workspace",
+                str(workspace_root),
+                "run",
+                str(script),
+                "--config",
+                str(molcfg),
+                "--profile",
+                "missing",
+            ],
         )
         assert result.exit_code == 1
         assert "Unknown profile" in result.output
@@ -236,18 +316,20 @@ class TestRunCommand:
         _write_script(script, workspace_root)
 
         # No molcfg.yaml in CWD and no --config
-        result = runner.invoke(app, ["run", str(script), "--profile", "dry-run"])
+        result = runner.invoke(
+            app, ["workspace", str(workspace_root), "run", str(script), "--profile", "dry-run"]
+        )
         assert result.exit_code == 1
         assert "no config file" in result.output.lower()
 
     def test_run_help_shows_backends(self):
-        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
+        result = runner.invoke(app, ["workspace", ".", "run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
         plain = _plain(result.output)
         assert "local" in plain
 
     def test_run_help_has_grouped_options(self):
-        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
+        result = runner.invoke(app, ["workspace", ".", "run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
         plain = _plain(result.output)
         assert "--local" in plain

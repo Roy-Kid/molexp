@@ -73,12 +73,12 @@ def compute_content_hash(path: Path, algorithm: str = "sha256") -> str:
             if entry.is_file():
                 rel = entry.relative_to(path).as_posix().encode()
                 hasher.update(rel + b"\0")
-                with open(entry, "rb") as f:
+                with open(entry, "rb") as f:  # noqa: PTH123
                     while chunk := f.read(8192):
                         hasher.update(chunk)
                 hasher.update(b"\0")
     else:
-        with open(path, "rb") as f:
+        with open(path, "rb") as f:  # noqa: PTH123
             while chunk := f.read(8192):
                 hasher.update(chunk)
 

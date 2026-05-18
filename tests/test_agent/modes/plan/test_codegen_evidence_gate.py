@@ -34,6 +34,7 @@ from molexp.agent.modes.plan.capability import (
     CapabilityEvidenceBatch,
 )
 from molexp.agent.modes.plan.errors import UnevidencedApiReference
+from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import PlanDeps
 from molexp.agent.modes.plan.schemas import (
@@ -47,7 +48,6 @@ from molexp.agent.modes.plan.tasks import (
     GenerateTaskImplementations,
     GenerateTaskTests,
 )
-from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.router import ModelTier, Router, RouterTextResult
 from molexp.agent.types import UsageBreakdown
 from molexp.workflow.context import TaskContext

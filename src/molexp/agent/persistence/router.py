@@ -60,8 +60,8 @@ def tiered_router_factory[
     spec_to_response: Callable[[SpecT], ItemResponseT],
     item_response_cls: type[ItemResponseT],
     list_response_cls: type[ListResponseT],
-    create_request_cls: type[CreateRequestT],
-    update_request_cls: type[UpdateRequestT],
+    create_request_cls: type[CreateRequestT],  # noqa: ARG001
+    update_request_cls: type[UpdateRequestT],  # noqa: ARG001
     create_kwargs: Callable[[CreateRequestT], dict[str, Any]],
     update_kwargs: Callable[[UpdateRequestT], dict[str, Any]],
     workspace_dependency: Callable[..., Any],
@@ -107,7 +107,7 @@ def tiered_router_factory[
 
     @router.get("", response_model=list_response_cls)
     async def list_resources(
-        workspace=Depends(workspace_dependency),
+        workspace=Depends(workspace_dependency),  # noqa: ANN001
     ) -> ListResponseT:
         store = store_factory(workspace)
         items = [spec_to_response(s) for s in store.list_all()]
@@ -116,7 +116,7 @@ def tiered_router_factory[
     @router.post("", response_model=item_response_cls, status_code=201)
     async def create_resource(
         request: CreateRequestT,
-        workspace=Depends(workspace_dependency),
+        workspace=Depends(workspace_dependency),  # noqa: ANN001
     ) -> ItemResponseT:
         store = store_factory(workspace)
         kwargs = dict(create_kwargs(request))
@@ -131,7 +131,7 @@ def tiered_router_factory[
     @router.get("/{resource_id}", response_model=item_response_cls)
     async def get_resource(
         resource_id: str,
-        workspace=Depends(workspace_dependency),
+        workspace=Depends(workspace_dependency),  # noqa: ANN001
     ) -> ItemResponseT:
         store = store_factory(workspace)
         spec = store.get(resource_id)
@@ -150,7 +150,7 @@ def tiered_router_factory[
             "workspace",
             description="Tier the entry belongs to.",
         ),
-        workspace=Depends(workspace_dependency),
+        workspace=Depends(workspace_dependency),  # noqa: ANN001
     ) -> ItemResponseT:
         store = store_factory(workspace)
         try:
@@ -172,7 +172,7 @@ def tiered_router_factory[
             "workspace",
             description="Tier to delete from.",
         ),
-        workspace=Depends(workspace_dependency),
+        workspace=Depends(workspace_dependency),  # noqa: ANN001
     ) -> _SimpleMessage:
         store = store_factory(workspace)
         deleted = store.delete(resource_id, scope=Scope(scope))

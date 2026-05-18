@@ -9,7 +9,7 @@ non-stdlib imports** so the layering DAG stays clean.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeAlias
+from typing import Any
 
 # ── Type aliases for genuinely-opaque user payloads ────────────────────────
 #
@@ -26,15 +26,15 @@ from typing import Any, TypeAlias
 # — only at positions that genuinely accept user-defined open-world data.
 
 #: Return value of a user task body — open-world Python object.
-TaskOutput: TypeAlias = Any
+type TaskOutput = Any
 #: Input value flowing into a user task body — open-world Python object.
-TaskInput: TypeAlias = Any
+type TaskInput = Any
 #: Application-level deps the caller forwards through ``Workflow.execute(deps=…)``.
-UserDeps: TypeAlias = Any
+type UserDeps = Any
 #: Message payload on the actor channel bus — opaque to the workspace.
-ChannelMessage: TypeAlias = Any
+type ChannelMessage = Any
 #: Hashable, JSON-shaped payload used for fingerprints / canonical hashing.
-HashablePayload: TypeAlias = Any
+type HashablePayload = Any
 
 # ── JSON-shaped recursive type ─────────────────────────────────────────────
 #

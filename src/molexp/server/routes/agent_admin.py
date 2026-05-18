@@ -25,7 +25,7 @@ _GONE_DETAIL = (
     methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
     name="agent_admin_disabled",
 )
-async def agent_admin_disabled(path: str) -> None:
+async def agent_admin_disabled(path: str) -> None:  # noqa: ARG001
     raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=_GONE_DETAIL)
 
 

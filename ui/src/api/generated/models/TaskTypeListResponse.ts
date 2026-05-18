@@ -7,4 +7,3 @@ export type TaskTypeListResponse = {
     task_types: Array<TaskTypeResponse>;
     total: number;
 };
-

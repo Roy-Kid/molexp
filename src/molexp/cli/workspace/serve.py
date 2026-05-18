@@ -1,41 +1,33 @@
-"""``molexp serve`` — start the FastAPI server + bundled UI."""
+"""``molexp workspace serve`` — start FastAPI server + bundled UI."""
 
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import Annotated
 
 import typer
 import uvicorn
 
-from . import app
-from ._common import rprint
+from molexp.cli._common import rprint
+from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.workspace.target import RemoteTarget
 
 
-@app.command()
+@workspace_app.command()
 def serve(
-    workspace: Annotated[
-        Path,
-        typer.Argument(
-            help="Workspace root (default: current directory).",
-            exists=True,
-            file_okay=False,
-            dir_okay=True,
-            writable=True,
-        ),
-    ] = Path.cwd(),
-    port: Annotated[
-        int,
-        typer.Option("--port", "-p", help="Server port"),
-    ] = 8000,
-    host: Annotated[
-        str,
-        typer.Option("--host", "-h", help="Server host"),
-    ] = "localhost",
+    ctx: typer.Context,
+    port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8000,
+    host: Annotated[str, typer.Option("--host", "-h", help="Server host")] = "localhost",
 ) -> None:
     """Start the MolExp server (API + bundled web UI)."""
-    resolved = Path(workspace).resolve()
+    target = _get_ctx_target(ctx)
+
+    if isinstance(target, RemoteTarget):
+        rprint("[red]Error:[/red] Cannot serve a remote workspace.")
+        rprint("  Run [bold]molexp serve[/bold] on the remote host, or serve a local workspace.")
+        raise typer.Exit(1)
+
+    resolved = target.path.resolve()
     if not (resolved / "workspace.json").exists():
         candidate = resolved / "workspace"
         if (candidate / "workspace.json").exists():
@@ -44,7 +36,7 @@ def serve(
         else:
             rprint(
                 f"[yellow]Warning:[/yellow] No workspace.json found in {resolved}. "
-                "Run [bold]molexp init[/bold] first, or pass a workspace path."
+                "Run [bold]molexp workspace . init[/bold] first."
             )
 
     os.chdir(resolved)

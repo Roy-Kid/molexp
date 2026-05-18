@@ -18,4 +18,3 @@ export type AgentHealthResponse = {
     reason?: string;
     envVar?: string;
 };
-

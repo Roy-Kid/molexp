@@ -42,4 +42,3 @@ export namespace CustomToolResponse {
         WORKSPACE = 'workspace',
     }
 }
-

@@ -97,7 +97,7 @@ class AlwaysResumePolicy:
     checkpoint, regardless of run status or other factors.
     """
 
-    def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:
+    def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:  # noqa: ARG002
         """Always return True to resume from checkpoint."""
         return True
 
@@ -109,7 +109,7 @@ class NeverResumePolicy:
     from the beginning. Useful for ensuring clean runs or debugging.
     """
 
-    def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:
+    def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:  # noqa: ARG002
         """Always return False to start fresh."""
         return False
 
@@ -122,7 +122,7 @@ class StatusBasedPolicy:
     interrupted runs while ensuring successful runs start fresh.
     """
 
-    def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:
+    def should_resume(self, run: Run, checkpoint: CheckpointState) -> bool:  # noqa: ARG002
         """Resume if run status is FAILED or CANCELLED."""
         return run.status in [RunStatus.FAILED, RunStatus.CANCELLED]
 

@@ -15,4 +15,3 @@ export type TaskTypeResponse = {
      */
     description?: string;
 };
-

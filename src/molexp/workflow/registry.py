@@ -37,7 +37,9 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import overload
 
+from .context import TaskContext
 from .protocols import JSONMapping, TaskBody, TaskInput, TaskOutput
+from .task import Task
 
 # A factory takes a config dict and returns a Runnable / Streamable / callable.
 type TaskFactory = Callable[[JSONMapping], TaskBody]
@@ -154,9 +156,6 @@ default_registry = TaskTypeRegistry()
 # giving the agent a non-trivial composable starter set. Domain plugins
 # (LAMMPS, VASP, molpy) register their own slugs through the same registry.
 
-from .context import TaskContext
-from .task import Task
-
 
 class _Constant(Task):
     """Emit a fixed value. Useful as a graph root in tests / demos."""
@@ -164,7 +163,7 @@ class _Constant(Task):
     def __init__(self, value: TaskOutput = 0) -> None:
         self.value = value
 
-    async def execute(self, ctx: TaskContext) -> TaskOutput:
+    async def execute(self, _ctx: TaskContext) -> TaskOutput:
         return self.value
 
 

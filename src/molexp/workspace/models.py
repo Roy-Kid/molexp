@@ -92,7 +92,7 @@ class ComputeTarget(BaseModel, frozen=True):
         ComputeTarget(
             name="desk", host="me@desk.lan", scheduler="local", scratch_root="/home/me/molexp-runs"
         )
-    """
+    """  # noqa: RUF002
 
     name: str
 

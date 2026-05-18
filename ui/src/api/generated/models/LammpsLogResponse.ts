@@ -12,4 +12,3 @@ export type LammpsLogResponse = {
     nStages?: number;
     stages?: Array<LammpsThermoStage>;
 };
-

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, TypeAlias
+from typing import TYPE_CHECKING
 
 from molexp._typing import JSONValue
 
@@ -13,7 +13,7 @@ from .metadata import build_executor_info
 # molq dispatches event callbacks with ``StatusChange | JobRecord | None``
 # payloads. The exact dataclass is internal to molq and not re-exported on
 # its public surface, so we accept the cross-package boundary as opaque.
-MolqEventPayload: TypeAlias = "object"
+type MolqEventPayload = "object"
 
 if TYPE_CHECKING:
     from molq import Duration, JobExecution, Memory, Submitor
@@ -121,7 +121,7 @@ class SubmitHandler:
         self,
         _script: str | Path | None,
         mol_run: Run,
-        experiment: Experiment,
+        experiment: Experiment,  # noqa: ARG002
         project: Project,
     ) -> None:
         from molq import (
