@@ -140,7 +140,7 @@ def _reconstruct[T](
 
 
 def _rebuild_container_index(
-    container_dir: Path,
+    container_dir: str | Path,
     index_filename: str,
     metadata_filename: str,
     fields: list[str],
@@ -172,9 +172,10 @@ def _rebuild_container_index(
     """
     from datetime import datetime
 
+    cdir = Path(container_dir)
     items: list[dict[str, JSONValue]] = []
-    if container_dir.exists():
-        for child_dir in sorted(container_dir.iterdir(), key=lambda p: p.name):
+    if cdir.exists():
+        for child_dir in sorted(cdir.iterdir(), key=lambda p: p.name):
             if not child_dir.is_dir():
                 continue
             mfile = child_dir / metadata_filename
@@ -193,7 +194,7 @@ def _rebuild_container_index(
 
     from .schema_version import write_versioned_json
 
-    index_path = container_dir.parent / index_filename
+    index_path = cdir.parent / index_filename
     write_versioned_json(
         index_path,
         {

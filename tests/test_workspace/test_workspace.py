@@ -1,6 +1,7 @@
 """Tests for Workspace / Project / Experiment / Run hierarchy."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -101,7 +102,7 @@ class TestProject:
         assert p1 is p2
 
     def test_metadata_has_no_child_lists(self, project):
-        data = json.loads((project.project_dir / "project.json").read_text())
+        data = json.loads((Path(project.project_dir) / "project.json").read_text())
         assert "experiments" not in data
         assert "assets" not in data
 
@@ -133,7 +134,7 @@ class TestExperiment:
 
         project = workspace.add_project("p")
         # Orphan experiment dir left by external tooling.
-        orphan = project.project_dir / "experiments" / "orphan"
+        orphan = Path(project.project_dir) / "experiments" / "orphan"
         orphan.mkdir(parents=True)
         (orphan / "experiment.json").write_text(
             '{"id":"orphan","name":"orphan","parameter_space":{},'
