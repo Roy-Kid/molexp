@@ -50,6 +50,7 @@ from .promote import promote_callable, resolve_callable_entrypoint, resolve_spec
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .serializer import WorkflowCompiler, default_compiler
+from .snapshot_ref import WorkflowSnapshotRef
 from .spec import Workflow
 from .task import Actor, Task
 from .types import End, WorkflowError, WorkflowExecution, WorkflowResult
@@ -73,6 +74,7 @@ __all__ = [
     "WorkflowError",
     "WorkflowExecution",
     "WorkflowResult",
+    "WorkflowSnapshotRef",
     "WorkflowVersion",
     "default_compiler",
     "default_registry",
