@@ -108,7 +108,7 @@ def test_submit_handler_with_target_stages_in_and_uses_transport(
         def __enter__(self):
             return self
 
-        def __exit__(self, *a):
+        def __exit__(self, *a):  # noqa: ANN002
             return False
 
         def submit_job(self, *, argv, resources, scheduling, execution, metadata):
@@ -176,7 +176,7 @@ def test_submit_handler_without_target_uses_local_transport(
         def __enter__(self):
             return self
 
-        def __exit__(self, *a):
+        def __exit__(self, *a):  # noqa: ANN002
             return False
 
         def submit_job(self, *, argv, resources, scheduling, execution, metadata):

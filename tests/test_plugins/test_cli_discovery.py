@@ -63,7 +63,7 @@ class TestCliPluginContract:
             id="x",
             name="X",
             version="0.0.1",
-            register=lambda app: None,
+            register=lambda app: None,  # noqa: ARG005
         )
         with pytest.raises(AttributeError):
             plugin.id = "y"  # type: ignore[misc]
@@ -74,7 +74,7 @@ class TestCliPluginContract:
             id="x",
             name="X",
             version="0.0.1",
-            register=lambda app: None,
+            register=lambda app: None,  # noqa: ARG005
         )
         assert plugin.api_version == CLI_PLUGIN_API_VERSION
 
@@ -157,7 +157,7 @@ def _make_plugin(
         id=plugin_id,
         name=plugin_id.title(),
         version="1.0.0",
-        register=lambda app: None,
+        register=lambda app: None,  # noqa: ARG005
         api_version=api_version,
     )
 

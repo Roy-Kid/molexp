@@ -34,7 +34,7 @@ def isolated_user_dir(tmp_path, monkeypatch):
     fake_home.mkdir()
     fake_user_dir = fake_home / ".molexp"
     monkeypatch.setattr(mcp_mod, "USER_DIR", fake_user_dir)
-    monkeypatch.setattr(defaults_mod, "seed_user_defaults", lambda *a, **kw: False)
+    monkeypatch.setattr(defaults_mod, "seed_user_defaults", lambda *a, **kw: False)  # noqa: ARG005
     return fake_user_dir
 
 

@@ -21,7 +21,7 @@ _FIXTURE_ROOT = Path(__file__).parent / "_fixtures"
 if str(_FIXTURE_ROOT) not in sys.path:
     sys.path.insert(0, str(_FIXTURE_ROOT))
 
-from molexp.plugins.cli import CliPlugin, _discover_cli_uncached
+from molexp.plugins.cli import CliPlugin, _discover_cli_uncached  # noqa: E402
 
 
 class _FakeEntryPoint:

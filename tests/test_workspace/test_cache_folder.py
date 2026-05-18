@@ -56,7 +56,7 @@ def snapshot() -> TaskSnapshot:
 
 
 def test_entry_path_is_under_cache_dir(folder: CacheFolder, workspace: Workspace) -> None:
-    assert folder.entry_path("k") == workspace.root / "cache" / "k.json"
+    assert folder.entry_path("k") == str(workspace.root / "cache" / "k.json")
 
 
 def test_read_entry_miss_returns_none(folder: CacheFolder) -> None:
@@ -144,7 +144,7 @@ def test_caching_round_trip_via_workspace_cache(
 
 def test_cache_folder_lazy_mkdir(workspace: Workspace) -> None:
     """``Workspace.Cache()`` should not create ``<root>/cache/`` until first touch."""
-    workspace.cache  # idempotent vend
+    workspace.cache  # idempotent vend  # noqa: B018
     assert not (workspace.root / "cache").exists()
 
 

@@ -22,7 +22,7 @@ class TestWorkspaceMetadata:
 
     def test_frozen(self):
         m = WorkspaceMetadata(id="lab", name="My Lab")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             m.name = "changed"
 
     def test_no_projects_field(self):
@@ -42,7 +42,7 @@ class TestProjectMetadata:
 
     def test_frozen(self):
         m = ProjectMetadata(id="qm9", name="QM9")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             m.description = "changed"
 
     def test_no_experiments_field(self):

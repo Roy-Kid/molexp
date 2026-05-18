@@ -66,7 +66,7 @@ class CapturedStdin:
             line = line.strip()
             if not line:
                 continue
-            try:
+            try:  # noqa: SIM105
                 self.frames.append(json.loads(line.decode("utf-8")))
             except json.JSONDecodeError:
                 # Non-JSON writes (e.g. raw prompts to claude CLI) are ignored

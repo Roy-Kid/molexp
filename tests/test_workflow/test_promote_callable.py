@@ -81,7 +81,7 @@ def test_resolve_callable_entrypoint_rejects_lambda() -> None:
     import pytest
 
     with pytest.raises(ValueError, match="entrypoint"):
-        resolve_callable_entrypoint(lambda ctx: None)
+        resolve_callable_entrypoint(lambda ctx: None)  # noqa: ARG005
 
 
 def test_resolve_callable_entrypoint_rejects_local_function() -> None:

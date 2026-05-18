@@ -91,7 +91,7 @@ def test_file_token_storage_chmods_to_owner_only(tmp_path):
 
     storage = FileTokenStorage(tmp_path, "srv")
     asyncio.run(storage.set_tokens(OAuthToken(access_token="x", token_type="Bearer")))
-    mode = stat.S_IMODE(os.stat(storage.path).st_mode)
+    mode = stat.S_IMODE(os.stat(storage.path).st_mode)  # noqa: PTH116
     assert mode == 0o600
 
 

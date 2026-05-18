@@ -57,7 +57,7 @@ class TestCatalogRebuild:
 
         before = catalog._load()
         assert len(before["runs"]) == 3
-        assert len(before["assets"]) >= 9  # 3 runs × (artifact + log + ckpt)
+        assert len(before["assets"]) >= 9  # 3 runs × (artifact + log + ckpt)  # noqa: RUF003
 
         # Wipe and rebuild
         shutil.rmtree(tmp_path / "lab" / "catalog")

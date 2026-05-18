@@ -14,7 +14,7 @@ def test_review_mode_name() -> None:
 
 def test_review_mode_config_is_frozen() -> None:
     cfg = ReviewModeConfig()
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         cfg.foo = "bar"  # type: ignore[misc]
 
 

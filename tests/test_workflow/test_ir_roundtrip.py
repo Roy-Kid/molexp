@@ -65,7 +65,7 @@ class TestFromDict:
     def test_unknown_slug_raises(self, registry: TaskTypeRegistry) -> None:
         ir = _ir_constant_add()
         ir["task_configs"][0]["task_type"] = "nonexistent.thing"
-        with pytest.raises(KeyError, match="nonexistent.thing"):
+        with pytest.raises(KeyError, match="nonexistent.thing"):  # noqa: RUF043
             Workflow.from_dict(ir, registry=registry)
 
     def test_dangling_link_raises(self, registry: TaskTypeRegistry) -> None:

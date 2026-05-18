@@ -14,7 +14,7 @@ imports — that is the leak the rectification spec flushes out. The
 expanded forbidden set below makes the leak in
 ``workspace/experiment.py:25–28`` show up as a RED test, which is the
 entry ticket for Phase 1.
-"""
+"""  # noqa: RUF002
 
 from __future__ import annotations
 

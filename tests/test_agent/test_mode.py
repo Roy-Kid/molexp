@@ -26,7 +26,7 @@ def test_agent_mode_subclass_must_implement_run() -> None:
 
 def test_agent_run_result_is_frozen() -> None:
     result = AgentRunResult(text="hi")
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         result.text = "changed"  # type: ignore[misc]
 
 

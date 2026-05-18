@@ -141,15 +141,15 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
             return f"memory:{value}"
 
     class DummyJobResources:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs):  # noqa: ANN003
             self.kwargs = kwargs
 
     class DummyJobScheduling:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs):  # noqa: ANN003
             self.kwargs = kwargs
 
     class DummyJobExecution:
-        def __init__(self, **kwargs):
+        def __init__(self, **kwargs):  # noqa: ANN003
             self.kwargs = kwargs
 
     class DummyCluster:

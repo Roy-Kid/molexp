@@ -190,7 +190,7 @@ def test_ir_to_spec_delegates_to_workflow_spec():
         async def execute(self, ctx):
             return None
 
-    default_registry.register("noop_for_compiler_test", lambda cfg: _Noop())
+    default_registry.register("noop_for_compiler_test", lambda cfg: _Noop())  # noqa: ARG005
     try:
         ir = {
             "name": "demo",

@@ -74,5 +74,5 @@ async def test_ensure_clone_rejects_non_git_dir_in_target(tmp_path: Path):
     target.mkdir()
     (target / "stranger.txt").write_text("not from git")
 
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         await ensure_clone(str(remote), target)

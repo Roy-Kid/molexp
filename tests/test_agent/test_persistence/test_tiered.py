@@ -289,7 +289,7 @@ def test_invalid_entry_retained_with_valid_false(tmp_path: Path) -> None:
     assert fetched is not None and fetched.valid is False
 
     # `update` refuses (entry can't be validated for the patch).
-    with pytest.raises(Exception):
+    with pytest.raises(Exception):  # noqa: B017
         store.update("broken", scope=Scope.USER, name="anything")
 
     # `delete` succeeds — operators must be able to clean up bad entries.
@@ -340,7 +340,7 @@ def test_atomic_write_uses_replace(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     real_replace = os.replace
 
-    def boom(src, dst, *args, **kwargs):
+    def boom(src, dst, *args, **kwargs):  # noqa: ANN002, ANN003
         raise OSError("simulated replace failure")
 
     monkeypatch.setattr(os, "replace", boom)

@@ -43,44 +43,108 @@ from ._names import generate_name
 from ._pydantic_graph.runtime import make_execution_id
 from .builder import WorkflowBuilder
 from .cache import Caching
-from .cache_store import CacheStore
+from .cache_store import CacheStore, FileCacheStore
 from .context import ActorContext, TaskContext
-from .contract import WorkflowContract
+from .contract import (
+    ArtifactDecl,
+    Severity,
+    TaskIO,
+    TaskInputSpec,
+    TaskOutputSpec,
+    ValidationCheck,
+    ValidationCheckId,
+    ValidationIssue,
+    ValidationReport,
+    WorkflowContract,
+    default_validation_checks,
+    validate_workflow_contract,
+)
 from .promote import promote_callable, resolve_callable_entrypoint, resolve_spec_entrypoint
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .serializer import WorkflowCompiler, default_compiler
+from .snapshot import TaskSnapshot
 from .snapshot_ref import WorkflowSnapshotRef
 from .spec import Workflow
 from .task import Actor, Task
-from .types import End, WorkflowError, WorkflowExecution, WorkflowResult
-from .version import WorkflowVersion
+from .types import (
+    BranchEdges,
+    CycleError,
+    EdgeShapeError,
+    End,
+    EntryAmbiguousError,
+    LoopMaxItersExceeded,
+    MissingRouteError,
+    OutEdges,
+    ParallelExecutionError,
+    UnconditionalEdges,
+    UnknownRouteError,
+    UnknownTaskError,
+    UnreachableTaskError,
+    WorkflowDeadlockError,
+    WorkflowError,
+    WorkflowExecution,
+    WorkflowResult,
+)
+from .version import (
+    TaskTopologyEntry,
+    WorkflowVersion,
+    WorkflowVersionConflictError,
+)
 
 __all__ = [
     "Actor",
     "ActorContext",
+    "ArtifactDecl",
+    "BranchEdges",
     "CacheStore",
     "Caching",
+    "CycleError",
+    "EdgeShapeError",
     "End",
+    "EntryAmbiguousError",
+    "FileCacheStore",
+    "LoopMaxItersExceeded",
+    "MissingRouteError",
+    "OutEdges",
+    "ParallelExecutionError",
     "Runnable",
+    "Severity",
     "Streamable",
     "Task",
     "TaskContext",
+    "TaskIO",
+    "TaskInputSpec",
+    "TaskOutputSpec",
+    "TaskSnapshot",
+    "TaskTopologyEntry",
     "TaskTypeRegistry",
+    "UnconditionalEdges",
+    "UnknownRouteError",
+    "UnknownTaskError",
+    "UnreachableTaskError",
+    "ValidationCheck",
+    "ValidationCheckId",
+    "ValidationIssue",
+    "ValidationReport",
     "Workflow",
     "WorkflowBuilder",
     "WorkflowCompiler",
     "WorkflowContract",
+    "WorkflowDeadlockError",
     "WorkflowError",
     "WorkflowExecution",
     "WorkflowResult",
     "WorkflowSnapshotRef",
     "WorkflowVersion",
+    "WorkflowVersionConflictError",
     "default_compiler",
     "default_registry",
+    "default_validation_checks",
     "generate_name",
     "make_execution_id",
     "promote_callable",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
+    "validate_workflow_contract",
 ]

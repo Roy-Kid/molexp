@@ -92,7 +92,7 @@ def test_stage_in_local_target_is_noop(tmp_path: Path) -> None:
     # Force the no-op by using a fake target whose target_run_dir equals run_dir.
     from molexp.plugins.submit_molq import staging as staging_mod
 
-    monkey_target_run_dir = lambda *_a, **_kw: str(run.run_dir)
+    monkey_target_run_dir = lambda *_a, **_kw: str(run.run_dir)  # noqa: E731
     original = staging_mod.target_run_dir
     staging_mod.target_run_dir = monkey_target_run_dir  # type: ignore[assignment]
     try:

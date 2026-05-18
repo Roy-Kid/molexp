@@ -55,7 +55,7 @@ class TestComputeTargetValidation:
 
     def test_target_is_frozen(self) -> None:
         t = ComputeTarget(name="x", scratch_root="/tmp")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017
             t.name = "y"  # type: ignore[misc]
 
 

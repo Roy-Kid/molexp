@@ -102,7 +102,7 @@ def captured_submits(monkeypatch):
     monkeypatch.setattr(
         SubmitHandler,
         "__call__",
-        lambda self, *args, **kwargs: calls.append((self, args)),
+        lambda self, *args, **kwargs: calls.append((self, args)),  # noqa: ARG005
     )
     return calls
 
@@ -201,7 +201,7 @@ class TestRunSubmissionWiring:
     ):
         monkeypatch.setattr(
             "molexp.server.routes.run.try_cancel",
-            lambda r: "no molq job id",
+            lambda r: "no molq job id",  # noqa: ARG005
         )
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
         assert resp.status_code == 200

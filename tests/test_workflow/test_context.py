@@ -54,7 +54,7 @@ class TestSlimmedTaskContext:
     def test_run_context_is_arbitrary_duck_typed_object(self):
         class Anything:
             work_dir = "/tmp/anywhere"
-            config = {}
+            config = {}  # noqa: RUF012
             run = None
 
         obj = Anything()
