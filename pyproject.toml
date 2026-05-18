@@ -98,7 +98,7 @@ ignore = [
 # and may freely declare untyped fixture functions.
 "tests/**" = ["ANN001", "ANN201", "ANN202", "ANN204", "ANN401", "ARG001", "ARG002"]
 # Examples are user-facing tutorials — annotation gaps are pedagogically OK.
-"examples/**" = ["ANN001", "ANN201", "ANN202", "ANN204", "ANN401"]
+"examples/**" = ["ANN001", "ANN201", "ANN202", "ANN204", "ANN401", "ARG001", "ARG002"]
 # `__init__.py` re-export modules don't need annotations on `__all__` etc.
 "**/__init__.py" = ["F401"]
 # CLI entry-points use typer-style decorators with implicit return types.
