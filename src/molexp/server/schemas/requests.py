@@ -7,14 +7,48 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Discriminator, Field
+from pydantic import BaseModel, Discriminator, Field, Tag
 
 # ── Workspace ───────────────────────────────────────────────────────────────
 
 
-class WorkspaceOpenRequest(BaseModel):
+class WorkspaceOpenLocalRequest(BaseModel):
+    """Local-workspace branch of ``POST /api/workspace/open``."""
+
+    kind: Literal["local"] = Field(default="local", description="Discriminator")
     path: str = Field(..., description="Absolute path to the workspace")
     create_if_missing: bool = Field(False, description="Create if missing")
+
+
+class WorkspaceOpenRemoteRequest(BaseModel):
+    """Remote-workspace branch of ``POST /api/workspace/open``.
+
+    The descriptor must already be registered via
+    ``POST /api/workspace/targets``; auto-creation of remote roots is
+    out of scope for this endpoint (returns 404 if the descriptor or
+    its remote ``root_path`` is missing).
+    """
+
+    kind: Literal["remote"] = Field(..., description="Discriminator")
+    name: str = Field(..., description="Registered workspace-target name")
+
+
+def _workspace_open_discriminator(v: object) -> str:
+    """Discriminator with back-compat default — bodies that omit ``kind``
+    are treated as ``kind: "local"`` so existing clients keep working."""
+    from typing import cast
+
+    if isinstance(v, dict):
+        kind = cast(dict[str, object], v).get("kind")
+        return str(kind) if kind is not None else "local"
+    return str(getattr(v, "kind", "local"))
+
+
+WorkspaceOpenRequest = Annotated[
+    Annotated[WorkspaceOpenLocalRequest, Tag("local")]
+    | Annotated[WorkspaceOpenRemoteRequest, Tag("remote")],
+    Discriminator(_workspace_open_discriminator),
+]
 
 
 # ── Project ─────────────────────────────────────────────────────────────────

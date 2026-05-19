@@ -16,6 +16,7 @@ from ..dependencies import (
     get_remote_fs_factory,
     get_workspace,
     get_workspace_target_registry,
+    set_active_workspace_descriptor,
     set_workspace_path_override,
 )
 from ..schemas import (
@@ -23,6 +24,7 @@ from ..schemas import (
     TargetTestCheck,
     TargetTestResponse,
     WorkspaceInfoResponse,
+    WorkspaceOpenLocalRequest,
     WorkspaceOpenRequest,
     WorkspaceRunRow,
     WorkspaceRunsResponse,
@@ -232,16 +234,45 @@ def read_workspace_file_blob(
 @router.post("/open", response_model=WorkspaceInfoResponse)
 def open_workspace(
     request: WorkspaceOpenRequest,
+    registry=Depends(get_workspace_target_registry),  # noqa: ANN001
 ) -> WorkspaceInfoResponse:
-    """Set the active workspace path."""
-    path = Path(request.path).expanduser().resolve()
-    if not path.exists():
-        if not request.create_if_missing:
-            raise HTTPException(status_code=404, detail="Workspace path not found")
-        path.mkdir(parents=True, exist_ok=True)
+    """Set the active workspace — local path or registered remote descriptor.
 
-    set_workspace_path_override(path)
-    workspace = Workspace(path)
+    Switching the active workspace drains any registered workspace
+    subscribers (SSE streams, file watchers — registered via
+    :func:`~molexp.server.dependencies.register_workspace_subscriber`)
+    *before* the cache is reset, so the new workspace starts from a
+    clean subscriber slate.
+    """
+    if isinstance(request, WorkspaceOpenLocalRequest):
+        path = Path(request.path).expanduser().resolve()
+        if not path.exists():
+            if not request.create_if_missing:
+                raise HTTPException(status_code=404, detail="Workspace path not found")
+            path.mkdir(parents=True, exist_ok=True)
+
+        set_workspace_path_override(path)
+        workspace = Workspace(path)
+        return WorkspaceInfoResponse(
+            root=str(workspace.root),
+            projectCount=len(workspace.list_projects()),
+            assetCount=len(workspace.assets.list()),
+        )
+
+    # Remote branch
+    try:
+        target = registry.get(request.name)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"workspace target {request.name!r} not found",
+        ) from exc
+
+    from ..workspace_targets import target_to_filesystem_for_workspace_target
+
+    fs = target_to_filesystem_for_workspace_target(target)
+    set_active_workspace_descriptor(target.name)
+    workspace = Workspace(target.root_path, fs=fs)
     return WorkspaceInfoResponse(
         root=str(workspace.root),
         projectCount=len(workspace.list_projects()),

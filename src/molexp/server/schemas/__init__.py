@@ -36,6 +36,8 @@ from .requests import (
     SkillLaunchRequest,
     SkillUpdateRequest,
     UserMessageCreateRequest,
+    WorkspaceOpenLocalRequest,
+    WorkspaceOpenRemoteRequest,
     WorkspaceOpenRequest,
 )
 from .responses import (
@@ -125,17 +127,17 @@ from .targets import (
     TargetTestCheck,
     TargetTestResponse,
 )
-from .workspace_targets import (
-    WorkspaceTargetCreateRequest,
-    WorkspaceTargetListResponse,
-    WorkspaceTargetResponse,
-)
 from .workspace_runs import (
     WorkspaceExecutionRow,
     WorkspaceRunRow,
     WorkspaceRunsResponse,
     WorkspaceRunsStats,
     compute_workspace_runs_stats,
+)
+from .workspace_targets import (
+    WorkspaceTargetCreateRequest,
+    WorkspaceTargetListResponse,
+    WorkspaceTargetResponse,
 )
 
 __all__ = [
@@ -261,6 +263,8 @@ __all__ = [
     "WorkspaceExecutionRow",
     "WorkspaceFolderResponse",
     "WorkspaceInfoResponse",
+    "WorkspaceOpenLocalRequest",
+    "WorkspaceOpenRemoteRequest",
     "WorkspaceOpenRequest",
     "WorkspaceRunRow",
     "WorkspaceRunsResponse",
