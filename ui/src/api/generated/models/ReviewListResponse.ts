@@ -7,3 +7,4 @@ export type ReviewListResponse = {
     reviews: Array<ReviewItemResponse>;
     total: number;
 };
+

@@ -344,7 +344,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
           </EntityTabContent>
 
           <EntityTabContent value="snapshot">
-            <RunSnapshotPanel runId={run.id} />
+            <RunSnapshotPanel run={run} />
           </EntityTabContent>
         </EntityTabs>
       </div>

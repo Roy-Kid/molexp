@@ -14,6 +14,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+const DEFAULT_CACHE_TTL_SECONDS = 300;
+
 const emptyForm = (): WorkspaceTargetCreateRequest => ({
   name: "",
   host: "",
@@ -21,6 +23,8 @@ const emptyForm = (): WorkspaceTargetCreateRequest => ({
   port: null,
   identity_file: null,
   ssh_opts: [],
+  cache_dir: null,
+  cache_ttl_seconds: DEFAULT_CACHE_TTL_SECONDS,
 });
 
 interface AddRemoteWorkspaceFormProps {
@@ -55,6 +59,9 @@ export function AddRemoteWorkspaceForm({
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        cache_dir: form.cache_dir?.trim() ? form.cache_dir.trim() : null,
+        cache_ttl_seconds:
+          form.cache_ttl_seconds == null ? DEFAULT_CACHE_TTL_SECONDS : Number(form.cache_ttl_seconds),
       };
       const created = await WorkspaceService.createWorkspaceTargetApiWorkspaceTargetsPost(payload);
       setForm(emptyForm());
@@ -138,6 +145,45 @@ export function AddRemoteWorkspaceForm({
             placeholder="-o, StrictHostKeyChecking=accept-new"
           />
         </div>
+        <details className="space-y-3">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
+            Cache (lazy-download mirror)
+          </summary>
+          <div className="space-y-1">
+            <Label htmlFor="add-remote-ws-cache-ttl">
+              Cache TTL (seconds)
+            </Label>
+            <Input
+              id="add-remote-ws-cache-ttl"
+              type="number"
+              min={0}
+              value={form.cache_ttl_seconds ?? DEFAULT_CACHE_TTL_SECONDS}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  cache_ttl_seconds:
+                    e.target.value === "" ? DEFAULT_CACHE_TTL_SECONDS : Number(e.target.value),
+                })
+              }
+              placeholder={String(DEFAULT_CACHE_TTL_SECONDS)}
+            />
+            <p className="text-xs text-muted-foreground">
+              How long a cached file/dir entry stays fresh. 0 always re-stats the
+              remote FS but still serves mirror bytes when mtime matches.
+            </p>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="add-remote-ws-cache-dir">Cache directory (optional)</Label>
+            <Input
+              id="add-remote-ws-cache-dir"
+              value={form.cache_dir ?? ""}
+              onChange={(e) =>
+                setForm({ ...form, cache_dir: e.target.value === "" ? null : e.target.value })
+              }
+              placeholder="~/.molexp/remote_cache/<name>"
+            />
+          </div>
+        </details>
       </div>
       {error && <p className="text-sm text-red-500">{error}</p>}
       <div className="flex justify-end gap-2">

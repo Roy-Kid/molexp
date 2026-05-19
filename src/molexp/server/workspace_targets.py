@@ -35,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 __all__ = [
     "WorkspaceTarget",
     "WorkspaceTargetRegistry",
+    "default_remote_cache_dir",
     "default_workspace_targets_path",
     "target_to_filesystem_for_workspace_target",
 ]
@@ -74,6 +75,23 @@ class WorkspaceTarget(BaseModel):
             "rewrite tildes / case to the local host's conventions."
         ),
     )
+    cache_dir: str | None = Field(
+        default=None,
+        description=(
+            "Override the local mirror root used by "
+            ":class:`~molexp.workspace.fs_cached.CachedRemoteFileSystem`. "
+            "``None`` resolves to ``~/.molexp/remote_cache/<name>``."
+        ),
+    )
+    cache_ttl_seconds: int = Field(
+        default=300,
+        ge=0,
+        description=(
+            "Freshness window for cached file/dir entries. ``0`` disables the "
+            "fast path — every read re-stats the remote FS, but already-fetched "
+            "mirror bytes are still served when mtime matches."
+        ),
+    )
 
     @field_validator("name")
     @classmethod
@@ -100,7 +118,12 @@ def default_workspace_targets_path() -> Path:
 
 
 # JSON envelope version — bumps if the on-disk shape ever changes.
-_STORE_FORMAT_VERSION = 1
+#
+# v1 → v2 (2026-05-19): added ``cache_dir`` and ``cache_ttl_seconds`` for
+# the remote-workspace lazy-download mirror. v1 files load cleanly because
+# the new fields have defaults — the reader does not gate on this number;
+# it tags new writes.
+_STORE_FORMAT_VERSION = 2
 
 
 class WorkspaceTargetRegistry:
@@ -191,18 +214,29 @@ class WorkspaceTargetRegistry:
         atomic_write_json(self._store_path, payload)
 
 
+def default_remote_cache_dir(target_name: str) -> Path:
+    """Resolve the default mirror root for a workspace target."""
+    return Path.home() / ".molexp" / "remote_cache" / target_name
+
+
 def target_to_filesystem_for_workspace_target(target: WorkspaceTarget) -> FileSystem:
-    """Build a :class:`RemoteFileSystem` for a :class:`WorkspaceTarget`.
+    """Build a cached :class:`RemoteFileSystem` for a :class:`WorkspaceTarget`.
 
     Parallels :func:`molexp.workspace.target.target_to_filesystem` but
     works on the server-process descriptor type rather than the
     workspace-scoped ``Target`` sum.  Importing :class:`SshTransport` /
     :class:`SshTransportOptions` is deferred to keep
     ``molexp.server.workspace_targets`` cheap to import.
+
+    Wraps the live :class:`RemoteFileSystem` in
+    :class:`~molexp.workspace.fs_cached.CachedRemoteFileSystem` so the
+    server-side mirror is in effect for every remote workspace — the
+    cache directory and TTL come from the descriptor.
     """
     from molq.options import SshTransportOptions
     from molq.transport import SshTransport
 
+    from molexp.workspace.fs_cached import CachedRemoteFileSystem
     from molexp.workspace.fs_remote import RemoteFileSystem
 
     options = SshTransportOptions(
@@ -212,4 +246,12 @@ def target_to_filesystem_for_workspace_target(target: WorkspaceTarget) -> FileSy
         ssh_opts=tuple(target.ssh_opts),
     )
     transport = SshTransport(options=options)
-    return RemoteFileSystem(transport)
+    inner = RemoteFileSystem(transport)
+    mirror_root = (
+        Path(target.cache_dir) if target.cache_dir else default_remote_cache_dir(target.name)
+    )
+    return CachedRemoteFileSystem(
+        inner,
+        mirror_root=mirror_root,
+        ttl_seconds=target.cache_ttl_seconds,
+    )

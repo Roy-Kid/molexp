@@ -46,3 +46,4 @@ export namespace TargetCreateRequest {
         LSF = 'lsf',
     }
 }
+

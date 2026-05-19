@@ -127,7 +127,12 @@ class _RejectingPolicy:
 
 @pytest.mark.asyncio
 async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Path) -> None:
-    from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
+    """A never-approving policy + ``max_iterations=1`` lets the outer loop
+    finish in a single round and surface the rejected handoff on disk."""
+    import warnings as _warnings
+
+    from molexp.agent.modes.plan._pipeline import build_plan_workflow
+    from molexp.workflow import LoopMaxItersExceeded
 
     workspace = Workspace(tmp_path / "ws")
     handle = workspace.add_folder(PlanFolder(name="rejected-plan"))
@@ -138,8 +143,11 @@ async def test_human_review_rejection_persists_non_runnable_handoff(tmp_path: Pa
         plan_folder=handle,
         final_policy_lookup=lambda: rejecting,
     )
-    result = await PLAN_WORKFLOW.execute(config={"user_input": "report"}, deps=deps)
-    # On rejection: the workspace remains reviewable but is not ready for RunMode.
+    one_shot = build_plan_workflow(max_iterations=1)
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore", LoopMaxItersExceeded)
+        result = await one_shot.execute(config={"user_input": "report"}, deps=deps)
+    # On rejection: workspace remains reviewable but is not ready for RunMode.
     assert result.status == "completed"
     raw = yaml.safe_load(handle.manifest_path().read_text())
     assert raw.get("status") == "ready_for_review"

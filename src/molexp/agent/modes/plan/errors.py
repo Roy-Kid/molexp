@@ -1,37 +1,18 @@
 """Domain exceptions for the PlanMode pipeline.
 
-Four exceptions are exposed:
-
 - :class:`SkeletonCompileError` — ``GenerateWorkflowSkeleton`` raises
-  this when the Python source it emits fails :func:`compile`.
-- :class:`CapabilityDiscoveryRequired` — raised when a downstream node
-  asks for capability discovery but no probe is configured (or the
-  probe declined the request). The ``planmode-review-repair-loop``
-  driver intercepts this and re-runs ``DraftCapabilityNeeds`` +
-  ``DiscoverCapabilities``.
-- :class:`UnevidencedApiReference` — raised by codegen nodes after
-  :func:`~molexp.agent.modes.plan.capability.validate_codegen_evidence`
-  reports a non-empty miss set, or when the LLM's ``evidence_refs``
-  schema field disagrees with the source's
-  ``__capability_evidence__`` literal. The repair loop re-runs
-  ``DiscoverCapabilities`` on the first miss and escalates to
-  ``DraftCapabilityNeeds`` + ``DiscoverCapabilities`` on the second.
-- :class:`StepRejected` — raised by :class:`~molexp.agent.modes.plan.tasks.PlanTask`
-  immediately after a per-step :class:`~molexp.agent.review.ReviewPolicy`
-  returns ``approved=False``.  Carries the
-  :class:`~molexp.agent.review.ReviewDecision` and the
-  :class:`~molexp.agent.review.StepView` so the repair driver knows
-  which step was rejected and what feedback the reviewer left.
-
-The capability exceptions and :class:`StepRejected` subclass
-:class:`molexp.workflow.WorkflowError` so the workflow runtime
-propagates them to ``drive_with_repair`` instead of swallowing them
-into a generic ``status="failed"`` result. Without that propagation the
-repair loop has no signal to act on (the runtime returns
-``WorkflowResult(outputs={})`` for caught exceptions).
-:class:`SkeletonCompileError` stays as :class:`RuntimeError` because the
-existing pipeline relies on it bubbling out of the workflow runtime in a
-specific way that pre-dates the capability gate.
+  when the LLM-emitted Python source fails :func:`compile`. Hard
+  error; bubbles out of the workflow.
+- :class:`CapabilityDiscoveryRequired` — raised inside capability
+  probes when discovery is impossible. Caught by
+  :class:`~molexp.agent.modes.plan.tasks.PlanTask` and converted to a
+  :class:`~molexp.agent.modes.plan.state.RepairSignal`.
+- :class:`UnevidencedApiReference` — raised inside
+  :func:`~molexp.agent.modes.plan.tasks._gate_evidence` when a codegen
+  module references an API absent from the evidence batch. Caught at
+  the :class:`PlanTask` boundary.
+- :class:`StepRejected` — retained for back-compat; pipeline tasks no
+  longer raise it (per-step rejections plant a signal directly).
 """
 
 from __future__ import annotations

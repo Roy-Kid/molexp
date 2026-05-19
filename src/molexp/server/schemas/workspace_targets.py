@@ -32,6 +32,15 @@ class WorkspaceTargetCreateRequest(BaseModel):
         default_factory=list,
         description="Extra ``ssh`` argv tokens",
     )
+    cache_dir: str | None = Field(
+        default=None,
+        description="Override local mirror root (defaults to ~/.molexp/remote_cache/<name>)",
+    )
+    cache_ttl_seconds: int = Field(
+        default=300,
+        ge=0,
+        description="Freshness window for cached file entries; 0 disables the fast path",
+    )
 
 
 class WorkspaceTargetResponse(BaseModel):
@@ -43,6 +52,8 @@ class WorkspaceTargetResponse(BaseModel):
     port: int | None = None
     identity_file: str | None = None
     ssh_opts: list[str] = Field(default_factory=list)
+    cache_dir: str | None = None
+    cache_ttl_seconds: int = 300
 
     @classmethod
     def from_model(cls, target: WorkspaceTarget) -> WorkspaceTargetResponse:
@@ -53,6 +64,8 @@ class WorkspaceTargetResponse(BaseModel):
             port=target.port,
             identity_file=target.identity_file,
             ssh_opts=list(target.ssh_opts),
+            cache_dir=target.cache_dir,
+            cache_ttl_seconds=target.cache_ttl_seconds,
         )
 
 

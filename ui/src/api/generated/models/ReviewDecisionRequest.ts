@@ -15,7 +15,8 @@ export type ReviewDecisionRequest = {
      */
     edited_plan?: (string | null);
     /**
-     * Optional edited workflow IR when approving a plan review.
+     * Optional edited plan proposal (PlanProposal-shaped) when approving a plan review.
      */
-    edited_workflow_ir?: (Record<string, any> | null);
+    edited_proposal?: (Record<string, any> | null);
 };
+

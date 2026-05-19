@@ -2,7 +2,5 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-import type { SkillResponse } from './SkillResponse';
-export type SkillListResponse = {
-    skills?: Array<SkillResponse>;
-};
+export type JSONValue = (string | number | boolean | Array<JSONValue> | Record<string, JSONValue> | null);
+

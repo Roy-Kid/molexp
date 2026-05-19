@@ -300,6 +300,8 @@ def test_registry_round_trip_preserves_all_fields(registry_path: Path):
         identity_file="/home/me/.ssh/id_ed25519",
         ssh_opts=("-o", "StrictHostKeyChecking=accept-new"),
         root_path="/scratch/me/molexp",
+        cache_dir="/var/cache/molexp/rich",
+        cache_ttl_seconds=600,
     )
     r1 = WorkspaceTargetRegistry(store_path=registry_path)
     r1.add(rich)
@@ -310,3 +312,45 @@ def test_registry_round_trip_preserves_all_fields(registry_path: Path):
     # Sanity-check on-disk shape: ssh_opts is a list in JSON, tuple in memory.
     raw = json.loads(registry_path.read_text())
     assert raw["targets"][0]["ssh_opts"] == ["-o", "StrictHostKeyChecking=accept-new"]
+    assert raw["targets"][0]["cache_dir"] == "/var/cache/molexp/rich"
+    assert raw["targets"][0]["cache_ttl_seconds"] == 600
+
+
+# ── v1 → v2 forward compatibility ─────────────────────────────────────
+
+
+@pytest.mark.unit
+def test_registry_loads_v1_envelope_without_cache_fields(registry_path: Path):
+    """A pre-cache-bump store file must still deserialize, defaulting the new fields."""
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "targets": [
+                    {
+                        "name": "legacy",
+                        "host": "me@old.host",
+                        "root_path": "/legacy/root",
+                        "port": None,
+                        "identity_file": None,
+                        "ssh_opts": [],
+                    }
+                ],
+            }
+        )
+    )
+    r = WorkspaceTargetRegistry(store_path=registry_path)
+    target = r.get("legacy")
+    assert target.cache_dir is None
+    assert target.cache_ttl_seconds == 300
+
+
+@pytest.mark.unit
+def test_registry_rejects_negative_cache_ttl():
+    from pydantic import ValidationError as _VE
+
+    with pytest.raises(_VE):
+        WorkspaceTarget(
+            name="bad", host="h", root_path="/r", cache_ttl_seconds=-1
+        )

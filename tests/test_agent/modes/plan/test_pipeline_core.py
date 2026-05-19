@@ -15,7 +15,15 @@ import yaml
 
 from molexp.agent.mode import AgentRunResult
 from molexp.agent.modes.plan import PlanFolder, PlanMode
-from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW, build_plan_workflow
+from molexp.agent.modes.plan._pipeline import (
+    DISCOVERY_SUBGRAPH,
+    INTAKE_SUBGRAPH,
+    MATERIALIZE_SUBGRAPH,
+    PLAN_WORKFLOW,
+    VERIFY_SUBGRAPH,
+    build_plan_workflow,
+)
+from molexp.agent.modes.plan.state import PlanRuntimeState
 from molexp.agent.modes.plan.errors import SkeletonCompileError
 from molexp.agent.modes.plan.policy import PlanModelPolicy
 from molexp.agent.modes.plan.protocols import ModelTier, PlanDeps
@@ -51,32 +59,45 @@ from .conftest import FakeProvider
 # ── PLAN_WORKFLOW shape (ac-007) ───────────────────────────────────────────
 
 
-def test_plan_workflow_is_workflow_with_fourteen_named_nodes() -> None:
-    """Plan pipeline covers all 14 nodes.
-
-    Capability discovery (``DraftCapabilityNeeds`` + ``DiscoverCapabilities``)
-    runs between ``DraftImplementationPlan`` and IR compilation so codegen
-    nodes receive discovered capability evidence.
-    """
+def test_plan_workflow_is_outer_loop_over_five_stages() -> None:
+    """Outer ``PLAN_WORKFLOW`` is a 7-task chain (PrepareIteration + 5 stages +
+    RepairDecide) wrapped in ``wf.loop``. Leaves live inside the per-stage
+    subgraphs so the outer body stays a strict chain."""
     assert isinstance(PLAN_WORKFLOW, Workflow)
-    assert PLAN_WORKFLOW._entries == ("IngestReport",)
+    assert PLAN_WORKFLOW._entries == ("PrepareIteration",)
     assert {t.name for t in PLAN_WORKFLOW._tasks} == {
-        "IngestReport",
-        "DraftReportDigest",
-        "ClarifyMissingInformation",
-        "DraftImplementationPlan",
+        "PrepareIteration",
+        "UnderstandStage",
+        "StrategizeStage",
+        "BindStage",
+        "MaterializeStage",
+        "VerifyStage",
+        "RepairDecide",
+    }
+    assert len(PLAN_WORKFLOW._tasks) == 7
+
+
+def test_subgraphs_cover_all_fourteen_leaves() -> None:
+    """The four sub-workflows together carry the same 14 leaf tasks the
+    legacy flat pipeline did. Boundary stubs are no-op seeded inputs."""
+    intake_leaves = {"IngestReport", "DraftReportDigest", "ClarifyMissingInformation"}
+    discovery_leaves = {"DraftCapabilityNeeds", "DiscoverCapabilities"}
+    materialize_leaves = {
         "CompileWorkflowIR",
         "CompileTaskIR",
-        "DraftCapabilityNeeds",
-        "DiscoverCapabilities",
         "GenerateWorkflowSkeleton",
         "GenerateTaskTests",
         "GenerateTaskImplementations",
-        "ValidateWorkspace",
-        "HumanReview",
-        "FinalHandoffCheck",
     }
-    assert len(PLAN_WORKFLOW._tasks) == 14
+    verify_leaves = {"ValidateWorkspace", "HumanReview", "FinalHandoffCheck"}
+
+    def _names(wf: Workflow) -> set[str]:
+        return {t.name for t in wf._tasks}
+
+    assert intake_leaves <= _names(INTAKE_SUBGRAPH)
+    assert discovery_leaves <= _names(DISCOVERY_SUBGRAPH)
+    assert materialize_leaves <= _names(MATERIALIZE_SUBGRAPH)
+    assert verify_leaves <= _names(VERIFY_SUBGRAPH)
 
 
 def test_build_plan_workflow_returns_independent_instance() -> None:
@@ -289,7 +310,7 @@ async def test_ingest_report_writes_original_md(
         policy=PlanModelPolicy(),
         plan_folder=workspace_handle,
     )
-    result = await PLAN_WORKFLOW.execute(
+    result = await INTAKE_SUBGRAPH.execute(
         config={"user_input": "user-supplied report text"}, deps=deps
     )
     ingest_out = result.outputs["IngestReport"]
@@ -311,7 +332,7 @@ async def test_ingest_report_rejects_empty_input(
         policy=PlanModelPolicy(),
         plan_folder=workspace_handle,
     )
-    result = await PLAN_WORKFLOW.execute(config={"user_input": ""}, deps=deps)
+    result = await INTAKE_SUBGRAPH.execute(config={"user_input": ""}, deps=deps)
     assert result.status == "failed"
     # No downstream task should have produced output.
     assert "DraftReportDigest" not in result.outputs
@@ -324,18 +345,26 @@ async def test_ingest_report_rejects_empty_input(
 async def test_pipeline_end_to_end_creates_all_artifacts(
     workspace_handle: PlanFolder, fake_provider: FakeProvider
 ) -> None:
-    """ac-008 — the load-bearing integration test."""
+    """ac-008 — load-bearing integration test.
+
+    Drives the outer ``PLAN_WORKFLOW`` (with default :class:`BypassPolicy`
+    so the loop approves on iteration 0). Leaf outputs accumulate on
+    :attr:`PlanRuntimeState.last_inner_outputs` across all five stages.
+    """
+    runtime = PlanRuntimeState()
     deps = PlanDeps(
         router=fake_provider,
         policy=PlanModelPolicy(),
         plan_folder=workspace_handle,
+        runtime=runtime,
     )
-    result = await PLAN_WORKFLOW.execute(
+    await PLAN_WORKFLOW.execute(
         config={"user_input": "Investigate Suzuki coupling at varying temperatures."},
         deps=deps,
     )
 
-    skeleton_out = result.outputs["GenerateWorkflowSkeleton"]
+    outs = runtime.last_inner_outputs
+    skeleton_out = outs["GenerateWorkflowSkeleton"]
     assert isinstance(skeleton_out, SkeletonResult)
 
     root = workspace_handle.root()
@@ -355,16 +384,15 @@ async def test_pipeline_end_to_end_creates_all_artifacts(
     # ir/tasks/*.yaml — at least one (canned contract has 3).
     tasks_yaml = list((root / "ir" / "tasks").glob("*.yaml"))
     assert len(tasks_yaml) >= 1
-    # And every per-task YAML round-trips via safe_load.
     for tyaml in tasks_yaml:
         assert isinstance(yaml.safe_load(tyaml.read_text()), dict)
 
     # Per-node Result types are well-formed.
-    assert isinstance(result.outputs["IngestReport"], IngestReportResult)
-    assert isinstance(result.outputs["DraftReportDigest"], DigestResult)
-    assert isinstance(result.outputs["DraftImplementationPlan"], PlanBriefResult)
-    assert isinstance(result.outputs["CompileWorkflowIR"], WorkflowIRResult)
-    assert isinstance(result.outputs["CompileTaskIR"], TaskIRResult)
+    assert isinstance(outs["IngestReport"], IngestReportResult)
+    assert isinstance(outs["DraftReportDigest"], DigestResult)
+    assert isinstance(outs["DraftImplementationPlan"], PlanBriefResult)
+    assert isinstance(outs["CompileWorkflowIR"], WorkflowIRResult)
+    assert isinstance(outs["CompileTaskIR"], TaskIRResult)
 
 
 # ── Skeleton compile guard (ac-009) ────────────────────────────────────────

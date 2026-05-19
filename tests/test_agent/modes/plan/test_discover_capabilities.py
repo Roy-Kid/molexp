@@ -232,11 +232,11 @@ async def test_discover_skipped_short_circuit_persists(
 async def test_null_probe_blocks_when_node_invoked_with_discovery_required(
     workspace_handle: PlanFolder,
 ) -> None:
-    """``DiscoverCapabilities`` re-raises CapabilityDiscoveryRequired.
+    """``DiscoverCapabilities`` converts CapabilityDiscoveryRequired to a repair signal.
 
-    The repair loop catches this exception and re-runs the
-    discovery pair; here we just assert the node propagates rather
-    than swallows.
+    The workflow loop reads ``ctx.deps.runtime.repair_signal`` to drive
+    the next iteration; the task short-circuits with ``None`` rather
+    than letting the exception escape.
     """
     deps = _make_deps(workspace_handle, NullCapabilityProbe())
     node = DiscoverCapabilities()
@@ -245,15 +245,18 @@ async def test_null_probe_blocks_when_node_invoked_with_discovery_required(
         needs=(CapabilityNeed(task_id="prepare", capability="x"),),
     )
 
-    with pytest.raises(CapabilityDiscoveryRequired):
-        await node.execute(_ctx_stub(deps, report))  # type: ignore[arg-type]
+    result = await node.execute(_ctx_stub(deps, report))  # type: ignore[arg-type]
+    assert result is None
+    signal = deps.runtime.repair_signal
+    assert signal is not None
+    assert signal.source_kind == "capability_required"
 
 
 @pytest.mark.asyncio
 async def test_discover_propagates_probe_capability_required(
     workspace_handle: PlanFolder,
 ) -> None:
-    """A probe that itself raises CapabilityDiscoveryRequired bubbles up."""
+    """A probe that raises CapabilityDiscoveryRequired flows through the signal slot."""
     deps = _make_deps(workspace_handle, RaisingProbe())
     node = DiscoverCapabilities()
     report = CapabilityNeedReport(
@@ -261,8 +264,11 @@ async def test_discover_propagates_probe_capability_required(
         needs=(CapabilityNeed(task_id="prepare", capability="x"),),
     )
 
-    with pytest.raises(CapabilityDiscoveryRequired):
-        await node.execute(_ctx_stub(deps, report))  # type: ignore[arg-type]
+    result = await node.execute(_ctx_stub(deps, report))  # type: ignore[arg-type]
+    assert result is None
+    signal = deps.runtime.repair_signal
+    assert signal is not None
+    assert signal.source_kind == "capability_required"
 
 
 @pytest.mark.asyncio

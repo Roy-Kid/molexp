@@ -4,7 +4,7 @@
 /* eslint-disable */
 import type { ComparisonRunRow } from './ComparisonRunRow';
 /**
- * Sweep matrix: parameter columns x run rows + metric columns.
+ * Comparison matrix: parameter columns x run rows + metric columns.
  */
 export type ExperimentComparisonResponse = {
     experimentId: string;
@@ -13,3 +13,4 @@ export type ExperimentComparisonResponse = {
     metricKeys?: Array<string>;
     runs?: Array<ComparisonRunRow>;
 };
+

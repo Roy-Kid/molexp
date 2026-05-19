@@ -324,6 +324,7 @@ class WorkspaceInfoResponse(BaseModel):
     root: str
     projectCount: int
     assetCount: int
+    warnings: list[str] = []
 
 
 class FolderEntryResponse(BaseModel):

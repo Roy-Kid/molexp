@@ -133,6 +133,26 @@ export const workspaceApi = {
       runId,
     );
   },
+  getRunExecutionLogs: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    executionId: string,
+  ) => {
+    return RunsService.getRunExecutionLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionsExecutionIdLogsGet(
+      projectId,
+      experimentId,
+      runId,
+      executionId,
+    );
+  },
+  getRunExecution: async (projectId: string, experimentId: string, runId: string) => {
+    return RunsService.getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
+      projectId,
+      experimentId,
+      runId,
+    );
+  },
   getRunLammpsLog: async (projectId: string, experimentId: string, runId: string, path: string) => {
     return RunsService.getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
       projectId,
@@ -499,6 +519,7 @@ export const mapRuns = (
     parameters: (run.parameters ?? {}) as Record<string, unknown>,
     results: (run.results ?? {}) as Record<string, unknown>,
     workflowSource: run.workflowSource ?? run.workflow?.source ?? null,
+    workflowSnapshot: run.workflow ?? null,
     startedAt: run.created ?? null,
     finishedAt: run.finished ?? null,
     executionHistory: (run.executionHistory ?? []).map((rec) => ({

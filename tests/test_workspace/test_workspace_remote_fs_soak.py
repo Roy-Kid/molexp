@@ -126,3 +126,38 @@ def test_non_local_filesystem_branch_skips_path_resolve(tmp_path):
     # No resolve() call should ever have been recorded on the spy.
     resolve_calls = [c for c in fs.calls if c[0] == "resolve"]
     assert not resolve_calls, f"unexpected resolve() on non-LocalFileSystem: {resolve_calls}"
+
+
+# ── CachedRemoteFileSystem soak ─────────────────────────────────────────
+
+
+@pytest.mark.unit
+def test_workspace_hierarchy_with_cached_wrapper_serves_second_read_from_mirror(
+    tmp_path,
+):
+    """The full Workspace→Project→Experiment→Run dance works through a
+    :class:`CachedRemoteFileSystem` wrapper, and a repeat read of any
+    persisted JSON file does not call the inner FS again.
+    """
+    from molexp.workspace.fs_cached import CachedRemoteFileSystem
+
+    inner = _SpyFileSystem()
+    cached = CachedRemoteFileSystem(
+        inner, mirror_root=tmp_path / "mirror", ttl_seconds=300
+    )
+    ws = Workspace(root=tmp_path / "remote_lab", name="Remote Lab", fs=cached)
+    ws.materialize()
+    proj = ws.add_project("alpha")
+    exp = proj.add_experiment("first-exp", workflow_source="train.py")
+    run = exp.add_run(parameters={"lr": 1e-3})
+
+    # Pick a stable file the run created and read it twice through the cache.
+    run_meta_path = inner.join(str(run.resolve()), "run.json")
+    inner.calls.clear()
+    first = cached.read_bytes(run_meta_path)
+    second = cached.read_bytes(run_meta_path)
+    assert first == second
+    read_byte_calls = [c for c in inner.calls if c[0] == "read_bytes"]
+    assert len(read_byte_calls) == 1, (
+        f"second read must come from mirror; saw {inner.calls}"
+    )

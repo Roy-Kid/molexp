@@ -134,6 +134,7 @@ export interface RunSummary {
   parameters: Record<string, unknown>;
   results: Record<string, unknown>;
   workflowSource: string | null;
+  workflowSnapshot: WorkflowSnapshotResponse | null;
   startedAt: string | null;
   finishedAt: string | null;
   executionHistory: ExecutionRecordSummary[];

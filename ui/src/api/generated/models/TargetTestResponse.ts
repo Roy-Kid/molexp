@@ -12,3 +12,4 @@ export type TargetTestResponse = {
     checks: Array<TargetTestCheck>;
     error?: (string | null);
 };
+

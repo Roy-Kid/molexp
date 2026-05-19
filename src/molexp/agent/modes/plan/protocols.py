@@ -2,9 +2,11 @@
 
 PlanMode's ``ctx.deps`` is a frozen :class:`PlanDeps` aggregate of
 runtime services — the LLM router, the tier policy, the on-disk
-experiment-workspace handle, and two callable lookups for the
+experiment-workspace handle, two callable lookups for the
 workflow-orthogonal :class:`~molexp.agent.review.ReviewPolicy` hooks
-(per-step and plan-final).  ``ctx.config`` carries JSON-only values
+(per-step and plan-final), and one mutable
+:class:`~molexp.agent.modes.plan.state.PlanRuntimeState` slot the loop
+mutates between iterations. ``ctx.config`` carries JSON-only values
 (``user_input`` etc.); ``ctx.deps`` carries the callables and stateful
 services that don't fit through a JSON channel.
 
@@ -21,10 +23,11 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from molexp.agent.capability_discovery import CapabilityDiscoveryService
 from molexp.agent.modes.plan.context import PlanRepairContext
+from molexp.agent.modes.plan.state import PlanRuntimeState
 from molexp.agent.router import ModelTier, Router
 
 if TYPE_CHECKING:
@@ -61,12 +64,10 @@ class CapabilityProbe(Protocol):
     callers that inject a lower-level source directly.
 
     - :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
-      — fallback when no source is configured;
-      :meth:`draft_needs` returns
-      ``CapabilityNeedReport(discovery_required=False, …)``,
-      :meth:`discover` raises
-      :class:`~molexp.agent.modes.plan.errors.CapabilityDiscoveryRequired`
-      whenever its input flips ``discovery_required=True``.
+      — fallback when no source is configured; :meth:`draft_needs`
+      returns ``CapabilityNeedReport(discovery_required=False, …)``,
+      :meth:`discover` returns ``CapabilityEvidenceBatch(needs_repair=...)``
+      whenever its input flips ``discovery_required=True`` (no exception).
     - :class:`molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe`
       — concrete source-backed implementation.
 
@@ -80,23 +81,7 @@ class CapabilityProbe(Protocol):
         plan_brief: PlanBrief,
         repair_context: PlanRepairContext | None = None,
     ) -> CapabilityNeedReport:
-        """Draft per-stage capability needs from the implementation plan.
-
-        Runs before the workflow IR is compiled — the only upstream
-        artefact is the natural-language plan brief. Discovery
-        consumes the resulting report; ``CompileWorkflowIR`` /
-        ``CompileTaskIR`` then write typed TaskIO from the evidence
-        batch instead of guessing project-specific types.
-
-        Args:
-            plan_brief: Implementation-plan brief produced by
-                ``DraftImplementationPlan``.
-
-        Returns:
-            Structured :class:`CapabilityNeedReport`. Setting
-            ``discovery_required=False`` short-circuits the downstream
-            ``DiscoverCapabilities`` node entirely (pure-stdlib paths).
-        """
+        """Draft per-stage capability needs from the implementation plan."""
         ...
 
     async def discover(
@@ -106,31 +91,20 @@ class CapabilityProbe(Protocol):
     ) -> CapabilityEvidenceBatch:
         """Resolve needs into concrete API evidence.
 
-        Args:
-            report: Output of :meth:`draft_needs`.
-
-        Returns:
-            :class:`CapabilityEvidenceBatch` populated with one
-            :class:`CapabilityEvidence` per resolved need plus any
-            :class:`MissingCapability` rows the source could not
-            satisfy. ``discovery_skipped`` is propagated from
-            ``report.discovery_required``.
-
-        Raises:
-            CapabilityDiscoveryRequired: When the report demands
-                discovery but the probe is unable to perform it.
+        Compatibility contract: implementations MAY still raise
+        :class:`~molexp.agent.modes.plan.errors.CapabilityDiscoveryRequired`
+        when discovery is impossible; the
+        :class:`~molexp.agent.modes.plan.tasks_capability.DiscoverCapabilities`
+        task catches it and plants a
+        :class:`~molexp.agent.modes.plan.state.RepairSignal` on
+        ``ctx.deps.runtime`` so the workflow loop can drive a repair.
         """
         ...
 
 
 def _default_bypass_lookup() -> Callable[[], ReviewPolicy]:
     """Default factory: constant lookup over a
-    :class:`~molexp.agent.review.BypassPolicy`.
-
-    Used by both the per-step hook and the plan-final hook when callers
-    do not configure either explicitly; behaviour is "never block,
-    always approve".
-    """
+    :class:`~molexp.agent.review.BypassPolicy`."""
     from molexp.agent.review import BypassPolicy
 
     policy = BypassPolicy()
@@ -148,68 +122,36 @@ def _default_bypass_lookup() -> Callable[[], ReviewPolicy]:
 class PlanDeps:
     """Runtime services bundle threaded through ``ctx.deps``.
 
+    The aggregate itself is frozen — its fields are services and
+    callables, not data the tasks mutate. The mutable cross-task scratch
+    pad lives on :attr:`runtime` (a
+    :class:`~molexp.agent.modes.plan.state.PlanRuntimeState`), whose
+    contents the workflow loop and individual tasks update freely.
+
     Attributes:
-        router: LLM dispatch gateway implementing :class:`Router`.
-            PlanMode tasks call ``ctx.deps.router.complete_structured(...)``.
-            Concrete impl: :class:`~molexp.agent._pydanticai.router.PydanticAIRouter`.
-        policy: Tier-aware model selection policy
-            (:class:`~molexp.agent.modes.plan.policy.PlanModelPolicy`).
-            Each task resolves its tier via
-            ``policy.tier_for(type(self).__name__)``.
-        plan_folder: On-disk plan workspace
-            (:class:`~molexp.agent.modes.plan.plan_folder.PlanFolder`).
-            All artifact writes route through this folder's API; tasks
-            never touch ``Path.write_text`` directly.
+        router: LLM dispatch gateway. PlanMode tasks call
+            ``ctx.deps.router.complete_structured(...)``.
+        policy: Tier-aware model selection policy. Each task resolves
+            its tier via ``policy.tier_for(type(self).__name__)``.
+        plan_folder: On-disk plan workspace. All artifact writes route
+            through this folder's API; tasks never touch
+            ``Path.write_text`` directly.
         step_policy_lookup: Live lookup for the per-step review policy
-            fired by :class:`PlanTask` after every node's ``_execute``
-            completes (except terminal nodes that own their own review
-            interaction).  Stored as a callable so the lifecycle owner
-            — :class:`PlanMode` — can hot-swap the policy mid-run while
-            :class:`PlanDeps` itself stays frozen.  Defaults to a
-            :class:`~molexp.agent.review.BypassPolicy` lookup so
-            existing pipelines run unattended.  Read sites should use
-            the convenience :attr:`step_policy` property.
+            fired by :class:`PlanTask` after every non-terminal node's
+            ``_execute`` completes. Callable so :class:`PlanMode` can
+            hot-swap the policy mid-run while :class:`PlanDeps` stays
+            frozen.
         final_policy_lookup: Live lookup for the plan-final review
-            policy consulted by ``HumanReview``.  Same hot-swap
-            machinery as :attr:`step_policy_lookup`; defaults to the
-            same bypass policy.  Read sites should use
-            :attr:`final_policy`.
-        repair_target_tasks: Optional subset of experiment-task ids that
-            ``GenerateTaskTests`` / ``GenerateTaskImplementations`` are
-            permitted to regenerate this round. ``None`` means "regenerate
-            every task brief" (the default fresh-pass behavior); a
-            non-None tuple restricts the LLM call to the listed task ids
-            so untouched tasks reuse last-iteration outputs from disk.
-            Set by :func:`drive_with_repair` between iterations; tasks
-            never read this directly outside the two codegen nodes.
-        repair_iteration: Zero on the first round; incremented before
-            each repair iteration. Surfaced into the
-            :class:`~molexp.agent.modes.plan.schemas.PlanReviewView`
-            constructed by ``HumanReview`` so reviewers see which round
-            they are in.
-        step_outputs_log: Mutable dict mapping plan-node name → most
-            recent approved output.  Populated by
-            :meth:`~molexp.agent.modes.plan.tasks.PlanTask.execute`
-            immediately after the per-step
-            :class:`~molexp.agent.review.ReviewPolicy` approves a step.
-            Lets :func:`drive_with_repair` seed boundary stubs when a
-            :class:`StepRejected` exception interrupts the run — so
-            rejecting one step replays only that step (plus cascade),
-            not the whole pipeline from scratch.  The same dict is
-            threaded through every ``dataclass.replace`` the repair
-            loop performs so the log accumulates across iterations.
+            policy consulted by ``HumanReview``. Same hot-swap
+            machinery as :attr:`step_policy_lookup`.
         capability_probe: :class:`CapabilityProbe` implementation
-            retained as a compatibility escape hatch. New wiring should
-            prefer :attr:`capability_discovery`, which owns hint
-            extraction plus the underlying probe.
-        capability_discovery: service consumed by
+            retained as a compatibility escape hatch.
+        capability_discovery: Service consumed by
             ``DraftCapabilityNeeds`` and ``DiscoverCapabilities``.
-            PlanMode only calls this abstract service; transport,
-            policy, and source-specific lookup stay behind the service.
-        repair_context: Structured feedback from the previous rejection
-            when this is a repair iteration. First pass uses the empty
-            context. LLM nodes render this centrally into their prompts
-            so reviewer feedback is not lost between iterations.
+        runtime: Live mutable state shared across loop iterations of
+            the plan workflow. Tasks read ``ctx.deps.runtime.iteration``
+            etc. and plant repair signals on
+            ``ctx.deps.runtime.repair_signal`` instead of raising.
     """
 
     router: Router
@@ -217,12 +159,9 @@ class PlanDeps:
     plan_folder: PlanFolder
     step_policy_lookup: Callable[[], ReviewPolicy] = field(default_factory=_default_bypass_lookup)
     final_policy_lookup: Callable[[], ReviewPolicy] = field(default_factory=_default_bypass_lookup)
-    repair_target_tasks: tuple[str, ...] | None = None
-    repair_iteration: int = 0
-    step_outputs_log: dict[str, Any] = field(default_factory=dict)
     capability_probe: CapabilityProbe | None = None
     capability_discovery: CapabilityDiscoveryService | None = None
-    repair_context: PlanRepairContext = field(default_factory=PlanRepairContext)
+    runtime: PlanRuntimeState = field(default_factory=PlanRuntimeState)
 
     @property
     def step_policy(self) -> ReviewPolicy:
@@ -233,3 +172,21 @@ class PlanDeps:
     def final_policy(self) -> ReviewPolicy:
         """Live plan-final :class:`ReviewPolicy` — reads through the lookup each access."""
         return self.final_policy_lookup()
+
+    @property
+    def repair_iteration(self) -> int:
+        """Convenience: ``self.runtime.iteration``. Read-only view for tasks."""
+        return self.runtime.iteration
+
+    @property
+    def repair_context(self) -> PlanRepairContext:
+        """Convenience: structured repair feedback from the previous iteration.
+
+        Always returns a usable :class:`PlanRepairContext` — empty on
+        the first iteration, populated after :class:`RepairDecide` has
+        consumed a rejection.
+        """
+        ctx = self.runtime.repair_context
+        if ctx is None:
+            return PlanRepairContext()
+        return ctx

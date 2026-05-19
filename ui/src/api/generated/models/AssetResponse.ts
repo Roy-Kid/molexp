@@ -25,3 +25,4 @@ export type AssetResponse = {
     extra?: Record<string, any>;
     content_hash?: (string | null);
 };
+

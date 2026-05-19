@@ -1,11 +1,13 @@
-"""Integration and unit tests for PlanMode.resume() (ac-010 through ac-014).
+"""Integration and unit tests for PlanMode.resume().
 
-Covers:
-- ac-010: ValueError when no completed_nodes
-- ac-011: drive_with_repair initial_spec / initial_seed_outputs parameterisation
-- ac-012: PlanTask.execute persists result + checkpoints after step approval
-- ac-013: Resumed PlanMode.run executes only non-completed nodes
-- ac-014: Mid-pipeline resume produces valid workspace
+PlanMode.resume() rehydrates a half-finished plan workflow by reading
+the latest ``workflow.json`` snapshot and seeding the next
+``Workflow.execute(seed_outputs=...)`` call with the already-completed
+node outputs. The legacy ``drive_with_repair`` driver is gone — the
+workflow's own ``wf.loop`` primitive owns iteration control — so the
+test surface is correspondingly smaller: we check that resume reads
+the manifest, computes the resume frontier, and passes seed outputs
+into the workflow.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from typing import cast
 
 import pytest
 
-from molexp.agent.modes.plan._mode import PlanMode
+from molexp.agent.modes.plan._mode import PlanMode, _compute_resume_frontier
 from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
 from molexp.agent.modes.plan.plan_folder import PlanFolder, PlanManifest
 from molexp.agent.modes.plan.schemas import (
@@ -28,13 +30,14 @@ from molexp.agent.modes.plan.schemas import (
 )
 from molexp.workspace import Workspace
 
-# ── ac-010: PlanMode.resume raises when no completed_nodes ────────────────
+
+# ── resume() raises on empty workspace ──────────────────────────────────────
 
 
 def test_plan_mode_resume_raises_on_empty_completed_nodes(
     tmp_path: Path,
 ) -> None:
-    """ac-010: resume() raises ValueError when PlanFolder has no completed_nodes."""
+    """resume() raises ``ValueError`` when the folder has no completed nodes."""
     workspace = Workspace(tmp_path / "ws")
     plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
     manifest = PlanManifest(
@@ -53,7 +56,7 @@ def test_plan_mode_resume_raises_on_empty_completed_nodes(
 def test_plan_mode_resume_returns_plan_mode_instance(
     tmp_path: Path,
 ) -> None:
-    """ac-010: resume() returns a PlanMode instance when there are completed nodes."""
+    """resume() returns a configured :class:`PlanMode` when work exists."""
     workspace = Workspace(tmp_path / "ws")
     plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
     result = IngestReportResult(report_path=Path("/tmp/report.md"), report_hash="abc123")
@@ -62,76 +65,18 @@ def test_plan_mode_resume_returns_plan_mode_instance(
 
     mode = PlanMode.resume(plan_folder=plan_folder)
     assert isinstance(mode, PlanMode)
-    assert mode._resume_from is not None
-    assert mode._resume_from != ""
+    # The resumed mode remembers which nodes are already done.
+    assert mode._resume_completed == ("IngestReport",)
 
 
-# ── ac-011: drive_with_repair initial_spec / initial_seed_outputs ─────────
-
-
-@pytest.mark.asyncio
-async def test_drive_with_repair_accepts_initial_spec_kwargs(
-    tmp_path: Path,
-) -> None:
-    """ac-011: drive_with_repair accepts and passes through initial_spec / initial_seed_outputs."""
-    from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
-    from molexp.agent.modes.plan._repair_loop import drive_with_repair
-    from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY
-    from molexp.agent.modes.plan.protocols import PlanDeps
-    from molexp.agent.review import BypassPolicy
-
-    workspace = Workspace(tmp_path / "ws")
-    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
-
-    # Use just the first node as a subgraph — it can run with standard deps
-    sub = PLAN_WORKFLOW.subgraph(["IngestReport"], include_downstream=True)
-
-    # We need a router for drive_with_repair; use a minimal one
-    class MinimalRouter:
-        async def complete_text(self, **kw: object) -> object:
-            raise NotImplementedError("not needed for IngestReport")
-
-        async def complete_structured(self, **kw: object) -> object:
-            raise NotImplementedError("not needed for IngestReport")
-
-        def clear_usage(self) -> None:
-            pass
-
-        def snapshot_usage(self) -> object:
-            from molexp.agent.types import UsageBreakdown
-
-            return UsageBreakdown()
-
-    router = MinimalRouter()
-    deps = PlanDeps(
-        router=router,
-        policy=STANDARD_PLAN_POLICY,
-        plan_folder=plan_folder,
-        step_policy_lookup=lambda: BypassPolicy(),
-        final_policy_lookup=lambda: BypassPolicy(),
-        capability_probe=None,
-        capability_discovery=None,
-    )
-
-    result = await drive_with_repair(
-        deps,
-        "test report content",
-        max_iterations=1,
-        initial_spec=sub,
-        initial_seed_outputs=None,
-    )
-    # Subgraph only contains IngestReport, which should produce a result
-    assert result is not None
-
-
-# ── ac-012: PlanTask.execute persists result + checkpoint ─────────────────
+# ── PlanTask persists results so resume can find them ──────────────────────
 
 
 @pytest.mark.asyncio
 async def test_plan_task_persists_result_and_checkpoint(
     tmp_path: Path, fake_router: object
 ) -> None:
-    """ac-012: PlanTask.execute writes result to results/ and calls checkpoint."""
+    """``PlanTask.execute`` writes the result and checkpoints the manifest."""
     workspace = Workspace(tmp_path / "ws")
     plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
     router = fake_router
@@ -167,13 +112,11 @@ async def test_plan_task_persists_result_and_checkpoint(
     assert "IngestReport" in manifest.completed_nodes
 
 
-# ── ac-013: Resume only executes non-completed nodes ──────────────────────
+# ── Resume only executes non-completed nodes ───────────────────────────────
 
 
-def test_resume_frontier_skips_completed_nodes(
-    tmp_path: Path,
-) -> None:
-    """ac-013: resumed PlanMode._resume_from is after all completed nodes."""
+def test_resume_completed_tracks_finished_nodes(tmp_path: Path) -> None:
+    """``_resume_completed`` lists nodes that finished, in pipeline order."""
     workspace = Workspace(tmp_path / "ws")
     plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
 
@@ -182,19 +125,18 @@ def test_resume_frontier_skips_completed_nodes(
     plan_folder.checkpoint("IngestReport")
 
     mode = PlanMode.resume(plan_folder=plan_folder)
-    assert mode._resume_from is not None
+    assert mode._resume_completed == ("IngestReport",)
+    # The resume frontier (used historically) is the next un-completed node.
+    next_node = _compute_resume_frontier(mode._resume_completed, PLAN_PIPELINE_ORDER)
     ingest_idx = PLAN_PIPELINE_ORDER.index("IngestReport")
-    resume_idx = PLAN_PIPELINE_ORDER.index(mode._resume_from)
-    assert resume_idx > ingest_idx
+    assert PLAN_PIPELINE_ORDER.index(next_node) > ingest_idx
 
 
-# ── ac-014: Mid-pipeline resume produces valid workspace ──────────────────
+# ── Mid-pipeline resume threads seed_outputs into execute() ────────────────
 
 
-def test_resume_from_mid_pipeline_loads_seed_outputs(
-    tmp_path: Path,
-) -> None:
-    """ac-014: after simulating mid-pipeline interrupt, resume rehydrates state."""
+def test_resume_from_mid_pipeline_loads_seed_outputs(tmp_path: Path) -> None:
+    """After three completed nodes, resume rehydrates their typed outputs."""
     workspace = Workspace(tmp_path / "ws")
     plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="test-plan")))
 
@@ -222,9 +164,8 @@ def test_resume_from_mid_pipeline_loads_seed_outputs(
     plan_folder.checkpoint("DraftImplementationPlan")
 
     mode = PlanMode.resume(plan_folder=plan_folder)
-    completed_set = {"IngestReport", "DraftReportDigest", "DraftImplementationPlan"}
-    assert mode._resume_from is not None
-    assert mode._resume_from not in completed_set
+    completed_set = set(mode._resume_completed)
+    assert completed_set >= {"IngestReport", "DraftReportDigest", "DraftImplementationPlan"}
 
     seed = plan_folder.load_seed_outputs()
     assert len(seed) == 3
@@ -233,29 +174,20 @@ def test_resume_from_mid_pipeline_loads_seed_outputs(
     assert isinstance(seed["DraftImplementationPlan"], PlanBriefResult)
 
 
-# ── _compute_resume_frontier ──────────────────────────────────────────────
+# ── _compute_resume_frontier unit tests ────────────────────────────────────
 
 
 def test_compute_resume_frontier_returns_first_uncompleted() -> None:
-    """Unit test for _compute_resume_frontier."""
-    from molexp.agent.modes.plan._mode import _compute_resume_frontier
-
     completed = ("IngestReport", "DraftReportDigest")
     frontier = _compute_resume_frontier(completed, PLAN_PIPELINE_ORDER)
     assert frontier == "ClarifyMissingInformation"
 
 
 def test_compute_resume_frontier_empty_when_all_completed() -> None:
-    """_compute_resume_frontier returns '' when every node is done."""
-    from molexp.agent.modes.plan._mode import _compute_resume_frontier
-
     frontier = _compute_resume_frontier(PLAN_PIPELINE_ORDER, PLAN_PIPELINE_ORDER)
     assert frontier == ""
 
 
 def test_compute_resume_frontier_with_empty_completed() -> None:
-    """_compute_resume_frontier returns first node when nothing completed."""
-    from molexp.agent.modes.plan._mode import _compute_resume_frontier
-
     frontier = _compute_resume_frontier((), PLAN_PIPELINE_ORDER)
     assert frontier == PLAN_PIPELINE_ORDER[0]

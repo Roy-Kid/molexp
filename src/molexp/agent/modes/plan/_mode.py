@@ -1,18 +1,20 @@
 """``PlanMode`` — the AgentMode adapter for the materialize-to-workspace pipeline.
 
-The pipeline itself is a module-level :class:`~molexp.workflow.Workflow`
-constant in :mod:`molexp.agent.modes.plan._pipeline`. This module
-adapts :class:`AgentMode.run` to it: takes the user's input, executes
-:data:`PLAN_WORKFLOW`, and projects the terminal
+The pipeline itself is a :class:`~molexp.workflow.Workflow` built by
+:func:`~molexp.agent.modes.plan._pipeline.build_plan_workflow`. This
+module adapts :class:`AgentMode.run` to it: takes the user's input,
+constructs the workflow with the requested repair budget, awaits a
+single :meth:`Workflow.execute` call, and projects the terminal
 :class:`~molexp.workflow.WorkflowResult` into an
 :class:`AgentRunResult` whose ``mode_state`` exposes the materialized
-workspace path plus a back-compat shim under ``mode_state["plan"]``
-for consumers that have not yet migrated to the v1 surface.
+workspace path plus a back-compat ``mode_state["plan"]`` shim for
+consumers that have not yet migrated to the v1 surface.
 
-v1 (this sub-spec) does not run a human-review / approval node;
-sub-spec 06 will. ``mode_state["plan"]["approved"]`` is therefore
-``False`` and ``["iterations"]`` is ``None`` — this is the binding
-contract per acceptance criterion ``ac-010``.
+The legacy ``drive_with_repair`` Python ``while True`` driver is gone;
+the workflow's ``wf.loop(...)`` primitive owns iteration control. All
+review→repair state lives on
+:class:`~molexp.agent.modes.plan.state.PlanRuntimeState` (a mutable
+field on :class:`~molexp.agent.modes.plan.protocols.PlanDeps`).
 """
 
 from __future__ import annotations
@@ -25,7 +27,7 @@ from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.mode import AgentMode, AgentRunResult
-from molexp.agent.modes.plan._repair_loop import drive_with_repair
+from molexp.agent.modes.plan._pipeline import build_plan_workflow
 from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.modes.plan.policy import STANDARD_PLAN_POLICY, PlanModelPolicy
 from molexp.agent.modes.plan.protocols import (
@@ -39,6 +41,7 @@ from molexp.agent.modes.plan.schemas import (
     PlanBriefResult,
     SkeletonResult,
 )
+from molexp.agent.modes.plan.state import PlanRuntimeState
 from molexp.agent.review import BypassPolicy, ReviewPolicy
 from molexp.agent.types import Message
 
@@ -110,9 +113,6 @@ def _load_from_workflow_snapshots(
 
     result_types = _ensure_node_result_map()
 
-    # Collect all outputs from all completed steps, deserializing into
-    # pydantic models so downstream tasks receive typed objects via
-    # ctx.inputs rather than raw dicts.
     all_outputs: dict[str, Any] = {}
     completed_names: list[str] = []
     for step in steps:
@@ -125,14 +125,13 @@ def _load_from_workflow_snapshots(
             if result_cls is not None:
                 try:
                     all_outputs[name] = result_cls(**output)
-                except Exception:
+                except Exception:  # noqa: BLE001
                     all_outputs[name] = output
             else:
                 all_outputs[name] = output
             if name in pipeline_order:
                 completed_names.append(name)
 
-    # Preserve pipeline order for completed nodes.
     ordered_completed: list[str] = []
     for node in pipeline_order:
         if node in completed_names:
@@ -151,8 +150,8 @@ class PlanModeConfig(BaseModel):
         artifacts_root: Optional override for the workspace root
             directory; ``None`` means inherit from the supplied
             :class:`PlanFolder`.
-        max_iterations: Reserved for sub-spec 06's repair loop.
-            Currently unused — v1 has no repair cycle.
+        max_iterations: Hard cap on review→repair cycles enforced by
+            the workflow loop. Defaults to 8.
         temperature: Reserved for future provider tuning.
     """
 
@@ -164,13 +163,7 @@ class PlanModeConfig(BaseModel):
 
 
 class PlanResult(BaseModel):
-    """Frozen public summary of one :meth:`PlanMode.run` call.
-
-    The full per-node payload (the six ``*Result`` instances) lives
-    under :attr:`AgentRunResult.mode_state["outputs"]`; this view
-    surfaces the back-compat ``intake`` / ``design`` strings plus the
-    ``approved`` flag.
-    """
+    """Frozen public summary of one :meth:`PlanMode.run` call."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -188,54 +181,14 @@ class PlanResult(BaseModel):
 class PlanMode(AgentMode):
     """Materialize-to-workspace planning mode.
 
-    Construction takes:
+    Construction takes the workspace handle (:class:`PlanFolder`), an
+    optional :class:`PlanModelPolicy`, hot-swappable review policies,
+    and an optional capability probe / discovery service. The
+    :class:`Router` is injected at run time by :class:`AgentRunner`.
 
-    - ``plan_folder`` (required) — the :class:`PlanFolder` mounted on
-      the workspace this run will write into.
-    - ``model_policy`` — :class:`PlanModelPolicy` defining
-      tier-per-node assignments. Defaults to ``STANDARD_PLAN_POLICY``.
-    - ``step_policy`` — initial per-step
-      :class:`~molexp.agent.review.ReviewPolicy` fired after every
-      non-terminal node's ``_execute``.  Defaults to
-      :class:`~molexp.agent.review.BypassPolicy` (never blocks).
-      Hot-swappable mid-run via :meth:`set_step_policy`.
-    - ``final_policy`` — initial plan-final
-      :class:`~molexp.agent.review.ReviewPolicy` consulted by
-      ``HumanReview``.  Defaults to :class:`BypassPolicy` (auto-approve)
-      so existing scripts that never wired up a gate keep their
-      non-interactive behaviour.  Hot-swappable via
-      :meth:`set_final_policy`.
-    - ``artifacts_root``, ``max_iterations``, ``temperature`` — spare
-      knobs threaded into :class:`PlanModeConfig`. ``max_iterations``
-      caps the review→repair loop budget; the others are
-      informational placeholders.
-
-    The :class:`Router` is supplied by :class:`AgentRunner` at run
-    time. PlanMode does not take a ``router=`` kwarg — model
-    configuration is a runner-level concern. Tests that need a custom
-    dispatcher inject one through ``AgentRunner(router=<fake>)`` and
-    drive ``runner.run(...)``; tests that drive the workflow directly
-    (``PLAN_WORKFLOW.execute(...)``) build :class:`PlanDeps`
-    explicitly and supply the router on that side.
-
-    Mid-run policy swap
-    -------------------
-
-    Use :meth:`set_step_policy` / :meth:`get_step_policy` (and the
-    ``final_*`` pair) to replace or inspect the active policies at any
-    time during a running plan — for example from a UI button, a
-    SIGINT handler, or another coroutine that decides "stop asking,
-    just go"::
-
-        mode = PlanMode(plan_folder=..., final_policy=HumanPolicy())
-        # ... runner.run(...) executes in a task ...
-        mode.set_final_policy(BypassPolicy())  # next HumanReview auto-approves
-
-    The deps each node receives carries
-    :attr:`~molexp.agent.modes.plan.protocols.PlanDeps.step_policy_lookup`
-    and ``final_policy_lookup`` callables that close over this
-    instance's ``_step_policy`` / ``_final_policy`` slots, so each
-    consultation reads the latest assigned policy.
+    Mid-run policy swap is supported via :meth:`set_step_policy` /
+    :meth:`set_final_policy`; the deps carry callables that read the
+    latest assigned policy each time the workflow consults them.
     """
 
     name = "plan"
@@ -266,8 +219,8 @@ class PlanMode(AgentMode):
         )
         self._capability_probe: CapabilityProbe | None = capability_probe
         self._capability_discovery: CapabilityDiscoveryService | None = capability_discovery
-        self._resume_from: str | None = None
         self._resume_seed_outputs: dict[str, Any] | None = None
+        self._resume_completed: tuple[str, ...] = ()
 
     @classmethod
     def resume(
@@ -284,23 +237,19 @@ class PlanMode(AgentMode):
         """Reconstruct a :class:`PlanMode` from a persisted :class:`PlanFolder`.
 
         Reads the latest workflow-persistence snapshot
-        (``<plan>/executions/<id>/workflow.json``) written by
-        :class:`~molexp.workflow._pydantic_graph.runtime.RunStorePersistence`
-        to determine which pipeline nodes have already completed. The
-        configured instance continues from the first incomplete node on
-        the next :meth:`run` call.
-
-        Falls back to the legacy manifest-based checkpoint when no
-        ``workflow.json`` snapshots exist.
+        (``<plan>/executions/<id>/workflow.json``) and threads completed
+        node outputs through ``Workflow.execute(seed_outputs=...)`` so
+        already-finished steps are not re-run on the next
+        :meth:`run` invocation. The repair loop's iteration counter
+        resets to 0 on resume — repaired iterations after the snapshot
+        are a fresh budget.
 
         Raises :exc:`ValueError` when the PlanFolder has no completed
         nodes — use the normal constructor to start a fresh plan.
         """
         from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
 
-        # Primary path: read from workflow persistence snapshots.
         completed, seed_outputs = _load_from_workflow_snapshots(plan_folder, PLAN_PIPELINE_ORDER)
-        # Fallback: legacy manifest-based checkpoint.
         if not completed:
             manifest = plan_folder.load_manifest()
             if not manifest.completed_nodes:
@@ -311,7 +260,6 @@ class PlanMode(AgentMode):
             completed = manifest.completed_nodes
             seed_outputs = plan_folder.load_seed_outputs()
 
-        resume_from = _compute_resume_frontier(completed, PLAN_PIPELINE_ORDER)
         instance = cls(
             plan_folder=plan_folder,
             model_policy=model_policy,
@@ -321,7 +269,7 @@ class PlanMode(AgentMode):
             capability_probe=capability_probe,
             max_iterations=max_iterations if max_iterations is not None else 8,
         )
-        instance._resume_from = resume_from
+        instance._resume_completed = completed
         instance._resume_seed_outputs = seed_outputs
         return instance
 
@@ -342,24 +290,11 @@ class PlanMode(AgentMode):
         self._final_policy = policy
 
     def get_capability_probe(self) -> CapabilityProbe | None:
-        """Return the configured compatibility :class:`CapabilityProbe`, or ``None``.
-
-        ``None`` means PlanMode will resolve to a
-        :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
-        at workflow run time. :class:`AgentRunner` calls this method
-        before constructing its lazy probe; a non-``None`` return
-        means the user has already set one explicitly and the runner
-        leaves it alone.
-        """
+        """Return the configured compatibility :class:`CapabilityProbe`, or ``None``."""
         return self._capability_probe
 
     def set_capability_probe(self, probe: CapabilityProbe | None) -> None:
-        """Inject a compatibility :class:`CapabilityProbe`.
-
-        Prefer :meth:`set_capability_discovery` for new code. This
-        method remains so existing tests and callers can provide the
-        older lower-level abstraction directly.
-        """
+        """Inject a compatibility :class:`CapabilityProbe`."""
         self._capability_probe = probe
 
     def get_capability_discovery(self) -> CapabilityDiscoveryService | None:
@@ -382,75 +317,33 @@ class PlanMode(AgentMode):
         plan_dir = self._plan_folder.path()
         _LOG.info(f"[plan] start plan_id={self._plan_folder.plan_id} workspace={plan_dir}")
         _LOG.debug(
-            f"[plan-mode] max_iterations={self.config.max_iterations} input_chars={len(user_input)}"
+            f"[plan-mode] max_iterations={self.config.max_iterations} "
+            f"input_chars={len(user_input)}"
         )
 
-        # ── Execution directory + workflow persistence ──────────────────
         from molexp.workflow import make_execution_id
 
         run_dir = str(plan_dir)
         execution_id: str | None = None
-        initial_spec = None
-        initial_seed_outputs = None
+        seed_outputs: dict[str, Any] | None = None
 
-        if self._resume_from:
-            from molexp.agent.modes.plan._pipeline import PLAN_WORKFLOW
-            from molexp.agent.modes.plan.context import PLAN_PIPELINE_ORDER
-
-            resume_idx = PLAN_PIPELINE_ORDER.index(self._resume_from)
-            remaining = list(PLAN_PIPELINE_ORDER[resume_idx:])
-            initial_spec = PLAN_WORKFLOW.subgraph(remaining, include_downstream=True)
-            # Filter seed outputs to only registered tasks in the subgraph
-            # (boundary stubs + selected nodes).  Upstream-of-boundary nodes
-            # (e.g. IngestReport when the frontier starts at
-            # ClarifyMissingInformation) are not in the subgraph and must
-            # not appear in seed_outputs.
-            registered = {t.name for t in initial_spec._tasks}
-            raw_seeds = self._resume_seed_outputs or {}
-            initial_seed_outputs = {k: v for k, v in raw_seeds.items() if k in registered}
-            _LOG.info(
-                f"[plan] resume from={self._resume_from} "
-                f"completed={list(initial_seed_outputs.keys())} "
-                f"remaining={remaining}"
-            )
-            # ── Enrich stale evidence before codegen ──────────────────
-            # The seed evidence batch was produced by an earlier run that
-            # may not have had companion-symbol enrichment.  If we skip
-            # this, the first codegen iteration will fail on every
-            # missing companion and the repair loop must re-run
-            # DiscoverCapabilities — a wasted round-trip.
-            from molexp.agent._pydanticai.capability_probe import (
-                PydanticAICapabilityProbe,
-            )
-            from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
-
-            if (
-                isinstance(self._capability_probe, PydanticAICapabilityProbe)
-                and "DiscoverCapabilities" in initial_seed_outputs
-            ):
-                evidence = initial_seed_outputs["DiscoverCapabilities"]
-                if isinstance(evidence, CapabilityEvidenceBatch) and not evidence.discovery_skipped:
-                    try:
-                        enriched = await self._capability_probe.enrich_existing(evidence)
-                        initial_seed_outputs["DiscoverCapabilities"] = enriched
-                        _LOG.info(
-                            f"[plan] resume enriched evidence: "
-                            f"{len(evidence.evidence)}→{len(enriched.evidence)} "
-                            f"evidence rows"
-                        )
-                    except Exception:
-                        _LOG.warning(
-                            "[plan] resume evidence enrichment failed; "
-                            "codegen may trigger repair loop",
-                            exc_info=True,
-                        )
-
-            # Use the latest execution_id for the resume execution dir.
+        if self._resume_completed:
+            await self._enrich_resume_evidence()
             execution_id = self._plan_folder.latest_execution_id()
+            seed_outputs = self._resume_seed_outputs
+            _LOG.info(
+                f"[plan] resume completed={list(self._resume_completed)} "
+                f"seed={list((seed_outputs or {}).keys())}"
+            )
         else:
             execution_id = make_execution_id(self._plan_folder.plan_id, plan_dir)
             _LOG.info(f"[plan] fresh run execution_id={execution_id}")
 
+        runtime = PlanRuntimeState(
+            resume_seed_outputs=seed_outputs,
+            resume_execution_id=execution_id,
+            resume_run_dir=run_dir,
+        )
         deps = PlanDeps(
             router=router,
             policy=self._model_policy,
@@ -459,21 +352,28 @@ class PlanMode(AgentMode):
             final_policy_lookup=lambda: self._final_policy,
             capability_probe=self._capability_probe,
             capability_discovery=self._capability_discovery,
+            runtime=runtime,
         )
+
+        # The outer workflow has only three tasks (PrepareIteration →
+        # RunPlanIteration → RepairDecide); the resume payload travels
+        # through ``runtime`` and is consumed by ``RunPlanIteration`` on
+        # the first iteration. Do not forward it to the outer execute.
+        workflow = build_plan_workflow(max_iterations=self.config.max_iterations)
+
         t0 = time.monotonic()
-        result = await drive_with_repair(
-            deps,
-            user_input,
-            max_iterations=self.config.max_iterations,
-            initial_spec=initial_spec,
-            initial_seed_outputs=initial_seed_outputs,
-            run_dir=run_dir,
-            execution_id=execution_id,
+        result = await workflow.execute(
+            config={"user_input": user_input},
+            deps=deps,
         )
         elapsed = time.monotonic() - t0
         breakdown = router.snapshot_usage()
 
-        outputs = result.outputs
+        # The outer workflow's outputs cover the three loop tasks
+        # (PrepareIteration / RunPlanIteration / RepairDecide). The
+        # 13-node inner pipeline's outputs are mirrored onto
+        # ``runtime.last_inner_outputs`` by :class:`RunPlanIteration`.
+        outputs = runtime.last_inner_outputs
         digest_result = outputs.get("DraftReportDigest")
         plan_brief_result = outputs.get("DraftImplementationPlan")
         skeleton_result = outputs.get("GenerateWorkflowSkeleton")
@@ -521,16 +421,13 @@ class PlanMode(AgentMode):
             status=status,
         )
 
-        # Back-compat shim — preserves the ``mode_state["plan"]``
-        # shape today's UI / tests rely on. Adds ``handoff`` (sub-spec
-        # 06) when the gate approved; otherwise None.
         plan_compat: dict[str, Any] = {
             "intake": intake_text,
             "design": design_text,
             "approved": approved,
             "ready_for_run": ready_for_run,
             "status": status,
-            "iterations": None,
+            "iterations": runtime.iteration if runtime.iteration > 0 else None,
             "handoff": (
                 handoff_result.handoff.model_dump(mode="json")
                 if isinstance(handoff_result, HandoffResult)
@@ -545,21 +442,20 @@ class PlanMode(AgentMode):
                 for name, payload in outputs.items()
             },
             "plan": plan_compat,
+            "repair_history": [r.model_dump(mode="json") for r in runtime.repair_history],
         }
 
         session.append(Message(role="assistant", content=view.summary))
         session.mode_state["plan"] = plan_compat
         _LOG.info(
             f"[plan] done in {elapsed:.1f}s: status={status} "
-            f"approved={approved} ready_for_run={ready_for_run}"
+            f"approved={approved} ready_for_run={ready_for_run} "
+            f"iterations={runtime.iteration}"
         )
         _LOG.info(
             f"[plan] LLM usage: {breakdown.total.requests} request(s), "
             f"{breakdown.total.total_tokens} token(s)"
         )
-        # Multi-line breakdown table at the end so it's the last thing
-        # the user sees; one chunk so it doesn't get interleaved with
-        # other loggers' output.
         _LOG.debug("[plan-mode] usage breakdown:\n" + breakdown.render_table())
         return AgentRunResult(
             text=view.summary,
@@ -568,3 +464,40 @@ class PlanMode(AgentMode):
             usage=breakdown.total,
             usage_breakdown=breakdown,
         )
+
+    async def _enrich_resume_evidence(self) -> None:
+        """Best-effort companion-symbol enrichment of cached evidence on resume.
+
+        Mirrors the previous resume path's enrichment so the first
+        codegen iteration after resume sees the same evidence rows the
+        capability probe would have produced for a fresh run. Failures
+        are non-fatal — the workflow loop will trigger discovery
+        repair via the standard signal mechanism.
+        """
+        if not self._resume_seed_outputs:
+            return
+        from molexp.agent._pydanticai.capability_probe import (
+            PydanticAICapabilityProbe,
+        )
+        from molexp.agent.modes.plan.capability import CapabilityEvidenceBatch
+
+        if not isinstance(self._capability_probe, PydanticAICapabilityProbe):
+            return
+        evidence = self._resume_seed_outputs.get("DiscoverCapabilities")
+        if not isinstance(evidence, CapabilityEvidenceBatch):
+            return
+        if evidence.discovery_skipped:
+            return
+        try:
+            enriched = await self._capability_probe.enrich_existing(evidence)
+            self._resume_seed_outputs["DiscoverCapabilities"] = enriched
+            _LOG.info(
+                f"[plan] resume enriched evidence: "
+                f"{len(evidence.evidence)}→{len(enriched.evidence)} rows"
+            )
+        except Exception:  # noqa: BLE001 — best-effort enrichment
+            _LOG.warning(
+                "[plan] resume evidence enrichment failed; "
+                "workflow loop will trigger repair if needed",
+                exc_info=True,
+            )

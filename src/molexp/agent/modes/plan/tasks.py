@@ -54,10 +54,12 @@ from molexp.agent.modes.plan.context import (
     format_progress_start,
 )
 from molexp.agent.modes.plan.errors import (
+    CapabilityDiscoveryRequired,
     SkeletonCompileError,
     StepRejected,
     UnevidencedApiReference,
 )
+from molexp.agent.modes.plan.state import RepairSignal
 from molexp.agent.modes.plan.handoff import PlanRunHandoff
 from molexp.agent.modes.plan.plan_folder import (
     CheckResult,
@@ -163,40 +165,48 @@ _FINAL_STEP_NAMES: frozenset[str] = frozenset({"HumanReview", "FinalHandoffCheck
 class PlanTask(Task):
     """Base for every task inside the materialize-to-workspace pipeline.
 
-    Implements the per-step review hook as a template method: subclasses
-    override :meth:`_execute` to do the work, and the base's
-    :meth:`execute` wraps each invocation with a
-    :class:`~molexp.agent.review.ReviewPolicy` consultation.
+    Subclasses override :meth:`_execute` to do the work. The base's
+    :meth:`execute` template method:
 
-    The hook fires *after* ``_execute`` returns and before the result is
-    propagated downstream.  If
-    ``ctx.deps.step_policy.review(StepView(...))`` returns
-    ``approved=False``, the base raises :class:`StepRejected` carrying
-    the view + decision so the repair loop driver can re-run the
-    rejected step.  ``approved=True`` (the default
-    :class:`~molexp.agent.review.BypassPolicy` answer) returns the
-    result verbatim — the wrapper is invisible.
+    * short-circuits when ``ctx.deps.runtime.repair_signal`` is set
+      (an earlier task this iteration tripped a gate);
+    * catches :class:`CapabilityDiscoveryRequired` /
+      :class:`UnevidencedApiReference` from ``_execute`` and converts
+      them into a :class:`RepairSignal`;
+    * runs the per-step :class:`~molexp.agent.review.ReviewPolicy`
+      hook (skipped for terminal nodes in :data:`_FINAL_STEP_NAMES`)
+      and converts a rejection into a :class:`RepairSignal`.
 
-    Terminal nodes (``HumanReview`` / ``FinalHandoffCheck``) drive their
-    own review interaction through ``ctx.deps.final_policy``; the
-    step-policy hook is skipped for them so the user does not see a
-    redundant prompt at the end of the pipeline.
+    All three paths funnel through ``runtime.repair_signal``;
+    :class:`RepairDecide` reads the slot at the end of the iteration.
     """
 
     async def execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
         node_name = type(self).__name__
-        _LOG.info(format_progress_start(node_name, iteration=ctx.deps.repair_iteration))
+        runtime = ctx.deps.runtime
+
+        if _skip_if_repair_signaled(runtime, node_name):
+            return None
+
+        _LOG.info(format_progress_start(node_name, iteration=runtime.iteration))
         try:
             result = await self._execute(ctx)
+        except (CapabilityDiscoveryRequired, UnevidencedApiReference) as exc:
+            runtime.repair_signal = _signal_from_capability_exc(
+                exc, source_step=node_name, runtime=runtime
+            )
+            _LOG.warning(
+                f"[plan] {format_node_label(node_name)} signaled repair "
+                f"({type(exc).__name__}): {exc}"
+            )
+            return None
         except Exception as exc:
             _LOG.error(f"[plan] {format_node_label(node_name)} failed: {type(exc).__name__}: {exc}")
             raise
 
-        # Persist the result before policy review: if rejected, the
-        # repair subgraph overwrites this file on re-execution. Storing
-        # early means even rejected artifacts are inspectable on disk.
-        # Workflow-persistence snapshots (RunStorePersistence) are the
-        # primary resume source; this YAML copy is a fallback.
+        # Persist the result before policy review so even rejected
+        # artefacts are inspectable on disk; RunStorePersistence
+        # snapshots are the primary resume source, this YAML is a fallback.
         if isinstance(result, BaseModel):
             ctx.deps.plan_folder.write_node_result(node_name, result)
 
@@ -209,18 +219,20 @@ class PlanTask(Task):
         view = _build_step_view(node_name, result, ctx.deps)
         decision = await step_policy.review(view)
         if decision.approved:
-            # Cache the approved output so the repair driver can seed a
-            # boundary stub if a later step gets rejected — see
-            # _repair_loop._next_round_inputs_from_log.
-            ctx.deps.step_outputs_log[node_name] = result
             ctx.deps.plan_folder.checkpoint(node_name)
             _LOG.info(format_progress_done(node_name, _progress_summary(result)))
             return result
+
+        runtime.repair_signal = _signal_from_step_decision(
+            decision=decision,
+            source_step=node_name,
+            view_step_id=view.step_id,
+        )
         _LOG.info(
-            f"[plan] {format_node_label(node_name)} rejected; scheduling repair "
+            f"[plan] {format_node_label(node_name)} rejected; "
             f"steps={list(decision.target_steps) or [node_name]}"
         )
-        raise StepRejected(view, decision)
+        return None
 
     async def _execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
         """Subclass hook — perform the node's work and return its result.
@@ -230,6 +242,99 @@ class PlanTask(Task):
         policy around every call.
         """
         raise NotImplementedError
+
+
+# ── Signal helpers (used by the base PlanTask) ──────────────────────────────
+
+
+def _skip_if_repair_signaled(runtime: Any, node_name: str) -> bool:  # noqa: ANN401
+    """Return ``True`` and log when an earlier task already planted a signal.
+
+    Centralizes the short-circuit cascade so every PlanTask (including
+    those that override :meth:`execute` like
+    :class:`ClarifyMissingInformation`) uses the same prelude.
+    """
+    signal = runtime.repair_signal
+    if signal is None:
+        return False
+    _LOG.debug(f"{_tag(node_name)} skip — repair signaled by {signal.source_step!r}")
+    return True
+
+
+def _signal_from_capability_exc(
+    exc: CapabilityDiscoveryRequired | UnevidencedApiReference,
+    *,
+    source_step: str,
+    runtime: Any,  # noqa: ANN401 - PlanRuntimeState, avoid the import cycle
+) -> RepairSignal:
+    """Translate a capability-gate exception into a :class:`RepairSignal`.
+
+    Mapping:
+
+    * :class:`CapabilityDiscoveryRequired` →
+      ``target_steps=("DraftCapabilityNeeds", "DiscoverCapabilities")``;
+    * :class:`UnevidencedApiReference` (first miss) →
+      ``target_steps=("DiscoverCapabilities",)``;
+    * :class:`UnevidencedApiReference` (later misses) →
+      ``target_steps=("DraftCapabilityNeeds", "DiscoverCapabilities")``.
+
+    Also bumps :attr:`PlanRuntimeState.capability_unevidenced_count`
+    so the escalation triggers on the next miss.
+    """
+    if isinstance(exc, CapabilityDiscoveryRequired):
+        return RepairSignal(
+            source_step=source_step,
+            source_kind="capability_required",
+            target_steps=("DraftCapabilityNeeds", "DiscoverCapabilities"),
+            cascade_downstream=True,
+            reason=f"CapabilityDiscoveryRequired: {exc}",
+            feedback=exc.detail or str(exc),
+        )
+
+    # UnevidencedApiReference — escalate on the second-and-later miss.
+    runtime.capability_unevidenced_count += 1
+    if runtime.capability_unevidenced_count <= 1:
+        target_steps = ("DiscoverCapabilities",)
+    else:
+        target_steps = ("DraftCapabilityNeeds", "DiscoverCapabilities")
+    return RepairSignal(
+        source_step=source_step,
+        source_kind="unevidenced",
+        target_steps=target_steps,
+        cascade_downstream=True,
+        reason=f"UnevidencedApiReference: {exc}",
+        feedback=(
+            f"refs={list(exc.refs)} reason={exc.reason!r} "
+            f"detail={exc.detail!r} unevidenced_count={runtime.capability_unevidenced_count}"
+        ),
+        refs=tuple(exc.refs),
+    )
+
+
+def _signal_from_step_decision(
+    *,
+    decision: Any,  # noqa: ANN401 - ReviewDecision; avoid heavyweight import here
+    source_step: str,
+    view_step_id: str,
+) -> RepairSignal:
+    """Translate a rejecting :class:`ReviewDecision` into a :class:`RepairSignal`.
+
+    The decision's ``target_steps`` defaults to the rejected step itself
+    when the reviewer did not specify any. ``cascade_downstream`` is
+    forced to ``True`` because the rejected step's downstream artefacts
+    are stale by definition.
+    """
+    target_steps = tuple(decision.target_steps) if decision.target_steps else (view_step_id,)
+    target_task_ids = tuple(decision.target_task_ids)
+    return RepairSignal(
+        source_step=source_step,
+        source_kind="step_review",
+        target_steps=target_steps,
+        target_task_ids=target_task_ids,
+        cascade_downstream=True,
+        reason=str(decision.reason) if getattr(decision, "reason", "") else "",
+        feedback=str(decision.feedback) if getattr(decision, "feedback", "") else "",
+    )
 
 
 class PlanLLMTask(PlanTask):
@@ -413,11 +518,13 @@ class ClarifyMissingInformation(PlanTask):
 
     async def execute(self, ctx: TaskContext[Any, PlanDeps, Any]) -> Any:  # noqa: ANN401
         node_name = type(self).__name__
-        _LOG.info(format_progress_start(node_name, iteration=ctx.deps.repair_iteration))
+        runtime = ctx.deps.runtime
+        if _skip_if_repair_signaled(runtime, node_name):
+            return None
+        _LOG.info(format_progress_start(node_name, iteration=runtime.iteration))
         result = await self._execute(ctx)
         if isinstance(result, BaseModel):
             ctx.deps.plan_folder.write_node_result(node_name, result)
-        ctx.deps.step_outputs_log[node_name] = result
         ctx.deps.plan_folder.checkpoint(node_name)
         _LOG.info(format_progress_done(node_name, _progress_summary(result)))
         return result
@@ -756,7 +863,9 @@ class GenerateTaskTests(PlanLLMTask):
         )
 
         handle = ctx.deps.plan_folder
-        repair_targets = ctx.deps.repair_target_tasks
+        # Repair iterations re-run every brief; the workflow loop owns
+        # iteration control now, so there is no per-task LLM filter.
+        repair_targets: tuple[str, ...] | None = None
         _targets_repr = list(repair_targets) if repair_targets else None
         _LOG.debug(
             f"{_tag('GenerateTaskTests')} start briefs={len(ir_result.briefs)} "
@@ -833,7 +942,9 @@ class GenerateTaskImplementations(PlanLLMTask):
         )
 
         handle = ctx.deps.plan_folder
-        repair_targets = ctx.deps.repair_target_tasks
+        # Repair iterations re-run every brief; the workflow loop owns
+        # iteration control now, so there is no per-task LLM filter.
+        repair_targets: tuple[str, ...] | None = None
         _targets_repr = list(repair_targets) if repair_targets else None
         _LOG.debug(
             f"{_tag('GenerateTaskImplementations')} start briefs={len(ir_result.briefs)} "

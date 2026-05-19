@@ -404,6 +404,7 @@ export const workspaceHandlers = [
                 root: target.root_path,
                 projectCount: 0,
                 assetCount: 0,
+                warnings: [],
             });
         }
 
@@ -414,7 +415,34 @@ export const workspaceHandlers = [
             root: path,
             projectCount: projects.length,
             assetCount: assets.length,
+            warnings: [],
         });
+    }),
+
+    // POST /api/workspace/cache/invalidate — drops cache entries on the
+    // active workspace's CachedRemoteFileSystem.  Mock always responds
+    // success because dev:mock has no real cache layer; production paths
+    // 409 when the active workspace is local.
+    http.post(`${API_BASE}/workspace/cache/invalidate`, async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as {
+            path?: string | null;
+            scope?: string;
+        };
+        const scope = body.scope ?? "all";
+        // Pretend we dropped one entry per "indices", more for "all".
+        const dropped = body.path ? 1 : scope === "indices" ? 3 : 7;
+        return HttpResponse.json({ dropped, warnings: [] });
+    }),
+
+    // POST /api/workspace/cache/refresh — invalidate + re-prefetch.
+    http.post(`${API_BASE}/workspace/cache/refresh`, async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as {
+            path?: string | null;
+            scope?: string;
+        };
+        const scope = body.scope ?? "all";
+        const dropped = body.path ? 1 : scope === "indices" ? 3 : 7;
+        return HttpResponse.json({ dropped, warnings: [] });
     }),
 
     // POST /api/workspace/directories - Create directory

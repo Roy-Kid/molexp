@@ -25,11 +25,12 @@ export type PlanDecisionRequest = {
      */
     edited_plan?: (string | null);
     /**
-     * Optional user edit of the workflow IR. Replaces the agent's drafted IR on approval.
+     * Optional user edit of the plan proposal (PlanProposal-shaped JSON). Replaces the agent's drafted proposal on approval.
      */
-    edited_workflow_ir?: (Record<string, any> | null);
+    edited_proposal?: (Record<string, any> | null);
     /**
      * Free-form rejection rationale. Surfaced to the agent so its next attempt addresses the user's concern.
      */
     feedback?: string;
 };
+

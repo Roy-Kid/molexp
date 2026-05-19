@@ -7,7 +7,7 @@
  * with `kind: "remote"`.
  */
 
-import { Check, Trash2, X } from "lucide-react";
+import { AlertTriangle, Check, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import type { TargetTestResponse } from "@/api/generated/models/TargetTestResponse";
@@ -20,6 +20,11 @@ import { emitWorkspaceSwitching } from "../state/workspaceSwitchEvents";
 
 import { AddRemoteWorkspaceDialog } from "./AddRemoteWorkspaceDialog";
 
+interface CacheStatus {
+  dropped: number;
+  fetchedAt: number;
+}
+
 export function RemoteWorkspacesPanel(): JSX.Element {
   const [targets, setTargets] = useState<WorkspaceTargetResponse[]>([]);
   const [loading, setLoading] = useState(false);
@@ -29,6 +34,8 @@ export function RemoteWorkspacesPanel(): JSX.Element {
   const [testResult, setTestResult] = useState<TargetTestResponse | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [activeName, setActiveName] = useState<string | null>(null);
+  const [openWarnings, setOpenWarnings] = useState<string[]>([]);
+  const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -82,15 +89,38 @@ export function RemoteWorkspacesPanel(): JSX.Element {
     setBusy(name);
     setActionError(null);
     setTestResult(null);
+    setOpenWarnings([]);
+    setCacheStatus(null);
     try {
-      await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({
+      const info = await WorkspaceService.openWorkspaceApiWorkspaceOpenPost({
         kind: "remote",
         name,
       });
       emitWorkspaceSwitching({ activeDescriptor: name });
       setActiveName(name);
+      setOpenWarnings(info.warnings ?? []);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Failed to switch active workspace");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleRefreshCache = async (name: string): Promise<void> => {
+    setBusy(name);
+    setActionError(null);
+    setTestResult(null);
+    try {
+      const res =
+        await WorkspaceService.refreshWorkspaceCacheApiWorkspaceCacheRefreshPost({
+          scope: "indices",
+        });
+      setCacheStatus({ dropped: res.dropped, fetchedAt: Date.now() });
+      setOpenWarnings(res.warnings ?? []);
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : "Failed to refresh remote workspace cache",
+      );
     } finally {
       setBusy(null);
     }
@@ -156,6 +186,19 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                 >
                   {isActive ? "Active" : "Set active"}
                 </Button>
+                {isActive && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    aria-label={`Refresh ${t.name}`}
+                    title={`Refresh navigation cache (TTL ${t.cache_ttl_seconds ?? 300}s)`}
+                    disabled={busy === t.name}
+                    onClick={() => void handleRefreshCache(t.name)}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    <span className="ml-1.5">Refresh</span>
+                  </Button>
+                )}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -174,6 +217,30 @@ export function RemoteWorkspacesPanel(): JSX.Element {
         </ul>
       )}
       {actionError && <p className="text-sm text-red-500">{actionError}</p>}
+      {cacheStatus && (
+        <p className="text-xs text-muted-foreground">
+          Refreshed navigation cache — dropped {cacheStatus.dropped}{" "}
+          {cacheStatus.dropped === 1 ? "entry" : "entries"}.
+        </p>
+      )}
+      {openWarnings.length > 0 && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+          <div className="mb-1 flex items-center gap-2 text-amber-600">
+            <AlertTriangle className="h-4 w-4" />
+            <span className="font-medium">
+              {openWarnings.length} {openWarnings.length === 1 ? "warning" : "warnings"} while
+              fetching the navigation tree
+            </span>
+          </div>
+          <ul className="space-y-0.5 pl-1 text-xs text-muted-foreground">
+            {openWarnings.map((w) => (
+              <li key={w} className="break-all">
+                {w}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {testResult && (
         <div className="rounded-md border border-border bg-muted/30 p-3 text-sm space-y-1">
           <div className="flex items-center gap-2 font-medium">

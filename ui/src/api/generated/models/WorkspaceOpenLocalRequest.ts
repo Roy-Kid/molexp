@@ -2,7 +2,14 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type WorkspaceOpenRequest = {
+/**
+ * Local-workspace branch of ``POST /api/workspace/open``.
+ */
+export type WorkspaceOpenLocalRequest = {
+    /**
+     * Discriminator
+     */
+    kind?: string;
     /**
      * Absolute path to the workspace
      */
@@ -12,3 +19,4 @@ export type WorkspaceOpenRequest = {
      */
     create_if_missing?: boolean;
 };
+

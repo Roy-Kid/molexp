@@ -9,3 +9,4 @@ export type WorkspaceRunsStats = {
     failed?: number;
     succeeded?: number;
 };
+

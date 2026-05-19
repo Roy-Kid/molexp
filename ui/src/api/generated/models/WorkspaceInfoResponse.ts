@@ -6,4 +6,6 @@ export type WorkspaceInfoResponse = {
     root: string;
     projectCount: number;
     assetCount: number;
+    warnings?: Array<string>;
 };
+

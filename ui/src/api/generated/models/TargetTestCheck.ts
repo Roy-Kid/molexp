@@ -13,3 +13,4 @@ export type TargetTestCheck = {
     ok: boolean;
     detail?: (string | null);
 };
+

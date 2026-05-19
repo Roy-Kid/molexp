@@ -280,9 +280,12 @@ async def test_declared_block_mismatch_raises(gate_handle: PlanFolder) -> None:
         },
     )
     ctx = _ctx(gate_handle, router, briefs, batch)
-    with pytest.raises(UnevidencedApiReference) as excinfo:
-        await GenerateTaskTests().execute(ctx)
-    assert excinfo.value.reason == "declared_block_mismatch"
+    result = await GenerateTaskTests().execute(ctx)
+    assert result is None
+    signal = ctx.deps.runtime.repair_signal
+    assert signal is not None
+    assert signal.source_kind == "unevidenced"
+    assert "declared_block_mismatch" in signal.reason
 
 
 # ── 4. unevidenced_in_code (the rest) ─────────────────────────────────────
@@ -316,9 +319,12 @@ async def test_unevidenced_in_code_raises(gate_handle: PlanFolder) -> None:
         },
     )
     ctx = _ctx(gate_handle, router, briefs, batch)
-    with pytest.raises(UnevidencedApiReference) as excinfo:
-        await GenerateTaskImplementations().execute(ctx)
-    assert "molexp.workflow.Actor" in (excinfo.value.refs or excinfo.value.detail)
+    result = await GenerateTaskImplementations().execute(ctx)
+    assert result is None
+    signal = ctx.deps.runtime.repair_signal
+    assert signal is not None
+    assert signal.source_kind == "unevidenced"
+    assert "molexp.workflow.Actor" in (" ".join(signal.refs) + " " + signal.feedback)
 
 
 # ── 5. undeclared_in_code ─────────────────────────────────────────────────
@@ -357,10 +363,13 @@ async def test_undeclared_in_code_raises(gate_handle: PlanFolder) -> None:
         },
     )
     ctx = _ctx(gate_handle, router, briefs, batch)
-    with pytest.raises(UnevidencedApiReference) as excinfo:
-        await GenerateTaskTests().execute(ctx)
+    result = await GenerateTaskTests().execute(ctx)
+    assert result is None
+    signal = ctx.deps.runtime.repair_signal
+    assert signal is not None
+    assert signal.source_kind == "unevidenced"
     # Either reason is acceptable depending on which check trips first.
-    assert "Actor" in (excinfo.value.detail or "") + " ".join(excinfo.value.refs)
+    assert "Actor" in (signal.feedback or "") + " ".join(signal.refs)
 
 
 # ── 6. declared_but_unused ────────────────────────────────────────────────
@@ -398,9 +407,12 @@ async def test_declared_but_unused_raises(gate_handle: PlanFolder) -> None:
         },
     )
     ctx = _ctx(gate_handle, router, briefs, batch)
-    with pytest.raises(UnevidencedApiReference) as excinfo:
-        await GenerateTaskTests().execute(ctx)
-    assert "Actor" in (excinfo.value.detail or "") + " ".join(excinfo.value.refs)
+    result = await GenerateTaskTests().execute(ctx)
+    assert result is None
+    signal = ctx.deps.runtime.repair_signal
+    assert signal is not None
+    assert signal.source_kind == "unevidenced"
+    assert "Actor" in (signal.feedback or "") + " ".join(signal.refs)
 
 
 # ── 7. is_stub=True bypasses the gate ─────────────────────────────────────

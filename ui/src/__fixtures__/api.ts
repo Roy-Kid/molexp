@@ -128,6 +128,7 @@ export const fixtureRunSummary: RunSummary = {
   parameters: {},
   results: {},
   workflowSource: "workflow.py",
+  workflowSnapshot: null,
   startedAt: "2026-03-01T12:00:00Z",
   finishedAt: "2026-03-01T12:00:00Z",
   executionHistory: [],
