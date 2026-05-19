@@ -57,4 +57,49 @@ def build_mcp_server(
     raise ValueError(f"Unknown MCP transport: {transport!r}")
 
 
-__all__ = ["build_mcp_server"]
+async def check_stdio_handshake(
+    command: str,
+    args: tuple[str, ...] = (),
+    *,
+    timeout_seconds: float = 5.0,
+) -> None:
+    """Open and close a stdio MCP server, raising on failure.
+
+    Lives here (inside ``_pydanticai/``) instead of in ``agent/modes/plan/``
+    because it imports ``pydantic_ai.mcp.MCPServerStdio`` directly — that
+    import is only permitted inside the ``_pydanticai`` subtree per the
+    agent-layer firewall (``tests/test_agent/test_import_guard.py``).
+    """
+    import asyncio
+    import contextlib
+    import os
+    from collections.abc import Iterator
+
+    from pydantic_ai.mcp import MCPServerStdio
+
+    @contextlib.contextmanager
+    def _silence_process_stdio() -> Iterator[None]:
+        saved_out = os.dup(1)
+        saved_err = os.dup(2)
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull, 1)
+            os.dup2(devnull, 2)
+            yield
+        finally:
+            os.dup2(saved_out, 1)
+            os.dup2(saved_err, 2)
+            os.close(saved_out)
+            os.close(saved_err)
+            os.close(devnull)
+
+    async def _run() -> None:
+        server = MCPServerStdio(command, list(args))
+        async with server:
+            pass
+
+    with _silence_process_stdio():
+        await asyncio.wait_for(_run(), timeout=timeout_seconds)
+
+
+__all__ = ["build_mcp_server", "check_stdio_handshake"]

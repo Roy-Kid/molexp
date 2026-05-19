@@ -221,36 +221,11 @@ async def _check_mcp_stdio_handshake(
 ) -> None:
     """Open and close a stdio MCP server, raising on failure.
 
-    Lazy-imports pydantic-ai to keep the firewall clean (``import
-    molexp.agent`` does not eagerly load pydantic_ai).
+    Delegates to ``molexp.agent._pydanticai.mcp.check_stdio_handshake`` —
+    the actual ``pydantic_ai.mcp.MCPServerStdio`` import lives there
+    because the agent-layer firewall (`tests/test_agent/test_import_guard.py`)
+    permits ``pydantic_ai`` imports only inside ``_pydanticai/``.
     """
-    import asyncio
-    import contextlib
-    import os
-    from collections.abc import Iterator
+    from molexp.agent._pydanticai.mcp import check_stdio_handshake
 
-    from pydantic_ai.mcp import MCPServerStdio
-
-    @contextlib.contextmanager
-    def _silence_process_stdio() -> Iterator[None]:
-        saved_out = os.dup(1)
-        saved_err = os.dup(2)
-        devnull = os.open(os.devnull, os.O_WRONLY)
-        try:
-            os.dup2(devnull, 1)
-            os.dup2(devnull, 2)
-            yield
-        finally:
-            os.dup2(saved_out, 1)
-            os.dup2(saved_err, 2)
-            os.close(saved_out)
-            os.close(saved_err)
-            os.close(devnull)
-
-    async def _run() -> None:
-        server = MCPServerStdio(command, list(args))
-        async with server:
-            pass
-
-    with _silence_process_stdio():
-        await asyncio.wait_for(_run(), timeout=timeout_seconds)
+    await check_stdio_handshake(command, args, timeout_seconds=timeout_seconds)
