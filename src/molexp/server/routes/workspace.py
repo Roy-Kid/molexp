@@ -12,15 +12,26 @@ from pydantic import BaseModel, Field
 
 from molexp.workspace import Workspace
 
-from ..dependencies import get_workspace, set_workspace_path_override
+from ..dependencies import (
+    get_remote_fs_factory,
+    get_workspace,
+    get_workspace_target_registry,
+    set_workspace_path_override,
+)
 from ..schemas import (
     FileContentResponse,
+    TargetTestCheck,
+    TargetTestResponse,
     WorkspaceInfoResponse,
     WorkspaceOpenRequest,
     WorkspaceRunRow,
     WorkspaceRunsResponse,
+    WorkspaceTargetCreateRequest,
+    WorkspaceTargetListResponse,
+    WorkspaceTargetResponse,
     compute_workspace_runs_stats,
 )
+from ..workspace_targets import WorkspaceTarget
 
 
 class DirectoryCreateRequest(BaseModel):
@@ -271,3 +282,134 @@ def write_file(
         raise HTTPException(status_code=400, detail="Path is a directory")
     target.write_text(request.content, encoding="utf-8")
     return {"path": str(target)}
+
+
+# ============================================================================
+# Workspace-target registry endpoints
+# ============================================================================
+#
+# A *workspace target* is a server-process-scoped descriptor that names
+# a remote workspace root.  These endpoints CRUD the registry and probe
+# connectivity; the active-workspace switch (which actually mounts the
+# remote root) lives in sub-spec 02.
+
+
+@router.get("/targets", response_model=WorkspaceTargetListResponse)
+def list_workspace_targets(
+    registry=Depends(get_workspace_target_registry),  # noqa: ANN001
+) -> WorkspaceTargetListResponse:
+    rows = [WorkspaceTargetResponse.from_model(t) for t in registry.list()]
+    return WorkspaceTargetListResponse(targets=rows, total=len(rows))
+
+
+@router.post("/targets", response_model=WorkspaceTargetResponse, status_code=201)
+def create_workspace_target(
+    payload: WorkspaceTargetCreateRequest,
+    registry=Depends(get_workspace_target_registry),  # noqa: ANN001
+) -> WorkspaceTargetResponse:
+    try:
+        target = WorkspaceTarget(
+            name=payload.name,
+            host=payload.host,
+            root_path=payload.root_path,
+            port=payload.port,
+            identity_file=payload.identity_file,
+            ssh_opts=tuple(payload.ssh_opts),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    try:
+        registry.add(target)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return WorkspaceTargetResponse.from_model(target)
+
+
+@router.delete("/targets/{name}", status_code=204)
+def delete_workspace_target(
+    name: str,
+    registry=Depends(get_workspace_target_registry),  # noqa: ANN001
+) -> None:
+    try:
+        registry.remove(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"workspace target {name!r} not found") from exc
+
+
+@router.post("/targets/{name}/test", response_model=TargetTestResponse)
+def test_workspace_target(
+    name: str,
+    registry=Depends(get_workspace_target_registry),  # noqa: ANN001
+    fs_factory=Depends(get_remote_fs_factory),  # noqa: ANN001
+) -> TargetTestResponse:
+    """Connectivity probe for a workspace-target descriptor.
+
+    Returns HTTP 200 with ``ok=False`` on probe failure (matches the
+    ``/api/targets/{name}/test`` pattern) so the UI can render failures
+    inline rather than parsing HTTP error envelopes.
+    """
+    try:
+        target = registry.get(name)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=f"workspace target {name!r} not found") from exc
+
+    fs = fs_factory(target)
+    checks: list[TargetTestCheck] = []
+
+    # 1. mkdir root_path
+    try:
+        fs.mkdir(target.root_path, parents=True, exist_ok=True)
+        checks.append(TargetTestCheck(label=f"mkdir {target.root_path}", ok=True))
+    except Exception as exc:
+        checks.append(
+            TargetTestCheck(
+                label=f"mkdir {target.root_path}",
+                ok=False,
+                detail=str(exc),
+            )
+        )
+        return TargetTestResponse(
+            name=name,
+            ok=False,
+            checks=checks,
+            error=f"mkdir failed: {exc}",
+        )
+
+    # 2. file round-trip (write → read → remove)
+    probe_path = f"{target.root_path.rstrip('/')}/.molexp-workspace-test"
+    try:
+        fs.write_text(probe_path, "ok")
+        if fs.read_text(probe_path) != "ok":
+            checks.append(
+                TargetTestCheck(
+                    label="file round-trip",
+                    ok=False,
+                    detail="content mismatch",
+                )
+            )
+            return TargetTestResponse(
+                name=name,
+                ok=False,
+                checks=checks,
+                error="file round-trip mismatch",
+            )
+        fs.remove(probe_path)
+        checks.append(TargetTestCheck(label="file round-trip", ok=True))
+    except Exception as exc:
+        checks.append(
+            TargetTestCheck(
+                label="file round-trip",
+                ok=False,
+                detail=str(exc),
+            )
+        )
+        return TargetTestResponse(
+            name=name,
+            ok=False,
+            checks=checks,
+            error=f"round-trip failed: {exc}",
+        )
+
+    return TargetTestResponse(name=name, ok=True, checks=checks, error=None)

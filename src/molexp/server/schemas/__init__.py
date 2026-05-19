@@ -125,6 +125,11 @@ from .targets import (
     TargetTestCheck,
     TargetTestResponse,
 )
+from .workspace_targets import (
+    WorkspaceTargetCreateRequest,
+    WorkspaceTargetListResponse,
+    WorkspaceTargetResponse,
+)
 from .workspace_runs import (
     WorkspaceExecutionRow,
     WorkspaceRunRow,
@@ -260,5 +265,8 @@ __all__ = [
     "WorkspaceRunRow",
     "WorkspaceRunsResponse",
     "WorkspaceRunsStats",
+    "WorkspaceTargetCreateRequest",
+    "WorkspaceTargetListResponse",
+    "WorkspaceTargetResponse",
     "compute_workspace_runs_stats",
 ]
