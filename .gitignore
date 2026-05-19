@@ -53,6 +53,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+# pytest --basetemp=tmp/ leftovers (tmp_path fixture output landing in repo root)
+tmp/
 cover/
 
 # Translations
