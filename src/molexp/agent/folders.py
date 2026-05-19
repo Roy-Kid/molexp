@@ -36,7 +36,6 @@ for the runtime class.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, cast
 
 from molexp._typing import JSONValue
@@ -45,12 +44,14 @@ from molexp.agent.folders_metadata import (
     AgentSessionMetadata,
     SessionStatusStr,
 )
+from molexp.path import Path
 from molexp.workspace import Folder, FolderMetadata
 from molexp.workspace.base import (
     _load_metadata,
     _reconstruct,
     _save_metadata,
 )
+from molexp.workspace.fs import PathArg
 
 AGENT_KIND = "agent.agent"
 AGENT_SESSION_KIND = "agent.session"
@@ -98,40 +99,40 @@ class AgentSession(Folder):
         )
         self._entity_metadata: AgentSessionMetadata = meta
 
-    def _compute_path(self) -> Path:
-        """Keep this in agreement with :meth:`_child_dir`."""
+    def resolve(self) -> Path:
+        """Compute the session's on-disk path (parent-relative, no I/O).
+
+        Returns :class:`molexp.Path` so a session under a
+        :class:`RemoteFileSystem`-backed workspace can be addressed the
+        same way as a local one.  All session I/O routes through
+        ``self._fs`` (``read_messages`` / ``write_messages`` /
+        ``materialize`` / ``save``)."""
         if self._parent is None:
             raise RuntimeError(
                 f"AgentSession {self._name!r} is unmounted — mount via parent.add_folder()"
             )
-        return type(self)._child_dir(self._parent, self._name)
+        return type(self).child_dir(self._parent, self._name)
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
+    def child_dir(cls, parent: Folder, derived_id: str) -> Path:
         """Sessions live under ``<parent>/agent_sessions/<id>/``."""
-        return parent.path() / "agent_sessions" / derived_id
+        return Path(parent._fs.join(parent.path(), "agent_sessions", derived_id))
 
     @classmethod
-    def _from_disk(cls, child_dir: Path, parent: Folder) -> AgentSession:
-        meta = _load_metadata(AgentSessionMetadata, child_dir / AGENT_SESSION_METADATA_FILENAME)
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": meta.id,
-                "_kind": AGENT_SESSION_KIND,
-                "_root_path": None,
-                "_metadata": FolderMetadata(
-                    id=meta.id,
-                    name=meta.name,
-                    kind=AGENT_SESSION_KIND,
-                    created_at=meta.created_at,
-                    updated_at=meta.updated_at,
-                ),
-                "_children_cache": {},
-                "_entity_metadata": meta,
-            },
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> AgentSession:
+        meta_path = parent._fs.join(child_dir, AGENT_SESSION_METADATA_FILENAME)
+        meta = _load_metadata(AgentSessionMetadata, meta_path, fs=parent._fs)
+        folder_meta = FolderMetadata(
+            id=meta.id,
+            name=meta.name,
+            kind=AGENT_SESSION_KIND,
+            created_at=meta.created_at,
+            updated_at=meta.updated_at,
         )
+        attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
+            "_entity_metadata": meta,
+        }
+        return _reconstruct(cls, attrs)
 
     @property
     def metadata(self) -> AgentSessionMetadata:  # type: ignore[override]
@@ -146,11 +147,13 @@ class AgentSession(Folder):
         return self._entity_metadata.status
 
     def materialize(self) -> None:
-        self.path().mkdir(parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self.path() / AGENT_SESSION_METADATA_FILENAME)
+        self._fs.mkdir(self.path(), parents=True, exist_ok=True)
+        meta_path = self._fs.join(self.path(), AGENT_SESSION_METADATA_FILENAME)
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     def save(self) -> None:
-        _save_metadata(self._entity_metadata, self.path() / AGENT_SESSION_METADATA_FILENAME)
+        meta_path = self._fs.join(self.path(), AGENT_SESSION_METADATA_FILENAME)
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._entity_metadata.model_dump(mode="json"))
@@ -159,39 +162,38 @@ class AgentSession(Folder):
 
     @property
     def messages_path(self) -> Path:
-        return self.path() / MESSAGES_FILENAME
+        return Path(self._fs.join(self.path(), MESSAGES_FILENAME))
 
     def read_messages(self) -> tuple[Any, ...]:
         """Load the persisted pydantic-ai ``ModelMessage`` tuple.
 
-        Returns the empty tuple when no history file exists. The codec
-        lives behind the ``_pydanticai/`` import-boundary firewall, so
-        importing :mod:`molexp.agent.folders` does NOT pull
-        ``pydantic_ai`` in — only the first call to
-        ``read_messages``/``write_messages`` does.
+        Routes I/O through ``self._fs`` so a session under a
+        :class:`RemoteFileSystem`-backed workspace reads ``messages.jsonl``
+        over the configured transport.  The codec lives behind the
+        ``_pydanticai/`` import-boundary firewall, so importing
+        :mod:`molexp.agent.folders` does NOT pull ``pydantic_ai`` in —
+        only the first call to ``read_messages`` / ``write_messages`` does.
         """
         path = self.messages_path
-        if not path.exists():
+        if not self._fs.exists(path):
             return ()
         # function-local import — pydantic-ai stays lazy
         from molexp.agent._pydanticai.messages_codec import load_model_messages
 
-        return load_model_messages(path.read_bytes())
+        return load_model_messages(self._fs.read_bytes(path))
 
     def write_messages(self, messages: tuple[Any, ...]) -> None:
         """Atomically persist the pydantic-ai ``ModelMessage`` tuple."""
         path = self.messages_path
         if not messages:
-            if path.exists():
-                path.unlink()
+            if self._fs.exists(path):
+                self._fs.remove(path)
             return
         from molexp.agent._pydanticai.messages_codec import dump_model_messages
 
-        self.path().mkdir(parents=True, exist_ok=True)
+        self._fs.mkdir(self.path(), parents=True, exist_ok=True)
         payload = dump_model_messages(messages)
-        tmp = path.with_suffix(path.suffix + ".tmp")
-        tmp.write_bytes(payload)
-        tmp.replace(path)
+        self._fs.write_bytes(path, payload)
 
 
 # ── Agent (Folder subclass) ────────────────────────────────────────────────
@@ -234,38 +236,32 @@ class Agent(Folder):
         )
         self._entity_metadata: AgentMetadata = meta
 
-    def _compute_path(self) -> Path:
-        """Keep this in agreement with :meth:`_child_dir`."""
+    def resolve(self) -> Path:
+        """Compute the agent's on-disk path (parent-relative, no I/O)."""
         if self._parent is None:
             raise RuntimeError(f"Agent {self._name!r} is unmounted — mount via parent.add_folder()")
-        return type(self)._child_dir(self._parent, self._name)
+        return type(self).child_dir(self._parent, self._name)
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
+    def child_dir(cls, parent: Folder, derived_id: str) -> Path:
         """Agents live under ``<parent>/agents/<id>/``."""
-        return parent.path() / "agents" / derived_id
+        return Path(parent._fs.join(parent.path(), "agents", derived_id))
 
     @classmethod
-    def _from_disk(cls, child_dir: Path, parent: Folder) -> Agent:
-        meta = _load_metadata(AgentMetadata, child_dir / AGENT_METADATA_FILENAME)
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": meta.id,
-                "_kind": AGENT_KIND,
-                "_root_path": None,
-                "_metadata": FolderMetadata(
-                    id=meta.id,
-                    name=meta.name,
-                    kind=AGENT_KIND,
-                    created_at=meta.created_at,
-                    updated_at=meta.updated_at,
-                ),
-                "_children_cache": {},
-                "_entity_metadata": meta,
-            },
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> Agent:
+        meta_path = parent._fs.join(child_dir, AGENT_METADATA_FILENAME)
+        meta = _load_metadata(AgentMetadata, meta_path, fs=parent._fs)
+        folder_meta = FolderMetadata(
+            id=meta.id,
+            name=meta.name,
+            kind=AGENT_KIND,
+            created_at=meta.created_at,
+            updated_at=meta.updated_at,
         )
+        attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
+            "_entity_metadata": meta,
+        }
+        return _reconstruct(cls, attrs)
 
     @property
     def metadata(self) -> AgentMetadata:  # type: ignore[override]
@@ -284,11 +280,13 @@ class Agent(Folder):
         return self._entity_metadata.tier
 
     def materialize(self) -> None:
-        self.path().mkdir(parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self.path() / AGENT_METADATA_FILENAME)
+        self._fs.mkdir(self.path(), parents=True, exist_ok=True)
+        meta_path = self._fs.join(self.path(), AGENT_METADATA_FILENAME)
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     def save(self) -> None:
-        _save_metadata(self._entity_metadata, self.path() / AGENT_METADATA_FILENAME)
+        meta_path = self._fs.join(self.path(), AGENT_METADATA_FILENAME)
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._entity_metadata.model_dump(mode="json"))

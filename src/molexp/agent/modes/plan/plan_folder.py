@@ -50,8 +50,10 @@ import yaml
 from pydantic import BaseModel, ConfigDict
 
 from molexp._typing import JSONValue
+from molexp.path import Path as MolexpPath
 from molexp.workspace import Folder, FolderMetadata, atomic_write_text
 from molexp.workspace.base import _load_metadata, _reconstruct, _save_metadata
+from molexp.workspace.fs import PathArg
 
 if TYPE_CHECKING:
     from molexp.agent.modes.plan.capability import (
@@ -276,46 +278,42 @@ class PlanFolder(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> Path:
+    def resolve(self) -> MolexpPath:
         if self._parent is None:
             raise RuntimeError(
                 f"PlanFolder {self._name!r} is unmounted — mount via parent.add_folder()"
             )
-        return type(self)._child_dir(self._parent, self._name)
+        return type(self).child_dir(self._parent, self._name)
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> Path:
+    def child_dir(cls, parent: Folder, derived_id: str) -> MolexpPath:
         """Plans live under ``<parent>/plans/<plan_id>/``."""
-        return parent.path() / "plans" / derived_id
+        return MolexpPath(parent._fs.join(parent.path(), "plans", derived_id))
 
     @classmethod
-    def _from_disk(cls, child_dir: Path, parent: Folder) -> PlanFolder:
-        meta = _load_metadata(PlanFolderMetadata, child_dir / PLAN_METADATA_FILENAME)
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": meta.id,
-                "_kind": AGENT_PLAN_KIND,
-                "_root_path": None,
-                "_metadata": FolderMetadata(
-                    id=meta.id,
-                    name=meta.name,
-                    kind=AGENT_PLAN_KIND,
-                    created_at=meta.created_at,
-                    updated_at=meta.updated_at,
-                ),
-                "_children_cache": {},
-                "_entity_metadata": meta,
-            },
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> PlanFolder:
+        meta_path = parent._fs.join(child_dir, PLAN_METADATA_FILENAME)
+        meta = _load_metadata(PlanFolderMetadata, meta_path, fs=parent._fs)
+        folder_meta = FolderMetadata(
+            id=meta.id,
+            name=meta.name,
+            kind=AGENT_PLAN_KIND,
+            created_at=meta.created_at,
+            updated_at=meta.updated_at,
         )
+        attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
+            "_entity_metadata": meta,
+        }
+        return _reconstruct(cls, attrs)
 
     def materialize(self) -> None:
-        self.path().mkdir(parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self.path() / PLAN_METADATA_FILENAME)
+        self._fs.mkdir(self.path(), parents=True, exist_ok=True)
+        meta_path = self._fs.join(self.path(), PLAN_METADATA_FILENAME)
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     def save(self) -> None:
-        _save_metadata(self._entity_metadata, self.path() / PLAN_METADATA_FILENAME)
+        meta_path = self._fs.join(self.path(), PLAN_METADATA_FILENAME)
+        _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._entity_metadata.model_dump(mode="json"))
@@ -332,24 +330,31 @@ class PlanFolder(Folder):
     # ── Internal directory helper ────────────────────────────────────────
 
     def _ensure(self, *segments: str) -> Path:
-        """Resolve, mkdir, and return a path under this plan."""
-        path = self.path().joinpath(*segments)
+        """Resolve, mkdir, and return a path under this plan.
+
+        PlanFolder is local-only by design (it manages generated source code
+        and YAML artefacts that run on this host), so all helper methods
+        return :class:`pathlib.Path` for direct local I/O.  The Folder hooks
+        (``resolve`` / ``child_dir`` / ``path``) still return :class:`molexp.Path`
+        to satisfy the framework contract.
+        """
+        path = Path(self.path()).joinpath(*segments)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
     def _resolve(self, *segments: str) -> Path:
         """Resolve a path under this plan without creating anything.
 
-        Falls back to ``self._compute_path()`` so reads on unmaterialized
+        Falls back to ``self.resolve()`` so reads on unmaterialized
         plans don't side-effect a mkdir.
         """
-        return self._compute_path().joinpath(*segments)
+        return Path(self.resolve()).joinpath(*segments)
 
     # ── Path API ─────────────────────────────────────────────────────────
 
     def root(self) -> Path:
         """Path to the plan root directory; mkdirs if missing."""
-        return self.path()
+        return Path(self.path())
 
     def report_dir(self) -> Path:
         """``<plan>/report/`` — original + digest report files."""
