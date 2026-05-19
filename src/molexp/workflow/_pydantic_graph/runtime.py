@@ -274,6 +274,16 @@ class GraphWorkflowRuntime:
 
         execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
 
+        # Observability — write the initial workflow.json snapshot under
+        # ``<run_dir>/executions/<execution_id>/``.  The per-frame snapshot
+        # updates are no longer injected into the graph runner (see module
+        # docstring), but the initial write happens in ``__init__`` so the
+        # execution-id directory always exists post-execution for tooling.
+        if resolved_run_dir is not None:
+            from .persistence import RunStorePersistence
+
+            RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
+
         try:
             workflow_deps = self._build_deps(
                 compiled,
@@ -342,6 +352,12 @@ class GraphWorkflowRuntime:
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
         execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
+
+        # Observability — see ``execute()`` for the rationale.
+        if resolved_run_dir is not None:
+            from .persistence import RunStorePersistence
+
+            RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
