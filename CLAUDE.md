@@ -94,7 +94,7 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 
 **workspace MUST NOT**:
 
-- `import molexp.workflow.*`, `import molexp.agent.*`, `import molexp.plugins.*`, `import molexp.server.*`, `import molexp.cli.*`, `import molexp.sweep.*` — any form. The only allowed `molexp.*` outbound imports are `molexp._typing`, `molexp.config`, and project-level helpers explicitly designed as cross-layer primitives (`mollog`, `molcfg`).
+- `import molexp.workflow.*`, `import molexp.agent.*`, `import molexp.plugins.*`, `import molexp.server.*`, `import molexp.cli.*`, `import molexp.sweep.*` — any form. The only allowed `molexp.*` outbound imports are `molexp._typing`, `molexp.config`, `molexp.path` (the cross-host POSIX path primitive), and project-level helpers explicitly designed as cross-layer primitives (`mollog`, `molcfg`).
 - Define a `workflow` field on `Experiment`, a `WorkflowSnapshotRef` type, an `_EntryTask`, `_promote_to_workflow`, `_resolve_callable_entrypoint`, or any other workflow-shaped helper. Those concepts live in `molexp.workflow`.
 - Define `Agent`, `AgentSession`, `PlanFolder`, agent metadata models (`AgentMetadata` / `AgentSessionMetadata`), or any session-shaped catalog method (`add_session` / `read_messages` / `goal_summary` projections). Those concepts live in `molexp.agent.folders` (Agent / AgentSession) and `molexp.agent.modes.plan.plan_folder` (PlanFolder). Upstream layers reach workspace **only** through `Folder` + the generic five-verb CRUD; workspace stays unaware of every upstream-defined kind.
 - Write to disk in `__init__`. All I/O is lazy (first `.path()` / `add_folder` / first catalog upsert).

@@ -10,6 +10,7 @@ __version__ = "0.3.0"
 
 from molexp._logger import Logger, get_logger
 from molexp.entry import entry
+from molexp.path import Path
 
 # User-facing hierarchy (all from workspace — single source of truth)
 from molexp.workspace.experiment import Experiment
@@ -23,6 +24,7 @@ __all__ = [
     "GridSpace",
     "Logger",
     "ParamSpace",
+    "Path",
     "Project",
     "Run",
     "RunContext",
