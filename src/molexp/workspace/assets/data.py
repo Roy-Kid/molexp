@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from datetime import datetime
+from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -55,14 +56,17 @@ class DataAssetLibrary:
 
     def __init__(
         self,
-        scope_dir: Path,
+        scope_dir: str | PathLike[str],
         scope: AssetScope,
         catalog: AssetCatalog | None = None,
     ) -> None:
-        self.scope_dir = scope_dir
+        # Coerce to pathlib.Path — DataAssetLibrary does genuine local I/O
+        # (shutil.copy2, os.link, symlink_to); callers can pass molexp.Path
+        # or str.  Remote DataAsset storage is not supported by this class.
+        self.scope_dir = Path(scope_dir)
         self.scope = scope
         self.catalog = catalog
-        self.root = scope_dir / "assets"
+        self.root = self.scope_dir / "assets"
 
     def import_asset(
         self,

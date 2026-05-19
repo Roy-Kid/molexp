@@ -47,7 +47,7 @@ def test_workspace_backed_cache_writes_under_cache_dir(
     cache = Caching(store=workspace.cache.as_cache_store())
     cache.put(snapshot, inputs={"x": 1}, result={"y": 2})
 
-    expected_dir = workspace.root / "cache"
+    expected_dir = Path(workspace.root / "cache")
     assert expected_dir.exists(), (
         f"ws.cache.as_cache_store() should write under {expected_dir}, but the dir is missing"
     )
@@ -76,7 +76,7 @@ def test_workspace_cache_entry_is_valid_json(workspace: Workspace, snapshot: Tas
     cache = Caching(store=workspace.cache.as_cache_store())
     cache.put(snapshot, inputs={"x": 1}, result={"y": 2})
 
-    entry_path = next((workspace.root / "cache").glob("*.json"))
+    entry_path = next(Path(workspace.root / "cache").glob("*.json"))
     payload = json.loads(entry_path.read_text())
     assert payload["snapshot_key"] == snapshot.key
     assert payload["task_id"] == "t1"

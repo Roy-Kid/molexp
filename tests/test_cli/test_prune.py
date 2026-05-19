@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -25,7 +26,7 @@ def seeded_workspace(tmp_path):
     history = []
     for i, status in enumerate(("succeeded", "failed", "failed"), start=1):
         exec_id = f"exec-{run.id}" if i == 1 else f"exec-{run.id}-{i}"
-        exec_dir = run.run_dir / "executions" / exec_id
+        exec_dir = Path(run.run_dir / "executions" / exec_id)
         exec_dir.mkdir(parents=True, exist_ok=True)
         (exec_dir / "workflow.json").write_text('{"status":"' + status + '"}')
         history.append(
@@ -91,7 +92,7 @@ def test_prune_range_syntax(seeded_workspace):
     )
 
     assert result.exit_code == 0, result.stdout
-    exec_root = run.run_dir / "executions"
+    exec_root = Path(run.run_dir / "executions")
     remaining = sorted(p.name for p in exec_root.iterdir())
     assert remaining == [f"exec-{run.id}"]
 
@@ -103,7 +104,7 @@ def test_prune_refuses_live_running_record(tmp_path):
     run = exp.add_run(parameters={})
 
     exec_id = f"exec-{run.id}"
-    (run.run_dir / "executions" / exec_id).mkdir(parents=True)
+    Path(run.run_dir / "executions" / exec_id).mkdir(parents=True)
     run._update_metadata(
         status="running",
         execution_history=[

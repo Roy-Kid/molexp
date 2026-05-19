@@ -7,6 +7,7 @@ no ``getattr`` guessing.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -35,7 +36,7 @@ def _read_context_results(run: Run) -> dict[str, Any]:
     REST response can show "what did this run produce" without bringing
     runtime state into the persisted ``RunMetadata`` model.
     """
-    run_json = run.run_dir / "run.json"
+    run_json = Path(run.run_dir / "run.json")
     if not run_json.exists():
         return {}
     try:

@@ -121,7 +121,7 @@ class TestRunPortability:
         actual_src_exp = next(src_exp_dir.iterdir())
         src_run_dir = next((actual_src_exp / "runs").iterdir())
 
-        dst_run_dir = dst_exp.experiment_dir / "runs" / src_run_dir.name
+        dst_run_dir = Path(dst_exp.experiment_dir) / "runs" / src_run_dir.name
         dst_run_dir.parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(src_run_dir, dst_run_dir)
 
@@ -251,7 +251,7 @@ class TestConcurrentWrites:
         assert len(results) == N
         catalog_assets = ws.catalog.query_assets(kind="artifact", producer_run=run.id)
         assert len(catalog_assets) == N
-        manifest_assets = AssetManifest(run.run_dir).list()
+        manifest_assets = AssetManifest(Path(run.run_dir)).list()
         # manifest also contains the auto-created "run" log
         artifact_in_manifest = [a for a in manifest_assets if a.kind == "artifact"]
         assert len(artifact_in_manifest) == N

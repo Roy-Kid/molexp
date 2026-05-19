@@ -52,6 +52,21 @@ _builder.add_edge(_builder.start_node, _ws_edge.sources[0])
 _GRAPH = _builder.build()
 
 
+# Single source of truth for ``_GRAPH.run`` / ``_GRAPH.iter`` invocations.
+# pydantic-graph 1.x requires an explicit ``inputs=`` start node; forgetting
+# it bites every call site silently (the runtime raises
+# ``ValueError: Node None is not of type WorkflowStep`` mid-execution).
+# Route all callers through these helpers so adding a fourth call site can
+# never reintroduce that bug.
+
+def _run_graph(state: WorkflowState, deps: WorkflowDeps):
+    return _GRAPH.run(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
+
+
+def _iter_graph(state: WorkflowState, deps: WorkflowDeps):
+    return _GRAPH.iter(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
+
+
 def _resolve_run_dir(
     run_context: RunContextLike | None, explicit_run_dir: str | Path | None
 ) -> Path | None:
@@ -120,7 +135,7 @@ def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
     if run_dir is None:
         return base
 
-    exec_root = run_dir / "executions"
+    exec_root = Path(run_dir) / "executions"
     if not exec_root.exists():
         return base
 
@@ -268,7 +283,7 @@ class GraphWorkflowRuntime:
                 deps=deps,
             )
 
-            result_state: WorkflowState = await _GRAPH.run(state=state, deps=workflow_deps)
+            result_state: WorkflowState = await _run_graph(state, workflow_deps)
 
             # Propagate task-failure to the workspace's RunContext so it can
             # tag the final run.status as failed when the caller's
@@ -343,7 +358,7 @@ class GraphWorkflowRuntime:
                     config=config,
                     deps=deps,
                 )
-                result_state: WorkflowState = await _GRAPH.run(state=seed_state, deps=workflow_deps)
+                result_state: WorkflowState = await _run_graph(seed_state, workflow_deps)
                 handle._result = WorkflowResult(
                     status="failed" if result_state.failed else "completed",
                     outputs=result_state.results,
@@ -390,7 +405,7 @@ class GraphWorkflowRuntime:
             config=config,
             deps=deps,
         )
-        return _GRAPH.iter(state=state, deps=workflow_deps)
+        return _iter_graph(state, workflow_deps)
 
     # ── stream ───────────────────────────────────────────────────────────────
 

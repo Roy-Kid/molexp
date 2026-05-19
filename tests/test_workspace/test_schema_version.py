@@ -9,6 +9,7 @@ Covers acceptance criteria:
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -30,10 +31,11 @@ def _seed_workspace(root) -> Workspace:
 
 
 def _every_entity_json(workspace_root) -> list:
+    root = Path(workspace_root)
     out = []
-    out.append(workspace_root / "workspace.json")
-    out.append(workspace_root / "projects.json")
-    for proj in (workspace_root / "projects").iterdir():
+    out.append(root / "workspace.json")
+    out.append(root / "projects.json")
+    for proj in (root / "projects").iterdir():
         out.append(proj / "project.json")
         out.append(proj / "experiments.json")
         for exp in (proj / "experiments").iterdir():

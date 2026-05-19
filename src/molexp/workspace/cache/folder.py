@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Iterable
 
+from molexp.path import Path
+
 from ..folder import Folder
 
 WORKSPACE_CACHE_KIND = "workspace.cache"
@@ -13,8 +15,8 @@ WORKSPACE_CACHE_KIND = "workspace.cache"
 class CacheFolder(Folder):
     """Single-instance folder rooted at ``<workspace_root>/cache/``."""
 
-    def entry_path(self, key: str) -> str:
-        return self._fs.join(self.path(), f"{key}.json")
+    def entry_path(self, key: str) -> Path:
+        return Path(self._fs.join(self.path(), f"{key}.json"))
 
     def read_entry(self, key: str) -> str | None:
         p = self.entry_path(key)
@@ -38,7 +40,7 @@ class CacheFolder(Folder):
         return True
 
     def keys(self) -> Iterable[str]:
-        dir_path = self._compute_path()
+        dir_path = self.resolve()
         if not self._fs.is_dir(dir_path):
             return ()
         return tuple(
@@ -57,13 +59,13 @@ class CacheFolder(Folder):
             self._fs.touch(p)
 
     def total_bytes(self) -> int:
-        dir_path = self._compute_path()
+        dir_path = self.resolve()
         if not self._fs.is_dir(dir_path):
             return 0
         return sum(self._fs.stat(p).size for p in self._fs.glob(dir_path, "*.json"))
 
     def clear(self) -> int:
-        dir_path = self._compute_path()
+        dir_path = self.resolve()
         if not self._fs.is_dir(dir_path):
             return 0
         count = 0
@@ -83,7 +85,7 @@ class _CacheFolderAdapter:
         self._folder = folder
 
     @property
-    def store_dir(self) -> str:
+    def store_dir(self) -> Path:
         return self._folder.path()
 
     def read(self, key: str) -> str | None:

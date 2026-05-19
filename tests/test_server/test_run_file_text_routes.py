@@ -1,12 +1,14 @@
 """Tests for the ``/runs/{id}/file/text`` route (raw file fetch)."""
 
+from pathlib import Path
+
 
 class TestRunFileTextRoute:
     def _prefix(self, project, experiment, run):
         return f"/api/projects/{project.id}/experiments/{experiment.id}/runs/{run.id}"
 
     def test_returns_text_content(self, client, project, experiment, run):
-        target = run.run_dir / "trajectory.xyz"
+        target = Path(run.run_dir) / "trajectory.xyz"
         body = "2\nframe\nC 0 0 0\nO 0 0 1\n"
         target.write_text(body)
 
@@ -36,7 +38,7 @@ class TestRunFileTextRoute:
         assert resp.status_code == 400
 
     def test_415_when_binary(self, client, project, experiment, run):
-        target = run.run_dir / "snapshot.bin"
+        target = Path(run.run_dir) / "snapshot.bin"
         target.write_bytes(b"\x00\x01\x80\xff")
 
         resp = client.get(

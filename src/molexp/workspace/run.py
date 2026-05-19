@@ -17,7 +17,7 @@ import time
 import traceback
 from datetime import datetime
 from enum import StrEnum
-from pathlib import Path
+from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, Protocol, cast
 
 from mollog import get_logger
@@ -29,6 +29,7 @@ from molexp._typing import (
     JSONValue,
     TaskOutput,
 )
+from molexp.path import Path as MolexpPath  # workspace-abstraction path (Folder.path() return)
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -75,6 +76,7 @@ from .base import (  # noqa: E402
 from .context import Context  # noqa: E402
 from .errors import RunExistsError, RunNotFoundError  # noqa: E402
 from .folder import WORKSPACE_RUN_KIND, Folder  # noqa: E402
+from .fs import PathArg  # noqa: E402
 from .metrics import MetricsWriter  # noqa: E402
 from .models import (  # noqa: E402
     ErrorInfo,
@@ -162,7 +164,16 @@ class RunContext:
     The active :class:`~molexp.config.ProfileConfig` is fixed at
     construction time via ``profile_config``.  Late-binding after
     construction is not permitted.
+
+    ``work_dir`` is the run's on-disk root as a :class:`~pathlib.Path` —
+    callers may use ``/`` to descend into ``artifacts/``, ``logs/`` etc.
+    without re-wrapping. (``Run.run_dir`` returns the same path as
+    ``str`` for FileSystem-API compatibility; RunContext coerces at the
+    boundary so consumers don't each have to.)
     """
+
+    run: Run
+    work_dir: Path
 
     def __init__(
         self,
@@ -172,7 +183,7 @@ class RunContext:
         execution_id: str | None = None,
     ) -> None:
         self.run = run
-        self.work_dir = run.run_dir
+        self.work_dir = Path(run.run_dir)
         self._profile_config = (
             profile_config if profile_config is not None else ProfileConfig({}, name=None)
         )
@@ -393,7 +404,7 @@ class RunContext:
             return Path(asset.path)
         if fallback is not None:
             fallback = Path(fallback)
-            data_dir = self.run.experiment.project.workspace.root / fallback
+            data_dir = Path(self.run.experiment.project.workspace.root) / fallback
             data_dir.mkdir(parents=True, exist_ok=True)
             return data_dir
         raise FileNotFoundError(f"Asset {asset_name!r} not found and no fallback specified.")
@@ -753,7 +764,7 @@ class Run(Folder):
     :data:`WORKSPACE_RUN_KIND`, ``parent`` is the owning
     :class:`Experiment`. The on-disk directory uses the ``run-<id>``
     prefix preserved from the pre-refactor layout — see
-    :meth:`_child_dir`.
+    :meth:`child_dir`.
 
     Example::
 
@@ -816,36 +827,30 @@ class Run(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> str:
+    def resolve(self) -> MolexpPath:
         return self.run_dir
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
-        """:class:`Folder.attach` hook — runs live under ``runs/run-<id>/``."""
-        return parent._fs.join(parent.path(), "runs", f"run-{derived_id}")
+    def child_dir(cls, parent: Folder, derived_id: str) -> MolexpPath:
+        """Folder hook — runs live under ``runs/run-<id>/``."""
+        return MolexpPath(parent._fs.join(parent.path(), "runs", f"run-{derived_id}"))
 
     @classmethod
-    def _from_disk(cls, child_dir: str, parent: Folder) -> Run:
-        """:class:`Folder.attach` hook — load ``run.json`` and rebuild entity state."""
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> Run:
+        """Load ``run.json`` and rebuild entity state. See Folder.from_disk hook docs."""
         meta = _load_metadata(RunMetadata, parent._fs.join(child_dir, "run.json"), fs=parent._fs)
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": meta.id,
-                "_kind": WORKSPACE_RUN_KIND,
-                "_root_path": None,
-                "_metadata": FolderMetadata(
-                    id=meta.id,
-                    name=meta.id,
-                    kind=WORKSPACE_RUN_KIND,
-                    created_at=meta.created_at,
-                    updated_at=meta.created_at,
-                ),
-                "_children_cache": {},
-                "_entity_metadata": meta,
-            },
+        # Runs have no separate human name — ``RunMetadata`` only carries ``id``.
+        folder_meta = FolderMetadata(
+            id=meta.id,
+            name=meta.id,
+            kind=WORKSPACE_RUN_KIND,
+            created_at=meta.created_at,
+            updated_at=meta.created_at,
         )
+        attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
+            "_entity_metadata": meta,
+        }
+        return _reconstruct(cls, attrs)
 
     def children(self, kind: str | None = None) -> list[Folder]:  # noqa: ARG002
         """Run has no entity children — executions live under ``executions/``
@@ -905,8 +910,10 @@ class Run(Folder):
         return self.metadata.status
 
     @property
-    def run_dir(self) -> str:
-        return self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}")
+    def run_dir(self) -> MolexpPath:
+        return MolexpPath(
+            self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}")
+        )
 
     @property
     def scope(self):  # noqa: ANN201
@@ -932,7 +939,7 @@ class Run(Folder):
         """
         from .schema_version import read_versioned_json
 
-        run_json = self.run_dir / "run.json"
+        run_json = Path(self.run_dir / "run.json")
         if not run_json.exists() or run_json.stat().st_size == 0:
             return None
         try:
@@ -1060,7 +1067,7 @@ class Run(Folder):
         """
         import shutil
 
-        exec_dir = self.run_dir / "executions" / execution_id
+        exec_dir = Path(self.run_dir / "executions" / execution_id)
         history = list(self.metadata.execution_history)
         matched_idx = next(
             (i for i, rec in enumerate(history) if rec.execution_id == execution_id),
@@ -1075,7 +1082,7 @@ class Run(Folder):
             self._update_metadata(execution_history=history)
         self.experiment.project.workspace.catalog.remove_execution(execution_id)
         _rebuild_container_index(
-            container_dir=self.run_dir / "executions",
+            container_dir=Path(self.run_dir / "executions"),
             index_filename="executions.json",
             metadata_filename="execution.json",
             fields=[

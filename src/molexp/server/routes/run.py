@@ -207,7 +207,7 @@ def create_run(
 
 
 def _read_execution_logs(run, execution_id: str) -> RunLogsResponse:  # noqa: ANN001
-    exec_dir: Path = run.run_dir / "executions" / execution_id
+    exec_dir = Path(run.run_dir) / "executions" / execution_id
     stdout: str | None = None
     stderr: str | None = None
     out_file = exec_dir / "stdout.log"
@@ -314,7 +314,7 @@ def get_run_file_text(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir: Path = run.run_dir
+    run_dir = Path(run.run_dir)
     target = (run_dir / path).resolve()
     try:
         target.relative_to(run_dir.resolve())
@@ -353,7 +353,7 @@ def get_run_lammps_log(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir: Path = run.run_dir
+    run_dir = Path(run.run_dir)
     target = (run_dir / path).resolve()
     try:
         target.relative_to(run_dir.resolve())
@@ -414,7 +414,7 @@ def get_run_execution(
         return RunExecutionResponse()
 
     latest_id = history[-1].execution_id
-    wf_file: Path = run.run_dir / "executions" / latest_id / "workflow.json"
+    wf_file = Path(run.run_dir) / "executions" / latest_id / "workflow.json"
     if not wf_file.exists():
         return RunExecutionResponse(execution_id=latest_id)
 
@@ -455,7 +455,7 @@ def get_run_files(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir = run.run_dir
+    run_dir = Path(run.run_dir)
     from molexp.workspace.assets import AssetScope
 
     run_scope = AssetScope(kind="run", ids=(project_id, experiment_id, run_id))
@@ -497,7 +497,7 @@ def get_run_files(
 
     return RunFilesResponse(
         runId=run_id,
-        runDir=str(run_dir.relative_to(workspace.root)),
+        runDir=str(run_dir.relative_to(Path(workspace.root))),
         nodes=nodes,
     )
 
@@ -602,7 +602,7 @@ def export_run(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    run_dir: Path = run.run_dir
+    run_dir = Path(run.run_dir)
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
         if run_dir.exists():

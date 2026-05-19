@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -140,7 +141,7 @@ class TestRunCommand:
         # run succeeded (profile is orthogonal to status)
         assert run.status == "succeeded"
 
-        run_json = json.loads((run.run_dir / "run.json").read_text())
+        run_json = json.loads(Path(run.run_dir / "run.json").read_text())
         assert run_json["context"]["results"]["epochs"] == 1
 
     def test_resume_replays_non_succeeded_runs_of_same_profile(self, tmp_path):

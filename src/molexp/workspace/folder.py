@@ -11,17 +11,18 @@ metadata, and delete / move operations.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 from datetime import datetime
-from pathlib import Path
 from typing import ClassVar, TypeVar, cast
 
 from molexp._typing import JSONValue
+from molexp.path import Path
 
 from .base import _load_metadata, _reconstruct, _save_metadata
 from .errors import FolderMoveCollisionError
-from .fs import FileSystem
+from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
 from .models import FolderMetadata
 from .utils import slugify
@@ -103,7 +104,7 @@ class Folder:
         parent: Folder | None = None,
         name: str,
         kind: str,
-        root_path: str | None = None,
+        root_path: PathArg | None = None,
         fs: FileSystem | None = None,
     ) -> None:
         if parent is not None and root_path is not None:
@@ -116,7 +117,7 @@ class Folder:
         self._parent = parent
         self._name = derived_id
         self._kind = kind
-        self._root_path = root_path  # str | None
+        self._root_path: Path | None = Path(os.fspath(root_path)) if root_path is not None else None
         self._fs = fs or (parent._fs if parent else LocalFileSystem())
         self._metadata = FolderMetadata(id=derived_id, name=name, kind=kind)
         self._children_cache: dict[str, Folder] = {}
@@ -144,14 +145,20 @@ class Folder:
         return self._metadata
 
     # ── Path resolution ──────────────────────────────────────────────────
+    #
+    # ``resolve`` and ``path`` return :class:`molexp.Path` — a subclass of
+    # :class:`pathlib.PurePosixPath`.  It is a *pure* path: no ``.exists``,
+    # ``.read_text`` or other I/O methods, so it cannot accidentally
+    # short-circuit to the local filesystem on a remote-backed folder.
+    # All I/O must still flow through ``self._fs``.
 
-    def path(self) -> str:
-        """Return the on-disk path as a string; mkdirs if absent (lazy, idempotent)."""
-        target = self._compute_path()
+    def path(self) -> Path:
+        """Return the on-disk path; mkdirs if absent (lazy, idempotent)."""
+        target = self.resolve()
         self._fs.mkdir(target, parents=True, exist_ok=True)
         return target
 
-    def _compute_path(self) -> str:
+    def resolve(self) -> Path:
         """Walk the parent chain without triggering lazy mkdir."""
         if self._parent is None:
             if self._root_path is None:
@@ -159,14 +166,8 @@ class Folder:
                     f"folder {self._name!r} (kind={self._kind!r}) is unmounted — "
                     "construct via parent.add_folder(child) or pass root_path="
                 )
-            return self._fs.join(self._root_path, self._name)
-        return self._fs.join(self._parent._compute_path(), self._name)
-
-    # Backward-compat: for callers that still expect pathlib.Path.
-    def pathlib(self) -> Path:
-        """Return the local path as a pathlib.Path (local filesystem only)."""
-        p = self._compute_path()
-        return Path(p)
+            return Path(self._fs.join(self._root_path, self._name))
+        return Path(self._fs.join(self._parent.resolve(), self._name))
 
     # ── Index filename ───────────────────────────────────────────────────
 
@@ -206,7 +207,7 @@ class Folder:
     # ── Children ─────────────────────────────────────────────────────────
 
     def children(self, kind: str | None = None) -> list[Folder]:
-        self_path = self._compute_path()
+        self_path = self.resolve()
         if not self._fs.is_dir(self_path):
             return []
         result: list[Folder] = []
@@ -237,30 +238,73 @@ class Folder:
             result.append(child)
         return result
 
-    # ── Generic attach / create_child / get_child ────────────────────────
+    # ── Subclass hook contract ────────────────────────────────────────────
+    #
+    # ``resolve``, ``child_dir`` and ``from_disk`` are **framework hooks** —
+    # public protocol surface that the Folder CRUD machinery (``add_folder``,
+    # ``get_folder``, ``has_folder``, …) reaches into across class boundaries
+    # to wire children to disk. Subclasses override them.
+    #
+    # Invariants every override MUST hold (failure modes have bitten us in
+    # the past, see git history for ``_fs``-drop bugs at every level):
+    #
+    #   * Always inherit ``_fs`` from ``parent`` so children share the
+    #     workspace's filesystem (local / remote). Use
+    #     :meth:`base_from_disk_attrs` instead of hand-rolling the attrs
+    #     dict — it bakes the invariants in.
+    #   * Carry ``FolderMetadata`` (kind, id, *human* name, timestamps)
+    #     into ``_metadata`` — don't substitute id for name.
+    #   * ``resolve()`` is the side-effect-free path computation; ``path()``
+    #     is its mkdir-ing twin. Don't trigger I/O in ``resolve``.
+    #   * ``child_dir`` returns the absolute path of a child with this
+    #     class's *layout* (e.g. ``projects/<id>``, ``experiments/<id>``).
+    #
+    # **Return type**: every Folder subclass returns :class:`molexp.Path`
+    # (a :class:`pathlib.PurePosixPath` subclass).  Pure POSIX path
+    # arithmetic is available (``/`` operator, ``.parent``, ``.name``);
+    # I/O methods are deliberately absent so a remote-backed folder cannot
+    # silently short-circuit to the local filesystem.  All I/O routes
+    # through ``self._fs``.  This unifies the workspace layer (was: ``str``)
+    # and the agent layer (was: ``pathlib.Path``, local-only) — agent
+    # subclasses now inherit remote-compat for free.
+    #
+    # Subclasses with their own entity metadata (Project / Experiment / Run)
+    # override ``from_disk`` to load their entity model from a different
+    # filename, but must call :meth:`base_from_disk_attrs` to seed the
+    # common keys.
+    # ──────────────────────────────────────────────────────────────────────
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
-        return parent._fs.join(parent.path(), derived_id)
+    def child_dir(cls, parent: Folder, derived_id: str) -> Path:
+        """Where a child with *derived_id* lives under *parent*. Override per subclass layout."""
+        return Path(parent._fs.join(parent.path(), derived_id))
 
     @classmethod
-    def _from_disk(cls, child_dir: str, parent: Folder) -> Folder:
+    def base_from_disk_attrs(
+        cls,
+        parent: Folder,
+        meta: FolderMetadata,
+    ) -> dict[str, object]:
+        """Common attrs dict for ``_reconstruct`` — call this from every
+        subclass ``from_disk`` to guarantee ``_fs`` + parent link are set."""
+        return {
+            "_parent": parent,
+            "_name": meta.id,
+            "_kind": meta.kind,
+            "_root_path": None,
+            "_metadata": meta,
+            "_children_cache": {},
+            "_fs": parent._fs,
+        }
+
+    @classmethod
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> Folder:
+        """Generic loader: read ``folder.json`` from *child_dir* and reconstruct."""
         meta_file = parent._fs.join(child_dir, _METADATA_FILENAME)
         if not parent._fs.exists(meta_file):
             raise FileNotFoundError(meta_file)
         child_meta = _load_metadata(FolderMetadata, meta_file, fs=parent._fs)
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": child_meta.id,
-                "_kind": child_meta.kind,
-                "_root_path": None,
-                "_metadata": child_meta,
-                "_children_cache": {},
-                "_fs": parent._fs,
-            },
-        )
+        return _reconstruct(cls, cls.base_from_disk_attrs(parent, child_meta))
 
     # ── Generic five-verb CRUD ───────────────────────────────────────────
 
@@ -275,9 +319,9 @@ class Folder:
         cached = self._children_cache.get(slug)
         if cached is not None and cached._kind == child._kind:
             return cached
-        child_dir = target_cls._child_dir(self, slug)
+        child_dir = target_cls.child_dir(self, slug)
         if self._fs.is_dir(child_dir):
-            existing = target_cls._from_disk(child_dir, self)
+            existing = target_cls.from_disk(child_dir, self)
             self._children_cache[slug] = existing
             return existing
         child._parent = self
@@ -295,9 +339,9 @@ class Folder:
             cached = self._children_cache.get(candidate)
             if isinstance(cached, cls):
                 return cached
-            child_dir = cls._child_dir(self, candidate)
+            child_dir = cls.child_dir(self, candidate)
             if self._fs.is_dir(child_dir):
-                loaded = cls._from_disk(child_dir, self)
+                loaded = cls.from_disk(child_dir, self)
                 if isinstance(loaded, cls):
                     self._children_cache[loaded._name] = loaded
                     return cast(F, loaded)
@@ -310,12 +354,12 @@ class Folder:
             cached = self._children_cache.get(candidate)
             if isinstance(cached, cls):
                 return True
-            if cls._child_dir(self, candidate) and self._fs.is_dir(cls._child_dir(self, candidate)):
+            if cls.child_dir(self, candidate) and self._fs.is_dir(cls.child_dir(self, candidate)):
                 return True
         return False
 
     def list_folders(self, *, cls: type[F] | None = None) -> list[F]:
-        self_path = self._compute_path()
+        self_path = self.resolve()
         if not self._fs.is_dir(self_path):
             return []
         out: list[F] = []
@@ -361,11 +405,11 @@ class Folder:
             if isinstance(cached, cls):
                 out.append(cast(F, cached))
                 continue
-            child_dir = cls._child_dir(self, str(slug))
+            child_dir = cls.child_dir(self, str(slug))
             if not self._fs.is_dir(child_dir):
                 continue
             try:
-                loaded = cls._from_disk(child_dir, self)
+                loaded = cls.from_disk(child_dir, self)
             except (FileNotFoundError, OSError):
                 continue
             if isinstance(loaded, cls):
@@ -375,7 +419,7 @@ class Folder:
 
     def sync_folders(self, *, cls: type[Folder]) -> None:
         container = cls._container_dir(self)
-        index_path = self._fs.join(self._compute_path(), cls._index_filename())
+        index_path = self._fs.join(self.resolve(), cls._index_filename())
         if not self._fs.is_dir(container):
             if self._fs.exists(index_path):
                 self._fs.remove(index_path)
@@ -388,7 +432,7 @@ class Folder:
             if not self._fs.is_dir(entry_path):
                 continue
             try:
-                child = cls._from_disk(entry_path, self)
+                child = cls.from_disk(entry_path, self)
             except (FileNotFoundError, OSError):
                 continue
             if isinstance(child, cls):
@@ -399,7 +443,7 @@ class Folder:
         for candidate in (name, slugify(name)):
             if not candidate:
                 continue
-            child_dir = cls._child_dir(self, candidate)
+            child_dir = cls.child_dir(self, candidate)
             if self._fs.is_dir(child_dir):
                 self._fs.remove(child_dir, recursive=True)
                 self._children_cache.pop(candidate, None)
@@ -415,11 +459,11 @@ class Folder:
     # ── Container dir + index helpers ────────────────────────────────────
 
     @classmethod
-    def _container_dir(cls, parent: Folder) -> str:
-        return parent._fs.dirname(cls._child_dir(parent, "_probe_"))
+    def _container_dir(cls, parent: Folder) -> Path:
+        return Path(parent._fs.dirname(cls.child_dir(parent, "_probe_")))
 
     def _upsert_index_row(self, child: Folder) -> None:
-        fpath = self._fs.join(self._compute_path(), type(child)._index_filename())
+        fpath = self._fs.join(self.resolve(), type(child)._index_filename())
         rows: dict[str, dict[str, JSONValue]] = {}
         if self._fs.exists(fpath):
             try:
@@ -435,7 +479,7 @@ class Folder:
         self._fs.atomic_write_json(fpath, rows)
 
     def _remove_index_row(self, cls: type[Folder], slug: str) -> None:
-        fpath = self._fs.join(self._compute_path(), cls._index_filename())
+        fpath = self._fs.join(self.resolve(), cls._index_filename())
         if not self._fs.exists(fpath):
             return
         try:
@@ -456,7 +500,7 @@ class Folder:
     # ── Delete + move ────────────────────────────────────────────────────
 
     def delete(self) -> None:
-        target = self._compute_path()
+        target = self.resolve()
         if self._fs.exists(target):
             self._fs.remove(target, recursive=True)
         if self._parent is not None:
@@ -469,13 +513,13 @@ class Folder:
         new_name: str | None = None,
     ) -> None:
         target_id = self._name if new_name is None else _validate_name_to_id(new_name)
-        target_dir = new_parent._fs.join(new_parent.path(), target_id)
+        target_dir = Path(new_parent._fs.join(new_parent.path(), target_id))
         if new_parent._fs.exists(target_dir):
-            raise FolderMoveCollisionError(str(self._compute_path()), str(target_dir))
+            raise FolderMoveCollisionError(str(self.resolve()), str(target_dir))
         # move_to uses OS-level move (shutil.move) — only works local→local
-        src = self._compute_path()
+        src = self.resolve()
         dst = target_dir
-        shutil.move(src, dst)
+        shutil.move(str(src), str(dst))
         if self._parent is not None:
             self._parent._children_cache.pop(self._name, None)
         self._parent = new_parent

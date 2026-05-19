@@ -32,12 +32,12 @@ class TestWorkspace:
     def test_constructor_creates_if_missing(self, tmp_path):
         ws = Workspace(tmp_path / "auto")
         ws.materialize()
-        assert ws.root.exists()
-        assert (ws.root / "workspace.json").exists()
+        assert Path(ws.root).exists()
+        assert Path(ws.root / "workspace.json").exists()
 
     def test_metadata_has_no_child_lists(self, workspace):
         workspace.materialize()
-        data = json.loads((workspace.root / "workspace.json").read_text())
+        data = json.loads(Path(workspace.root / "workspace.json").read_text())
         assert "projects" not in data
 
 

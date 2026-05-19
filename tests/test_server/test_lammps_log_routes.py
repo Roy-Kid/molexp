@@ -1,5 +1,7 @@
 """Tests for the ``/runs/{id}/lammps-log`` route (molpy bridge)."""
 
+from pathlib import Path
+
 _LOG_TEXT = """LAMMPS (1 Jan 2026)
 # fixture for lammps-log route tests
 
@@ -22,7 +24,7 @@ class TestLammpsLogRoute:
         return f"/api/projects/{project.id}/experiments/{experiment.id}/runs/{run.id}"
 
     def test_returns_thermo_stages(self, client, project, experiment, run):
-        log_path = run.run_dir / "log.lammps"
+        log_path = Path(run.run_dir / "log.lammps")
         log_path.write_text(_LOG_TEXT)
 
         resp = client.get(

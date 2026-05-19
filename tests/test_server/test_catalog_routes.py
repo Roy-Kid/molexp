@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 
 class TestCatalogByPath:
     def test_unmatched_path_under_projects_returns_derived_scope(self, client, project, experiment):
@@ -37,7 +39,9 @@ class TestCatalogByPath:
         scope = AssetScope(kind="run", ids=(project.id, experiment.id, run.id))
         assets = experiment.project.workspace.catalog.query_assets(scope=scope)
         artifact = next(a for a in assets if a.kind == "artifact")
-        rel = (run.run_dir / artifact.path).relative_to(experiment.project.workspace.root)
+        rel = (Path(run.run_dir) / artifact.path).relative_to(
+            Path(experiment.project.workspace.root)
+        )
 
         resp = client.get("/api/catalog/by-path", params={"path": str(rel)})
         assert resp.status_code == 200

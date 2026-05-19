@@ -46,7 +46,7 @@ class CatalogFolder(Folder):
         parent = self.parent
         if parent is None:
             raise RuntimeError("CatalogFolder must be a child of Workspace")
-        return parent._compute_path()
+        return parent.resolve()
 
 
 __all__ = [

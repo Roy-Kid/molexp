@@ -56,7 +56,7 @@ def snapshot() -> TaskSnapshot:
 
 
 def test_entry_path_is_under_cache_dir(folder: CacheFolder, workspace: Workspace) -> None:
-    assert folder.entry_path("k") == str(workspace.root / "cache" / "k.json")
+    assert str(folder.entry_path("k")) == str(workspace.root / "cache" / "k.json")
 
 
 def test_read_entry_miss_returns_none(folder: CacheFolder) -> None:
@@ -75,7 +75,7 @@ def test_write_then_read_entry_round_trips(folder: CacheFolder) -> None:
 
 def test_write_entry_is_atomic(folder: CacheFolder, workspace: Workspace) -> None:
     folder.write_entry("k", '{"y": 1}')
-    cache_dir = workspace.root / "cache"
+    cache_dir = Path(str(workspace.root / "cache"))
     leftover = list(cache_dir.glob("*.tmp"))
     assert not leftover, f"expected no leftover tmp files; got {leftover}"
 
@@ -92,7 +92,9 @@ def test_keys_yields_stems_of_json_files(folder: CacheFolder) -> None:
 def test_total_bytes_sums_entry_sizes(folder: CacheFolder, workspace: Workspace) -> None:
     folder.write_entry("a", '{"x": 1}')
     folder.write_entry("b", '{"y": 2}')
-    expected = sum(p.stat().st_size for p in (workspace.root / "cache").glob("*.json"))
+    expected = sum(
+        p.stat().st_size for p in Path(str(workspace.root / "cache")).glob("*.json")
+    )
     assert folder.total_bytes() == expected
 
 
@@ -103,7 +105,7 @@ def test_clear_removes_all_entries_and_returns_count(
     folder.write_entry("b", '{"y": 2}')
     removed = folder.clear()
     assert removed == 2
-    assert list((workspace.root / "cache").glob("*.json")) == []
+    assert list(Path(str(workspace.root / "cache")).glob("*.json")) == []
 
 
 def test_clear_on_empty_returns_zero(folder: CacheFolder) -> None:
@@ -137,15 +139,15 @@ def test_caching_round_trip_via_workspace_cache(
     assert hit == {"y": 2}
 
     # And the file lives under <root>/cache/<key>.json, never under .subsystems/.
-    entries = list((workspace.root / "cache").glob("*.json"))
+    entries = list(Path(str(workspace.root / "cache")).glob("*.json"))
     assert len(entries) == 1, f"expected one entry under <root>/cache; got {entries}"
-    assert not (workspace.root / ".subsystems" / "workflow.cache").exists()
+    assert not Path(str(workspace.root / ".subsystems" / "workflow.cache")).exists()
 
 
 def test_cache_folder_lazy_mkdir(workspace: Workspace) -> None:
     """``Workspace.Cache()`` should not create ``<root>/cache/`` until first touch."""
     workspace.cache  # idempotent vend  # noqa: B018
-    assert not (workspace.root / "cache").exists()
+    assert not Path(str(workspace.root / "cache")).exists()
 
 
 # ── as_cache_store lazy-imports workflow ──────────────────────────────────────
