@@ -48,8 +48,8 @@ from .context import ActorContext, TaskContext
 from .contract import (
     ArtifactDecl,
     Severity,
-    TaskIO,
     TaskInputSpec,
+    TaskIO,
     TaskOutputSpec,
     ValidationCheck,
     ValidationCheckId,
