@@ -24,6 +24,11 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 
+# ── Top-level ergonomic shortcuts ─────────────────────────────────────────────
+from molexp.cli.init_cmd import init as _init_cmd  # noqa: E402
+
+app.command(name="init")(_init_cmd)
+
 # ── Primary entry point: workspace ────────────────────────────────────────────
 from molexp.cli.workspace import workspace_app  # noqa: E402
 
@@ -38,6 +43,18 @@ app.add_typer(session_app, name="session")
 from molexp.cli.config_cmd import config_app  # noqa: E402
 
 app.add_typer(config_app, name="config")
+
+# ── Runs subcommands (currently: prune) ───────────────────────────────────────
+from molexp.cli.prune import register as _register_prune  # noqa: E402
+
+runs_app = typer.Typer(name="runs", help="Run-level operations (prune, ...).")
+_register_prune(runs_app)
+app.add_typer(runs_app, name="runs")
+
+# ── Compute targets ───────────────────────────────────────────────────────────
+from molexp.cli.target_cmd import target_app  # noqa: E402
+
+app.add_typer(target_app, name="target")
 
 # ── Third-party CLI plugin discovery ──────────────────────────────────────────
 

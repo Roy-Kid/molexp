@@ -55,7 +55,7 @@ def test_prune_deletes_failed_executions(seeded_workspace):
     assert result.exit_code == 0, result.stdout
 
     # Two failed dirs gone, the succeeded one remains.
-    exec_root = run.run_dir / "executions"
+    exec_root = Path(run.run_dir / "executions")
     remaining = sorted(p.name for p in exec_root.iterdir())
     assert remaining == [f"exec-{run.id}"]
 
@@ -77,7 +77,7 @@ def test_prune_abort_on_empty_selection(seeded_workspace):
 
     assert result.exit_code == 0
     # All 3 dirs intact.
-    exec_root = run.run_dir / "executions"
+    exec_root = Path(run.run_dir / "executions")
     assert len(list(exec_root.iterdir())) == 3
 
 
@@ -124,4 +124,4 @@ def test_prune_refuses_live_running_record(tmp_path):
 
     assert result.exit_code == 1
     assert "Refusing" in result.stdout
-    assert (run.run_dir / "executions" / exec_id).exists()
+    assert Path(run.run_dir / "executions" / exec_id).exists()
