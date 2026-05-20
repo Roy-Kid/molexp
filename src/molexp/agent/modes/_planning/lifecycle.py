@@ -17,8 +17,10 @@ from enum import StrEnum
 class PlanState(StrEnum):
     """Machine-readiness lifecycle state of a plan.
 
-    The terminal states are ``ready_for_run``, ``rejected``, and
-    ``failed``.
+    The terminal states are ``completed``, ``rejected``, and ``failed``.
+    ``ready_for_run`` is the hand-off point AuthorMode reaches and RunMode
+    enters at; ``running`` is the in-flight execution state RunMode owns;
+    ``completed`` is the terminal-success state.
     """
 
     intake = "intake"
@@ -31,6 +33,8 @@ class PlanState(StrEnum):
     materializing = "materializing"
     validating = "validating"
     ready_for_run = "ready_for_run"
+    running = "running"
+    completed = "completed"
     rejected = "rejected"
     failed = "failed"
 
@@ -55,7 +59,11 @@ LEGAL_TRANSITIONS: dict[PlanState, frozenset[PlanState]] = {
     PlanState.validating: frozenset(
         {PlanState.ready_for_run, PlanState.draft_plan, PlanState.failed}
     ),
-    PlanState.ready_for_run: frozenset(),
+    PlanState.ready_for_run: frozenset({PlanState.running}),
+    PlanState.running: frozenset(
+        {PlanState.completed, PlanState.failed, PlanState.needs_clarification}
+    ),
+    PlanState.completed: frozenset(),
     PlanState.rejected: frozenset(),
     PlanState.failed: frozenset(),
 }

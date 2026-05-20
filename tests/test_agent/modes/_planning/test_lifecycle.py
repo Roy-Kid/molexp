@@ -54,7 +54,16 @@ _EXPECTED_EDGES: dict[PlanState, set[PlanState]] = {
         PlanState.draft_plan,
         PlanState.failed,
     },
-    PlanState.ready_for_run: set(),
+    # ready_for_run / running / completed: the RunMode lifecycle extension
+    # (sub-spec 05). ready_for_run is no longer terminal — RunMode drives
+    # it through running into completed / failed / needs_clarification.
+    PlanState.ready_for_run: {PlanState.running},
+    PlanState.running: {
+        PlanState.completed,
+        PlanState.failed,
+        PlanState.needs_clarification,
+    },
+    PlanState.completed: set(),
     PlanState.rejected: set(),
     PlanState.failed: set(),
 }
@@ -65,7 +74,9 @@ _EXPECTED_EDGES: dict[PlanState, set[PlanState]] = {
 # --------------------------------------------------------------------------
 
 
-def test_plan_state_has_all_twelve_members() -> None:
+def test_plan_state_has_all_fourteen_members() -> None:
+    # `running` / `completed` were added by the RunMode lifecycle
+    # extension (sub-spec 05).
     assert {m.value for m in PlanState} == {
         "intake",
         "needs_clarification",
@@ -77,6 +88,8 @@ def test_plan_state_has_all_twelve_members() -> None:
         "materializing",
         "validating",
         "ready_for_run",
+        "running",
+        "completed",
         "rejected",
         "failed",
     }
@@ -107,7 +120,10 @@ def test_legal_transitions_values_are_frozensets() -> None:
 
 @pytest.mark.parametrize(
     "terminal",
-    [PlanState.ready_for_run, PlanState.rejected, PlanState.failed],
+    # After the RunMode lifecycle extension the terminal states are
+    # `completed`, `rejected`, and `failed`; `ready_for_run` now flows
+    # into `running`.
+    [PlanState.completed, PlanState.rejected, PlanState.failed],
 )
 def test_terminal_states_have_no_successors(terminal: PlanState) -> None:
     assert LEGAL_TRANSITIONS[terminal] == frozenset()
