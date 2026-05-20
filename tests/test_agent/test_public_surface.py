@@ -39,13 +39,16 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_modes_all_is_the_chat_and_plan_contract() -> None:
-    """``ChatMode`` + ``PlanMode`` ship today — Author / Run / Review are
-    rebuilt on the harness by later specs 04-06."""
+def test_modes_all_is_the_chat_plan_and_author_contract() -> None:
+    """``ChatMode`` / ``PlanMode`` / ``AuthorMode`` ship today — Run /
+    Review are rebuilt on the harness by later specs 05-06."""
     assert set(modes.__all__) == {
         "ApprovedPlanHandoff",
+        "AuthorMode",
+        "AuthorModeConfig",
         "ChatMode",
         "ChatModeConfig",
+        "MaterializedWorkspaceHandoff",
         "PlanFolder",
         "PlanMode",
         "PlanModeConfig",

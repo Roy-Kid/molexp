@@ -99,6 +99,26 @@ class AgentHarness:
             raise RuntimeError("AgentHarness has no router; AgentRunner injects one on run().")
         return self._router
 
+    @property
+    def execution_env(self) -> ExecutionEnv:
+        """The injected :class:`ExecutionEnv` (subprocess + scratch dir).
+
+        :meth:`run_subprocess` is the high-level path; a mode that needs
+        to drive the env directly — e.g. AuthorMode's per-task debug loop
+        running each generated test with a confined ``cwd`` — reaches it
+        here.
+
+        Raises:
+            RuntimeError: if no ``execution_env`` was supplied at
+                construction.
+        """
+        if self._execution_env is None:
+            raise RuntimeError(
+                "AgentHarness has no execution_env; AgentRunner supplies a "
+                "LocalExecutionEnv on run()."
+            )
+        return self._execution_env
+
     # ── event emission ──────────────────────────────────────────────────────
 
     async def emit(self, event: AgentEvent) -> None:
