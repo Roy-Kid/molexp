@@ -39,9 +39,9 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_modes_all_is_the_chat_plan_author_and_run_contract() -> None:
-    """``ChatMode`` / ``PlanMode`` / ``AuthorMode`` / ``RunMode`` ship
-    today — ``ReviewMode`` is rebuilt on the harness by sub-spec 06."""
+def test_modes_all_is_the_five_mode_contract() -> None:
+    """``ChatMode`` / ``PlanMode`` / ``AuthorMode`` / ``RunMode`` /
+    ``ReviewMode`` — all five modes ship on the harness."""
     assert set(modes.__all__) == {
         "ApprovedPlanHandoff",
         "AuthorMode",
@@ -53,6 +53,8 @@ def test_modes_all_is_the_chat_plan_author_and_run_contract() -> None:
         "PlanMode",
         "PlanModeConfig",
         "RepairEscalation",
+        "ReviewMode",
+        "ReviewModeConfig",
         "RunFolder",
         "RunMode",
         "RunModeConfig",
