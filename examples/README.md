@@ -48,7 +48,8 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 | Example | What it shows |
 |---|---|
-| `agent/chat_mode.py` | Minimum viable agent loop — `ChatMode` + `AgentSession` driven through `PydanticAIHarness`, using `pydantic_ai.models.test.TestModel` so it runs offline. The four public names (`AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`) plus the concrete `ChatMode`/`ChatModeConfig` are the entire user surface. |
+| `agent/chat_mode.py` | Minimum viable agent loop — `ChatMode` + a named runtime `AgentSession` driven through `AgentRunner`, using `pydantic_ai.models.test.TestModel` so it runs offline. Shows the harness-based contract: `runner.run` drains the mode's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
+| `agent/plan_mode.py` | The read-only `PlanMode` planner — its seven-stage async pipeline on the `AgentHarness` turning a free-text report into an approved typed `PlanGraph`. Runs offline with a scripted `Router` + stub `CapabilityProbe` (mirroring the test-suite); the docstring shows how to wire a real provider. `runner.run_events` exposes the live `AgentEvent` stream. |
 
 ## Driving a Run
 
