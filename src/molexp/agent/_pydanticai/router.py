@@ -176,7 +176,8 @@ class PydanticAIRouter:
         :class:`CallUsage` record. Returns the record so the caller
         can fold token counts into its own log line."""
         try:
-            ru = run_result.usage()
+            # pydantic-ai ≥ 1.x: ``usage`` is a property, not a method.
+            ru = run_result.usage
         except Exception:  # pragma: no cover — defensive, RunUsage shape may evolve
             ru = None
         record = CallUsage(

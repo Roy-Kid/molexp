@@ -20,7 +20,7 @@ from molexp.agent._pydanticai.errors import (
     ProviderError,
     classify,
 )
-from molexp.agent.modes.plan.protocols import ModelTier
+from molexp.agent.router import ModelTier
 
 # ── ErrorKind enum ─────────────────────────────────────────────────────────
 

@@ -39,15 +39,12 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_modes_all_is_the_three_pair_contract() -> None:
+def test_modes_all_is_the_chat_reference_contract() -> None:
+    """Only ``ChatMode`` ships today — the four pipeline modes (Plan /
+    Author / Run / Review) are rebuilt on the harness by later specs."""
     assert set(modes.__all__) == {
-        "PlanMode",
-        "PlanModeConfig",
-        "PlanResult",
         "ChatMode",
         "ChatModeConfig",
-        "ReviewMode",
-        "ReviewModeConfig",
     }
 
 

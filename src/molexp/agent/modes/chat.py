@@ -1,37 +1,39 @@
-"""``ChatMode`` — single-turn LLM round-trip wrapped as a 1-task workflow.
+"""``ChatMode`` — the simple harness-based reference mode.
 
-Even a one-shot LLM call is a workflow now: ``ChatMode.run()`` builds a
-single-task :class:`Workflow` and awaits its :meth:`Workflow.execute`,
-keeping the agent layer uniformly workflow-driven. The wrapping is
-deliberate — it removes the bespoke "just call the router" branch and
-gives chat mode the same persistence / observability hooks every other
-mode gets.
+ChatMode is one ``user_input`` → one LLM round-trip → one
+:class:`~molexp.agent.mode.AgentRunResult`. It is the minimal
+:class:`~molexp.agent.mode.AgentMode` implementation and the canonical
+example of the harness-based contract:
 
-Multi-turn support is unchanged: the session's ``model_messages``
-field carries the pydantic-ai-native ``ModelMessage`` history back
-into ``Agent.run(message_history=...)`` on every turn so the LLM sees
-the full conversation context.
+- ``run`` is an async generator that *yields*
+  :data:`~molexp.agent.harness.events.AgentEvent`\\ s;
+- it appends the user turn and the assistant turn to the harness's
+  :class:`~molexp.agent.harness.session.Session` entry-tree;
+- it brackets the LLM call in an ``AgentHarness.stage``;
+- its terminal yield is a
+  :class:`~molexp.agent.harness.events.ModeCompletedEvent` carrying the
+  final :class:`AgentRunResult`.
+
+Conversation context comes from the session entry-tree: prior turns are
+rebuilt with :meth:`Session.build_context` and rendered into the prompt.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncIterator
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
+from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent, ModeStartedEvent
+from molexp.agent.harness.harness import AgentHarness
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.router import ModelTier
 from molexp.agent.types import Message
-from molexp.workflow import Task, TaskContext, Workflow, WorkflowBuilder
-
-if TYPE_CHECKING:
-    from molexp.agent.router import Router
-    from molexp.agent.session import AgentSession
-
 
 _LOG = get_logger(__name__)
+
+__all__ = ["ChatMode", "ChatModeConfig"]
 
 
 class ChatModeConfig(BaseModel):
@@ -43,60 +45,21 @@ class ChatModeConfig(BaseModel):
     temperature: float | None = None
 
 
-@dataclass(frozen=True)
-class _ChatDeps:
-    """Runtime services for the chat workflow's single task."""
+def _render_prior_context(history: tuple[Message, ...]) -> str:
+    """Render prior conversation turns into a plain-text preamble.
 
-    router: Router
-    system_prompt: str
-    message_history: tuple[Any, ...]
-    tier: ModelTier
-
-
-@dataclass(frozen=True)
-class _ChatTurnResult:
-    """Output of :class:`ChatTurn` — surfaced into ``WorkflowResult.outputs``."""
-
-    text: str
-    raw: Any
-
-
-class ChatTurn(Task):
-    """The chat workflow's only task. One router call, one structured return."""
-
-    async def execute(
-        self, ctx: TaskContext[None, _ChatDeps, None]
-    ) -> _ChatTurnResult:
-        user_input = ctx.config.get("user_input")
-        if not isinstance(user_input, str) or not user_input.strip():
-            raise ValueError("ChatTurn requires a non-empty 'user_input' in config.")
-        result = await ctx.deps.router.complete_text(
-            prompt=user_input,
-            system=ctx.deps.system_prompt,
-            message_history=ctx.deps.message_history,
-            tier=ctx.deps.tier,
-        )
-        return _ChatTurnResult(text=result.text, raw=result.raw)
-
-
-def build_chat_workflow() -> Workflow:
-    """Assemble the 1-task chat workflow.
-
-    Returned :class:`Workflow` is frozen and content-addressed; one
-    instance lives at module scope so repeat calls reuse the same
-    ``workflow_id``.
+    The harness entry-tree stores molexp-shaped :class:`Message`\\ s;
+    ChatMode flattens them into a transcript the LLM reads as context.
+    Returns the empty string when there is no prior history.
     """
-    builder = WorkflowBuilder(name="chat_mode", entry="ChatTurn")
-    builder.add(ChatTurn(), name="ChatTurn")
-    return builder.build()
-
-
-CHAT_WORKFLOW: Workflow = build_chat_workflow()
-"""Module-level frozen workflow for ChatMode."""
+    if not history:
+        return ""
+    lines = [f"{msg.role}: {msg.content}" for msg in history]
+    return "Conversation so far:\n" + "\n".join(lines)
 
 
 class ChatMode(AgentMode):
-    """One ``user_input`` → one workflow execution → one :class:`AgentRunResult`."""
+    """One ``user_input`` → one LLM round-trip → one :class:`AgentRunResult`."""
 
     name = "chat"
 
@@ -106,71 +69,49 @@ class ChatMode(AgentMode):
     async def run(
         self,
         *,
-        router: Router,
-        session: AgentSession,
+        harness: AgentHarness,
         user_input: str,
-    ) -> AgentRunResult:
+    ) -> AsyncIterator[AgentEvent]:
+        """Drive one chat turn, yielding the orchestration event stream."""
+        await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+        router = harness.router
         router.clear_usage()
-        session.append(Message(role="user", content=user_input))
 
-        deps = _ChatDeps(
-            router=router,
-            system_prompt=self.config.system_prompt,
-            message_history=tuple(session.model_messages),
-            tier=ModelTier.DEFAULT,
-        )
+        prior = harness.session.build_context()
+        harness.session.append_message(Message(role="user", content=user_input))
 
-        result = await CHAT_WORKFLOW.execute(
-            config={"user_input": user_input},
-            deps=deps,
-        )
-        turn = result.outputs.get("ChatTurn")
-        if not isinstance(turn, _ChatTurnResult):
-            raise RuntimeError(
-                f"ChatMode: workflow {CHAT_WORKFLOW.name!r} returned status={result.status!r} "
-                "without a ChatTurn output."
+        async with harness.stage("chat-turn"):
+            preamble = _join_nonempty(self.config.system_prompt, _render_prior_context(prior))
+            result = await router.complete_text(
+                prompt=user_input,
+                system=preamble,
+                tier=ModelTier.DEFAULT,
             )
 
-        session.append(Message(role="assistant", content=turn.text))
-        session.model_messages = _extract_all_messages(turn.raw, session.model_messages)
+        harness.session.append_message(Message(role="assistant", content=result.text))
         breakdown = router.snapshot_usage()
         _LOG.info(
             f"[chat-mode] usage in={breakdown.total.input_tokens} "
-            f"out={breakdown.total.output_tokens} total={breakdown.total.total_tokens} "
-            f"reqs={breakdown.total.requests}"
+            f"out={breakdown.total.output_tokens} "
+            f"total={breakdown.total.total_tokens} reqs={breakdown.total.requests}"
         )
-        return AgentRunResult(
-            text=turn.text,
-            messages=tuple(session.history),
+        run_result = AgentRunResult(
+            text=result.text,
+            messages=tuple(_messages_from_context(harness)),
             usage=breakdown.total,
             usage_breakdown=breakdown,
         )
+        yield ModeCompletedEvent(
+            text=result.text,
+            result=run_result.model_dump(mode="json"),
+        )
 
 
-def _extract_all_messages(
-    raw: Any,  # noqa: ANN401 — opaque pydantic-ai RunResult; the agent layer firewall
-    fallback: tuple[Any, ...],
-) -> tuple[Any, ...]:
-    """Pull the cumulative pydantic-ai message list off a ``RunResult``.
-
-    pydantic-ai's ``AgentRunResult.all_messages()`` returns the full
-    conversation including the latest turn — the canonical value to
-    pass back as ``message_history`` next time. Stub routers (used by
-    tests) leave ``raw`` empty / shapeless; we degrade to the existing
-    history so callers can still chain turns deterministically.
-    """
-    if raw is None:
-        return fallback
-    getter = getattr(raw, "all_messages", None)
-    if not callable(getter):
-        return fallback
-    return tuple(getter())
+def _join_nonempty(*fragments: str) -> str:
+    """Join non-empty fragments with a blank line."""
+    return "\n\n".join(fragment for fragment in fragments if fragment)
 
 
-__all__ = [
-    "CHAT_WORKFLOW",
-    "ChatMode",
-    "ChatModeConfig",
-    "ChatTurn",
-    "build_chat_workflow",
-]
+def _messages_from_context(harness: AgentHarness) -> tuple[Message, ...]:
+    """Return the full conversation as molexp :class:`Message`\\ s."""
+    return harness.session.build_context()

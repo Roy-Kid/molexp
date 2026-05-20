@@ -66,16 +66,16 @@ async def check_stdio_handshake(
     """Open and close a stdio MCP server, raising on failure.
 
     Lives here (inside ``_pydanticai/``) instead of in ``agent/modes/plan/``
-    because it imports ``pydantic_ai.mcp.MCPServerStdio`` directly — that
-    import is only permitted inside the ``_pydanticai`` subtree per the
-    agent-layer firewall (``tests/test_agent/test_import_guard.py``).
+    because it imports ``pydantic_ai.mcp`` directly — that import is only
+    permitted inside the ``_pydanticai`` subtree per the agent-layer
+    firewall (``tests/test_agent/test_import_guard.py``).
     """
     import asyncio
     import contextlib
     import os
     from collections.abc import Iterator
 
-    from pydantic_ai.mcp import MCPServerStdio
+    from pydantic_ai.mcp import MCPToolset, StdioTransport
 
     @contextlib.contextmanager
     def _silence_process_stdio() -> Iterator[None]:
@@ -94,7 +94,7 @@ async def check_stdio_handshake(
             os.close(devnull)
 
     async def _run() -> None:
-        server = MCPServerStdio(command, list(args))
+        server = MCPToolset(StdioTransport(command=command, args=list(args)))
         async with server:
             pass
 

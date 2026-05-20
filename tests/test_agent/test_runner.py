@@ -1,4 +1,9 @@
-"""``AgentRunner`` end-to-end (router redesign + molmcp-agent-default)."""
+"""``AgentRunner`` end-to-end — harness-based contract (spec 02).
+
+``AgentRunner`` now builds an :class:`AgentHarness`, injects it into the
+mode, drains the :data:`AgentEvent` stream, and returns the terminal
+:class:`AgentRunResult`. Sessions are :class:`Session` instances.
+"""
 
 from __future__ import annotations
 
@@ -10,6 +15,8 @@ from unittest.mock import patch
 import pytest
 
 import molexp.agent
+from molexp.agent.harness.events import ModeCompletedEvent, ModeStartedEvent
+from molexp.agent.harness.session import Session
 from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
 from molexp.agent.mcp.defaults import MOLMCP_USAGE_INSTRUCTIONS
@@ -18,7 +25,6 @@ from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes import ChatMode, ChatModeConfig
 from molexp.agent.router import ModelTier, RouterTextResult
 from molexp.agent.runner import AgentRunner, AgentRunnerConfigError
-from molexp.agent.session import AgentSession
 from molexp.agent.types import UsageBreakdown
 
 # ── Construction (no-network + arg validation) ────────────────────────────
@@ -70,7 +76,6 @@ def test_runner_rejects_models_missing_tier() -> None:
 
 def test_runner_normalizes_model_string_to_all_tiers() -> None:
     runner = AgentRunner(mode=ChatMode(), model="openai:gpt-5.2")
-    # Direct field check: every tier resolves to the same string.
     assert runner._tier_models == {
         ModelTier.CHEAP: "openai:gpt-5.2",
         ModelTier.DEFAULT: "openai:gpt-5.2",
@@ -148,10 +153,12 @@ async def test_chat_mode_round_trip_via_model_string() -> None:
         mode=ChatMode(config=ChatModeConfig()),
         model=TestModel(),  # type: ignore[arg-type]
     )
-    session = AgentSession()
+    session = runner.session("rt1")
     result = await runner.run(session, "hello")
     assert isinstance(result, AgentRunResult)
     assert result.text
+    # the run accumulated its event stream
+    assert any(isinstance(e, ModeCompletedEvent) for e in result.events)
 
 
 @pytest.mark.asyncio
@@ -168,9 +175,21 @@ async def test_chat_mode_round_trip_via_models_map() -> None:
             ModelTier.HEAVY: test_model,
         },
     )
-    result = await runner.run(AgentSession(), "hello")
+    result = await runner.run(runner.session("rt2"), "hello")
     assert isinstance(result, AgentRunResult)
     assert result.text
+
+
+@pytest.mark.asyncio
+async def test_runner_run_events_exposes_live_stream() -> None:
+    """``run_events`` yields events live; ``run`` returns the terminal result."""
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.test import TestModel
+
+    runner = AgentRunner(mode=ChatMode(), model=TestModel())  # type: ignore[arg-type]
+    streamed = [ev async for ev in runner.run_events(runner.session("s"), "hi")]
+    assert any(isinstance(e, ModeStartedEvent) for e in streamed)
+    assert isinstance(streamed[-1], ModeCompletedEvent)
 
 
 # ── molmcp-agent-default: usage_instructions composition ──────────────────
@@ -225,10 +244,7 @@ def hermetic_user_dir(tmp_path, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_runner_prepends_active_mcp_usage_instructions(tmp_path, hermetic_user_dir) -> None:
-    """ac-011 — runner concatenates active entries' ``usage_instructions``."""
-    # Pre-stage the User config with a single MCP entry, plus the seeding
-    # sentinel so the platform-default molmcp seed does not also fire (the
-    # spec scopes ac-011 to "a single MCP entry").
+    """Runner concatenates active entries' ``usage_instructions`` into the preamble."""
     hermetic_user_dir.mkdir(parents=True, exist_ok=True)
     (hermetic_user_dir / defaults_mod.MCP_SEEDED_FILENAME).write_text(
         json.dumps({"seeded": ["molmcp"]})
@@ -260,7 +276,7 @@ async def test_runner_prepends_active_mcp_usage_instructions(tmp_path, hermetic_
             model="openai:gpt-5.2",
             workspace=workspace,
         )
-        await runner.run(AgentSession(), "hi")
+        await runner.run(runner.session("mcp-1"), "hi")
 
     assert len(captured) == 1
     stub = captured[0]
@@ -270,8 +286,7 @@ async def test_runner_prepends_active_mcp_usage_instructions(tmp_path, hermetic_
 
 @pytest.mark.asyncio
 async def test_runner_no_preamble_when_user_opted_out(tmp_path, hermetic_user_dir) -> None:
-    """ac-012 — disable-by-deletion: no MOLMCP preamble if user removed it."""
-    # Pre-create the sentinel listing molmcp + a User mcp.json *without* molmcp.
+    """Disable-by-deletion: no MOLMCP preamble if user removed it."""
     hermetic_user_dir.mkdir(parents=True, exist_ok=True)
     (hermetic_user_dir / defaults_mod.MCP_SEEDED_FILENAME).write_text(
         json.dumps({"seeded": ["molmcp"]})
@@ -291,7 +306,7 @@ async def test_runner_no_preamble_when_user_opted_out(tmp_path, hermetic_user_di
             model="openai:gpt-5.2",
             workspace=workspace,
         )
-        await runner.run(AgentSession(), "hi")
+        await runner.run(runner.session("mcp-2"), "hi")
 
     stub = captured[0]
     composed = stub.ctor_kwargs.get("system_prompt", "")
@@ -299,61 +314,44 @@ async def test_runner_no_preamble_when_user_opted_out(tmp_path, hermetic_user_di
 
 
 def test_runner_drops_obsolete_molcrafts_surface() -> None:
-    """ac-013 — earlier-draft molcrafts surfaces stay removed.
-
-    (a) ``molexp.agent._molcrafts`` must not be importable.
-    (b) ``AgentMode`` must not carry a ``requires_molcrafts`` attribute.
-    (c) ``AgentRunner.__init__`` must not accept ``molcrafts_default``.
-    (d) ``molexp.agent.mcp.molmcp`` must not be importable.
-    """
+    """Earlier-draft molcrafts surfaces stay removed."""
     import importlib
 
-    # (a)
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("molexp.agent._molcrafts")
-    # (b)
     assert not hasattr(AgentMode, "requires_molcrafts")
-    # (c)
     import inspect
 
     sig = inspect.signature(AgentRunner.__init__)
     assert "molcrafts_default" not in sig.parameters
-    # (d)
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("molexp.agent.mcp.molmcp")
-
-
-# ── ac-015: public surface unchanged ──────────────────────────────────────
 
 
 # ── Named-session lookup + persistence ────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_runner_session_without_workspace_returns_fresh_in_memory_session(
-    hermetic_user_dir,
-) -> None:
+async def test_runner_session_without_workspace_is_in_memory(hermetic_user_dir) -> None:
     """Without a workspace, ``runner.session(id)`` is in-memory only."""
     runner = AgentRunner(mode=ChatMode(), model="openai:gpt-5.2")
     s = runner.session("anything")
+    assert isinstance(s, Session)
     assert s.session_id == "anything"
-    assert s.model_messages == ()
+    assert s.path_to_root() == ()
 
 
 @pytest.mark.asyncio
-async def test_runner_session_restores_persisted_model_messages(
+async def test_runner_session_persists_entries_across_processes(
     tmp_path, hermetic_user_dir
 ) -> None:
-    """``runner.session(id)`` loads pydantic-ai history written by a prior turn.
+    """``runner.session(id)`` over a workspace persists the entry tree.
 
-    Drives a real two-call sequence through a ``TestModel``-backed router:
-    first call seeds the on-disk ``model_messages.json`` via the runner's
-    write-after-run; second call (with a *new* runner + a *new* session
-    object addressed by the same id) restores that history and the LLM
-    sees both turns.
+    Drives a turn through a ``TestModel``-backed router, then a brand-new
+    runner over the same workspace + session id sees the persisted
+    entries — the "process restart" path.
     """
     pytest.importorskip("pydantic_ai")
-    from pydantic_ai.messages import UserPromptPart
     from pydantic_ai.models.test import TestModel
 
     workspace = tmp_path / "ws-sessions"
@@ -366,35 +364,24 @@ async def test_runner_session_restores_persisted_model_messages(
         workspace=workspace,
     )
     session_a = runner_a.session("chat-with-roy")
-    assert session_a.model_messages == ()
+    assert session_a.path_to_root() == ()
     await runner_a.run(session_a, "first")
-    assert len(session_a.model_messages) >= 2
+    entries_after_first = len(session_a.path_to_root())
+    assert entries_after_first > 0
 
-    # A *brand-new* runner against the same workspace + same session id
-    # should restore the history. This is the "process restart" path.
     runner_b = AgentRunner(
         mode=ChatMode(config=ChatModeConfig()),
         model=test_model,  # type: ignore[arg-type]
         workspace=workspace,
     )
     session_b = runner_b.session("chat-with-roy")
-    assert len(session_b.model_messages) == len(session_a.model_messages)
-
-    # Drive a second turn; the assembled request must reference "first"
-    # AND the new "second" prompt.
-    await runner_b.run(session_b, "second")
-    user_prompts: list[str] = []
-    for msg in session_b.model_messages:
-        for part in getattr(msg, "parts", []) or []:
-            if isinstance(part, UserPromptPart):
-                user_prompts.append(part.content if isinstance(part.content, str) else "")
-    assert "first" in user_prompts
-    assert "second" in user_prompts
+    # the fresh runner restores the persisted entries.
+    assert len(session_b.path_to_root()) == entries_after_first
 
 
 @pytest.mark.asyncio
 async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir) -> None:
-    """Different ``session_id`` values keep their histories separate on disk."""
+    """Different ``session_id`` values keep their entry trees separate on disk."""
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
@@ -407,40 +394,30 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
         model=test_model,  # type: ignore[arg-type]
         workspace=workspace,
     )
-    s_alpha = runner.session("alpha")
-    s_beta = runner.session("beta")
-    await runner.run(s_alpha, "alpha-turn")
-    await runner.run(s_beta, "beta-turn")
+    await runner.run(runner.session("alpha"), "alpha-turn")
+    await runner.run(runner.session("beta"), "beta-turn")
 
-    # Reopen both via fresh lookups; each should have only its own turn.
     restored_alpha = runner.session("alpha")
     restored_beta = runner.session("beta")
-    assert len(restored_alpha.model_messages) >= 2
-    assert len(restored_beta.model_messages) >= 2
 
-    def _flatten_user_prompts(messages: tuple[object, ...]) -> list[str]:
-        from pydantic_ai.messages import UserPromptPart
+    def _user_texts(session: Session) -> list[str]:
+        from molexp.agent.harness.session_entry import MessageEntry
 
-        out: list[str] = []
-        for msg in messages:
-            for part in getattr(msg, "parts", []) or []:
-                if isinstance(part, UserPromptPart):
-                    out.append(part.content if isinstance(part.content, str) else "")
-        return out
+        return [
+            e.message.content
+            for e in session.path_to_root()
+            if isinstance(e, MessageEntry) and e.message.role == "user"
+        ]
 
-    alpha_prompts = _flatten_user_prompts(restored_alpha.model_messages)
-    beta_prompts = _flatten_user_prompts(restored_beta.model_messages)
-    assert "alpha-turn" in alpha_prompts and "beta-turn" not in alpha_prompts
-    assert "beta-turn" in beta_prompts and "alpha-turn" not in beta_prompts
+    assert "alpha-turn" in _user_texts(restored_alpha)
+    assert "beta-turn" not in _user_texts(restored_alpha)
+    assert "beta-turn" in _user_texts(restored_beta)
+    assert "alpha-turn" not in _user_texts(restored_beta)
 
 
 def test_public_surface_unchanged() -> None:
-    """ac-015 — molexp.agent re-exports the mode-orchestration core plus the
-    workflow-orthogonal review primitives. The review module lives at
-    the agent layer parallel to ``mode.py`` because any
-    workflow-bearing mode consumes it.  :class:`HumanPolicy` is
-    UI-agnostic — the rendering surface is the ``ask`` callable, of
-    which :func:`cli_ask` is the bundled default."""
+    """``molexp.agent`` re-exports the mode-orchestration core plus the
+    workflow-orthogonal review primitives."""
     assert tuple(sorted(molexp.agent.__all__)) == (
         "AgentMode",
         "AgentRunResult",

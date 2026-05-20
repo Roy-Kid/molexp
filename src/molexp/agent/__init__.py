@@ -1,14 +1,24 @@
 """Public agent surface.
 
-The entire ``molexp.agent`` layer is rebuilt around four user-visible
+The ``molexp.agent`` layer is built around four user-visible
 mode-orchestration names — :class:`AgentRunner`, :class:`AgentMode`,
 :class:`AgentRunResult`, :class:`AgentSession` — plus a small set of
 workflow-orthogonal review primitives (:class:`ReviewPolicy`,
 :class:`ReviewDecision`, :class:`ReviewView`, :class:`StepView`,
 :class:`BypassPolicy`, :class:`AutoPolicy`, :class:`HumanPolicy`,
 :func:`cli_ask`) that any mode with a multi-step workflow consumes.
-Concrete modes (``PlanMode``, ``ChatMode``, ``ReviewMode``) live under
-:mod:`molexp.agent.modes`.
+
+``AgentSession`` is the runtime conversation value — it is the
+harness's :class:`~molexp.agent.harness.session.Session` entry-tree
+class (re-exported under the historical name). The shared agent-runtime
+layer it sits on lives under :mod:`molexp.agent.harness`
+(:class:`~molexp.agent.harness.harness.AgentHarness`, the
+:data:`~molexp.agent.harness.events.AgentEvent` stream, the
+:class:`SessionStorage` repository, context compaction, and
+:class:`~molexp.agent.harness.execution_env.ExecutionEnv`). The
+reference mode :class:`~molexp.agent.modes.ChatMode` lives under
+:mod:`molexp.agent.modes`; the four pipeline modes (Plan / Author /
+Run / Review) are rebuilt in later specs.
 
 The review module sits parallel to ``mode.py`` because the policies are
 NOT mode-specific concepts — putting them under a single mode's
@@ -60,13 +70,14 @@ natively — then forward them through :class:`AgentRunner`::
     )
 
 MCP servers do not go through ``tools=``. PlanMode's discovery agent
-mounts them internally via ``Agent(toolsets=[MCPServerStdio(...)])`` —
+mounts them internally via ``Agent(toolsets=[MCPToolset(...)])`` —
 see :mod:`molexp.agent._pydanticai` for that wiring.
 
 See ``§ Layer charters`` in CLAUDE.md and the import-guard tests
 under ``tests/test_agent/`` for the binding rules.
 """
 
+from molexp.agent.harness.session import Session as AgentSession
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.review import (
     AutoPolicy,
@@ -79,7 +90,6 @@ from molexp.agent.review import (
     cli_ask,
 )
 from molexp.agent.runner import AgentRunner
-from molexp.agent.session import AgentSession
 
 __all__ = [
     "AgentMode",

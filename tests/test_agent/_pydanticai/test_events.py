@@ -15,7 +15,7 @@ from molexp.agent._pydanticai.events import (
     Outcome,
     ProviderEvent,
 )
-from molexp.agent.modes.plan.protocols import ModelTier
+from molexp.agent.router import ModelTier
 
 
 def _sample_event(**overrides: object) -> ProviderEvent:

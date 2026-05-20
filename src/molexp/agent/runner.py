@@ -1,57 +1,69 @@
 """``AgentRunner`` — public orchestration entry point.
 
-Takes a mode + a model config; lazily constructs the private
-:class:`~molexp.agent._pydanticai.router.PydanticAIRouter` on first
-:meth:`run`; injects the router into the mode. Users never see the
-router class directly.
+Takes a mode + a model config; builds an
+:class:`~molexp.agent.harness.harness.AgentHarness`, injects it into the
+mode, drains the mode's :data:`~molexp.agent.harness.events.AgentEvent`
+stream, and returns the terminal :class:`~molexp.agent.mode.AgentRunResult`.
+
+The router is constructed lazily on first :meth:`run` — the private
+:class:`~molexp.agent._pydanticai.router.PydanticAIRouter` is the only
+``pydantic_ai`` construction site and users never see it directly.
 
 Three mutually-exclusive ways to specify the model:
 
 * ``model="deepseek:deepseek-v4-flash"`` — single string, applied to
   every tier (``CHEAP`` / ``DEFAULT`` / ``HEAVY``).
-* ``models={ModelTier.CHEAP: ..., ModelTier.DEFAULT: ..., ModelTier.HEAVY: ...}``
-  — explicit per-tier mapping. String tier keys (``"cheap"`` etc.)
-  also accepted and coerced.
-* ``router=<custom Router>`` — escape hatch for tests, fakes, and
-  advanced custom dispatch.
+* ``models={ModelTier.CHEAP: ..., ...}`` — explicit per-tier mapping.
+  String tier keys (``"cheap"`` etc.) are accepted and coerced.
+* ``router=<custom Router>`` — escape hatch for tests and fakes.
 
-Exactly one must be supplied. Zero or two-or-more raise
+Exactly one must be supplied; zero or two-or-more raise
 :class:`AgentRunnerConfigError` at construction.
+
+Two run surfaces:
+
+* :meth:`run` — drains the mode's event stream and returns the terminal
+  :class:`AgentRunResult` (the back-compat shape, now with ``events``).
+* :meth:`run_events` — an async generator exposing the live event
+  stream for the future SSE consumer.
 
 Named sessions
 ==============
 
-When ``workspace=<path>`` is supplied, the runner mounts a persistent
-:class:`~molexp.agent.folders.Agent` :class:`Folder` under the workspace
-root (named after the mode — ``chat`` / ``plan`` / ``review``) and vends
-named conversations through :meth:`AgentRunner.session`. Each
-``runner.run(session, ...)`` then writes the session's pydantic-ai
-``ModelMessage`` history back to
-``<workspace>/agents/<mode_name>/agent_sessions/<session_id>/messages.jsonl``,
-so a later ``runner.session(session_id)`` restores the full
-conversation context — pydantic-ai sees prior turns on every call.
-
-Without a workspace, sessions are in-memory only; the history still
-threads through within one process via the same :class:`AgentSession`
-instance.
+When ``workspace=<path>`` is supplied, the runner anchors each
+conversation to a :class:`~molexp.agent.folders.AgentSession` ``Folder``
+under an :class:`~molexp.agent.folders.Agent` named after the mode, and
+backs the :class:`~molexp.agent.harness.session.Session` with a
+:class:`~molexp.agent.harness.session_storage.JsonlSessionStorage`
+writing ``entries.jsonl`` in that folder's directory. Without a
+workspace, sessions use an
+:class:`~molexp.agent.harness.session_storage.InMemorySessionStorage`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from mollog import get_logger
 
+from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent
+from molexp.agent.harness.execution_env import LocalExecutionEnv
+from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.harness.session import Session
+from molexp.agent.harness.session_storage import (
+    InMemorySessionStorage,
+    JsonlSessionStorage,
+)
+from molexp.agent.mode import AgentRunResult
 from molexp.agent.router import ModelTier, Router, TierModels
 
 if TYPE_CHECKING:
     from pydantic_ai.tools import Tool
 
     from molexp.agent.folders import Agent as AgentFolder
-    from molexp.agent.mode import AgentMode, AgentRunResult
-    from molexp.agent.session import AgentSession
+    from molexp.agent.mode import AgentMode
 
 
 _LOG = get_logger(__name__)
@@ -73,7 +85,7 @@ class AgentRunnerConfigError(ValueError):
 
 
 class AgentRunner:
-    """Drive an ``AgentMode`` end-to-end.
+    """Drive an ``AgentMode`` end-to-end on an :class:`AgentHarness`.
 
     Construction performs no network IO — the underlying pydantic-ai
     ``Agent``\\ s are built lazily on first :meth:`run`.
@@ -117,93 +129,98 @@ class AgentRunner:
 
     @property
     def model(self) -> object | None:
-        """Model id string (or model object) for the ``DEFAULT`` tier.
+        """Model id (or model object) for the ``DEFAULT`` tier.
 
-        Convenience accessor preserved for compatibility with callers
-        that previously read ``runner.model``. Returns the raw value
-        the user supplied at construction; ``None`` when a custom
-        :class:`Router` was injected (in which case model resolution
-        is the router's concern, not ours).
+        Returns ``None`` when a custom :class:`Router` was injected.
         """
         if self._tier_models is None:
             return None
         return self._tier_models[ModelTier.DEFAULT]
 
-    async def run(self, session: AgentSession, user_input: str) -> AgentRunResult:
-        if self._router is None:
-            from molexp.agent._pydanticai.router import PydanticAIRouter
+    # ── run surfaces ────────────────────────────────────────────────────────
 
-            assert self._tier_models is not None
-            preamble = self._compose_system_prompt()
-            kwargs: dict[str, Any] = {
-                "models": self._tier_models,
-                "tools": self.tools,
-                "workspace": self.workspace,
-            }
-            if preamble:
-                kwargs["system_prompt"] = preamble
-            self._router = PydanticAIRouter(**kwargs)
+    async def run(self, session: Session, user_input: str) -> AgentRunResult:
+        """Drive the mode and return its terminal :class:`AgentRunResult`.
 
-        self._inject_capability_discovery()
-
-        result = await self.mode.run(
-            router=self._router,
-            session=session,
-            user_input=user_input,
-        )
-        self._persist_session_messages(session)
-        return result
-
-    # ── Named session lookup ────────────────────────────────────────────────
-
-    def session(self, session_id: str) -> AgentSession:
-        """Return an :class:`AgentSession` named ``session_id``.
-
-        When a workspace is configured, the runner mounts (or attaches
-        to) an :class:`~molexp.agent.folders.Agent` ``Folder`` named
-        after the active :class:`~molexp.agent.mode.AgentMode`
-        (``chat`` / ``plan`` / ``review``) under the workspace root and
-        restores any previously persisted pydantic-ai ``ModelMessage``
-        history from
-        ``<workspace>/agents/<mode>/agent_sessions/<session_id>/messages.jsonl``.
-        Without a workspace (or any prior history), the returned
-        session starts empty — every subsequent ``run`` still threads
-        its messages back into the same in-memory session.
-
-        Multiple calls with the same ``session_id`` return *new*
-        runtime :class:`AgentSession` instances; the persistence layer
-        is the shared state. Callers that need a single live instance
-        should cache the returned value themselves.
+        Drains the mode's :data:`AgentEvent` stream, accumulates every
+        event, and folds the terminal
+        :class:`~molexp.agent.harness.events.ModeCompletedEvent` into
+        the returned result (whose ``events`` field carries the whole
+        stream).
         """
-        from molexp.agent.session import AgentSession
+        accumulated: list[AgentEvent] = []
+        async for event in self.run_events(session, user_input):
+            accumulated.append(event)
+        return _result_from_stream(tuple(accumulated))
 
+    async def run_events(self, session: Session, user_input: str) -> AsyncIterator[AgentEvent]:
+        """Drive the mode and yield its :data:`AgentEvent` stream live.
+
+        Every event the mode yields *and* every event the harness emits
+        to its sink is surfaced here, in emission order. The future SSE
+        endpoint consumes this generator directly.
+        """
+        router = self._ensure_router()
+        collector = _SinkCollector()
+        harness = AgentHarness(
+            session=session,
+            event_sink=collector,
+            router=router,
+            execution_env=self._build_execution_env(),
+        )
+
+        async for yielded in self.mode.run(harness=harness, user_input=user_input):
+            # Surface anything the harness emitted before this yield.
+            for emitted in collector.drain():
+                yield emitted
+            yield yielded
+        # Surface a trailing tail (events emitted after the last yield).
+        for emitted in collector.drain():
+            yield emitted
+
+    # ── named sessions ──────────────────────────────────────────────────────
+
+    def session(self, session_id: str) -> Session:
+        """Return a :class:`Session` named ``session_id``.
+
+        With a workspace, the session is backed by a
+        :class:`JsonlSessionStorage` anchored to a
+        :class:`~molexp.agent.folders.AgentSession` ``Folder`` under an
+        :class:`~molexp.agent.folders.Agent` named after the mode —
+        ``entries.jsonl`` survives across processes. Without a
+        workspace, an :class:`InMemorySessionStorage` is used.
+        """
+        directory = self._session_directory(session_id)
+        if directory is not None:
+            return Session(storage=JsonlSessionStorage(directory), session_id=session_id)
+        return Session(storage=InMemorySessionStorage(), session_id=session_id)
+
+    def _session_directory(self, session_id: str) -> Path | None:
+        """Return the on-disk anchor dir for ``session_id``, or ``None``.
+
+        Mounts (or attaches to) the mode's :class:`Agent` folder and a
+        named :class:`~molexp.agent.folders.AgentSession` child, then
+        resolves its directory. Returns ``None`` when no workspace is
+        configured or the folder cannot be opened.
+        """
         agent_folder = self._ensure_agent_folder()
-        restored: tuple[Any, ...] = ()
-        if agent_folder is not None:
-            try:
-                if agent_folder.has_session(session_id):
-                    sess_folder = agent_folder.get_session(session_id)
-                    restored = sess_folder.read_messages()
-                else:
-                    agent_folder.add_session(session_id)
-            except Exception as exc:  # pragma: no cover — schema drift / corrupt file
-                _LOG.warning(
-                    f"[runner] session({session_id!r}): failed to restore "
-                    f"model_messages ({exc!r}); starting fresh."
-                )
-                restored = ()
-        return AgentSession(session_id=session_id, model_messages=restored)
+        if agent_folder is None:
+            return None
+        try:
+            if agent_folder.has_session(session_id):
+                sess_folder = agent_folder.get_session(session_id)
+            else:
+                sess_folder = agent_folder.add_session(session_id)
+            return Path(str(sess_folder.path()))
+        except OSError as exc:  # pragma: no cover — read-only fs / schema drift
+            _LOG.warning(
+                f"[runner] session({session_id!r}): could not open on-disk "
+                f"anchor ({exc!r}); using in-memory storage."
+            )
+            return None
 
     def _ensure_agent_folder(self) -> AgentFolder | None:
-        """Lazily mount the persistent :class:`Agent` folder for this runner.
-
-        Returns ``None`` when no workspace was configured at runner
-        construction. The folder is named after the mode's ``name``
-        attribute (``chat`` / ``plan`` / ``review``), defaulting to
-        ``"default"`` when the mode does not declare one — keeping the
-        runner usable with custom :class:`AgentMode` subclasses that
-        omit the conventional class attribute.
-        """
+        """Lazily mount the persistent :class:`Agent` folder for this runner."""
         if self._agent_folder is not None:
             return self._agent_folder
         if self.workspace is None:
@@ -226,161 +243,46 @@ class AgentRunner:
             return None
         return self._agent_folder
 
-    def _persist_session_messages(self, session: AgentSession) -> None:
-        """Write the session's pydantic-ai ``ModelMessage`` history to disk.
+    # ── internals ───────────────────────────────────────────────────────────
 
-        No-ops when no workspace is set, or when the Agent folder could
-        not be opened (read-only filesystem, etc.). Failures here are
-        non-fatal: persistence is best-effort so a one-off write
-        problem never breaks a chat run.
+    def _ensure_router(self) -> Router:
+        """Build the pydantic-ai router lazily on first run."""
+        if self._router is not None:
+            return self._router
+        from molexp.agent._pydanticai.router import PydanticAIRouter
+
+        assert self._tier_models is not None
+        preamble = self._compose_system_prompt()
+        kwargs: dict[str, Any] = {
+            "models": self._tier_models,
+            "tools": self.tools,
+            "workspace": self.workspace,
+        }
+        if preamble:
+            kwargs["system_prompt"] = preamble
+        self._router = PydanticAIRouter(**kwargs)
+        return self._router
+
+    def _build_execution_env(self) -> LocalExecutionEnv:
+        """Construct the :class:`LocalExecutionEnv` for the harness.
+
+        The scratch dir lives under the workspace when one is configured
+        (``<workspace>/.agent-scratch``), otherwise under a process-temp
+        directory.
         """
-        agent_folder = self._ensure_agent_folder()
-        if agent_folder is None:
-            return
-        try:
-            if agent_folder.has_session(session.session_id):
-                sess_folder = agent_folder.get_session(session.session_id)
-            else:
-                sess_folder = agent_folder.add_session(session.session_id)
-            sess_folder.write_messages(session.model_messages)
-        except OSError as exc:
-            _LOG.warning(
-                f"[runner] session({session.session_id!r}): failed to persist "
-                f"model_messages ({exc!r}); next turn will start fresh."
-            )
+        if self.workspace is not None:
+            scratch = Path(self.workspace) / ".agent-scratch"
+        else:
+            import tempfile
 
-    def _inject_capability_discovery(self) -> None:
-        """Lazily build a capability discovery service and hand it to the mode.
-
-        Skipped when:
-
-        * The mode does not expose ``set_capability_discovery`` /
-          ``get_capability_discovery``.
-        * The mode already carries a non-``None`` service — the user
-          configured one explicitly via the constructor or setter.
-
-        The service composes a hint policy with the runner's configured
-        capability probe. If no source is available, the service wraps a
-        null probe so the workflow can still complete pure-stdlib paths.
-        """
-        mode = self.mode
-        service_getter = getattr(mode, "get_capability_discovery", None)
-        service_setter = getattr(mode, "set_capability_discovery", None)
-        if callable(service_getter) and callable(service_setter):
-            if service_getter() is not None:
-                return
-            service_setter(self._build_capability_discovery())
-            return
-
-        getter = getattr(mode, "get_capability_probe", None)
-        setter = getattr(mode, "set_capability_probe", None)
-        if not callable(getter) or not callable(setter):
-            return
-        if getter() is not None:
-            return
-        setter(self._build_capability_probe())
-
-    def _build_capability_discovery(self) -> object:
-        """Return a fresh capability discovery service for this runner."""
-        from molexp.agent.capability_discovery import DefaultCapabilityDiscoveryService
-
-        return DefaultCapabilityDiscoveryService(probe=self._build_capability_probe())
-
-    def _build_capability_probe(self) -> object:
-        """Return a fresh :class:`CapabilityProbe` for this runner.
-
-        Returns either a
-        :class:`~molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe`
-        (when molmcp is reachable + the runner has tier_models for the
-        HEAVY tier) or a
-        :class:`~molexp.agent.modes.plan.tasks_capability.NullCapabilityProbe`
-        (every other path).
-        """
-        from molexp.agent.modes.plan.tasks_capability import NullCapabilityProbe
-
-        if self._tier_models is None:
-            return NullCapabilityProbe()
-
-        molmcp_entry = self._lookup_molmcp_entry()
-        if molmcp_entry is None:
-            return NullCapabilityProbe()
-
-        # The runner stores tier models as ``str | object`` because
-        # callers can pass either model id strings or pydantic-ai
-        # model instances; the probe accepts the same union under the
-        # ``PydanticAiModel`` alias. Cast at the boundary.
-        from molexp.agent._pydanticai.capability_probe import (
-            PydanticAICapabilityProbe,
-            PydanticAiModel,
-        )
-
-        env = dict(molmcp_entry.get("env") or {})
-        return PydanticAICapabilityProbe(
-            model=cast("PydanticAiModel", self._tier_models[ModelTier.HEAVY]),
-            molmcp_command=str(molmcp_entry["command"]),
-            molmcp_args=tuple(str(a) for a in (molmcp_entry.get("args") or ())),
-            molmcp_env=env if env else None,
-        )
-
-    def _lookup_molmcp_entry(self) -> dict[str, Any] | None:
-        """Return the resolved molmcp stdio spec, or ``None`` if unavailable.
-
-        Picks the first ``valid`` + ``not shadowed`` entry whose name
-        equals ``"molmcp"`` and whose transport is ``"stdio"``. Returns
-        a dict with ``command`` / ``args`` / ``env`` keys after secret
-        substitution. Read-only / missing config / unresolved-secrets
-        all fall through to ``None`` so the discovery service can route
-        to :class:`NullCapabilityProbe`.
-        """
-        try:
-            from molexp.agent.mcp.store import McpStore
-
-            workspace_root = self.workspace if self.workspace is not None else Path()
-            store = McpStore(workspace_root)
-            entries = store.list()
-        except OSError:
-            return None
-
-        from molexp.agent.mcp.store import UnresolvedSecretError
-
-        for entry in entries:
-            if entry.name != "molmcp":
-                continue
-            if not entry.valid or entry.shadowed or entry.unresolved_secrets:
-                continue
-            if entry.transport != "stdio":
-                continue
-            try:
-                resolved = store.resolve(entry)
-            except (UnresolvedSecretError, KeyError, OSError):
-                # The entry passed the precheck but the secret was
-                # deleted between list() and resolve() (race), or the
-                # underlying file disappeared. Treat as "no probe" and
-                # let NullCapabilityProbe take over.
-                return None
-            return {
-                "command": resolved.command,
-                "args": list(resolved.args),
-                "env": dict(resolved.env),
-            }
-        return None
+            scratch = Path(tempfile.gettempdir()) / "molexp-agent-scratch"
+        return LocalExecutionEnv(scratch_dir=scratch)
 
     def _compose_system_prompt(self) -> str:
         """Concatenate MCP ``usage_instructions`` + the workspace path note.
 
-        Opens an :class:`~molexp.agent.mcp.store.McpStore` against
-        ``self.workspace`` (or a workspace-less store when
-        ``self.workspace`` is ``None``), filters to entries that are
-        valid, non-shadowed, and carry a non-empty
-        ``usage_instructions`` string, and joins them with ``\\n\\n``.
-        When ``self.workspace`` is set, a final ``Workspace: <path>``
-        line is appended — MCP tools that take a ``workspace``
-        parameter (e.g. ``molmcp__molexp_list_projects``) expect the
-        LLM to read that line and pass the path verbatim.
-
         Returns the empty string when there is no preamble *and* no
-        workspace to advertise. Construction errors (read-only HOME,
-        malformed config) are non-fatal: the preamble simply degrades.
+        workspace to advertise. Construction errors are non-fatal.
         """
         fragments: list[str] = []
         try:
@@ -400,6 +302,55 @@ class AgentRunner:
         if self.workspace is not None:
             fragments.append(f"Workspace: {Path(self.workspace).resolve()}")
         return "\n\n".join(fragments)
+
+
+# ── stream accumulation ────────────────────────────────────────────────────
+
+
+class _SinkCollector:
+    """Buffer harness-emitted events so the runner can interleave them.
+
+    The harness emits to ``event_sink``; the mode also *yields* events.
+    The runner wants one ordered stream — this collector lets it drain
+    the harness side between the mode's yields.
+    """
+
+    def __init__(self) -> None:
+        self._buffer: list[AgentEvent] = []
+
+    async def __call__(self, event: AgentEvent) -> None:
+        self._buffer.append(event)
+
+    def drain(self) -> list[AgentEvent]:
+        """Return and clear the buffered events."""
+        drained, self._buffer = self._buffer, []
+        return drained
+
+
+def _result_from_stream(events: tuple[AgentEvent, ...]) -> AgentRunResult:
+    """Fold an accumulated event stream into the terminal :class:`AgentRunResult`.
+
+    The mode's terminal
+    :class:`~molexp.agent.harness.events.ModeCompletedEvent` carries the
+    result's JSON dump in ``result``; we rebuild the typed result from
+    it and attach the whole stream as ``events``.
+    """
+    terminal: ModeCompletedEvent | None = None
+    for event in events:
+        if isinstance(event, ModeCompletedEvent):
+            terminal = event
+    if terminal is None:
+        raise RuntimeError(
+            "the mode's event stream ended without a ModeCompletedEvent; "
+            "every AgentMode.run must yield one as its terminal event."
+        )
+    if terminal.result is not None:
+        payload = dict(terminal.result)
+        payload.pop("events", None)  # rebuilt from the stream below
+        base = AgentRunResult.model_validate(payload)
+    else:
+        base = AgentRunResult(text=terminal.text)
+    return base.model_copy(update={"events": events})
 
 
 def _normalize_tier_map(
