@@ -142,9 +142,7 @@ def test_workspace_hierarchy_with_cached_wrapper_serves_second_read_from_mirror(
     from molexp.workspace.fs_cached import CachedRemoteFileSystem
 
     inner = _SpyFileSystem()
-    cached = CachedRemoteFileSystem(
-        inner, mirror_root=tmp_path / "mirror", ttl_seconds=300
-    )
+    cached = CachedRemoteFileSystem(inner, mirror_root=tmp_path / "mirror", ttl_seconds=300)
     ws = Workspace(root=tmp_path / "remote_lab", name="Remote Lab", fs=cached)
     ws.materialize()
     proj = ws.add_project("alpha")
@@ -158,6 +156,4 @@ def test_workspace_hierarchy_with_cached_wrapper_serves_second_read_from_mirror(
     second = cached.read_bytes(run_meta_path)
     assert first == second
     read_byte_calls = [c for c in inner.calls if c[0] == "read_bytes"]
-    assert len(read_byte_calls) == 1, (
-        f"second read must come from mirror; saw {inner.calls}"
-    )
+    assert len(read_byte_calls) == 1, f"second read must come from mirror; saw {inner.calls}"

@@ -59,11 +59,12 @@ _GRAPH = _builder.build()
 # Route all callers through these helpers so adding a fourth call site can
 # never reintroduce that bug.
 
-def _run_graph(state: WorkflowState, deps: WorkflowDeps):
+
+def _run_graph(state: WorkflowState, deps: WorkflowDeps):  # noqa: ANN202 — thin pg pass-through; pydantic-graph's generic return type is a firewall implementation detail
     return _GRAPH.run(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
 
 
-def _iter_graph(state: WorkflowState, deps: WorkflowDeps):
+def _iter_graph(state: WorkflowState, deps: WorkflowDeps):  # noqa: ANN202 — thin pg pass-through; pydantic-graph's generic return type is a firewall implementation detail
     return _GRAPH.iter(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
 
 

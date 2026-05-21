@@ -28,7 +28,7 @@ target_app = typer.Typer(
 _VALID_SCHEDULERS = ("local", "slurm", "pbs", "lsf")
 
 
-def _open_workspace(path: Path):  # noqa: ANN202
+def _open_workspace(path: Path):
     """Load the workspace at *path*, exiting 1 with a helpful message on failure."""
     from molexp.workspace import Workspace
 
@@ -203,7 +203,7 @@ def test_cmd(
         got = transport.read_text(probe_path)
         transport.remove(probe_path)
         if got != payload:
-            rprint(f"[red]fail file round-trip:[/red] payload mismatch")
+            rprint("[red]fail file round-trip:[/red] payload mismatch")
             raise typer.Exit(1)
         rprint("[green]ok file round-trip[/green]")
     except Exception as exc:

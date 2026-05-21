@@ -91,25 +91,25 @@ class _ScriptedFS:
 
         return _io.StringIO(self.read_text(path, encoding=encoding))
 
-    def write_text(self, path: str, content: str, *, mode: int = 0o600) -> None:  # noqa: ARG002
+    def write_text(self, path: str, content: str, *, mode: int = 0o600) -> None:
         self.files[str(path)] = content.encode("utf-8")
 
-    def write_bytes(self, path: str, content: bytes, *, mode: int = 0o600) -> None:  # noqa: ARG002
+    def write_bytes(self, path: str, content: bytes, *, mode: int = 0o600) -> None:
         self.files[str(path)] = content
 
     def rename(self, src: str, dst: str) -> None:
         self.files[str(dst)] = self.files.pop(str(src))
 
-    def remove(self, path: str, *, recursive: bool = False) -> None:  # noqa: ARG002
+    def remove(self, path: str, *, recursive: bool = False) -> None:
         self.files.pop(str(path), None)
 
     def copy(self, src: str, dst: str) -> None:
         self.files[str(dst)] = self.files[str(src)]
 
-    def copytree(self, src: str, dst: str, *, dirs_exist_ok: bool = False) -> None:  # noqa: ARG002
+    def copytree(self, src: str, dst: str, *, dirs_exist_ok: bool = False) -> None:
         pass
 
-    def mkdir(self, path: str, *, parents: bool = True, exist_ok: bool = True) -> None:  # noqa: ARG002
+    def mkdir(self, path: str, *, parents: bool = True, exist_ok: bool = True) -> None:
         self.dirs.add(str(path))
 
     def listdir(self, path: str) -> list[str]:
@@ -122,10 +122,10 @@ class _ScriptedFS:
                 names.add(tail.split("/", 1)[0])
         return sorted(names)
 
-    def glob(self, path: str, pattern: str) -> list[str]:  # noqa: ARG002
+    def glob(self, path: str, pattern: str) -> list[str]:
         return []
 
-    def rglob(self, path: str, pattern: str) -> list[str]:  # noqa: ARG002
+    def rglob(self, path: str, pattern: str) -> list[str]:
         return []
 
     def stat(self, path: str) -> StatResult:
@@ -154,7 +154,7 @@ class _ScriptedFS:
     def atomic_write_json(self, path: str, data: object) -> None:
         self.files[str(path)] = (json.dumps(data) + "\n").encode("utf-8")
 
-    def atomic_write_text(self, path: str, content: str, *, encoding: str = "utf-8") -> None:  # noqa: ARG002
+    def atomic_write_text(self, path: str, content: str, *, encoding: str = "utf-8") -> None:
         self.files[str(path)] = content.encode("utf-8")
 
 
@@ -199,7 +199,7 @@ def scripted(tmp_path: Path):
 
 @pytest.mark.unit
 def test_partial_failure_yields_warning_and_continues(scripted):
-    ws, _cached, fs = scripted
+    ws, _cached, _fs = scripted
     warnings = prefetch_workspace_indices(ws)
     bad_paths = [w.path for w in warnings]
     assert "/scratch/me/workspace/projects/beta/experiment.json" in bad_paths
@@ -214,9 +214,7 @@ def test_healthy_project_still_hydrated(scripted):
 
     # Alpha's run.json was read.
     cached_paths = cached.cached_paths()
-    assert any("alpha/experiments/exp1/runs/r1/run.json" in k for k in cached_paths), (
-        cached_paths
-    )
+    assert any("alpha/experiments/exp1/runs/r1/run.json" in k for k in cached_paths), cached_paths
 
 
 @pytest.mark.unit

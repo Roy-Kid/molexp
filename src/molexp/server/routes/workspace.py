@@ -76,7 +76,7 @@ def resolve_workspace_path_via_fs(workspace, path_str: str) -> str:  # noqa: ANN
     in :class:`CachedRemoteFileSystem`) it does string-level
     containment against the remote root.
     """
-    fs = workspace._fs  # noqa: SLF001
+    fs = workspace._fs
     root = str(workspace.root)
     if isinstance(fs, LocalFileSystem):
         resolved = resolve_workspace_path(Path(root).resolve(), path_str)
@@ -239,7 +239,7 @@ def read_workspace_file(
     :class:`CachedRemoteFileSystem` mirror) take effect.
     """
     target = resolve_workspace_path_via_fs(workspace, path)
-    fs = workspace._fs  # noqa: SLF001
+    fs = workspace._fs
     if not fs.exists(target) or not fs.is_file(target):
         raise HTTPException(status_code=404, detail="File not found")
 
@@ -265,7 +265,7 @@ def read_workspace_file_blob(
     :class:`CachedRemoteFileSystem` mirror) take effect.
     """
     target = resolve_workspace_path_via_fs(workspace, path)
-    fs = workspace._fs  # noqa: SLF001
+    fs = workspace._fs
     if not fs.exists(target) or not fs.is_file(target):
         raise HTTPException(status_code=404, detail="File not found")
 

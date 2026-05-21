@@ -92,9 +92,7 @@ def test_keys_yields_stems_of_json_files(folder: CacheFolder) -> None:
 def test_total_bytes_sums_entry_sizes(folder: CacheFolder, workspace: Workspace) -> None:
     folder.write_entry("a", '{"x": 1}')
     folder.write_entry("b", '{"y": 2}')
-    expected = sum(
-        p.stat().st_size for p in Path(str(workspace.root / "cache")).glob("*.json")
-    )
+    expected = sum(p.stat().st_size for p in Path(str(workspace.root / "cache")).glob("*.json"))
     assert folder.total_bytes() == expected
 
 

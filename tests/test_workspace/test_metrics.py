@@ -56,7 +56,9 @@ class TestRunMetrics:
             ctx.metrics.text("note", "warmup", step=1)
             ctx.metrics.scalar("train/loss", 0.2, step=2)
 
-        result = read_run_metrics(Path(run.run_dir), metric_type="scalar", key="train/loss", since_line=1)
+        result = read_run_metrics(
+            Path(run.run_dir), metric_type="scalar", key="train/loss", since_line=1
+        )
 
         assert result.next_line == 3
         assert len(result.records) == 1

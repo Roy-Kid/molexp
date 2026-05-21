@@ -53,9 +53,7 @@ def _wire_cached_remote(monkeypatch: pytest.MonkeyPatch, mirror_root: Path):
     """Stub the factory so the 'remote' workspace uses LocalFileSystem under a CachedRemoteFileSystem."""
 
     def _factory(_target: WorkspaceTarget) -> CachedRemoteFileSystem:
-        return CachedRemoteFileSystem(
-            LocalFileSystem(), mirror_root=mirror_root, ttl_seconds=300
-        )
+        return CachedRemoteFileSystem(LocalFileSystem(), mirror_root=mirror_root, ttl_seconds=300)
 
     monkeypatch.setattr(
         "molexp.server.workspace_targets.target_to_filesystem_for_workspace_target",
@@ -136,9 +134,7 @@ def test_invalidate_specific_path(remote_client, tmp_path: Path):
     target.write_text("blob bytes")
     client.get(f"/api/workspace/file?path={target}")
 
-    resp = client.post(
-        "/api/workspace/cache/invalidate", json={"path": str(target)}
-    )
+    resp = client.post("/api/workspace/cache/invalidate", json={"path": str(target)})
     assert resp.status_code == 200
     assert resp.json()["dropped"] == 1
 
@@ -220,9 +216,7 @@ def test_open_remote_does_not_500_on_empty_workspace(
 
 
 @pytest.mark.integration
-def test_open_remote_surfaces_transport_warnings(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
+def test_open_remote_surfaces_transport_warnings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A factory whose CachedRemoteFileSystem wraps a flaky FS must surface warnings, not 500."""
     remote_root = tmp_path / "ws"
     remote_root.mkdir()

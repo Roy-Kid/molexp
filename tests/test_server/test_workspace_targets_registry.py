@@ -351,6 +351,4 @@ def test_registry_rejects_negative_cache_ttl():
     from pydantic import ValidationError as _VE
 
     with pytest.raises(_VE):
-        WorkspaceTarget(
-            name="bad", host="h", root_path="/r", cache_ttl_seconds=-1
-        )
+        WorkspaceTarget(name="bad", host="h", root_path="/r", cache_ttl_seconds=-1)

@@ -89,11 +89,11 @@ class _FakeRemoteFS:
         return _io.StringIO(self.read_text(path, encoding=encoding))
 
     # ── Write ──
-    def write_text(self, path: str, content: str, *, mode: int = 0o600) -> None:  # noqa: ARG002
+    def write_text(self, path: str, content: str, *, mode: int = 0o600) -> None:
         self._hit("write_text")
         self.files[str(path)] = content.encode("utf-8")
 
-    def write_bytes(self, path: str, content: bytes, *, mode: int = 0o600) -> None:  # noqa: ARG002
+    def write_bytes(self, path: str, content: bytes, *, mode: int = 0o600) -> None:
         self._hit("write_bytes")
         self.files[str(path)] = content
 
@@ -118,7 +118,7 @@ class _FakeRemoteFS:
         self._hit("copy")
         self.files[str(dst)] = self.files[str(src)]
 
-    def copytree(self, src: str, dst: str, *, dirs_exist_ok: bool = False) -> None:  # noqa: ARG002
+    def copytree(self, src: str, dst: str, *, dirs_exist_ok: bool = False) -> None:
         self._hit("copytree")
         prefix = str(src).rstrip("/") + "/"
         for k, v in list(self.files.items()):
@@ -126,7 +126,7 @@ class _FakeRemoteFS:
                 self.files[str(dst).rstrip("/") + "/" + k[len(prefix) :]] = v
 
     # ── Dir ops ──
-    def mkdir(self, path: str, *, parents: bool = True, exist_ok: bool = True) -> None:  # noqa: ARG002
+    def mkdir(self, path: str, *, parents: bool = True, exist_ok: bool = True) -> None:
         self._hit("mkdir")
         self.dirs.add(str(path))
 
@@ -140,10 +140,10 @@ class _FakeRemoteFS:
                 names.add(tail.split("/", 1)[0])
         return sorted(names)
 
-    def glob(self, path: str, pattern: str) -> list[str]:  # noqa: ARG002
+    def glob(self, path: str, pattern: str) -> list[str]:
         return []
 
-    def rglob(self, path: str, pattern: str) -> list[str]:  # noqa: ARG002
+    def rglob(self, path: str, pattern: str) -> list[str]:
         return []
 
     # ── Metadata ──
@@ -180,7 +180,7 @@ class _FakeRemoteFS:
         self._hit("atomic_write_json")
         self.files[str(path)] = (_json.dumps(data) + "\n").encode("utf-8")
 
-    def atomic_write_text(self, path: str, content: str, *, encoding: str = "utf-8") -> None:  # noqa: ARG002
+    def atomic_write_text(self, path: str, content: str, *, encoding: str = "utf-8") -> None:
         self._hit("atomic_write_text")
         self.files[str(path)] = content.encode("utf-8")
 
@@ -335,9 +335,7 @@ def test_sidecar_round_trip_across_instances(fake: _FakeRemoteFS, tmp_path: Path
 
 
 @pytest.mark.unit
-def test_invalidate_scope_indices_drops_only_index_files(
-    fake: _FakeRemoteFS, tmp_path: Path
-):
+def test_invalidate_scope_indices_drops_only_index_files(fake: _FakeRemoteFS, tmp_path: Path):
     fake.files["/scratch/me/project.json"] = b'{"items":[]}'
     fake.files["/scratch/me/runs/a/stdout.log"] = b"log bytes"
     cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
@@ -351,9 +349,7 @@ def test_invalidate_scope_indices_drops_only_index_files(
 
 
 @pytest.mark.unit
-def test_invalidate_scope_all_clears_everything(
-    fake: _FakeRemoteFS, tmp_path: Path
-):
+def test_invalidate_scope_all_clears_everything(fake: _FakeRemoteFS, tmp_path: Path):
     fake.files["/scratch/me/extra.txt"] = b"x"
     cached = CachedRemoteFileSystem(fake, mirror_root=tmp_path / "mirror", ttl_seconds=300)
     cached.read_bytes("/scratch/me/log.txt")

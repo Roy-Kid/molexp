@@ -911,9 +911,7 @@ class Run(Folder):
 
     @property
     def run_dir(self) -> MolexpPath:
-        return MolexpPath(
-            self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}")
-        )
+        return MolexpPath(self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}"))
 
     @property
     def scope(self):  # noqa: ANN201

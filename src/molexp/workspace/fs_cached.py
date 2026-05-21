@@ -251,11 +251,7 @@ class CachedRemoteFileSystem:
         key = self.resolve(path)
         mirror_path = self._mirror_for(key)
         entry = self._fresh_entry(key)
-        if (
-            entry is not None
-            and entry.kind == "file"
-            and self._local.exists(mirror_path)
-        ):
+        if entry is not None and entry.kind == "file" and self._local.exists(mirror_path):
             return self._local.read_bytes(mirror_path)
         if entry is not None and entry.kind == "missing":
             raise FileNotFoundError(key)
@@ -272,7 +268,7 @@ class CachedRemoteFileSystem:
         self._record(key, kind="file", size=size, mtime=mtime)
         return data
 
-    def open(self, path: PathArg, mode: str = "r", encoding: str = "utf-8") -> IO[Any]:
+    def open(self, path: PathArg, mode: str = "r", encoding: str = "utf-8") -> IO[Any]:  # noqa: ARG002 — `mode` kept to mirror RemoteFileSystem.open's signature
         # Mirror RemoteFileSystem's behaviour: read-only string buffer.
         import io
 
@@ -477,7 +473,7 @@ class CachedRemoteFileSystem:
     def _safe_stat(self, key: str) -> StatResult | None:
         try:
             return self._inner.stat(key)
-        except Exception:  # noqa: BLE001 — stat failure is non-fatal
+        except Exception:
             return None
 
     def _load_sidecar(self) -> None:
@@ -486,7 +482,9 @@ class CachedRemoteFileSystem:
         try:
             raw = json.loads(self._sidecar.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            logger.warning("cache sidecar at %s unreadable; starting empty (%s)", self._sidecar, exc)
+            logger.warning(
+                "cache sidecar at %s unreadable; starting empty (%s)", self._sidecar, exc
+            )
             return
         if not isinstance(raw, dict) or raw.get("version") != _SIDECAR_VERSION:
             logger.warning("cache sidecar at %s has wrong version; starting empty", self._sidecar)
@@ -562,7 +560,7 @@ def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
         walk.
     """
     state = _PrefetchState()
-    fs = workspace._fs  # noqa: SLF001 — workspace exposes _fs by convention
+    fs = workspace._fs
     root = str(workspace.root)
     _safe_read(fs, fs.join(root, "workspace.json"), state)
     projects_dir = fs.join(root, "projects")
@@ -612,7 +610,7 @@ def _safe_read(
         if warn_on_missing:
             state.warnings.append(PrefetchWarning(path=path, reason=f"not found: {exc}"))
         return None
-    except Exception as exc:  # noqa: BLE001 — transport-level errors must not abort the walk
+    except Exception as exc:
         state.warnings.append(PrefetchWarning(path=path, reason=str(exc)))
         return None
 
@@ -644,9 +642,7 @@ def _read_container_children(
             data = json.loads(raw)
             items = data.get("items", []) if isinstance(data, dict) else []
         except json.JSONDecodeError as exc:
-            state.warnings.append(
-                PrefetchWarning(path=index_path, reason=f"invalid JSON: {exc}")
-            )
+            state.warnings.append(PrefetchWarning(path=index_path, reason=f"invalid JSON: {exc}"))
             items = []
         for item in items:
             if isinstance(item, dict) and "path" in item:
@@ -657,7 +653,7 @@ def _read_container_children(
             names = fs.listdir(container_dir)
         except FileNotFoundError:
             return []
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             state.warnings.append(PrefetchWarning(path=container_dir, reason=str(exc)))
             return []
     healthy: list[str] = []

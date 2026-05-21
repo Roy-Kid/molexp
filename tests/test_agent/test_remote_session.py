@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent.folders import Agent, AgentSession
+from molexp.agent.folders import Agent
 from molexp.workspace import Workspace
 from molexp.workspace.fs_local import LocalFileSystem
 
@@ -43,12 +43,12 @@ class _SpyFileSystem:
         except Exception:
             self.calls.append((name, "<unrepresentable>"))
 
-    def __getattr__(self, name: str):  # noqa: ANN204
+    def __getattr__(self, name: str):
         attr = getattr(self._real, name)
         if not callable(attr):
             return attr
 
-        def wrapped(*args, **kwargs):  # noqa: ANN202
+        def wrapped(*args: object, **kwargs: object) -> object:
             if args:
                 self._record(name, args[0])
             else:
@@ -90,7 +90,7 @@ def test_agent_mount_routes_through_fs(spy_workspace):
 
 def test_agent_session_messages_path_uses_fs_join(spy_workspace):
     """``session.messages_path`` should be a fs.join'd path under the session dir."""
-    ws, fs = spy_workspace
+    ws, _fs = spy_workspace
     agent = ws.add_folder(Agent(name="reviewer"))
     session = agent.add_session("chat-1")
 
@@ -130,9 +130,7 @@ def test_agent_session_write_messages_routes_through_fs(spy_workspace):
 
     ops = _ops_for_path(fs.calls, "messages.jsonl")
     assert "exists" in ops
-    assert "remove" in ops, (
-        f"write_messages(empty) must remove via fs.remove; ops were {ops!r}"
-    )
+    assert "remove" in ops, f"write_messages(empty) must remove via fs.remove; ops were {ops!r}"
 
 
 def test_agent_session_reload_routes_through_fs(spy_workspace, tmp_path):
@@ -151,8 +149,6 @@ def test_agent_session_reload_routes_through_fs(spy_workspace, tmp_path):
 
     # Reload must have opened agent.json + agent_session.json via fs
     agent_meta_ops = _ops_for_path(fresh_fs.calls, "agents/reviewer/agent.json")
-    session_meta_ops = _ops_for_path(
-        fresh_fs.calls, "agent_sessions/chat-1/agent_session.json"
-    )
+    session_meta_ops = _ops_for_path(fresh_fs.calls, "agent_sessions/chat-1/agent_session.json")
     assert agent_meta_ops, "from_disk(Agent) must touch agent.json via fs"
     assert session_meta_ops, "from_disk(AgentSession) must touch agent_session.json via fs"
