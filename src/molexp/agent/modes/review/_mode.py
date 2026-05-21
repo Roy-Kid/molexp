@@ -51,7 +51,7 @@ from molexp.agent.harness.events import (
     ModeStartedEvent,
     RepairProposedEvent,
 )
-from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     CapabilityGraph,
     IntentSpec,
@@ -125,6 +125,19 @@ class ReviewMode(AgentMode):
     """Read-only typed review of an existing artefact — three stages."""
 
     name = "review"
+    pipeline = ModePipeline(
+        stages=(
+            "IngestReviewTarget",
+            "RunReviewChecks",
+            "RenderReviewVerdict",
+        ),
+        edges=(
+            PipelineEdge(from_stage="IngestReviewTarget", to_stage="RunReviewChecks"),
+            PipelineEdge(from_stage="RunReviewChecks", to_stage="RenderReviewVerdict"),
+            PipelineEdge(from_stage="RenderReviewVerdict", to_stage="verdict_rendered"),
+        ),
+        terminal_states=("verdict_rendered",),
+    )
 
     def __init__(
         self,

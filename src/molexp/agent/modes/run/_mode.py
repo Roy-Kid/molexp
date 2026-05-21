@@ -44,7 +44,7 @@ from molexp.agent.harness.events import (
     ModeStartedEvent,
     RepairProposedEvent,
 )
-from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     IllegalPlanTransitionError,
     PlanGraph,
@@ -101,6 +101,33 @@ class RunMode(AgentMode):
     """Execute, monitor, and repair an AuthorMode-materialized workflow."""
 
     name = "run"
+    pipeline = ModePipeline(
+        stages=(
+            "LoadMaterializedWorkflow",
+            "ExecuteWorkflow",
+            "RepairRuntimeFailure",
+        ),
+        edges=(
+            PipelineEdge(from_stage="LoadMaterializedWorkflow", to_stage="ExecuteWorkflow"),
+            PipelineEdge(from_stage="ExecuteWorkflow", to_stage="completed", label="success"),
+            PipelineEdge(
+                from_stage="ExecuteWorkflow",
+                to_stage="RepairRuntimeFailure",
+                label="failure",
+            ),
+            PipelineEdge(
+                from_stage="RepairRuntimeFailure",
+                to_stage="ExecuteWorkflow",
+                label="retry",
+            ),
+            PipelineEdge(
+                from_stage="RepairRuntimeFailure",
+                to_stage="repair_escalated",
+                label="unrecoverable",
+            ),
+        ),
+        terminal_states=("completed", "repair_escalated"),
+    )
 
     def __init__(
         self,

@@ -43,7 +43,7 @@ from molexp.agent.harness.events import (
     RepairProposedEvent,
 )
 from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     ApprovalGate,
     CapabilityGraph,
@@ -111,6 +111,61 @@ class PlanMode(AgentMode):
     """The read-only typed planner — seven stages, no codegen."""
 
     name = "plan"
+    pipeline = ModePipeline(
+        stages=(
+            "SynthesizeIntent",
+            "ClarifyIntent",
+            "ExploreCapabilities",
+            "SynthesizeCandidates",
+            "SelectPlan",
+            "PreflightPlanGraph",
+            "EmitApprovedPlan",
+        ),
+        edges=(
+            PipelineEdge(from_stage="SynthesizeIntent", to_stage="ClarifyIntent"),
+            PipelineEdge(
+                from_stage="ClarifyIntent",
+                to_stage="needs_clarification",
+                label="blocked",
+            ),
+            PipelineEdge(from_stage="ClarifyIntent", to_stage="ExploreCapabilities", label="ok"),
+            PipelineEdge(from_stage="ExploreCapabilities", to_stage="SynthesizeCandidates"),
+            PipelineEdge(from_stage="SynthesizeCandidates", to_stage="SelectPlan"),
+            PipelineEdge(from_stage="SelectPlan", to_stage="PreflightPlanGraph"),
+            PipelineEdge(
+                from_stage="PreflightPlanGraph",
+                to_stage="EmitApprovedPlan",
+                label="pass",
+            ),
+            PipelineEdge(
+                from_stage="PreflightPlanGraph",
+                to_stage="SynthesizeCandidates",
+                label="fail, repair",
+            ),
+            PipelineEdge(
+                from_stage="PreflightPlanGraph",
+                to_stage="preflight_failed",
+                label="fail, exhausted",
+            ),
+            PipelineEdge(from_stage="EmitApprovedPlan", to_stage="approved", label="approved"),
+            PipelineEdge(
+                from_stage="EmitApprovedPlan",
+                to_stage="SynthesizeCandidates",
+                label="rejected, repair",
+            ),
+            PipelineEdge(
+                from_stage="EmitApprovedPlan",
+                to_stage="rejected",
+                label="rejected, exhausted",
+            ),
+        ),
+        terminal_states=(
+            "approved",
+            "needs_clarification",
+            "preflight_failed",
+            "rejected",
+        ),
+    )
 
     def __init__(
         self,
@@ -341,34 +396,43 @@ class PlanMode(AgentMode):
         harness: AgentHarness,
         outcome: _StageOutcome,
     ) -> tuple[bool, AgentEvent | None]:
-        """Run the ``approve_direction`` gate; return (approved, event)."""
+        """Run stage 7 ``EmitApprovedPlan`` — the ``approve_direction``
+        gate + handoff; return (approved, event).
+
+        The whole stage-7 body is bracketed by ``harness.stage(
+        "EmitApprovedPlan")`` so the terminal pipeline node is a real
+        timed stage (emits ``StageStarted`` / ``StageCompleted`` and
+        records a ``StageEntry``), consistent with this module's
+        seven-stage docstring.
+        """
         assert outcome.selected is not None
         assert outcome.intent is not None
         assert outcome.capabilities is not None
-        self._transition(PlanState.awaiting_approval)
-        view = _DirectionView(
-            summary=(
-                f"Plan {outcome.selected.plan_id}: "
-                f"{len(outcome.selected.steps)} step(s) for "
-                f"{outcome.intent.objective!r}"
+        async with harness.stage("EmitApprovedPlan"):
+            self._transition(PlanState.awaiting_approval)
+            view = _DirectionView(
+                summary=(
+                    f"Plan {outcome.selected.plan_id}: "
+                    f"{len(outcome.selected.steps)} step(s) for "
+                    f"{outcome.intent.objective!r}"
+                )
             )
-        )
-        decision = await harness.approve(ApprovalGate.approve_direction, view)
-        if decision.approved:
-            self._transition(PlanState.approved)
-            approved_plan = outcome.selected.model_copy(update={"state": PlanState.approved})
-            outcome.selected = approved_plan
-            self.plan_folder.write_selected_plan(approved_plan)
-            outcome.handoff = ApprovedPlanHandoff(
-                plan_id=self.plan_folder.plan_id,
-                intent=outcome.intent,
-                plan_graph=approved_plan,
-                capability_graph=outcome.capabilities,
-                plan_folder_path=Path(str(self.plan_folder.path())),
-                direction_approved_at=utc_now(),
-            )
-            return True, None
-        return False, None
+            decision = await harness.approve(ApprovalGate.approve_direction, view)
+            if decision.approved:
+                self._transition(PlanState.approved)
+                approved_plan = outcome.selected.model_copy(update={"state": PlanState.approved})
+                outcome.selected = approved_plan
+                self.plan_folder.write_selected_plan(approved_plan)
+                outcome.handoff = ApprovedPlanHandoff(
+                    plan_id=self.plan_folder.plan_id,
+                    intent=outcome.intent,
+                    plan_graph=approved_plan,
+                    capability_graph=outcome.capabilities,
+                    plan_folder_path=Path(str(self.plan_folder.path())),
+                    direction_approved_at=utc_now(),
+                )
+                return True, None
+            return False, None
 
     def _propose_rejection_repair(self, outcome: _StageOutcome, iteration: int) -> AgentEvent:
         """Plant a repair diff for a rejected direction; return the event."""

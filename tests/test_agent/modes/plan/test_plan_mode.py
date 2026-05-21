@@ -20,6 +20,8 @@ from molexp.agent.harness.events import (
     PlanEmittedEvent,
     PreflightFailedEvent,
     RepairProposedEvent,
+    StageCompletedEvent,
+    StageStartedEvent,
 )
 from molexp.agent.harness.hooks import HookPoint
 from molexp.agent.modes._planning import (
@@ -331,3 +333,32 @@ async def test_preflight_failure_routes_to_preflight_failed(
     all_events = list(events) + list(sink)
     assert any(isinstance(e, PreflightFailedEvent) for e in all_events)
     assert pf.plan_state is PlanState.preflight_failed
+
+
+# ── EmitApprovedPlan is a real timed stage (mode-pipeline-flowchart ac-006) ──
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_emits_emit_approved_plan_as_a_timed_stage(
+    tmp_path: Path, stub_probe: object
+) -> None:
+    """Regression: the stage-7 ``EmitApprovedPlan`` work is bracketed by
+    ``harness.stage()``, so a happy-path run emits 7 ``StageStarted`` /
+    ``StageCompleted`` pairs — one of them named ``EmitApprovedPlan``."""
+    pf = _plan_folder(tmp_path)
+    mode = PlanMode(
+        config=PlanModeConfig(),
+        plan_folder=pf,
+        capability_probe=stub_probe,  # type: ignore[arg-type]
+    )
+    harness, sink = make_harness(_happy_router())
+    async for _ in mode.run(harness=harness, user_input="x"):
+        pass
+
+    started = [e for e in sink if isinstance(e, StageStartedEvent)]
+    completed = [e for e in sink if isinstance(e, StageCompletedEvent)]
+    assert len(started) == 7
+    assert len(completed) == 7
+    assert "EmitApprovedPlan" in {e.stage_name for e in started}
+    assert "EmitApprovedPlan" in {e.stage_name for e in completed}
+    assert pf.plan_state is PlanState.approved

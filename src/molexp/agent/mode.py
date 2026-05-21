@@ -58,6 +58,84 @@ class AgentRunResult(BaseModel):
     events: tuple[AgentEvent, ...] = ()
 
 
+class PipelineEdge(BaseModel):
+    """One labelled control-flow edge of a :class:`ModePipeline`.
+
+    Pure declarative metadata — describes how a mode's stages connect,
+    not how they execute.
+
+    Attributes:
+        from_stage: Source stage name.
+        to_stage: Target stage name, or a terminal-state name.
+        label: Optional edge label (a branch condition, e.g.
+            ``"pass"`` / ``"rejected"``); ``None`` for an unlabelled edge.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=False)
+
+    from_stage: str
+    to_stage: str
+    label: str | None = None
+
+
+class ModePipeline(BaseModel):
+    """The declarative stage topology of an :class:`AgentMode`.
+
+    A mode is a hand-written async sequence of ``harness.stage(...)``
+    brackets — there is no ``Graph`` object. ``ModePipeline`` is the
+    *declarative* mirror of that topology: pure side-band metadata that
+    powers :meth:`AgentMode.get_flowchart` and is held honest against
+    the real ``run()`` source by the per-mode no-drift test. It never
+    participates in execution.
+
+    Attributes:
+        stages: Ordered stage names, one per ``harness.stage("...")``
+            call in the mode's ``run()`` source.
+        edges: Labelled control-flow edges (branches and repair loops).
+        terminal_states: Names of the run's terminal states.
+    """
+
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=False)
+
+    stages: tuple[str, ...] = ()
+    edges: tuple[PipelineEdge, ...] = ()
+    terminal_states: tuple[str, ...] = ()
+
+
+def _mermaid_node_id(name: str) -> str:
+    """Coerce a stage / terminal name into a Mermaid-safe node id.
+
+    Non-alphanumeric characters become ``_`` so a hyphenated stage name
+    like ``chat-turn`` yields a valid identifier (``chat_turn``).
+    """
+    cleaned = "".join(ch if ch.isalnum() else "_" for ch in name)
+    return cleaned or "_"
+
+
+def _render_pipeline_flowchart(pipeline: ModePipeline) -> str:
+    """Render a :class:`ModePipeline` as Mermaid ``flowchart TD`` text.
+
+    The agent layer's own tiny renderer — it does **not** import
+    ``molexp.workflow``'s Mermaid code (cross-layer presentation-helper
+    imports are forbidden) nor ``pydantic_graph``. Stages render as
+    rectangle nodes, terminal states as stadium nodes, edges as
+    ``-->`` (labelled edges as ``-->|label|``).
+    """
+    lines = ["flowchart TD"]
+    for stage in pipeline.stages:
+        lines.append(f'    {_mermaid_node_id(stage)}["{stage}"]')
+    for terminal in pipeline.terminal_states:
+        lines.append(f'    {_mermaid_node_id(terminal)}(["{terminal}"])')
+    for edge in pipeline.edges:
+        src = _mermaid_node_id(edge.from_stage)
+        dst = _mermaid_node_id(edge.to_stage)
+        if edge.label:
+            lines.append(f"    {src} -->|{edge.label}| {dst}")
+        else:
+            lines.append(f"    {src} --> {dst}")
+    return "\n".join(lines) + "\n"
+
+
 class AgentMode(ABC):
     """Abstract strategy a mode must implement to be drivable by ``AgentRunner``.
 
@@ -74,6 +152,7 @@ class AgentMode(ABC):
     """
 
     name: str = ""
+    pipeline: ModePipeline = ModePipeline()
 
     @abstractmethod
     def run(
@@ -90,6 +169,16 @@ class AgentMode(ABC):
         :class:`AgentRunResult`.
         """
         ...
+
+    def get_flowchart(self) -> str:
+        """Return this mode's stage pipeline as a Mermaid ``flowchart TD``.
+
+        Renders the declarative :attr:`pipeline` — every concrete mode
+        overrides ``pipeline`` with its own :class:`ModePipeline`. The
+        rendering is pure metadata: it does not run the mode and does
+        not touch the harness.
+        """
+        return _render_pipeline_flowchart(self.pipeline)
 
     @classmethod
     def resume(cls, **kwargs: Any) -> AgentMode:  # noqa: ANN401
@@ -114,4 +203,4 @@ def _rebuild_models() -> None:
 _rebuild_models()
 
 
-__all__ = ["AgentMode", "AgentRunResult"]
+__all__ = ["AgentMode", "AgentRunResult", "ModePipeline", "PipelineEdge"]

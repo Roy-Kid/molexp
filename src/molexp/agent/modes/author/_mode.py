@@ -39,7 +39,7 @@ from molexp.agent.harness.events import (
     RepairProposedEvent,
 )
 from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     ApprovalGate,
     PlanGraph,
@@ -96,6 +96,32 @@ class AuthorMode(AgentMode):
     """Materialize an approved typed plan into a validated experiment workspace."""
 
     name = "author"
+    pipeline = ModePipeline(
+        stages=(
+            "LowerPlanGraph",
+            "CompileTaskIR",
+            "GenerateWorkflowSkeleton",
+            "GenerateTaskTests",
+            "GenerateTaskImplementations",
+            "RunTaskDebugLoop",
+            "ValidateWorkspace",
+            "WriteManifest",
+        ),
+        edges=(
+            PipelineEdge(from_stage="LowerPlanGraph", to_stage="CompileTaskIR"),
+            PipelineEdge(from_stage="CompileTaskIR", to_stage="GenerateWorkflowSkeleton"),
+            PipelineEdge(from_stage="GenerateWorkflowSkeleton", to_stage="GenerateTaskTests"),
+            PipelineEdge(
+                from_stage="GenerateTaskTests",
+                to_stage="GenerateTaskImplementations",
+            ),
+            PipelineEdge(from_stage="GenerateTaskImplementations", to_stage="RunTaskDebugLoop"),
+            PipelineEdge(from_stage="RunTaskDebugLoop", to_stage="ValidateWorkspace"),
+            PipelineEdge(from_stage="ValidateWorkspace", to_stage="WriteManifest"),
+            PipelineEdge(from_stage="WriteManifest", to_stage="materialized"),
+        ),
+        terminal_states=("materialized",),
+    )
 
     def __init__(
         self,
