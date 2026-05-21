@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from molexp.agent.modes._planning import (
     ApprovalGate,
     DiffOpKind,
+    IsolatedTestSketch,
     PlanCheck,
     PlanDiff,
     PlanGraph,
@@ -61,6 +62,12 @@ def _step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
         estimated_cost_usd=None,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="",
+        ),
     )
 
 

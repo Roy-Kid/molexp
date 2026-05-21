@@ -25,6 +25,7 @@ from molexp.agent.harness.hooks import HookPoint
 from molexp.agent.modes._planning import (
     ApprovalGate,
     IntentSpec,
+    IsolatedTestSketch,
     MissingInfoItem,
     PlanGraph,
     PlanState,
@@ -79,6 +80,12 @@ def _step(step_id: str, *, capability_id: str | None) -> PlanStep:
         estimated_cost_usd=None,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="",
+        ),
     )
 
 

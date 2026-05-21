@@ -10,8 +10,10 @@ from molexp.agent.modes._planning import (
     CapabilityGraph,
     CapabilityNode,
     EvidenceState,
+    IsolatedTestSketch,
 )
 from molexp.agent.modes.author.codegen import (
+    _TASK_TEST_SYSTEM_PROMPT,
     CodegenError,
     GeneratedModule,
     TaskIRBrief,
@@ -150,6 +152,51 @@ async def test_generate_task_tests_and_impls(layout: MaterializedLayout) -> None
         layout=layout,
     )
     assert len(impl_paths) == 2
+
+
+# ── isolated-test codegen prompt (ac-009 / ac-010) ───────────────────────
+
+
+def test_task_test_prompt_mandates_synthetic_input_isolation() -> None:
+    prompt = _TASK_TEST_SYSTEM_PROMPT.lower()
+    assert "synthetic input" in prompt
+    assert "upstream" in prompt
+    assert "isolation" in prompt
+
+
+@pytest.mark.asyncio
+async def test_generate_task_tests_threads_test_sketch(layout: MaterializedLayout) -> None:
+    base = make_plan_graph()
+    prepare = base.step_by_id("prepare")
+    assert prepare is not None
+    sketched = prepare.model_copy(
+        update={
+            "test_sketch": IsolatedTestSketch(
+                is_isolated_testable=True,
+                synthetic_inputs=("a 3-atom synthetic molecule",),
+                assertion_sketch=("the prepared payload has 3 atoms",),
+                rationale="",
+            )
+        }
+    )
+    plan_graph = base.model_copy(
+        update={"steps": tuple(sketched if s.id == "prepare" else s for s in base.steps)}
+    )
+    contract = lower_plan_graph(plan_graph).contract
+    briefs = (TaskIRBrief(task_id="prepare", responsibility="prepare"),)
+    router = ScriptedRouter()
+    router.register_factory(GeneratedModule, _stub_test)
+    await generate_task_tests(
+        router=router,
+        briefs=briefs,
+        contract=contract,
+        capability_graph=make_capability_graph(),
+        layout=layout,
+        plan_graph=plan_graph,
+    )
+    prompts = " ".join(str(call["user"]) for call in router.calls)
+    assert "a 3-atom synthetic molecule" in prompts
+    assert "the prepared payload has 3 atoms" in prompts
 
 
 @pytest.mark.asyncio

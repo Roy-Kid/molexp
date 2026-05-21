@@ -9,9 +9,10 @@ production. It wraps two ``pydantic_ai.Agent``\\ s behind the narrowed
   :class:`~molexp.agent.modes._planning.IntentSpec` into a set of
   :class:`~molexp.agent.modes.plan.capability_evidence.DraftedNeed`\\ s;
 * an MCP-attached *evidence gatherer* — ``Agent(toolsets=[MCPServerStdio(...)])``
-  — that resolves those needs into a
-  :class:`~molexp.agent.modes.plan.capability_evidence.CapabilityEvidenceBatch`
-  via the project's source-introspection tools.
+  — run once per drafted need (each call independently budgeted) to
+  resolve it via the project's source-introspection tools; the per-need
+  results fold into one
+  :class:`~molexp.agent.modes.plan.capability_evidence.CapabilityEvidenceBatch`.
 
 The two structured outputs are folded into a single :class:`ProbeResult`.
 
@@ -41,10 +42,12 @@ from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 from pydantic_ai import Agent, models
 from pydantic_ai.mcp import MCPToolset, StdioTransport
+from pydantic_ai.usage import UsageLimits
 
 from molexp.agent.modes._planning import IntentSpec
 from molexp.agent.modes.plan.capability_evidence import (
     CapabilityEvidenceBatch,
+    CapabilityEvidenceItem,
     DraftedNeed,
 )
 from molexp.agent.modes.plan.protocols import ProbeResult
@@ -60,6 +63,14 @@ _DEFAULT_DISCOVERY_RETRIES = 3
 """``output_retries`` cascade for the discovery agent — covers transient
 MCP subprocess restarts, single-shot tool-call failures, and one
 structured-output validation slip."""
+
+_DEFAULT_PER_NEED_REQUEST_LIMIT = 30
+"""``request_limit`` for resolving ONE drafted need. Discovery runs the
+agent once per need (not once per batch): each need gets its own bounded
+budget, so one over-eager need cannot starve the rest and a failure
+degrades only that need. With the economical discovery prompt a need
+resolves in ~15-25 tool-call rounds on a thorough model; 30 leaves
+headroom to reach ``final_result`` while still terminating a runaway."""
 
 
 @contextlib.contextmanager
@@ -119,14 +130,21 @@ _NEEDS_SYSTEM_PROMPT = (
 )
 
 _DISCOVERY_SYSTEM_PROMPT = (
-    "You are a capability-discovery agent. For every DraftedNeed in the "
-    "input, use the project's MCP source-introspection tools to resolve "
-    "concrete API evidence: the module, symbol, kind, signature, a "
-    "one-line doc summary, a confidence score, and usage notes / "
-    "limits. Emit one CapabilityEvidenceItem per resolved api_ref, "
-    "keyed by the originating need_id. Record any api_ref you cannot "
-    "resolve in missing_refs rather than fabricating evidence. Match "
-    "MCP tool parameter names exactly as the server documents them."
+    "You are a capability-discovery agent. You are given exactly ONE "
+    "DraftedNeed. Confirm the capability exists in the project source "
+    "and emit CapabilityEvidenceItem(s) for it: module, symbol, kind, "
+    "signature, a one-line doc summary, a confidence score, and usage "
+    "notes. Key every item by the need's need_id.\n"
+    "Work economically — resolve the need with the FEWEST tool calls. "
+    "Start from the drafted api_refs; use search_source or list_symbols "
+    "to locate the symbol, then get_signature and get_docstring to "
+    "confirm it. Do NOT read whole modules with get_source unless a "
+    "signature is genuinely ambiguous, and never browse unrelated "
+    "modules. Three to six tool calls is typical — stop as soon as you "
+    "can name a concrete module + symbol + signature. "
+    "Put any api_ref you cannot confirm in missing_refs rather than "
+    "fabricating evidence. Match MCP tool parameter names exactly as "
+    "the server documents them."
 )
 
 
@@ -177,6 +195,9 @@ class PydanticAICapabilityProbe:
         molmcp_args: Optional CLI args for the MCP server.
         molmcp_env: Optional environment overlay for the MCP server.
         retries: ``output_retries`` for the discovery agent.
+        request_limit: Max model requests for resolving ONE drafted
+            need (one request per MCP tool-call round-trip). Discovery
+            runs the agent once per need with this budget each.
     """
 
     def __init__(
@@ -187,12 +208,14 @@ class PydanticAICapabilityProbe:
         molmcp_args: tuple[str, ...] = (),
         molmcp_env: dict[str, str] | None = None,
         retries: int = _DEFAULT_DISCOVERY_RETRIES,
+        request_limit: int = _DEFAULT_PER_NEED_REQUEST_LIMIT,
     ) -> None:
         self._model = model
         self._molmcp_command = molmcp_command
         self._molmcp_args = molmcp_args
         self._molmcp_env = molmcp_env
         self._retries = retries
+        self._request_limit = request_limit
         self._needs_agent = _build_needs_agent(model)
         self._server = MCPToolset(
             StdioTransport(
@@ -244,31 +267,60 @@ class PydanticAICapabilityProbe:
         return report
 
     async def _discover(self, needs: tuple[DraftedNeed, ...]) -> CapabilityEvidenceBatch:
-        """Run the MCP-attached evidence gatherer against the drafted needs.
+        """Resolve evidence for each drafted need independently.
 
-        Any MCP / pydantic-ai failure degrades to an empty evidence
-        batch — the caller still gets the drafted needs, and the
-        downstream plan-graph preflight fails the unevidenced capability
-        bindings closed.
+        The discovery agent runs **once per need**, each call bounded by
+        its own ``request_limit``: an over-eager need cannot starve the
+        rest, and a per-need failure degrades only that need (its
+        api_refs land in ``missing_refs``). A failure spinning up the
+        shared MCP session degrades the whole batch to empty — the
+        caller still gets the drafted needs, and the plan-graph
+        preflight fails the unevidenced bindings closed.
         """
-        prompt = "DraftedNeeds:\n" + "\n".join(need.model_dump_json() for need in needs)
+        items: list[CapabilityEvidenceItem] = []
+        missing: list[str] = []
         try:
             with _silence_process_stdio():
                 async with self._discovery_agent:
-                    result = await self._discovery_agent.run(prompt)
-            _LOG.debug(
-                f"[capability-probe] discover evidence={len(result.output.items)} "
-                f"missing={len(result.output.missing_refs)}"
+                    for need in needs:
+                        batch = await self._discover_one(need)
+                        items.extend(batch.items)
+                        missing.extend(batch.missing_refs)
+        except Exception as exc:
+            # Failure at the MCP-subprocess boundary (transport / spawn).
+            # PlanMode's contract is "probe never raises"; degrade to an
+            # empty batch and let the plan-graph preflight fail closed.
+            _LOG.warning(
+                f"[capability-probe] discovery MCP session failed: "
+                f"{type(exc).__name__}: {exc}; degrading to empty evidence batch"
+            )
+            return CapabilityEvidenceBatch()
+        _LOG.debug(
+            f"[capability-probe] discover evidence={len(items)} "
+            f"missing={len(missing)} over {len(needs)} need(s)"
+        )
+        return CapabilityEvidenceBatch(
+            items=tuple(items),
+            missing_refs=tuple(dict.fromkeys(missing)),
+        )
+
+    async def _discover_one(self, need: DraftedNeed) -> CapabilityEvidenceBatch:
+        """Resolve evidence for one drafted need within its own budget.
+
+        Any pydantic-ai / MCP / usage-limit failure degrades to marking
+        the need's drafted ``api_refs`` missing — the sibling needs keep
+        whatever evidence they resolved.
+        """
+        prompt = "DraftedNeed:\n" + need.model_dump_json()
+        try:
+            result = await self._discovery_agent.run(
+                prompt,
+                usage_limits=UsageLimits(request_limit=self._request_limit),
             )
             return result.output
         except Exception as exc:
-            # The discovery agent sits at the MCP-subprocess boundary,
-            # where transport / tool-dispatch / output-validation errors
-            # of many shapes surface. PlanMode's contract is "probe
-            # never raises"; degrade to an empty batch and let the
-            # plan-graph preflight fail the bindings closed.
             _LOG.warning(
-                f"[capability-probe] discover failed: {type(exc).__name__}: {exc}; "
-                "degrading to empty evidence batch"
+                f"[capability-probe] need {need.need_id!r} discovery failed: "
+                f"{type(exc).__name__}: {exc}; marking its api_refs missing"
             )
-            return CapabilityEvidenceBatch()
+            return CapabilityEvidenceBatch(missing_refs=need.api_refs)

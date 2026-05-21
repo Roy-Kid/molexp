@@ -2,11 +2,10 @@
 
 The ``molexp.agent`` layer is built around four user-visible
 mode-orchestration names — :class:`AgentRunner`, :class:`AgentMode`,
-:class:`AgentRunResult`, :class:`AgentSession` — plus a small set of
-workflow-orthogonal review primitives (:class:`ReviewPolicy`,
-:class:`ReviewDecision`, :class:`ReviewView`, :class:`StepView`,
-:class:`BypassPolicy`, :class:`AutoPolicy`, :class:`HumanPolicy`,
-:func:`cli_ask`) that any mode with a multi-step workflow consumes.
+:class:`AgentRunResult`, :class:`AgentSession` — plus three
+workflow-orthogonal approval primitives (:class:`ReviewDecision`, the
+:data:`ReviewPolicy` callable alias, and the bundled :func:`cli_ask`
+policy) that wire into the harness's ``before_approval`` hook.
 
 ``AgentSession`` is the runtime conversation value — it is the
 harness's :class:`~molexp.agent.harness.session.Session` entry-tree
@@ -20,13 +19,13 @@ reference mode :class:`~molexp.agent.modes.ChatMode` lives under
 :mod:`molexp.agent.modes`; the four pipeline modes (Plan / Author /
 Run / Review) are rebuilt in later specs.
 
-The review module sits parallel to ``mode.py`` because the policies are
-NOT mode-specific concepts — putting them under a single mode's
-subpackage would force duplication or upward imports as soon as a
-second workflow-bearing mode lands.  :class:`HumanPolicy` is UI-agnostic
-by construction: the rendering surface is the ``ask`` callable
-(:func:`cli_ask` is the default; web / Slack / mobile push are drop-in
-replacements).
+The review module sits parallel to ``mode.py`` because approval is NOT
+a mode-specific concept — every mode that reaches an
+:class:`~molexp.agent.modes._planning.ApprovalGate` consults the same
+:data:`ReviewPolicy`. A policy is just an async
+``(gate, summary) -> ReviewDecision`` callable; :func:`cli_ask` is the
+bundled CLI implementation, and web / Slack / mobile push are drop-in
+replacements with the same signature.
 
 Layer position: **agent uses workflow + workspace**. The agent imports
 the public surface of both downstream layers — ``Workspace`` /
@@ -79,16 +78,7 @@ under ``tests/test_agent/`` for the binding rules.
 
 from molexp.agent.harness.session import Session as AgentSession
 from molexp.agent.mode import AgentMode, AgentRunResult
-from molexp.agent.review import (
-    AutoPolicy,
-    BypassPolicy,
-    HumanPolicy,
-    ReviewDecision,
-    ReviewPolicy,
-    ReviewView,
-    StepView,
-    cli_ask,
-)
+from molexp.agent.review import ReviewDecision, ReviewPolicy, cli_ask
 from molexp.agent.runner import AgentRunner
 
 __all__ = [
@@ -96,12 +86,7 @@ __all__ = [
     "AgentRunResult",
     "AgentRunner",
     "AgentSession",
-    "AutoPolicy",
-    "BypassPolicy",
-    "HumanPolicy",
     "ReviewDecision",
     "ReviewPolicy",
-    "ReviewView",
-    "StepView",
     "cli_ask",
 ]

@@ -27,6 +27,16 @@ Two run surfaces:
 * :meth:`run_events` — an async generator exposing the live event
   stream for the future SSE consumer.
 
+Approval
+========
+
+``approval=`` takes a :data:`~molexp.agent.review.ReviewPolicy` — an
+async ``(gate, summary) -> ReviewDecision`` callable. The runner
+registers it as the harness's ``before_approval`` hook, so every
+:class:`~molexp.agent.modes._planning.ApprovalGate` a mode reaches
+consults it. ``approval=None`` (the default) registers no hook and the
+harness auto-approves; ``approval=cli_ask`` prompts the operator.
+
 Named sessions
 ==============
 
@@ -51,12 +61,14 @@ from mollog import get_logger
 from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent
 from molexp.agent.harness.execution_env import LocalExecutionEnv
 from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.harness.hooks import HookContext, HookPoint, HookRegistry
 from molexp.agent.harness.session import Session
 from molexp.agent.harness.session_storage import (
     InMemorySessionStorage,
     JsonlSessionStorage,
 )
 from molexp.agent.mode import AgentRunResult
+from molexp.agent.review import ReviewDecision, ReviewPolicy
 from molexp.agent.router import ModelTier, Router, TierModels
 
 if TYPE_CHECKING:
@@ -100,6 +112,7 @@ class AgentRunner:
         router: Router | None = None,
         tools: tuple[Tool[None] | Callable[..., Any], ...] = (),
         workspace: Path | None = None,
+        approval: ReviewPolicy | None = None,
     ) -> None:
         supplied = sum(x is not None for x in (model, models, router))
         if supplied == 0:
@@ -116,6 +129,7 @@ class AgentRunner:
         self.mode = mode
         self.tools = tools
         self.workspace = workspace
+        self._approval = approval
         self._router: Router | None = router
         self._tier_models: TierModels | None
         if router is not None:
@@ -167,6 +181,7 @@ class AgentRunner:
             event_sink=collector,
             router=router,
             execution_env=self._build_execution_env(),
+            hooks=self._build_hooks(),
         )
 
         async for yielded in self.mode.run(harness=harness, user_input=user_input):
@@ -262,6 +277,26 @@ class AgentRunner:
             kwargs["system_prompt"] = preamble
         self._router = PydanticAIRouter(**kwargs)
         return self._router
+
+    def _build_hooks(self) -> HookRegistry:
+        """Build the harness :class:`HookRegistry` for this run.
+
+        When an ``approval`` policy was supplied, a ``before_approval``
+        handler is registered that adapts the harness's
+        :class:`HookContext` (gate name + ``summary`` payload) into the
+        policy's ``(gate, summary) -> ReviewDecision`` call. Without a
+        policy the registry stays empty and the harness auto-approves.
+        """
+        hooks = HookRegistry()
+        approval = self._approval
+        if approval is not None:
+
+            async def _on_approval(ctx: HookContext) -> ReviewDecision:
+                summary = str(ctx.payload.get("summary", ""))
+                return await approval(ctx.gate, summary)
+
+            hooks.register(HookPoint.before_approval, _on_approval)
+        return hooks
 
     def _build_execution_env(self) -> LocalExecutionEnv:
         """Construct the :class:`LocalExecutionEnv` for the harness.

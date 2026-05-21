@@ -2,14 +2,11 @@
 
 The original "four-name contract" covered the mode-orchestration core
 (:class:`AgentRunner`, :class:`AgentMode`, :class:`AgentRunResult`,
-:class:`AgentSession`). It has been extended with workflow-orthogonal
-review primitives — :class:`ReviewPolicy`, :class:`ReviewDecision`,
-:class:`ReviewView`, :class:`StepView`, :class:`BypassPolicy`,
-:class:`AutoPolicy`, :class:`HumanPolicy`, :func:`cli_ask` — because
-the review hook is not mode-specific and any workflow-bearing mode
-consumes it.  :class:`HumanPolicy` is UI-agnostic by construction —
-the rendering surface is the ``ask`` callable, of which
-:func:`cli_ask` is the bundled default.
+:class:`AgentSession`). It is extended with three workflow-orthogonal
+approval primitives — :class:`ReviewDecision`, the :data:`ReviewPolicy`
+callable alias, and the bundled :func:`cli_ask` policy — because the
+``before_approval`` hook is not mode-specific and any mode that reaches
+an :class:`ApprovalGate` consults it.
 """
 
 from __future__ import annotations
@@ -27,14 +24,9 @@ def test_agent_all_is_the_public_contract() -> None:
         "AgentMode",
         "AgentRunResult",
         "AgentSession",
-        # Workflow-orthogonal review primitives (parallel to mode).
+        # Workflow-orthogonal approval primitives (parallel to mode).
         "ReviewPolicy",
         "ReviewDecision",
-        "ReviewView",
-        "StepView",
-        "BypassPolicy",
-        "AutoPolicy",
-        "HumanPolicy",
         "cli_ask",
     }
 

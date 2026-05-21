@@ -1,303 +1,165 @@
-"""``AgentRunner`` + ``PlanMode`` — the read-only typed planner.
+"""``AgentRunner`` + ``PlanMode`` — real planning demo (molmcp + DeepSeek).
 
-PlanMode turns a free-text user report into an approved typed
-:class:`~molexp.agent.modes._planning.PlanGraph`. It is a plain
-seven-stage async pipeline run *on* an
-:class:`~molexp.agent.harness.harness.AgentHarness` (synthesize intent ->
-clarify -> explore capabilities -> synthesize candidates -> select ->
-preflight -> approve direction). It writes **no** executable code — only
-typed plan artefacts persisted through a :class:`PlanFolder`.
+PlanMode turns a free-text research report into an approved, typed
+:class:`~molexp.agent.modes._planning.PlanGraph`. You give it **one**
+thing — a natural-language report — and it runs its internal seven-stage
+pipeline (synthesize intent → clarify → explore capabilities → synthesize
+candidates → select → preflight → approve), persisting every intermediate
+artefact through a :class:`PlanFolder`. It writes no executable code.
 
-Two collaborators feed the pipeline:
+Prerequisites:
 
-* a :class:`~molexp.agent.router.Router` for the structured LLM calls
-  (``synthesize_intent`` / ``synthesize_candidates`` / ``select_plan``);
-* a :class:`~molexp.agent.modes.plan.CapabilityProbe` for the
-  ``ExploreCapabilities`` stage.
-
-To keep this example offline and deterministic, both are *stubbed*: a
-scripted router returns canned structured responses keyed by schema, and
-a stub probe returns a fixed evidence set. This is exactly how the
-PlanMode test-suite drives the mode. To run against a real provider
-instead, see ``_live_runner`` below — supply ``models=`` (a tier->model
-map) and a ``probe_model=`` to ``PlanMode`` and set the provider's API
-key env var.
+* a provider API key — ``DEEPSEEK_API_KEY`` for the models below;
+* the ``molmcp`` server on ``PATH`` — the ``ExploreCapabilities`` stage
+  probes the molcrafts toolchain (molpy / molpack / lammps / …) through
+  it. Without molmcp the probe falls back to a fail-closed null probe
+  and the plan will not pass the ``capability_evidenced`` preflight.
 
 Run directly::
 
-    python examples/agent/plan_mode.py
+    python examples/agent/plan_mode.py            # full campaign prompt
+    python examples/agent/plan_mode.py --smoke    # short PEO-chain prompt
+    python examples/agent/plan_mode.py --debug    # verbose router/probe logs
+    python examples/agent/plan_mode.py --review   # prompt at the approval gate
 """
 
 from __future__ import annotations
 
 import asyncio
-import tempfile
-from collections.abc import Sequence
+import json
+import sys
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import cast
 
-from pydantic import BaseModel
+import mollog
+from mollog import TextFormatter
 
-from molexp.agent import AgentRunner, AgentSession
+from molexp.agent import AgentRunner, cli_ask
 from molexp.agent.harness.events import ModeCompletedEvent
 from molexp.agent.modes import PlanMode, PlanModeConfig
-from molexp.agent.modes._planning import (
-    ApprovalGate,
-    IntentSpec,
-    PlanGraph,
-    PlanState,
-    PlanStep,
-    PlanStepIO,
-    ResourceBudget,
-    RetryPolicy,
-    RiskLevel,
-)
 from molexp.agent.modes.plan import PlanFolder
-from molexp.agent.modes.plan.capability_evidence import (
-    CapabilityEvidenceBatch,
-    CapabilityEvidenceItem,
-    DraftedNeed,
-)
-from molexp.agent.modes.plan.protocols import ProbeResult
-from molexp.agent.modes.plan.tasks_planning import (
-    CandidateSet,
-    PlanCandidate,
-    SelectionResult,
-)
-from molexp.agent.router import ModelTier, RouterTextResult
-from molexp.agent.types import UsageBreakdown
+from molexp.agent.router import ModelTier
 from molexp.workspace import Workspace
 
-# A capability id evidenced by the stub probe with no external-resource
-# marker — so the synthesized plan passes the structural preflight.
-_CAPABILITY_ID = "build_system"
+_DEBUG = "--debug" in sys.argv[1:]
+_SMOKE = "--smoke" in sys.argv[1:]
+_REVIEW = "--review" in sys.argv[1:]
 
-
-# ── stubbed collaborators (offline, deterministic) ─────────────────────────
-
-
-class ScriptedRouter:
-    """A :class:`~molexp.agent.router.Router` that replays canned responses.
-
-    ``complete_structured`` returns the next scripted response whose type
-    matches the requested ``schema`` (FIFO per schema); ``complete_text``
-    echoes the prompt. This mirrors the PlanMode test-suite's router.
-    """
-
-    def __init__(self, responses: Sequence[BaseModel]) -> None:
-        self._responses: list[BaseModel] = list(responses)
-
-    async def complete_text(
-        self,
-        *,
-        prompt: str,
-        system: str = "",
-        message_history: tuple[object, ...] = (),
-        tier: ModelTier = ModelTier.DEFAULT,
-    ) -> RouterTextResult:
-        return RouterTextResult(text=f"echo:{prompt}")
-
-    async def complete_structured(
-        self,
-        *,
-        tier: ModelTier,
-        system: str,
-        user: str,
-        schema: type[BaseModel],
-        node_id: str = "",
-    ) -> BaseModel:
-        for index, response in enumerate(self._responses):
-            if isinstance(response, schema):
-                return self._responses.pop(index)
-        raise AssertionError(f"ScriptedRouter has no scripted {schema.__name__} response")
-
-    def clear_usage(self) -> None:
-        return None
-
-    def snapshot_usage(self) -> UsageBreakdown:
-        return UsageBreakdown()
-
-
-class StubCapabilityProbe:
-    """A :class:`~molexp.agent.modes.plan.CapabilityProbe` with a fixed result."""
-
-    def __init__(self, result: ProbeResult) -> None:
-        self._result = result
-
-    async def probe(self, *, intent: IntentSpec) -> ProbeResult:
-        return self._result
-
-
-# ── canned data ────────────────────────────────────────────────────────────
-
-
-def _intent() -> IntentSpec:
-    """A complete, non-blocking IntentSpec for the report below."""
-    return IntentSpec(
-        objective="run a molecular-dynamics simulation of liquid water",
-        non_goals=(),
-        required_outputs=("trajectory",),
-        constraints=(),
-        assumptions=(),
-        missing_information=(),
-        success_criteria=(),
-        allowed_side_effects=(),
-        budget=ResourceBudget(max_cost_usd=None, max_wall_seconds=None, model_tier=None),
-        risk_level=RiskLevel.low,
-    )
-
-
-def _plan() -> PlanGraph:
-    """A single-step PlanGraph bound to the evidenced capability."""
-    step = PlanStep(
-        id="s1",
-        depends_on=(),
-        io=PlanStepIO(inputs=(), outputs=("trajectory",)),
-        artifacts=(),
-        capability_id=_CAPABILITY_ID,
-        tool_binding=None,
-        checks=(),
-        retry_policy=RetryPolicy(max_attempts=1, on=()),
-        rollback=None,
-        approval_gate=ApprovalGate.approve_direction,
-        estimated_cost_usd=None,
-        risk_level=RiskLevel.low,
-        unknowns=(),
-    )
-    return PlanGraph(
-        plan_id="p-a",
-        intent_ref="i1",
-        steps=(step,),
-        state=PlanState.draft_plan,
-        compiled_contract_ref=None,
-        notes="",
-    )
-
-
-def _probe_result() -> ProbeResult:
-    """One drafted need with matching evidence for ``build_system``."""
-    return ProbeResult(
-        drafted_needs=(
-            DraftedNeed(
-                need_id=_CAPABILITY_ID,
-                capability="construct a molecular system",
-                rationale="the plan starts from a raw structure",
-                api_refs=("molpy.System",),
-                depends_on=(),
-                alternatives=(),
-                needs_user_confirmation=False,
-            ),
-        ),
-        evidence=CapabilityEvidenceBatch(
-            items=(
-                CapabilityEvidenceItem(
-                    need_id=_CAPABILITY_ID,
-                    api_ref="molpy.System",
-                    module="molpy",
-                    symbol="System",
-                    kind="class",
-                    signature="System(name: str)",
-                    doc_summary="A molecular system container.",
-                    confidence=0.95,
-                    usage_notes=("instantiate once per experiment",),
-                ),
-            ),
-            missing_refs=(),
-        ),
-    )
-
-
-def _scripted_router() -> ScriptedRouter:
-    """A router scripted for a clean single-candidate happy path."""
-    return ScriptedRouter(
-        responses=[
-            _intent(),
-            CandidateSet(
-                candidates=(
-                    PlanCandidate(label="A", plan_graph=_plan(), self_critique=""),
-                ),
-                is_complex=False,
-            ),
-            SelectionResult(chosen_label="A", rationale="only candidate"),
-        ]
-    )
-
-
-REPORT = (
-    "Build and run a short molecular-dynamics simulation of liquid water, "
-    "then save the resulting trajectory."
+mollog.configure(
+    level="DEBUG" if _DEBUG else "INFO",
+    formatter=TextFormatter(template="{timestamp} - {message}", datefmt="%H:%M:%S"),
 )
 
-
-# ── runner construction ────────────────────────────────────────────────────
-
-
-def _live_runner(plan_folder: PlanFolder, workspace: Path) -> AgentRunner:
-    """How to wire PlanMode against a *real* provider (not run here).
-
-    Supply a tier->model map to ``AgentRunner`` and a ``probe_model`` to
-    ``PlanMode`` so the molmcp-backed capability probe is built; set the
-    provider's API key env var (e.g. ``DEEPSEEK_API_KEY``)::
-
-        tier_models = {
-            ModelTier.CHEAP: "deepseek:deepseek-v4-flash",
-            ModelTier.DEFAULT: "deepseek:deepseek-v4-flash",
-            ModelTier.HEAVY: "deepseek:deepseek-v4-pro",
-        }
-        mode = PlanMode(
-            plan_folder=plan_folder,
-            config=PlanModeConfig(max_repair_iterations=2),
-            probe_model="deepseek:deepseek-v4-flash",
-            workspace=workspace,
-        )
-        return AgentRunner(mode=mode, models=tier_models, workspace=workspace)
-    """
-    raise NotImplementedError("documentation-only — see the docstring")
+# Per-tier model map. DeepSeek exposes `deepseek-chat` (V3) and
+# `deepseek-reasoner` (R1); adjust to whatever your key can reach.
+TIER_MODELS: dict[ModelTier, str] = {
+    ModelTier.CHEAP: "deepseek:deepseek-chat",
+    ModelTier.DEFAULT: "deepseek:deepseek-chat",
+    ModelTier.HEAVY: "deepseek:deepseek-reasoner",
+}
+PROBE_MODEL = "deepseek:deepseek-chat"
 
 
-async def main() -> None:
-    with tempfile.TemporaryDirectory() as tmp:
-        workspace = Workspace(Path(tmp) / "lab")
-        plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="water-md")))
+REPORT = """Molexp can automatically execute a reproducible simulation campaign for zwitterionic polymers with different charge topologies. Each polymer structure is defined using CGSMILES, where the relative placement of cationic and anionic groups is varied while keeping the chain length, number of chains, coarse-grained mapping, and simulation cell preparation protocol identical across all systems. This ensures that differences in the final properties mainly reflect structural topology rather than system-size effects.
 
-        # Offline PlanMode: a scripted router + a stub probe. The unified
-        # approval gate auto-approves when no `before_approval` hook is
-        # registered, so the seven-stage pipeline runs to `approved`.
-        mode = PlanMode(
-            config=PlanModeConfig(max_repair_iterations=2),
-            plan_folder=plan_folder,
-            capability_probe=StubCapabilityProbe(_probe_result()),
-        )
-        runner = AgentRunner(mode=mode, router=_scripted_router())
+For each CGSMILES-defined polymer, Molexp generates the molecular structure, builds chains of the same length, packs the same number of chains into an amorphous simulation box, and prepares LAMMPS input files. All systems first undergo the same equilibration workflow, including energy minimization, high-temperature relaxation, pressure equilibration, and production equilibration to obtain a well-relaxed reference configuration.
 
-        # The runtime `AgentSession` (the harness `Session` entry-tree).
-        session: AgentSession = runner.session("plan-water")
+After equilibration, two independent LAMMPS workflows are launched. The first workflow estimates the glass transition temperature. The equilibrated system is cooled over a prescribed temperature range, and density or specific volume is recorded as a function of temperature. Tg is obtained by fitting the high-temperature and low-temperature regions separately and calculating the intersection of the two fitted lines. The second workflow evaluates mechanical properties by applying uniaxial deformation to the equilibrated configuration. The stress-strain curve is collected, and the Young's modulus is extracted from the initial linear elastic region.
 
-        completed: ModeCompletedEvent | None = None
-        print("=" * 64)
-        print("PlanMode event stream")
-        print("=" * 64)
-        async for event in runner.run_events(session, REPORT):
-            print(f"  {event.kind}")
-            if isinstance(event, ModeCompletedEvent):
-                completed = event
+Molexp then gathers all trajectories, logs, fitting parameters, and derived values into a unified result table. The final report compares Tg and modulus across zwitterionic topologies, includes uncertainty from repeated simulations where available, and stores all provenance information, including CGSMILES definitions, LAMMPS inputs, random seeds, raw outputs, fitting windows, and analysis scripts.
+"""
 
-        assert completed is not None and completed.result is not None
-        mode_state = completed.result["mode_state"] or {}
+SMOKE_TEST_REPORT = """Build a single PEO (poly(ethylene oxide)) chain of 50 repeat units (-CH2-CH2-O-, hydroxyl-terminated) as an atomistic structure, assign OPLS-AA atom types, and emit LAMMPS inputs (a `data.peo` topology + coordinate file and a minimal `in.peo` script that performs energy minimization followed by a short NVT equilibration at 300 K).
 
-        print()
-        print("=" * 64)
-        print("Result")
-        print("=" * 64)
-        print(f"text          : {completed.text}")
-        print(f"plan_state    : {mode_state.get('plan_state')}")
-        print(f"preflight ok  : {mode_state.get('preflight_passed')}")
-        print(f"folder state  : {plan_folder.plan_state.value}")
-        print(f"plan folder   : {plan_folder.path()}")
+Use the molcrafts toolchain wherever possible — the chain construction must produce a `molpy.Atomistic` object and the LAMMPS files must be written via `molpy.io.write_lammps_data` (or an equivalent `molpy.io.write_lammps_*` helper). Do not hand-roll the LAMMPS data file by formatting strings in Python; the point of the run is to confirm the planner reaches for `molpy` rather than reimplementing it.
+"""
 
-        artefacts = sorted(p.name for p in Path(str(plan_folder.path())).rglob("*.json"))
-        print(f"artefacts     : {artefacts}")
+
+def _report() -> str:
+    """Return the prompt selected by the ``--smoke`` flag."""
+    return SMOKE_TEST_REPORT if _SMOKE else REPORT
+
+
+def _dump(title: str, path: Path) -> None:
+    """Pretty-print one JSON artefact under a banner."""
+    print(f"\n{'─' * 72}\n▶ {title}  ({path.name})\n{'─' * 72}")
+    if not path.exists():
+        print("  <not produced>")
+        return
+    print(json.dumps(json.loads(path.read_text()), indent=2, ensure_ascii=False))
+
+
+async def main() -> int:
+    # delete=False so the artefact tree survives for inspection.
+    with TemporaryDirectory(delete=False) as tmp:
+        workspace = Workspace(Path(tmp))
+    plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="demo")))
+
+    mollog.info(f"plan run | plan_id={plan_folder.plan_id} workspace={workspace.root}")
+
+    # PlanMode needs a probe_model + workspace so the molmcp-backed
+    # capability probe is built for the ExploreCapabilities stage.
+    mode = PlanMode(
+        config=PlanModeConfig(max_repair_iterations=2),
+        plan_folder=plan_folder,
+        probe_model=PROBE_MODEL,
+        workspace=workspace.root,
+    )
+    # `approval=` wires a ReviewPolicy into the harness `before_approval`
+    # hook. `cli_ask` prompts the operator at the approve_direction gate;
+    # `approval=None` (the default, no --review) auto-approves.
+    runner = AgentRunner(
+        mode=mode,
+        models=TIER_MODELS,
+        workspace=workspace.root,
+        approval=cli_ask if _REVIEW else None,
+    )
+    session = runner.session("plan-demo")
+
+    print("=" * 72)
+    print(f"PlanMode — {'smoke (PEO chain)' if _SMOKE else 'full campaign'} prompt")
+    print("=" * 72)
+    completed: ModeCompletedEvent | None = None
+    async for event in runner.run_events(session, _report()):
+        kind = event.kind
+        if kind == "stage_started":
+            print(f"  ▶ {getattr(event, 'stage_name', '?')}")
+        elif kind == "stage_completed":
+            print(f"  ✔ {getattr(event, 'stage_name', '?')}")
+        elif kind == "artifact_written":
+            print(f"    · wrote {getattr(event, 'description', '')}")
+        elif kind == "error":
+            print(f"  ✗ ERROR: {getattr(event, 'message', '')}")
+        elif isinstance(event, ModeCompletedEvent):
+            completed = event
+        else:
+            print(f"  · {kind}")
+
+    root = Path(str(plan_folder.path()))
+    print("\n" + "=" * 72)
+    print("STAGE ARTEFACTS")
+    print("=" * 72)
+    _dump("Stage 1  SynthesizeIntent     → IntentSpec", root / "intent.json")
+    _dump("Stage 3  ExploreCapabilities  → CapabilityGraph", root / "capability_graph.json")
+    for cand in sorted((root / "candidates").glob("*.json")):
+        _dump(f"Stage 4  SynthesizeCandidates → candidate {cand.stem}", cand)
+    _dump("Stage 5  SelectPlan           → selected PlanGraph", root / "selected_plan.json")
+    _dump("Stage 6  PreflightPlanGraph   → PreflightReport", root / "preflight_report.json")
+
+    assert completed is not None and completed.result is not None
+    ms = completed.result.get("mode_state") or {}
+    print("\n" + "=" * 72)
+    print("RESULT")
+    print("=" * 72)
+    print(f"  text             : {completed.text}")
+    print(f"  plan_state       : {ms.get('plan_state')}")
+    print(f"  preflight_passed : {ms.get('preflight_passed')}")
+    print(f"  has handoff      : {'handoff' in ms}")
+    print(f"  artefacts at     : {root}")
+    print(f"\n  cd {root}")
+    return 0
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(asyncio.run(main()))

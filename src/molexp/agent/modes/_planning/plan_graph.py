@@ -95,6 +95,35 @@ class RetryPolicy(BaseModel):
     on: tuple[str, ...]
 
 
+class IsolatedTestSketch(BaseModel):
+    """A testability verdict for one plan step.
+
+    Records whether a plan step is small enough to carry an independent,
+    low-cost isolated test — the termination criterion of
+    testability-driven decomposition. A step that still needs the real
+    output of an upstream step to be exercised is not isolated-testable
+    and must be split further before the plan can pass preflight.
+
+    Attributes:
+        is_isolated_testable: Whether a standalone, low-cost test exists
+            for the step. Decomposition stops splitting a branch once
+            every step on it is ``True``.
+        synthetic_inputs: Logical descriptions of the minimal synthetic
+            inputs the isolated test supplies itself — never the real
+            output of an upstream step.
+        assertion_sketch: What the isolated test should assert.
+        rationale: When ``is_isolated_testable`` is ``False``, why the
+            step cannot yet be tested in isolation.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    is_isolated_testable: bool
+    synthetic_inputs: tuple[str, ...]
+    assertion_sketch: tuple[str, ...]
+    rationale: str
+
+
 class PlanStep(BaseModel):
     """One node of the typed plan DAG.
 
@@ -112,6 +141,9 @@ class PlanStep(BaseModel):
         estimated_cost_usd: Estimated cost in USD, or ``None``.
         risk_level: Risk classification of the step.
         unknowns: Open unknowns recorded against the step.
+        test_sketch: The step's testability verdict — the
+            decomposition's per-step termination record. Required; a
+            plan step always carries one.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -129,6 +161,7 @@ class PlanStep(BaseModel):
     estimated_cost_usd: float | None
     risk_level: RiskLevel
     unknowns: tuple[str, ...]
+    test_sketch: IsolatedTestSketch
 
 
 class PlanGraph(BaseModel):

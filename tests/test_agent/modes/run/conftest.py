@@ -26,6 +26,7 @@ from molexp.agent.harness.session import Session
 from molexp.agent.harness.session_storage import InMemorySessionStorage
 from molexp.agent.modes._planning import (
     ApprovalGate,
+    IsolatedTestSketch,
     PlanGraph,
     PlanState,
     PlanStep,
@@ -150,6 +151,12 @@ def make_step(
         estimated_cost_usd=None,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="",
+        ),
     )
 
 

@@ -48,6 +48,7 @@ from .lifecycle import (
     legal_successors,
 )
 from .plan_graph import (
+    IsolatedTestSketch,
     PlanCheck,
     PlanGraph,
     PlanStep,
@@ -73,6 +74,7 @@ __all__ = [
     "IllegalPlanTransitionError",
     "IntentConstraint",
     "IntentSpec",
+    "IsolatedTestSketch",
     "MissingInfoItem",
     "PlanCheck",
     "PlanDiff",

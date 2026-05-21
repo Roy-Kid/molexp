@@ -14,6 +14,7 @@ from molexp.agent.modes._planning import (
     DiffOpKind,
     EvidenceState,
     IntentSpec,
+    IsolatedTestSketch,
     PlanGraph,
     PlanNodeOp,
     PlanState,
@@ -75,6 +76,12 @@ def _step(step_id: str, *, capability_id: str | None = "cap_md") -> PlanStep:
         estimated_cost_usd=None,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="",
+        ),
     )
 
 

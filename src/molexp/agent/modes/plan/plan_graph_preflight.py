@@ -7,7 +7,7 @@
 from the *environment* ``check_plan_runtime`` preflight (process / file
 availability) — this one is pure data inspection.
 
-Six check classes:
+Eight check classes:
 
 1. ``graph_closed`` — every ``depends_on`` / input ``source_step``
    resolves to a step in the graph.
@@ -23,6 +23,10 @@ Six check classes:
    resource limit are surfaced for a human decision (fails closed).
 7. ``side_effects`` — every step with a side effect (a ``rollback``)
    must have a matching ``IntentSpec.allowed_side_effects`` entry.
+8. ``every_step_isolated_testable`` — every ``PlanStep`` carries an
+   ``IsolatedTestSketch`` marking it isolated-testable; a step that
+   could only be exercised with the real output of an upstream step is
+   too coarse and must be split further.
 
 Returns a frozen :class:`PlanGraphPreflightReport`. A failing report
 transitions the plan to :data:`PlanState.preflight_failed`.
@@ -103,6 +107,7 @@ def run_plan_graph_preflight(
         _check_requirements_satisfiable(plan_graph, intent),
         _check_external_resources(plan_graph, capabilities),
         _check_side_effects(plan_graph, intent),
+        _check_every_step_isolated_testable(plan_graph),
     )
     return PlanGraphPreflightReport(
         passed=all(check.passed for check in checks),
@@ -227,6 +232,34 @@ def _has_external_marker(usage_limits: tuple[str, ...]) -> bool:
     """Return whether any usage-limit string marks an external resource."""
     return any(
         marker in limit.lower() for limit in usage_limits for marker in _EXTERNAL_RESOURCE_MARKERS
+    )
+
+
+def _check_every_step_isolated_testable(plan_graph: PlanGraph) -> PlanGraphCheck:
+    """Every step is decomposed to an isolated-testable granularity.
+
+    A :class:`~molexp.agent.modes._planning.PlanStep` whose
+    ``test_sketch.is_isolated_testable`` is ``False`` could only be
+    exercised with the real output of an upstream step — it is too
+    coarse and the plan is not terminably decomposed. The check fails
+    closed so such a plan transitions to
+    :data:`~molexp.agent.modes._planning.PlanState.preflight_failed`.
+    """
+    not_testable = [
+        step.id for step in plan_graph.steps if not step.test_sketch.is_isolated_testable
+    ]
+    return PlanGraphCheck(
+        name="every_step_isolated_testable",
+        passed=not not_testable,
+        detail=(
+            ""
+            if not not_testable
+            else (
+                "step(s) "
+                + ", ".join(not_testable)
+                + " are not decomposed to an isolated-testable granularity"
+            )
+        ),
     )
 
 

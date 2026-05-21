@@ -30,6 +30,7 @@ from molexp.agent.modes._planning import (
     PlanGraph,
     PlanNodeOp,
     PlanState,
+    PlanStep,
 )
 from molexp.agent.router import ModelTier, Router
 
@@ -37,8 +38,10 @@ __all__ = [
     "CandidateSet",
     "PlanCandidate",
     "SelectionResult",
+    "StepRefinement",
     "build_repair_diff",
     "clarify_intent",
+    "refine_until_testable",
     "select_plan",
     "synthesize_candidates",
     "synthesize_intent",
@@ -99,6 +102,23 @@ class SelectionResult(BaseModel):
     rationale: str = ""
 
 
+class StepRefinement(BaseModel):
+    """The structured output of one ``RefineUntilTestable`` call.
+
+    Attributes:
+        sub_steps: The finer-grained ordered replacement for one coarse
+            :class:`~molexp.agent.modes._planning.PlanStep`. The first
+            sub-step inherits the coarse step's external ``depends_on``;
+            the last is the terminal sub-step that downstream steps
+            re-point to. Each sub-step carries its own
+            :class:`~molexp.agent.modes._planning.IsolatedTestSketch`.
+    """
+
+    model_config = _FROZEN
+
+    sub_steps: tuple[PlanStep, ...]
+
+
 # ── Stage 1 — SynthesizeIntent ─────────────────────────────────────────────
 
 
@@ -111,7 +131,12 @@ _INTENT_SYSTEM_PROMPT = (
     "genuinely cannot proceed without the answer), success criteria, "
     "the side effects the user has sanctioned, a resource budget, and "
     "an overall risk level. Do not invent requirements the user did "
-    "not state."
+    "not state. "
+    "Each required_outputs entry MUST be a short identifier-like "
+    "artefact name — e.g. 'trajectory', 'data.peo', 'tg_report.csv' — "
+    "never a prose sentence or description. Downstream the plan's step "
+    "outputs are matched against these strings verbatim, so keep them "
+    "terse, lowercase, and free of explanatory text."
 )
 
 
@@ -155,8 +180,22 @@ _CANDIDATE_SYSTEM_PROMPT = (
     "its trade-offs and is_complex=true. For a simple task emit a "
     "single candidate (label 'A') and is_complex=false. Every PlanStep "
     "must bind its capability_id to a CapabilityGraph node id, and the "
-    "graph must be closed and acyclic. Write no code — only the typed "
-    "plan structure."
+    "graph must be closed and acyclic. "
+    "Artefact vocabulary is load-bearing and checked verbatim: "
+    "(1) every entry in IntentSpec.required_outputs must appear, "
+    "spelled identically, as an `outputs` entry of some PlanStep; "
+    "(2) every step output that is NOT a required output must be "
+    "consumed by a downstream step — that step lists it as an input "
+    "whose `source_step` is the producer's id and whose `name` is the "
+    "exact output string. Reuse output names verbatim across steps; "
+    "do not paraphrase. "
+    "Every PlanStep must carry a test_sketch: decompose the plan finely "
+    "enough that each step is isolated-testable "
+    "(test_sketch.is_isolated_testable=true, with concrete "
+    "synthetic_inputs and assertion_sketch). A step that could only be "
+    "exercised with the real output of an upstream step is too coarse "
+    "and must be split further. "
+    "Write no code — only the typed plan structure."
 )
 
 
@@ -166,20 +205,139 @@ async def synthesize_candidates(
     intent: IntentSpec,
     capabilities: CapabilityGraph,
 ) -> CandidateSet:
-    """Stage 4 — synthesize one or three candidate :class:`PlanGraph`\\ s."""
+    """Stage 4 — synthesize candidates, then refine each until testable.
+
+    The structured call emits one or three candidate
+    :class:`PlanGraph`\\ s; every candidate is then run through
+    :func:`refine_until_testable` so its steps are decomposed to
+    isolated-testable granularity before selection.
+    """
     user = (
         "IntentSpec:\n"
         f"{intent.model_dump_json(indent=2)}\n\n"
         "CapabilityGraph:\n"
         f"{capabilities.model_dump_json(indent=2)}"
     )
-    return await router.complete_structured(
+    raw = await router.complete_structured(
         tier=ModelTier.HEAVY,
         system=_CANDIDATE_SYSTEM_PROMPT,
         user=user,
         schema=CandidateSet,
         node_id="SynthesizeCandidates",
     )
+    refined: list[PlanCandidate] = []
+    for candidate in raw.candidates:
+        plan_graph = await refine_until_testable(
+            router=router, plan_graph=candidate.plan_graph, intent=intent
+        )
+        refined.append(candidate.model_copy(update={"plan_graph": plan_graph}))
+    return raw.model_copy(update={"candidates": tuple(refined)})
+
+
+# ── Stage 4b — RefineUntilTestable ─────────────────────────────────────────
+
+
+_MAX_REFINE_DEPTH = 8
+"""Maximum step-split rounds for :func:`refine_until_testable` — one
+coarse step per round. A plan still carrying a non-isolated-testable
+step after this budget is returned as-is; the plan-graph preflight then
+fails it closed."""
+
+
+_REFINE_SYSTEM_PROMPT = (
+    "You are a plan-refinement agent. You are given exactly ONE PlanStep "
+    "that is too coarse to test in isolation. Split it into a small "
+    "ordered chain of finer PlanSteps, each of which IS isolated-testable "
+    "— set test_sketch.is_isolated_testable=true with concrete "
+    "synthetic_inputs and assertion_sketch. Preserve the original step's "
+    "external contract: the first sub-step inherits the original's "
+    "depends_on, the last sub-step reproduces the original's io.outputs, "
+    "and the sub-steps' internal depends_on form an acyclic chain. Reuse "
+    "output names verbatim. Write no code — only the typed sub-steps."
+)
+
+
+async def refine_until_testable(
+    *,
+    router: Router,
+    plan_graph: PlanGraph,
+    intent: IntentSpec,
+) -> PlanGraph:
+    """Recursively split coarse steps until every step is isolated-testable.
+
+    Each round finds the first step whose
+    ``test_sketch.is_isolated_testable`` is ``False``, asks the router
+    for a finer-grained :class:`StepRefinement`, and replaces the coarse
+    step with the sub-steps — re-pointing ``depends_on`` so the graph
+    stays closed. Bounded by :data:`_MAX_REFINE_DEPTH`: a plan still
+    carrying a non-testable step after the budget is returned as-is for
+    the plan-graph preflight to fail it closed. A split that would make
+    the graph cyclic is discarded and refinement stops.
+    """
+    graph = plan_graph
+    for _ in range(_MAX_REFINE_DEPTH):
+        coarse = _first_coarse_step(graph)
+        if coarse is None:
+            return graph
+        refinement = await router.complete_structured(
+            tier=ModelTier.HEAVY,
+            system=_REFINE_SYSTEM_PROMPT,
+            user=_refine_user_prompt(coarse, intent),
+            schema=StepRefinement,
+            node_id="RefineUntilTestable",
+        )
+        candidate = _apply_refinement(graph, coarse, refinement.sub_steps)
+        if not candidate.is_acyclic():
+            return graph
+        graph = candidate
+    return graph
+
+
+def _first_coarse_step(graph: PlanGraph) -> PlanStep | None:
+    """Return the first step that is not isolated-testable, or ``None``."""
+    for step in graph.steps:
+        if not step.test_sketch.is_isolated_testable:
+            return step
+    return None
+
+
+def _refine_user_prompt(step: PlanStep, intent: IntentSpec) -> str:
+    """Build the user prompt for one ``RefineUntilTestable`` call."""
+    return (
+        "IntentSpec:\n"
+        f"{intent.model_dump_json(indent=2)}\n\n"
+        "Coarse PlanStep to split:\n"
+        f"{step.model_dump_json(indent=2)}"
+    )
+
+
+def _apply_refinement(
+    graph: PlanGraph,
+    coarse: PlanStep,
+    sub_steps: tuple[PlanStep, ...],
+) -> PlanGraph:
+    """Replace ``coarse`` with ``sub_steps``, re-pointing ``depends_on``.
+
+    The first sub-step inherits the coarse step's external
+    ``depends_on``; every step that depended on the coarse step is
+    re-pointed to the terminal (last) sub-step. An empty ``sub_steps``
+    leaves the graph unchanged.
+    """
+    if not sub_steps:
+        return graph
+    head = sub_steps[0].model_copy(update={"depends_on": coarse.depends_on})
+    chain = (head, *sub_steps[1:])
+    terminal_id = chain[-1].id
+    new_steps: list[PlanStep] = []
+    for step in graph.steps:
+        if step.id == coarse.id:
+            new_steps.extend(chain)
+        elif coarse.id in step.depends_on:
+            rewired = tuple(terminal_id if dep == coarse.id else dep for dep in step.depends_on)
+            new_steps.append(step.model_copy(update={"depends_on": rewired}))
+        else:
+            new_steps.append(step)
+    return graph.model_copy(update={"steps": tuple(new_steps)})
 
 
 # ── Stage 5 — SelectPlan ───────────────────────────────────────────────────

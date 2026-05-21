@@ -55,6 +55,12 @@ def _step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
         estimated_cost_usd=1.25,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="",
+        ),
     )
 
 
@@ -199,6 +205,12 @@ def test_plan_step_rejects_unknown_field() -> None:
             estimated_cost_usd=None,
             risk_level=RiskLevel.low,
             unknowns=(),
+            test_sketch=IsolatedTestSketch(
+                is_isolated_testable=True,
+                synthetic_inputs=(),
+                assertion_sketch=(),
+                rationale="",
+            ),
             owner="bob",  # type: ignore[call-arg]
         )
 
@@ -325,3 +337,176 @@ def test_is_acyclic_true_for_empty_graph() -> None:
         notes="",
     )
     assert empty.is_acyclic() is True
+
+
+# ==========================================================================
+# RED — testability-driven decomposition (spec ac-001, ac-002)
+#
+# Two not-yet-existing contract pieces:
+#   1. IsolatedTestSketch — new frozen-pydantic model in plan_graph.py.
+#   2. PlanStep gains a REQUIRED field test_sketch: IsolatedTestSketch
+#      (breaking change, no default, no backward compatibility).
+#
+# These tests fail RED until the implementation lands:
+#   - the IsolatedTestSketch import below raises ImportError at collection;
+#   - the required-field test would still fail even if the import were
+#     stubbed, since current PlanStep has no test_sketch field.
+# ==========================================================================
+
+from molexp.agent.modes._planning import IsolatedTestSketch  # noqa: E402
+
+
+def _test_sketch(*, is_isolated_testable: bool = True) -> IsolatedTestSketch:
+    """Build a valid IsolatedTestSketch for use in PlanStep fixtures."""
+    return IsolatedTestSketch(
+        is_isolated_testable=is_isolated_testable,
+        synthetic_inputs=("a 3-atom synthetic molecule with explicit coords",),
+        assertion_sketch=("output atom count equals input atom count",),
+        rationale="bound to a primitive symbol; synthetic input is cheap to build",
+    )
+
+
+def _testable_step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
+    """Build a fully valid PlanStep including the required test_sketch."""
+    return PlanStep(
+        id=step_id,
+        depends_on=depends_on,
+        io=PlanStepIO(
+            inputs=(PlanStepInput(name="raw", source_step=None),),
+            outputs=("result",),
+        ),
+        artifacts=(PlanStepArtifact(path=f"{step_id}.json", description="step output"),),
+        capability_id=f"cap::{step_id}",
+        tool_binding=f"tool::{step_id}",
+        checks=(PlanCheck(name="schema", description="output is valid", blocking=True),),
+        retry_policy=RetryPolicy(max_attempts=2, on=("timeout",)),
+        rollback=None,
+        approval_gate=ApprovalGate.approve_execution,
+        estimated_cost_usd=1.25,
+        risk_level=RiskLevel.low,
+        unknowns=(),
+        test_sketch=_test_sketch(),
+    )
+
+
+# --------------------------------------------------------------------------
+# happy path — IsolatedTestSketch construction
+# --------------------------------------------------------------------------
+
+
+def test_isolated_test_sketch_full_construction() -> None:
+    sketch = IsolatedTestSketch(
+        is_isolated_testable=True,
+        synthetic_inputs=("a tiny synthetic graph",),
+        assertion_sketch=("returns a non-empty result",),
+        rationale="primitive symbol, cheap synthetic input",
+    )
+    assert sketch.is_isolated_testable is True
+    assert sketch.synthetic_inputs == ("a tiny synthetic graph",)
+    assert sketch.assertion_sketch == ("returns a non-empty result",)
+    assert sketch.rationale == "primitive symbol, cheap synthetic input"
+
+
+def test_isolated_test_sketch_not_testable_construction() -> None:
+    sketch = IsolatedTestSketch(
+        is_isolated_testable=False,
+        synthetic_inputs=(),
+        assertion_sketch=(),
+        rationale="needs the real upstream trajectory; cannot synthesize cheaply",
+    )
+    assert sketch.is_isolated_testable is False
+    assert sketch.synthetic_inputs == ()
+    assert sketch.assertion_sketch == ()
+
+
+# --------------------------------------------------------------------------
+# happy path — IsolatedTestSketch JSON round-trip
+# --------------------------------------------------------------------------
+
+
+def test_isolated_test_sketch_json_round_trip() -> None:
+    sketch = _test_sketch()
+    dumped = sketch.model_dump(mode="json")
+    restored = IsolatedTestSketch.model_validate(dumped)
+    assert restored == sketch
+
+
+def test_isolated_test_sketch_json_dump_is_jsonable() -> None:
+    dumped = _test_sketch().model_dump(mode="json")
+    assert dumped["is_isolated_testable"] is True
+    assert isinstance(dumped["synthetic_inputs"], list)
+    assert isinstance(dumped["assertion_sketch"], list)
+    assert isinstance(dumped["rationale"], str)
+
+
+# --------------------------------------------------------------------------
+# happy path — PlanStep carries a test_sketch (ac-001)
+# --------------------------------------------------------------------------
+
+
+def test_plan_step_construction_with_test_sketch() -> None:
+    step = _testable_step("a")
+    assert isinstance(step.test_sketch, IsolatedTestSketch)
+    assert step.test_sketch.is_isolated_testable is True
+
+
+def test_plan_step_with_test_sketch_json_round_trip() -> None:
+    step = _testable_step("a")
+    dumped = step.model_dump(mode="json")
+    restored = PlanStep.model_validate(dumped)
+    assert restored == step
+    assert restored.test_sketch == step.test_sketch
+
+
+# --------------------------------------------------------------------------
+# immutability — IsolatedTestSketch is frozen
+# --------------------------------------------------------------------------
+
+
+def test_isolated_test_sketch_is_frozen() -> None:
+    sketch = _test_sketch()
+    with pytest.raises(ValidationError):
+        sketch.is_isolated_testable = False  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------
+# edge — IsolatedTestSketch rejects unknown field (extra="forbid")
+# --------------------------------------------------------------------------
+
+
+def test_isolated_test_sketch_rejects_unknown_field() -> None:
+    with pytest.raises(ValidationError):
+        IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="r",
+            confidence="high",  # type: ignore[call-arg]
+        )
+
+
+# --------------------------------------------------------------------------
+# required-field — PlanStep without test_sketch raises ValidationError (ac-002)
+# --------------------------------------------------------------------------
+
+
+def test_plan_step_without_test_sketch_raises_validation_error() -> None:
+    with pytest.raises(ValidationError):
+        PlanStep(
+            id="a",
+            depends_on=(),
+            io=PlanStepIO(
+                inputs=(PlanStepInput(name="raw", source_step=None),),
+                outputs=("result",),
+            ),
+            artifacts=(),
+            capability_id="cap::a",
+            tool_binding="tool::a",
+            checks=(),
+            retry_policy=RetryPolicy(on=()),
+            rollback=None,
+            approval_gate=ApprovalGate.approve_execution,
+            estimated_cost_usd=None,
+            risk_level=RiskLevel.low,
+            unknowns=(),
+        )  # type: ignore[call-arg]

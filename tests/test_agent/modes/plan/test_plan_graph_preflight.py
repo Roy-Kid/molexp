@@ -15,6 +15,7 @@ from molexp.agent.modes._planning import (
     CapabilityNode,
     EvidenceState,
     IntentSpec,
+    IsolatedTestSketch,
     PlanGraph,
     PlanState,
     PlanStep,
@@ -75,6 +76,7 @@ def _step(
     outputs: tuple[str, ...] = (),
     capability_id: str | None = "cap_build",
     rollback: str | None = None,
+    testable: bool = True,
 ) -> PlanStep:
     return PlanStep(
         id=step_id,
@@ -90,6 +92,12 @@ def _step(
         estimated_cost_usd=None,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=testable,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="" if testable else "needs real upstream output",
+        ),
     )
 
 
@@ -267,3 +275,36 @@ def test_report_is_frozen() -> None:
     )
     with pytest.raises(ValidationError):
         report.passed = False  # type: ignore[misc]
+
+
+# ── isolated-testability (ac-006 / ac-007 / ac-008) ────────────────────────
+
+
+def test_preflight_has_every_step_isolated_testable_check() -> None:
+    report = run_plan_graph_preflight(
+        plan_graph=_graph((_step("s1", outputs=("trajectory",)),)),
+        intent=_intent(),
+        capabilities=_capabilities(),
+    )
+    assert "every_step_isolated_testable" in {c.name for c in report.checks}
+
+
+def test_non_testable_step_fails_preflight() -> None:
+    graph = _graph((_step("s1", outputs=("trajectory",), testable=False),))
+    report = run_plan_graph_preflight(
+        plan_graph=graph,
+        intent=_intent(),
+        capabilities=_capabilities(),
+    )
+    assert not report.passed
+    assert "every_step_isolated_testable" in report.failed_check_names()
+
+
+def test_fully_testable_plan_passes_the_isolated_testable_check() -> None:
+    report = run_plan_graph_preflight(
+        plan_graph=_graph((_step("s1", outputs=("trajectory",), testable=True),)),
+        intent=_intent(),
+        capabilities=_capabilities(),
+    )
+    check = next(c for c in report.checks if c.name == "every_step_isolated_testable")
+    assert check.passed

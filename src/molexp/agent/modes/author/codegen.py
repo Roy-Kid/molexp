@@ -25,7 +25,7 @@ import asyncio
 import yaml
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.modes._planning import CapabilityGraph
+from molexp.agent.modes._planning import CapabilityGraph, PlanGraph, PlanStep
 from molexp.agent.modes.author.codegen_evidence import (
     MissingCapability,
     validate_codegen_evidence,
@@ -230,10 +230,36 @@ def generate_workflow_skeleton(contract: WorkflowContract, *, layout: Materializ
 
 _TASK_TEST_SYSTEM_PROMPT = (
     "Given a TaskIRBrief plus its TaskIO declaration, draft a pytest "
-    "module that exercises the task. Import only stdlib plus symbols "
-    "evidenced in the capability graph. If is_stub=true, emit a single "
-    "test calling pytest.skip('stub'). Return the full module source."
+    "module that exercises the task IN ISOLATION. The test MUST "
+    "construct its own minimal synthetic inputs — it must never import, "
+    "call, or consume the real output of an upstream task. Honour the "
+    "brief's test_expectations: a 'synthetic input:' line names an "
+    "input the test must build itself; an 'assert:' line names what it "
+    "must check. Import only stdlib plus symbols evidenced in the "
+    "capability graph. If is_stub=true, emit a single test calling "
+    "pytest.skip('stub'). Return the full module source."
 )
+
+
+def _brief_with_test_sketch(brief: TaskIRBrief, step: PlanStep | None) -> TaskIRBrief:
+    """Fold a plan step's ``IsolatedTestSketch`` into the brief.
+
+    The step's ``test_sketch`` carries the minimal synthetic inputs the
+    isolated test must build for itself and what it should assert; these
+    are threaded into ``TaskIRBrief.test_expectations`` (prefixed so the
+    test-generation prompt can tell them apart) rather than into a new
+    schema. ``step is None`` — no matching plan step — leaves the brief
+    unchanged.
+    """
+    if step is None:
+        return brief
+    sketch = step.test_sketch
+    extra = tuple(f"synthetic input: {item}" for item in sketch.synthetic_inputs) + tuple(
+        f"assert: {item}" for item in sketch.assertion_sketch
+    )
+    if not extra:
+        return brief
+    return brief.model_copy(update={"test_expectations": brief.test_expectations + extra})
 
 
 async def generate_task_tests(
@@ -243,15 +269,24 @@ async def generate_task_tests(
     contract: WorkflowContract,
     capability_graph: CapabilityGraph,
     layout: MaterializedLayout,
+    plan_graph: PlanGraph | None = None,
     tier: ModelTier = ModelTier.DEFAULT,
 ) -> tuple[str, ...]:
     """Generate one pytest module per task plus the topology-pin test.
+
+    When ``plan_graph`` is supplied, each brief is augmented with the
+    matching :class:`~molexp.agent.modes._planning.PlanStep`'s
+    ``test_sketch`` — the isolated test's minimal synthetic inputs and
+    assertion sketch — before generation, so the test exercises the task
+    in isolation rather than on real upstream output.
 
     Returns the tuple of written test-file paths.
     """
     io_by_id = {tio.task_id: tio for tio in contract.task_io}
     paths: list[str] = []
     for brief in briefs:
+        if plan_graph is not None:
+            brief = _brief_with_test_sketch(brief, plan_graph.step_by_id(brief.task_id))
         if brief.is_stub:
             source = render_stub_test(brief.task_id)
         else:

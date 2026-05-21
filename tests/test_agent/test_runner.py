@@ -417,18 +417,13 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
 
 def test_public_surface_unchanged() -> None:
     """``molexp.agent`` re-exports the mode-orchestration core plus the
-    workflow-orthogonal review primitives."""
+    workflow-orthogonal approval primitives."""
     assert tuple(sorted(molexp.agent.__all__)) == (
         "AgentMode",
         "AgentRunResult",
         "AgentRunner",
         "AgentSession",
-        "AutoPolicy",
-        "BypassPolicy",
-        "HumanPolicy",
         "ReviewDecision",
         "ReviewPolicy",
-        "ReviewView",
-        "StepView",
         "cli_ask",
     )

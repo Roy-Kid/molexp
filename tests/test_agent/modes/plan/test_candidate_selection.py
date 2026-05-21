@@ -9,6 +9,7 @@ stage 5 (``SelectPlan``) chooses one whose every ``PlanStep`` binds to a
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from molexp.agent.modes._planning import (
     ApprovalGate,
@@ -16,6 +17,7 @@ from molexp.agent.modes._planning import (
     CapabilityNode,
     EvidenceState,
     IntentSpec,
+    IsolatedTestSketch,
     PlanGraph,
     PlanState,
     PlanStep,
@@ -25,9 +27,13 @@ from molexp.agent.modes._planning import (
     RiskLevel,
 )
 from molexp.agent.modes.plan.tasks_planning import (
+    _CANDIDATE_SYSTEM_PROMPT,
+    _MAX_REFINE_DEPTH,
     CandidateSet,
     PlanCandidate,
     SelectionResult,
+    StepRefinement,
+    refine_until_testable,
     select_plan,
     synthesize_candidates,
 )
@@ -82,6 +88,12 @@ def _step(step_id: str, *, capability_id: str | None = "cap_md") -> PlanStep:
         estimated_cost_usd=None,
         risk_level=RiskLevel.low,
         unknowns=(),
+        test_sketch=IsolatedTestSketch(
+            is_isolated_testable=True,
+            synthetic_inputs=(),
+            assertion_sketch=(),
+            rationale="",
+        ),
     )
 
 
@@ -190,3 +202,153 @@ async def test_selected_plan_steps_bind_to_capability_nodes() -> None:
     caps = {n.id for n in _capabilities().nodes}
     for step in chosen.steps:
         assert step.capability_id in caps
+
+
+# ── refine_until_testable — testability-driven decomposition ────────────────
+
+
+def _fine_step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
+    """An isolated-testable plan step."""
+    return _step(step_id).model_copy(
+        update={
+            "depends_on": depends_on,
+            "test_sketch": IsolatedTestSketch(
+                is_isolated_testable=True,
+                synthetic_inputs=("a minimal synthetic trajectory",),
+                assertion_sketch=("output trajectory is non-empty",),
+                rationale="",
+            ),
+        }
+    )
+
+
+def _coarse_step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
+    """A step too coarse to test in isolation."""
+    return _step(step_id).model_copy(
+        update={
+            "depends_on": depends_on,
+            "test_sketch": IsolatedTestSketch(
+                is_isolated_testable=False,
+                synthetic_inputs=(),
+                assertion_sketch=(),
+                rationale="needs the real upstream output to be exercised",
+            ),
+        }
+    )
+
+
+def _graph_of(*steps: PlanStep) -> PlanGraph:
+    return PlanGraph(
+        plan_id="p-refine",
+        intent_ref="i1",
+        steps=steps,
+        state=PlanState.draft_plan,
+        compiled_contract_ref=None,
+        notes="",
+    )
+
+
+def test_step_refinement_is_frozen() -> None:
+    refinement = StepRefinement(sub_steps=(_fine_step("a"),))
+    with pytest.raises(ValidationError):
+        refinement.sub_steps = ()  # type: ignore[misc]
+
+
+@pytest.mark.asyncio
+async def test_refine_until_testable_splits_a_coarse_step() -> None:
+    graph = _graph_of(_coarse_step("s1"))
+    router = ScriptedStructuredRouter(
+        responses=[
+            StepRefinement(sub_steps=(_fine_step("s1a"), _fine_step("s1b", depends_on=("s1a",))))
+        ]
+    )
+    refined = await refine_until_testable(
+        router=router,  # type: ignore[arg-type]
+        plan_graph=graph,
+        intent=_intent(complex_task=False),
+    )
+    assert tuple(s.id for s in refined.steps) == ("s1a", "s1b")
+    assert all(s.test_sketch.is_isolated_testable for s in refined.steps)
+    assert refined.is_acyclic()
+
+
+@pytest.mark.asyncio
+async def test_refine_until_testable_rewires_downstream_dependents() -> None:
+    graph = _graph_of(_coarse_step("s1"), _fine_step("s2", depends_on=("s1",)))
+    router = ScriptedStructuredRouter(
+        responses=[
+            StepRefinement(sub_steps=(_fine_step("s1a"), _fine_step("s1b", depends_on=("s1a",))))
+        ]
+    )
+    refined = await refine_until_testable(
+        router=router,  # type: ignore[arg-type]
+        plan_graph=graph,
+        intent=_intent(complex_task=False),
+    )
+    s2 = refined.step_by_id("s2")
+    assert s2 is not None
+    assert s2.depends_on == ("s1b",)  # re-pointed to the terminal sub-step
+    assert refined.is_acyclic()
+    ids = {s.id for s in refined.steps}
+    for step in refined.steps:
+        for dep in step.depends_on:
+            assert dep in ids  # graph stays closed
+
+
+@pytest.mark.asyncio
+async def test_refine_until_testable_is_depth_bounded() -> None:
+    # A router that always returns a still-coarse sub-step — the plan can
+    # never be made fully testable; refinement must terminate anyway.
+    graph = _graph_of(_coarse_step("s1"))
+    router = ScriptedStructuredRouter(
+        responses=[
+            StepRefinement(sub_steps=(_coarse_step("s1"),)) for _ in range(_MAX_REFINE_DEPTH)
+        ]
+    )
+    refined = await refine_until_testable(
+        router=router,  # type: ignore[arg-type]
+        plan_graph=graph,
+        intent=_intent(complex_task=False),
+    )
+    assert any(not s.test_sketch.is_isolated_testable for s in refined.steps)
+    assert len(router.calls) == _MAX_REFINE_DEPTH
+
+
+@pytest.mark.asyncio
+async def test_refine_until_testable_noop_when_all_testable() -> None:
+    graph = _graph_of(_fine_step("s1"), _fine_step("s2", depends_on=("s1",)))
+    router = ScriptedStructuredRouter()
+    refined = await refine_until_testable(
+        router=router,  # type: ignore[arg-type]
+        plan_graph=graph,
+        intent=_intent(complex_task=False),
+    )
+    assert refined == graph
+    assert router.calls == []
+
+
+def test_candidate_prompt_mandates_testability() -> None:
+    assert "test_sketch" in _CANDIDATE_SYSTEM_PROMPT
+    assert "is_isolated_testable" in _CANDIDATE_SYSTEM_PROMPT
+
+
+@pytest.mark.asyncio
+async def test_synthesize_candidates_runs_refinement() -> None:
+    coarse_plan = _graph_of(_coarse_step("s1"))
+    router = ScriptedStructuredRouter(
+        responses=[
+            CandidateSet(
+                candidates=(PlanCandidate(label="A", plan_graph=coarse_plan, self_critique=""),),
+                is_complex=False,
+            ),
+            StepRefinement(sub_steps=(_fine_step("s1a"),)),
+        ]
+    )
+    result = await synthesize_candidates(
+        router=router,  # type: ignore[arg-type]
+        intent=_intent(complex_task=False),
+        capabilities=_capabilities(),
+    )
+    for candidate in result.candidates:
+        for step in candidate.plan_graph.steps:
+            assert step.test_sketch.is_isolated_testable
