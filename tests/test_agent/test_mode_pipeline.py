@@ -20,9 +20,16 @@ from molexp.agent.mode import (
     PipelineEdge,
     _render_pipeline_flowchart,
 )
-from molexp.agent.modes import AuthorMode, ChatMode, PlanMode, ReviewMode, RunMode
+from molexp.agent.modes import (
+    AuthorMode,
+    ChatMode,
+    InteractiveMode,
+    PlanMode,
+    ReviewMode,
+    RunMode,
+)
 
-_MODES = (ChatMode, PlanMode, AuthorMode, RunMode, ReviewMode)
+_MODES = (ChatMode, PlanMode, AuthorMode, RunMode, ReviewMode, InteractiveMode)
 
 
 # ── PipelineEdge / ModePipeline value types (ac-001) ────────────────────────
@@ -152,6 +159,11 @@ def test_every_mode_get_flowchart_returns_mermaid() -> None:
 def test_chat_mode_pipeline() -> None:
     assert ChatMode.pipeline.stages == ("chat-turn",)
     assert len(ChatMode.pipeline.terminal_states) == 1
+
+
+def test_interactive_mode_pipeline() -> None:
+    assert InteractiveMode.pipeline.stages == ("agentic-loop",)
+    assert InteractiveMode.pipeline.terminal_states == ("completed",)
 
 
 def test_run_mode_pipeline_stages() -> None:

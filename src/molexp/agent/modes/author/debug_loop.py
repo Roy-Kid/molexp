@@ -98,7 +98,15 @@ def run_subprocess_test(
     import sys
 
     command = [sys.executable, "-m", "pytest", str(test_path), "-q", "-p", "no:cacheprovider"]
-    env = {"PYTHONPATH": str(cwd), "PATH": _inherited_path()}
+    env = {
+        "PYTHONPATH": str(cwd),
+        "PATH": _inherited_path(),
+        # Write no .pyc files: a repaired implementation can land with the
+        # same byte size and same integer-second mtime as the original,
+        # which would let Python reuse a stale cached bytecode and poison
+        # the re-run. A hermetic subprocess always sees the current source.
+        "PYTHONDONTWRITEBYTECODE": "1",
+    }
     try:
         result = execution_env.exec(command, cwd=cwd, env=env, timeout=timeout)
     except ExecutionError as exc:

@@ -8,8 +8,15 @@ member carries a ``kind`` :data:`typing.Literal`, a typed payload, and a
 These events describe **orchestration lifecycle** — a mode starting, a
 stage opening/closing, an artefact landing, an approval being requested
 or decided, a plan being emitted, a preflight failing, a repair being
-proposed, a compaction running, a mode finishing, an error. They are
-*not* model-token deltas: per-call streaming stays inside pydantic-ai.
+proposed, a compaction running, a mode finishing, an error.
+
+Three members carry the **emergent loop** of
+:class:`~molexp.agent.modes.interactive.InteractiveMode`: a token-level
+:class:`TokenDeltaEvent` and the :class:`ToolCallStartedEvent` /
+:class:`ToolCallCompletedEvent` pair. They are the orchestration-level
+projection of the pydantic-ai agentic loop — the per-call streaming
+machinery itself stays inside pydantic-ai, behind the
+:meth:`~molexp.agent.router.Router.stream_agentic` surface.
 
 The module imports nothing from ``pydantic_ai`` / ``pydantic_graph`` —
 it is pure data.
@@ -41,6 +48,9 @@ __all__ = [
     "RepairProposedEvent",
     "StageCompletedEvent",
     "StageStartedEvent",
+    "TokenDeltaEvent",
+    "ToolCallCompletedEvent",
+    "ToolCallStartedEvent",
 ]
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
@@ -169,6 +179,44 @@ class ErrorEvent(_BaseEvent):
     stage_name: str = ""
 
 
+class TokenDeltaEvent(_BaseEvent):
+    """Emitted for one token-level text increment from the emergent loop.
+
+    :class:`~molexp.agent.modes.interactive.InteractiveMode` yields one
+    of these per assistant text delta so a CLI / SSE consumer can render
+    the reply as it streams. v1 keeps these in the accumulated
+    :attr:`~molexp.agent.mode.AgentRunResult.events` stream unfiltered.
+    """
+
+    kind: Literal["token_delta"] = "token_delta"
+    text: str
+
+
+class ToolCallStartedEvent(_BaseEvent):
+    """Emitted when the emergent loop dispatches a tool call.
+
+    ``args_summary`` is a short human-readable rendering of the call
+    arguments — never the full payload, so the event stream stays cheap.
+    """
+
+    kind: Literal["tool_call_started"] = "tool_call_started"
+    tool_name: str
+    args_summary: str = ""
+
+
+class ToolCallCompletedEvent(_BaseEvent):
+    """Emitted when a dispatched tool call returns.
+
+    ``ok`` is ``False`` when the tool raised / returned a retry prompt;
+    ``result_summary`` is a short rendering of the return value.
+    """
+
+    kind: Literal["tool_call_completed"] = "tool_call_completed"
+    tool_name: str
+    result_summary: str = ""
+    ok: bool = True
+
+
 AgentEvent = Annotated[
     ModeStartedEvent
     | StageStartedEvent
@@ -181,7 +229,10 @@ AgentEvent = Annotated[
     | RepairProposedEvent
     | CompactionPerformedEvent
     | ModeCompletedEvent
-    | ErrorEvent,
+    | ErrorEvent
+    | TokenDeltaEvent
+    | ToolCallStartedEvent
+    | ToolCallCompletedEvent,
     Field(discriminator="kind"),
 ]
 """Discriminated union of every orchestration-level harness event."""

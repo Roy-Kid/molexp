@@ -31,15 +31,18 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_modes_all_is_the_five_mode_contract() -> None:
-    """``ChatMode`` / ``PlanMode`` / ``AuthorMode`` / ``RunMode`` /
-    ``ReviewMode`` — all five modes ship on the harness."""
+def test_modes_all_is_the_six_mode_contract() -> None:
+    """The five declarative modes (``ChatMode`` / ``PlanMode`` /
+    ``AuthorMode`` / ``RunMode`` / ``ReviewMode``) plus the emergent
+    ``InteractiveMode`` — all six ship on the harness."""
     assert set(modes.__all__) == {
         "ApprovedPlanHandoff",
         "AuthorMode",
         "AuthorModeConfig",
         "ChatMode",
         "ChatModeConfig",
+        "InteractiveMode",
+        "InteractiveModeConfig",
         "MaterializedWorkspaceHandoff",
         "PlanFolder",
         "PlanMode",

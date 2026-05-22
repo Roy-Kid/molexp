@@ -29,17 +29,35 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
 from mollog import get_logger
 from pydantic import BaseModel
 from pydantic_ai import Agent, models
-from pydantic_ai.messages import ModelMessage
+from pydantic_ai.messages import (
+    FunctionToolCallEvent,
+    FunctionToolResultEvent,
+    ModelMessage,
+    PartDeltaEvent,
+    PartStartEvent,
+    RetryPromptPart,
+    TextPart,
+    TextPartDelta,
+)
 from pydantic_ai.tools import Tool
 
-from molexp.agent.router import ModelTier, RouterTextResult, TierModels
+from molexp.agent.router import (
+    AgenticChunk,
+    FinalChunk,
+    ModelTier,
+    RouterTextResult,
+    TextDeltaChunk,
+    TierModels,
+    ToolCallChunk,
+    ToolResultChunk,
+)
 from molexp.agent.types import CallUsage, Usage, UsageBreakdown
 
 from .errors import ProviderError, classify
@@ -410,6 +428,130 @@ class PydanticAIRouter:
                     ),
                 )
                 return output
+
+    # ── Agentic-loop path ───────────────────────────────────────────────────
+
+    async def stream_agentic(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        tools: tuple[PydanticAiTool, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+        message_history: tuple[Any, ...] = (),
+    ) -> AsyncIterator[AgenticChunk]:
+        """Drive pydantic-ai's native agentic loop, translated to chunks.
+
+        Builds a fresh ``Agent(tools=...)`` for this call — construction
+        is cheap and side-effect-free, so per-call ``system`` / ``tools``
+        need no cache key — then iterates ``Agent.iter()`` node by node.
+        The agentic loop itself (tool dispatch, retries, message
+        history) stays entirely inside pydantic-ai; this method only
+        *translates* its event stream into SDK-free
+        :data:`~molexp.agent.router.AgenticChunk`\\ s. The terminal
+        yield is always a :class:`~molexp.agent.router.FinalChunk`.
+        """
+        model = self._tier_models[tier]
+        agent_kwargs: dict[str, Any] = {"model": model}
+        preamble = system or self._system_prompt
+        if preamble:
+            agent_kwargs["system_prompt"] = preamble
+        if tools:
+            agent_kwargs["tools"] = list(tools)
+        agent: Agent[None, str] = Agent(**agent_kwargs)
+
+        _LOG.debug(
+            f"[router] agentic tier={tier.value} model={model} "
+            f"tools={len(tools)} prompt_chars={len(prompt)} history={len(message_history)}"
+        )
+        t0 = time.monotonic()
+        history = list(message_history) if message_history else None
+        try:
+            async with agent.iter(prompt, message_history=history) as run:
+                async for node in run:
+                    if Agent.is_model_request_node(node):
+                        async with node.stream(run.ctx) as request_stream:
+                            async for event in request_stream:
+                                text_chunk = _text_delta_chunk(event)
+                                if text_chunk is not None:
+                                    yield text_chunk
+                    elif Agent.is_call_tools_node(node):
+                        async with node.stream(run.ctx) as tools_stream:
+                            async for event in tools_stream:
+                                tool_chunk = _tool_chunk(event)
+                                if tool_chunk is not None:
+                                    yield tool_chunk
+                final_text = str(getattr(run.result, "output", "") or "")
+                self._record_usage(
+                    run_result=run.result,
+                    node_id="interactive",
+                    tier=tier,
+                    schema_name="",
+                    attempt=1,
+                    duration_seconds=time.monotonic() - t0,
+                )
+        except BaseException:
+            _LOG.exception(
+                f"[router] agentic tier={tier.value} FAILED {time.monotonic() - t0:.2f}s"
+            )
+            raise
+        _LOG.debug(
+            f"[router] agentic tier={tier.value} ok {time.monotonic() - t0:.2f}s "
+            f"final_chars={len(final_text)}"
+        )
+        yield FinalChunk(text=final_text)
+
+
+# ── Agentic-event → chunk translation ──────────────────────────────────────
+
+_SUMMARY_MAX = 120
+"""Character cap for a tool arg / result summary on an ``AgenticChunk``."""
+
+
+def _truncate(text: str, limit: int = _SUMMARY_MAX) -> str:
+    """Collapse whitespace and cap ``text`` at ``limit`` characters."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= limit:
+        return collapsed
+    return collapsed[: limit - 1] + "…"
+
+
+def _summarize_args(args: Any) -> str:  # noqa: ANN401 — opaque pydantic-ai tool args
+    """Render ``ToolCallPart.args`` (str / dict / None) into a short string."""
+    if args is None:
+        return ""
+    if isinstance(args, str):
+        return _truncate(args)
+    if isinstance(args, dict):
+        return _truncate(", ".join(f"{key}={value!r}" for key, value in args.items()))
+    return _truncate(str(args))
+
+
+def _text_delta_chunk(event: Any) -> TextDeltaChunk | None:  # noqa: ANN401 — opaque SDK event
+    """Translate a model-request-node stream event into a text chunk."""
+    if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
+        return TextDeltaChunk(text=event.part.content) if event.part.content else None
+    if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
+        delta = event.delta.content_delta
+        return TextDeltaChunk(text=delta) if delta else None
+    return None
+
+
+def _tool_chunk(event: Any) -> ToolCallChunk | ToolResultChunk | None:  # noqa: ANN401
+    """Translate a call-tools-node stream event into a tool chunk."""
+    if isinstance(event, FunctionToolCallEvent):
+        return ToolCallChunk(
+            tool_name=event.part.tool_name,
+            args_summary=_summarize_args(event.part.args),
+        )
+    if isinstance(event, FunctionToolResultEvent):
+        part = event.part
+        return ToolResultChunk(
+            tool_name=getattr(part, "tool_name", ""),
+            result_summary=_truncate(str(getattr(part, "content", ""))),
+            ok=not isinstance(part, RetryPromptPart),
+        )
+    return None
 
 
 def _coerce_model_value(value: object) -> PydanticAiModel:

@@ -47,6 +47,9 @@ from molexp.agent.harness.events import (
     RepairProposedEvent,
     StageCompletedEvent,
     StageStartedEvent,
+    TokenDeltaEvent,
+    ToolCallCompletedEvent,
+    ToolCallStartedEvent,
 )
 from molexp.agent.harness.execution_env import (
     ExecResult,
@@ -113,6 +116,9 @@ __all__ = [
     "StageCompletedEvent",
     "StageEntry",
     "StageStartedEvent",
+    "TokenDeltaEvent",
+    "ToolCallCompletedEvent",
+    "ToolCallStartedEvent",
     "estimate_tokens",
     "prepare_compaction",
 ]

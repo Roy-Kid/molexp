@@ -29,6 +29,11 @@ from molexp.cli.init_cmd import init as _init_cmd  # noqa: E402
 
 app.command(name="init")(_init_cmd)
 
+# ── Interactive agent REPL ────────────────────────────────────────────────────
+from molexp.cli.agent_cmd import agent as _agent_cmd  # noqa: E402
+
+app.command(name="agent")(_agent_cmd)
+
 # ── Primary entry point: workspace ────────────────────────────────────────────
 from molexp.cli.workspace import workspace_app  # noqa: E402
 

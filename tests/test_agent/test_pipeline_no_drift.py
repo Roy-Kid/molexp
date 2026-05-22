@@ -19,11 +19,19 @@ import pytest
 
 import molexp.agent.modes.author.materialize as _author_materialize
 import molexp.agent.modes.chat as _chat
+import molexp.agent.modes.interactive.mode as _interactive_mode
 import molexp.agent.modes.plan._mode as _plan_mode
 import molexp.agent.modes.review._mode as _review_mode
 import molexp.agent.modes.run._mode as _run_mode
 from molexp.agent.mode import AgentMode
-from molexp.agent.modes import AuthorMode, ChatMode, PlanMode, ReviewMode, RunMode
+from molexp.agent.modes import (
+    AuthorMode,
+    ChatMode,
+    InteractiveMode,
+    PlanMode,
+    ReviewMode,
+    RunMode,
+)
 
 
 def _harness_stage_literals(module_path: Path) -> set[str]:
@@ -52,6 +60,7 @@ _CASES = [
     pytest.param(AuthorMode, _author_materialize.__file__, id="author"),
     pytest.param(RunMode, _run_mode.__file__, id="run"),
     pytest.param(ReviewMode, _review_mode.__file__, id="review"),
+    pytest.param(InteractiveMode, _interactive_mode.__file__, id="interactive"),
 ]
 
 
