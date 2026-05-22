@@ -20,6 +20,7 @@ from typing import cast
 from mollog import get_logger
 
 from molexp.agent._pydanticai.capability_probe import (
+    _DEFAULT_MAX_GROUNDING_ITERATIONS,
     PydanticAICapabilityProbe,
     PydanticAiModel,
 )
@@ -37,15 +38,20 @@ def build_capability_probe(
     *,
     workspace: Path | None,
     model: object,
+    max_grounding_iterations: int = _DEFAULT_MAX_GROUNDING_ITERATIONS,
 ) -> PydanticAICapabilityProbe | None:
     """Build the molmcp-backed probe, or ``None`` when molmcp is absent.
 
     Args:
         workspace: Workspace root used to resolve the MCP store; the
             user-scope store is still consulted when this is ``None``.
-        model: pydantic-ai model the probe's two agents run on — passed
-            as ``object`` so callers outside ``_pydanticai/`` (PlanMode)
+        model: pydantic-ai model the probe's agents run on — passed as
+            ``object`` so callers outside ``_pydanticai/`` (PlanMode)
             need not import the pydantic-ai model alias.
+        max_grounding_iterations: Re-draft budget forwarded to the probe
+            (a need whose every ``api_ref`` failed verification is
+            re-drafted, bounded by this). Defaults to the probe's own
+            default.
 
     Returns:
         A :class:`PydanticAICapabilityProbe` bound to the molmcp server,
@@ -73,6 +79,7 @@ def build_capability_probe(
                 model=cast("PydanticAiModel", model),
                 molmcp_command=entry.command,
                 molmcp_args=tuple(entry.args),
+                max_grounding_iterations=max_grounding_iterations,
             )
     _LOG.debug("[capability-probe] no molmcp stdio server configured")
     return None
