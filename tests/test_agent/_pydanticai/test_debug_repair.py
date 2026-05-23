@@ -30,9 +30,10 @@ def test_build_repair_agent_returns_pydantic_ai_agent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_repair_agent_invokes_get_source_on_attribute_error() -> None:
-    """The MCP-attached repair agent uses `get_source` to find the real API
-    before patching, given an `AttributeError`-style traceback."""
+async def test_repair_agent_invokes_find_capability_on_attribute_error() -> None:
+    """The MCP-attached repair agent invokes `molmcp_find_capability` to
+    locate the real API for the missing symbol before patching the impl —
+    browse-then-select, same protocol as the drafter."""
     from pydantic_ai.messages import (
         ModelMessage,
         ModelRequest,
@@ -42,12 +43,25 @@ async def test_repair_agent_invokes_get_source_on_attribute_error() -> None:
     )
     from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-    get_source_calls: list[str] = []
+    find_calls: list[str] = []
 
-    async def get_source(path: str) -> str:
-        """Fake molmcp source-read — shows a `__init__.py` re-export."""
-        get_source_calls.append(path)
-        return "from .core.atomistic import Atomistic\n"
+    async def molmcp_find_capability(task: str) -> dict:
+        """Fake molmcp_find_capability — finds the real OPLS-AA typifier."""
+        find_calls.append(task)
+        return {
+            "matches": [
+                {
+                    "rank": 1,
+                    "node": {
+                        "qualname": "molpy.typifier.atomistic.OplsAtomisticTypifier",
+                        "name": "OplsAtomisticTypifier",
+                        "kind": "class",
+                        "signature": "OplsAtomisticTypifier()",
+                        "summary": "Assign OPLS-AA atom types to an Atomistic.",
+                    },
+                }
+            ]
+        }
 
     def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         returns = [
@@ -59,11 +73,19 @@ async def test_repair_agent_invokes_get_source_on_attribute_error() -> None:
         ]
         if not returns:
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="get_source", args={"path": "molpy/__init__.py"})]
+                parts=[
+                    ToolCallPart(
+                        tool_name="molmcp_find_capability",
+                        args={"task": "assign OPLS-AA atom types"},
+                    )
+                ]
             )
         fix = GeneratedModule(
-            task_id="build",
-            source="from molpy.core.atomistic import Atomistic\nVALUE = 2\n",
+            task_id="type",
+            source=(
+                "from molpy.typifier.atomistic import OplsAtomisticTypifier\n"
+                "# ... use the real API ...\n"
+            ),
         )
         return ModelResponse(
             parts=[
@@ -74,9 +96,9 @@ async def test_repair_agent_invokes_get_source_on_attribute_error() -> None:
             ]
         )
 
-    agent = _build_repair_agent(FunctionModel(model_fn), tools=(get_source,))
+    agent = _build_repair_agent(FunctionModel(model_fn), tools=(molmcp_find_capability,))
     prompt = (
-        "task_id: build\n\n"
+        "task_id: type\n\n"
         "--- pytest traceback ---\n"
         "AttributeError: module 'molpy' has no attribute 'forcefield'\n"
     )
@@ -84,8 +106,8 @@ async def test_repair_agent_invokes_get_source_on_attribute_error() -> None:
     result = await agent.run(prompt)
 
     assert isinstance(result.output, GeneratedModule)
-    assert get_source_calls, "repair agent must invoke get_source on AttributeError"
-    assert "from molpy.core.atomistic" in result.output.source
+    assert find_calls, "repair agent must invoke molmcp_find_capability on AttributeError"
+    assert "OplsAtomisticTypifier" in result.output.source
 
 
 def test_build_repair_callable_returns_callable_or_none(tmp_path) -> None:

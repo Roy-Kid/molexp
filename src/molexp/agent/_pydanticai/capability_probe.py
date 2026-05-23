@@ -21,15 +21,16 @@ Two-tier verify
 
 molmcp is an *index*: broad and fast, but lossy — a re-exported symbol
 (``molpy.Atomistic``, re-exported from ``molpy.core.atomistic``) surfaces
-as ``module`` / ``example`` hits, not a clean ``class`` hit. So the
+as a ``module`` hit on direct lookup, not a clean ``class`` hit. So the
 grounding agent verifies each ref in two tiers:
 
-* **Tier 1 — index query** (``search_source`` / ``list_symbols``): a
-  clean ``class`` / ``function`` / ``callable`` hit resolves the ref.
-* **Tier 2 — follow references**: when Tier 1 is inconclusive (only
-  ``module`` / ``example`` hits, or nothing), the agent escalates —
-  ``get_source`` the candidate module and the package ``__init__.py``,
-  trace re-exports and the import chain to the real definition. A ref is
+* **Tier 1 — direct lookup** (``molmcp_describe_symbol(qualname=ref)``):
+  a result with kind ``class`` / ``function`` / ``method`` / ``callable``
+  resolves the ref outright.
+* **Tier 2 — capability search**: when Tier 1 returns an error or only
+  a module-kind result (likely a re-export), the agent escalates to
+  ``molmcp_find_capability(task=...)`` and inspects the ranked matches
+  for the canonical definition the re-export points at. A ref is
   ``missing`` only when *both* tiers miss.
 
 **Behavioural constraint** (agent-layer charter): no hand-rolled MCP
@@ -84,6 +85,15 @@ _DEFAULT_PER_NEED_REQUEST_LIMIT = 30
 runs once per need; each need gets its own bounded budget so one
 over-eager need cannot starve the rest, and a per-need failure degrades
 only that need."""
+
+_DEFAULT_DRAFTER_REQUEST_LIMIT = 150
+"""``request_limit`` for the drafter agent's single ``run`` call. The
+drafter runs ONCE per probe and must verify every candidate ``api_ref``
+it considers across ALL drafted needs in one session — much higher than
+the per-need grounding budget. Hitting this limit silently degrades the
+probe to an empty :class:`_DraftedNeedsReport`, so the bound is set
+generous enough to cover a typical intent (a dozen-ish candidate refs,
+a handful of tool calls each)."""
 
 _DEFAULT_MAX_GROUNDING_ITERATIONS = 2
 """Re-draft budget: a need whose every ``api_ref`` failed verification is
@@ -184,22 +194,40 @@ _NEEDS_SYSTEM_PROMPT = (
     "project. Given a typed IntentSpec, identify the project capabilities "
     "the plan will need from the project's source code, and emit one "
     "DraftedNeed per capability.\n"
-    "CRITICAL — for each candidate api_ref, FIRST verify it exists in the "
-    "project source using the source-introspection tools (search_source / "
-    "list_symbols / get_signature / get_source). Only emit api_refs that "
-    "you confirmed resolve to a real module / class / function in the "
-    "project — DO NOT guess from training data. If you cannot verify a "
-    "candidate ref, omit it from api_refs rather than inventing one; "
-    "leave the need's api_refs empty when you cannot locate any real "
-    "symbol.\n"
+    "\n"
+    "DISCOVERY PROTOCOL — browse-then-select, never guess:\n"
+    "  1. For EVERY capability you identify, you MUST call "
+    '`molmcp_find_capability(task="<one-line capability description>")` '
+    "AT LEAST ONCE before emitting that need. It returns ranked matches "
+    "from the real project source, each carrying a fully-qualified name, "
+    "signature, summary, and usage examples. NEVER emit a DraftedNeed "
+    "without first running this tool for it.\n"
+    "  2. Read the matches' summaries. Any returned match with kind in "
+    "{class, function, method, callable} whose summary is semantically "
+    "related to the capability IS a usable hit — emit its `qualname` "
+    "verbatim as the api_ref. Don't demand a name-perfect match: "
+    "`OplsAtomisticTypifier` is a valid hit for 'assign OPLS-AA atom "
+    "types'; `write_lammps_data` is a valid hit for 'emit LAMMPS data "
+    "file'. The summary is the ground truth, not the symbol name.\n"
+    "  3. If the first search returns no usable matches, try AT LEAST 2 "
+    "more `molmcp_find_capability` calls with different phrasings (verb "
+    "synonyms, the underlying domain action, the file format) before "
+    "giving up. For broader context use "
+    '`molmcp_outline(source="pkg:<package>")` or '
+    '`molmcp_search_symbols(query="...")`.\n'
+    "  4. Only after at least 3 distinct find_capability searches all "
+    "return nothing usable may you emit the need with empty api_refs — "
+    "and only then. Never invent a plausible-looking ref to fill a gap.\n"
+    "\n"
     "Per need, return: a stable need_id, a short capability description, "
-    "a one-sentence rationale, the verified api_refs, the need_ids it "
-    "depends_on, any interchangeable alternatives, and "
-    "needs_user_confirmation when using it has a user-visible "
-    "consequence. Set discovery_required=True when at least one need "
-    "names a project symbol; set False only for pure-stdlib plans. Work "
-    "economically — confirm each candidate with the FEWEST tool calls. "
-    "Do not write code."
+    "a one-sentence rationale, the discovered api_refs (qualnames the "
+    "tools actually returned), the need_ids it depends_on, any "
+    "interchangeable alternatives, and needs_user_confirmation when using "
+    "it has a user-visible consequence. Set discovery_required=True when "
+    "at least one need names a project symbol; False only for pure-stdlib "
+    "plans.\n"
+    "Work economically — most capabilities resolve in 1-3 "
+    "`molmcp_find_capability` calls. Do not write code."
 )
 
 _GROUNDING_SYSTEM_PROMPT = (
@@ -207,19 +235,20 @@ _GROUNDING_SYSTEM_PROMPT = (
     "DraftedNeed. For EVERY api_ref it lists, decide whether the ref "
     "names a symbol that really exists in the project source, and emit "
     "exactly one verdict per api_ref.\n"
+    "\n"
     "Verify each ref in TWO tiers:\n"
-    "  Tier 1 — index query: use search_source / list_symbols to look "
-    "the ref up. A clean class / function / callable hit resolves it — "
-    "record resolved=true with the canonical module, symbol, kind and "
-    "signature (use get_signature / get_docstring to confirm).\n"
-    "  Tier 2 — follow references: if Tier 1 returns only module or "
-    "example hits, or nothing, do NOT conclude the ref is missing. "
-    "Escalate — get_source the candidate module AND the package "
-    "__init__.py, follow re-exports ('from .x import Y') and the import "
-    "chain to the symbol's real definition. Many real symbols are "
-    "re-exported at a package's top level: a class queried by its bare "
-    "name surfaces as a module hit, and get_source on the __init__.py "
-    "confirms it.\n"
+    "  Tier 1 — direct lookup: call "
+    "`molmcp_describe_symbol(qualname=ref)`. If it returns a symbol with "
+    "kind in {class, function, method, callable}, record resolved=true "
+    "and copy its canonical module / symbol / kind / signature into the "
+    "verdict.\n"
+    "  Tier 2 — capability search: if Tier 1 returns an error or only a "
+    "module hit (re-exports often live as module-level aliases), call "
+    '`molmcp_find_capability(task="<what this ref is meant to do>")` '
+    "and inspect the ranked matches. If a match resolves to the same "
+    "real definition (often via a package's `__init__.py` re-export), "
+    "record resolved=true with its canonical qualname / signature.\n"
+    "\n"
     "Record resolved=false for a ref ONLY when both tiers fail to locate "
     "a real symbol. Work economically — a handful of tool calls per ref. "
     "Match MCP tool parameter names exactly as the server documents "
@@ -522,6 +551,7 @@ class PydanticAICapabilityProbe:
         molmcp_env: dict[str, str] | None = None,
         retries: int = _DEFAULT_GROUNDING_RETRIES,
         request_limit: int = _DEFAULT_PER_NEED_REQUEST_LIMIT,
+        drafter_request_limit: int = _DEFAULT_DRAFTER_REQUEST_LIMIT,
         max_grounding_iterations: int = _DEFAULT_MAX_GROUNDING_ITERATIONS,
     ) -> None:
         self._model = model
@@ -529,6 +559,7 @@ class PydanticAICapabilityProbe:
         self._molmcp_args = molmcp_args
         self._molmcp_env = molmcp_env
         self._request_limit = request_limit
+        self._drafter_request_limit = drafter_request_limit
         self._max_grounding_iterations = max_grounding_iterations
         self._redraft_agent = _build_redraft_agent(model)
         self._server = MCPToolset(
@@ -601,7 +632,10 @@ class PydanticAICapabilityProbe:
         try:
             with _silence_process_stdio():
                 async with self._needs_agent:
-                    result = await self._needs_agent.run(prompt)
+                    result = await self._needs_agent.run(
+                        prompt,
+                        usage_limits=UsageLimits(request_limit=self._drafter_request_limit),
+                    )
         except Exception as exc:
             _LOG.warning(
                 f"[capability-probe] needs-drafting MCP session failed: "

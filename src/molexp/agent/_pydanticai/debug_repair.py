@@ -6,9 +6,10 @@ test failing, the repair LLM has to figure out *why* — typically an
 codegen assumed a non-existent project API. Without source access the
 repair is the same blind guess that produced the bug. This module wires
 the repair through a ``pydantic_ai.Agent`` with the molmcp MCP toolset
-attached, so the LLM can ``search_source`` / ``get_source`` /
-``get_signature`` to find the real API before rewriting the
-implementation.
+attached, so the LLM can call ``molmcp_find_capability(task=...)`` to
+locate the real API in the project source (and optionally
+``molmcp_describe_symbol`` / ``molmcp_outline`` for follow-up detail)
+before rewriting the implementation.
 
 Public surface is a single closure factory — :func:`build_repair_callable`
 — that returns an ``async def repair(prompt: str) -> GeneratedModule``.
@@ -60,19 +61,28 @@ _REPAIR_SYSTEM_PROMPT = (
     "source, the test source, and the pytest traceback. Rewrite ONLY "
     "the implementation module so the test passes; return the full "
     "corrected module source.\n"
-    "CRITICAL — when the traceback contains AttributeError, "
+    "\n"
+    "DISCOVERY PROTOCOL — when the traceback shows AttributeError, "
     "ImportError, ModuleNotFoundError, or NameError, the prior "
-    "implementation almost certainly assumed a non-existent project "
-    "API. DO NOT guess the real API from training data. Use the "
-    "source-introspection tools (search_source / list_symbols / "
-    "get_signature / get_source) to locate the real symbol in the "
-    "project source FIRST, then patch the implementation to use it. "
-    "Re-exports are common: a class queried by its bare name may "
-    "surface only as a module hit — get_source the package "
-    "``__init__.py`` to follow ``from .x import Y`` aliases.\n"
-    "Keep the module a molexp.workflow.Task subclass. Work "
-    "economically — a handful of tool calls per fix. Do not write "
-    "code outside the corrected implementation module."
+    "implementation assumed a non-existent project API. Find the right "
+    "one instead of guessing:\n"
+    "  1. From the traceback, identify what capability the failed line "
+    'was trying to invoke (e.g. "assign OPLS-AA atom types", "write '
+    'LAMMPS data file", "build a polymer chain from CGSMILES"). Call '
+    '`molmcp_find_capability(task="<capability description>")`. It '
+    "returns ranked real-source matches, each with a qualified name, "
+    "signature, summary, and usage examples.\n"
+    "  2. Pick the best match. Use the returned `qualname` verbatim as "
+    "the import / attribute path in your patch — DO NOT invent a "
+    "different name.\n"
+    "  3. Optional: call `molmcp_describe_symbol(qualname=...)` on the "
+    "chosen match to confirm its signature + docstring, or "
+    '`molmcp_outline(source="pkg:<package>")` to survey for context.\n'
+    "  4. Patch the implementation to use the discovered API.\n"
+    "\n"
+    "Keep the module a molexp.workflow.Task subclass. Work economically "
+    "— a typical fix takes a handful of tool calls. Do not write code "
+    "outside the corrected implementation module."
 )
 
 

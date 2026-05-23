@@ -70,9 +70,11 @@ After equilibration, two independent LAMMPS workflows are launched. The first wo
 Molexp then gathers all trajectories, logs, fitting parameters, and derived values into a unified result table. The final report compares Tg and modulus across zwitterionic topologies, includes uncertainty from repeated simulations where available, and stores all provenance information, including CGSMILES definitions, LAMMPS inputs, random seeds, raw outputs, fitting windows, and analysis scripts.
 """
 
-SMOKE_TEST_REPORT = """Build a single PEO (poly(ethylene oxide)) chain of 50 repeat units (-CH2-CH2-O-, hydroxyl-terminated) as an atomistic structure, assign OPLS-AA atom types, and emit LAMMPS inputs (a `data.peo` topology + coordinate file and a minimal `in.peo` script that performs energy minimization followed by a short NVT equilibration at 300 K).
+SMOKE_TEST_REPORT = """Build a single PEO (poly(ethylene oxide)) chain of 50 repeat units (-CH2-CH2-O-, hydroxyl-terminated at both ends — HO-(CH2-CH2-O)50-H) as an atomistic structure, assign OPLS-AA atom types, and emit LAMMPS inputs: a `data.peo` topology + coordinate file and a minimal `in.peo` script that performs a brief energy minimization followed by a short NVT equilibration at 300 K (≈10 ps with a 1 fs timestep is fine; pick a reasonable thermostat).
 
-Use the molcrafts toolchain wherever possible — the chain construction must produce a `molpy.Atomistic` object and the LAMMPS files must be written via `molpy.io.write_lammps_data` (or an equivalent `molpy.io.write_lammps_*` helper). Do not hand-roll the LAMMPS data file by formatting strings in Python; the point of the run is to confirm the planner reaches for `molpy` rather than reimplementing it.
+Use the molcrafts toolchain (molpy and related packages) — discover the right APIs from the project source rather than inventing them, and do not hand-roll the LAMMPS data file by formatting strings in Python.
+
+Assumptions you may rely on: the molcrafts toolchain (molpy and related packages) is already installed and importable in the execution environment, and LAMMPS is available; do not block planning on installation / environment-availability questions.
 """
 
 

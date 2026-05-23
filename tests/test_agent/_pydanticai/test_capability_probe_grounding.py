@@ -255,10 +255,10 @@ async def test_grounding_loop_budget_exhausted_stays_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_needs_agent_verifies_refs_against_source_before_emitting() -> None:
-    """The MCP-attached needs drafter invokes `search_source` to confirm a
-    candidate ref before emitting it — kills the planner-hallucination half
-    of the diagnosed problem at the source."""
+async def test_needs_agent_discovers_via_find_capability_then_emits_qualname() -> None:
+    """The MCP-attached needs drafter invokes the real molmcp tool
+    `molmcp_find_capability(task=...)` and uses its returned `qualname`
+    verbatim as the api_ref — browse-then-select, never guess."""
     from pydantic_ai.messages import (
         ModelMessage,
         ModelRequest,
@@ -273,12 +273,25 @@ async def test_needs_agent_verifies_refs_against_source_before_emitting() -> Non
         _DraftedNeedsReport,
     )
 
-    search_calls: list[str] = []
+    find_calls: list[str] = []
 
-    async def search_source(text: str) -> str:
-        """Fake molmcp search returning a clean function hit."""
-        search_calls.append(text)
-        return "function molpy.io.writers.write_lammps_data (molpy/io/writers.py:19)"
+    async def molmcp_find_capability(task: str) -> dict:
+        """Fake molmcp_find_capability returning one ranked match."""
+        find_calls.append(task)
+        return {
+            "matches": [
+                {
+                    "rank": 1,
+                    "node": {
+                        "qualname": "molpy.io.writers.write_lammps_data",
+                        "name": "write_lammps_data",
+                        "kind": "function",
+                        "signature": "write_lammps_data(frame, path) -> None",
+                        "summary": "Write a Frame object to a LAMMPS data file.",
+                    },
+                }
+            ]
+        }
 
     def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         returns = [
@@ -290,7 +303,12 @@ async def test_needs_agent_verifies_refs_against_source_before_emitting() -> Non
         ]
         if not returns:
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="search_source", args={"text": "write_lammps_data"})]
+                parts=[
+                    ToolCallPart(
+                        tool_name="molmcp_find_capability",
+                        args={"task": "write a LAMMPS data file"},
+                    )
+                ]
             )
         report = _DraftedNeedsReport(
             needs=(
@@ -311,19 +329,22 @@ async def test_needs_agent_verifies_refs_against_source_before_emitting() -> Non
             ]
         )
 
-    agent = _build_needs_agent(FunctionModel(model_fn), tools=(search_source,))
+    agent = _build_needs_agent(FunctionModel(model_fn), tools=(molmcp_find_capability,))
     result = await agent.run("IntentSpec:\n(test intent)")
     report = result.output
 
     assert isinstance(report, _DraftedNeedsReport)
-    assert search_calls, "drafter must invoke source-search before emitting refs"
+    assert find_calls, "drafter must invoke molmcp_find_capability before emitting refs"
     assert len(report.needs) == 1
+    # the emitted api_ref is the qualname the tool returned, verbatim
     assert report.needs[0].api_refs == ("molpy.io.writers.write_lammps_data",)
 
 
 @pytest.mark.asyncio
-async def test_grounding_agent_escalates_to_get_source_for_reexport() -> None:
-    """Tier-1 query returns only a module hit → agent escalates to get_source."""
+async def test_grounding_agent_escalates_via_find_capability_on_module_hit() -> None:
+    """Tier-1 `molmcp_describe_symbol` returns a module-kind result for a
+    re-exported class → agent escalates to `molmcp_find_capability` to
+    find the canonical definition behind the re-export."""
     from pydantic_ai.messages import (
         ModelMessage,
         ModelRequest,
@@ -333,18 +354,37 @@ async def test_grounding_agent_escalates_to_get_source_for_reexport() -> None:
     )
     from pydantic_ai.models.function import AgentInfo, FunctionModel
 
-    query_calls: list[str] = []
-    get_source_calls: list[str] = []
+    describe_calls: list[str] = []
+    find_calls: list[str] = []
 
-    async def query(text: str) -> str:
-        """Tier-1 index query — only a module hit for the bare class name."""
-        query_calls.append(text)
-        return "module molpy.core.atomistic (molpy/core/atomistic.py:1)"
+    async def molmcp_describe_symbol(qualname: str) -> dict:
+        """Tier-1 direct lookup — returns only a module hit for a re-export."""
+        describe_calls.append(qualname)
+        return {
+            "symbol": {
+                "qualname": "molpy",
+                "kind": "module",
+                "summary": "MolPy package",
+            }
+        }
 
-    async def get_source(path: str) -> str:
-        """Tier-2 source read — the package __init__.py re-export."""
-        get_source_calls.append(path)
-        return "from .core.atomistic import Atomistic\n"
+    async def molmcp_find_capability(task: str) -> dict:
+        """Tier-2 capability search — finds the real definition."""
+        find_calls.append(task)
+        return {
+            "matches": [
+                {
+                    "rank": 1,
+                    "node": {
+                        "qualname": "molpy.core.atomistic.Atomistic",
+                        "name": "Atomistic",
+                        "kind": "class",
+                        "signature": "Atomistic(name: str)",
+                        "summary": "Atomistic molecular structure.",
+                    },
+                }
+            ]
+        }
 
     def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
         returns = [
@@ -355,14 +395,24 @@ async def test_grounding_agent_escalates_to_get_source_for_reexport() -> None:
             if isinstance(part, ToolReturnPart)
         ]
         if not returns:
-            # Tier 1
+            # Tier 1 — try direct symbol lookup
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="query", args={"text": "Atomistic"})]
+                parts=[
+                    ToolCallPart(
+                        tool_name="molmcp_describe_symbol",
+                        args={"qualname": "molpy.Atomistic"},
+                    )
+                ]
             )
         if len(returns) == 1:
-            # Tier 2 — escalate after the inconclusive module hit
+            # Tier 2 — module-kind result, escalate to capability search
             return ModelResponse(
-                parts=[ToolCallPart(tool_name="get_source", args={"path": "molpy/__init__.py"})]
+                parts=[
+                    ToolCallPart(
+                        tool_name="molmcp_find_capability",
+                        args={"task": "atomistic molecular structure"},
+                    )
+                ]
             )
         # final structured verdict
         report = _GroundingReport(
@@ -386,14 +436,17 @@ async def test_grounding_agent_escalates_to_get_source_for_reexport() -> None:
             ]
         )
 
-    agent = _build_grounding_agent(FunctionModel(model_fn), tools=(query, get_source))
+    agent = _build_grounding_agent(
+        FunctionModel(model_fn),
+        tools=(molmcp_describe_symbol, molmcp_find_capability),
+    )
     need = _need("build", "molpy.Atomistic")
     result = await agent.run("DraftedNeed:\n" + need.model_dump_json())
 
     report = result.output
     assert isinstance(report, _GroundingReport)
-    assert query_calls, "Tier-1 query should have run"
-    assert get_source_calls, "Tier-2 escalation (get_source) should have run"
+    assert describe_calls, "Tier-1 molmcp_describe_symbol should have run"
+    assert find_calls, "Tier-2 escalation via molmcp_find_capability should have run"
     verdict = report.verdicts[0]
     assert verdict.resolved is True
     assert verdict.module == "molpy.core.atomistic"
