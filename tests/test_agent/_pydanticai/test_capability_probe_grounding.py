@@ -255,6 +255,73 @@ async def test_grounding_loop_budget_exhausted_stays_missing() -> None:
 
 
 @pytest.mark.asyncio
+async def test_needs_agent_verifies_refs_against_source_before_emitting() -> None:
+    """The MCP-attached needs drafter invokes `search_source` to confirm a
+    candidate ref before emitting it — kills the planner-hallucination half
+    of the diagnosed problem at the source."""
+    from pydantic_ai.messages import (
+        ModelMessage,
+        ModelRequest,
+        ModelResponse,
+        ToolCallPart,
+        ToolReturnPart,
+    )
+    from pydantic_ai.models.function import AgentInfo, FunctionModel
+
+    from molexp.agent._pydanticai.capability_probe import (
+        _build_needs_agent,
+        _DraftedNeedsReport,
+    )
+
+    search_calls: list[str] = []
+
+    async def search_source(text: str) -> str:
+        """Fake molmcp search returning a clean function hit."""
+        search_calls.append(text)
+        return "function molpy.io.writers.write_lammps_data (molpy/io/writers.py:19)"
+
+    def model_fn(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        returns = [
+            part
+            for message in messages
+            if isinstance(message, ModelRequest)
+            for part in message.parts
+            if isinstance(part, ToolReturnPart)
+        ]
+        if not returns:
+            return ModelResponse(
+                parts=[ToolCallPart(tool_name="search_source", args={"text": "write_lammps_data"})]
+            )
+        report = _DraftedNeedsReport(
+            needs=(
+                DraftedNeed(
+                    need_id="write_data",
+                    capability="write a LAMMPS data file",
+                    api_refs=("molpy.io.writers.write_lammps_data",),
+                ),
+            ),
+            discovery_required=True,
+        )
+        return ModelResponse(
+            parts=[
+                ToolCallPart(
+                    tool_name=info.output_tools[0].name,
+                    args=report.model_dump(mode="json"),
+                )
+            ]
+        )
+
+    agent = _build_needs_agent(FunctionModel(model_fn), tools=(search_source,))
+    result = await agent.run("IntentSpec:\n(test intent)")
+    report = result.output
+
+    assert isinstance(report, _DraftedNeedsReport)
+    assert search_calls, "drafter must invoke source-search before emitting refs"
+    assert len(report.needs) == 1
+    assert report.needs[0].api_refs == ("molpy.io.writers.write_lammps_data",)
+
+
+@pytest.mark.asyncio
 async def test_grounding_agent_escalates_to_get_source_for_reexport() -> None:
     """Tier-1 query returns only a module hit → agent escalates to get_source."""
     from pydantic_ai.messages import (

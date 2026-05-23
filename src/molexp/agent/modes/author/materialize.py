@@ -26,6 +26,7 @@ All artefact paths are accumulated for the caller to emit
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import yaml
@@ -36,6 +37,7 @@ from molexp.agent.harness.harness import AgentHarness
 from molexp.agent.modes._planning import PlanDiff, PlanGraph
 from molexp.agent.modes.author.codegen import (
     CodegenError,
+    GeneratedModule,
     compile_task_ir,
     generate_task_implementations,
     generate_task_tests,
@@ -95,6 +97,7 @@ async def materialize_plan(
     handoff: object,
     layout: MaterializedLayout,
     config: object,
+    repair: Callable[[str], Awaitable[GeneratedModule]] | None = None,
 ) -> MaterializationOutcome:
     """Run the codegen + debug + validation pipeline; return the outcome.
 
@@ -104,6 +107,9 @@ async def materialize_plan(
         handoff: The :class:`~molexp.agent.modes.plan.handoff.ApprovedPlanHandoff`.
         layout: The :class:`MaterializedLayout` over the plan folder.
         config: The :class:`~molexp.agent.modes.author._mode.AuthorModeConfig`.
+        repair: Optional source-grounded repair callable forwarded to
+            ``run_task_debug_loop``. When ``None``, the debug loop falls
+            back to its legacy no-tool router path.
     """
     from molexp.agent.modes.author._mode import AuthorModeConfig
     from molexp.agent.modes.plan.handoff import ApprovedPlanHandoff
@@ -202,6 +208,7 @@ async def materialize_plan(
                 debug_attempts=config.debug_attempts,
                 timeout=config.subprocess_timeout_seconds,
                 tier=config.codegen_tier,
+                repair=repair,
             )
             repair_diffs.extend(result.diffs)
             if not result.converged:

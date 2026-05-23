@@ -24,8 +24,9 @@ written; a rejected gate writes no source and moves the plan to
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
+from pathlib import Path
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
@@ -45,6 +46,7 @@ from molexp.agent.modes._planning import (
     PlanGraph,
     PlanState,
 )
+from molexp.agent.modes.author.codegen import GeneratedModule
 from molexp.agent.modes.author.handoff import MaterializedWorkspaceHandoff
 from molexp.agent.modes.author.materialize import (
     MaterializationOutcome,
@@ -129,10 +131,18 @@ class AuthorMode(AgentMode):
         config: AuthorModeConfig | None = None,
         plan_folder: PlanFolder,
         handoff: ApprovedPlanHandoff | None = None,
+        repair_model: object | None = None,
+        workspace: Path | None = None,
     ) -> None:
         self.config = config or AuthorModeConfig()
         self.plan_folder = plan_folder
         self._injected_handoff = handoff
+        # When ``repair_model`` is set, the RunTaskDebugLoop stage routes
+        # the LLM repair through the source-grounded MCP-attached agent
+        # built behind the ``_pydanticai/`` firewall; otherwise the loop
+        # falls back to its legacy no-tool router path.
+        self._repair_model = repair_model
+        self._workspace = workspace
 
     async def run(
         self,
@@ -202,6 +212,25 @@ class AuthorMode(AgentMode):
 
     # ── pipeline ─────────────────────────────────────────────────────────
 
+    def _build_repair_callable(
+        self,
+    ) -> Callable[[str], Awaitable[GeneratedModule]] | None:
+        """Lazily build the MCP-attached repair callable for the debug loop.
+
+        Returns ``None`` when no repair model was configured, in which
+        case the debug loop falls back to its legacy no-tool router
+        path. The ``_pydanticai.debug_repair`` import is deferred so
+        ``import molexp.agent.modes.author`` stays SDK-free.
+        """
+        if self._repair_model is None:
+            return None
+        from molexp.agent._pydanticai.debug_repair import build_repair_callable
+
+        return build_repair_callable(
+            workspace=self._workspace,
+            model=self._repair_model,
+        )
+
     async def _run_pipeline(
         self,
         harness: AgentHarness,
@@ -211,11 +240,13 @@ class AuthorMode(AgentMode):
     ) -> _PipelineOutcome:
         """Run the codegen + debug + validation stages; return the outcome."""
         self._transition(PlanState.materializing, source=PlanState.approved)
+        repair = self._build_repair_callable()
         outcome: MaterializationOutcome = await materialize_plan(
             harness=harness,
             handoff=handoff,
             layout=self._layout(),
             config=self.config,
+            repair=repair,
         )
         for path in outcome.artifact_paths:
             await harness.emit(ArtifactWrittenEvent(path=path, description="materialized artefact"))

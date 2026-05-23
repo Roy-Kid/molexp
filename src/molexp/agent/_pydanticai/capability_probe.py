@@ -180,15 +180,26 @@ class _GroundingReport(BaseModel):
 
 
 _NEEDS_SYSTEM_PROMPT = (
-    "You are a capability-needs drafter. Given a typed IntentSpec, "
-    "identify the project capabilities the plan will need from the "
-    "project's source code. For each, return a stable need_id, a short "
-    "capability description, a one-sentence rationale, candidate "
-    "api_refs (fully-qualified, best guess), the need_ids it depends_on, "
-    "any interchangeable alternatives, and needs_user_confirmation when "
-    "using it has a user-visible consequence. Set discovery_required="
-    "True when at least one need plausibly maps to a project symbol; "
-    "set it False only for pure-stdlib plans. Do not write code."
+    "You are a capability-needs drafter for the molexp / molcrafts "
+    "project. Given a typed IntentSpec, identify the project capabilities "
+    "the plan will need from the project's source code, and emit one "
+    "DraftedNeed per capability.\n"
+    "CRITICAL — for each candidate api_ref, FIRST verify it exists in the "
+    "project source using the source-introspection tools (search_source / "
+    "list_symbols / get_signature / get_source). Only emit api_refs that "
+    "you confirmed resolve to a real module / class / function in the "
+    "project — DO NOT guess from training data. If you cannot verify a "
+    "candidate ref, omit it from api_refs rather than inventing one; "
+    "leave the need's api_refs empty when you cannot locate any real "
+    "symbol.\n"
+    "Per need, return: a stable need_id, a short capability description, "
+    "a one-sentence rationale, the verified api_refs, the need_ids it "
+    "depends_on, any interchangeable alternatives, and "
+    "needs_user_confirmation when using it has a user-visible "
+    "consequence. Set discovery_required=True when at least one need "
+    "names a project symbol; set False only for pure-stdlib plans. Work "
+    "economically — confirm each candidate with the FEWEST tool calls. "
+    "Do not write code."
 )
 
 _GROUNDING_SYSTEM_PROMPT = (
@@ -230,12 +241,28 @@ _REDRAFT_SYSTEM_PROMPT = (
 # ── Agent builders ─────────────────────────────────────────────────────────
 
 
-def _build_needs_agent(model: PydanticAiModel) -> Agent[None, _DraftedNeedsReport]:
-    """Construct the structured (tool-less) needs-drafting agent."""
+def _build_needs_agent(
+    model: PydanticAiModel,
+    *,
+    toolsets: tuple[MCPToolset, ...] = (),
+    tools: tuple[Callable[..., object], ...] = (),
+    output_retries: int = _DEFAULT_GROUNDING_RETRIES,
+) -> Agent[None, _DraftedNeedsReport]:
+    """Construct the source-grounded needs-drafting agent.
+
+    ``toolsets`` carries the molmcp ``MCPToolset`` in production; ``tools``
+    lets tests inject plain fake source-introspection callables instead
+    of spawning a real MCP subprocess. The system prompt instructs the
+    agent to verify every candidate ``api_ref`` against the project
+    source before emitting it.
+    """
     agent = Agent(
         model=model,
         output_type=_DraftedNeedsReport,
         system_prompt=_NEEDS_SYSTEM_PROMPT,
+        toolsets=list(toolsets),
+        tools=list(tools),
+        output_retries=output_retries,
     )
     return cast("Agent[None, _DraftedNeedsReport]", agent)
 
@@ -503,7 +530,6 @@ class PydanticAICapabilityProbe:
         self._molmcp_env = molmcp_env
         self._request_limit = request_limit
         self._max_grounding_iterations = max_grounding_iterations
-        self._needs_agent = _build_needs_agent(model)
         self._redraft_agent = _build_redraft_agent(model)
         self._server = MCPToolset(
             StdioTransport(
@@ -511,6 +537,12 @@ class PydanticAICapabilityProbe:
                 args=list(molmcp_args),
                 env=molmcp_env,
             )
+        )
+        # Both the needs-drafter and the grounding agent share the same
+        # molmcp toolset: drafting verifies candidate refs at source, and
+        # grounding does the two-tier follow-up verify on the drafted set.
+        self._needs_agent = _build_needs_agent(
+            model, toolsets=(self._server,), output_retries=retries
         )
         self._grounding_agent = _build_grounding_agent(
             model, toolsets=(self._server,), retries=retries
@@ -556,9 +588,26 @@ class PydanticAICapabilityProbe:
     # ── Internal stages ──────────────────────────────────────────────────
 
     async def _draft_needs(self, intent: IntentSpec) -> _DraftedNeedsReport:
-        """Run the no-tool needs-drafting agent against the typed intent."""
+        """Run the source-grounded needs-drafting agent against the typed intent.
+
+        The agent is MCP-attached and instructed to verify each candidate
+        ``api_ref`` against the project source before emitting it. A
+        failure at the MCP-subprocess boundary degrades to an empty
+        report — the probe's contract is "never raise"; downstream
+        synthesis sees no needs and the preflight fails the unevidenced
+        bindings closed.
+        """
         prompt = f"IntentSpec:\n{intent.model_dump_json(indent=2)}"
-        result = await self._needs_agent.run(prompt)
+        try:
+            with _silence_process_stdio():
+                async with self._needs_agent:
+                    result = await self._needs_agent.run(prompt)
+        except Exception as exc:
+            _LOG.warning(
+                f"[capability-probe] needs-drafting MCP session failed: "
+                f"{type(exc).__name__}: {exc}; degrading to empty needs"
+            )
+            return _DraftedNeedsReport(needs=(), discovery_required=False)
         report = result.output
         _LOG.debug(
             f"[capability-probe] draft_needs needs={len(report.needs)} "

@@ -19,6 +19,7 @@ a future spec.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
@@ -150,6 +151,7 @@ async def run_task_debug_loop(
     debug_attempts: int,
     timeout: float = _DEFAULT_TIMEOUT_SECONDS,
     tier: ModelTier = ModelTier.DEFAULT,
+    repair: Callable[[str], Awaitable[GeneratedModule]] | None = None,
 ) -> DebugLoopResult:
     """Run one task's test, repairing the impl until it passes or the budget runs out.
 
@@ -160,6 +162,14 @@ async def run_task_debug_loop(
     :class:`~molexp.agent.modes._planning.PlanDiff`. The loop never
     mutates the ``PlanGraph``; it returns its audit trail in
     :attr:`DebugLoopResult.diffs`.
+
+    ``repair`` is an optional source-grounded repair callable (typically
+    built by ``_pydanticai/debug_repair.build_repair_callable`` — an
+    MCP-attached agent that can search the project source before
+    rewriting the impl). When supplied, every repair step routes through
+    it; when ``None`` the loop falls back to the legacy no-tool
+    ``router.complete_structured`` path so existing callers keep
+    working.
     """
     diffs: list[PlanDiff] = []
     outcome = run_subprocess_test(
@@ -181,6 +191,7 @@ async def run_task_debug_loop(
             traceback=outcome.traceback,
             router=router,
             tier=tier,
+            repair=repair,
         )
         outcome = run_subprocess_test(
             execution_env=execution_env, test_path=test_path, cwd=src_root, timeout=timeout
@@ -215,24 +226,35 @@ async def _apply_targeted_fix(
     traceback: str,
     router: Router,
     tier: ModelTier,
+    repair: Callable[[str], Awaitable[GeneratedModule]] | None = None,
 ) -> None:
-    """Ask the LLM for a corrected impl and rewrite ``impl_path`` in place."""
+    """Ask the LLM for a corrected impl and rewrite ``impl_path`` in place.
+
+    When ``repair`` is supplied (the source-grounded MCP-attached
+    callable from ``_pydanticai/debug_repair``), the prompt is sent
+    through it so the LLM can look up real project APIs before
+    rewriting. When ``repair`` is ``None``, falls back to the legacy
+    no-tool ``router.complete_structured`` path.
+    """
     from molexp.workspace import atomic_write_text
 
     impl_source = impl_path.read_text(encoding="utf-8") if impl_path.exists() else ""
     test_source = test_path.read_text(encoding="utf-8") if test_path.exists() else ""
-    user = (
+    prompt = (
         f"task_id: {task_id}\n\n"
         f"--- current implementation ---\n{impl_source}\n\n"
         f"--- test ---\n{test_source}\n\n"
         f"--- pytest traceback ---\n{traceback}\n"
     )
-    fixed = await router.complete_structured(
-        tier=tier,
-        system=_REPAIR_SYSTEM_PROMPT,
-        user=user,
-        schema=GeneratedModule,
-        node_id=f"RunTaskDebugLoop/{task_id}",
-    )
+    if repair is not None:
+        fixed = await repair(prompt)
+    else:
+        fixed = await router.complete_structured(
+            tier=tier,
+            system=_REPAIR_SYSTEM_PROMPT,
+            user=prompt,
+            schema=GeneratedModule,
+            node_id=f"RunTaskDebugLoop/{task_id}",
+        )
     impl_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write_text(impl_path, fixed.source)
