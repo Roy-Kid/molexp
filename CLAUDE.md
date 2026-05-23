@@ -46,15 +46,7 @@ molexp is a workflow-and-agent platform for research experiment management — P
 - Tests: `tests/` mirrors `src/molexp/`; frontend tests under `ui/src/`
 - Public documentation: `docs/`
 - Passive internal context (notes, project map, open questions): `.agent/`
-- Active runtime artifacts: `.claude/specs/` (in-flight specs; `/mol:impl` ticks them off and deletes on completion)
-- Skills / agents: delegated to the generic `mol` plugin (no project-local `.claude/skills/` or `.claude/agents/`) — see § Skills below
-
-## Default workflow
-
-1. plan (`/mol:spec`)
-2. implement (`/mol:impl` or `/mol:fix`)
-3. review (`/mol:review`)
-4. capture decisions (`/mol:note` → `.agent/notes.md`)
+- Active runtime artifacts: `.claude/specs/` (in-flight specs; gitignored)
 
 ## What must never change casually
 
@@ -162,63 +154,6 @@ Any other arrow is an architectural defect. Each layer's import-guard test enfor
 - Resurrect `tools/`, `context/`, `memory/`, `recovery/`, `skills/`, or `mcp/{source,tool_store,probe}.py` — deleted by the `agent-pydanticai-rectification` spec because they were parallel-to-pydantic-ai implementations with zero production cites.
 
 **Equivalent invariant**: `import molexp.agent` must not pull `pydantic_ai` or `pydantic_graph` into `sys.modules` until the user actually instantiates an `AgentRunner` and calls `.run()`.
-
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Commands
-
-### Backend (Python)
-
-```bash
-# Install in editable mode (no frontend build — Python-only dev loop)
-pip install -e .
-
-# Run all tests
-pytest tests/
-
-# Run specific test module
-pytest tests/test_workspace/test_workspace.py
-
-# Run single test
-pytest tests/test_workspace/test_workspace.py::test_workspace_creation
-
-# Start server (serves bundled UI if src/molexp/dist/ is populated, otherwise API-only)
-molexp workspace /path/to/workspace serve --port 8000
-
-# Initialize a workspace
-molexp init [path]
-
-# Release: build frontend into src/molexp/dist/, then build the wheel
-cd ui && npm run build && cd ..
-python -m build --wheel
-```
-
-### Frontend (TypeScript/React)
-
-```bash
-cd ui
-
-# Dev server (localhost:5173, requires running backend)
-npm run dev
-
-# Dev with mock API (no backend needed)
-npm run dev:mock
-
-# Production build
-npm run build
-
-# Run frontend tests
-npm test
-
-# Regenerate TypeScript API client from openapi.json
-npm run generate:api
-```
-
-### After changing the FastAPI backend
-
-1. Regenerate `openapi.json` (start server, fetch `/api/openapi.json`)
-2. Regenerate the TypeScript client: `cd ui && npm run generate:api`
-3. Update MSW mock handlers in `ui/mocks/handlers/` if new endpoints added
 
 ## Architecture
 
@@ -477,44 +412,6 @@ ui/src/  →  (cd ui && npm run build)  →  src/molexp/dist/  →  (hatchling) 
 - **Atomic persistence**: All JSON writes use temp-file + `os.rename` for crash safety. Workflow-layer JSON writes (`workflow.json` under the run dir) go through workspace's `atomic_write_json` helper.
 - **Internal convention**: Prefixed `_pydantic_graph/` (in `workflow/`) and `_pydanticai/` (in `agent/`) are private implementation details; the public API is the parent package's `__init__.py`.
 
-### Adding a New Workflow Task
-
-1. Subclass `Task` (batch) or `Actor` (streaming) — or use any third-party object whose method signature matches the `Runnable` / `Streamable` protocol (no molexp import required).
-2. Implement `execute()` / `run()` with a typed return annotation.
-3. Add to a `WorkflowBuilder` via the decorators (`@builder.task` / `@builder.actor`) or `.add()` for Task/Actor instances; call `.build()` to get the frozen `Workflow`.
-4. The compiler auto-detects batch vs streaming from the return annotation / `Streamable` runtime check.
-
-### Adding a New API Route
-
-1. Add route handler in `src/molexp/server/routes/<module>.py`
-2. Register router in `src/molexp/server/routes/__init__.py`
-3. Add request/response Pydantic schemas to `src/molexp/server/schemas/`
-4. Regenerate openapi.json and TS client: `cd ui && npm run generate:api`
-5. Add MSW mock handler in `ui/mocks/handlers/` for `dev:mock`
-
-### Adding a New UI Renderer
-
-1. Create component in `ui/src/app/renderers/<Name>Viewer.tsx`
-2. Register in `ui/src/app/renderers/registerRenderers.ts`
-3. Add entity type mapping in `ui/src/app/registry.ts`
-4. Add test fixture in `ui/src/__fixtures__/`
-
-### Test Organization
-
-Tests mirror source structure (directories are `test_<layer>/`):
-```
-tests/
-├── test_agent/      → src/molexp/agent/
-├── test_server/     → src/molexp/server/
-├── test_workflow/   → src/molexp/workflow/
-├── test_workspace/  → src/molexp/workspace/
-├── test_cli/        → src/molexp/cli/
-├── test_config/     → src/molexp/config/
-└── test_plugins/    → src/molexp/plugins/
-```
-
-Each test directory has `conftest.py` for shared fixtures. Use `conftest.py` at directory level, not standalone fixture files.
-
 ## Data type ownership
 
 Each conceptual data category lives in **one** layer. Cross-layer references flow downward (agent → workflow → workspace) and use the public surface of the lower layer; never `from <upstream> import SomeType` to define a shape in `<downstream>`.
@@ -541,17 +438,3 @@ Each conceptual data category lives in **one** layer. Cross-layer references flo
 **Rule (cross-layer-data-reference)**: cross-layer references flow *downward* through the public surface of the lower layer. workflow imports `workspace.Run` is fine. workspace imports `workflow.Workflow` is forbidden. agent imports both is fine. Never wire across layers in any other direction.
 
 **Pydantic vs plain class**: pure data types (events, configs, results, lineage records, IR nodes) are `pydantic.BaseModel(frozen=True)`. Runtime containers carrying live runtime instances (callables, asyncio objects, service instances, non-pydantic types) are plain Python classes with explicit `__init__`. **`arbitrary_types_allowed=True` is forbidden in `src/molexp/agent/`** — anything that needs it is a runtime container by definition.
-
-## Skills
-
-This repository delegates its workflow to the generic `mol` plugin
-(`/mol:spec`, `/mol:impl`, `/mol:fix`, `/mol:review`, `/mol:test`,
-`/mol:perf`, `/mol:arch`, `/mol:docs`, `/mol:ship`, `/mol:debug`,
-`/mol:refactor`, `/mol:note`). Behaviour is parameterised by the
-`mol_project:` frontmatter at the top of this file.
-
-The previous project-local `/molexp-*` skill suite and `molexp-*`
-agents have been retired. Project-specific axes that the generic
-agents do not cover (UI design polish, experiment-reproducibility
-auditing, prompt-injection / API-input hardening) are open
-follow-ups — see `.agent/open-questions.md`.
