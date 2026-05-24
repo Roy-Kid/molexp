@@ -110,10 +110,14 @@ async def execute_pipeline(
             if repair_target in pipeline.terminal_states or repair_target not in by_name:
                 break
             current_name = repair_target
-            # Phase-01 simplicity: rewinds reset to initial_input. PlanMode's
-            # phase-02 migration may refine this when its repair flow
-            # demands a richer rewind-payload contract.
-            current_input = initial_input
+            # Preserve ``current_input`` across rewinds — phase 02 PlanMode
+            # threads a typed ``PlanThreadState`` carrier through every
+            # stage; SelectPlan / SynthesizeCandidates need to re-read its
+            # accumulated fields after a preflight-failure / rejected-direction
+            # rewind, not get the original ``user_input`` string back.
+            # ``terminal_value`` is whatever the just-failed stage yielded
+            # last, which is the latest snapshot of the carrier.
+            current_input = terminal_value
             continue
 
         edges_from_here = out_edges.get(current_name, [])

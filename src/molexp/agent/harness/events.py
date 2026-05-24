@@ -38,6 +38,7 @@ __all__ = [
     "ApprovalDecidedEvent",
     "ApprovalRequestedEvent",
     "ArtifactWrittenEvent",
+    "ClarificationRequiredEvent",
     "CompactionPerformedEvent",
     "ErrorEvent",
     "EventSink",
@@ -147,6 +148,23 @@ class RepairProposedEvent(_BaseEvent):
     rationale: str = ""
 
 
+class ClarificationRequiredEvent(_BaseEvent):
+    """Emitted when an intake stage cannot proceed without user clarification.
+
+    PlanMode's ``ClarifyIntent`` stage yields this when the intent spec
+    carries unresolved ``MissingInfoItem``\\ s with ``blocking=True``;
+    a registered :class:`~molexp.agent.harness.repair.RepairPolicy`
+    routes the pipeline to the ``needs_clarification`` terminal state.
+
+    Attributes:
+        questions: One-line concatenation of the blocking questions the
+            user must answer before planning can resume.
+    """
+
+    kind: Literal["clarification_required"] = "clarification_required"
+    questions: str
+
+
 class CompactionPerformedEvent(_BaseEvent):
     """Emitted after the harness compacts the session entry tree."""
 
@@ -227,6 +245,7 @@ AgentEvent = Annotated[
     | PlanEmittedEvent
     | PreflightFailedEvent
     | RepairProposedEvent
+    | ClarificationRequiredEvent
     | CompactionPerformedEvent
     | ModeCompletedEvent
     | ErrorEvent

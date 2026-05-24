@@ -1,13 +1,27 @@
-"""No-drift guard for declarative mode pipelines (mode-pipeline-flowchart ac-008).
+"""No-drift guard for declarative mode pipelines.
 
-Each mode declares its stage topology as a ``ModePipeline`` class
-attribute. This mechanical test keeps that declaration honest: it
-AST-extracts every ``harness.stage("...")`` string literal from the
-mode's run-source and asserts the set equals ``Mode.pipeline.stages``.
+Each mode declares its stage topology as a :class:`ModePipeline` class
+attribute. This mechanical test keeps that declaration honest:
 
-The load-bearing nuance: AuthorMode's ``harness.stage(...)`` calls live
-in ``author/materialize.py``, not ``author/_mode.py`` — so its case is
-parametrized against ``materialize.py``.
+- **Pre-migration modes** (chat / author / run / review / interactive
+  for now): the substrate's executor still uses
+  ``async with harness.stage("name"):`` brackets inside the mode's
+  ``run`` body. The test AST-extracts every literal and asserts the
+  set matches ``Mode.pipeline.stages``.
+- **Post-migration modes** (PlanMode after
+  ``agent-mode-stage-pipeline-02``): all ``harness.stage(...)``
+  brackets are emitted by
+  :func:`~molexp.agent.harness.pipeline.execute_pipeline`, reading
+  each :class:`Stage.name` ClassVar dynamically. The literals move
+  from the mode source into per-stage subclass ``name: ClassVar[str] =
+  "..."`` declarations. The test scans the entire
+  ``modes/<verb>/stages/`` package for those declarations and asserts
+  the same equality.
+
+The load-bearing nuance: AuthorMode's pre-migration
+``harness.stage(...)`` calls live in ``author/materialize.py``, not
+``author/_mode.py`` — so its case is parametrized against
+``materialize.py``.
 """
 
 from __future__ import annotations
@@ -34,43 +48,95 @@ from molexp.agent.modes import (
 )
 
 
-def _harness_stage_literals(module_path: Path) -> set[str]:
-    """Return every string literal passed to a ``harness.stage("...")`` call."""
-    tree = ast.parse(module_path.read_text(encoding="utf-8"))
+def _harness_stage_literals(source_paths: tuple[Path, ...]) -> set[str]:
+    """Return every literal passed to a ``harness.stage("...")`` call.
+
+    Recurses over each path that is a directory, parsing every ``.py``
+    file under it.
+    """
     literals: set[str] = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "stage"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "harness"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-        ):
-            literals.add(node.args[0].value)
+    files: list[Path] = []
+    for path in source_paths:
+        if path.is_dir():
+            files.extend(path.rglob("*.py"))
+        else:
+            files.append(path)
+    for fp in files:
+        tree = ast.parse(fp.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "stage"
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "harness"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                literals.add(node.args[0].value)
     return literals
 
 
+def _stage_name_classvars(source_paths: tuple[Path, ...]) -> set[str]:
+    """Return every ``name: ClassVar[str] = "..."`` declaration's literal.
+
+    Walks the AST for any ``AnnAssign`` whose target is named ``name``
+    and whose value is a string constant. Used to catch the names
+    declared by ``Stage`` subclasses under a mode's ``stages/`` package
+    after the substrate migration moves the literals there.
+    """
+    literals: set[str] = set()
+    files: list[Path] = []
+    for path in source_paths:
+        if path.is_dir():
+            files.extend(path.rglob("*.py"))
+        else:
+            files.append(path)
+    for fp in files:
+        tree = ast.parse(fp.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.AnnAssign)
+                and isinstance(node.target, ast.Name)
+                and node.target.id == "name"
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
+                literals.add(node.value.value)
+    return literals
+
+
+# Each case's ``source_paths`` is a tuple of files / directories to scan.
+_plan_stages_dir = Path(_plan_mode.__file__).parent / "stages"
+
 _CASES = [
-    pytest.param(ChatMode, _chat.__file__, id="chat"),
-    pytest.param(PlanMode, _plan_mode.__file__, id="plan"),
+    pytest.param(ChatMode, (Path(_chat.__file__),), id="chat"),
+    # PlanMode: stages live under modes/plan/stages/ as Stage subclasses;
+    # scan that package + the mode file itself.
+    pytest.param(
+        PlanMode,
+        (Path(_plan_mode.__file__), _plan_stages_dir),
+        id="plan",
+    ),
     # AuthorMode's harness.stage(...) calls live in materialize.py.
-    pytest.param(AuthorMode, _author_materialize.__file__, id="author"),
-    pytest.param(RunMode, _run_mode.__file__, id="run"),
-    pytest.param(ReviewMode, _review_mode.__file__, id="review"),
-    pytest.param(InteractiveMode, _interactive_mode.__file__, id="interactive"),
+    pytest.param(AuthorMode, (Path(_author_materialize.__file__),), id="author"),
+    pytest.param(RunMode, (Path(_run_mode.__file__),), id="run"),
+    pytest.param(ReviewMode, (Path(_review_mode.__file__),), id="review"),
+    pytest.param(InteractiveMode, (Path(_interactive_mode.__file__),), id="interactive"),
 ]
 
 
-@pytest.mark.parametrize(("mode_cls", "source_path"), _CASES)
-def test_pipeline_stages_have_no_drift(mode_cls: type[AgentMode], source_path: str) -> None:
-    # After agent-mode-stage-pipeline-01, ``pipeline.stages`` is a tuple
-    # of ``Stage`` instances; extract their declared names for comparison.
+@pytest.mark.parametrize(("mode_cls", "source_paths"), _CASES)
+def test_pipeline_stages_have_no_drift(
+    mode_cls: type[AgentMode], source_paths: tuple[Path, ...]
+) -> None:
     declared = {stage.name for stage in mode_cls.pipeline.stages}
-    actual = _harness_stage_literals(Path(source_path))
+    literal_stage_calls = _harness_stage_literals(source_paths)
+    classvar_stage_names = _stage_name_classvars(source_paths)
+    actual = literal_stage_calls | classvar_stage_names
     assert declared == actual, (
         f"{mode_cls.__name__}: declared pipeline.stages {sorted(declared)} "
-        f"!= harness.stage() literals {sorted(actual)} in {source_path}"
+        f"!= harness.stage() literals + Stage.name ClassVars {sorted(actual)} "
+        f"in {source_paths}"
     )
