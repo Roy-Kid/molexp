@@ -5,15 +5,19 @@ implementation PlanMode's ``ExploreCapabilities`` stage uses in
 production. It runs a **draft → ground** pipeline behind the narrowed
 ``probe(*, intent) -> ProbeResult`` protocol:
 
-* a no-tool *needs drafter* maps a typed
+* an MCP-attached *needs drafter* maps a typed
   :class:`~molexp.agent.modes._planning.IntentSpec` into a set of
-  :class:`~molexp.agent.modes.plan.capability_evidence.DraftedNeed`\\ s;
+  :class:`~molexp.agent.modes.plan.capability_evidence.DraftedNeed`\\ s,
+  discovering candidate ``api_ref``\\ s by browsing the molcrafts
+  catalog through whatever tools the MCP server exposes (the prompt
+  guides the LLM toward catalog/browse + lookup roles abstractly; no
+  specific tool names are hardcoded);
 * a *grounding* stage verifies every drafted ``api_ref`` against the real
-  source through an MCP-attached agent and folds the per-ref verdicts
-  into a
+  source through a second MCP-attached agent and folds the per-ref
+  verdicts into a
   :class:`~molexp.agent.modes.plan.capability_evidence.CapabilityEvidenceBatch`;
 * a need whose every ``api_ref`` failed verification is re-drafted with
-  the rejection fed back to the no-tool drafter, bounded by
+  the rejection fed back to the drafter, bounded by
   ``max_grounding_iterations``.
 
 Two-tier verify
@@ -24,14 +28,14 @@ molmcp is an *index*: broad and fast, but lossy — a re-exported symbol
 as a ``module`` hit on direct lookup, not a clean ``class`` hit. So the
 grounding agent verifies each ref in two tiers:
 
-* **Tier 1 — direct lookup** (``molmcp_describe_symbol(qualname=ref)``):
-  a result with kind ``class`` / ``function`` / ``method`` / ``callable``
-  resolves the ref outright.
+* **Tier 1 — direct lookup**: ask a lookup/introspect tool for the
+  ref's qualname. A result with kind ``class`` / ``function`` /
+  ``method`` / ``callable`` resolves the ref outright.
 * **Tier 2 — capability search**: when Tier 1 returns an error or only
-  a module-kind result (likely a re-export), the agent escalates to
-  ``molmcp_find_capability(task=...)`` and inspects the ranked matches
-  for the canonical definition the re-export points at. A ref is
-  ``missing`` only when *both* tiers miss.
+  a module-kind result (likely a re-export), the agent escalates to a
+  catalog/browse tool with the capability description and inspects the
+  ranked matches for the canonical definition the re-export points
+  at. A ref is ``missing`` only when *both* tiers miss.
 
 **Behavioural constraint** (agent-layer charter): no hand-rolled MCP
 dispatch loop, no manual tool-call iteration. The only allowed shape is
@@ -193,41 +197,67 @@ _NEEDS_SYSTEM_PROMPT = (
     "You are a capability-needs drafter for the molexp / molcrafts "
     "project. Given a typed IntentSpec, identify the project capabilities "
     "the plan will need from the project's source code, and emit one "
-    "DraftedNeed per capability.\n"
+    "DraftedNeed per capability — each carrying a stable need_id, a "
+    "short capability description, a one-sentence rationale, the "
+    "discovered api_refs (fully-qualified names of real project "
+    "symbols), the need_ids it depends_on, any interchangeable "
+    "alternatives, and needs_user_confirmation when it has a user-"
+    "visible consequence.\n"
     "\n"
-    "DISCOVERY PROTOCOL — browse-then-select, never guess:\n"
-    "  1. For EVERY capability you identify, you MUST call "
-    '`molmcp_find_capability(task="<one-line capability description>")` '
-    "AT LEAST ONCE before emitting that need. It returns ranked matches "
-    "from the real project source, each carrying a fully-qualified name, "
-    "signature, summary, and usage examples. NEVER emit a DraftedNeed "
-    "without first running this tool for it.\n"
-    "  2. Read the matches' summaries. Any returned match with kind in "
-    "{class, function, method, callable} whose summary is semantically "
-    "related to the capability IS a usable hit — emit its `qualname` "
-    "verbatim as the api_ref. Don't demand a name-perfect match: "
-    "`OplsAtomisticTypifier` is a valid hit for 'assign OPLS-AA atom "
-    "types'; `write_lammps_data` is a valid hit for 'emit LAMMPS data "
-    "file'. The summary is the ground truth, not the symbol name.\n"
-    "  3. If the first search returns no usable matches, try AT LEAST 2 "
-    "more `molmcp_find_capability` calls with different phrasings (verb "
-    "synonyms, the underlying domain action, the file format) before "
-    "giving up. For broader context use "
-    '`molmcp_outline(source="pkg:<package>")` or '
-    '`molmcp_search_symbols(query="...")`.\n'
-    "  4. Only after at least 3 distinct find_capability searches all "
-    "return nothing usable may you emit the need with empty api_refs — "
-    "and only then. Never invent a plausible-looking ref to fill a gap.\n"
+    "TOOLS — you have a set of tools attached from a code-discovery "
+    "MCP server: the molcrafts toolchain catalog (molpy, molq, molexp, "
+    "molpack, lammps, …). Inspect your tool list before you start; "
+    "tool names and signatures are your ground truth about what's "
+    "available, not your training data. The tools fall into roughly "
+    "three roles — match by name pattern, not by exact identifier:\n"
+    "  • CATALOG / OUTLINE — return a hierarchical map of a source's "
+    "packages → modules → symbols, each carrying a one-line summary "
+    "of what it does. Name usually contains 'outline', 'index', "
+    "'list', or 'tree'. This is the table of contents — your map of "
+    "the project landscape.\n"
+    "  • CAPABILITY / SEARCH — take a natural-language task "
+    "description, return ranked real-source matches (qualname, kind, "
+    "signature, summary, examples). Name usually contains 'find', "
+    "'search', or 'capability'. This is semantic lookup once you "
+    "know roughly where to look.\n"
+    "  • DETAIL / LOOKUP — take a fully-qualified name, return its "
+    "signature, docstring, source, or relationships. Name usually "
+    "contains 'describe', 'get', or 'inspect'. This is the "
+    "confirmation step.\n"
     "\n"
-    "Per need, return: a stable need_id, a short capability description, "
-    "a one-sentence rationale, the discovered api_refs (qualnames the "
-    "tools actually returned), the need_ids it depends_on, any "
-    "interchangeable alternatives, and needs_user_confirmation when using "
-    "it has a user-visible consequence. Set discovery_required=True when "
-    "at least one need names a project symbol; False only for pure-stdlib "
-    "plans.\n"
-    "Work economically — most capabilities resolve in 1-3 "
-    "`molmcp_find_capability` calls. Do not write code."
+    "DISCOVERY PROTOCOL — read the catalog first, never blind-search:\n"
+    "  Step 1 (REQUIRED FIRST CALL) — read the catalog. Call a "
+    "CATALOG/OUTLINE tool for each toolchain source the IntentSpec "
+    "implicates (most often the molcrafts core packages — pkg:molpy "
+    "for chemistry / structure / forcefield work, pkg:molq for "
+    "schedulers, etc.). Skim every returned module's `summary` field; "
+    "this is your map of 'what packages exist and what each is for'. "
+    "Do NOT draft any need before you have done this — without the "
+    "map you are guessing.\n"
+    "  Step 2 — for EACH capability the intent needs, first scan the "
+    "outline you read in Step 1 for the module whose summary matches "
+    "the capability. Then call a CAPABILITY/SEARCH tool with a "
+    "one-line task description to pull ranked symbol matches.\n"
+    "  Step 3 — any returned match with kind in {class, function, "
+    "method, callable} whose summary is semantically related to the "
+    "capability IS a usable hit. Emit its qualname verbatim. The "
+    "summary is the ground truth, not the symbol name (don't demand "
+    "a name-perfect match: an `OplsAtomisticTypifier` class is a "
+    "valid hit for 'assign OPLS-AA atom types'; a `write_lammps_data` "
+    "function is a valid hit for 'emit a LAMMPS data file').\n"
+    "  Step 4 — if a search returns nothing usable, retry with AT "
+    "LEAST 2 more searches using different phrasings (verb synonyms, "
+    "the underlying domain action, the target file format). Use a "
+    "DETAIL/LOOKUP tool to confirm a candidate qualname when "
+    "uncertain. Only after 3+ distinct searches all fail may you "
+    "emit the need with empty api_refs.\n"
+    "\n"
+    "NEVER emit an api_ref the tools did not return — the project's "
+    "real API surface lives in the tool results, not in your training "
+    "data. Set discovery_required=True when at least one need names a "
+    "project symbol; False only for pure-stdlib plans. Work "
+    "economically — typically one outline call + a handful of "
+    "searches. Do not write code."
 )
 
 _GROUNDING_SYSTEM_PROMPT = (
@@ -236,23 +266,44 @@ _GROUNDING_SYSTEM_PROMPT = (
     "names a symbol that really exists in the project source, and emit "
     "exactly one verdict per api_ref.\n"
     "\n"
-    "Verify each ref in TWO tiers:\n"
-    "  Tier 1 — direct lookup: call "
-    "`molmcp_describe_symbol(qualname=ref)`. If it returns a symbol with "
-    "kind in {class, function, method, callable}, record resolved=true "
-    "and copy its canonical module / symbol / kind / signature into the "
-    "verdict.\n"
-    "  Tier 2 — capability search: if Tier 1 returns an error or only a "
-    "module hit (re-exports often live as module-level aliases), call "
-    '`molmcp_find_capability(task="<what this ref is meant to do>")` '
-    "and inspect the ranked matches. If a match resolves to the same "
-    "real definition (often via a package's `__init__.py` re-export), "
-    "record resolved=true with its canonical qualname / signature.\n"
+    "TOOLS — you have a set of tools attached from a code-discovery "
+    "MCP server: the molcrafts toolchain catalog. Inspect your tool "
+    "list before you start. The tools fall into roughly three roles — "
+    "match by name pattern, not by exact identifier:\n"
+    "  • CATALOG / OUTLINE — return a hierarchical map of a source's "
+    "packages → modules → symbols, each carrying a one-line summary. "
+    "Name usually contains 'outline', 'index', 'list', or 'tree'.\n"
+    "  • DETAIL / LOOKUP — take a fully-qualified name, return "
+    "kind / signature / docstring / source / relationships. Name "
+    "usually contains 'describe', 'get', or 'inspect'.\n"
+    "  • CAPABILITY / SEARCH — take a natural-language task "
+    "description, return ranked real-source matches. Name usually "
+    "contains 'find', 'search', or 'capability'.\n"
     "\n"
-    "Record resolved=false for a ref ONLY when both tiers fail to locate "
-    "a real symbol. Work economically — a handful of tool calls per ref. "
-    "Match MCP tool parameter names exactly as the server documents "
-    "them. Do not write code."
+    "VERIFICATION PROTOCOL:\n"
+    "  Step 0 (RECOMMENDED FIRST CALL) — if you do not already know "
+    "the package layout of the refs you are verifying, call a "
+    "CATALOG/OUTLINE tool once for the relevant source (e.g. "
+    "pkg:molpy). This lets you recognize re-exports (a `molpy.X` "
+    "re-exported from `molpy.core.x.X` will show as both a "
+    "module-level alias and the real class in the outline) and "
+    "anchors the rest of your verification.\n"
+    "  Tier 1 — direct lookup: ask a DETAIL/LOOKUP tool for the "
+    "ref's qualname. If it returns a symbol with kind in {class, "
+    "function, method, callable}, record resolved=true and copy its "
+    "canonical module / symbol / kind / signature into the verdict.\n"
+    "  Tier 2 — capability search: if Tier 1 returns an error or only "
+    "a module hit (re-exports often live as module-level aliases), "
+    "use a CAPABILITY/SEARCH tool with a one-line description of what "
+    "this ref is meant to do, and inspect the ranked matches. If a "
+    "match resolves to the same real definition (often via a "
+    "package's `__init__.py` re-export), record resolved=true with "
+    "its canonical qualname / signature.\n"
+    "\n"
+    "Record resolved=false for a ref ONLY when both tiers fail to "
+    "locate a real symbol. Work economically — a handful of tool "
+    "calls per ref. Match every MCP tool's parameter names exactly as "
+    "its schema documents them. Do not write code."
 )
 
 _REDRAFT_SYSTEM_PROMPT = (

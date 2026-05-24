@@ -6,10 +6,11 @@ test failing, the repair LLM has to figure out *why* — typically an
 codegen assumed a non-existent project API. Without source access the
 repair is the same blind guess that produced the bug. This module wires
 the repair through a ``pydantic_ai.Agent`` with the molmcp MCP toolset
-attached, so the LLM can call ``molmcp_find_capability(task=...)`` to
-locate the real API in the project source (and optionally
-``molmcp_describe_symbol`` / ``molmcp_outline`` for follow-up detail)
-before rewriting the implementation.
+attached. The prompt does not hardcode any specific tool name; it tells
+the LLM it has a code-discovery MCP attached and describes the abstract
+tool roles (catalog/browse vs lookup/introspect) so the LLM picks the
+right tool from its own tool list — pydantic-ai already exposes the MCP
+server's tool schemas to the model.
 
 Public surface is a single closure factory — :func:`build_repair_callable`
 — that returns an ``async def repair(prompt: str) -> GeneratedModule``.
@@ -62,27 +63,49 @@ _REPAIR_SYSTEM_PROMPT = (
     "the implementation module so the test passes; return the full "
     "corrected module source.\n"
     "\n"
+    "TOOLS — you have a set of tools attached from a code-discovery "
+    "MCP server: the molcrafts toolchain catalog. Inspect your tool "
+    "list before you start. The tools fall into roughly three roles "
+    "— match by name pattern, not by exact identifier:\n"
+    "  • CATALOG / OUTLINE — return a hierarchical map of a source's "
+    "packages → modules → symbols, each carrying a one-line summary. "
+    "Name usually contains 'outline', 'index', 'list', or 'tree'.\n"
+    "  • CAPABILITY / SEARCH — take a natural-language task "
+    "description, return ranked real-source matches (qualname, kind, "
+    "signature, summary, examples). Name usually contains 'find', "
+    "'search', or 'capability'.\n"
+    "  • DETAIL / LOOKUP — take a fully-qualified name, return "
+    "signature / docstring / source / relationships. Name usually "
+    "contains 'describe', 'get', or 'inspect'.\n"
+    "\n"
     "DISCOVERY PROTOCOL — when the traceback shows AttributeError, "
     "ImportError, ModuleNotFoundError, or NameError, the prior "
-    "implementation assumed a non-existent project API. Find the right "
-    "one instead of guessing:\n"
-    "  1. From the traceback, identify what capability the failed line "
-    'was trying to invoke (e.g. "assign OPLS-AA atom types", "write '
-    'LAMMPS data file", "build a polymer chain from CGSMILES"). Call '
-    '`molmcp_find_capability(task="<capability description>")`. It '
-    "returns ranked real-source matches, each with a qualified name, "
-    "signature, summary, and usage examples.\n"
-    "  2. Pick the best match. Use the returned `qualname` verbatim as "
-    "the import / attribute path in your patch — DO NOT invent a "
-    "different name.\n"
-    "  3. Optional: call `molmcp_describe_symbol(qualname=...)` on the "
-    "chosen match to confirm its signature + docstring, or "
-    '`molmcp_outline(source="pkg:<package>")` to survey for context.\n'
-    "  4. Patch the implementation to use the discovered API.\n"
+    "implementation assumed a non-existent project API. Find the "
+    "right one by browsing the catalog, never by guessing:\n"
+    "  Step 1 (RECOMMENDED FIRST CALL when the missing module is "
+    "unfamiliar) — read the catalog. Call a CATALOG/OUTLINE tool for "
+    "the relevant source (most often pkg:molpy) and skim each "
+    "module's `summary` to locate the right place to look. Skip this "
+    "step only when the failed import names a module you have already "
+    "mapped in a prior tool call.\n"
+    "  Step 2 — from the traceback, identify what capability the "
+    "failed line was trying to invoke (e.g. 'assign OPLS-AA atom "
+    "types', 'write a LAMMPS data file', 'build a polymer chain'). "
+    "Use a CAPABILITY/SEARCH tool to discover ranked real-source "
+    "matches.\n"
+    "  Step 3 — pick the best match. Any returned hit (class / "
+    "function / method) whose summary semantically matches IS usable "
+    "— use the returned qualname verbatim as the import / attribute "
+    "path in your patch. Don't demand a name-perfect match.\n"
+    "  Step 4 — use a DETAIL/LOOKUP tool to confirm the chosen "
+    "match's signature and docstring before patching. If the first "
+    "search returns nothing usable, retry with different phrasings "
+    "(verb synonyms, the underlying domain action, the file format).\n"
+    "  Step 5 — patch the implementation to use the discovered API.\n"
     "\n"
-    "Keep the module a molexp.workflow.Task subclass. Work economically "
-    "— a typical fix takes a handful of tool calls. Do not write code "
-    "outside the corrected implementation module."
+    "Keep the module a molexp.workflow.Task subclass. Work "
+    "economically — a typical fix takes a handful of tool calls. Do "
+    "not write code outside the corrected implementation module."
 )
 
 
