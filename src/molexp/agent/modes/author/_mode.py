@@ -40,6 +40,7 @@ from molexp.agent.harness.events import (
     RepairProposedEvent,
 )
 from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     ApprovalGate,
@@ -100,15 +101,16 @@ class AuthorMode(AgentMode):
     name = "author"
     pipeline = ModePipeline(
         stages=(
-            "LowerPlanGraph",
-            "CompileTaskIR",
-            "GenerateWorkflowSkeleton",
-            "GenerateTaskTests",
-            "GenerateTaskImplementations",
-            "RunTaskDebugLoop",
-            "ValidateWorkspace",
-            "WriteManifest",
+            NameOnlyStage("LowerPlanGraph"),
+            NameOnlyStage("CompileTaskIR"),
+            NameOnlyStage("GenerateWorkflowSkeleton"),
+            NameOnlyStage("GenerateTaskTests"),
+            NameOnlyStage("GenerateTaskImplementations"),
+            NameOnlyStage("RunTaskDebugLoop"),
+            NameOnlyStage("ValidateWorkspace"),
+            NameOnlyStage("WriteManifest"),
         ),
+        entry="LowerPlanGraph",
         edges=(
             PipelineEdge(from_stage="LowerPlanGraph", to_stage="CompileTaskIR"),
             PipelineEdge(from_stage="CompileTaskIR", to_stage="GenerateWorkflowSkeleton"),

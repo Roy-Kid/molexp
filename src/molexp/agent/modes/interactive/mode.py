@@ -41,6 +41,7 @@ from molexp.agent.harness.events import (
     ToolCallStartedEvent,
 )
 from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes.interactive.delegation import delegate_to_plan, run_plan_pipeline_tool
 from molexp.agent.modes.interactive.tools import readonly_tools
@@ -132,9 +133,10 @@ class InteractiveMode(AgentMode):
 
     name = "interactive"
     pipeline = ModePipeline(
-        stages=("agentic-loop",),
+        stages=(NameOnlyStage("agentic-loop"),),
         edges=(PipelineEdge(from_stage="agentic-loop", to_stage="completed"),),
         terminal_states=("completed",),
+        entry="agentic-loop",
     )
 
     def __init__(self, *, config: InteractiveModeConfig | None = None) -> None:

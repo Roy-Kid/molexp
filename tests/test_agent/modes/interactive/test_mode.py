@@ -230,5 +230,5 @@ async def test_run_returns_terminal_result(tmp_path: Path) -> None:
 def test_interactive_mode_name_and_pipeline() -> None:
     mode = InteractiveMode()
     assert mode.name == "interactive"
-    assert mode.pipeline.stages == ("agentic-loop",)
+    assert tuple(s.name for s in mode.pipeline.stages) == ("agentic-loop",)
     assert mode.get_flowchart().startswith("flowchart TD")

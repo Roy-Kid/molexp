@@ -27,6 +27,7 @@ from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent, ModeStartedEvent
 from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.router import ModelTier
 from molexp.agent.types import Message
@@ -63,9 +64,10 @@ class ChatMode(AgentMode):
 
     name = "chat"
     pipeline = ModePipeline(
-        stages=("chat-turn",),
+        stages=(NameOnlyStage("chat-turn"),),
         edges=(PipelineEdge(from_stage="chat-turn", to_stage="completed"),),
         terminal_states=("completed",),
+        entry="chat-turn",
     )
 
     def __init__(self, *, config: ChatModeConfig | None = None) -> None:

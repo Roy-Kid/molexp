@@ -1,19 +1,21 @@
 """Tests for declarative ModePipeline metadata + AgentMode.get_flowchart.
 
-Covers spec `mode-pipeline-flowchart` ac-001 / ac-002 / ac-003 / ac-004 /
-ac-007: the frozen `PipelineEdge` / `ModePipeline` value types, the
-`_render_pipeline_flowchart` Mermaid builder, the inherited
-`get_flowchart()` base-class method, and each mode's declared pipeline.
+Originally introduced for spec `mode-pipeline-flowchart` ac-001/002/003/004/007;
+updated for ``agent-mode-stage-pipeline-01`` ac-006 — ``ModePipeline`` is
+now a plain Python class carrying ``Stage`` instances (no longer a frozen
+pydantic BaseModel), so frozen-shape + JSON round-trip assertions are gone.
+The per-mode declarations now use ``NameOnlyStage`` placeholders pending
+phases 02 + 03.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import (
     AgentMode,
     ModePipeline,
@@ -32,7 +34,12 @@ from molexp.agent.modes import (
 _MODES = (ChatMode, PlanMode, AuthorMode, RunMode, ReviewMode, InteractiveMode)
 
 
-# ── PipelineEdge / ModePipeline value types (ac-001) ────────────────────────
+def _names(pipeline: ModePipeline) -> tuple[str, ...]:
+    """Extract the ordered stage names from a ``ModePipeline``."""
+    return tuple(stage.name for stage in pipeline.stages)
+
+
+# ── PipelineEdge (still frozen pydantic) ────────────────────────────────────
 
 
 def test_pipeline_edge_fields_and_optional_label() -> None:
@@ -48,44 +55,55 @@ def test_pipeline_edge_is_frozen() -> None:
         edge.label = "x"  # type: ignore[misc]
 
 
+# ── ModePipeline (plain class) ──────────────────────────────────────────────
+
+
 def test_mode_pipeline_defaults_are_empty() -> None:
     pipeline = ModePipeline()
     assert pipeline.stages == ()
     assert pipeline.edges == ()
     assert pipeline.terminal_states == ()
+    assert pipeline.entry == ""
+    assert pipeline.repairs == ()
+    assert pipeline.lifecycle_validator is None
 
 
-def test_mode_pipeline_is_frozen() -> None:
-    pipeline = ModePipeline(stages=("A",))
-    with pytest.raises(ValidationError):
-        pipeline.stages = ()  # type: ignore[misc]
+def test_mode_pipeline_carries_stage_instances() -> None:
+    a, b = NameOnlyStage("A"), NameOnlyStage("B")
+    pipeline = ModePipeline(stages=(a, b), entry="A")
+    assert pipeline.stages == (a, b)
+    assert _names(pipeline) == ("A", "B")
+    assert pipeline.entry == "A"
 
 
-def test_mode_pipeline_has_no_untimed_stages_field() -> None:
-    # The spec deliberately dropped `untimed_stages`: EmitApprovedPlan is
-    # a real timed stage after the bug fix, so no exception field exists.
-    assert "untimed_stages" not in ModePipeline.model_fields
+def test_mode_pipeline_default_entry_is_first_stage_name() -> None:
+    pipeline = ModePipeline(stages=(NameOnlyStage("First"), NameOnlyStage("Second")))
+    assert pipeline.entry == "First"
 
 
-def test_mode_pipeline_json_round_trip() -> None:
-    pipeline = ModePipeline(
-        stages=("A", "B"),
-        edges=(PipelineEdge(from_stage="A", to_stage="B", label="go"),),
-        terminal_states=("done",),
-    )
-    assert ModePipeline.model_validate(pipeline.model_dump()) == pipeline
+def test_mode_pipeline_is_a_plain_class_not_pydantic() -> None:
+    """The new ModePipeline is a plain class so it can carry live Stage
+    instances + an optional Python callable (lifecycle_validator)."""
+    from pydantic import BaseModel
+
+    assert not issubclass(ModePipeline, BaseModel)
 
 
-# ── _render_pipeline_flowchart (ac-003) ─────────────────────────────────────
+# ── _render_pipeline_flowchart reads .name from Stage instances ─────────────
 
 
 def test_render_starts_with_flowchart_td() -> None:
-    assert _render_pipeline_flowchart(ModePipeline(stages=("A",))).startswith("flowchart TD")
+    out = _render_pipeline_flowchart(ModePipeline(stages=(NameOnlyStage("A"),), entry="A"))
+    assert out.startswith("flowchart TD")
 
 
 def test_render_emits_a_node_per_stage_and_terminal() -> None:
     out = _render_pipeline_flowchart(
-        ModePipeline(stages=("Alpha", "Beta"), terminal_states=("done",))
+        ModePipeline(
+            stages=(NameOnlyStage("Alpha"), NameOnlyStage("Beta")),
+            terminal_states=("done",),
+            entry="Alpha",
+        )
     )
     assert "Alpha" in out and "Beta" in out and "done" in out
 
@@ -93,11 +111,12 @@ def test_render_emits_a_node_per_stage_and_terminal() -> None:
 def test_render_labelled_and_plain_edges() -> None:
     out = _render_pipeline_flowchart(
         ModePipeline(
-            stages=("A", "B", "C"),
+            stages=(NameOnlyStage("A"), NameOnlyStage("B"), NameOnlyStage("C")),
             edges=(
                 PipelineEdge(from_stage="A", to_stage="B"),
                 PipelineEdge(from_stage="B", to_stage="C", label="ok"),
             ),
+            entry="A",
         )
     )
     assert "A --> B" in out
@@ -105,32 +124,46 @@ def test_render_labelled_and_plain_edges() -> None:
 
 
 def test_render_sanitizes_hyphenated_stage_names() -> None:
-    out = _render_pipeline_flowchart(ModePipeline(stages=("chat-turn",)))
-    # node id is sanitized to a Mermaid-safe identifier; label keeps the original
+    out = _render_pipeline_flowchart(
+        ModePipeline(stages=(NameOnlyStage("chat-turn"),), entry="chat-turn")
+    )
+    # node id sanitized to a Mermaid-safe identifier; label keeps the original
     assert "chat_turn" in out
     assert '"chat-turn"' in out
 
 
 def test_render_single_stage_no_edges_is_valid() -> None:
-    out = _render_pipeline_flowchart(ModePipeline(stages=("Only",)))
+    out = _render_pipeline_flowchart(
+        ModePipeline(
+            stages=(
+                NameOnlyStage(
+                    "Only",
+                ),
+            ),
+            entry="Only",
+        )
+    )
     assert out.startswith("flowchart TD")
     assert "Only" in out
 
 
-# ── get_flowchart base-class method (ac-002) ────────────────────────────────
+# ── get_flowchart inherited method ──────────────────────────────────────────
 
 
 class _DummyMode(AgentMode):
     """A minimal concrete mode for exercising the inherited get_flowchart."""
 
     name = "dummy"
-    pipeline = ModePipeline(stages=("Only",), terminal_states=("done",))
+    pipeline = ModePipeline(
+        stages=(NameOnlyStage("Only"),),
+        terminal_states=("done",),
+        entry="Only",
+    )
 
-    async def run(
-        self, *, harness: Any, user_input: str
-    ) -> AsyncIterator[Any]:  # pragma: no cover - never driven
+    async def run(self, *, harness: Any, user_input: str):  # pragma: no cover - never driven
         raise NotImplementedError
-        yield
+        if False:
+            yield
 
 
 def test_get_flowchart_is_a_concrete_inherited_method() -> None:
@@ -144,7 +177,18 @@ def test_get_flowchart_defined_once_on_base() -> None:
         assert mode_cls.get_flowchart is AgentMode.get_flowchart
 
 
-# ── per-mode pipeline declarations (ac-004 / ac-007) ────────────────────────
+# ── AgentMode.run_pipeline default helper (substrate ac-005) ────────────────
+
+
+def test_agent_mode_run_pipeline_is_concrete_helper() -> None:
+    """``run_pipeline`` exists on the base class as a non-abstract helper."""
+    # @abstractmethod marker absent
+    assert getattr(AgentMode.run_pipeline, "__isabstractmethod__", False) is False
+    # ``run`` is still abstract
+    assert getattr(AgentMode.run, "__isabstractmethod__", False) is True
+
+
+# ── per-mode pipeline declarations ──────────────────────────────────────────
 
 
 def test_every_mode_get_flowchart_returns_mermaid() -> None:
@@ -157,17 +201,18 @@ def test_every_mode_get_flowchart_returns_mermaid() -> None:
 
 
 def test_chat_mode_pipeline() -> None:
-    assert ChatMode.pipeline.stages == ("chat-turn",)
+    assert _names(ChatMode.pipeline) == ("chat-turn",)
+    assert ChatMode.pipeline.entry == "chat-turn"
     assert len(ChatMode.pipeline.terminal_states) == 1
 
 
 def test_interactive_mode_pipeline() -> None:
-    assert InteractiveMode.pipeline.stages == ("agentic-loop",)
+    assert _names(InteractiveMode.pipeline) == ("agentic-loop",)
     assert InteractiveMode.pipeline.terminal_states == ("completed",)
 
 
 def test_run_mode_pipeline_stages() -> None:
-    assert set(RunMode.pipeline.stages) == {
+    assert set(_names(RunMode.pipeline)) == {
         "LoadMaterializedWorkflow",
         "ExecuteWorkflow",
         "RepairRuntimeFailure",
@@ -175,7 +220,7 @@ def test_run_mode_pipeline_stages() -> None:
 
 
 def test_review_mode_pipeline_stages() -> None:
-    assert set(ReviewMode.pipeline.stages) == {
+    assert set(_names(ReviewMode.pipeline)) == {
         "IngestReviewTarget",
         "RunReviewChecks",
         "RenderReviewVerdict",
@@ -183,7 +228,7 @@ def test_review_mode_pipeline_stages() -> None:
 
 
 def test_author_mode_pipeline_stages() -> None:
-    assert set(AuthorMode.pipeline.stages) == {
+    assert set(_names(AuthorMode.pipeline)) == {
         "LowerPlanGraph",
         "CompileTaskIR",
         "GenerateWorkflowSkeleton",
@@ -196,7 +241,7 @@ def test_author_mode_pipeline_stages() -> None:
 
 
 def test_plan_mode_pipeline_stages_and_terminals() -> None:
-    assert PlanMode.pipeline.stages == (
+    assert _names(PlanMode.pipeline) == (
         "SynthesizeIntent",
         "ClarifyIntent",
         "ExploreCapabilities",
@@ -216,9 +261,6 @@ def test_plan_mode_pipeline_stages_and_terminals() -> None:
 def test_plan_mode_pipeline_has_branch_and_loop_edges() -> None:
     edges = PlanMode.pipeline.edges
     pairs = {(e.from_stage, e.to_stage) for e in edges}
-    # ClarifyIntent branch to the needs_clarification terminal
     assert ("ClarifyIntent", "needs_clarification") in pairs
-    # Preflight failure loops back to SynthesizeCandidates
     assert ("PreflightPlanGraph", "SynthesizeCandidates") in pairs
-    # Rejected approve_direction gate loops back into the repair cycle
     assert ("EmitApprovedPlan", "SynthesizeCandidates") in pairs

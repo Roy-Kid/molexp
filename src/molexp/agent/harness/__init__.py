@@ -63,6 +63,8 @@ from molexp.agent.harness.hooks import (
     HookPoint,
     HookRegistry,
 )
+from molexp.agent.harness.pipeline import execute_pipeline
+from molexp.agent.harness.repair import RepairPolicy
 from molexp.agent.harness.session import Session
 from molexp.agent.harness.session_entry import (
     ApprovalEntry,
@@ -78,6 +80,7 @@ from molexp.agent.harness.session_storage import (
     JsonlSessionStorage,
     SessionStorage,
 )
+from molexp.agent.harness.stage import NameOnlyStage, Stage
 
 __all__ = [
     "AgentEvent",
@@ -107,12 +110,15 @@ __all__ = [
     "ModeCompletedEvent",
     "ModeStartedEvent",
     "ModelChangeEntry",
+    "NameOnlyStage",
     "PlanEmittedEvent",
     "PreflightFailedEvent",
+    "RepairPolicy",
     "RepairProposedEvent",
     "Session",
     "SessionEntry",
     "SessionStorage",
+    "Stage",
     "StageCompletedEvent",
     "StageEntry",
     "StageStartedEvent",
@@ -120,5 +126,6 @@ __all__ = [
     "ToolCallCompletedEvent",
     "ToolCallStartedEvent",
     "estimate_tokens",
+    "execute_pipeline",
     "prepare_compaction",
 ]

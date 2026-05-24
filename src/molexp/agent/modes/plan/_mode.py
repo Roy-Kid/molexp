@@ -43,6 +43,7 @@ from molexp.agent.harness.events import (
     RepairProposedEvent,
 )
 from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     ApprovalGate,
@@ -113,14 +114,15 @@ class PlanMode(AgentMode):
     name = "plan"
     pipeline = ModePipeline(
         stages=(
-            "SynthesizeIntent",
-            "ClarifyIntent",
-            "ExploreCapabilities",
-            "SynthesizeCandidates",
-            "SelectPlan",
-            "PreflightPlanGraph",
-            "EmitApprovedPlan",
+            NameOnlyStage("SynthesizeIntent"),
+            NameOnlyStage("ClarifyIntent"),
+            NameOnlyStage("ExploreCapabilities"),
+            NameOnlyStage("SynthesizeCandidates"),
+            NameOnlyStage("SelectPlan"),
+            NameOnlyStage("PreflightPlanGraph"),
+            NameOnlyStage("EmitApprovedPlan"),
         ),
+        entry="SynthesizeIntent",
         edges=(
             PipelineEdge(from_stage="SynthesizeIntent", to_stage="ClarifyIntent"),
             PipelineEdge(

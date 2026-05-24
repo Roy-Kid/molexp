@@ -51,6 +51,7 @@ from molexp.agent.harness.events import (
     ModeStartedEvent,
     RepairProposedEvent,
 )
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     CapabilityGraph,
@@ -127,10 +128,11 @@ class ReviewMode(AgentMode):
     name = "review"
     pipeline = ModePipeline(
         stages=(
-            "IngestReviewTarget",
-            "RunReviewChecks",
-            "RenderReviewVerdict",
+            NameOnlyStage("IngestReviewTarget"),
+            NameOnlyStage("RunReviewChecks"),
+            NameOnlyStage("RenderReviewVerdict"),
         ),
+        entry="IngestReviewTarget",
         edges=(
             PipelineEdge(from_stage="IngestReviewTarget", to_stage="RunReviewChecks"),
             PipelineEdge(from_stage="RunReviewChecks", to_stage="RenderReviewVerdict"),

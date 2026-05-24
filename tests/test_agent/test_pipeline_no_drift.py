@@ -66,7 +66,9 @@ _CASES = [
 
 @pytest.mark.parametrize(("mode_cls", "source_path"), _CASES)
 def test_pipeline_stages_have_no_drift(mode_cls: type[AgentMode], source_path: str) -> None:
-    declared = set(mode_cls.pipeline.stages)
+    # After agent-mode-stage-pipeline-01, ``pipeline.stages`` is a tuple
+    # of ``Stage`` instances; extract their declared names for comparison.
+    declared = {stage.name for stage in mode_cls.pipeline.stages}
     actual = _harness_stage_literals(Path(source_path))
     assert declared == actual, (
         f"{mode_cls.__name__}: declared pipeline.stages {sorted(declared)} "

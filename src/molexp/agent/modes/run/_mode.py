@@ -44,6 +44,7 @@ from molexp.agent.harness.events import (
     ModeStartedEvent,
     RepairProposedEvent,
 )
+from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     IllegalPlanTransitionError,
@@ -103,10 +104,11 @@ class RunMode(AgentMode):
     name = "run"
     pipeline = ModePipeline(
         stages=(
-            "LoadMaterializedWorkflow",
-            "ExecuteWorkflow",
-            "RepairRuntimeFailure",
+            NameOnlyStage("LoadMaterializedWorkflow"),
+            NameOnlyStage("ExecuteWorkflow"),
+            NameOnlyStage("RepairRuntimeFailure"),
         ),
+        entry="LoadMaterializedWorkflow",
         edges=(
             PipelineEdge(from_stage="LoadMaterializedWorkflow", to_stage="ExecuteWorkflow"),
             PipelineEdge(from_stage="ExecuteWorkflow", to_stage="completed", label="success"),

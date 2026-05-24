@@ -1,4 +1,4 @@
-"""``AgentMode`` ABC + ``AgentRunResult`` value type.
+"""``AgentMode`` ABC + ``AgentRunResult`` value type + executable ``ModePipeline``.
 
 A mode encodes the strategy: ChatMode does a single LLM round-trip;
 the four pipeline modes (Plan / Author / Run / Review, specs 03-06)
@@ -14,12 +14,23 @@ registry.
 is a :class:`~molexp.agent.harness.events.ModeCompletedEvent` carrying
 the final :class:`AgentRunResult`. :class:`~molexp.agent.runner.AgentRunner`
 drains the stream, accumulates it, and returns the terminal result.
+
+:class:`ModePipeline` is the **executable IR** the substrate built in
+spec ``agent-mode-stage-pipeline-01`` introduces: a plain Python
+container (not a pydantic BaseModel — it carries live
+:class:`~molexp.agent.harness.stage.Stage` instances) listing the
+mode's stages, the typed control-flow edges, the terminal-state
+names, the entry-stage name, and any
+:class:`~molexp.agent.harness.repair.RepairPolicy`s. Subclasses set
+their ``pipeline`` once at class-body level and may delegate ``run``
+to :meth:`run_pipeline` (a thin wrapper around the substrate's
+:func:`~molexp.agent.harness.pipeline.execute_pipeline`).
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -29,6 +40,8 @@ from molexp.agent.types import Message, Usage, UsageBreakdown
 if TYPE_CHECKING:
     from molexp.agent.harness.events import AgentEvent
     from molexp.agent.harness.harness import AgentHarness
+    from molexp.agent.harness.repair import RepairPolicy
+    from molexp.agent.harness.stage import Stage
 
 
 class AgentRunResult(BaseModel):
@@ -61,8 +74,7 @@ class AgentRunResult(BaseModel):
 class PipelineEdge(BaseModel):
     """One labelled control-flow edge of a :class:`ModePipeline`.
 
-    Pure declarative metadata — describes how a mode's stages connect,
-    not how they execute.
+    Pure declarative data — describes how a mode's stages connect.
 
     Attributes:
         from_stage: Source stage name.
@@ -78,36 +90,56 @@ class PipelineEdge(BaseModel):
     label: str | None = None
 
 
-class ModePipeline(BaseModel):
-    """The declarative stage topology of an :class:`AgentMode`.
+class ModePipeline:
+    """The executable stage topology of an :class:`AgentMode`.
 
-    A mode is a hand-written async sequence of ``harness.stage(...)``
-    brackets — there is no ``Graph`` object. ``ModePipeline`` is the
-    *declarative* mirror of that topology: pure side-band metadata that
-    powers :meth:`AgentMode.get_flowchart` and is held honest against
-    the real ``run()`` source by the per-mode no-drift test. It never
-    participates in execution.
+    A plain Python class (not pydantic — Stage instances and the
+    optional ``lifecycle_validator`` carry live runtime references,
+    and ``arbitrary_types_allowed=True`` is forbidden under
+    ``src/molexp/agent/``).
+
+    Constructor accepts:
 
     Attributes:
-        stages: Ordered stage names, one per ``harness.stage("...")``
-            call in the mode's ``run()`` source.
-        edges: Labelled control-flow edges (branches and repair loops).
+        stages: Tuple of :class:`~molexp.agent.harness.stage.Stage`
+            instances making up the pipeline (order is informational
+            — execution follows :attr:`edges`).
+        edges: Tuple of :class:`PipelineEdge`s describing control
+            flow between stages and into terminal states.
         terminal_states: Names of the run's terminal states.
+        entry: Name of the first stage to execute. Defaults to the
+            first stage's name when stages are supplied.
+        repairs: Tuple of :class:`~molexp.agent.harness.repair.RepairPolicy`
+            instances; the executor honours these in declaration
+            order.
+        lifecycle_validator: Optional callable invoked once per stage
+            entry (before the stage's ``run`` body) with
+            ``(stage, harness)``. Modes that maintain a typed
+            lifecycle (e.g. ``PlanState``) plug a translator here;
+            the harness itself stays unaware of mode-specific state
+            machines.
     """
 
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=False)
-
-    stages: tuple[str, ...] = ()
-    edges: tuple[PipelineEdge, ...] = ()
-    terminal_states: tuple[str, ...] = ()
+    def __init__(
+        self,
+        *,
+        stages: tuple[Stage, ...] = (),
+        edges: tuple[PipelineEdge, ...] = (),
+        terminal_states: tuple[str, ...] = (),
+        entry: str = "",
+        repairs: tuple[RepairPolicy, ...] = (),
+        lifecycle_validator: Callable[[Stage, AgentHarness], None] | None = None,
+    ) -> None:
+        self.stages = stages
+        self.edges = edges
+        self.terminal_states = terminal_states
+        self.entry = entry if entry else (stages[0].name if stages else "")
+        self.repairs = repairs
+        self.lifecycle_validator = lifecycle_validator
 
 
 def _mermaid_node_id(name: str) -> str:
-    """Coerce a stage / terminal name into a Mermaid-safe node id.
-
-    Non-alphanumeric characters become ``_`` so a hyphenated stage name
-    like ``chat-turn`` yields a valid identifier (``chat_turn``).
-    """
+    """Coerce a stage / terminal name into a Mermaid-safe node id."""
     cleaned = "".join(ch if ch.isalnum() else "_" for ch in name)
     return cleaned or "_"
 
@@ -118,12 +150,13 @@ def _render_pipeline_flowchart(pipeline: ModePipeline) -> str:
     The agent layer's own tiny renderer — it does **not** import
     ``molexp.workflow``'s Mermaid code (cross-layer presentation-helper
     imports are forbidden) nor ``pydantic_graph``. Stages render as
-    rectangle nodes, terminal states as stadium nodes, edges as
-    ``-->`` (labelled edges as ``-->|label|``).
+    rectangle nodes (the name comes from each Stage's ``name``),
+    terminal states as stadium nodes, edges as ``-->`` (labelled
+    edges as ``-->|label|``).
     """
     lines = ["flowchart TD"]
     for stage in pipeline.stages:
-        lines.append(f'    {_mermaid_node_id(stage)}["{stage}"]')
+        lines.append(f'    {_mermaid_node_id(stage.name)}["{stage.name}"]')
     for terminal in pipeline.terminal_states:
         lines.append(f'    {_mermaid_node_id(terminal)}(["{terminal}"])')
     for edge in pipeline.edges:
@@ -149,6 +182,16 @@ class AgentMode(ABC):
     :meth:`resume` is a classmethod that reconstructs a mode instance
     from persisted state. The default raises :exc:`NotImplementedError`;
     subclasses override it to read their own on-disk format.
+
+    Pipeline delegation
+    -------------------
+    :meth:`run_pipeline` is a concrete helper that drains
+    :func:`~molexp.agent.harness.pipeline.execute_pipeline` on
+    ``self.pipeline``. Subclasses migrating to the new substrate may
+    delegate their ``run`` body to it with ``async for ev in
+    self.run_pipeline(harness=harness, user_input=user_input): yield ev``.
+    No mode delegates yet in phase 01 — phases 02 and 03 of the chain
+    do the migration.
     """
 
     name: str = ""
@@ -169,6 +212,31 @@ class AgentMode(ABC):
         :class:`AgentRunResult`.
         """
         ...
+
+    async def run_pipeline(
+        self,
+        *,
+        harness: AgentHarness,
+        user_input: str,
+        initial_input: object | None = None,
+    ) -> AsyncIterator[AgentEvent]:
+        """Default delegation helper — drain ``self.pipeline`` via the substrate.
+
+        Subclasses migrating to the new abstraction route their
+        ``run`` body through this helper. ``initial_input`` defaults
+        to ``user_input`` for simplicity; modes that need a typed
+        entry payload can pass it explicitly.
+        """
+        from molexp.agent.harness.pipeline import execute_pipeline
+
+        payload = user_input if initial_input is None else initial_input
+        async for event in execute_pipeline(
+            pipeline=self.pipeline,
+            harness=harness,
+            user_input=user_input,
+            initial_input=payload,
+        ):
+            yield event
 
     def get_flowchart(self) -> str:
         """Return this mode's stage pipeline as a Mermaid ``flowchart TD``.
