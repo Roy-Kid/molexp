@@ -32,7 +32,6 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.harness.events import (
@@ -59,8 +58,6 @@ from molexp.agent.types import Message
 if TYPE_CHECKING:
     from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.plan.plan_folder import PlanFolder
-
-_LOG = get_logger(__name__)
 
 __all__ = ["ReviewMode", "ReviewModeConfig"]
 

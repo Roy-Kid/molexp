@@ -14,8 +14,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar
 
-from mollog import get_logger
-
 from molexp.agent.harness.events import (
     AgentEvent,
     ErrorEvent,
@@ -41,8 +39,6 @@ if TYPE_CHECKING:
     from molexp.agent.modes.run.repair import RepairEscalation
 
 __all__ = ["ExecuteWorkflow", "LoadMaterializedWorkflow", "RepairRuntimeFailure"]
-
-_LOG = get_logger(__name__)
 
 
 class LoadMaterializedWorkflow(Stage[object, object]):

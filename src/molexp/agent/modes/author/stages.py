@@ -28,7 +28,6 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar
 
 import yaml
-from mollog import get_logger
 
 from molexp.agent.harness.events import AgentEvent
 from molexp.agent.harness.stage import Stage
@@ -58,8 +57,6 @@ __all__ = [
     "ValidateWorkspace",
     "WriteManifest",
 ]
-
-_LOG = get_logger(__name__)
 
 _ENTRYPOINT_MODULE = "experiment.workflow"
 _ENTRYPOINT_SYMBOL = "create_workflow"

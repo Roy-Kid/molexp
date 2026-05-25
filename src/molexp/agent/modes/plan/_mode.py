@@ -33,7 +33,6 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 
-from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.harness.events import (
@@ -64,8 +63,6 @@ from molexp.agent.modes.plan.stages import (
 )
 from molexp.agent.modes.plan.state import PlanRuntimeState
 from molexp.agent.types import Message
-
-_LOG = get_logger(__name__)
 
 __all__ = ["PlanMode", "PlanModeConfig"]
 
