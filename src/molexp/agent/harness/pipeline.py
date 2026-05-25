@@ -93,6 +93,12 @@ async def execute_pipeline(
             async for item in stage.run(harness=harness, input=current_input):
                 event_kind = getattr(item, "kind", None)
                 if event_kind is not None:
+                    # Forward yielded events to the executor's caller
+                    # (AgentRunner accumulates them into AgentRunResult.events).
+                    # We do NOT push them through ``harness.emit`` — stages
+                    # that want sink visibility call ``harness.emit`` directly;
+                    # stages that yield for repair routing don't (the tests
+                    # that need both use ``list(events) + list(sink)`` unions).
                     yield item  # type: ignore[misc] — narrowed by event_kind check
                     if repair_target is None:
                         for idx, policy in enumerate(pipeline.repairs):

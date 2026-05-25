@@ -107,23 +107,45 @@ def _stage_name_classvars(source_paths: tuple[Path, ...]) -> set[str]:
     return literals
 
 
-# Each case's ``source_paths`` is a tuple of files / directories to scan.
+# Each case's ``source_paths`` is a tuple of files / directories the
+# helper scans for either ``harness.stage("...")`` literals (legacy
+# pattern) or ``name: ClassVar[str] = "..."`` declarations (substrate
+# Stage subclasses). Post-substrate migration each mode's source moves
+# from ``_mode.py``'s ``async with harness.stage(...):`` brackets into
+# per-mode Stage subclasses under a sibling ``stages.py`` / ``stages/``
+# package.
 _plan_stages_dir = Path(_plan_mode.__file__).parent / "stages"
+_chat_stages_file = Path(_chat.__file__).parent / "chat_stages.py"
+_run_stages_file = Path(_run_mode.__file__).parent / "stages.py"
+_review_stages_file = Path(_review_mode.__file__).parent / "stages.py"
+_interactive_stages_file = Path(_interactive_mode.__file__).parent / "stages.py"
+_author_stages_file = Path(_author_materialize.__file__).parent / "stages.py"
 
 _CASES = [
-    pytest.param(ChatMode, (Path(_chat.__file__),), id="chat"),
-    # PlanMode: stages live under modes/plan/stages/ as Stage subclasses;
-    # scan that package + the mode file itself.
+    pytest.param(ChatMode, (Path(_chat.__file__), _chat_stages_file), id="chat"),
     pytest.param(
         PlanMode,
         (Path(_plan_mode.__file__), _plan_stages_dir),
         id="plan",
     ),
-    # AuthorMode's harness.stage(...) calls live in materialize.py.
-    pytest.param(AuthorMode, (Path(_author_materialize.__file__),), id="author"),
-    pytest.param(RunMode, (Path(_run_mode.__file__),), id="run"),
-    pytest.param(ReviewMode, (Path(_review_mode.__file__),), id="review"),
-    pytest.param(InteractiveMode, (Path(_interactive_mode.__file__),), id="interactive"),
+    # AuthorMode's per-stage bodies live in ``stages.py`` post-migration;
+    # ``materialize.py`` still carries the pre-migration literal references.
+    pytest.param(
+        AuthorMode,
+        (Path(_author_materialize.__file__), _author_stages_file),
+        id="author",
+    ),
+    pytest.param(RunMode, (Path(_run_mode.__file__), _run_stages_file), id="run"),
+    pytest.param(
+        ReviewMode,
+        (Path(_review_mode.__file__), _review_stages_file),
+        id="review",
+    ),
+    pytest.param(
+        InteractiveMode,
+        (Path(_interactive_mode.__file__), _interactive_stages_file),
+        id="interactive",
+    ),
 ]
 
 

@@ -9,7 +9,9 @@ example of the harness-based contract:
   :data:`~molexp.agent.harness.events.AgentEvent`\\ s;
 - it appends the user turn and the assistant turn to the harness's
   :class:`~molexp.agent.harness.session.Session` entry-tree;
-- it brackets the LLM call in an ``AgentHarness.stage``;
+- it delegates the core LLM-call body to a single
+  :class:`~molexp.agent.modes.chat_stages.ChatTurn` Stage driven by
+  the substrate's :func:`execute_pipeline`;
 - its terminal yield is a
   :class:`~molexp.agent.harness.events.ModeCompletedEvent` carrying the
   final :class:`AgentRunResult`.
@@ -29,7 +31,7 @@ from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent, ModeStar
 from molexp.agent.harness.harness import AgentHarness
 from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
-from molexp.agent.router import ModelTier
+from molexp.agent.modes.chat_stages import ChatTurn
 from molexp.agent.types import Message
 
 _LOG = get_logger(__name__)
@@ -46,32 +48,34 @@ class ChatModeConfig(BaseModel):
     temperature: float | None = None
 
 
-def _render_prior_context(history: tuple[Message, ...]) -> str:
-    """Render prior conversation turns into a plain-text preamble.
-
-    The harness entry-tree stores molexp-shaped :class:`Message`\\ s;
-    ChatMode flattens them into a transcript the LLM reads as context.
-    Returns the empty string when there is no prior history.
-    """
-    if not history:
-        return ""
-    lines = [f"{msg.role}: {msg.content}" for msg in history]
-    return "Conversation so far:\n" + "\n".join(lines)
+# Class-level declarative pipeline (NameOnlyStage placeholder) — used
+# by ``get_flowchart`` on bare instances + the no-drift guard. The real
+# instance-level pipeline (carrying the executable ``ChatTurn`` Stage)
+# is built in ``__init__`` and shadows this attribute.
+_CLASS_PIPELINE = ModePipeline(
+    stages=(NameOnlyStage("chat-turn"),),
+    edges=(PipelineEdge(from_stage="chat-turn", to_stage="completed"),),
+    terminal_states=("completed",),
+    entry="chat-turn",
+)
 
 
 class ChatMode(AgentMode):
     """One ``user_input`` → one LLM round-trip → one :class:`AgentRunResult`."""
 
     name = "chat"
-    pipeline = ModePipeline(
-        stages=(NameOnlyStage("chat-turn"),),
-        edges=(PipelineEdge(from_stage="chat-turn", to_stage="completed"),),
-        terminal_states=("completed",),
-        entry="chat-turn",
-    )
+    pipeline = _CLASS_PIPELINE
 
     def __init__(self, *, config: ChatModeConfig | None = None) -> None:
         self.config = config or ChatModeConfig()
+        self._captured_prior: tuple[Message, ...] = ()
+        self._result_text: str = ""
+        self.pipeline = ModePipeline(
+            stages=(ChatTurn(chat_mode=self),),
+            edges=_CLASS_PIPELINE.edges,
+            terminal_states=_CLASS_PIPELINE.terminal_states,
+            entry="chat-turn",
+        )
 
     async def run(
         self,
@@ -81,44 +85,33 @@ class ChatMode(AgentMode):
     ) -> AsyncIterator[AgentEvent]:
         """Drive one chat turn, yielding the orchestration event stream."""
         await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
-        router = harness.router
-        router.clear_usage()
+        harness.router.clear_usage()
 
-        prior = harness.session.build_context()
+        self._captured_prior = harness.session.build_context()
         harness.session.append_message(Message(role="user", content=user_input))
+        self._result_text = ""
 
-        async with harness.stage("chat-turn"):
-            preamble = _join_nonempty(self.config.system_prompt, _render_prior_context(prior))
-            result = await router.complete_text(
-                prompt=user_input,
-                system=preamble,
-                tier=ModelTier.DEFAULT,
-            )
+        async for event in self.run_pipeline(
+            harness=harness,
+            user_input=user_input,
+            initial_input=user_input,
+        ):
+            yield event
 
-        harness.session.append_message(Message(role="assistant", content=result.text))
-        breakdown = router.snapshot_usage()
+        harness.session.append_message(Message(role="assistant", content=self._result_text))
+        breakdown = harness.router.snapshot_usage()
         _LOG.info(
             f"[chat-mode] usage in={breakdown.total.input_tokens} "
             f"out={breakdown.total.output_tokens} "
             f"total={breakdown.total.total_tokens} reqs={breakdown.total.requests}"
         )
         run_result = AgentRunResult(
-            text=result.text,
-            messages=tuple(_messages_from_context(harness)),
+            text=self._result_text,
+            messages=harness.session.build_context(),
             usage=breakdown.total,
             usage_breakdown=breakdown,
         )
         yield ModeCompletedEvent(
-            text=result.text,
+            text=self._result_text,
             result=run_result.model_dump(mode="json"),
         )
-
-
-def _join_nonempty(*fragments: str) -> str:
-    """Join non-empty fragments with a blank line."""
-    return "\n\n".join(fragment for fragment in fragments if fragment)
-
-
-def _messages_from_context(harness: AgentHarness) -> tuple[Message, ...]:
-    """Return the full conversation as molexp :class:`Message`\\ s."""
-    return harness.session.build_context()

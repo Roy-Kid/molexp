@@ -9,11 +9,13 @@ loads the LLM-authored :class:`molexp.workflow.Workflow` through the
 public ``molexp.workflow`` API, binds it to a workspace ``Run``, and
 drives it to completion.
 
-RunMode's own orchestration is a **plain async stage sequence** on the
-harness — ``async with harness.stage(name): ...``. It *executes* the
-generated workflow through the public ``molexp.workflow`` API (that
-legitimately uses the workflow engine — RunMode is running the
-materialized experiment). No ``pydantic_graph`` import.
+After ``agent-mode-stage-pipeline-03``, the three stages live as
+first-class :class:`~molexp.agent.modes.run.stages.LoadMaterializedWorkflow`
+/ :class:`ExecuteWorkflow` / :class:`RepairRuntimeFailure` Stage
+subclasses; :meth:`RunMode.run` delegates to
+:meth:`AgentMode.run_pipeline`. Pre-pipeline ``run`` still handles
+the handoff-missing and gate-blocked early returns inline — there is
+no point importing or executing anything before they clear.
 
 Lifecycle: RunMode enters at :data:`PlanState.ready_for_run` and moves
 ``ready_for_run → running`` then ``running → completed`` (success),
@@ -21,12 +23,6 @@ Lifecycle: RunMode enters at :data:`PlanState.ready_for_run` and moves
 ``running → needs_clarification`` (a repair needing AuthorMode re-entry).
 Every move goes through :func:`assert_legal_transition` via
 :meth:`PlanFolder.transition_to`.
-
-On unrecoverable runtime failure RunMode classifies the failure, retries
-transient ones per each step's ``RetryPolicy``, and on exhaustion emits a
-structured :class:`~molexp.agent.modes._planning.PlanDiff`. A diff
-needing re-materialization is wrapped in a
-:class:`~molexp.agent.modes.run.repair.RepairEscalation` toward AuthorMode.
 """
 
 from __future__ import annotations
@@ -39,30 +35,22 @@ from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.harness.events import (
     AgentEvent,
-    ErrorEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
-    RepairProposedEvent,
 )
 from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
-from molexp.agent.modes._planning import (
-    IllegalPlanTransitionError,
-    PlanGraph,
-    PlanState,
-)
-from molexp.agent.modes.run.executor import ExecutionOutcome, RunExecutor
+from molexp.agent.modes._planning import IllegalPlanTransitionError, PlanState
+from molexp.agent.modes.run.executor import ExecutionOutcome
 from molexp.agent.modes.run.gate import approve_execution_gate
 from molexp.agent.modes.run.loader import WorkflowLoadError, load_materialized_workflow
-from molexp.agent.modes.run.repair import (
-    PlanDiff,
-    RepairEscalation,
-    RuntimeFailure,
-    RuntimeFailureKind,
-    build_repair_diff,
-    build_repair_escalation,
+from molexp.agent.modes.run.repair import RuntimeFailure
+from molexp.agent.modes.run.run_folder import RunReport
+from molexp.agent.modes.run.stages import (
+    ExecuteWorkflow,
+    LoadMaterializedWorkflow,
+    RepairRuntimeFailure,
 )
-from molexp.agent.modes.run.run_folder import RunFolder, RunReport
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
@@ -74,22 +62,15 @@ if TYPE_CHECKING:
 
 _LOG = get_logger(__name__)
 
-__all__ = ["RunMode", "RunModeConfig"]
+# ``load_materialized_workflow`` is re-exported so the LoadMaterializedWorkflow
+# stage looks it up via this module — preserves existing
+# ``monkeypatch.setattr(mode_module, "load_materialized_workflow", ...)``
+# test patterns across the substrate migration.
+__all__ = ["RunMode", "RunModeConfig", "load_materialized_workflow"]
 
 
 class RunModeConfig(BaseModel):
-    """Tunables for :class:`RunMode`.
-
-    Attributes:
-        retry_backoff_seconds: Pause between transient-failure retries.
-            ``0.0`` (the default) makes retries immediate — used in tests.
-        max_repair_escalations: Cap on :class:`RepairEscalation`\\ s a
-            single run emits before giving up.
-        require_execution_gate: When ``True`` (the default) the
-            ``approve_execution`` gate must clear before anything is
-            imported or executed; ``False`` bypasses it (test / trusted
-            automation only).
-    """
+    """Tunables for :class:`RunMode`."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -98,38 +79,41 @@ class RunModeConfig(BaseModel):
     require_execution_gate: bool = True
 
 
+_CLASS_PIPELINE = ModePipeline(
+    stages=(
+        NameOnlyStage("LoadMaterializedWorkflow"),
+        NameOnlyStage("ExecuteWorkflow"),
+        NameOnlyStage("RepairRuntimeFailure"),
+    ),
+    entry="LoadMaterializedWorkflow",
+    edges=(
+        PipelineEdge(from_stage="LoadMaterializedWorkflow", to_stage="ExecuteWorkflow"),
+        PipelineEdge(from_stage="ExecuteWorkflow", to_stage="completed", label="success"),
+        PipelineEdge(
+            from_stage="ExecuteWorkflow",
+            to_stage="RepairRuntimeFailure",
+            label="failure",
+        ),
+        PipelineEdge(
+            from_stage="RepairRuntimeFailure",
+            to_stage="ExecuteWorkflow",
+            label="retry",
+        ),
+        PipelineEdge(
+            from_stage="RepairRuntimeFailure",
+            to_stage="repair_escalated",
+            label="unrecoverable",
+        ),
+    ),
+    terminal_states=("completed", "repair_escalated"),
+)
+
+
 class RunMode(AgentMode):
     """Execute, monitor, and repair an AuthorMode-materialized workflow."""
 
     name = "run"
-    pipeline = ModePipeline(
-        stages=(
-            NameOnlyStage("LoadMaterializedWorkflow"),
-            NameOnlyStage("ExecuteWorkflow"),
-            NameOnlyStage("RepairRuntimeFailure"),
-        ),
-        entry="LoadMaterializedWorkflow",
-        edges=(
-            PipelineEdge(from_stage="LoadMaterializedWorkflow", to_stage="ExecuteWorkflow"),
-            PipelineEdge(from_stage="ExecuteWorkflow", to_stage="completed", label="success"),
-            PipelineEdge(
-                from_stage="ExecuteWorkflow",
-                to_stage="RepairRuntimeFailure",
-                label="failure",
-            ),
-            PipelineEdge(
-                from_stage="RepairRuntimeFailure",
-                to_stage="ExecuteWorkflow",
-                label="retry",
-            ),
-            PipelineEdge(
-                from_stage="RepairRuntimeFailure",
-                to_stage="repair_escalated",
-                label="unrecoverable",
-            ),
-        ),
-        terminal_states=("completed", "repair_escalated"),
-    )
+    pipeline = _CLASS_PIPELINE
 
     def __init__(
         self,
@@ -143,6 +127,35 @@ class RunMode(AgentMode):
         self.plan_folder = plan_folder
         self.experiment = experiment
         self._injected_handoff = handoff
+        # Per-run scratch — stages mutate, ``_completion`` reads.
+        self._workflow: Workflow | None = None
+        self._load_error: WorkflowLoadError | None = None
+        self._execution_outcome: ExecutionOutcome | None = None
+        self._final_report: RunReport | None = None
+        self._final_runtime_failure: RuntimeFailure | None = None
+        self._final_terminal_state: PlanState | None = None
+        # Pipeline tweaked from the class-level placeholder: real Stage
+        # subclasses bound to this mode instance. Note: the executor's
+        # default routing follows the first edge ("completed" for
+        # ExecuteWorkflow), so the success path leaves
+        # RepairRuntimeFailure unrun by the executor. We rebuild
+        # ``edges`` so all three stages run sequentially per phase 03's
+        # always-run RepairRuntimeFailure design: the third stage is
+        # an "always-final" decider that branches on outcome.
+        self.pipeline = ModePipeline(
+            stages=(
+                LoadMaterializedWorkflow(run_mode=self),
+                ExecuteWorkflow(run_mode=self),
+                RepairRuntimeFailure(run_mode=self),
+            ),
+            entry="LoadMaterializedWorkflow",
+            edges=(
+                PipelineEdge(from_stage="LoadMaterializedWorkflow", to_stage="ExecuteWorkflow"),
+                PipelineEdge(from_stage="ExecuteWorkflow", to_stage="RepairRuntimeFailure"),
+                PipelineEdge(from_stage="RepairRuntimeFailure", to_stage="completed"),
+            ),
+            terminal_states=("completed", "repair_escalated"),
+        )
 
     async def run(
         self,
@@ -164,7 +177,6 @@ class RunMode(AgentMode):
             )
             return
 
-        # Gate — nothing is imported or executed before it clears.
         gate_cleared = await self._clear_execution_gate(harness, handoff)
         if not gate_cleared:
             yield self._completion(
@@ -174,204 +186,68 @@ class RunMode(AgentMode):
             )
             return
 
-        async for event in self._run_after_gate(harness, handoff):
+        self._transition(PlanState.running)
+
+        # Reset per-run scratch.
+        self._workflow = None
+        self._load_error = None
+        self._execution_outcome = None
+        self._final_report = None
+        self._final_runtime_failure = None
+        self._final_terminal_state = None
+
+        async for event in self.run_pipeline(
+            harness=harness,
+            user_input=user_input,
+            initial_input=handoff,
+        ):
             yield event
 
-    # ── gate ─────────────────────────────────────────────────────────────
+        # Build the terminal completion event from stage-set state.
+        if self._load_error is not None:
+            yield self._completion(
+                harness,
+                text=f"RunMode could not load the materialized workflow: {self._load_error}",
+                terminal_state=PlanState.failed,
+            )
+            return
+        if self._execution_outcome is not None and self._execution_outcome.succeeded:
+            yield self._completion(
+                harness,
+                text=(
+                    f"Plan {handoff.plan_id} executed — "
+                    f"{len(self._execution_outcome.progress.steps)} step(s) completed."
+                ),
+                terminal_state=PlanState.completed,
+                report=self._final_report,
+            )
+            return
+        # Failure path — RepairRuntimeFailure stage set _final_terminal_state.
+        terminal_state = self._final_terminal_state or PlanState.failed
+        text = self._failure_text(handoff.plan_id, self._final_runtime_failure, terminal_state)
+        yield self._completion(
+            harness,
+            text=text,
+            terminal_state=terminal_state,
+            report=self._final_report,
+        )
 
     async def _clear_execution_gate(
         self, harness: AgentHarness, handoff: MaterializedWorkspaceHandoff
     ) -> bool:
-        """Consult the ``approve_execution`` gate; return whether it cleared.
-
-        With ``require_execution_gate=False`` the gate is bypassed
-        entirely (no import / execution happens before this returns).
-        """
         if not self.config.require_execution_gate:
             return True
         decision = await approve_execution_gate(handoff, harness=harness)
         return decision.approved
 
-    # ── post-gate pipeline ───────────────────────────────────────────────
-
-    async def _run_after_gate(
-        self, harness: AgentHarness, handoff: MaterializedWorkspaceHandoff
-    ) -> AsyncIterator[AgentEvent]:
-        """Load, execute, monitor, and repair — the post-gate pipeline."""
-        self._transition(PlanState.running)
-
-        try:
-            workflow = await self._load_stage(harness, handoff)
-        except WorkflowLoadError as exc:
-            await harness.emit(
-                ErrorEvent(message=str(exc), error_type=type(exc).__name__, stage_name="load")
-            )
-            self._safe_transition(PlanState.failed)
-            yield self._completion(
-                harness,
-                text=f"RunMode could not load the materialized workflow: {exc}",
-                terminal_state=PlanState.failed,
-            )
-            return
-
-        outcome = await self._execute_stage(harness, handoff, workflow)
-
-        if outcome.succeeded:
-            async for event in self._finish_success(harness, handoff, outcome):
-                yield event
-            return
-
-        async for event in self._finish_failure(harness, handoff, outcome):
-            yield event
-
-    async def _load_stage(
-        self, harness: AgentHarness, handoff: MaterializedWorkspaceHandoff
-    ) -> Workflow:
-        """Load the materialized workflow inside a harness stage."""
-        async with harness.stage("LoadMaterializedWorkflow"):
-            return load_materialized_workflow(handoff)
-
-    async def _execute_stage(
-        self,
-        harness: AgentHarness,
-        handoff: MaterializedWorkspaceHandoff,
-        workflow: Workflow,
-    ) -> ExecutionOutcome:
-        """Bind the workflow to a workspace ``Run`` and execute it."""
-        async with harness.stage("ExecuteWorkflow"):
-            run = self.experiment.add_run(id=f"run-{handoff.plan_id}")
-            executor = RunExecutor(
-                workflow=workflow,
-                run=run,
-                plan_graph=handoff.plan_graph,
-            )
-            return await executor.execute()
-
-    # ── success ──────────────────────────────────────────────────────────
-
-    async def _finish_success(
-        self,
-        harness: AgentHarness,
-        handoff: MaterializedWorkspaceHandoff,
-        outcome: ExecutionOutcome,
-    ) -> AsyncIterator[AgentEvent]:
-        """Persist a completed run and yield the terminal event."""
-        self._transition(PlanState.completed)
-        report = RunReport(
-            plan_id=handoff.plan_id,
-            status="completed",
-            run_id=outcome.run_id,
-            execution_id=outcome.execution_id,
-            progress=outcome.progress,
-        )
-        self._persist_report(report)
-        yield self._completion(
-            harness,
-            text=f"Plan {handoff.plan_id} executed — {len(outcome.progress.steps)} step(s) completed.",
-            terminal_state=PlanState.completed,
-            report=report,
-        )
-
-    # ── failure + repair ─────────────────────────────────────────────────
-
-    async def _finish_failure(
-        self,
-        harness: AgentHarness,
-        handoff: MaterializedWorkspaceHandoff,
-        outcome: ExecutionOutcome,
-    ) -> AsyncIterator[AgentEvent]:
-        """Classify the failure, emit a ``PlanDiff`` / escalation, persist."""
-        async with harness.stage("RepairRuntimeFailure"):
-            diff, escalation, failure = self._build_repair(handoff.plan_graph, outcome)
-
-        if diff is not None:
-            await harness.emit(
-                RepairProposedEvent(
-                    failed_invariant=diff.failed_invariant,
-                    rationale=diff.rationale,
-                )
-            )
-
-        terminal_state = (
-            PlanState.needs_clarification
-            if escalation is not None and escalation.requires_rematerialization
-            else PlanState.failed
-        )
-        self._safe_transition(terminal_state)
-
-        report = RunReport(
-            plan_id=handoff.plan_id,
-            status=terminal_state.value,
-            run_id=outcome.run_id,
-            execution_id=outcome.execution_id,
-            progress=outcome.progress,
-            repair_diffs=(diff,) if diff is not None else (),
-            escalation=escalation,
-        )
-        self._persist_report(report)
-
-        text = self._failure_text(handoff.plan_id, failure, terminal_state)
-        yield self._completion(harness, text=text, terminal_state=terminal_state, report=report)
-
-    def _build_repair(
-        self, plan_graph: PlanGraph, outcome: ExecutionOutcome
-    ) -> tuple[PlanDiff | None, RepairEscalation | None, RuntimeFailure | None]:
-        """Build a :class:`PlanDiff` + :class:`RepairEscalation` for a failure.
-
-        Identifies the failed step from the projected progress, classifies
-        its failure structurally (a runtime failure that reached RunMode
-        has already exhausted any per-step transient retries inside the
-        executor), and builds the typed repair contract.
-        """
-        failed_ids = outcome.progress.failed_step_ids
-        if not failed_ids:
-            return None, None, None
-        failed_id = failed_ids[0]
-        failed_step = plan_graph.step_by_id(failed_id)
-        if failed_step is None:
-            return None, None, None
-
-        progress_row = outcome.progress.step(failed_id)
-        attempts = progress_row.attempts if progress_row is not None else 1
-        failure = RuntimeFailure(
-            step_id=failed_id,
-            error_type=outcome.error_type or "WorkflowExecutionError",
-            message=outcome.error_message or f"step {failed_id!r} failed at runtime",
-            kind=RuntimeFailureKind.structural,
-            attempts=max(attempts, 1),
-        )
-        diff = build_repair_diff(plan_graph=plan_graph, failed_step=failed_step, failure=failure)
-        escalation = build_repair_escalation(plan_graph=plan_graph, diff=diff)
-        return diff, escalation, failure
-
-    # ── persistence ──────────────────────────────────────────────────────
-
-    def _persist_report(self, report: RunReport) -> None:
-        """Persist the :class:`RunReport` through a plan-anchored ``RunFolder``."""
-        run_folder = self._run_folder(report.plan_id)
-        run_folder.write_run_report(report)
-        run_folder.write_progress("final", report.progress)
-        if report.escalation is not None:
-            run_folder.write_repair_escalation(report.escalation)
-
-    def _run_folder(self, plan_id: str) -> RunFolder:
-        """Mount (idempotently) the plan-anchored :class:`RunFolder`."""
-        name = f"run-{plan_id}"
-        if not self.plan_folder.has_folder(name, cls=RunFolder):
-            self.plan_folder.add_folder(RunFolder(name=name, plan_id=plan_id))
-        return self.plan_folder.get_folder(name, cls=RunFolder)
-
-    # ── lifecycle ────────────────────────────────────────────────────────
-
     def _transition(self, dst: PlanState) -> None:
-        """Move the plan folder to ``dst`` — legal transitions only."""
         if self.plan_folder.plan_state is dst:
             return
         self.plan_folder.transition_to(dst)
         self.plan_folder.save()
 
     def _safe_transition(self, dst: PlanState) -> None:
-        """Best-effort transition to ``dst`` — swallow an illegal jump."""
+        """Best-effort transition; swallow an illegal jump (stage uses this)."""
         try:
             self._transition(dst)
         except IllegalPlanTransitionError:
@@ -380,13 +256,10 @@ class RunMode(AgentMode):
                 f"{dst.value}; leaving plan state unchanged"
             )
 
-    # ── terminal event ───────────────────────────────────────────────────
-
     @staticmethod
     def _failure_text(
         plan_id: str, failure: RuntimeFailure | None, terminal_state: PlanState
     ) -> str:
-        """Render the terminal-event text for a failed run."""
         if terminal_state is PlanState.needs_clarification:
             return (
                 f"Execution of plan {plan_id} needs re-materialization — escalated to AuthorMode."
@@ -408,10 +281,10 @@ class RunMode(AgentMode):
     ) -> ModeCompletedEvent:
         """Fold the run into the terminal :class:`ModeCompletedEvent`."""
         breakdown = harness.router.snapshot_usage()
+        harness.session.append_message(Message(role="assistant", content=text))
         mode_state: dict[str, object] = {"plan_state": terminal_state.value}
         if report is not None:
             mode_state["run"] = report.model_dump(mode="json")
-        harness.session.append_message(Message(role="assistant", content=text))
         result = AgentRunResult(
             text=text,
             messages=harness.session.build_context(),
