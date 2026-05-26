@@ -13,28 +13,25 @@ from molexp.agent.harness.events import (
 )
 from molexp.agent.modes._planning import PlanState
 from molexp.agent.modes.author._mode import AuthorMode, AuthorModeConfig
-from molexp.agent.modes.author.codegen import GeneratedModule, TaskIRBrief
+from molexp.agent.modes.author.codegen import GeneratedModule, TaskImplDraft, TaskIRBrief
 from molexp.agent.modes.author.handoff import MaterializedWorkspaceHandoff
 
 from .conftest import ScriptedRouter, make_harness
 
 
 def _module(node_id: str) -> GeneratedModule:
+    """Test-codegen factory — tests still use the freeform ``GeneratedModule`` schema."""
     task_id = node_id.rsplit("/", 1)[-1]
-    if node_id.startswith("GenerateTaskTests"):
-        return GeneratedModule(
-            task_id=task_id,
-            source=f"def test_{task_id}() -> None:\n    assert True\n",
-        )
     return GeneratedModule(
         task_id=task_id,
-        source=(
-            "from molexp.workflow import Task\n\n\n"
-            f"class {task_id.title()}(Task):\n"
-            "    async def execute(self, ctx):\n"
-            "        return None\n"
-        ),
+        source=f"def test_{task_id}() -> None:\n    assert True\n",
     )
+
+
+def _impl_draft(node_id: str) -> TaskImplDraft:
+    """Impl-codegen factory — body-only draft; the assembler wraps it."""
+    del node_id
+    return TaskImplDraft(imports=(), body="pass")
 
 
 def _scripted_router() -> ScriptedRouter:
@@ -45,6 +42,7 @@ def _scripted_router() -> ScriptedRouter:
         ]
     )
     router.register_factory(GeneratedModule, _module)
+    router.register_factory(TaskImplDraft, _impl_draft)
     return router
 
 

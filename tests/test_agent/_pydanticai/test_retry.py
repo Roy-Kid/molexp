@@ -21,8 +21,14 @@ def test_retry_policy_default_construction() -> None:
     assert policy.max_attempts == 3
     assert policy.backoff_seconds == 0.5
     assert ErrorKind.model_unavailable in policy.retry_on
-    assert ErrorKind.schema_parse in policy.retry_on
     assert ErrorKind.timeout in policy.retry_on
+    # schema_parse is deliberately NOT in the default retry_on after
+    # ``plan-mode-pydanticai-rewrite``: pydantic-ai's Agent(output_retries=N)
+    # retries schema-parse failures at the model level with the
+    # validation error fed back as a cheap follow-up turn; the router
+    # used to re-issue the full prompt on the same kind of failure and
+    # burned 14:30 min on one call in production.
+    assert ErrorKind.schema_parse not in policy.retry_on
     assert ErrorKind.validation not in policy.retry_on
     assert ErrorKind.unknown not in policy.retry_on
 

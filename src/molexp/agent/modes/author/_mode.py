@@ -47,7 +47,7 @@ from molexp.agent.modes._planning import (
     PlanGraph,
     PlanState,
 )
-from molexp.agent.modes.author.codegen import GeneratedModule
+from molexp.agent.modes.author.codegen import RepairDecision
 from molexp.agent.modes.author.handoff import MaterializedWorkspaceHandoff
 from molexp.agent.modes.author.lowering import LoweringResult
 from molexp.agent.modes.author.stages import (
@@ -307,7 +307,7 @@ class AuthorMode(AgentMode):
             handoff=materialized,
         )
 
-    def _build_repair_callable(self) -> Callable[[str], Awaitable[GeneratedModule]] | None:
+    def _build_repair_callable(self) -> Callable[[str], Awaitable[RepairDecision]] | None:
         """Lazily build the MCP-attached repair callable for the debug loop."""
         if self._repair_model is None:
             return None

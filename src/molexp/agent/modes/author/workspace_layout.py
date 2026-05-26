@@ -106,12 +106,26 @@ class MaterializedLayout:
         return self.package_dir() / "workflow.py"
 
     def task_impl_path(self, task_id: str) -> Path:
-        """Path of one task's implementation (``src/experiment/tasks/<task>.py``)."""
-        return self.tasks_pkg_dir() / f"{task_id}.py"
+        """Path of one task's implementation (``src/experiment/tasks/<task>.py``).
+
+        ``task_id`` is slugified to an identifier-safe Python module
+        name so the renderer can emit ``from .tasks.<module> import …``
+        — PlanGraph step ids like ``step-1-build-peo-chain`` are not
+        valid Python module names.
+        """
+        from molexp.agent.modes.author.renderers import module_id
+
+        return self.tasks_pkg_dir() / f"{module_id(task_id)}.py"
 
     def task_test_path(self, task_id: str) -> Path:
-        """Path of one task's test (``tests/test_<task>.py``)."""
-        return self.tests_dir() / f"test_{task_id}.py"
+        """Path of one task's test (``tests/test_<task>.py``).
+
+        ``task_id`` is slugified so the test file name is identifier-safe
+        (matches the module-name convention pytest expects).
+        """
+        from molexp.agent.modes.author.renderers import module_id
+
+        return self.tests_dir() / f"test_{module_id(task_id)}.py"
 
     def manifest_path(self) -> Path:
         """Path of the materialization manifest (``manifest.yaml``)."""

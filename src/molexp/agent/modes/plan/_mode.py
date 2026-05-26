@@ -1,37 +1,37 @@
 """``PlanMode`` — the read-only typed planner driven on the harness.
 
-PlanMode is an :class:`~molexp.agent.mode.AgentMode` with the
-harness-based contract: ``run(*, harness, user_input)`` is an async
-generator yielding :data:`~molexp.agent.harness.events.AgentEvent`\\ s.
-After ``agent-mode-stage-pipeline-02``, the seven stages are
-**first-class** :class:`~molexp.agent.harness.stage.Stage` subclasses
-under :mod:`molexp.agent.modes.plan.stages`; the substrate's
-:func:`~molexp.agent.harness.pipeline.execute_pipeline` walks them with
-three registered :class:`~molexp.agent.harness.repair.RepairPolicy`
-rewinds (clarification-required / preflight-failed / repair-proposed)
-+ a :class:`PlanState` ``lifecycle_validator``.
+After the ``plan-mode-pydanticai-rewrite`` collapse, PlanMode is a
+**5-stage** :class:`~molexp.agent.mode.AgentMode`:
 
-PlanMode's own ``run`` body reduces to:
+1. ``SynthesizeIntent`` — one structured call.
+2. ``ClarifyIntent`` — pure routing.
+3. ``ResearchAndPlan`` — one MCP-attached pydantic-ai agentic call that
+   researches the toolchain via molmcp and emits a typed ``PlanGraph``
+   with ``api_refs`` + ``composition_notes`` inline. Replaces the
+   previous ``ExploreCapabilities`` + ``SynthesizeCandidates`` +
+   ``SelectPlan`` triple.
+4. ``PreflightPlanGraph`` — pure structural preflight (5 checks).
+5. ``EmitApprovedPlan`` — ``approve_direction`` gate + handoff emission.
 
-- emit :class:`ModeStartedEvent` and append the user turn;
-- resolve the capability probe;
-- delegate to :meth:`run_pipeline` (the substrate drains the seven
-  stages);
-- finalize ``awaiting_approval → rejected`` when a rejection
-  exhausted the repair budget — the executor routes to the
-  ``rejected`` terminal without transitioning ``plan_folder`` itself
-  (the per-stage rule is that the rejection stage doesn't transition
-  on its own, so the lifecycle stays consistent across rewinds);
-- yield :class:`ModeCompletedEvent`.
+The substrate's :func:`execute_pipeline` walks the stages with two
+:class:`RepairPolicy` rewinds — both rewinding to ``ResearchAndPlan``
+on a preflight or rejection failure, bounded by
+``config.max_repair_iterations``.
 
 Plan artefacts persist through the bound :class:`PlanFolder`;
 conversation entries go through the harness :class:`Session`.
+
+The previous ``probe`` surface (``capability_probe=`` / ``probe_model=``
+constructor kwargs, ``_resolve_probe``, ``PydanticAICapabilityProbe``)
+is gone — the single ``ResearchAndPlan`` agent handles research +
+planning in one MCP-attached call.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
+from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
@@ -48,22 +48,22 @@ from molexp.agent.modes._planning import (
     IllegalPlanTransitionError,
     PlanState,
 )
-from molexp.agent.modes.plan.capability_probe_null import NullCapabilityProbe
 from molexp.agent.modes.plan.handoff import ApprovedPlanHandoff
 from molexp.agent.modes.plan.plan_folder import PlanFolder
-from molexp.agent.modes.plan.protocols import CapabilityProbe
 from molexp.agent.modes.plan.stages import (
     ClarifyIntent,
     EmitApprovedPlan,
-    ExploreCapabilities,
     PreflightPlanGraph,
-    SelectPlan,
-    SynthesizeCandidates,
+    ResearchAndPlan,
     SynthesizeIntent,
 )
-from molexp.agent.modes.plan.state import PlanRuntimeState
 from molexp.agent.types import Message
 
+# The research_planner is a pydantic-ai ``Agent[None, PlanGraph]`` —
+# typed as ``Any`` here so this module stays inside the agent-layer
+# firewall (no top-level ``import pydantic_ai``). The concrete agent
+# instance is built behind the ``_pydanticai/`` boundary in
+# ``_build_research_planner``.
 __all__ = ["PlanMode", "PlanModeConfig"]
 
 
@@ -83,34 +83,29 @@ class PlanModeConfig(BaseModel):
 
 # Class-level declarative pipeline (NameOnlyStage placeholders) used by
 # ``get_flowchart`` on bare instances + the no-drift guard. The real
-# instance-level pipeline (with executable Stage instances + repair
-# policies + lifecycle validator) is built in ``__init__`` and shadows
-# this attribute on each instance.
+# instance-level pipeline is built in ``__init__`` and shadows this
+# attribute per instance.
 _CLASS_PIPELINE = ModePipeline(
     stages=(
         NameOnlyStage("SynthesizeIntent"),
         NameOnlyStage("ClarifyIntent"),
-        NameOnlyStage("ExploreCapabilities"),
-        NameOnlyStage("SynthesizeCandidates"),
-        NameOnlyStage("SelectPlan"),
+        NameOnlyStage("ResearchAndPlan"),
         NameOnlyStage("PreflightPlanGraph"),
         NameOnlyStage("EmitApprovedPlan"),
     ),
     entry="SynthesizeIntent",
     edges=(
         PipelineEdge(from_stage="SynthesizeIntent", to_stage="ClarifyIntent"),
-        # "ok" edge is FIRST so the substrate's default-routing picks
-        # the happy path; clarification routing is event-driven via the
-        # ``clarification_required`` RepairPolicy.
-        PipelineEdge(from_stage="ClarifyIntent", to_stage="ExploreCapabilities", label="ok"),
+        # "ok" edge listed FIRST so the substrate's default routing picks
+        # the happy path; the clarification branch is event-driven via
+        # the ``clarification_required`` RepairPolicy.
+        PipelineEdge(from_stage="ClarifyIntent", to_stage="ResearchAndPlan", label="ok"),
         PipelineEdge(
             from_stage="ClarifyIntent",
             to_stage="needs_clarification",
             label="blocked",
         ),
-        PipelineEdge(from_stage="ExploreCapabilities", to_stage="SynthesizeCandidates"),
-        PipelineEdge(from_stage="SynthesizeCandidates", to_stage="SelectPlan"),
-        PipelineEdge(from_stage="SelectPlan", to_stage="PreflightPlanGraph"),
+        PipelineEdge(from_stage="ResearchAndPlan", to_stage="PreflightPlanGraph"),
         PipelineEdge(
             from_stage="PreflightPlanGraph",
             to_stage="EmitApprovedPlan",
@@ -118,7 +113,7 @@ _CLASS_PIPELINE = ModePipeline(
         ),
         PipelineEdge(
             from_stage="PreflightPlanGraph",
-            to_stage="SynthesizeCandidates",
+            to_stage="ResearchAndPlan",
             label="fail, repair",
         ),
         PipelineEdge(
@@ -129,7 +124,7 @@ _CLASS_PIPELINE = ModePipeline(
         PipelineEdge(from_stage="EmitApprovedPlan", to_stage="approved", label="approved"),
         PipelineEdge(
             from_stage="EmitApprovedPlan",
-            to_stage="SynthesizeCandidates",
+            to_stage="ResearchAndPlan",
             label="rejected, repair",
         ),
         PipelineEdge(
@@ -148,7 +143,7 @@ _CLASS_PIPELINE = ModePipeline(
 
 
 class PlanMode(AgentMode):
-    """The read-only typed planner — seven first-class Stages, no codegen."""
+    """The read-only typed planner — five first-class Stages, no codegen."""
 
     name = "plan"
     pipeline = _CLASS_PIPELINE
@@ -158,37 +153,57 @@ class PlanMode(AgentMode):
         *,
         config: PlanModeConfig | None = None,
         plan_folder: PlanFolder,
-        capability_probe: CapabilityProbe | None = None,
-        probe_model: object | None = None,
+        research_planner: Any | None = None,  # noqa: ANN401 — pydantic-ai Agent kept behind firewall
+        molmcp_command: str = "molmcp",
+        molmcp_args: tuple[str, ...] = (),
+        molmcp_env: dict[str, str] | None = None,
+        planner_model: object | None = None,
         workspace: Path | None = None,
     ) -> None:
+        """Construct the mode.
+
+        Args:
+            config: Tunables (repair budget). Defaults to
+                :class:`PlanModeConfig`.
+            plan_folder: The :class:`PlanFolder` artefacts persist
+                through.
+            research_planner: An explicitly-injected pydantic-ai
+                ``Agent[None, PlanGraph]`` — used by tests. Wins over
+                lazy construction from the model kwargs.
+            molmcp_command: Executable for the molmcp MCP server (used
+                when ``research_planner`` is None and ``planner_model``
+                is set).
+            molmcp_args: Optional CLI args for the MCP server.
+            molmcp_env: Optional environment overlay for the MCP server.
+            planner_model: pydantic-ai model identifier (e.g.
+                ``"deepseek:deepseek-v4-flash"``). When set and
+                ``research_planner`` is None, the agent is built lazily
+                from this + the molmcp configuration on first
+                ``ResearchAndPlan`` entry.
+            workspace: Optional workspace root (unused by this layer;
+                kept for symmetry with sibling modes).
+        """
         self.config = config or PlanModeConfig()
         self.plan_folder = plan_folder
-        self._injected_probe = capability_probe
-        self._probe_model = probe_model
+        self._injected_planner = research_planner
+        self._planner_model = planner_model
+        self._molmcp_command = molmcp_command
+        self._molmcp_args = molmcp_args
+        self._molmcp_env = molmcp_env
         self._workspace = workspace
-        self._runtime = PlanRuntimeState()
-        self._probe: CapabilityProbe = NullCapabilityProbe()
         self._handoff: ApprovedPlanHandoff | None = None
         # Shadow the class-level declarative pipeline with the executable
         # one (carries real Stage instances + RepairPolicy + lifecycle).
         self.pipeline = self._build_pipeline()
 
     def _build_pipeline(self) -> ModePipeline:
-        """Construct the executable :class:`ModePipeline` for this run.
-
-        Real Stage instances replace the class-level ``NameOnlyStage``
-        placeholders; three :class:`RepairPolicy` rewinds and the
-        per-mode :class:`PlanState` lifecycle validator plug in.
-        """
+        """Construct the executable :class:`ModePipeline` for this run."""
         max_iter = self.config.max_repair_iterations
         return ModePipeline(
             stages=(
                 SynthesizeIntent(plan_mode=self),
                 ClarifyIntent(plan_mode=self),
-                ExploreCapabilities(plan_mode=self),
-                SynthesizeCandidates(plan_mode=self),
-                SelectPlan(plan_mode=self),
+                ResearchAndPlan(plan_mode=self),
                 PreflightPlanGraph(plan_mode=self),
                 EmitApprovedPlan(plan_mode=self),
             ),
@@ -207,13 +222,13 @@ class PlanMode(AgentMode):
                 ),
                 RepairPolicy(
                     trigger_event_kind="preflight_failed",
-                    rewind_to="SynthesizeCandidates",
+                    rewind_to="ResearchAndPlan",
                     max_iterations=max_iter,
                     on_exhausted="preflight_failed",
                 ),
                 RepairPolicy(
                     trigger_event_kind="repair_proposed",
-                    rewind_to="SynthesizeCandidates",
+                    rewind_to="ResearchAndPlan",
                     max_iterations=max_iter,
                     on_exhausted="rejected",
                 ),
@@ -222,15 +237,7 @@ class PlanMode(AgentMode):
         )
 
     def _build_lifecycle_validator(self) -> Callable[[Stage, AgentHarness], None]:
-        """Return a callable that drives ``pre_state``-tagged transitions.
-
-        The substrate calls it once per stage entry. The validator
-        translates the stage's opaque ``pre_state`` string tag into a
-        :class:`PlanState` value and transitions ``plan_folder`` when
-        the current state differs from the target. Illegal moves are
-        silently ignored — the executor's repair policies will route
-        the pipeline to the correct terminal next.
-        """
+        """Return a callable that drives ``pre_state``-tagged transitions."""
         plan_mode = self
 
         def _validator(stage: Stage, _harness: AgentHarness) -> None:
@@ -251,27 +258,31 @@ class PlanMode(AgentMode):
 
         return _validator
 
-    def _resolve_probe(self) -> CapabilityProbe:
-        """Return the capability probe to use for ``ExploreCapabilities``.
+    def _build_research_planner(self) -> Any:  # noqa: ANN401 — pydantic-ai Agent
+        """Return the ``ResearchAndPlan`` agent for this run.
 
-        An explicitly injected probe wins. Otherwise, when a model is
-        configured, the production molmcp-backed
-        :class:`PydanticAICapabilityProbe` is built lazily (behind the
-        ``_pydanticai/`` firewall). When no molmcp server is
-        configured, the fail-closed :class:`NullCapabilityProbe` is
-        used.
+        An explicitly-injected planner wins. Otherwise, when a model is
+        configured, the production pydantic-ai-native agent is built
+        lazily (behind the ``_pydanticai/`` firewall).
         """
-        if self._injected_probe is not None:
-            return self._injected_probe
-        if self._probe_model is not None:
-            from molexp.agent._pydanticai.capability_probe_factory import (
-                build_capability_probe,
+        if self._injected_planner is not None:
+            return self._injected_planner
+        if self._planner_model is None:
+            raise RuntimeError(
+                "PlanMode.ResearchAndPlan needs either an injected research_planner "
+                "or a planner_model="
             )
+        from molexp.agent._pydanticai.research_planner import build_research_planner
 
-            probe = build_capability_probe(workspace=self._workspace, model=self._probe_model)
-            if probe is not None:
-                return probe
-        return NullCapabilityProbe()
+        # The model identifier is opaque to molexp — pydantic-ai accepts
+        # several shapes (model strings, KnownModelName, Model instances)
+        # and the firewall keeps that union behind ``_pydanticai/``.
+        return build_research_planner(
+            cast("Any", self._planner_model),
+            molmcp_command=self._molmcp_command,
+            molmcp_args=self._molmcp_args,
+            molmcp_env=self._molmcp_env,
+        )
 
     async def run(
         self,
@@ -279,13 +290,11 @@ class PlanMode(AgentMode):
         harness: AgentHarness,
         user_input: str,
     ) -> AsyncIterator[AgentEvent]:
-        """Drive the seven-stage read-only pipeline, yielding events."""
+        """Drive the five-stage read-only pipeline, yielding events."""
         await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
         harness.session.append_message(Message(role="user", content=user_input))
         harness.router.clear_usage()
-        self._probe = self._resolve_probe()
         self._handoff = None
-        self._runtime = PlanRuntimeState()
 
         async for event in self.run_pipeline(
             harness=harness,
@@ -295,11 +304,8 @@ class PlanMode(AgentMode):
             yield event
 
         # Post-pipeline finalize: on a rejection-exhausted run the
-        # executor routes to the ``rejected`` terminal without
-        # transitioning plan_folder (EmitApprovedPlan deliberately
-        # doesn't transition on reject — it lets the lifecycle
-        # validator transition ``awaiting_approval → draft_plan`` on
-        # rewind). Complete the transition to ``rejected`` here.
+        # executor routes to ``rejected`` without transitioning
+        # plan_folder. Complete the transition here.
         if self.plan_folder.plan_state is PlanState.awaiting_approval:
             self._transition(PlanState.rejected)
 

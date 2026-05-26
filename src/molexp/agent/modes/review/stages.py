@@ -109,7 +109,7 @@ class RunReviewChecks(Stage[str, str]):
         mode = self._mode
         findings = (
             *check_intent_conformance(mode._intent, mode._plan_graph),
-            *check_capability_evidence(mode._plan_graph, mode._capability_graph),
+            *check_capability_evidence(mode._plan_graph),
             *check_lifecycle_consistency(mode._plan_graph),
         )
         mode._findings = findings

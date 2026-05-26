@@ -33,12 +33,12 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from typing import cast
 
 import mollog
-from mollog import TextFormatter
+from mollog import TextFormatter, Timer
 
 from molexp.agent import AgentRunner, cli_ask
 from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent
@@ -50,6 +50,7 @@ from molexp.agent.modes import (
 )
 from molexp.agent.modes.plan import ApprovedPlanHandoff, PlanFolder
 from molexp.agent.router import ModelTier
+from molexp.agent.types import utc_now
 from molexp.workspace import Workspace
 
 _DEBUG = "--debug" in sys.argv[1:]
@@ -60,15 +61,25 @@ mollog.configure(
     level="DEBUG" if _DEBUG else "INFO",
     formatter=TextFormatter(template="{timestamp} - {message}", datefmt="%H:%M:%S"),
 )
+# Ensure progress prints survive a buffered redirect (e.g. ``> log.txt``).
+# Without this, a run that ends with an unhandled error inside an
+# async generator can drop the last 4 KB of stdout (the timing summary).
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
-# Per-tier model map. Tweak to whatever your key reaches.
+# Per-tier model map. DeepSeek's current API exposes `deepseek-v4-flash`
+# (general) and `deepseek-v4-pro` (premium). `deepseek-chat` /
+# `deepseek-reasoner` are deprecated aliases (sunset 2026/07/24).
 TIER_MODELS: dict[ModelTier, str] = {
-    ModelTier.CHEAP: "deepseek:deepseek-chat",
-    ModelTier.DEFAULT: "deepseek:deepseek-chat",
-    ModelTier.HEAVY: "deepseek:deepseek-reasoner",
+    ModelTier.CHEAP: "deepseek:deepseek-v4-flash",
+    ModelTier.DEFAULT: "deepseek:deepseek-v4-flash",
+    ModelTier.HEAVY: "deepseek:deepseek-v4-pro",
 }
-PROBE_MODEL = "deepseek:deepseek-chat"
-REPAIR_MODEL = "deepseek:deepseek-chat"
+# PlanMode's single research-and-plan agent (MCP-attached). Flash is fine
+# — pydantic-ai drives the tool-call loop.
+PLANNER_MODEL = "deepseek:deepseek-v4-flash"
+# AuthorMode's source-grounded debug-loop repair model. Still benefits
+# from the strong tier because it has to read project source.
+REPAIR_MODEL = "deepseek:deepseek-v4-pro"
 
 
 REPORT = """Molexp can automatically execute a reproducible simulation campaign for zwitterionic polymers with different charge topologies. Each polymer structure is defined using CGSMILES, where the relative placement of cationic and anionic groups is varied while keeping the chain length, number of chains, coarse-grained mapping, and simulation cell preparation protocol identical across all systems. This ensures that differences in the final properties mainly reflect structural topology rather than system-size effects.
@@ -92,35 +103,72 @@ def _report() -> str:
     return SMOKE_TEST_REPORT if _SMOKE else REPORT
 
 
-def _print_event(event: AgentEvent) -> None:
-    """Render one orchestration event as a single readable line."""
+def _handle_event(
+    event: AgentEvent,
+    starts: dict[str, datetime],
+    elapsed: list[tuple[str, float]],
+) -> None:
+    """Render one event + record per-stage elapsed into ``elapsed``.
+
+    Timings come from each event's own ``timestamp`` field, which the
+    harness stamps at emission time. Reading wall-clock here would
+    measure only the gap between drains in ``AgentRunner.run_events``
+    (which buffers harness emissions until the mode next yields) — that
+    produced bogus 0.01s readings for stages whose final yields landed
+    after a sibling stage had already started.
+    """
     kind = event.kind
+    ts: datetime = getattr(event, "timestamp", utc_now())
     if kind == "stage_started":
-        print(f"  ▶ {getattr(event, 'stage_name', '?')}")
+        name = getattr(event, "stage_name", "?")
+        starts[name] = ts
+        print(f"  ▶ {name}", flush=True)
     elif kind == "stage_completed":
-        print(f"  ✔ {getattr(event, 'stage_name', '?')}")
+        name = getattr(event, "stage_name", "?")
+        start_ts = starts.pop(name, None)
+        seconds = (ts - start_ts).total_seconds() if start_ts is not None else 0.0
+        elapsed.append((name, seconds))
+        print(f"  ✔ {name}  [{seconds:.2f}s]", flush=True)
     elif kind == "artifact_written":
-        print(f"    · wrote {getattr(event, 'description', '')}")
+        print(f"    · wrote {getattr(event, 'description', '')}", flush=True)
     elif kind == "approval_requested":
-        print(f"  ? approval: {getattr(event, 'gate', '?')}")
+        print(f"  ? approval: {getattr(event, 'gate', '?')}", flush=True)
     elif kind == "repair_proposed":
-        print(f"  ↻ repair: {getattr(event, 'failed_invariant', '')}")
+        print(f"  ↻ repair: {getattr(event, 'failed_invariant', '')}", flush=True)
     elif kind == "error":
-        print(f"  ✗ ERROR: {getattr(event, 'message', '')}")
+        print(f"  ✗ ERROR: {getattr(event, 'message', '')}", flush=True)
     elif kind not in ("mode_started", "mode_completed", "approval_decided"):
-        print(f"  · {kind}")
+        print(f"  · {kind}", flush=True)
 
 
-async def _drive(runner: AgentRunner, session_id: str) -> ModeCompletedEvent:
-    """Drive ``runner`` end-to-end and return the terminal ``ModeCompletedEvent``."""
+def _print_timing_summary(label: str, total: float, elapsed: list[tuple[str, float]]) -> None:
+    """Print a per-stage timing table + total."""
+    print(f"\n  ── {label} timing summary ──")
+    if not elapsed:
+        print("    (no stages recorded)")
+    else:
+        width = max(len(name) for name, _ in elapsed)
+        for name, secs in elapsed:
+            pct = 100.0 * secs / total if total > 0 else 0.0
+            print(f"    {name:<{width}}  {secs:7.2f}s  {pct:5.1f}%")
+    print(f"    {'TOTAL':<{max(5, max((len(n) for n, _ in elapsed), default=5))}}  {total:7.2f}s")
+
+
+async def _drive(
+    runner: AgentRunner, session_id: str, label: str
+) -> tuple[ModeCompletedEvent, float, list[tuple[str, float]]]:
+    """Drive ``runner`` end-to-end; return terminal + total + per-stage elapsed."""
     session = runner.session(session_id)
+    starts: dict[str, datetime] = {}
+    elapsed: list[tuple[str, float]] = []
     terminal: ModeCompletedEvent | None = None
-    async for event in runner.run_events(session, _report()):
-        _print_event(event)
-        if isinstance(event, ModeCompletedEvent):
-            terminal = event
+    with Timer(label, log=False) as total:
+        async for event in runner.run_events(session, _report()):
+            _handle_event(event, starts, elapsed)
+            if isinstance(event, ModeCompletedEvent):
+                terminal = event
     assert terminal is not None, "every AgentMode must yield a terminal ModeCompletedEvent"
-    return terminal
+    return terminal, total.elapsed, elapsed
 
 
 def _dump_materialized_workspace(ws_path: Path) -> None:
@@ -158,9 +206,23 @@ def _dump_materialized_workspace(ws_path: Path) -> None:
 
 
 async def main() -> int:
-    # delete=False so the materialized workspace survives for inspection.
-    with TemporaryDirectory(delete=False) as tmp:
-        workspace = Workspace(Path(tmp))
+    # Write smoke artefacts under ``examples/agent/smoke_runs/<ts>/`` so
+    # they can be reviewed in-tree instead of being scattered across
+    # ``/var/folders/...``. Each run gets its own timestamped directory
+    # — the parent ``smoke_runs/`` is gitignored so the artefacts don't
+    # get committed by accident; delete the dir to clean up.
+    runs_root = Path(__file__).resolve().parent / "smoke_runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+    run_dir = runs_root / datetime.now().strftime("%Y%m%d-%H%M%S")
+    run_dir.mkdir()
+    workspace = Workspace(run_dir)
+    # Point molmcp's MolexpProvider at this run's workspace so the
+    # MCP server's ``molexp_list_projects`` tool resolves cleanly
+    # instead of dumping a 30-line stack-trace banner every call.
+    # Plumbed through the MCP-server env (per-subprocess) rather than
+    # mutating ``os.environ`` of the parent — molmcp_env is forwarded
+    # to ``StdioTransport(env=...)``.
+    molmcp_env = {"MOLEXP_WORKSPACE": str(workspace.root)}
     plan_folder = cast(PlanFolder, workspace.add_folder(PlanFolder(name="demo")))
 
     mollog.info(f"author run | plan_id={plan_folder.plan_id} workspace={workspace.root}")
@@ -169,7 +231,8 @@ async def main() -> int:
     planner = PlanMode(
         config=PlanModeConfig(max_repair_iterations=2),
         plan_folder=plan_folder,
-        probe_model=PROBE_MODEL,
+        planner_model=PLANNER_MODEL,
+        molmcp_env=molmcp_env,
         workspace=workspace.root,
     )
     plan_runner = AgentRunner(
@@ -181,7 +244,8 @@ async def main() -> int:
     print("=" * 72)
     print(f"PlanMode — {'smoke (PEO chain)' if _SMOKE else 'full campaign'}")
     print("=" * 72)
-    plan_terminal = await _drive(plan_runner, "plan-demo")
+    plan_terminal, plan_total, plan_elapsed = await _drive(plan_runner, "plan-demo", "PlanMode")
+    _print_timing_summary("PlanMode", plan_total, plan_elapsed)
 
     assert plan_terminal.result is not None
     plan_state = (plan_terminal.result.get("mode_state") or {}).get("plan_state")
@@ -215,7 +279,11 @@ async def main() -> int:
     print("\n" + "=" * 72)
     print("AuthorMode — materializing the approved plan")
     print("=" * 72)
-    author_terminal = await _drive(author_runner, "author-demo")
+    author_terminal, author_total, author_elapsed = await _drive(
+        author_runner, "author-demo", "AuthorMode"
+    )
+    _print_timing_summary("AuthorMode", author_total, author_elapsed)
+    print(f"\n  ▣ Plan + Author wall-clock: {plan_total + author_total:.2f}s")
 
     assert author_terminal.result is not None
     mode_state = author_terminal.result.get("mode_state") or {}
@@ -232,6 +300,21 @@ async def main() -> int:
         print(f"    cd {ws_path} && PYTHONPATH=src pytest tests/ -q")
     else:
         print("  Materialization did not produce a handoff — see stage output above.")
+        # Surface any captured codegen / validation failure so the operator
+        # doesn't have to dig through the (silenced) stage internals.
+        cg_err = getattr(author, "_codegen_error", None)
+        if cg_err is not None:
+            print(f"\n  CodegenError: {cg_err}")
+            missing = getattr(cg_err, "missing", ())
+            for m in missing:
+                print(f"    · missing: {m.ref} — {m.detail}")
+        vr = getattr(author, "_validation_report", None)
+        if vr is not None and not getattr(vr, "ok", True):
+            print("\n  WorkflowContract validation issues:")
+            for issue in vr.issues:
+                sev = getattr(issue, "severity", "?")
+                msg = getattr(issue, "message", "")
+                print(f"    [{sev}] {msg}")
 
     print(f"\n  cd {workspace.root}")
     return 0

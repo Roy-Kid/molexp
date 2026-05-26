@@ -24,9 +24,7 @@ Subtree layout::
     <parent>/plans/<plan_id>/
     ├── plan_folder.json    # PlanFolder own metadata + lifecycle state
     ├── intent.json         # the typed IntentSpec
-    ├── capability_graph.json
-    ├── candidates/<label>.json   # one candidate PlanGraph per label
-    ├── selected_plan.json
+    ├── plan_graph.json     # the typed PlanGraph emitted by ResearchAndPlan
     └── preflight_report.json
 
 Construction is side-effect free; ``parent.add_folder(plan)`` /
@@ -40,7 +38,6 @@ from typing import TYPE_CHECKING, cast
 
 from molexp._typing import JSONValue
 from molexp.agent.modes._planning import (
-    CapabilityGraph,
     IntentSpec,
     PlanGraph,
     PlanState,
@@ -201,23 +198,9 @@ class PlanFolder(Folder):
         atomic_write_text(path, intent.model_dump_json(indent=2))
         return path
 
-    def write_capability_graph(self, graph: CapabilityGraph) -> Path:
-        """Persist the typed :class:`CapabilityGraph` to ``capability_graph.json``."""
-        path = self._root() / "capability_graph.json"
-        atomic_write_text(path, graph.model_dump_json(indent=2))
-        return path
-
-    def write_candidate(self, label: str, plan_graph: PlanGraph) -> Path:
-        """Persist one candidate :class:`PlanGraph` to ``candidates/<label>.json``."""
-        candidates_dir = self._root() / "candidates"
-        candidates_dir.mkdir(parents=True, exist_ok=True)
-        path = candidates_dir / f"{label}.json"
-        atomic_write_text(path, plan_graph.model_dump_json(indent=2))
-        return path
-
-    def write_selected_plan(self, plan_graph: PlanGraph) -> Path:
-        """Persist the selected :class:`PlanGraph` to ``selected_plan.json``."""
-        path = self._root() / "selected_plan.json"
+    def write_plan_graph(self, plan_graph: PlanGraph) -> Path:
+        """Persist the typed :class:`PlanGraph` to ``plan_graph.json``."""
+        path = self._root() / "plan_graph.json"
         atomic_write_text(path, plan_graph.model_dump_json(indent=2))
         return path
 

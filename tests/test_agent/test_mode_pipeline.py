@@ -244,9 +244,7 @@ def test_plan_mode_pipeline_stages_and_terminals() -> None:
     assert _names(PlanMode.pipeline) == (
         "SynthesizeIntent",
         "ClarifyIntent",
-        "ExploreCapabilities",
-        "SynthesizeCandidates",
-        "SelectPlan",
+        "ResearchAndPlan",
         "PreflightPlanGraph",
         "EmitApprovedPlan",
     )
@@ -262,5 +260,5 @@ def test_plan_mode_pipeline_has_branch_and_loop_edges() -> None:
     edges = PlanMode.pipeline.edges
     pairs = {(e.from_stage, e.to_stage) for e in edges}
     assert ("ClarifyIntent", "needs_clarification") in pairs
-    assert ("PreflightPlanGraph", "SynthesizeCandidates") in pairs
-    assert ("EmitApprovedPlan", "SynthesizeCandidates") in pairs
+    assert ("PreflightPlanGraph", "ResearchAndPlan") in pairs
+    assert ("EmitApprovedPlan", "ResearchAndPlan") in pairs

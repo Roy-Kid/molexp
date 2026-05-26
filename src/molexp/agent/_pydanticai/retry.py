@@ -33,9 +33,16 @@ class RetryPolicy(BaseModel):
             is ``backoff_seconds * 2 ** (attempt - 1)``. Validated
             ``>= 0``.
         retry_on: Tuple of :class:`ErrorKind` members that count as
-            retryable. Defaults to the three transient classes
-            (``model_unavailable``, ``schema_parse``, ``timeout``);
-            ``validation`` and ``unknown`` are deliberately excluded.
+            retryable. Defaults to the two truly-transient classes
+            (``model_unavailable``, ``timeout``). ``schema_parse`` is
+            **deliberately excluded** — pydantic-ai's
+            ``Agent(output_retries=N)`` retries schema-parse failures
+            at the model level with the validation error fed back as a
+            short follow-up turn (cheap). Re-sending the full
+            multi-thousand-token prompt at the router level on the
+            same kind of failure burned 14:30 min on one call in
+            production; once is enough. ``validation`` and ``unknown``
+            also stay excluded.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -44,7 +51,6 @@ class RetryPolicy(BaseModel):
     backoff_seconds: float = 0.5
     retry_on: tuple[ErrorKind, ...] = (
         ErrorKind.model_unavailable,
-        ErrorKind.schema_parse,
         ErrorKind.timeout,
     )
 

@@ -158,7 +158,7 @@ async def test_complete_structured_retries_two_failures_then_succeeds(
     )
     stub = _StubAgent(
         [
-            _Out.__class__,  # wrong type — router raises TypeError → schema_parse
+            TimeoutError(),
             TimeoutError(),
             _Out(payload="finally"),
         ]

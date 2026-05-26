@@ -46,8 +46,8 @@ def _step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanStep:
             outputs=("result",),
         ),
         artifacts=(PlanStepArtifact(path=f"{step_id}.json", description="step output"),),
-        capability_id=f"cap::{step_id}",
-        tool_binding=f"tool::{step_id}",
+        api_refs=("molpy.System",),
+        composition_notes="step",
         checks=(PlanCheck(name="schema", description="output is valid", blocking=True),),
         retry_policy=RetryPolicy(max_attempts=2, on=("timeout",)),
         rollback=None,
@@ -136,7 +136,7 @@ def test_retry_policy_explicit_construction() -> None:
 def test_plan_step_full_construction() -> None:
     step = _step("a")
     assert step.id == "a"
-    assert step.capability_id == "cap::a"
+    assert step.api_refs == ("molpy.System",)
     assert step.approval_gate is ApprovalGate.approve_execution
     assert step.retry_policy.max_attempts == 2
     assert step.risk_level is RiskLevel.low
@@ -196,8 +196,8 @@ def test_plan_step_rejects_unknown_field() -> None:
             depends_on=(),
             io=PlanStepIO(inputs=(), outputs=()),
             artifacts=(),
-            capability_id=None,
-            tool_binding=None,
+            api_refs=("molpy.System",),
+            composition_notes="step",
             checks=(),
             retry_policy=RetryPolicy(on=()),
             rollback=None,
@@ -376,8 +376,8 @@ def _testable_step(step_id: str, *, depends_on: tuple[str, ...] = ()) -> PlanSte
             outputs=("result",),
         ),
         artifacts=(PlanStepArtifact(path=f"{step_id}.json", description="step output"),),
-        capability_id=f"cap::{step_id}",
-        tool_binding=f"tool::{step_id}",
+        api_refs=("molpy.System",),
+        composition_notes="step",
         checks=(PlanCheck(name="schema", description="output is valid", blocking=True),),
         retry_policy=RetryPolicy(max_attempts=2, on=("timeout",)),
         rollback=None,
@@ -500,8 +500,8 @@ def test_plan_step_without_test_sketch_raises_validation_error() -> None:
                 outputs=("result",),
             ),
             artifacts=(),
-            capability_id="cap::a",
-            tool_binding="tool::a",
+            api_refs=("molpy.System",),
+            composition_notes="step",
             checks=(),
             retry_policy=RetryPolicy(on=()),
             rollback=None,
@@ -510,3 +510,25 @@ def test_plan_step_without_test_sketch_raises_validation_error() -> None:
             risk_level=RiskLevel.low,
             unknowns=(),
         )  # type: ignore[call-arg]
+
+
+# ── inputs/outputs accept free-form names — codegen sanitises ─────────
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "data.peo",         # filename with dot
+        "path/to/file",     # path
+        "with-hyphen",      # hyphen
+        "peo_chain",        # plain identifier
+        "data_peo",         # snake_case
+        "atomistic",        # word
+    ],
+)
+def test_plan_step_io_accepts_free_form_names(name: str) -> None:
+    """Plan-side names are free-form; codegen sanitises to identifiers."""
+    PlanStepIO(
+        inputs=(PlanStepInput(name=name, source_step=None),),
+        outputs=(name,),
+    )

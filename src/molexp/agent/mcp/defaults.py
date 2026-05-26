@@ -1,14 +1,15 @@
 """Platform-default MCP server registry seed.
 
 The molcrafts ecosystem ships an MCP gateway (``molmcp``) that fronts
-molpy / molpack / molrs / lammps / molexp behind one MCP transport.
-Rather than treating it as a parallel "platform default" branch, we
-seed it as an ordinary user-scope entry into ``~/.molexp/mcp.json`` on
-first :class:`~molexp.agent.mcp.store.McpStore` construction. Once
-seeded, the entry is indistinguishable from any user-added one — the
-user can edit, override at workspace scope, or delete it; the sentinel
-file (``.mcp_seeded``) records which default names have already been
-seeded once so deletions stick across re-runs.
+the project's code-discovery sources behind one MCP transport. Rather
+than treating it as a parallel "platform default" branch, we seed it
+as an ordinary user-scope entry into ``~/.molexp/mcp.json`` on first
+:class:`~molexp.agent.mcp.store.McpStore` construction. Once seeded,
+the entry is indistinguishable from any user-added one — the user can
+edit, override at workspace scope, or delete it; the sentinel file
+(``.mcp_seeded``) records which default names have already been seeded
+once so deletions stick across re-runs. The MCP server itself decides
+which sources to expose; nothing in molexp hardcodes that list.
 
 The module is import-cheap: nothing here pulls ``pydantic_ai`` or
 ``pydantic_graph`` (the import-guard test under
@@ -54,13 +55,13 @@ value resolves to the documented default."""
 
 
 MOLMCP_USAGE_INSTRUCTIONS = (
-    "You have access to the molcrafts ecosystem (molpy, molpack, molrs, "
-    "lammps, molexp) through `molmcp__*` tools. Before writing fresh "
-    "Python or LAMMPS input by hand, inspect the available `molmcp__*` "
-    "tools — they expose battle-tested builders, parametrizers, and "
-    "inspectors for the same tasks. Any tool that takes a "
-    "`workspace` parameter expects the absolute path supplied in the "
-    "session preamble (see the `Workspace:` line) — pass it verbatim."
+    "You have access to project code-discovery + domain tools through "
+    "`molmcp__*` tools. Inspect the available `molmcp__*` tools — they "
+    "expose battle-tested builders, parametrizers, and inspectors; the "
+    "MCP catalog itself tells you which packages are reachable. Any "
+    "tool that takes a `workspace` parameter expects the absolute path "
+    "supplied in the session preamble (see the `Workspace:` line) — "
+    "pass it verbatim."
 )
 """Per-server prompt fragment surfaced to the LLM. The runner
 concatenates the strings from every active entry's

@@ -287,10 +287,16 @@ class PydanticAIRouter:
         key: tuple[ModelTier, type[BaseModel] | None] = (tier, schema)
         if key not in self._agents:
             model = self._tier_models[tier]
+            # output_retries=2 lets pydantic-ai retry schema_parse at the
+            # model level with the validation error fed back as a short
+            # follow-up turn — cheap and exactly the failure mode the
+            # router's outer retry was double-handling before
+            # ``plan-mode-pydanticai-rewrite``.
             self._agents[key] = Agent(
                 model=model,
                 output_type=schema,
                 system_prompt=system,
+                output_retries=2,
             )
         return self._agents[key]  # type: ignore[return-value]
 

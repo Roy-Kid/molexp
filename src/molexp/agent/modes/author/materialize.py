@@ -37,7 +37,7 @@ from molexp.agent.harness.harness import AgentHarness
 from molexp.agent.modes._planning import PlanDiff, PlanGraph
 from molexp.agent.modes.author.codegen import (
     CodegenError,
-    GeneratedModule,
+    RepairDecision,
     compile_task_ir,
     generate_task_implementations,
     generate_task_tests,
@@ -97,7 +97,7 @@ async def materialize_plan(
     handoff: object,
     layout: MaterializedLayout,
     config: object,
-    repair: Callable[[str], Awaitable[GeneratedModule]] | None = None,
+    repair: Callable[[str], Awaitable[RepairDecision]] | None = None,
 ) -> MaterializationOutcome:
     """Run the codegen + debug + validation pipeline; return the outcome.
 
@@ -141,7 +141,7 @@ async def materialize_plan(
         briefs = await compile_task_ir(
             router=router,
             contract=contract,
-            capability_graph=handoff.capability_graph,
+            plan_graph=handoff.plan_graph,
             layout=layout,
             tier=config.codegen_tier,
         )
@@ -167,7 +167,7 @@ async def materialize_plan(
                 router=router,
                 briefs=briefs,
                 contract=contract,
-                capability_graph=handoff.capability_graph,
+                plan_graph=handoff.plan_graph,
                 layout=layout,
                 tier=config.codegen_tier,
             )
@@ -177,7 +177,7 @@ async def materialize_plan(
                 router=router,
                 briefs=briefs,
                 contract=contract,
-                capability_graph=handoff.capability_graph,
+                plan_graph=handoff.plan_graph,
                 layout=layout,
                 tier=config.codegen_tier,
             )

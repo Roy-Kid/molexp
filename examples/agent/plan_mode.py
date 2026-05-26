@@ -28,18 +28,20 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import cast
 
 import mollog
-from mollog import TextFormatter
+from mollog import TextFormatter, Timer
 
 from molexp.agent import AgentRunner, cli_ask
 from molexp.agent.harness.events import ModeCompletedEvent
 from molexp.agent.modes import PlanMode, PlanModeConfig
 from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.router import ModelTier
+from molexp.agent.types import utc_now
 from molexp.workspace import Workspace
 
 _DEBUG = "--debug" in sys.argv[1:]
@@ -50,15 +52,19 @@ mollog.configure(
     level="DEBUG" if _DEBUG else "INFO",
     formatter=TextFormatter(template="{timestamp} - {message}", datefmt="%H:%M:%S"),
 )
+sys.stdout.reconfigure(line_buffering=True)  # type: ignore[union-attr]
 
-# Per-tier model map. DeepSeek exposes `deepseek-chat` (V3) and
-# `deepseek-reasoner` (R1); adjust to whatever your key can reach.
+# Per-tier model map. DeepSeek's current API exposes `deepseek-v4-flash`
+# (general) and `deepseek-v4-pro` (premium). `deepseek-chat` /
+# `deepseek-reasoner` are deprecated aliases (sunset 2026/07/24).
 TIER_MODELS: dict[ModelTier, str] = {
-    ModelTier.CHEAP: "deepseek:deepseek-chat",
-    ModelTier.DEFAULT: "deepseek:deepseek-chat",
-    ModelTier.HEAVY: "deepseek:deepseek-reasoner",
+    ModelTier.CHEAP: "deepseek:deepseek-v4-flash",
+    ModelTier.DEFAULT: "deepseek:deepseek-v4-flash",
+    ModelTier.HEAVY: "deepseek:deepseek-v4-pro",
 }
-PROBE_MODEL = "deepseek:deepseek-chat"
+# The research-and-plan agent drives one MCP-attached pydantic-ai call;
+# pydantic-ai handles the tool-call loop natively. Flash is enough.
+PLANNER_MODEL = "deepseek:deepseek-v4-flash"
 
 
 REPORT = """Molexp can automatically execute a reproducible simulation campaign for zwitterionic polymers with different charge topologies. Each polymer structure is defined using CGSMILES, where the relative placement of cationic and anionic groups is varied while keeping the chain length, number of chains, coarse-grained mapping, and simulation cell preparation protocol identical across all systems. This ensures that differences in the final properties mainly reflect structural topology rather than system-size effects.
@@ -100,12 +106,13 @@ async def main() -> int:
 
     mollog.info(f"plan run | plan_id={plan_folder.plan_id} workspace={workspace.root}")
 
-    # PlanMode needs a probe_model + workspace so the molmcp-backed
-    # capability probe is built for the ExploreCapabilities stage.
+    # PlanMode needs a planner_model + workspace so the research-and-plan
+    # agent (single MCP-attached pydantic-ai Agent) is built lazily on
+    # first ResearchAndPlan entry.
     mode = PlanMode(
         config=PlanModeConfig(max_repair_iterations=2),
         plan_folder=plan_folder,
-        probe_model=PROBE_MODEL,
+        planner_model=PLANNER_MODEL,
         workspace=workspace.root,
     )
     # `approval=` wires a ReviewPolicy into the harness `before_approval`
@@ -123,20 +130,42 @@ async def main() -> int:
     print(f"PlanMode — {'smoke (PEO chain)' if _SMOKE else 'full campaign'} prompt")
     print("=" * 72)
     completed: ModeCompletedEvent | None = None
-    async for event in runner.run_events(session, _report()):
-        kind = event.kind
-        if kind == "stage_started":
-            print(f"  ▶ {getattr(event, 'stage_name', '?')}")
-        elif kind == "stage_completed":
-            print(f"  ✔ {getattr(event, 'stage_name', '?')}")
-        elif kind == "artifact_written":
-            print(f"    · wrote {getattr(event, 'description', '')}")
-        elif kind == "error":
-            print(f"  ✗ ERROR: {getattr(event, 'message', '')}")
-        elif isinstance(event, ModeCompletedEvent):
-            completed = event
-        else:
-            print(f"  · {kind}")
+    # Read stage timings from event.timestamp (set at emit time) rather
+    # than wall-clock at receive time — AgentRunner.run_events buffers
+    # harness emissions between mode yields, so receive-side clocks
+    # collapse adjacent stages to ~0s.
+    starts: dict[str, datetime] = {}
+    elapsed: list[tuple[str, float]] = []
+    with Timer("PlanMode", log=False) as total:
+        async for event in runner.run_events(session, _report()):
+            kind = event.kind
+            ts: datetime = getattr(event, "timestamp", utc_now())
+            if kind == "stage_started":
+                name = getattr(event, "stage_name", "?")
+                starts[name] = ts
+                print(f"  ▶ {name}", flush=True)
+            elif kind == "stage_completed":
+                name = getattr(event, "stage_name", "?")
+                start_ts = starts.pop(name, None)
+                secs = (ts - start_ts).total_seconds() if start_ts is not None else 0.0
+                elapsed.append((name, secs))
+                print(f"  ✔ {name}  [{secs:.2f}s]", flush=True)
+            elif kind == "artifact_written":
+                print(f"    · wrote {getattr(event, 'description', '')}", flush=True)
+            elif kind == "error":
+                print(f"  ✗ ERROR: {getattr(event, 'message', '')}", flush=True)
+            elif isinstance(event, ModeCompletedEvent):
+                completed = event
+            else:
+                print(f"  · {kind}", flush=True)
+
+    print("\n  ── PlanMode timing summary ──")
+    if elapsed:
+        width = max(len(n) for n, _ in elapsed)
+        for name, secs in elapsed:
+            pct = 100.0 * secs / total.elapsed if total.elapsed > 0 else 0.0
+            print(f"    {name:<{width}}  {secs:7.2f}s  {pct:5.1f}%")
+    print(f"    {'TOTAL':<{max(5, max((len(n) for n, _ in elapsed), default=5))}}  {total.elapsed:7.2f}s")
 
     root = Path(str(plan_folder.path()))
     print("\n" + "=" * 72)

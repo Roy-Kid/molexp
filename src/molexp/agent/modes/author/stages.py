@@ -24,6 +24,7 @@ build the terminal completion event.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar
 
@@ -33,6 +34,7 @@ from molexp.agent.harness.events import AgentEvent
 from molexp.agent.harness.stage import Stage
 from molexp.agent.modes.author.codegen import (
     CodegenError,
+    TaskIRBrief,
     compile_task_ir,
     generate_task_implementations,
     generate_task_tests,
@@ -40,7 +42,7 @@ from molexp.agent.modes.author.codegen import (
     validate_workspace,
     write_workflow_ir,
 )
-from molexp.agent.modes.author.debug_loop import run_task_debug_loop
+from molexp.agent.modes.author.debug_loop import DebugLoopResult, run_task_debug_loop
 from molexp.agent.modes.author.lowering import lower_plan_graph
 
 if TYPE_CHECKING:
@@ -122,7 +124,7 @@ class CompileTaskIR(Stage[object, object]):
         briefs = await compile_task_ir(
             router=harness.router,
             contract=mode._contract,
-            capability_graph=mode._injected_handoff.capability_graph,
+            plan_graph=mode._injected_handoff.plan_graph,
             layout=layout,
             tier=mode.config.codegen_tier,
         )
@@ -187,7 +189,7 @@ class GenerateTaskTests(Stage[object, object]):
                 router=harness.router,
                 briefs=mode._briefs,
                 contract=mode._contract,
-                capability_graph=mode._injected_handoff.capability_graph,
+                plan_graph=mode._injected_handoff.plan_graph,
                 layout=layout,
                 tier=mode.config.codegen_tier,
             )
@@ -226,7 +228,7 @@ class GenerateTaskImplementations(Stage[object, object]):
                 router=harness.router,
                 briefs=mode._briefs,
                 contract=mode._contract,
-                capability_graph=mode._injected_handoff.capability_graph,
+                plan_graph=mode._injected_handoff.plan_graph,
                 layout=layout,
                 tier=mode.config.codegen_tier,
             )
@@ -260,13 +262,20 @@ class RunTaskDebugLoop(Stage[object, object]):
         assert mode._plan_graph is not None
         layout = mode._layout()
         repair = mode._build_repair_callable()
-        debug_ok = True
-        for brief in mode._briefs:
-            result = await run_task_debug_loop(
+        # Per-task debug loops are independent (each task's test + repair
+        # touches only its own impl_path / test_path), so run them
+        # concurrently — pre-rewrite this was a serial Python ``for``
+        # that took N_tasks x debug_attempts x (subprocess + LLM-repair)
+        # wall-clock, which on the smoke prompt was the 59-min tail
+        # dwarfing every other stage.
+        plan_graph = mode._plan_graph
+
+        async def _run_one(brief: TaskIRBrief) -> DebugLoopResult:
+            return await run_task_debug_loop(
                 task_id=brief.task_id,
                 impl_path=layout.task_impl_path(brief.task_id),
                 test_path=layout.task_test_path(brief.task_id),
-                plan_graph=mode._plan_graph,
+                plan_graph=plan_graph,
                 router=harness.router,
                 execution_env=harness.execution_env,
                 src_root=layout.src_dir(),
@@ -275,6 +284,10 @@ class RunTaskDebugLoop(Stage[object, object]):
                 tier=mode.config.codegen_tier,
                 repair=repair,
             )
+
+        results = await asyncio.gather(*(_run_one(b) for b in mode._briefs))
+        debug_ok = True
+        for result in results:
             mode._repair_diffs.extend(result.diffs)
             if not result.converged:
                 debug_ok = False

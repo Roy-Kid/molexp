@@ -22,9 +22,6 @@ from molexp.agent.harness.session import Session
 from molexp.agent.harness.session_storage import InMemorySessionStorage
 from molexp.agent.modes._planning import (
     ApprovalGate,
-    CapabilityGraph,
-    CapabilityNode,
-    EvidenceState,
     IntentSpec,
     IsolatedTestSketch,
     PlanGraph,
@@ -121,6 +118,8 @@ def make_step(
     depends_on: tuple[str, ...] = (),
     inputs: tuple[PlanStepInput, ...] = (),
     outputs: tuple[str, ...] = (),
+    api_refs: tuple[str, ...] = ("molpy.System",),
+    composition_notes: str = "test fixture step",
 ) -> PlanStep:
     """Build one :class:`PlanStep` for plan-graph fixtures."""
     return PlanStep(
@@ -128,8 +127,8 @@ def make_step(
         depends_on=depends_on,
         io=PlanStepIO(inputs=inputs, outputs=outputs),
         artifacts=(),
-        capability_id=f"cap_{step_id}",
-        tool_binding=None,
+        api_refs=api_refs,
+        composition_notes=composition_notes,
         checks=(),
         retry_policy=RetryPolicy(max_attempts=1, on=()),
         rollback=None,
@@ -169,33 +168,6 @@ def make_plan_graph(
     )
 
 
-def make_capability_graph() -> CapabilityGraph:
-    """A :class:`CapabilityGraph` with one evidenced node per plan step."""
-    return CapabilityGraph(
-        nodes=(
-            CapabilityNode(
-                id="cap_prepare",
-                capability="prepare a payload",
-                evidence_state=EvidenceState.evidenced,
-                confidence=0.9,
-                api_refs=(),
-                usage_limits=(),
-                needs_user_confirmation=False,
-            ),
-            CapabilityNode(
-                id="cap_run",
-                capability="run the payload",
-                evidence_state=EvidenceState.evidenced,
-                confidence=0.9,
-                api_refs=(),
-                usage_limits=(),
-                needs_user_confirmation=False,
-            ),
-        ),
-        edges=(),
-    )
-
-
 @pytest.fixture
 def plan_folder(tmp_path: Path) -> PlanFolder:
     """A mounted :class:`PlanFolder` in state ``approved``."""
@@ -217,7 +189,6 @@ def approved_handoff(plan_folder: PlanFolder) -> ApprovedPlanHandoff:
         plan_id=plan_folder.plan_id,
         intent=make_intent(),
         plan_graph=make_plan_graph(plan_id=plan_folder.plan_id),
-        capability_graph=make_capability_graph(),
         plan_folder_path=Path(str(plan_folder.path())),
         direction_approved_at=datetime.now(UTC),
     )

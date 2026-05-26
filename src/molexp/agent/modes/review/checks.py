@@ -8,8 +8,8 @@ checks are orthogonal:
 - :func:`check_intent_conformance` — every :class:`IntentSpec` success
   criterion / required output is still covered, no ``non_goal`` is
   pursued, and no side effect exceeds ``allowed_side_effects``.
-- :func:`check_capability_evidence` — every ``PlanStep.capability_id``
-  still maps to an *evidenced* :class:`CapabilityNode`.
+- :func:`check_capability_evidence` — every :class:`PlanStep` carries
+  non-empty ``api_refs`` (the planner's MCP-grounded primitive list).
 - :func:`check_lifecycle_consistency` — every blocking
   :class:`PlanCheck` is structurally backed and the :class:`PlanState`
   is consistent with what the plan actually contains.
@@ -20,8 +20,6 @@ Pure functions; no LLM, no I/O.
 from __future__ import annotations
 
 from molexp.agent.modes._planning import (
-    CapabilityGraph,
-    EvidenceState,
     IntentSpec,
     PlanGraph,
     PlanState,
@@ -41,10 +39,6 @@ _INTENT_NON_GOAL = "intent_non_goal_respected"
 _CAPABILITY_EVIDENCED = "plan_step_capability_evidenced"
 _LIFECYCLE_CHECK_BACKED = "lifecycle_check_backed"
 
-# Evidence states that count as "the capability is actually backed".
-_EVIDENCED_STATES: frozenset[EvidenceState] = frozenset(
-    {EvidenceState.evidenced, EvidenceState.assumed}
-)
 # Plan states that assert the plan is ready to run / has run.
 _RUN_READY_STATES: frozenset[PlanState] = frozenset(
     {PlanState.ready_for_run, PlanState.running, PlanState.completed}
@@ -162,56 +156,32 @@ def _non_goal_findings(intent: IntentSpec, plan: PlanGraph) -> list[StepFinding]
 # ── check 2 — capability evidence ────────────────────────────────────────
 
 
-def check_capability_evidence(plan: PlanGraph, caps: CapabilityGraph) -> tuple[StepFinding, ...]:
-    """Check every bound capability is still evidenced.
+def check_capability_evidence(plan: PlanGraph) -> tuple[StepFinding, ...]:
+    """Check every :class:`PlanStep` carries non-empty ``api_refs``.
 
-    For each :class:`PlanStep` carrying a ``capability_id``, the matching
-    :class:`CapabilityNode` must exist in ``caps`` and be in an evidenced
-    state (:data:`EvidenceState.evidenced` or
-    :data:`EvidenceState.assumed`). A missing node, or a node in
-    :data:`EvidenceState.missing` / :data:`EvidenceState.unevidenced`,
-    emits a per-step ``error`` finding.
+    After the ``plan-mode-pydanticai-rewrite``, capability evidence lives
+    inline on each step. A step with empty ``api_refs`` means the
+    research-and-plan agent could not ground the step in any toolchain
+    primitive — flag it as an ``error`` so the reviewer sees the gap.
 
     Args:
         plan: The :class:`PlanGraph` under review.
-        caps: The :class:`CapabilityGraph` the plan was built against.
 
     Returns:
-        A tuple of :class:`StepFinding`\\ s — empty when every bound
-        capability is evidenced.
+        A tuple of :class:`StepFinding`\\ s — empty when every step has
+        at least one ``api_refs`` entry.
     """
     findings: list[StepFinding] = []
     for step in plan.steps:
-        if step.capability_id is None:
-            continue
-        node = caps.node_by_id(step.capability_id)
-        if node is None:
+        if not step.api_refs:
             findings.append(
                 StepFinding(
                     step_id=step.id,
                     severity="error",
-                    summary=f"capability {step.capability_id!r} is unknown",
+                    summary=f"step {step.id!r} has no api_refs",
                     detail=(
-                        f"Step {step.id!r} binds capability {step.capability_id!r} "
-                        f"but the CapabilityGraph has no node with that id."
-                    ),
-                    failed_invariant=_CAPABILITY_EVIDENCED,
-                )
-            )
-            continue
-        if node.evidence_state not in _EVIDENCED_STATES:
-            findings.append(
-                StepFinding(
-                    step_id=step.id,
-                    severity="error",
-                    summary=(
-                        f"capability {node.id!r} is no longer evidenced "
-                        f"({node.evidence_state.value})"
-                    ),
-                    detail=(
-                        f"Step {step.id!r} binds capability {node.id!r}, whose evidence "
-                        f"state is {node.evidence_state.value!r}; the plan can no longer "
-                        f"rely on it."
+                        f"Step {step.id!r} carries no api_refs — the research-and-plan "
+                        f"agent could not ground this step in any toolchain primitive."
                     ),
                     failed_invariant=_CAPABILITY_EVIDENCED,
                 )

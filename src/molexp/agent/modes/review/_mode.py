@@ -42,7 +42,6 @@ from molexp.agent.harness.events import (
 from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
-    CapabilityGraph,
     IntentSpec,
     PlanGraph,
 )
@@ -110,7 +109,6 @@ class ReviewMode(AgentMode):
         plan_folder: PlanFolder,
         intent: IntentSpec,
         plan_graph: PlanGraph,
-        capability_graph: CapabilityGraph,
         workspace_path: Path | None = None,
         run_ref: str | None = None,
     ) -> None:
@@ -119,7 +117,6 @@ class ReviewMode(AgentMode):
         self.plan_folder = plan_folder
         self._intent = intent
         self._plan_graph = plan_graph
-        self._capability_graph = capability_graph
         self._workspace_path = workspace_path
         self._run_ref = run_ref
         # Per-run scratch — stages mutate these, run() reads them in

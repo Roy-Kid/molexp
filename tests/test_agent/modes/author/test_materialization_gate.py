@@ -14,7 +14,7 @@ from molexp.agent.modes._planning import (
     assert_legal_transition,
 )
 from molexp.agent.modes.author._mode import AuthorMode, AuthorModeConfig
-from molexp.agent.modes.author.codegen import GeneratedModule, TaskIRBrief
+from molexp.agent.modes.author.codegen import GeneratedModule, TaskImplDraft, TaskIRBrief
 from molexp.agent.review import ReviewDecision
 
 from .conftest import ScriptedRouter, make_harness
@@ -83,17 +83,10 @@ async def test_rejected_gate_writes_no_source_and_fails_plan(
 # ── approved gate proceeds ───────────────────────────────────────────────
 
 
-def _impl_factory(node_id: str) -> GeneratedModule:
-    task_id = node_id.rsplit("/", 1)[-1]
-    return GeneratedModule(
-        task_id=task_id,
-        source=(
-            "from molexp.workflow import Task\n\n\n"
-            f"class {task_id.title()}(Task):\n"
-            "    async def execute(self, ctx):\n"
-            "        return None\n"
-        ),
-    )
+def _impl_draft(node_id: str) -> TaskImplDraft:
+    """Impl path uses the constrained ``TaskImplDraft`` schema (body-only)."""
+    del node_id
+    return TaskImplDraft(imports=(), body="pass")
 
 
 def _test_factory(node_id: str) -> GeneratedModule:
@@ -118,12 +111,13 @@ async def test_approved_gate_proceeds_to_codegen(
         ]
     )
 
-    def _module(node_id: str) -> GeneratedModule:
-        if node_id.startswith("GenerateTaskTests"):
-            return _test_factory(node_id)
-        return _impl_factory(node_id)
-
-    router.register_factory(GeneratedModule, _module)
+    # Test generation goes through ``GeneratedModule``; impl generation
+    # goes through the constrained ``TaskImplDraft`` schema. Register
+    # both — without the TaskImplDraft factory the ScriptedRouter would
+    # raise AssertionError, but AuthorMode.run silently swallows it,
+    # leaving the gate-proceeds assertion to pass on a broken pipeline.
+    router.register_factory(GeneratedModule, _test_factory)
+    router.register_factory(TaskImplDraft, _impl_draft)
     harness, _ = make_harness(router, scratch_dir=tmp_path / "scratch")
 
     mode = AuthorMode(
@@ -131,7 +125,18 @@ async def test_approved_gate_proceeds_to_codegen(
         plan_folder=plan_folder,  # type: ignore[arg-type]
         handoff=approved_handoff,  # type: ignore[arg-type]
     )
-    await _drain(mode, harness)
+    events = await _drain(mode, harness)
 
     # The gate let codegen run — the workflow IR was written.
     assert (Path(str(plan_folder.path())) / "ir" / "workflow.yaml").exists()  # type: ignore[attr-defined]
+    # Impl generation actually completed — the per-task impl files
+    # exist. A silently-broken codegen pipeline would have written
+    # workflow.yaml in an earlier stage and then crashed before this.
+    tasks_dir = Path(str(plan_folder.path())) / "src" / "experiment" / "tasks"  # type: ignore[attr-defined]
+    assert (tasks_dir / "prepare.py").exists()
+    assert (tasks_dir / "run.py").exists()
+    # Terminal event reports plan reached ``ready_for_run`` (not failed).
+    terminal = events[-1]
+    assert isinstance(terminal, ModeCompletedEvent)
+    assert terminal.result is not None
+    assert terminal.result["mode_state"]["plan_state"] == "ready_for_run"

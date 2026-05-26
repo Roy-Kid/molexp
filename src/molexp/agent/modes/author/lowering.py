@@ -84,7 +84,15 @@ class LoweringResult(BaseModel):
 
 
 def _step_to_task_io(step: PlanStep) -> TaskIO:
-    """Lower one :class:`PlanStep` into a :class:`TaskIO`."""
+    """Lower one :class:`PlanStep` into a :class:`TaskIO`.
+
+    ``PlanStepInput.source_step is None`` marks a workflow-entry input
+    (user-supplied parameter at runtime); these are filtered out of the
+    lowered task inputs because the workflow contract only models the
+    task→task graph. The workflow layer's ``every_input_has_source``
+    invariant requires every lowered :class:`TaskInputSpec` to name an
+    upstream task.
+    """
     inputs = tuple(
         TaskInputSpec(
             name=inp.name,
@@ -93,6 +101,7 @@ def _step_to_task_io(step: PlanStep) -> TaskIO:
             source=inp.source_step,
         )
         for inp in step.io.inputs
+        if inp.source_step is not None
     )
     outputs = tuple(TaskOutputSpec(name=name, type=_DEFAULT_IO_TYPE) for name in step.io.outputs)
     artifacts = tuple(

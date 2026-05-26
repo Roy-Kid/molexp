@@ -23,7 +23,10 @@ class PlanStepInput(BaseModel):
     """One named input a plan step consumes.
 
     Attributes:
-        name: The input's logical name.
+        name: The input's logical name (free-form — may be a filename,
+            a path, a domain term). The codegen layer sanitises this to
+            a Python identifier internally before binding a local
+            variable.
         source_step: ``id`` of the upstream step that produces it, or
             ``None`` when the input is externally supplied.
     """
@@ -42,7 +45,14 @@ class PlanStepIO(BaseModel):
 
     Attributes:
         inputs: The named inputs the step consumes.
-        outputs: The logical names of the values the step produces.
+        outputs: Free-form names for the values the step produces. The
+            planner names them naturally (e.g. ``peo_chain``,
+            ``data.peo``); the codegen layer sanitises any non-
+            identifier characters when generating the local variable.
+            File artefacts produced as side-effects belong in
+            ``PlanStep.artifacts`` rather than here, but a step that
+            returns a file path as a value can legitimately name it
+            after the file.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -101,19 +111,39 @@ class IsolatedTestSketch(BaseModel):
     Records whether a plan step is small enough to carry an independent,
     low-cost isolated test — the termination criterion of
     testability-driven decomposition. A step that still needs the real
-    output of an upstream step to be exercised is not isolated-testable
-    and must be split further before the plan can pass preflight.
+    output of an upstream step to be exercised, OR whose isolated test
+    would have to assert content-level invariants (exact substrings of
+    a generated script, specific numeric outputs, …) instead of
+    shape-level invariants (dict keys, types, non-emptiness) is not
+    isolated-testable and must be split further before the plan can
+    pass preflight.
+
+    The "shape-only" criterion is load-bearing. Because the impl and
+    the test are generated independently, any content-level assertion
+    risks an impedance mismatch (the impl picks one whitespace /
+    ordering / formatting convention; the test asserts another),
+    leading to a debug loop that can never converge. A step whose
+    isolated test fits in 1-3 shape-level assertions is small enough.
+    Anything bigger — composing a multi-section file, building a
+    multi-step pipeline, formatting a long script — must be split into
+    sub-steps each of which DOES fit the criterion.
 
     Attributes:
-        is_isolated_testable: Whether a standalone, low-cost test exists
-            for the step. Decomposition stops splitting a branch once
-            every step on it is ``True``.
+        is_isolated_testable: Whether the step admits a standalone,
+            shape-only test (1-3 assertions on dict keys / types /
+            non-emptiness). Decomposition stops splitting a branch
+            once every step on it is ``True``.
         synthetic_inputs: Logical descriptions of the minimal synthetic
             inputs the isolated test supplies itself — never the real
             output of an upstream step.
-        assertion_sketch: What the isolated test should assert.
+        assertion_sketch: What the isolated test should assert. Keep
+            it shape-level (1-3 entries describing dict shape / type
+            checks / non-emptiness); content-level checks belong to
+            integration tests, not the isolated unit test.
         rationale: When ``is_isolated_testable`` is ``False``, why the
-            step cannot yet be tested in isolation.
+            step cannot yet be tested in isolation (typically "would
+            need content-level assertions" — which is the signal to
+            split it).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -132,8 +162,15 @@ class PlanStep(BaseModel):
         depends_on: ``id``s of the steps this step depends on.
         io: The planning-stage I/O sketch.
         artifacts: Artefacts the step is expected to produce.
-        capability_id: ``id`` of the bound ``CapabilityNode``, or ``None``.
-        tool_binding: A bound tool identifier, or ``None``.
+        api_refs: Fully-qualified project symbols the step composes,
+            as dotted qualnames returned by the MCP catalog. Discovered
+            by the ``ResearchAndPlan`` agent through its MCP toolset;
+            never invented. Must be non-empty for the plan to pass
+            preflight.
+        composition_notes: 1-3 sentences explaining how the
+            ``api_refs`` connect to implement this step. The
+            ``ResearchAndPlan`` agent's own reasoning record; consumed
+            by AuthorMode's codegen prompts.
         checks: Validation checks attached to the step.
         retry_policy: The step's retry policy.
         rollback: A rollback description, or ``None``.
@@ -152,8 +189,8 @@ class PlanStep(BaseModel):
     depends_on: tuple[str, ...]
     io: PlanStepIO
     artifacts: tuple[PlanStepArtifact, ...]
-    capability_id: str | None
-    tool_binding: str | None
+    api_refs: tuple[str, ...]
+    composition_notes: str
     checks: tuple[PlanCheck, ...]
     retry_policy: RetryPolicy
     rollback: str | None

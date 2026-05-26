@@ -1,4 +1,4 @@
-"""Stage 7 — the ``approve_direction`` gate + handoff emission."""
+"""Stage 5 — the ``approve_direction`` gate + handoff emission."""
 
 from __future__ import annotations
 
@@ -11,8 +11,6 @@ from molexp.agent.harness.stage import Stage
 from molexp.agent.modes._planning import ApprovalGate, PlanState
 from molexp.agent.modes.plan.handoff import ApprovedPlanHandoff
 from molexp.agent.modes.plan.stages.thread_state import PlanThreadState
-from molexp.agent.modes.plan.state import RepairSignal
-from molexp.agent.modes.plan.tasks_planning import build_repair_diff
 from molexp.agent.types import utc_now
 
 if TYPE_CHECKING:
@@ -30,21 +28,18 @@ class _DirectionView:
 
 
 class EmitApprovedPlan(Stage[PlanThreadState, PlanThreadState]):
-    """Open the ``approve_direction`` gate; on approve build the handoff.
+    """Open the ``approve_direction`` gate; on approve emit the handoff.
 
-    On approve: transition ``plan_folder`` to ``approved``, write the
-    approved plan to disk, build the :class:`ApprovedPlanHandoff`, and
-    store it on ``plan_mode._handoff`` so the mode's terminal
+    On approve: transition ``plan_folder`` to ``approved``, persist the
+    approved plan, build the :class:`ApprovedPlanHandoff`, store it on
+    ``plan_mode._handoff`` so the mode's terminal
     :class:`ModeCompletedEvent` carries it.
 
-    On reject: plant a :class:`RepairSignal` and yield
-    :class:`RepairProposedEvent` — a registered repair policy decides
-    whether to rewind to ``SynthesizeCandidates`` or route to the
-    ``rejected`` terminal. The stage does **not** transition
-    ``plan_folder`` to ``draft_plan`` itself; on rewind the lifecycle
-    validator transitions ``awaiting_approval → draft_plan``, and on
-    exhaustion PlanMode finalizes the ``awaiting_approval → rejected``
-    transition post-pipeline.
+    On reject: yield :class:`RepairProposedEvent` — the registered
+    repair policy decides whether to rewind to ``ResearchAndPlan`` or
+    route to the ``rejected`` terminal. The threaded state's
+    ``plan_graph`` + ``preflight`` survive the rewind so the rewound
+    research stage can prepend them to its prompt as repair context.
     """
 
     name: ClassVar[str] = "EmitApprovedPlan"
@@ -60,40 +55,32 @@ class EmitApprovedPlan(Stage[PlanThreadState, PlanThreadState]):
         input: PlanThreadState,
     ) -> AsyncIterator[AgentEvent | PlanThreadState]:
         state = input
-        assert state.selected is not None
+        assert state.plan_graph is not None
         assert state.intent is not None
-        assert state.capabilities is not None
         view = _DirectionView(
             summary=(
-                f"Plan {state.selected.plan_id}: "
-                f"{len(state.selected.steps)} step(s) for "
+                f"Plan {state.plan_graph.plan_id}: "
+                f"{len(state.plan_graph.steps)} step(s) for "
                 f"{state.intent.objective!r}"
             )
         )
         decision = await harness.approve(ApprovalGate.approve_direction, view)
         if decision.approved:
             self._plan_mode._transition(PlanState.approved)
-            approved_plan = state.selected.model_copy(update={"state": PlanState.approved})
-            self._plan_mode.plan_folder.write_selected_plan(approved_plan)
+            approved_plan = state.plan_graph.model_copy(update={"state": PlanState.approved})
+            self._plan_mode.plan_folder.write_plan_graph(approved_plan)
             handoff = ApprovedPlanHandoff(
                 plan_id=self._plan_mode.plan_folder.plan_id,
                 intent=state.intent,
                 plan_graph=approved_plan,
-                capability_graph=state.capabilities,
                 plan_folder_path=Path(str(self._plan_mode.plan_folder.path())),
                 direction_approved_at=utc_now(),
             )
             self._plan_mode._handoff = handoff
-            yield state.model_copy(update={"selected": approved_plan})
+            yield state.model_copy(update={"plan_graph": approved_plan})
             return
-        diff = build_repair_diff(
-            failed_invariant="direction_rejected",
-            plan_graph=state.selected,
-            rationale="the reviewer rejected the direction; re-synthesize candidates",
-        )
-        self._plan_mode._runtime.plant(RepairSignal(plan_diff=diff))
         yield RepairProposedEvent(
-            failed_invariant=diff.failed_invariant,
-            rationale=diff.rationale,
+            failed_invariant="direction_rejected",
+            rationale="the reviewer rejected the direction; regenerate the plan",
         )
         yield state

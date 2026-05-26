@@ -18,8 +18,6 @@ mol_project:
   ci:
     config: .github/workflows/ci.yml
   dev:
-    # /mol:web reads this to auto-start the frontend before evaluating
-    # ui_runtime acceptance criteria.
     command: "cd ui && npm run dev:mock"
     url: "http://localhost:5173"
     ready_pattern: "Local:"
@@ -36,405 +34,112 @@ mol_project:
      OUTSIDE these markers. Free-form additions below the closing marker
      are preserved across re-runs. -->
 
-## What this repo is
-
-molexp is a workflow-and-agent platform for research experiment management — Python backend (FastAPI + pydantic-graph + PydanticAI) bundled with a TypeScript/React 19 frontend (rsbuild) into a single installable wheel. See § Architecture below for the five-layer breakdown.
+molexp is a workflow-and-agent platform for research experiment management — Python (FastAPI + pydantic-graph + PydanticAI) + TypeScript/React 19 UI, shipped as one wheel.
 
 ## Where things live
 
-- Source: `src/molexp/` (Python), `ui/src/` (TypeScript)
-- Tests: `tests/` mirrors `src/molexp/`; frontend tests under `ui/src/`
-- Public documentation: `docs/`
-- Passive internal context (notes, project map, open questions): `.agent/`
-- Active runtime artifacts: `.claude/specs/` (in-flight specs; gitignored)
+- Python source: `src/molexp/` · TS source: `ui/src/`
+- Tests mirror source: `tests/` ↔ `src/molexp/`, `ui/src/` for the UI
+- Public docs: `docs/` · in-flight specs: `.claude/specs/` (gitignored)
+- **Detailed module map: `.claude/notes/architecture.md`** — keep that file as the index; CLAUDE.md only carries invariants
 
-## What must never change casually
+## Hard invariants (do not change casually)
 
-- The three-layer dependency direction: **workspace ← workflow ← agent**. workspace is the bottom (pure storage); workflow uses workspace; agent uses both. See § Layer charters below.
-- The `Workflow` public API — decorator and OOP styles on the same instance.
-- The `Workspace → Project → Experiment → Run` hierarchy as a `Folder` family — `Workspace / Project / Experiment / Run` are all `Folder` subclasses; the unified five-verb generic CRUD on `Folder` (`add_folder / get_folder / has_folder / list_folders / remove_folder`) and the matching typed semantic sugar on each subclass (`add_project / add_experiment / add_run / …` and analogous `get_* / has_* / list_*s / remove_*`) is the public contract. Index filenames are auto-derived from `cls.__name__` snake_case + `.json` and must stay that way.
-- The agent public surface: the mode-orchestration core `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`, plus the approval primitives (`ReviewDecision`, the `ReviewPolicy` callable alias, and the bundled `cli_ask` policy). `AgentMode.run` is an async generator yielding an `AgentEvent` stream; every mode runs *on* an `AgentHarness` (the shared runtime under `agent/harness/`). Approval is a single `before_approval` hook: `AgentRunner(approval=<ReviewPolicy>)` wires a policy in; `approval=None` auto-approves.
-- The OpenAPI surface in `src/molexp/server/routes/`; the UI regenerates against it.
-- Internal `_pydantic_graph/` (under `workflow/`) and `_pydanticai/` (under `agent/`) are private; never import directly.
+- **Three-layer dependency direction** (one way only): `agent → workflow → workspace`. Any other arrow is an architectural defect. Enforced by `tests/test_<layer>/test_import_guard.py`.
+- **`Workflow` public API**: decorator and OOP styles on the same `WorkflowBuilder`.
+- **`Workspace → Project → Experiment → Run` is a `Folder` family.** Generic CRUD (`add_folder / get_folder / has_folder / list_folders / remove_folder`) + typed semantic sugar per subclass (`add_project / add_experiment / add_run / …`). Index filenames auto-derived as `cls.__name__` snake_case + `.json`. `add_*` is idempotent on slugified name.
+- **Agent public surface**: `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`, plus approval primitives `ReviewDecision` / `ReviewPolicy` / `cli_ask`. `AgentMode.run` is an async generator of `AgentEvent`; every mode runs *on* an `AgentHarness` (`agent/harness/`). Approval is one `before_approval` hook — `AgentRunner(approval=None)` auto-approves.
+- **OpenAPI surface** under `src/molexp/server/routes/`; the UI regenerates against it (`npm run generate:api`). Don't hand-edit `ui/src/api/generated/`.
+- **Private subpackages** — never import from outside their owning layer: `workflow/_pydantic_graph/`, `agent/_pydanticai/`, `agent/mcp/`.
 
 <!-- mol-agent:bootstrap:managed end -->
 
-## Layer charters
-
-Three layers, one direction:
-
-```
-agent      ──uses──▶ workflow ──uses──▶ workspace
-(harness)            (graph engine)     (pure storage)
-```
-
-Any other arrow is an architectural defect. Each layer's import-guard test enforces this mechanically (`tests/test_<layer>/test_import_guard.py`).
-
-### `molexp.workspace` — pure storage primitive (bottom layer)
-
-**workspace owns** — and these are the *only* things it owns:
-
-- The `Folder` base class — unified directory primitive carrying parent pointer, lazy mkdir, atomic JSON I/O, kind-checked metadata, generic five-verb CRUD (`add_folder(child) / get_folder(name, *, cls) / has_folder(name, *, cls) / list_folders(*, cls=None) / remove_folder(name, *, cls)`), and auto-derived index filenames (`cls.__name__` snake_case + `.json` — `Project` → `project.json`, `Experiment` → `experiment.json`, `Run` → `run.json`, `Workspace` → `workspace.json`). `Folder.__init__` accepts `parent=None` for the unmounted state; `add_folder(child)` is the canonical mount transition.
-- The `Workspace → Project → Experiment → Run` hierarchy as `Folder` subclasses (every level inherits `Folder`). Each subclass adds **typed semantic sugar** — one-line snake_case wrappers over the generic CRUD: `Workspace.add_project / get_project / has_project / list_projects / remove_project`; `Project.add_experiment / …`; `Experiment.add_run / …`. All `add_*` verbs are **idempotent** on slugified name (return the cached instance on collision); strict get raises `*NotFoundError`. `RunContext` (and `Run` itself) supports both `with` and `async with`.
-- Typed exception hierarchy in `errors.py`: `ProjectNotFoundError` / `ExperimentNotFoundError` / `RunNotFoundError` (subclass `LookupError`); `ProjectExistsError` / `ExperimentExistsError` / `RunExistsError` (subclass `ValueError`). Re-exported from `molexp.workspace`. The server layer's `handlers.py` translates them to HTTP 404 / 409 at the boundary.
-- Atomic JSON I/O (`base.py`) — temp-file + `os.rename` for crash safety.
-- `AssetCatalog` and the `Asset` family (`ArtifactAsset`, `DataAsset`, `LogAsset`, `CheckpointAsset`, `ErrorTraceAsset`, `OutputAsset`, `ExecutionStateAsset`); `Producer` (lineage record).
-- `Params`, `ParamSpace`, `GridSpace`, `UniformSpace`.
-- `ComputeTarget` and helpers (`add_target`, `target_run_dir`, …).
-- Two workspace-level **singleton** `Folder` subclasses: `CacheFolder` (lowercase property access — `ws.cache`; exposes `ws.cache.as_cache_store()` to the workflow layer) and `CatalogFolder` (lowercase property — `ws.catalog`; hosts the global `AssetCatalog`). Singletons because there is exactly one cache and one catalog per workspace; they do not go through the multi-instance `add_folder` CRUD.
-- `RunContext` — execution lifecycle context manager (claim → append `ExecutionRecord` → execute → exit with `RunStatus`).
-
-**workspace MUST NOT**:
-
-- `import molexp.workflow.*`, `import molexp.agent.*`, `import molexp.plugins.*`, `import molexp.server.*`, `import molexp.cli.*`, `import molexp.sweep.*` — any form. The only allowed `molexp.*` outbound imports are `molexp._typing`, `molexp.config`, `molexp.path` (the cross-host POSIX path primitive), and project-level helpers explicitly designed as cross-layer primitives (`mollog`, `molcfg`).
-- Define a `workflow` field on `Experiment`, a `WorkflowSnapshotRef` type, an `_EntryTask`, `_promote_to_workflow`, `_resolve_callable_entrypoint`, or any other workflow-shaped helper. Those concepts live in `molexp.workflow`.
-- Define `Agent`, `AgentSession`, `PlanFolder`, agent metadata models (`AgentMetadata` / `AgentSessionMetadata`), or any session-shaped catalog method (`add_session` / `read_messages` / `goal_summary` projections). Those concepts live in `molexp.agent.folders` (Agent / AgentSession) and `molexp.agent.modes.plan.plan_folder` (PlanFolder). Upstream layers reach workspace **only** through `Folder` + the generic five-verb CRUD; workspace stays unaware of every upstream-defined kind.
-- Write to disk in `__init__`. All I/O is lazy (first `.path()` / `add_folder` / first catalog upsert).
-
-**Equivalent invariant**: `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `molexp.plugins`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
-
-### `molexp.workflow` — graph execution engine (middle layer)
-
-**workflow owns**:
-
-- Scientific workflow declaration: `WorkflowBuilder` (builder, decorator + OOP styles on the same instance) and `Workflow` (compiled, immutable, content-hashed `workflow_id`). Built specs carry the experiment-binding registry as class methods (`Workflow.bind_to / unbind_from / is_bound_to / Workflow.for_experiment`); the old free-function `set_workflow(exp, spec)` and the `bindings.py` module are gone.
-- `Task` / `Actor` — convenience base classes; do **not** subclass `pydantic_graph.BaseNode`. The user-facing protocols are `Runnable` / `Streamable` (duck-typed).
-- `TaskContext` / `ActorContext` — typed context with `state`, `deps`, `inputs`, `config`, optional `run_context` (a duck-typed handle to a workspace `RunContext`).
-- `TaskTypeRegistry`, `default_registry` — slug ↔ factory map for IR-driven round-trip.
-- `WorkflowCompiler`, `default_compiler` — IR ↔ Python ↔ Mermaid ↔ Spec.
-- `TaskSnapshot` (AST-normalized code hashing), `Caching` (LRU), `WorkflowVersion`.
-- `WorkflowSnapshotRef` (the on-disk reference shape stored in `RunMetadata.workflow_snapshot`; workspace stores it as opaque JSON to stay decoupled).
-- `WorkflowResult`, `WorkflowExecution`, `End` (re-exported from `pydantic_graph.End` — `molexp.workflow.End is pydantic_graph.End`).
-- `promote_callable(fn, name)` — wrap a bare `fn(RunContext)` into a single-Task `Workflow` (the helper that used to live in workspace as `_promote_to_workflow`).
-- `_pydantic_graph/` (private) — the sole permitted `import pydantic_graph` site. Owns: `WorkflowStep` (the single `BaseNode` molexp exposes to pg, wrapping the entire frontier-advance scheduler), `WorkflowGraphCompiler`, `GraphWorkflowRuntime`, `RunStorePersistence`.
-
-**workflow uses workspace**:
-
-- `Workflow.execute(run=run)` takes a `workspace.Run` as the execution unit.
-- `Caching` is backed by a workspace asset store (vended through `ws.cache.as_cache_store()` — `ws.cache` is the workspace's singleton `CacheFolder` exposed as a lowercase property); the user-home `~/.molexp/cache/` shortcut is gone.
-- `RunStorePersistence` writes `workflow.json` under the run dir through `workspace.atomic_write_json`, not via raw filesystem calls.
-
-**workflow MUST NOT**:
-
-- Import `molexp.agent.*`, `molexp.plugins.*`, `molexp.server.*`, `molexp.cli.*`, `molexp.sweep.*`. Cross-layer payloads from agent flow through duck-typed `run_context` (opaque) or `Mapping[str, Any]` config.
-- Import `pydantic_graph` outside `workflow/_pydantic_graph/`. The rest of `workflow/` is pg-agnostic.
-- Define a second `End` sentinel.
-- Add new `*Scheduler` / `*Runner` / `*Frontier` / `*GraphRunner` classes — `WorkflowStep` is the only one and that's by design.
-- Let `Task` / `Actor` subclass `pydantic_graph.BaseNode`.
-- Codegen a pg `BaseNode` subclass per user task.
-- Construct `Graph(nodes=[...])` shapes that never run, in the compiler.
-- Export `Next(label)` from `molexp.workflow.__all__` (it stays an IR-internal routing token).
-
-**Future migration point**: when `pydantic_graph.beta` `Fork` / `Join` / `Reducer` API stabilizes, a future spec will compile same-layer concurrency into the pg graph and `WorkflowStep` will collapse to zero. This rule refreshes at that point.
-
-### `molexp.agent` — LLM harness (top layer)
-
-**agent owns**:
-
-- Public surface: the mode-orchestration core `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`, plus the workflow-orthogonal approval primitives `ReviewDecision` / `ReviewPolicy` (a `Callable[[gate, summary], Awaitable[ReviewDecision]]` alias) / `cli_ask` — all exported from `molexp.agent.__init__`. The runtime `AgentSession` is the harness's `Session` entry-tree class (`molexp.agent.harness.session`), re-exported under the historical name. Separately, two `Folder` subclasses are exported from `molexp.agent.folders` — `Agent` (`kind = "agent.agent"`) and `AgentSession` (`kind = "agent.session"`) — that the user mounts on any workspace `Folder` via the generic `add_folder`. Each `Agent` adds typed semantic sugar `add_session / get_session / has_session / list_sessions / remove_session`; the `folders.AgentSession` subclass exposes `read_messages / write_messages`, which lazy-load `_pydanticai.messages_codec` for pydantic-ai `ModelMessage` round-trips.
-- `harness/` — the shared mode runtime. `AgentHarness` is the object every mode drives; it owns the live `Session`, the typed `AgentEvent` discriminated-union stream (`events.py`), context compaction (`compaction.py`), the `ExecutionEnv` subprocess abstraction (`execution_env.py`, `LocalExecutionEnv`), and a typed `HookRegistry` (`hooks.py`). `Session` is an append-only entry-tree over a `SessionStorage` repository (`JsonlSessionStorage` / `InMemorySessionStorage`). The harness imports **neither** `pydantic_ai` **nor** `pydantic_graph` — its one LLM need (compaction summarization) flows through the `Router` protocol.
-- Concrete modes (each an `AgentMode` subclass): `ChatMode` (one LLM round-trip), four **declarative** pipeline modes — `PlanMode` (read-only typed planner), `AuthorMode` (materializes an approved plan into a workspace), `RunMode` (executes / monitors / repairs the materialized workflow), `ReviewMode` (read-only typed review) — and one **emergent** mode, `InteractiveMode` (the LLM autonomously drives a read-only tool loop and may delegate to PlanMode; the CLI's default interactive mode, exposed as `molexp agent`). Each declarative pipeline mode is a **plain async sequence of stages** run *on* the harness — not a `pydantic_graph` graph; `InteractiveMode`'s emergent loop is pydantic-ai's native `Agent.iter()`, reached through the `Router.stream_agentic` surface. The emergent and declarative modes are **siblings** — `InteractiveMode` composes (calls) `PlanMode` via `delegate_to_plan`, it does not inherit/specialize it. `AgentMode.run(*, harness, user_input)` is an async generator yielding `AgentEvent`s; its terminal yield is a `ModeCompletedEvent` carrying the `AgentRunResult`. PlanMode persists per-plan artefacts through `PlanFolder` (a `Folder` subclass at `molexp.agent.modes.plan.plan_folder`, `kind = "agent.plan"`, mounted via `ws.add_folder(PlanFolder(name=plan_id))` or under an experiment); AuthorMode / RunMode / ReviewMode have their own anchor `Folder`s (`RunFolder`, `ReviewVerdictFolder`).
-- `modes/_planning/` — pure frozen-pydantic planning contracts shared by all four pipeline modes (no LLM, no disk I/O): `IntentSpec` (the user-intent contract), the typed `PlanGraph` / `PlanStep` DAG, `CapabilityGraph`, the `PlanState` lifecycle machine (`assert_legal_transition`), and the `PlanDiff` / `ApprovalGate` repair units.
-- Agent-side metadata models (frozen pydantic): `AgentMetadata` / `AgentSessionMetadata` (extend `FolderMetadata`) in `molexp.agent.folders_metadata`. Workspace stores their JSON payloads as opaque dicts — agent owns the typed shape.
-- `mcp/` — MCP-server configuration / defaults / OAuth / store, a private subsystem subdirectory.
-- `_pydanticai/` — sole permitted `import pydantic_ai` site. Owns: `router.py` (`PydanticAIRouter` — the concrete `Router`, one `Agent` per `(tier, schema | None)` for the structured / text path); `capability_probe.py` + `capability_probe_factory.py` (`PydanticAICapabilityProbe` and its builder — the molmcp-backed capability-discovery probe); `mcp.py` (the MCP-server build helper); `messages_codec.py` (pydantic-ai `ModelMessage` ↔ JSON codec invoked lazily by `folders.AgentSession.read_messages / write_messages`).
-
-**agent uses workspace + workflow**:
-
-- Workspace for: `Folder` (base class — subclassed for `Agent` / `AgentSession` / `PlanFolder` / `RunFolder` / `ReviewVerdictFolder`), `Workspace`, `Run`, `RunContext`, `AssetCatalog`, `Project`, `Experiment`. Multi-instance children flow through generic `add_folder / get_folder / has_folder / list_folders / remove_folder`; singletons via `ws.cache` / `ws.catalog`.
-- Workflow for: `Workflow`, `WorkflowBuilder`, `Task`, `TaskContext`, `default_registry`, `Runnable`, `RunContextLike` (the protocol the workflow layer defines for the `run_context` handle). AuthorMode lowers a `PlanGraph` to workflow IR; RunMode loads + executes the materialized `Workflow` through the public `molexp.workflow` API.
-
-**agent MUST NOT**:
-
-- Import `molexp.plugins.*`, `molexp.server.*`, `molexp.cli.*`, `molexp.sweep.*`. The agent stays a library, never reaches out to the application shell.
-- Import `pydantic_ai` outside `agent/_pydanticai/`. `import molexp.agent` must not eagerly load `pydantic_ai` (the router / probe are constructed lazily on first `AgentRunner.run()`).
-- Import `pydantic_graph` anywhere under `agent/`. The pipeline modes are plain async stage sequences on the harness; the only sanctioned `pydantic_graph` site in the project stays `workflow/_pydantic_graph/`.
-- 在 *model-side execution* 层面重新实现 pydantic-ai 已提供的能力（tool dispatch、MCP server 挂载、retries、message history、structured output）—— 必须用 pydantic-ai 原生 API。具体而言：普通工具通过 `pydantic_ai.Agent(tools=[...])`（接受 `Tool` 实例或裸 callable）；MCP server 通过 `pydantic_ai.Agent(toolsets=[MCPServerStdio(...)])`；重试通过 `Agent(retries=N)`。**harness / mode-pipeline / provenance 层**（`AgentHarness`、`Session` 持久化、`AgentEvent` 流、modes 的 stage pipeline、`Agent` / `AgentSession` Folder 子类持久化、on-disk evidence + assets）pydantic-ai 不覆盖，仍由 molexp 自有实现。若 pydantic-ai 不提供某能力，新增模块的 docstring 必须显式说明缺口。
-- Resurrect `_legacy_types.py`, `sessions/migrate.py`, `observability/usage.py`, `orchestration/`, or `sandbox.py` — all deleted in the rectification spec.
-- Resurrect `tools/`, `context/`, `memory/`, `recovery/`, `skills/`, or `mcp/{source,tool_store,probe}.py` — deleted by the `agent-pydanticai-rectification` spec because they were parallel-to-pydantic-ai implementations with zero production cites.
-
-**Equivalent invariant**: `import molexp.agent` must not pull `pydantic_ai` or `pydantic_graph` into `sys.modules` until the user actually instantiates an `AgentRunner` and calls `.run()`.
-
 ## Architecture
 
-molexp is a workflow-and-agent platform for research experiment management, built on pydantic-graph and PydanticAI.
-
-The dependency graph is one direction:
-
 ```
-                       agent
-                  ┌──── (LLM harness, modes, sessions)
-                  │     uses both ↓
-                  ▼
-              workflow ────────────► workspace
-              (graph engine,         (pure storage:
-               cache, scheduler)      assets, runs,
-                                      atomic JSON)
+       agent          (LLM harness + modes + sessions)
+         │
+         ▼ uses both
+     workflow         (graph engine, content-addressed cache)
+         │
+         ▼
+     workspace        (pure storage: folders, assets, atomic JSON)
 ```
 
-`workflow` uses `workspace` for caching, run-state persistence, and atomic
-writes. `agent` uses both. `workspace` has no upstream `molexp` dependencies.
-The CLI and FastAPI server sit on top of all three but are not part of the
-core; the UI is downstream of the FastAPI layer via OpenAPI codegen.
+CLI + FastAPI server sit on top; UI is downstream of the server's OpenAPI. Cross-layer primitives (`molexp.path`, `molexp.config`, `molexp.entry`, …) sit above workspace and may be cited from any layer.
 
-### Layer details
+### Layer charters
 
-#### 1. Workspace Layer (`src/molexp/workspace/`)
+**`molexp.workspace`** — bottom; pure storage.
+- Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (`CatalogFolder` hosting the global `AssetCatalog`).
+- MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `server` / `cli` / `sweep`). Allowed `molexp.*` imports are only `_typing` / `config` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
+- `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
 
-The bottom of the dependency graph. Pure storage primitive: a unified `Folder` directory abstraction + content-addressed assets + atomic JSON + workspace-owned singleton `CacheFolder` / `CatalogFolder`. Knows nothing about workflows, sessions, agents, or LLMs; upstream layers reach workspace only through `Folder` and the generic five-verb CRUD. Hard rules in § Layer charters above; enforced by `tests/test_workspace/test_import_guard.py`.
+**`molexp.workflow`** — middle; graph execution engine.
+- Owns: `WorkflowBuilder` (decorator + OOP, mutable) → `.build()` → `Workflow` (frozen, content-hashed). `Task` / `Actor` convenience bases (do **not** subclass `pydantic_graph.BaseNode`); user-facing protocols are `Runnable` / `Streamable`. `TaskContext` / `ActorContext`, `TaskTypeRegistry`, `WorkflowCompiler`, `TaskSnapshot` (AST-normalized hash), `Caching` (LRU), `WorkflowSnapshotRef`, `WorkflowResult` / `WorkflowExecution`, `End` (re-exported from `pydantic_graph.End`), `promote_callable()`. Private `_pydantic_graph/` is the **sole** sanctioned `import pydantic_graph` site in the repo.
+- Uses workspace: `Workflow.execute(run=…)` takes a `workspace.Run`; `Caching` is backed by `ws.cache.as_cache_store()`; run-state JSON writes go through `workspace.atomic_write_json`.
+- MUST NOT: import `agent` / `plugins` / `server` / `cli` / `sweep`. MUST NOT import `pydantic_graph` outside `_pydantic_graph/`. No second `End` sentinel, no per-task `BaseNode` codegen, no `Next` in `__all__`.
 
-**On-disk layout** — per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level. Children indices are auto-derived files named after the child's class (snake_case `cls.__name__` + `.json`). Two ASCII trees: workspace + scientific hierarchy first, agent-layer mounts second.
+**`molexp.agent`** — top; LLM harness, declarative + emergent modes.
+- Owns: the public surface (`AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`, approval primitives). Re-exported `AgentSession` is the harness `Session` entry-tree; the `Folder` subclasses `Agent` / `AgentSession` live in `molexp.agent.folders` and mount via the generic `add_folder`. `harness/` owns `AgentHarness` + `Session` + `SessionStorage` (`Jsonl…` / `InMemory…`) + `AgentEvent` stream + compaction + `ExecutionEnv` + `HookRegistry`; it imports neither pydantic-ai nor pydantic-graph. `modes/_planning/` carries the pure planning contracts (`IntentSpec`, `PlanGraph` / `PlanStep`, `CapabilityGraph`, `PlanState`, `PlanDiff` / `ApprovalGate`). Six concrete modes: `ChatMode`; declarative pipelines `PlanMode` / `AuthorMode` / `RunMode` / `ReviewMode`; emergent `InteractiveMode` (the CLI default, drives a read-only tool loop via pydantic-ai's `Agent.iter()` and delegates planning back to `PlanMode`). Private `_pydanticai/` is the **sole** sanctioned `import pydantic_ai` site (`router.py`, `capability_probe.py`, `mcp.py`, `messages_codec.py`, …).
+- Uses workspace (`Folder`, `Workspace`, `Run`, `RunContext`, `AssetCatalog`, …) and workflow (`Workflow`, `WorkflowBuilder`, `Task`, `default_registry`, `Runnable`, `RunContextLike`). AuthorMode lowers a `PlanGraph` to workflow IR; RunMode executes the materialized workflow through the public `molexp.workflow` API.
+- MUST NOT: import `plugins` / `server` / `cli` / `sweep`. MUST NOT import `pydantic_ai` outside `_pydanticai/`. MUST NOT import `pydantic_graph` anywhere under `agent/` — pipeline modes are plain async stage sequences on the harness.
+- Don't reinvent what pydantic-ai already does. Plain tools → `Agent(tools=[…])`; MCP servers → `Agent(toolsets=[MCPServerStdio(…)])`; retries → `Agent(retries=N)`; message history + structured output → pydantic-ai native. The harness layer (Session persistence, AgentEvent stream, mode pipelines, on-disk folders) is what molexp owns; if pydantic-ai *cannot* do something, say so in the new module's docstring.
+- `import molexp.agent` must not pull `pydantic_ai` or `pydantic_graph` into `sys.modules` until `AgentRunner.run()` is actually called.
+
+## On-disk layout
+
+Children indices are local conveniences rebuilt on `add_folder` / `remove_folder`. Per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level. The global asset catalog at `<root>/catalog/index.json` (vended by `ws.catalog`) is authoritative for cross-cutting lineage queries.
 
 ```
 workspace_root/
-├── workspace.json                         # Workspace own metadata
-├── project.json                           # children index of Projects (auto-derived from class)
-├── cache/                                 # singleton CacheFolder — ws.cache
-│   └── <key>.json
-├── catalog/                               # singleton CatalogFolder — ws.catalog (global asset index)
-│   └── index.json
+├── workspace.json                # workspace metadata
+├── project.json                  # children index (auto-derived: cls.__name__ + ".json")
+├── cache/<key>.json              # singleton CacheFolder — ws.cache
+├── catalog/index.json            # singleton CatalogFolder — ws.catalog
+├── agent.json / plan.json        # agent-layer mounts (if any)
+├── agents/<agent_id>/            # Agent Folder; sessions under agent_sessions/
 └── projects/<project_id>/
-    ├── project.json                       # this Project's own metadata
-    ├── experiment.json                    # children index of Experiments
+    ├── project.json
+    ├── experiment.json
     └── experiments/<experiment_id>/
         ├── experiment.json
-        ├── run.json                       # children index of Runs
+        ├── run.json
         └── runs/<run_id>/
-            ├── run.json                   # status, params, execution_history
-            ├── assets.json                # run-scoped manifest (all attempts)
-            ├── artifacts/                 # per-run final products
-            ├── .ckpt/                     # per-run resume checkpoints
-            ├── cache/                     # per-run user-domain cache
+            ├── run.json          # status, params, execution_history
+            ├── assets.json       # run-scoped asset manifest
+            ├── artifacts/        # final products
+            ├── .ckpt/            # resume checkpoints
+            ├── cache/            # per-run user-domain cache
             └── executions/<exec_id>/
                 ├── execution.json
-                ├── workflow.json          # workflow-layer state (opaque to workspace)
+                ├── workflow.json # workflow-layer state (opaque to workspace)
                 ├── stdout.log / stderr.log / error.txt
                 ├── logs/<name>.log
-                └── jobs/<uuid>/           # molq scheduler manifests
+                └── jobs/<uuid>/  # molq scheduler manifests
 ```
 
-Agent-layer mounts (`Agent` / `AgentSession` / `PlanFolder`) come from `molexp.agent.folders` + `molexp.agent.modes.plan.plan_folder`. Mount point is the caller's choice — workspace root **or** any `Folder` under it (Project / Experiment / Run). Workspace does not know these classes exist; they flow through generic `add_folder` and use the same auto-derived index naming:
+Agent-layer mounts (`Agent` / `AgentSession` / `PlanFolder`) can attach at any `Folder` (workspace root, Project, Experiment, or Run). Workspace stays unaware of these subclasses — they flow through generic `add_folder`.
+
+## Packaging
+
+`pip install` / `python -m build` **never** invokes npm. The UI is built ahead of time:
 
 ```
-workspace_root/
-├── agent.json                             # children index for top-level Agents
-├── plan.json                              # children index for top-level PlanFolders
-├── agents/<agent_id>/                     # an Agent mounted under the workspace
-│   ├── agent.json                         # this Agent's own metadata
-│   ├── agent_session.json                 # children index of AgentSessions
-│   └── agent_sessions/<session_id>/
-│       ├── agent_session.json
-│       ├── entries.jsonl                  # harness Session entry-tree (JsonlSessionStorage)
-│       └── messages.jsonl                 # pydantic-ai ModelMessage history (optional)
-└── projects/<project_id>/
-    ├── agent.json                         # Agents may also nest under a Project
-    └── agents/<agent_id>/...               # same shape as workspace-level mount
+ui/src/  →  cd ui && npm run build  →  src/molexp/dist/  →  hatchling  →  wheel
 ```
 
-Children indices are local conveniences rebuilt on `add_folder` / `remove_folder`; the global asset catalog at `<root>/catalog/index.json` (vended by `ws.catalog`) remains authoritative for cross-cutting asset/lineage queries.
-
-#### 2. Workflow Layer (`src/molexp/workflow/`)
-
-Graph execution engine. Uses workspace for storage (caching, run-state
-persistence, atomic writes); uses pydantic-graph for state-machine
-plumbing inside the private `_pydantic_graph/`. See § Layer charters above
-for hard rules; enforced by `tests/test_workflow/test_import_guard.py`.
-
-Two-class OOP API: `WorkflowBuilder` (decorator + builder, mutable) → `.build()` → `Workflow` (frozen, content-hashed, executable). Both styles work on the builder:
-
-**Decorator style** (function-as-task):
-```python
-builder = WorkflowBuilder(name="pipeline")
-
-@builder.task
-async def fetch(ctx: TaskContext[State, Deps, None]) -> FetchResult: ...
-
-@builder.task(depends_on=["fetch"])
-async def process(ctx: TaskContext[State, Deps, FetchResult]) -> ProcessResult: ...
-
-wf: Workflow = builder.build()
-result = await wf.run_on(experiment, parameters={"lr": 1e-3})  # happy-path one-liner
-# or explicitly: with run.start() as ctx: await wf.execute(run_context=ctx)
-```
-
-**OOP style** (add `Task` instances):
-```python
-wf: Workflow = (
-    WorkflowBuilder(name="pipeline")
-    .add(FetchTask())
-    .add(ProcessTask(), depends_on=["fetch"])
-    .build()
-)
-result = await wf.run_on(experiment)
-```
-
-Both styles can be mixed on the same `WorkflowBuilder` instance. Control-flow helpers are methods, not free functions: `builder.branch(...)`, `builder.loop(...)`, `builder.parallel(...)`, `@builder.reduce(...)`, plus `builder.entry(...)` / `builder.control(...)`.
-
-Key abstractions:
-- `Task` — Batch execution (`async def execute(ctx) -> OutputT`); implements the `Runnable` protocol
-- `Actor` — Streaming execution (`async def run(ctx) -> AsyncIterator[OutputT]`); implements the `Streamable` protocol
-- `TaskContext` / `ActorContext` — Typed context with `state`, `deps`, `inputs`, `config`, optional workspace `run_context`
-- `Workflow` — Compiled spec with deterministic `workflow_id` (topology hash); produced by `WorkflowBuilder.build()`. Carries the class-level `_bindings_registry` for `bind_to / for_experiment / is_bound_to / unbind_from / _reset_registry`. Has a `run_on(experiment, *, parameters, deps, profile_config, config)` happy-path one-liner that wraps `Experiment.Run + run.start() + execute`
-- `GraphWorkflowRuntime` (in `workflow/_pydantic_graph/`) — the runtime backing `Workflow`, created lazily on first execute
-
-Internal `_pydantic_graph/` compiles specs into pydantic-graph IR with topological levels for automatic parallelization. Never import from `_pydantic_graph/` directly.
-
-Supporting modules: `cache.py` (LRU content-addressed, backed by the workspace's singleton `CacheFolder` adapter — `ws.cache.as_cache_store()`), `snapshot.py` (AST-normalized code hashing), `protocols.py` (structural `Runnable` / `Streamable` protocols for zero-import third-party integration), `serializer.py` (`WorkflowCompiler` — IR ↔ Python ↔ Mermaid round-trip), `snapshot_ref.py` (`WorkflowSnapshotRef` — the on-disk reference shape stored in `RunMetadata.workflow_snapshot`).
-
-#### 3. Agent Layer (`src/molexp/agent/`)
-
-A clean, user-facing wrapper around pydantic-ai — that library is an implementation detail hidden inside a private subpackage and **never appears in the public surface**. `pydantic_graph` is **not** imported anywhere under `agent/`; the pipeline modes are plain async stage sequences run on the shared `AgentHarness`.
-
-**Public API (`molexp.agent` exports `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`, plus the approval primitives `ReviewDecision` / `ReviewPolicy` / `cli_ask`):**
-
-```python
-from molexp.agent import AgentRunner, AgentMode, AgentRunResult, AgentSession
-# `AgentSession` here is the harness `Session` entry-tree (re-export of
-# molexp.agent.harness.session.Session).
-# The Folder subclasses Agent / AgentSession are imported from molexp.agent.folders.
-from molexp.agent.folders import Agent, AgentSession as AgentSessionFolder
-from molexp.agent.modes import (
-    ChatMode, ChatModeConfig,
-    PlanMode, PlanModeConfig,
-    AuthorMode, AuthorModeConfig,
-    RunMode, RunModeConfig,
-    ReviewMode, ReviewModeConfig,
-    InteractiveMode, InteractiveModeConfig,
-)
-from molexp.agent.modes.plan import PlanFolder
-
-# Agent + AgentSession Folder subclasses mount on any workspace Folder
-# via the generic add_folder.
-ws = Workspace("./lab")
-review_bot = ws.add_folder(Agent(name="review-bot"))         # workspace-level
-review_bot.add_session("chat-1")                             # typed semantic sugar
-
-# Single-turn ChatMode. runner.run() takes a runtime Session;
-# runner.session(id) builds one (Jsonl-backed when workspace= is set).
-mode = ChatMode(config=ChatModeConfig(system_prompt="…"))
-runner = AgentRunner(mode=mode, model="openai:gpt-5.2", workspace=ws.root)
-session = runner.session("chat-1")
-result = await runner.run(session, "hello")     # terminal AgentRunResult
-print(result.text)
-async for event in runner.run_events(session, "again"):  # live AgentEvent stream
-    ...
-```
-
-- `AgentRunner` — orchestration entry point; takes a mode + a `model=` / `models=` / `router=` argument (exactly one), lazily constructs the private `PydanticAIRouter` on first run, builds an `AgentHarness` (with a `LocalExecutionEnv` + an in-memory or Jsonl-backed `Session`), injects it into the mode, and drains the mode's event stream. Two run surfaces: `run()` returns the terminal `AgentRunResult`; `run_events()` yields the live `AgentEvent` stream.
-- `AgentMode` — abstract base class. Subclasses implement `run(*, harness, user_input) -> AsyncIterator[AgentEvent]` as an async generator whose terminal yield is a `ModeCompletedEvent`.
-- `AgentHarness` (`agent/harness/`) — the shared runtime a mode drives: live `Session`, the `AgentEvent` sink, `stage()` brackets, the unified `approve()` gate, context `compact()`, `run_subprocess()` via the `ExecutionEnv`, and a `HookRegistry`. Imports neither `pydantic_ai` nor `pydantic_graph`.
-- `Agent(Folder)` — configured agent persona (system prompt, model tier). Owns multiple `AgentSession` children via typed semantic-sugar CRUD (`add_session / get_session / has_session / list_sessions / remove_session`).
-- `folders.AgentSession(Folder)` — the on-disk conversation anchor; per-session dir holds `agent_session.json` (metadata), `entries.jsonl` (the harness `Session` entry-tree), and optionally `messages.jsonl` (pydantic-ai `ModelMessage` history via the lazy `_pydanticai.messages_codec`).
-- `PlanFolder(Folder)` — PlanMode's per-plan workspace anchor (`kind = "agent.plan"`), mounted at `<root>/plans/<plan_id>/` or under any other `Folder`. Persists only typed plan artefacts (`intent.json`, `capability_graph.json`, candidates, `selected_plan.json`, `preflight_report.json`).
-- `ChatMode` — one `user_input` → one LLM round-trip → one `AgentRunResult`.
-- `PlanMode` — read-only typed planner; a plain seven-stage async pipeline on the harness that turns a user report into an approved typed `PlanGraph` and emits an `ApprovedPlanHandoff`. Writes no executable code.
-- `AuthorMode` — consumes the `ApprovedPlanHandoff`, lowers the `PlanGraph` to workflow IR, generates per-task source + tests behind the `approve_materialization` gate, and emits a `MaterializedWorkspaceHandoff`.
-- `RunMode` — consumes that handoff, executes the materialized `Workflow` through the public `molexp.workflow` API, projects per-step progress, and on unrecoverable failure emits a `RepairEscalation`.
-- `ReviewMode` — read-only typed review of an existing artefact against the shared `IntentSpec` contract; renders a structured `ReviewVerdict`.
-- `InteractiveMode` — the emergent, tool-using loop and the CLI's default interactive mode (`molexp agent`). The LLM autonomously decides → calls a **read-only** tool (`read_file` / `list_directory` / `search_code`, all workspace-confined) → observes → loops; the loop is pydantic-ai's native `Agent.iter()` reached via `Router.stream_agentic`, translated into a `TokenDeltaEvent` / `ToolCallStartedEvent` / `ToolCallCompletedEvent` stream. It writes no executable code: a `/plan` prefix or the `run_plan_pipeline` tool delegates to `PlanMode` (via `delegate_to_plan`) for auditable plan output.
-
-**Subpackages:**
-
-- `agent/harness/` — the shared mode runtime (events, `Session` + `SessionStorage`, compaction, `ExecutionEnv`, hooks, `AgentHarness`). pg/pydantic-ai-free.
-- `agent/modes/_planning/` — pure frozen-pydantic planning contracts (`IntentSpec`, `PlanGraph` / `PlanStep`, `CapabilityGraph`, `PlanState` lifecycle, `PlanDiff` / `ApprovalGate`) shared by all four pipeline modes.
-- `agent/modes/{chat,plan,author,run,review,interactive}/` — the six concrete modes (five declarative + the emergent `InteractiveMode`).
-- `agent/_pydanticai/` — sole permitted `import pydantic_ai` site: `router.py` (`PydanticAIRouter`), `capability_probe.py` + `capability_probe_factory.py` (`PydanticAICapabilityProbe`), `mcp.py` (the MCP-server build helper), `messages_codec.py`, plus `errors.py`, `events.py`, `retry.py`. The router / probe are constructed lazily on first run, so `import molexp.agent` does not eagerly load `pydantic_ai`.
-
-**Cross-package import rule** (enforced by `tests/test_agent/test_import_guard.py`):
-- only `agent/_pydanticai/*.py` may import from `pydantic_ai`
-- nothing under `agent/` may import `pydantic_graph`
-- `import molexp.agent` must not eagerly load `pydantic_ai` or `pydantic_graph`
-
-**No factory functions** in the public surface. No `create_agent(...)` / `build_agent(...)` / `Agent(provider=...)`. Concrete classes + plain Python construction only.
-
-#### 4. Server Layer (`src/molexp/server/`)
-
-FastAPI app, all routes under `/api` (modules in `src/molexp/server/routes/`):
-
-| Route module | Endpoints |
-|---|---|
-| `agent.py` | Session CRUD, SSE event streaming, approval |
-| `agent_admin.py` | Agent administration |
-| `agent_tasks.py` | Agent task management |
-| `project.py` | Project CRUD |
-| `experiment.py` | Experiment CRUD |
-| `run.py` | Run CRUD |
-| `workspace.py` | Workspace open/list/folders |
-| `execution.py` | Execution planning/status |
-| `registry.py` | Available task types |
-| `asset.py` | Asset management |
-| `catalog.py` | Asset catalog queries |
-| `reviews.py` | Review workflow endpoints |
-| `molq.py` | molq scheduler integration |
-| `targets.py` | Compute target management |
-
-- `dependencies.py` — FastAPI DI: `get_workspace()`, `get_settings()`
-- `manager.py` — `ServerManager` for lifecycle (start/stop/status/logs)
-- Production: serves SPA from `static_dir`; Dev: API-only + CORS for localhost:5173
-
-#### 5. UI Layer (`ui/src/`)
-
-React 19 + Rsbuild, three-panel layout:
-
-- **Left**: Navigation tree (projects, experiments, runs)
-- **Center**: Content viewer (dispatched by entity type via `registry.ts`)
-- **Right**: Inspector/metadata panel
-
-Key patterns:
-- `registry.ts` — Maps entity types to renderer components
-- `state/useWorkspaceState.ts` — Zustand store for workspace state
-- `state/useUrlState.ts` — URL-based routing state
-- `state/api.ts` — Wraps auto-generated OpenAPI client
-- `api/generated/` — **Never edit manually**; regenerate with `npm run generate:api`
-- `mocks/handlers/` — MSW handlers for `dev:mock` mode; keep in sync with API changes
-- `resolvers/` — Entity resolution for rendering dispatch
-
-### Packaging & Frontend Serving
-
-The React frontend is **compiled ahead of time by npm** and bundled inside the Python package — matching the `molvis` release workflow. `pip install` / `python -m build` **never** invokes npm.
-
-```
-ui/src/  →  (cd ui && npm run build)  →  src/molexp/dist/  →  (hatchling)  →  wheel
-```
-
-- **`ui/package.json`** `build` script runs rsbuild and copies `ui/dist/.` into `src/molexp/dist/` — one command does both halves
-- **`pyproject.toml`** uses `hatchling` and declares `[tool.hatch.build] artifacts = ["src/molexp/dist/**"]` so the wheel ships the bundle
-- **`src/molexp/dist/`** is gitignored (except `.gitkeep`); it is populated on demand by `cd ui && npm run build`
-- **Runtime**: `create_app()` uses `importlib.resources.files("molexp") / "dist"` to locate the bundled assets. If empty, the server runs API-only.
-- **Release**: `cd ui && npm run build && cd .. && python -m build --wheel`
-- **Dev mode**: Run backend (`molexp serve --port 8000`) and frontend (`cd ui && npm run dev`) separately
-- **Production** (`molexp serve`): serves API + bundled SPA from the installed package
-
-### Key Patterns
-
-- **Topology-driven parallelism**: Tasks are grouped into levels by the dependency graph; same-level tasks run in parallel automatically.
-- **Content-addressed caching**: `TaskSnapshot` uses AST-normalized code hash + config hash; whitespace/comment changes don't invalidate cache. The cache is backed by workspace's asset catalog (no user-home `~/.molexp/cache/`).
-- **Atomic persistence**: All JSON writes use temp-file + `os.rename` for crash safety. Workflow-layer JSON writes (`workflow.json` under the run dir) go through workspace's `atomic_write_json` helper.
-- **Internal convention**: Prefixed `_pydantic_graph/` (in `workflow/`) and `_pydanticai/` (in `agent/`) are private implementation details; the public API is the parent package's `__init__.py`.
+`src/molexp/dist/` is gitignored (except `.gitkeep`); `create_app()` locates assets via `importlib.resources.files("molexp") / "dist"` and falls back to API-only if empty. Dev mode: backend on `:8000`, frontend on `:5173`.
 
 ## Data type ownership
 
-Each conceptual data category lives in **one** layer. Cross-layer references flow downward (agent → workflow → workspace) and use the public surface of the lower layer; never `from <upstream> import SomeType` to define a shape in `<downstream>`.
+Each conceptual data category lives in exactly **one** layer. Cross-layer references flow downward through the public surface of the lower layer — `workflow` imports `workspace.Run` is fine; `workspace` importing `workflow.Workflow` is forbidden. For the full ownership table (concept → owning module) see `.claude/notes/architecture.md`.
 
-| Concept | Owning module | Notes |
-|---|---|---|
-| folder abstraction | `molexp.workspace.folder` (+ `FolderMetadata` in `molexp.workspace.models`) | `Folder` (base) + `FolderMetadata` (frozen pydantic). Five-verb generic CRUD (`add_folder` / `get_folder` / `has_folder` / `list_folders` / `remove_folder`); index filenames auto-derived from `cls.__name__` snake_case + `.json`; `parent=None` is the unmounted state |
-| asset / artifact | `molexp.workspace.assets` | `Asset` / `ArtifactAsset` / `DataAsset` — content-hashed, scoped catalog |
-| workspace hierarchy | `molexp.workspace` | `Workspace`, `Project`, `Experiment`, `Run` (all `Folder` subclasses with typed semantic sugar — `add_project / add_experiment / add_run / ...`), `RunContext`, `Params`, `ParamSpace` |
-| workspace singletons | `molexp.workspace.cache` + `molexp.workspace.catalog` | `CacheFolder` (`ws.cache`; `as_cache_store()` adapter) + `CatalogFolder` hosting `AssetCatalog` (`ws.catalog`) — both lowercase properties; not multi-instance via `add_folder` |
-| workflow declaration | `molexp.workflow` | `Workflow` (compiled), `WorkflowBuilder` (builder), `Task`, `Actor`, `TaskContext`, `TaskTypeRegistry`, `Caching`, `TaskSnapshot` |
-| workflow snapshot ref | `molexp.workflow.snapshot_ref` | `WorkflowSnapshotRef` — on-disk reference shape; workspace stores it as opaque JSON |
-| workflow contract | `molexp.workflow.contract` | `WorkflowContract`, `TaskIO`, `ValidationReport` + checks — declared I/O surface and validation |
-| agent entities | `molexp.agent.folders` + `molexp.agent.folders_metadata` | `Agent(Folder)` (`kind = "agent.agent"`, owns `add_session / get_session / has_session / list_sessions / remove_session` sugar) + `AgentSession(Folder)` (`kind = "agent.session"`, hosts `read_messages / write_messages` via lazy pydantic-ai codec). Metadata models `AgentMetadata` / `AgentSessionMetadata` extend `FolderMetadata` |
-| planning contracts | `molexp.agent.modes._planning` | Pure frozen-pydantic substrate for the four pipeline modes: `IntentSpec`, `PlanGraph` / `PlanStep`, `CapabilityGraph`, the `PlanState` lifecycle machine (`assert_legal_transition`), `PlanDiff` / `ApprovalGate`. No LLM, no disk I/O |
-| harness runtime types | `molexp.agent.harness` | `AgentHarness` (plain runtime), the typed `AgentEvent` discriminated union + `EventSink`, `Session` (entry-tree) + `SessionEntry` family + `SessionStorage` (`JsonlSessionStorage` / `InMemorySessionStorage`), `CompactionPlan` / `CompactionSettings`, `ExecutionEnv` / `LocalExecutionEnv`, `HookRegistry` / `HookPoint` |
-| plan-mode folder | `molexp.agent.modes.plan.plan_folder` | `PlanFolder(Folder)` (`kind = "agent.plan"`); mounts via `ws.add_folder(PlanFolder(name=plan_id))` or under any other `Folder`. Persists only typed plan artefacts (intent / capability graph / candidates / selected plan / preflight report) |
-| agent run result | `molexp.agent.mode` | `AgentRunResult` (frozen pydantic) — the only result shape `AgentRunner.run` ever returns; its `events` field carries the accumulated `AgentEvent` stream |
-| message / usage | `molexp.agent.types` | `Message`, `Usage`, `CallUsage`, `UsageBreakdown`, `Goal`, `GoalMode`, `AgentFailure`, `FailureKind`, `SessionStatus` |
-| capability discovery schemas | `molexp.agent.modes.plan.capability_evidence` | `DraftedNeed`, `CapabilityEvidenceItem`, `CapabilityEvidenceBatch` — the drafted-need + evidence shapes the capability probe returns inside a `ProbeResult` |
-| capability probe protocol | `molexp.agent.modes.plan.protocols` | `CapabilityProbe` Protocol + `ProbeResult`; consumed by PlanMode's `ExploreCapabilities` stage. Concrete impls: `molexp.agent.modes.plan.capability_probe_null.NullCapabilityProbe` (fail-closed fallback) and `molexp.agent._pydanticai.capability_probe.PydanticAICapabilityProbe` (pydantic-ai-backed, built via `_pydanticai/capability_probe_factory.py`) |
-| import-boundary firewall | `agent/_pydanticai/` and `workflow/_pydantic_graph/` | only these subtrees may import `pydantic_ai` / `pydantic_graph` respectively; nothing else under `agent/` may import `pydantic_graph` at all; `molexp.agent` itself must not eagerly load `pydantic_ai`; **any new pydantic-ai construction point (`_pydanticai/router.py`, `_pydanticai/capability_probe.py`) must live under `_pydanticai/`; agent's other submodules consume only the `Router` Protocol (`agent/router.py`) and the `CapabilityProbe` Protocol (`agent/modes/plan/protocols.py`)** |
+**Pydantic vs plain class.** Pure data types (events, configs, results, lineage records, IR nodes) are `pydantic.BaseModel(frozen=True)`. Runtime containers carrying live instances (callables, asyncio objects, services) are plain Python classes with explicit `__init__`. `arbitrary_types_allowed=True` is **forbidden** in `src/molexp/agent/` — anything that needs it is a runtime container by definition.
 
-**Rule (cross-layer-data-reference)**: cross-layer references flow *downward* through the public surface of the lower layer. workflow imports `workspace.Run` is fine. workspace imports `workflow.Workflow` is forbidden. agent imports both is fine. Never wire across layers in any other direction.
+## Key patterns
 
-**Pydantic vs plain class**: pure data types (events, configs, results, lineage records, IR nodes) are `pydantic.BaseModel(frozen=True)`. Runtime containers carrying live runtime instances (callables, asyncio objects, service instances, non-pydantic types) are plain Python classes with explicit `__init__`. **`arbitrary_types_allowed=True` is forbidden in `src/molexp/agent/`** — anything that needs it is a runtime container by definition.
+- **Topology-driven parallelism** — tasks grouped into levels by the dependency graph; same-level tasks run in parallel automatically.
+- **Content-addressed caching** — `TaskSnapshot` hashes AST-normalized code + config; whitespace/comment changes don't invalidate. Backed by `ws.cache`, never `~/.molexp/cache/`.
+- **Atomic persistence** — all JSON writes use temp-file + `os.rename`; workflow-layer writes go through `workspace.atomic_write_json`.
+- **Future migration** — when `pydantic_graph.beta` `Fork` / `Join` / `Reducer` stabilizes, `WorkflowStep` collapses into the pg graph and the `workflow` layer's `_pydantic_graph/` surface refreshes.

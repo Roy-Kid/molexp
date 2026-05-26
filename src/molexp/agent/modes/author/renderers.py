@@ -20,6 +20,7 @@ __all__ = [
     "PACKAGE_INIT_BODY",
     "TASKS_INIT_BODY",
     "camel_case",
+    "module_id",
     "render_stub_implementation",
     "render_stub_test",
     "render_workflow_module",
@@ -39,6 +40,25 @@ def camel_case(task_id: str) -> str:
     return "".join(p.capitalize() for p in parts) or "Task"
 
 
+def module_id(task_id: str) -> str:
+    """Return an identifier-safe slug for ``task_id``.
+
+    AuthorMode emits ``tasks/<module_id>.py`` and references the module
+    via ``from .tasks.<module_id> import …``. PlanGraph step ids
+    (e.g. ``step-1-build-peo-chain``) often contain hyphens or other
+    non-identifier characters; this helper maps them onto valid Python
+    module names while keeping the human-readable id available for
+    ``.add(name=task_id, ...)`` and the IR YAML paths.
+    """
+    safe = "".join(ch if ch.isalnum() else "_" for ch in task_id)
+    safe = safe.strip("_")
+    if not safe:
+        safe = "task"
+    if safe[0].isdigit():
+        safe = f"task_{safe}"
+    return safe
+
+
 def validate_python(source: str, path: str) -> None:
     """Syntax-check ``source`` via :func:`compile` (no execution).
 
@@ -53,24 +73,27 @@ def render_workflow_module(contract: WorkflowContract) -> str:
     """Render ``src/experiment/workflow.py`` from a workflow contract.
 
     Emits a ``WORKFLOW`` constant built via
-    :class:`~molexp.workflow.WorkflowBuilder`, one ``.add(<TaskClass>())``
+    :class:`~molexp.workflow.WorkflowBuilder`, one ``.add(<task_fn>)``
     per ``task_io`` entry, with ``depends_on`` derived from
     :func:`~molexp.agent.modes.author.contract_normalize.derive_dependencies`.
+
+    Task modules are now plain async-function modules (no class
+    boilerplate); the function name equals ``module_id(task_id)``.
     """
     deps = derive_dependencies(contract)
     import_lines: list[str] = []
     add_lines: list[str] = []
     for tio in contract.task_io:
-        cls_name = camel_case(tio.task_id)
-        import_lines.append(f"from .tasks.{tio.task_id} import {cls_name}")
+        mod_name = module_id(tio.task_id)
+        import_lines.append(f"from .tasks.{mod_name} import {mod_name}")
         task_deps = deps.get(tio.task_id, ())
         if task_deps:
             deps_repr = ", ".join(repr(d) for d in task_deps)
             add_lines.append(
-                f"    .add({cls_name}(), name={tio.task_id!r}, depends_on=[{deps_repr}])"
+                f"    .add({mod_name}, name={tio.task_id!r}, depends_on=[{deps_repr}])"
             )
         else:
-            add_lines.append(f"    .add({cls_name}(), name={tio.task_id!r})")
+            add_lines.append(f"    .add({mod_name}, name={tio.task_id!r})")
 
     imports = "\n".join(import_lines) if import_lines else "# (contract has no tasks)"
     body = "\n".join(add_lines) if add_lines else "    # no tasks"
@@ -129,18 +152,22 @@ def render_workflow_structure_test(ir_yaml_rel: str) -> str:
 
 
 def render_stub_implementation(task_id: str) -> str:
-    """Render a stub task implementation that raises ``NotImplementedError``."""
+    """Render a stub task as a plain async function that raises.
+
+    Used as a fallback when the codegen pipeline cannot reach the
+    constrained :func:`~molexp.agent.modes.author.codegen.assemble_impl_module`
+    path (e.g. the brief is a stub but no matching :class:`PlanStep`
+    exists). Production codegen routes stubs through
+    :func:`assemble_impl_module` so the function name and docstring
+    are derived from the PlanStep; this helper is a safety net for
+    paths that don't have a step.
+    """
     return (
         f'"""Stub implementation for ``{task_id}`` — fill in to enable RunMode."""\n'
         "\n"
-        "from molexp.workflow import Task\n"
         "\n"
-        "\n"
-        f"class {camel_case(task_id)}(Task):\n"
-        f'    """Stub for {task_id} — populate this body to make RunMode runnable."""\n'
-        "\n"
-        "    async def execute(self, ctx):  # type: ignore[no-untyped-def, override]\n"
-        f'        raise NotImplementedError("{task_id} not yet implemented")\n'
+        f"async def {module_id(task_id)}(ctx):  # type: ignore[no-untyped-def]\n"
+        f'    raise NotImplementedError({task_id + " is a stub"!r})\n'
     )
 
 
@@ -152,6 +179,6 @@ def render_stub_test(task_id: str) -> str:
         "import pytest\n"
         "\n"
         "\n"
-        f"def test_{task_id}_stub() -> None:\n"
+        f"def test_{module_id(task_id)}_stub() -> None:\n"
         '    pytest.skip("stub")\n'
     )

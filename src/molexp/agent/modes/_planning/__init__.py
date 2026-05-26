@@ -3,11 +3,11 @@
 Pure frozen-pydantic data models — the substrate every agent mode
 (Plan / Author / Run / Review) reads and writes. No LLM, no disk I/O.
 
-Five concept clusters:
+Four concept clusters:
 
 - :mod:`intent` — the formal user-intent contract (``IntentSpec``).
-- :mod:`plan_graph` — the typed plan DAG (``PlanGraph`` / ``PlanStep``).
-- :mod:`capability_graph` — what the system can do, with evidence.
+- :mod:`plan_graph` — the typed plan DAG (``PlanGraph`` / ``PlanStep``);
+  each ``PlanStep`` carries ``api_refs`` + ``composition_notes`` inline.
 - :mod:`lifecycle` — the explicit ``PlanState`` machine.
 - :mod:`diff` — the plan-diff repair unit and the approval gates.
 
@@ -17,13 +17,6 @@ implementation detail.
 
 from __future__ import annotations
 
-from .capability_graph import (
-    CapabilityEdge,
-    CapabilityEdgeKind,
-    CapabilityGraph,
-    CapabilityNode,
-    EvidenceState,
-)
 from .diff import (
     ApprovalGate,
     DiffOpKind,
@@ -65,12 +58,7 @@ _resolve_forward_refs()
 __all__ = [
     "LEGAL_TRANSITIONS",
     "ApprovalGate",
-    "CapabilityEdge",
-    "CapabilityEdgeKind",
-    "CapabilityGraph",
-    "CapabilityNode",
     "DiffOpKind",
-    "EvidenceState",
     "IllegalPlanTransitionError",
     "IntentConstraint",
     "IntentSpec",
