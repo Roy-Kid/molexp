@@ -142,7 +142,7 @@ export const buildMetadataFields = (
       return [
         { label: "Task", value: session.id },
         { label: "Status", value: session.status },
-        { label: "Goal", value: session.goalDescription },
+        { label: "Goal", value: session.goal },
         { label: "Events", value: String(session.eventCount) },
         { label: "Created", value: session.createdAt },
       ];

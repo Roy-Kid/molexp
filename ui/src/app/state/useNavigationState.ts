@@ -296,7 +296,7 @@ const buildBreadcrumbs = (
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return [
         { label: "Agent Tasks", to: "/agent-tasks" },
-        { label: session?.goalDescription ?? selection.objectId },
+        { label: session?.goal ?? selection.objectId },
       ];
     }
     case "workspace-file":
@@ -403,9 +403,7 @@ const buildContextMeta = (
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return {
         title:
-          selection.objectId === "new"
-            ? "New Agent Task"
-            : (session?.goalDescription ?? selection.objectId),
+          selection.objectId === "new" ? "New Agent Task" : (session?.goal ?? selection.objectId),
         subtitle:
           selection.objectId === "new"
             ? "Create a new agent task."
@@ -486,10 +484,6 @@ export const useNavigationState = (snapshot: WorkspaceSnapshot): NavigationState
           return;
         }
         if (view === "agent" && selection.objectType === "agent") {
-          navigate(getSelectionPath(selection, snapshot));
-          return;
-        }
-        if (view === "review" && selection.objectType === "review") {
           navigate(getSelectionPath(selection, snapshot));
           return;
         }

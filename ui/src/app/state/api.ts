@@ -614,7 +614,7 @@ export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSumma
   return sessions.map((s) => ({
     id: s.taskId ?? s.sessionId,
     sessionId: s.sessionId,
-    goalDescription: s.goalDescription,
+    goal: s.goal,
     status: s.status as AgentSessionSummary["status"],
     createdAt: s.createdAt,
     eventCount: s.events?.length ?? 0,
@@ -679,7 +679,7 @@ const normalizeAgentTask = (task: ApiAgentTask): ApiAgentSession => ({
   title: task.title,
   sessionId: task.sessionId ?? task.taskId,
   status: task.status,
-  goalDescription: task.goal,
+  goal: task.goal,
   createdAt: task.createdAt,
   updatedAt: task.updatedAt,
   events: task.events ?? [],

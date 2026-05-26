@@ -11,7 +11,7 @@ const baseSession = (overrides: Partial<ApiAgentSession> = {}): ApiAgentSession 
   ({
     sessionId: "s-1",
     taskId: "t-1",
-    goalDescription: "Test session",
+    goal: "Test session",
     status: "running",
     createdAt: "2026-05-05T00:00:00Z",
     events: [],

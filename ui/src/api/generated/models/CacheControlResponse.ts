@@ -12,3 +12,4 @@ export type CacheControlResponse = {
      */
     warnings?: Array<string>;
 };
+

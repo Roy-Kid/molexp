@@ -45,8 +45,8 @@ const mockReviews: ApiReviewItem[] = [];
 
 const taskFromSession = (session: ApiAgentSession): ApiAgentTask => ({
     taskId: session.taskId ?? session.sessionId,
-    title: session.goalDescription.split("\n")[0]?.slice(0, 72) || "Untitled agent task",
-    goal: session.goalDescription,
+    title: session.goal.split("\n")[0]?.slice(0, 72) || "Untitled agent task",
+    goal: session.goal,
     status: session.status,
     createdAt: session.createdAt,
     updatedAt: session.stats?.completedAt ?? session.stats?.startedAt ?? session.createdAt,
@@ -69,8 +69,9 @@ const createMockTaskSession = (body: {
     const session: ApiAgentSession = {
         sessionId,
         taskId,
+        title: body.description.slice(0, 60),
         status: "running",
-        goalDescription: body.description,
+        goal: body.description,
         createdAt: startedAt,
         events: [],
         stats: {
@@ -380,8 +381,10 @@ export const agentHandlers = [
 
         const newSession: ApiAgentSession = {
             sessionId,
+            taskId: `task-${Date.now()}`,
+            title: body.description.slice(0, 60),
             status: "running",
-            goalDescription: body.description,
+            goal: body.description,
             createdAt: startedAt,
             events: [],
             stats: {

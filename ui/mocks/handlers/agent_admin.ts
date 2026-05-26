@@ -829,7 +829,7 @@ export const agentAdminHandlers = [
     return HttpResponse.json({
       sessionId: `session-${Math.random().toString(36).slice(2, 10)}`,
       status: "running",
-      goalDescription: skill.goalTemplate,
+      goal: skill.goalTemplate,
       createdAt: _now(),
       events: [],
       stats: {

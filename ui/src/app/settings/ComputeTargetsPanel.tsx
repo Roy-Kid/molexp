@@ -17,7 +17,7 @@ import { AddTargetForm } from "./AddTargetForm";
 type Scheduler = TargetCreateRequest.scheduler;
 
 const schedulerLabel: Record<Scheduler, string> = {
-  [TargetCreateRequest.scheduler.SHELL]: "Local shell",
+  [TargetCreateRequest.scheduler.LOCAL]: "Local shell",
   [TargetCreateRequest.scheduler.SLURM]: "SLURM",
   [TargetCreateRequest.scheduler.PBS]: "PBS",
   [TargetCreateRequest.scheduler.LSF]: "LSF",

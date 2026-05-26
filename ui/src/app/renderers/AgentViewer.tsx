@@ -951,7 +951,7 @@ const SessionHeader = ({
       canNavigateUp={canNavigateUp}
       onNavigateUp={navigateUp}
       icon={Bot}
-      title={session.goalDescription}
+      title={session.goal}
       status={session.status}
       titleAccessory={isRunning ? <LiveIndicator /> : undefined}
     />
@@ -1242,7 +1242,7 @@ const AgentSessionViewer = ({
                     className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
                   >
                     <Bot className="h-4 w-4 flex-none text-violet-400" />
-                    <p className="flex-1 truncate text-sm">{s.goalDescription}</p>
+                    <p className="flex-1 truncate text-sm">{s.goal}</p>
                     <StatusBadge status={s.status} size="sm" />
                   </button>
                 ))}
@@ -1282,7 +1282,7 @@ const AgentSessionViewer = ({
   if (!session) return null;
 
   const isRunning = session.status === "running";
-  const turns = groupEventsIntoTurns(events, session.goalDescription);
+  const turns = groupEventsIntoTurns(events, session.goal);
 
   // After a structured plan is approved/rejected, re-fetch the session
   // so the freshly-flipped planMode flag, status, and post-handoff

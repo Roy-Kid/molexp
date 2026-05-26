@@ -12,11 +12,11 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete(
+    public static agentDisabledApiApiAgentPathPost(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'DELETE',
+            method: 'POST',
             url: '/api/api/agent/{path}',
             path: {
                 'path': path,
@@ -32,27 +32,7 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete1(
-        path: string,
-    ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/api/agent/{path}',
-            path: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Agent Disabled
-     * @param path
-     * @returns any Successful Response
-     * @throws ApiError
-     */
-    public static agentDisabledApiApiAgentPathDelete2(
+    public static agentDisabledApiApiAgentPathPost1(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -72,11 +52,11 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete3(
+    public static agentDisabledApiApiAgentPathPost2(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'PATCH',
+            method: 'GET',
             url: '/api/api/agent/{path}',
             path: {
                 'path': path,
@@ -92,11 +72,31 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete4(
+    public static agentDisabledApiApiAgentPathPost3(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'POST',
+            method: 'DELETE',
+            url: '/api/api/agent/{path}',
+            path: {
+                'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Disabled
+     * @param path
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static agentDisabledApiApiAgentPathPost4(
+        path: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
             url: '/api/api/agent/{path}',
             path: {
                 'path': path,

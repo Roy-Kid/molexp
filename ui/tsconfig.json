@@ -27,7 +27,7 @@
         "./src/*"
       ],
       "@schemas/*": [
-        "../src/molexp/schemas/*"
+        "../src/molexp/workflow/schema/*"
       ]
     }
   },

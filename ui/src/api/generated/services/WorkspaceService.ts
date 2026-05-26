@@ -122,6 +122,9 @@ export class WorkspaceService {
     /**
      * Read Workspace File
      * Read a text file from the workspace.
+     *
+     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * :class:`CachedRemoteFileSystem` mirror) take effect.
      * @param path Workspace-relative path to read
      * @returns FileContentResponse Successful Response
      * @throws ApiError
@@ -143,6 +146,9 @@ export class WorkspaceService {
     /**
      * Read Workspace File Blob
      * Read a binary file from the workspace.
+     *
+     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * :class:`CachedRemoteFileSystem` mirror) take effect.
      * @param path Workspace-relative path to read
      * @returns any Successful Response
      * @throws ApiError
@@ -286,9 +292,9 @@ export class WorkspaceService {
      * Invalidate Workspace Cache
      * Drop cached entries from the active workspace's mirror.
      *
-     * ``scope="indices"`` is the navigation-refresh knob — it drops only
-     * entries whose basename identifies a navigation-index file, leaving
-     * log/blob bytes intact.
+     * ``scope="indices"`` is the "I added a run on the remote, refresh
+     * navigation" knob — it drops only entries whose basename identifies
+     * a navigation-index file, leaving log/blob bytes intact.
      * @param requestBody
      * @returns CacheControlResponse Successful Response
      * @throws ApiError
@@ -302,15 +308,18 @@ export class WorkspaceService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                409: `Local workspaces have no cache`,
                 422: `Validation Error`,
             },
         });
     }
     /**
      * Refresh Workspace Cache
-     * Invalidate, then re-prefetch navigation indices.  Saves the UI from
-     * issuing a follow-up call after a refresh button click.
+     * Invalidate, then walk the navigation indices again.
+     *
+     * Saves the UI from issuing a follow-up call after a refresh button
+     * click.  Per-node failures during the walk surface as ``warnings`` —
+     * the response is still 200 so a single bad project does not blank
+     * the whole tree.
      * @param requestBody
      * @returns CacheControlResponse Successful Response
      * @throws ApiError
@@ -324,7 +333,6 @@ export class WorkspaceService {
             body: requestBody,
             mediaType: 'application/json',
             errors: {
-                409: `Local workspaces have no cache`,
                 422: `Validation Error`,
             },
         });

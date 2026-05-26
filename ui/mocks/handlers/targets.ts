@@ -24,7 +24,7 @@ const seed = (t: Omit<TargetResponse, "isRemote" | "defaultResources" | "default
 seed({
   name: "laptop",
   scratchRoot: "/tmp/molexp",
-  scheduler: TargetResponse.scheduler.SHELL,
+  scheduler: TargetResponse.scheduler.LOCAL,
   host: null,
   port: null,
   identityFile: null,
@@ -59,7 +59,7 @@ export const targetsHandlers = [
     const created: TargetResponse = {
       name: body.name,
       scratchRoot: body.scratchRoot,
-      scheduler: (body.scheduler ?? TargetResponse.scheduler.SHELL) as TargetResponse.scheduler,
+      scheduler: (body.scheduler ?? TargetResponse.scheduler.LOCAL) as TargetResponse.scheduler,
       host: body.host ?? null,
       port: body.port ?? null,
       identityFile: body.identityFile ?? null,

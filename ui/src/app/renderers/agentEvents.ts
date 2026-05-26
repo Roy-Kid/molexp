@@ -115,13 +115,13 @@ const eventKey = (event: ApiSessionEvent, fallback: number): string =>
  */
 export const groupEventsIntoTurns = (
   events: ApiSessionEvent[],
-  goalDescription: string,
+  goal: string,
 ): ConversationTurn[] => {
   const turns: ConversationTurn[] = [];
 
   let current: ConversationTurn = {
     key: "turn-goal",
-    question: goalDescription,
+    question: goal,
     source: "goal",
     result: null,
     steps: [],

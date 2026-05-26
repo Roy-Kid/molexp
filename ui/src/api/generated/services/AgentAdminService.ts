@@ -12,11 +12,11 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathDelete(
+    public static agentAdminDisabledApiApiAgentAdminPathPost(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'DELETE',
+            method: 'POST',
             url: '/api/api/agent/admin/{path}',
             path: {
                 'path': path,
@@ -32,27 +32,7 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathDelete1(
-        path: string,
-    ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/api/agent/admin/{path}',
-            path: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Agent Admin Disabled
-     * @param path
-     * @returns any Successful Response
-     * @throws ApiError
-     */
-    public static agentAdminDisabledApiApiAgentAdminPathDelete2(
+    public static agentAdminDisabledApiApiAgentAdminPathPost1(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -72,11 +52,11 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathDelete3(
+    public static agentAdminDisabledApiApiAgentAdminPathPost2(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'PATCH',
+            method: 'GET',
             url: '/api/api/agent/admin/{path}',
             path: {
                 'path': path,
@@ -92,11 +72,31 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathDelete4(
+    public static agentAdminDisabledApiApiAgentAdminPathPost3(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
-            method: 'POST',
+            method: 'DELETE',
+            url: '/api/api/agent/admin/{path}',
+            path: {
+                'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Agent Admin Disabled
+     * @param path
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static agentAdminDisabledApiApiAgentAdminPathPost4(
+        path: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
             url: '/api/api/agent/admin/{path}',
             path: {
                 'path': path,
