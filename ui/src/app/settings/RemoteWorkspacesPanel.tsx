@@ -111,10 +111,9 @@ export function RemoteWorkspacesPanel(): JSX.Element {
     setActionError(null);
     setTestResult(null);
     try {
-      const res =
-        await WorkspaceService.refreshWorkspaceCacheApiWorkspaceCacheRefreshPost({
-          scope: "indices",
-        });
+      const res = await WorkspaceService.refreshWorkspaceCacheApiWorkspaceCacheRefreshPost({
+        scope: "indices",
+      });
       setCacheStatus({ dropped: res.dropped, fetchedAt: Date.now() });
       setOpenWarnings(res.warnings ?? []);
     } catch (err) {
@@ -203,9 +202,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
                   variant="ghost"
                   size="icon"
                   aria-label={`Remove ${t.name}`}
-                  title={
-                    isActive ? "Switch to another workspace first" : `Remove ${t.name}`
-                  }
+                  title={isActive ? "Switch to another workspace first" : `Remove ${t.name}`}
                   disabled={busy === t.name || isActive}
                   onClick={() => void handleDelete(t.name)}
                 >
@@ -257,10 +254,7 @@ export function RemoteWorkspacesPanel(): JSX.Element {
           {testResult.error && <p className="text-xs text-red-500">{testResult.error}</p>}
           <ul className="space-y-0.5 pl-1">
             {testResult.checks.map((c) => (
-              <li
-                key={c.label}
-                className="flex items-start gap-1.5 text-xs text-muted-foreground"
-              >
+              <li key={c.label} className="flex items-start gap-1.5 text-xs text-muted-foreground">
                 {c.ok ? (
                   <Check className="h-3 w-3 mt-0.5 text-green-500 flex-shrink-0" />
                 ) : (

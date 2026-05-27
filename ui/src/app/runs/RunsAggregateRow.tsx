@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
 
-import { Plot } from "@/lib/plot";
+import { MolvisBarChart } from "@/lib/charts";
 import { cn } from "@/lib/utils";
 
 import type { BackendDistributionEntry, FailingExperimentEntry } from "./aggregates";
@@ -44,49 +44,38 @@ const CLUSTER_PALETTE = [
   "#84cc16",
 ];
 
-const BACKEND_CHART_LAYOUT = {
-  barmode: "stack" as const,
-  height: 160,
-  margin: { l: 64, r: 12, t: 8, b: 28 },
-  xaxis: { showgrid: true, gridcolor: "rgba(125,125,125,0.15)" },
-  yaxis: { automargin: true, tickfont: { size: 11 } },
-  showlegend: true,
-  legend: { orientation: "h" as const, y: -0.3, x: 0, font: { size: 10 } },
-  paper_bgcolor: "rgba(0,0,0,0)",
-  plot_bgcolor: "rgba(0,0,0,0)",
-};
-
-const BACKEND_CHART_CONFIG = { displayModeBar: false, responsive: true };
-const BACKEND_CHART_STYLE = { width: "100%" };
-
 const BackendDistributionChart = ({
   distribution,
   onSelectBackend,
 }: BackendDistributionChartProps): JSX.Element => {
-  const traces = useMemo(() => {
-    if (distribution.length === 0) return [];
+  const config = useMemo(() => {
     const backends = Array.from(new Set(distribution.map((entry) => entry.backend)));
     const clusters = Array.from(new Set(distribution.map((entry) => entry.cluster ?? "—")));
-    return clusters.map((clusterName, index) => {
-      const x = backends.map((backend) => {
-        const match = distribution.find(
-          (entry) => entry.backend === backend && (entry.cluster ?? "—") === clusterName,
-        );
-        return match?.count ?? 0;
-      });
+    const series = clusters.map((clusterName, index) => {
+      const label = clusterName === "—" ? "(no cluster)" : clusterName;
       return {
-        type: "bar",
-        orientation: "h",
-        name: clusterName === "—" ? "(no cluster)" : clusterName,
-        y: backends,
-        x,
-        customdata: backends,
-        hovertemplate: `<b>%{y}</b> · ${
-          clusterName === "—" ? "(no cluster)" : clusterName
-        }<br>%{x} runs<extra></extra>`,
-        marker: { color: CLUSTER_PALETTE[index % CLUSTER_PALETTE.length] },
+        id: clusterName,
+        label,
+        color: CLUSTER_PALETTE[index % CLUSTER_PALETTE.length],
+        hovertemplate: `<b>%{y}</b> · ${label}<br>%{x} runs<extra></extra>`,
+        points: backends.map((backend) => {
+          const match = distribution.find(
+            (entry) => entry.backend === backend && (entry.cluster ?? "—") === clusterName,
+          );
+          return { x: backend, y: match?.count ?? 0, customdata: backend };
+        }),
       };
     });
+    return {
+      series,
+      mode: "stack" as const,
+      orientation: "h" as const,
+      showLegend: true,
+      modebar: false,
+      legend: { orientation: "h" as const, y: -0.3, x: 0, font: { size: 10 } },
+      yAxis: { automargin: true, tickfont: { size: 11 } },
+      theme: "auto" as const,
+    };
   }, [distribution]);
 
   if (distribution.length === 0) {
@@ -97,21 +86,15 @@ const BackendDistributionChart = ({
     );
   }
 
-  const handleClick = (event: { points: Array<{ customdata?: unknown }> }): void => {
-    const point = event.points?.[0];
-    const backend = point?.customdata;
-    if (typeof backend === "string") onSelectBackend(backend);
-  };
-
   return (
     <PanelShell title="Backend / cluster distribution">
-      <Plot
-        data={traces}
-        layout={BACKEND_CHART_LAYOUT}
-        config={BACKEND_CHART_CONFIG}
-        style={BACKEND_CHART_STYLE}
-        useResizeHandler
-        onClick={handleClick}
+      <MolvisBarChart
+        config={config}
+        onBarClick={(event) => {
+          const backend = event.customdata;
+          if (typeof backend === "string") onSelectBackend(backend);
+        }}
+        style={{ width: "100%", height: "160px" }}
       />
     </PanelShell>
   );

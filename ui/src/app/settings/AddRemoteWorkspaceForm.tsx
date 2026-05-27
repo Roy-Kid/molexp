@@ -61,7 +61,9 @@ export function AddRemoteWorkspaceForm({
           .filter(Boolean),
         cache_dir: form.cache_dir?.trim() ? form.cache_dir.trim() : null,
         cache_ttl_seconds:
-          form.cache_ttl_seconds == null ? DEFAULT_CACHE_TTL_SECONDS : Number(form.cache_ttl_seconds),
+          form.cache_ttl_seconds == null
+            ? DEFAULT_CACHE_TTL_SECONDS
+            : Number(form.cache_ttl_seconds),
       };
       const created = await WorkspaceService.createWorkspaceTargetApiWorkspaceTargetsPost(payload);
       setForm(emptyForm());
@@ -150,9 +152,7 @@ export function AddRemoteWorkspaceForm({
             Cache (lazy-download mirror)
           </summary>
           <div className="space-y-1">
-            <Label htmlFor="add-remote-ws-cache-ttl">
-              Cache TTL (seconds)
-            </Label>
+            <Label htmlFor="add-remote-ws-cache-ttl">Cache TTL (seconds)</Label>
             <Input
               id="add-remote-ws-cache-ttl"
               type="number"
@@ -168,8 +168,8 @@ export function AddRemoteWorkspaceForm({
               placeholder={String(DEFAULT_CACHE_TTL_SECONDS)}
             />
             <p className="text-xs text-muted-foreground">
-              How long a cached file/dir entry stays fresh. 0 always re-stats the
-              remote FS but still serves mirror bytes when mtime matches.
+              How long a cached file/dir entry stays fresh. 0 always re-stats the remote FS but
+              still serves mirror bytes when mtime matches.
             </p>
           </div>
           <div className="space-y-1">

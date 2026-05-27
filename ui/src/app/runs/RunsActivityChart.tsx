@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
 
-import { Plot } from "@/lib/plot";
+import { MolvisBarChart } from "@/lib/charts";
 
 import type { ActivityBucket } from "./aggregates";
 
@@ -16,82 +16,65 @@ const SERIES_COLORS = {
   started: "#3b82f6",
 };
 
-const CHART_LAYOUT = {
-  barmode: "stack" as const,
-  bargap: 0.1,
-  height: 200,
-  margin: { l: 36, r: 12, t: 8, b: 32 },
-  xaxis: {
-    type: "date" as const,
-    showgrid: false,
-    tickfont: { size: 10 },
-    tickformat: "%H:00",
-    nticks: 12,
-  },
-  yaxis: {
-    showgrid: true,
-    gridcolor: "rgba(125,125,125,0.15)",
-    tickfont: { size: 10 },
-    rangemode: "nonnegative" as const,
-    title: { text: "runs", font: { size: 10 }, standoff: 6 },
-  },
-  showlegend: false,
-  hovermode: "x unified" as const,
-  paper_bgcolor: "rgba(0,0,0,0)",
-  plot_bgcolor: "rgba(0,0,0,0)",
-};
-
-const CHART_CONFIG = { displayModeBar: false, responsive: true };
-const CHART_STYLE = { width: "100%" };
-
 const formatHour = (date: Date): string =>
   `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, "0")}:00`;
 
 export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Element => {
-  const traces = useMemo(() => {
-    if (buckets.length === 0) return [];
-    const hours = buckets.map((bucket) => bucket.hour.toISOString());
+  const config = useMemo(() => {
+    const xs = buckets.map((bucket) => bucket.hour.toISOString());
     const labels = buckets.map((bucket) => formatHour(bucket.hour));
-    return [
-      {
-        type: "bar",
-        name: "Succeeded",
-        x: hours,
-        y: buckets.map((bucket) => bucket.succeeded),
-        text: labels,
-        marker: { color: SERIES_COLORS.succeeded },
-        hovertemplate: "<b>%{text}</b><br>Succeeded: %{y}<extra></extra>",
+
+    const mkPoints = (sel: (b: ActivityBucket) => number) =>
+      buckets.map((bucket, i) => ({ x: xs[i], y: sel(bucket), text: labels[i] }));
+
+    return {
+      mode: "stack" as const,
+      hovermode: "x unified" as const,
+      showLegend: false,
+      bargap: 0.1,
+      modebar: false,
+      xAxis: {
+        dtype: "date" as const,
+        tickformat: "%H:00",
+        nticks: 12,
       },
-      {
-        type: "bar",
-        name: "Failed",
-        x: hours,
-        y: buckets.map((bucket) => bucket.failed),
-        text: labels,
-        marker: { color: SERIES_COLORS.failed },
-        hovertemplate: "<b>%{text}</b><br>Failed: %{y}<extra></extra>",
+      yAxis: {
+        label: "runs",
+        rangemode: "nonnegative" as const,
       },
-      {
-        type: "bar",
-        name: "Cancelled",
-        x: hours,
-        y: buckets.map((bucket) => bucket.cancelled),
-        text: labels,
-        marker: { color: SERIES_COLORS.cancelled },
-        hovertemplate: "<b>%{text}</b><br>Cancelled: %{y}<extra></extra>",
-      },
-      {
-        type: "scatter",
-        mode: "lines+markers",
-        name: "Started",
-        x: hours,
-        y: buckets.map((bucket) => bucket.started),
-        text: labels,
-        line: { color: SERIES_COLORS.started, width: 2 },
-        marker: { size: 4, color: SERIES_COLORS.started },
-        hovertemplate: "<b>%{text}</b><br>Started: %{y}<extra></extra>",
-      },
-    ];
+      series: [
+        {
+          id: "succeeded",
+          label: "Succeeded",
+          color: SERIES_COLORS.succeeded,
+          points: mkPoints((b) => b.succeeded),
+          hovertemplate: "<b>%{text}</b><br>Succeeded: %{y}<extra></extra>",
+        },
+        {
+          id: "failed",
+          label: "Failed",
+          color: SERIES_COLORS.failed,
+          points: mkPoints((b) => b.failed),
+          hovertemplate: "<b>%{text}</b><br>Failed: %{y}<extra></extra>",
+        },
+        {
+          id: "cancelled",
+          label: "Cancelled",
+          color: SERIES_COLORS.cancelled,
+          points: mkPoints((b) => b.cancelled),
+          hovertemplate: "<b>%{text}</b><br>Cancelled: %{y}<extra></extra>",
+        },
+        {
+          id: "started",
+          label: "Started",
+          type: "line" as const,
+          color: SERIES_COLORS.started,
+          points: mkPoints((b) => b.started),
+          hovertemplate: "<b>%{text}</b><br>Started: %{y}<extra></extra>",
+        },
+      ],
+      theme: "auto" as const,
+    };
   }, [buckets]);
 
   const totals = useMemo(
@@ -121,13 +104,7 @@ export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Elem
           <LegendDot color={SERIES_COLORS.cancelled} label={`Cancelled ${totals.cancelled}`} />
         </div>
       </div>
-      <Plot
-        data={traces}
-        layout={CHART_LAYOUT}
-        config={CHART_CONFIG}
-        style={CHART_STYLE}
-        useResizeHandler
-      />
+      <MolvisBarChart config={config} style={{ width: "100%", height: "200px" }} />
     </div>
   );
 };

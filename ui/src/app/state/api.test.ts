@@ -290,9 +290,17 @@ describe("mapAgentSessions", () => {
     ],
   };
 
-  it("maps sessionId to id", () => {
+  it("uses taskId as the navigation id when present", () => {
     const [result] = mapAgentSessions([rawSession]);
+    expect(result.id).toBe("task-abc");
+    expect(result.sessionId).toBe("sess-abc");
+  });
+
+  it("falls back to sessionId for id when taskId is absent", () => {
+    const { taskId: _drop, ...withoutTaskId } = rawSession;
+    const [result] = mapAgentSessions([withoutTaskId]);
     expect(result.id).toBe("sess-abc");
+    expect(result.sessionId).toBe("sess-abc");
   });
 
   it("maps goal", () => {

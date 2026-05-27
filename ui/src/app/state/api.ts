@@ -80,6 +80,40 @@ export interface RunMetricsQuery {
   limit?: number;
 }
 
+export interface TensorboardScalarPoint {
+  step: number;
+  wallTime: number;
+  value: number;
+}
+
+export interface TensorboardScalarSeries {
+  tag: string;
+  logdir: string;
+  points: TensorboardScalarPoint[];
+}
+
+export interface TensorboardScalarsResponse {
+  runId: string;
+  runDir: string;
+  logdirs: string[];
+  series: TensorboardScalarSeries[];
+}
+
+/**
+ * Error thrown by ``getRunTensorboardScalars`` — preserves the HTTP
+ * status so the UI can distinguish 503 (extra not installed) from
+ * generic failures. Subclasses ``Error`` so ``err instanceof Error``,
+ * Sentry stacks, and error boundaries behave correctly.
+ */
+export class TensorboardScalarsError extends Error {
+  public readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "TensorboardScalarsError";
+    this.status = status;
+  }
+}
+
 export type { LammpsLogResponse } from "@/api/generated/models/LammpsLogResponse";
 export type { LammpsThermoStage } from "@/api/generated/models/LammpsThermoStage";
 export type { RunFileTextResponse } from "@/api/generated/models/RunFileTextResponse";
@@ -168,6 +202,41 @@ export const workspaceApi = {
       runId,
       path,
     );
+  },
+  getRunTensorboardScalars: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    opts: { tag?: string[]; logdir?: string } = {},
+  ): Promise<TensorboardScalarsResponse> => {
+    const params = new URLSearchParams();
+    if (opts.logdir) params.set("logdir", opts.logdir);
+    for (const t of opts.tag ?? []) params.append("tag", t);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(
+        experimentId,
+      )}/runs/${encodeURIComponent(runId)}/tensorboard/scalars${suffix}`,
+    );
+    if (!response.ok) {
+      const contentType = response.headers.get("Content-Type") ?? "";
+      const text = await response.text();
+      let message = `Failed to fetch tensorboard scalars: ${response.statusText}`;
+      if (contentType.includes("application/json")) {
+        try {
+          const body = JSON.parse(text);
+          if (typeof body?.detail === "string") message = body.detail;
+        } catch {
+          // ignore — fall through to generic statusText
+        }
+      } else if (text && text.length < 500) {
+        // Non-JSON bodies (proxy HTML, uvicorn text errors) are short
+        // enough to surface verbatim; long bodies are noise.
+        message = `${message}: ${text.trim()}`;
+      }
+      throw new TensorboardScalarsError(response.status, message);
+    }
+    return response.json();
   },
   getRunMetrics: async (
     projectId: string,

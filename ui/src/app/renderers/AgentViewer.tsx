@@ -33,7 +33,7 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plot } from "@/lib/plot";
+import { MolvisRawChart } from "@/lib/charts";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import {
   type ConversationTurn,
@@ -194,21 +194,22 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
   const inner = (payload.payload as Record<string, unknown> | undefined) ?? payload;
 
   if (kind === "plot") {
-    // Plotly's strict PlatData type is too narrow for agent-generated specs;
-    // we accept whatever the agent emitted and let Plotly validate at runtime.
-    const data = Array.isArray(inner.data) ? (inner.data as never) : ([] as never);
-    const layout = (inner.layout as object | undefined) ?? {};
+    // Agent-emitted specs are untyped — we accept whatever they emit
+    // and let plotly validate at runtime via MolvisRawChart.
+    const data = Array.isArray(inner.data) ? (inner.data as unknown[]) : [];
+    const layout = (inner.layout as Record<string, unknown> | undefined) ?? {};
     return (
       <div className="space-y-2 rounded-md border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
         {title && (
           <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">{title}</p>
         )}
-        <Plot
-          data={data}
-          layout={{ autosize: true, margin: { l: 48, r: 16, t: 16, b: 40 }, ...layout }}
-          config={{ displayModeBar: false, responsive: true }}
+        <MolvisRawChart
+          spec={{
+            data,
+            layout: { autosize: true, margin: { l: 48, r: 16, t: 16, b: 40 }, ...layout },
+            config: { displayModeBar: false, responsive: true },
+          }}
           style={{ width: "100%", height: 300 }}
-          useResizeHandler
         />
       </div>
     );
