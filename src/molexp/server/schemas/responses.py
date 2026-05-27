@@ -619,6 +619,31 @@ class LammpsLogResponse(BaseModel):
     stages: list[LammpsThermoStage] = Field(default_factory=list)
 
 
+class TensorboardScalarPoint(BaseModel):
+    """One scalar sample read from a tfevents file."""
+
+    step: int
+    wallTime: float
+    value: float
+
+
+class TensorboardScalarSeries(BaseModel):
+    """All scalar samples for a single tag inside one logdir."""
+
+    tag: str
+    logdir: str  # path relative to run_dir
+    points: list[TensorboardScalarPoint] = Field(default_factory=list)
+
+
+class TensorboardScalarsResponse(BaseModel):
+    """Parsed scalars across every tfevents logdir found under a run."""
+
+    runId: str
+    runDir: str
+    logdirs: list[str] = Field(default_factory=list)
+    series: list[TensorboardScalarSeries] = Field(default_factory=list)
+
+
 class WorkflowStepInfo(BaseModel):
     """Human-readable summary of one workflow execution step."""
 

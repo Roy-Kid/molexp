@@ -25,7 +25,8 @@ dependencies = [
 
 [project.optional-dependencies]
 agent = ["pydantic-ai>=1.0"]
-all = ["molexp[agent]"]
+tensorboard = ["tensorboard>=2.15"]
+all = ["molexp[agent,tensorboard]"]
 dev = [
     "molexp[all]",
     "pytest>=7.0",
