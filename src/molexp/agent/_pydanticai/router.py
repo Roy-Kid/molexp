@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -60,7 +60,7 @@ from molexp.agent.router import (
 )
 from molexp.agent.types import CallUsage, Usage, UsageBreakdown
 
-from .errors import ProviderError, classify
+from .errors import ErrorKind, ProviderError, classify
 from .events import EventCallback, Outcome, ProviderEvent
 from .retry import RetryPolicy, should_retry, sleep_for
 
@@ -83,6 +83,7 @@ type PydanticAiMessage = "ModelMessage"
 type _TextAgent = "Agent[None, str]"
 
 SchemaT = TypeVar("SchemaT", bound=BaseModel)
+_ResultT = TypeVar("_ResultT")
 
 _LOG = get_logger(__name__)
 
@@ -114,11 +115,15 @@ class PydanticAIRouter:
             wiring; unused by the router itself.
         retry_policy: Optional retry configuration. Defaults to
             :class:`RetryPolicy` (3 attempts, 0.5 s base backoff).
-            Applied only to the structured path; the text path is
-            single-attempt by design (matches pre-rewrite behavior).
+            Applied uniformly to the text and structured paths via
+            :meth:`_run_with_transport_retry` — both recover from the
+            transient transport classes (``model_unavailable`` /
+            ``timeout``). ``stream_agentic`` is unaffected (its loop
+            lives inside pydantic-ai).
         on_invoke_start: Optional callback fired with a
             ``ProviderEvent(outcome=ok, duration_seconds=0.0)`` before
-            each structured-path attempt.
+            each structured-path attempt. The text path does not fire
+            provider events.
         on_invoke_end: Optional callback fired with a closing
             ``ProviderEvent`` whose outcome is ``ok`` / ``retry`` /
             ``error``.
@@ -243,38 +248,56 @@ class PydanticAIRouter:
         per-call override would invalidate the cache. Tracked as a
         future enhancement; today the call ignores ``system`` and
         relies on the constructor's ``system_prompt``.
+
+        Transport failures (``model_unavailable`` / ``timeout``) are
+        retried via :meth:`_run_with_transport_retry` — identical to the
+        structured path. A non-retryable failure or retry exhaustion
+        raises :class:`ProviderError`.
         """
         del system  # see docstring; kept in signature for protocol stability
         agent = self._text_agent(tier)
-        _LOG.debug(
-            f"[router] text tier={tier.value} model={self._tier_models[tier]} "
-            f"prompt_chars={len(prompt)} history={len(message_history)}"
-        )
-        t0 = time.monotonic()
-        try:
+
+        async def _run_once(attempt: int) -> RouterTextResult:
+            _LOG.debug(
+                f"[router] text tier={tier.value} model={self._tier_models[tier]} "
+                f"prompt_chars={len(prompt)} history={len(message_history)} attempt={attempt}"
+            )
+            t0 = time.monotonic()
             run_result = await agent.run(
                 prompt,
                 message_history=list(message_history) if message_history else None,
             )
-        except BaseException:
-            _LOG.exception(f"[router] text tier={tier.value} FAILED {time.monotonic() - t0:.2f}s")
-            raise
-        text = str(getattr(run_result, "output", "") or "")
-        elapsed = time.monotonic() - t0
-        record = self._record_usage(
-            run_result=run_result,
+            text = str(getattr(run_result, "output", "") or "")
+            elapsed = time.monotonic() - t0
+            record = self._record_usage(
+                run_result=run_result,
+                node_id="chat",
+                tier=tier,
+                schema_name="",
+                attempt=attempt,
+                duration_seconds=elapsed,
+            )
+            _LOG.debug(
+                f"[router] text tier={tier.value} ok {elapsed:.2f}s "
+                f"out_chars={len(text)} in={record.input_tokens} out={record.output_tokens} "
+                f"total={record.total_tokens}"
+            )
+            return RouterTextResult(text=text, raw=run_result)
+
+        def _on_failed(attempt: int, kind: ErrorKind, elapsed: float, will_retry: bool) -> None:
+            verb = "retry" if will_retry else "ERROR"
+            log = _LOG.warning if will_retry else _LOG.error
+            log(
+                f"[router] text tier={tier.value} attempt={attempt} {verb} "
+                f"kind={kind.name} {elapsed:.2f}s"
+            )
+
+        return await self._run_with_transport_retry(
             node_id="chat",
             tier=tier,
-            schema_name="",
-            attempt=1,
-            duration_seconds=elapsed,
+            run_once=_run_once,
+            on_failed_attempt=_on_failed,
         )
-        _LOG.debug(
-            f"[router] text tier={tier.value} ok {elapsed:.2f}s "
-            f"out_chars={len(text)} in={record.input_tokens} out={record.output_tokens} "
-            f"total={record.total_tokens}"
-        )
-        return RouterTextResult(text=text, raw=run_result)
 
     # ── Structured path ─────────────────────────────────────────────────────
 
@@ -313,6 +336,65 @@ class PydanticAIRouter:
                 exc_info=True,
             )
 
+    async def _run_with_transport_retry(
+        self,
+        *,
+        node_id: str,
+        tier: ModelTier,
+        run_once: Callable[[int], Awaitable[_ResultT]],
+        on_failed_attempt: Callable[[int, ErrorKind, float, bool], None] | None = None,
+    ) -> _ResultT:
+        """Drive ``run_once(attempt)`` with transport-only retry.
+
+        Shared by the text and structured paths so both recover from the
+        transient classes in ``self._retry_policy.retry_on``
+        (``model_unavailable`` / ``timeout``) with exponential backoff.
+        Every other classified failure — and exhaustion of the attempt
+        budget — raises :class:`ProviderError`. Anything pydantic-ai
+        already retries (output/parse validation via ``output_retries``,
+        ``ModelRetry`` via ``Agent(retries=)``) never reaches here, so the
+        two layers do not compound.
+
+        Args:
+            node_id: Identifier carried into ``ProviderError`` and logs.
+            tier: Tier carried into ``ProviderError``.
+            run_once: Coroutine factory for a single attempt — owns the
+                ``agent.run`` plus any per-attempt telemetry and the
+                success-path handling; its return value is returned verbatim.
+            on_failed_attempt: Optional callback invoked on each failed
+                attempt with ``(attempt, kind, elapsed_seconds, will_retry)``
+                so callers can emit their own retry/error events.
+
+        Returns:
+            Whatever ``run_once`` returns on the first successful attempt.
+
+        Raises:
+            ProviderError: On a non-retryable failure or retry exhaustion,
+                with ``kind`` and ``attempts`` preserved.
+        """
+        attempt = 1
+        while True:
+            t0 = time.monotonic()
+            try:
+                return await run_once(attempt)
+            except BaseException as exc:
+                kind = classify(exc)
+                elapsed = time.monotonic() - t0
+                will_retry = should_retry(kind, self._retry_policy, attempt)
+                if on_failed_attempt is not None:
+                    on_failed_attempt(attempt, kind, elapsed, will_retry)
+                if will_retry:
+                    await asyncio.sleep(sleep_for(self._retry_policy, attempt))
+                    attempt += 1
+                    continue
+                raise ProviderError(
+                    kind,
+                    node_id=node_id,
+                    tier=tier,
+                    cause=exc,
+                    attempts=attempt,
+                ) from exc
+
     async def complete_structured(
         self,
         *,
@@ -332,8 +414,8 @@ class PydanticAIRouter:
                 exhaustion) or a non-retryable failure occurred.
         """
         agent = self._structured_agent(tier, schema, system)
-        attempt = 1
-        while True:
+
+        async def _run_once(attempt: int) -> SchemaT:
             self._fire(
                 self._on_invoke_start,
                 ProviderEvent(
@@ -351,89 +433,66 @@ class PydanticAIRouter:
                 f"attempt={attempt} prompt_chars={len(user)}"
             )
             t0 = time.monotonic()
-            try:
-                result = await agent.run(user)
-                output = getattr(result, "output", None)
-                if not isinstance(output, schema):
-                    raise TypeError(
-                        f"Router expected {schema.__name__} from tier={tier.value}; "
-                        f"received {type(output).__name__}."
-                    )
-            except BaseException as exc:
-                kind = classify(exc)
-                if should_retry(kind, self._retry_policy, attempt):
-                    elapsed = time.monotonic() - t0
-                    kind_repr = kind.name if hasattr(kind, "name") else kind
-                    _LOG.warning(
-                        f"[router] structured node={node_id} schema={schema.__name__} "
-                        f"attempt={attempt} retry kind={kind_repr} {elapsed:.2f}s: {exc}"
-                    )
-                    self._fire(
-                        self._on_invoke_end,
-                        ProviderEvent(
-                            tier=tier,
-                            node_id=node_id,
-                            schema_name=schema.__name__,
-                            attempt=attempt,
-                            duration_seconds=elapsed,
-                            outcome=Outcome.retry,
-                        ),
-                    )
-                    await asyncio.sleep(sleep_for(self._retry_policy, attempt))
-                    attempt += 1
-                    continue
-                elapsed = time.monotonic() - t0
-                kind_repr = kind.name if hasattr(kind, "name") else kind
-                _LOG.error(
-                    f"[router] structured node={node_id} schema={schema.__name__} "
-                    f"attempt={attempt} ERROR kind={kind_repr} {elapsed:.2f}s: {exc}"
+            result = await agent.run(user)
+            output = getattr(result, "output", None)
+            if not isinstance(output, schema):
+                raise TypeError(
+                    f"Router expected {schema.__name__} from tier={tier.value}; "
+                    f"received {type(output).__name__}."
                 )
-                self._fire(
-                    self._on_invoke_end,
-                    ProviderEvent(
-                        tier=tier,
-                        node_id=node_id,
-                        schema_name=schema.__name__,
-                        attempt=attempt,
-                        duration_seconds=elapsed,
-                        outcome=Outcome.error,
-                    ),
-                )
-                raise ProviderError(
-                    kind,
-                    node_id=node_id,
+            elapsed = time.monotonic() - t0
+            record = self._record_usage(
+                run_result=result,
+                node_id=node_id,
+                tier=tier,
+                schema_name=schema.__name__,
+                attempt=attempt,
+                duration_seconds=elapsed,
+            )
+            _LOG.debug(
+                f"[router] structured node={node_id} schema={schema.__name__} "
+                f"attempt={attempt} ok {elapsed:.2f}s "
+                f"in={record.input_tokens} out={record.output_tokens} "
+                f"total={record.total_tokens}"
+            )
+            self._fire(
+                self._on_invoke_end,
+                ProviderEvent(
                     tier=tier,
-                    cause=exc,
-                    attempts=attempt,
-                ) from exc
-            else:
-                elapsed = time.monotonic() - t0
-                record = self._record_usage(
-                    run_result=result,
                     node_id=node_id,
-                    tier=tier,
                     schema_name=schema.__name__,
                     attempt=attempt,
                     duration_seconds=elapsed,
-                )
-                _LOG.debug(
-                    f"[router] structured node={node_id} schema={schema.__name__} "
-                    f"attempt={attempt} ok {elapsed:.2f}s "
-                    f"in={record.input_tokens} out={record.output_tokens} "
-                    f"total={record.total_tokens}"
-                )
-                self._fire(
-                    self._on_invoke_end,
-                    ProviderEvent(
-                        tier=tier,
-                        node_id=node_id,
-                        schema_name=schema.__name__,
-                        attempt=attempt,
-                        duration_seconds=elapsed,
-                        outcome=Outcome.ok,
-                    ),
-                )
-                return output
+                    outcome=Outcome.ok,
+                ),
+            )
+            return output
+
+        def _on_failed(attempt: int, kind: ErrorKind, elapsed: float, will_retry: bool) -> None:
+            verb = "retry" if will_retry else "ERROR"
+            log = _LOG.warning if will_retry else _LOG.error
+            log(
+                f"[router] structured node={node_id} schema={schema.__name__} "
+                f"attempt={attempt} {verb} kind={kind.name} {elapsed:.2f}s"
+            )
+            self._fire(
+                self._on_invoke_end,
+                ProviderEvent(
+                    tier=tier,
+                    node_id=node_id,
+                    schema_name=schema.__name__,
+                    attempt=attempt,
+                    duration_seconds=elapsed,
+                    outcome=Outcome.retry if will_retry else Outcome.error,
+                ),
+            )
+
+        return await self._run_with_transport_retry(
+            node_id=node_id,
+            tier=tier,
+            run_once=_run_once,
+            on_failed_attempt=_on_failed,
+        )
 
     # ── Agentic-loop path ───────────────────────────────────────────────────
 

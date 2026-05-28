@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from molexp.agent._pydanticai.errors import ErrorKind, ProviderError
 from molexp.agent._pydanticai.events import Outcome, ProviderEvent
-from molexp.agent._pydanticai.retry import RetryPolicy
+from molexp.agent._pydanticai.retry import RetryPolicy, should_retry
 from molexp.agent._pydanticai.router import PydanticAIRouter
 from molexp.agent.router import ModelTier, Router, RouterTextResult
 
@@ -322,6 +322,314 @@ async def test_complete_text_uses_requested_tier() -> None:
     assert heavy_out.text == "heavy reply"
     assert cheap_stub.calls == ["hi"]
     assert heavy_stub.calls == ["hi"]
+
+
+# ── Transport-retry hardening: complete_text resilience (ac-001) ───────────
+
+
+@pytest.mark.asyncio
+async def test_complete_text_recovers_from_first_attempt_transport_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-001 — RED-first driver for the one new behavior.
+
+    The text path must recover from a first-attempt transport failure
+    exactly as ``complete_structured`` already does. ``TimeoutError``
+    is classified by :func:`classify` as :attr:`ErrorKind.timeout`,
+    which is in the default :class:`RetryPolicy.retry_on`, so attempt
+    #1 retries and attempt #2 succeeds.
+
+    Fails today: ``complete_text`` issues a single ``agent.run`` and
+    re-raises, so only one call is recorded and the exception
+    propagates instead of recovering.
+    """
+
+    async def _fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    router = PydanticAIRouter(
+        models=_models_all("x"),
+        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
+    )
+    stub = _StubAgent([TimeoutError(), "recovered"])
+    _install_text_stub(router, ModelTier.DEFAULT, stub)
+
+    result = await router.complete_text(prompt="hi")
+    assert isinstance(result, RouterTextResult)
+    assert result.text == "recovered"
+    assert stub.calls == ["hi", "hi"]
+
+
+@pytest.mark.asyncio
+async def test_complete_text_recovers_from_model_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-001 — same recovery via the ``model_unavailable`` kind.
+
+    ``ConnectionError`` subclasses ``OSError`` which :func:`classify`
+    maps to :attr:`ErrorKind.model_unavailable`, also retryable by
+    default. Confirms the text path covers both default-retryable
+    transport kinds.
+    """
+
+    async def _fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    router = PydanticAIRouter(
+        models=_models_all("x"),
+        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
+    )
+    stub = _StubAgent([ConnectionError("refused"), "recovered"])
+    _install_text_stub(router, ModelTier.DEFAULT, stub)
+
+    result = await router.complete_text(prompt="hi")
+    assert result.text == "recovered"
+    assert stub.calls == ["hi", "hi"]
+
+
+# ── Transport-retry hardening: shared helper / parity (ac-002) ─────────────
+
+
+@pytest.mark.asyncio
+async def test_text_and_structured_share_identical_transport_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-002 — behavioral parity: both paths retry transport errors
+    with identical attempt counts.
+
+    Drives the same transport-failure-then-success script through
+    ``complete_text`` and ``complete_structured`` and asserts the stub
+    recorded the same number of ``run()`` calls in each, proving both
+    route their model invocation through one shared transport-retry
+    mechanism rather than divergent hand-rolled loops.
+    """
+
+    async def _fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    text_router = PydanticAIRouter(
+        models=_models_all("x"),
+        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
+    )
+    text_stub = _StubAgent([TimeoutError(), TimeoutError(), "ok"])
+    _install_text_stub(text_router, ModelTier.DEFAULT, text_stub)
+    text_result = await text_router.complete_text(prompt="hi")
+    assert text_result.text == "ok"
+
+    struct_router = PydanticAIRouter(
+        models=_models_all("x"),
+        retry_policy=RetryPolicy(max_attempts=3, backoff_seconds=0.0),
+    )
+    struct_stub = _StubAgent([TimeoutError(), TimeoutError(), _Out(payload="ok")])
+    _install_structured_stub(struct_router, ModelTier.DEFAULT, _Out, struct_stub)
+    struct_result = await struct_router.complete_structured(
+        tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
+    )
+    assert struct_result == _Out(payload="ok")
+
+    # Identical attempt counts prove a shared transport-retry mechanism.
+    assert len(text_stub.calls) == len(struct_stub.calls) == 3
+
+
+def test_router_exposes_single_transport_retry_helper() -> None:
+    """ac-002 — structural lock: one private transport-retry helper
+    exists on the class and ``complete_text`` no longer hand-rolls its
+    own retry loop.
+
+    Lenient: asserts the helper symbol exists and that
+    ``complete_text``'s source references it rather than embedding a
+    ``while True`` retry loop of its own.
+    """
+    import inspect
+
+    assert hasattr(PydanticAIRouter, "_run_with_transport_retry")
+
+    text_src = inspect.getsource(PydanticAIRouter.complete_text)
+    assert "_run_with_transport_retry" in text_src
+    assert "while True" not in text_src
+
+
+# ── Transport-retry hardening: parse/validation not multiplied (ac-004) ────
+
+
+@pytest.mark.asyncio
+async def test_schema_parse_not_multiplied_by_router_loop() -> None:
+    """ac-004 — prod-incident regression lock.
+
+    A wrong-typed structured output triggers the router's own
+    ``TypeError`` schema-mismatch raise, which :func:`classify` maps to
+    :attr:`ErrorKind.schema_parse`. Since ``schema_parse`` is absent
+    from the default ``RetryPolicy.retry_on``, the router must NOT
+    retry: exactly one ``run()`` call, then a terminal
+    ``ProviderError(kind=schema_parse, attempts=1)``.
+    """
+    router = PydanticAIRouter(models=_models_all("x"))
+    # Returning a non-``_Out`` value makes the router's isinstance check
+    # raise TypeError -> classify -> schema_parse.
+    stub = _StubAgent(["a bare string, not an _Out instance"])
+    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await router.complete_structured(
+            tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
+        )
+    assert exc_info.value.kind is ErrorKind.schema_parse
+    assert exc_info.value.attempts == 1
+    assert stub.calls == ["hi"]
+
+
+def test_schema_parse_and_validation_absent_from_default_retry_on() -> None:
+    """ac-004 — confirm the no-multiply kinds stay out of the policy."""
+    policy = RetryPolicy()
+    assert ErrorKind.schema_parse not in policy.retry_on
+    assert ErrorKind.validation not in policy.retry_on
+
+
+# ── Transport-retry hardening: terminal exhaustion (ac-005) ────────────────
+
+
+@pytest.mark.asyncio
+async def test_complete_text_terminal_transport_failure_raises_provider_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-005 — text path: exhausting the budget with repeated
+    transport errors raises ``ProviderError`` whose ``kind`` is the
+    transport kind and whose ``attempts`` equals ``max_attempts``.
+    """
+
+    async def _fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    policy = RetryPolicy(max_attempts=3, backoff_seconds=0.0)
+    router = PydanticAIRouter(models=_models_all("x"), retry_policy=policy)
+    stub = _StubAgent([TimeoutError(), TimeoutError(), TimeoutError()])
+    _install_text_stub(router, ModelTier.DEFAULT, stub)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await router.complete_text(prompt="hi")
+    assert exc_info.value.kind is ErrorKind.timeout
+    assert exc_info.value.attempts == policy.max_attempts == 3
+    assert stub.calls == ["hi", "hi", "hi"]
+
+
+@pytest.mark.asyncio
+async def test_complete_structured_terminal_transport_failure_preserves_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-005 — structured path: terminal transport failure preserves
+    ``attempts == max_attempts`` (lock on already-correct behavior)."""
+
+    async def _fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    policy = RetryPolicy(max_attempts=3, backoff_seconds=0.0)
+    router = PydanticAIRouter(models=_models_all("x"), retry_policy=policy)
+    stub = _StubAgent([TimeoutError(), TimeoutError(), TimeoutError()])
+    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await router.complete_structured(
+            tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
+        )
+    assert exc_info.value.kind is ErrorKind.timeout
+    assert exc_info.value.attempts == 3
+
+
+# ── Transport-retry hardening: validation/unknown no retry (ac-006) ────────
+
+
+@pytest.mark.asyncio
+async def test_unknown_error_propagates_without_retry_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-006 — an unknown-classified error propagates as
+    ``ProviderError`` with ``attempts == 1`` and a single ``run()``
+    call (no retry sleep) on the text path.
+
+    NOTE on the discrepancy (see report): no exception in
+    :func:`classify` ever maps to :attr:`ErrorKind.validation` — it is
+    a defined-but-never-produced member. The acceptance text pairs
+    "validation- and unknown-classified". This test exercises the
+    ``unknown`` path behaviorally; the policy-level fact that
+    ``validation`` is non-retryable is locked by
+    :func:`test_validation_kind_is_not_retryable`.
+    """
+    sleeps: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    class _Mystery(Exception):
+        pass
+
+    router = PydanticAIRouter(
+        models=_models_all("x"),
+        retry_policy=RetryPolicy(max_attempts=3),
+    )
+    stub = _StubAgent([_Mystery("nope")])
+    _install_text_stub(router, ModelTier.DEFAULT, stub)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await router.complete_text(prompt="hi")
+    assert exc_info.value.kind is ErrorKind.unknown
+    assert exc_info.value.attempts == 1
+    assert stub.calls == ["hi"]
+    assert sleeps == []
+
+
+@pytest.mark.asyncio
+async def test_unknown_error_propagates_without_retry_structured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-006 — structured path: unknown-classified error propagates
+    with ``attempts == 1`` and no retry sleep (lock)."""
+    sleeps: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("molexp.agent._pydanticai.router.asyncio.sleep", _fake_sleep)
+
+    class _Mystery(Exception):
+        pass
+
+    router = PydanticAIRouter(
+        models=_models_all("x"),
+        retry_policy=RetryPolicy(max_attempts=3),
+    )
+    stub = _StubAgent([_Mystery("nope")])
+    _install_structured_stub(router, ModelTier.DEFAULT, _Out, stub)
+
+    with pytest.raises(ProviderError) as exc_info:
+        await router.complete_structured(
+            tier=ModelTier.DEFAULT, system="sys", user="hi", schema=_Out
+        )
+    assert exc_info.value.kind is ErrorKind.unknown
+    assert exc_info.value.attempts == 1
+    assert stub.calls == ["hi"]
+    assert sleeps == []
+
+
+def test_validation_kind_is_not_retryable() -> None:
+    """ac-006 — policy-level lock: ``validation`` is not in the default
+    ``retry_on``, so should it ever be produced it would not be
+    retried."""
+    policy = RetryPolicy()
+    assert ErrorKind.validation not in policy.retry_on
+    assert should_retry(ErrorKind.validation, policy, attempt=1) is False
+    assert should_retry(ErrorKind.unknown, policy, attempt=1) is False
 
 
 # ── Protocol conformance ──────────────────────────────────────────────────
