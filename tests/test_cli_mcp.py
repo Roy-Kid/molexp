@@ -7,6 +7,7 @@ Every test passes ``--config`` so we never touch the user's real
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,15 @@ from typer.testing import CliRunner
 from molexp.cli import app
 
 runner = CliRunner()
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
+def _strip_ansi(text: str) -> str:
+    """Strip ANSI colour/format codes — Rich's option highlighter splits
+    ``--env`` into ``-``/``-env`` segments with codes in between, which
+    defeats naive substring matches on terminal-enabled CI runs."""
+    return _ANSI_RE.sub("", text)
 
 
 @pytest.fixture
@@ -215,7 +225,7 @@ class TestAdd:
             ],
         )
         assert result.exit_code != 0
-        assert "--env" in result.output
+        assert "--env" in _strip_ansi(result.output)
 
 
 # ---------------------------------------------------------------------------
