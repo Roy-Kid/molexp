@@ -2,15 +2,14 @@
 
 Locks the wire format and validation contract per spec §4.1:
 - frozen pydantic round-trip
-- ArtifactKind is a typing.Literal alias (not Enum)
-- unknown kind raises ValidationError
+- ArtifactKind is an open `str` alias; well-known values listed in `WELL_KNOWN_ARTIFACT_KINDS`
+- arbitrary string kinds accepted; empty string still rejected
 - sha256 is bare hex (no "sha256:" prefix)
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import get_args, get_origin
 
 import pytest
 from pydantic import ValidationError
@@ -64,13 +63,40 @@ def test_artifact_ref_defaults_parent_ids_and_metadata() -> None:
     assert ref.metadata == {}
 
 
-def test_artifact_ref_rejects_unknown_kind() -> None:
+def test_artifact_ref_accepts_arbitrary_string_kind() -> None:
+    """ArtifactRef accepts arbitrary string kinds under the open `str` contract.
+
+    Spec ac-004: agent-layer modes register kinds like "intent_spec",
+    "plan_graph", "preflight_report", … without round-tripping through the
+    harness schema module.
+    """
+    from molexp.harness.schemas.artifact import ArtifactRef
+
+    ref = ArtifactRef(
+        id="a1b2c3d4",
+        kind="intent_spec",
+        uri="file:///x",
+        sha256="0" * 64,
+        created_at=datetime(2026, 5, 26, tzinfo=UTC),
+        created_by="harness",
+    )
+    assert ref.kind == "intent_spec"
+    # JSON round-trip preserves the custom kind value.
+    rehydrated = ArtifactRef.model_validate_json(ref.model_dump_json())
+    assert rehydrated.kind == "intent_spec"
+    assert rehydrated == ref
+
+
+def test_artifact_ref_rejects_empty_kind() -> None:
+    """ArtifactRef rejects kind="" — pydantic min_length=1 constraint pins the
+    edge case from the spec's Testing strategy.
+    """
     from molexp.harness.schemas.artifact import ArtifactRef
 
     with pytest.raises(ValidationError):
         ArtifactRef(
             id="a1b2c3d4",
-            kind="not_a_real_kind",  # type: ignore[arg-type]
+            kind="",
             uri="file:///x",
             sha256="0" * 64,
             created_at=datetime(2026, 5, 26, tzinfo=UTC),
@@ -103,13 +129,14 @@ def test_artifact_ref_sha256_must_be_bare_hex() -> None:
         )
 
 
-def test_artifact_kind_is_literal_not_enum() -> None:
-    """ArtifactKind discriminator MUST be typing.Literal[...], not enum.Enum."""
-    from typing import Literal
+def test_artifact_kind_is_str_alias() -> None:
+    """ArtifactKind MUST be the `str` builtin alias, not Literal/Enum.
 
+    Spec ac-001: `ArtifactKind is str` in the artifact schema module.
+    """
     from molexp.harness.schemas import artifact as artifact_mod
 
-    assert get_origin(artifact_mod.ArtifactKind) is Literal
+    assert artifact_mod.ArtifactKind is str
     # No enum.Enum classes defined in the module.
     import enum
 
@@ -119,13 +146,17 @@ def test_artifact_kind_is_literal_not_enum() -> None:
             pytest.fail(f"schemas/artifact.py must not define enum: {name}")
 
 
-def test_artifact_kind_full_19_value_set() -> None:
-    """ArtifactKind ships the full 19-kind enum from harness-goal.md §4.1.
+def test_well_known_artifact_kinds_contents() -> None:
+    """`WELL_KNOWN_ARTIFACT_KINDS` ships the 20 baseline kinds as a string tuple.
 
-    Phase 7 additively widens to add "validation_report" — assert the original
-    19 are a subset, not equality (additive widening preserves backward compat).
+    Spec ac-002: tuple[str, ...] of length >= 20 containing every prior Literal
+    member plus the 20th value "validation_report".
     """
-    from molexp.harness.schemas.artifact import ArtifactKind
+    from molexp.harness.schemas.artifact import WELL_KNOWN_ARTIFACT_KINDS
+
+    assert isinstance(WELL_KNOWN_ARTIFACT_KINDS, tuple)
+    assert all(isinstance(k, str) for k in WELL_KNOWN_ARTIFACT_KINDS)
+    assert len(WELL_KNOWN_ARTIFACT_KINDS) >= 20
 
     expected_baseline = {
         "user_plan",
@@ -148,4 +179,22 @@ def test_artifact_kind_full_19_value_set() -> None:
         "dataset",
         "checkpoint",
     }
-    assert expected_baseline <= set(get_args(ArtifactKind))
+    well_known_set = set(WELL_KNOWN_ARTIFACT_KINDS)
+    assert expected_baseline <= well_known_set
+    assert "validation_report" in well_known_set
+
+
+def test_well_known_artifact_kinds_reexported_through_top_level() -> None:
+    """`WELL_KNOWN_ARTIFACT_KINDS` re-exports through schemas and harness top-level.
+
+    Spec ac-003: `from molexp.harness import WELL_KNOWN_ARTIFACT_KINDS` succeeds;
+    same tuple object as in artifact.py; listed in both `__all__`s.
+    """
+    import molexp.harness as harness_top
+    import molexp.harness.schemas as schemas_top
+    from molexp.harness.schemas import artifact as artifact_mod
+
+    assert harness_top.WELL_KNOWN_ARTIFACT_KINDS is artifact_mod.WELL_KNOWN_ARTIFACT_KINDS
+    assert schemas_top.WELL_KNOWN_ARTIFACT_KINDS is artifact_mod.WELL_KNOWN_ARTIFACT_KINDS
+    assert "WELL_KNOWN_ARTIFACT_KINDS" in harness_top.__all__
+    assert "WELL_KNOWN_ARTIFACT_KINDS" in schemas_top.__all__

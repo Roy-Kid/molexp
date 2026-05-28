@@ -13,7 +13,11 @@ from molexp.harness.schemas.approval import (
     ApprovalIntent,
     ApprovalRequest,
 )
-from molexp.harness.schemas.artifact import ArtifactKind, ArtifactRef
+from molexp.harness.schemas.artifact import (
+    WELL_KNOWN_ARTIFACT_KINDS,
+    ArtifactKind,
+    ArtifactRef,
+)
 from molexp.harness.schemas.audit_report import AuditReport
 from molexp.harness.schemas.bound_workflow import (
     BoundTask,
@@ -38,6 +42,7 @@ from molexp.harness.schemas.workflow_ir import (
 )
 
 __all__ = [
+    "WELL_KNOWN_ARTIFACT_KINDS",
     "AgentCallResult",
     "AgentCallSpec",
     "ApprovalDecision",

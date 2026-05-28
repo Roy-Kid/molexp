@@ -2,7 +2,7 @@
 
 Locks the wire format:
 - frozen pydantic round-trip
-- ExpectedOutput.kind is ArtifactKind (Phase-1 Literal)
+- ExpectedOutput.kind is the open ``ArtifactKind = str`` alias
 - TaskIR.inputs / constraints accept dict[str, ParameterValue]
 - Defaults are independent (no shared mutable state)
 """
@@ -183,12 +183,13 @@ def test_expected_output_required_default_true() -> None:
     assert eo.required is True
 
 
-def test_expected_output_kind_uses_artifact_kind_literal() -> None:
-    """kind MUST be Phase-1 ArtifactKind, not a free-form string."""
+def test_expected_output_kind_accepts_open_string() -> None:
+    """``ExpectedOutput.kind`` is the open ``ArtifactKind = str`` alias —
+    any non-empty kind (well-known or agent-registered) is accepted."""
     from molexp.harness.schemas.workflow_ir import ExpectedOutput
 
-    with pytest.raises(ValidationError):
-        ExpectedOutput(name="x", kind="not_a_real_kind", description="x")  # type: ignore[arg-type]
+    eo = ExpectedOutput(name="x", kind="intent_spec", description="x")
+    assert eo.kind == "intent_spec"
 
 
 def test_expected_output_is_frozen() -> None:

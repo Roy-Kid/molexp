@@ -45,10 +45,10 @@ class DependencyEdge(BaseModel):
 class ExpectedOutput(BaseModel):
     """One of the workflow's declared deliverables.
 
-    ``kind`` is the Phase-1 ``ArtifactKind`` so expected outputs use the
-    same vocabulary as the artifact store; the validator can cheaply
-    check that each ``required=True`` expected output has a producer
-    task whose ``outputs`` dict carries the matching name.
+    ``kind`` is the open ``ArtifactKind = str`` alias so expected outputs
+    use the same vocabulary as the artifact store; the validator can
+    cheaply check that each ``required=True`` expected output has a
+    producer task whose ``outputs`` dict carries the matching name.
     """
 
     model_config = ConfigDict(frozen=True)

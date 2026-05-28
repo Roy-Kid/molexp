@@ -3,8 +3,8 @@
 Pure function — no side effects. Walks the event log + artifact store +
 provenance store, gathers approvals / validations / failures / commands,
 and returns a populated :class:`AuditReport`. The caller decides where to
-persist (typically as an ``audit_report`` artifact, but Phase 10 doesn't
-add that kind to ``ArtifactKind`` — that's a follow-up if needed).
+persist (typically as an ``audit_report`` artifact — the kind is registered
+in :data:`molexp.harness.WELL_KNOWN_ARTIFACT_KINDS`).
 """
 
 from __future__ import annotations

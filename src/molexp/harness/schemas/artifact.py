@@ -4,19 +4,36 @@ Per ``.claude/notes/harness-goal.md`` §4.1: every harness-tracked product
 (user plan, experiment report, workflow IR, bound workflow, execution
 result, …) is referenced by an ``ArtifactRef`` carrying its kind, URI,
 content hash, lineage, and creator metadata.
+
+``ArtifactKind`` is an **open** :class:`str` alias — any non-empty string is
+a valid kind. The values harness-internal stages produce are enumerated in
+:data:`WELL_KNOWN_ARTIFACT_KINDS`; downstream consumers (notably
+``molexp.agent``) register their own kinds (``intent_spec`` / ``plan_graph``
+/ …) without modifying this module — preserves the
+``harness → workspace`` one-way dependency rule.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-__all__ = ["ArtifactKind", "ArtifactRef"]
+__all__ = ["WELL_KNOWN_ARTIFACT_KINDS", "ArtifactKind", "ArtifactRef"]
 
 
-ArtifactKind = Literal[
+ArtifactKind = str
+"""Open string type for artifact kind discriminators.
+
+Pydantic enforces non-empty via the ``Field(min_length=1)`` constraint on
+:attr:`ArtifactRef.kind`; the alias itself imposes no membership check.
+Harness-internal stages produce the values listed in
+:data:`WELL_KNOWN_ARTIFACT_KINDS`.
+"""
+
+
+WELL_KNOWN_ARTIFACT_KINDS: tuple[str, ...] = (
     "user_plan",
     "experiment_report",
     "workflow_ir",
@@ -37,7 +54,12 @@ ArtifactKind = Literal[
     "dataset",
     "checkpoint",
     "validation_report",
-]
+)
+"""Artifact kinds produced by harness-internal stages (documentation only).
+
+``ArtifactRef.kind`` accepts any non-empty string — consumers above the
+harness layer register their own kinds without modifying this constant.
+"""
 
 
 class ArtifactRef(BaseModel):
@@ -54,7 +76,7 @@ class ArtifactRef(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: str
-    kind: ArtifactKind
+    kind: Annotated[ArtifactKind, Field(min_length=1)]
     uri: str
     sha256: str
     created_at: datetime

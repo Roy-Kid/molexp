@@ -24,7 +24,8 @@ it is pure data.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -38,6 +39,7 @@ __all__ = [
     "ApprovalDecidedEvent",
     "ApprovalRequestedEvent",
     "ArtifactWrittenEvent",
+    "AsyncIteratorEventSink",
     "ClarificationRequiredEvent",
     "CompactionPerformedEvent",
     "ErrorEvent",
@@ -263,3 +265,77 @@ AnyAgentEvent = AgentEvent
 EventSink = Callable[[AgentEvent], Awaitable[None]]
 """The emission callback shape the harness exposes — one async callable
 that receives a single :data:`AgentEvent`."""
+
+
+class _Sentinel:
+    """Module-private singleton marker for :class:`AsyncIteratorEventSink`.
+
+    Not an :data:`AgentEvent` subclass — :meth:`AsyncIteratorEventSink.__anext__`
+    discriminates via ``is`` identity, never via type or attribute checks.
+    """
+
+    __slots__ = ()
+
+
+_SENTINEL = _Sentinel()
+
+
+class AsyncIteratorEventSink:
+    """Queue-backed :data:`EventSink` that also exposes :class:`AsyncIterator`.
+
+    Bridges the callable-sink Protocol with an async iterator so future
+    ``async def mode.run(...) -> ArtifactRef`` flows can route AgentEvent
+    through a side-channel: producers ``await sink(event)``; the runner
+    drains via ``async for event in sink:``.
+
+    Complementary to :class:`molexp.agent.runner._SinkCollector` (drain-
+    after-yield list collector). The collector relies on the mode yielding
+    periodically to trigger a drain; this sink is a live queue where push
+    and consume run concurrently.
+
+    Concurrency: safe for multi-task push within one event loop (the
+    underlying :class:`asyncio.Queue` guarantee). Not safe across threads
+    or processes.
+
+    Lifecycle: callers terminate via :meth:`close` (enqueues a sentinel);
+    the consumer's ``async for`` loop then drains buffered events and
+    exits. Without :meth:`close`, a consumer parked in :meth:`__anext__`
+    can be torn down with ``task.cancel()`` — the queue's get propagates
+    :class:`asyncio.CancelledError` without swallowing.
+    """
+
+    def __init__(self, *, maxsize: int | None = None) -> None:
+        """Build an empty sink.
+
+        Args:
+            maxsize: Queue capacity. ``None`` (default) → unbounded.
+                A positive ``int`` → bounded; ``__call__`` awaits when the
+                queue is full (asyncio.Queue native backpressure).
+        """
+        # ``asyncio.Queue(maxsize=0)`` is the stdlib's unbounded form.
+        self._queue: asyncio.Queue[AgentEvent | _Sentinel] = asyncio.Queue(
+            maxsize=maxsize if maxsize is not None else 0
+        )
+
+    async def __call__(self, event: AgentEvent) -> None:
+        """:data:`EventSink` Protocol: producers push one event."""
+        await self._queue.put(event)
+
+    def __aiter__(self) -> AsyncIterator[AgentEvent]:
+        return self
+
+    async def __anext__(self) -> AgentEvent:
+        item = await self._queue.get()
+        if isinstance(item, _Sentinel):
+            raise StopAsyncIteration
+        return item
+
+    async def close(self) -> None:
+        """Enqueue the termination sentinel.
+
+        After buffered events drain, the consumer's ``async for`` loop
+        exits. Calling :meth:`close` more than once enqueues additional
+        sentinels — harmless because the first one already terminates
+        iteration; the extras stay buffered and unread.
+        """
+        await self._queue.put(_SENTINEL)

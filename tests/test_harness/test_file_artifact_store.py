@@ -195,6 +195,31 @@ def test_list_by_kind_isolates_kinds(store) -> None:
     assert len(store.list_by_kind("workflow_ir")) == 1
 
 
+def test_put_json_round_trips_unknown_kind(store, store_root: Path) -> None:
+    """Custom (non-well-known) artifact kinds round-trip end-to-end.
+
+    Spec ac-005: agent-layer modes register their own kinds (``intent_spec``,
+    ``plan_graph``, …) under the open ``ArtifactKind = str`` contract; the
+    store must accept them without schema migration. Regression coverage —
+    asserts the per-kind index path is purely string-keyed.
+    """
+    ref = store.put_json(
+        kind="intent_spec",
+        obj={"k": 1},
+        created_by="t",
+        parent_ids=[],
+    )
+    assert ref.kind == "intent_spec"
+
+    files = _list_relative(store_root)
+    assert f"intent_spec/{ref.id}.json" in files
+    assert "_index/intent_spec.json" in files
+
+    reloaded = store.get_ref(ref.id)
+    assert reloaded.kind == "intent_spec"
+    assert reloaded == ref
+
+
 def test_latest_by_kind_returns_most_recent_or_none(store) -> None:
     assert store.latest_by_kind("log") is None
     a = store.put_json(kind="log", obj={"i": 0}, created_by="harness", parent_ids=[])

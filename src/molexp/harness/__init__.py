@@ -47,6 +47,7 @@ from molexp.harness.policy import (
 )
 from molexp.harness.registry import CapabilityRegistry, InMemoryCapabilityRegistry
 from molexp.harness.schemas import (
+    WELL_KNOWN_ARTIFACT_KINDS,
     AgentCallResult,
     AgentCallSpec,
     ApprovalDecision,
@@ -108,6 +109,7 @@ from molexp.harness.validators import (
 )
 
 __all__ = [
+    "WELL_KNOWN_ARTIFACT_KINDS",
     "AgentCallResult",
     "AgentCallSpec",
     "AgentGateway",

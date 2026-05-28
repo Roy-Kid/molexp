@@ -1,15 +1,15 @@
-"""Tests for ArtifactKind widening to include "validation_report" (Phase 7).
+"""Tests for ``WELL_KNOWN_ARTIFACT_KINDS`` membership + open-string contract.
 
-Additive Literal extension — 19 existing kinds keep validating, +1 new kind.
+Phase 7 added ``validation_report``; the harness-as-mode-substrate-01 spec
+opened ``ArtifactKind`` to ``str``, moving the closed enumeration into the
+:data:`WELL_KNOWN_ARTIFACT_KINDS` documentation constant. This file pins
+the well-known membership (existing baseline + ``validation_report``) and
+the new "arbitrary string accepted" contract.
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import get_args
-
-import pytest
-from pydantic import ValidationError
 
 
 def _build_ref(*, kind: str):
@@ -17,7 +17,7 @@ def _build_ref(*, kind: str):
 
     return ArtifactRef(
         id="art01234",
-        kind=kind,  # type: ignore[arg-type]
+        kind=kind,
         uri="file:///tmp/x",
         sha256="0" * 64,
         created_at=datetime(2026, 5, 26, tzinfo=UTC),
@@ -30,14 +30,14 @@ def test_validation_report_kind_accepted() -> None:
     assert ref.kind == "validation_report"
 
 
-def test_artifact_kind_has_exactly_twenty_values() -> None:
-    from molexp.harness.schemas.artifact import ArtifactKind
+def test_well_known_artifact_kinds_has_at_least_twenty_values() -> None:
+    from molexp.harness.schemas.artifact import WELL_KNOWN_ARTIFACT_KINDS
 
-    assert len(set(get_args(ArtifactKind))) == 20
+    assert len(set(WELL_KNOWN_ARTIFACT_KINDS)) >= 20
 
 
 def test_existing_nineteen_kinds_still_validate() -> None:
-    """Regression: every pre-Phase-7 ArtifactKind value still constructs."""
+    """Regression: every pre-Phase-7 baseline kind still constructs."""
     pre_phase7 = [
         "user_plan",
         "experiment_report",
@@ -63,6 +63,7 @@ def test_existing_nineteen_kinds_still_validate() -> None:
         _build_ref(kind=kind)
 
 
-def test_unknown_kind_still_rejected() -> None:
-    with pytest.raises(ValidationError):
-        _build_ref(kind="not_a_real_kind")
+def test_unknown_kind_now_accepted() -> None:
+    """Under the open-``str`` contract, agent-layer kinds construct fine."""
+    ref = _build_ref(kind="not_a_real_kind")
+    assert ref.kind == "not_a_real_kind"
