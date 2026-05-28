@@ -6,6 +6,10 @@ SQLite-backed stores share the same database file per run so a single
 
 Pragmas:
 - ``journal_mode=WAL`` — concurrent reads while a writer is appending.
+- ``synchronous=NORMAL`` — safe under WAL; drops the per-commit fsync
+  stall that otherwise serializes every event-log append.
+- ``busy_timeout=5000`` — wait up to 5 s for a competing writer instead
+  of raising ``SQLITE_BUSY`` immediately.
 - ``foreign_keys=ON`` — needed for the ``artifact_edges`` cross-reference.
 """
 
@@ -61,6 +65,8 @@ def open_db(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(path, isolation_level=None)  # autocommit; we BEGIN explicitly
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA busy_timeout=5000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(_SCHEMA_SQL)
     # Record the schema version on first open. INSERT OR IGNORE avoids a

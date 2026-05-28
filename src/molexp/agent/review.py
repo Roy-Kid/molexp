@@ -1,7 +1,7 @@
 """Approval primitives for the agent layer.
 
-The harness fires a ``before_approval`` hook at every
-:class:`~molexp.agent.modes._planning.ApprovalGate`; a handler returns a
+The harness fires a ``before_approval`` hook at every approval gate (the
+``ApprovalGate`` stage under ``molexp.harness.stages``); a handler returns a
 :class:`ReviewDecision`. :class:`~molexp.agent.runner.AgentRunner`'s
 ``approval=`` argument wires a :data:`ReviewPolicy` callable into that
 hook — :func:`cli_ask` is the bundled interactive implementation.
@@ -14,6 +14,7 @@ custom ``async def (gate, summary)`` drives the decision programmatically.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel, ConfigDict
@@ -48,6 +49,10 @@ async def cli_ask(gate: str, summary: str) -> ReviewDecision:
     Prints the gate name and its one-line summary, then reads a ``y/n``
     verdict from stdin. Anything other than ``y`` / ``yes`` rejects.
 
+    The blocking ``print``/``input`` work is offloaded via
+    :func:`asyncio.to_thread` so the operator's deliberation never stalls
+    the event loop driving the run.
+
     Args:
         gate: The approval-gate name (e.g. ``"approve_direction"``).
         summary: One-line description of what is being approved.
@@ -55,6 +60,11 @@ async def cli_ask(gate: str, summary: str) -> ReviewDecision:
     Returns:
         The operator's :class:`ReviewDecision`.
     """
+    return await asyncio.to_thread(_prompt, gate, summary)
+
+
+def _prompt(gate: str, summary: str) -> ReviewDecision:
+    """Synchronous ``print``/``input`` body for :func:`cli_ask`."""
     print()
     print("=" * 72)
     print(f"APPROVAL REQUIRED — {gate}")
