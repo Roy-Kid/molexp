@@ -113,18 +113,49 @@ class TestPickle:
         assert isinstance(restored, Path)
 
 
-class TestNoLocalIO:
-    """A pure path must not expose I/O methods that would silently hit local FS."""
+class TestLocalIO:
+    """I/O methods delegate to :class:`pathlib.Path` for the local filesystem."""
 
-    @pytest.mark.parametrize(
-        "method",
-        ["exists", "read_text", "read_bytes", "write_text", "write_bytes", "mkdir", "iterdir"],
-    )
-    def test_no_io_methods(self, method: str) -> None:
-        """``PurePosixPath`` deliberately lacks these — guarding against accidental reintroduction."""
-        assert not hasattr(Path("/a"), method), (
-            f"Path should NOT have {method!r} — it would silently hit the local filesystem"
-        )
+    def test_read_write_text_roundtrip(self, tmp_path) -> None:
+        p = Path(str(tmp_path / "hello.txt"))
+        p.write_text("hi\n")
+        assert p.read_text() == "hi\n"
+
+    def test_read_write_bytes_roundtrip(self, tmp_path) -> None:
+        p = Path(str(tmp_path / "blob.bin"))
+        p.write_bytes(b"\x00\x01")
+        assert p.read_bytes() == b"\x00\x01"
+
+    def test_exists_is_file_is_dir(self, tmp_path) -> None:
+        p = Path(str(tmp_path / "x.txt"))
+        assert not p.exists()
+        p.write_text("x")
+        assert p.exists()
+        assert p.is_file()
+        assert not p.is_dir()
+        d = Path(str(tmp_path))
+        assert d.is_dir()
+        assert not d.is_file()
+
+    def test_mkdir_and_iterdir(self, tmp_path) -> None:
+        root = Path(str(tmp_path / "tree"))
+        root.mkdir(parents=True)
+        (root / "a").write_text("a")
+        (root / "b").write_text("b")
+        names = sorted(child.name for child in root.iterdir())
+        assert names == ["a", "b"]
+        for child in root.iterdir():
+            assert isinstance(child, Path)
+
+    def test_unlink(self, tmp_path) -> None:
+        p = Path(str(tmp_path / "doomed"))
+        p.write_text("bye")
+        assert p.exists()
+        p.unlink()
+        assert not p.exists()
+
+    def test_unlink_missing_ok(self, tmp_path) -> None:
+        Path(str(tmp_path / "ghost")).unlink(missing_ok=True)
 
 
 class TestSlots:
