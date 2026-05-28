@@ -81,14 +81,14 @@ class ModeStartedEvent(_BaseEvent):
 
 
 class StageStartedEvent(_BaseEvent):
-    """Emitted on entry to an ``AgentHarness.stage(name)`` context."""
+    """Emitted at the start of a logical stage in a mode's body."""
 
     kind: Literal["stage_started"] = "stage_started"
     stage_name: str
 
 
 class StageCompletedEvent(_BaseEvent):
-    """Emitted on normal exit from an ``AgentHarness.stage(name)`` context."""
+    """Emitted at the end of a logical stage in a mode's body."""
 
     kind: Literal["stage_completed"] = "stage_completed"
     stage_name: str

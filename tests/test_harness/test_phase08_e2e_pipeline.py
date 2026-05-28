@@ -89,7 +89,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
         ValidateBoundWorkflow,
         ValidateWorkflowIR,
     )
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")

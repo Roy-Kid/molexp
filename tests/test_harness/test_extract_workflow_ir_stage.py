@@ -54,8 +54,8 @@ def ctx_no_gateway(tmp_path: Path):
 
 @pytest.fixture()
 def ctx_with_gateway(tmp_path: Path):
-    from molexp.harness.agents.stub import StubAgentGateway
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.gateways.stub import StubAgentGateway
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
     from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
@@ -122,7 +122,7 @@ def _make_workflow_ir_canned_response() -> dict:
 
 def test_extract_builds_correct_spec(ctx_with_gateway) -> None:
     """Capture the spec the stage passes to the gateway."""
-    from molexp.harness.agents.gateway import AgentGateway
+    from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import AgentCallResult, AgentCallSpec, WorkflowIR
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 

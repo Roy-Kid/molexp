@@ -2,8 +2,8 @@
 
 Harness stages program against this Protocol, never against a concrete
 class. Two implementations ship today:
-:class:`molexp.harness.agents.stub.StubAgentGateway` (in-memory, test-only)
-and :class:`molexp.harness.agents.router_backed.RouterBackedAgentGateway`
+:class:`molexp.harness.gateways.stub.StubAgentGateway` (in-memory, test-only)
+and :class:`molexp.harness.gateways.router_backed.RouterBackedAgentGateway`
 (production, driven by :class:`molexp.agent.router.Router`; added by spec
 ``harness-as-mode-substrate-03a``).
 

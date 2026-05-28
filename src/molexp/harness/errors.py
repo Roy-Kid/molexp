@@ -77,7 +77,7 @@ class StagePersistedFailureError(StageExecutionError):
 
 
 class AgentResponseNotRegisteredError(HarnessError):
-    """Raised by :class:`molexp.harness.agents.stub.StubAgentGateway` when
+    """Raised by :class:`molexp.harness.gateways.stub.StubAgentGateway` when
     ``call()`` is invoked with an ``agent_name`` that has no registered
     canned response.
 

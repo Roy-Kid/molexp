@@ -5,7 +5,7 @@ Locks:
 - StubAgentGateway satisfies the Protocol structurally
 - register + call persists both output_artifact and raw_response_artifact
 - unknown agent_name raises AgentResponseNotRegisteredError
-- StubAgentGateway is NOT re-exported at molexp.harness or molexp.harness.agents
+- StubAgentGateway is NOT re-exported at molexp.harness or molexp.harness.gateways
 """
 
 from __future__ import annotations
@@ -26,20 +26,20 @@ def artifact_store(tmp_path: Path):
 
 @pytest.fixture()
 def stub(artifact_store):
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     return StubAgentGateway(artifact_store=artifact_store)
 
 
 def test_agent_gateway_is_runtime_checkable_protocol(stub) -> None:
-    from molexp.harness.agents.gateway import AgentGateway
+    from molexp.harness.gateways.gateway import AgentGateway
 
     assert isinstance(stub, AgentGateway)
 
 
 def test_agent_gateway_re_exported_at_top_level() -> None:
     from molexp.harness import AgentGateway as TopLevelAgentGateway
-    from molexp.harness.agents.gateway import AgentGateway
+    from molexp.harness.gateways.gateway import AgentGateway
 
     assert TopLevelAgentGateway is AgentGateway
 
@@ -106,8 +106,8 @@ def test_stub_call_wires_parent_ids_for_provenance(stub) -> None:
 
 
 def test_stub_call_raises_on_unknown_agent_name(stub) -> None:
-    from molexp.harness.agents.stub import StubAgentGateway  # noqa: F401  imported for clarity
     from molexp.harness.errors import AgentResponseNotRegisteredError, HarnessError
+    from molexp.harness.gateways.stub import StubAgentGateway  # noqa: F401  imported for clarity
     from molexp.harness.schemas.agent_call import AgentCallSpec
 
     spec = AgentCallSpec(
@@ -123,10 +123,10 @@ def test_stub_call_raises_on_unknown_agent_name(stub) -> None:
 def test_stub_agent_gateway_not_re_exported_publicly() -> None:
     """Production code must NOT see StubAgentGateway via molexp.harness or .agents."""
     import molexp.harness as harness
-    import molexp.harness.agents as agents_pkg
+    import molexp.harness.gateways as agents_pkg
 
     assert "StubAgentGateway" not in dir(harness)
     assert "StubAgentGateway" not in dir(agents_pkg)
     # Only reachable via the stub module's full dotted path.
-    stub_mod = importlib.import_module("molexp.harness.agents.stub")
+    stub_mod = importlib.import_module("molexp.harness.gateways.stub")
     assert hasattr(stub_mod, "StubAgentGateway")

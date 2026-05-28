@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from molexp.harness.agents.gateway import AgentGateway
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
+from molexp.harness.gateways.gateway import AgentGateway
 from molexp.harness.schemas import AgentCallSpec, ArtifactRef, ExperimentReport
 
 __all__ = ["GenerateExperimentReport"]

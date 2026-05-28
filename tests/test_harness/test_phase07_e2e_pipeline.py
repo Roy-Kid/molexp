@@ -48,7 +48,7 @@ def test_four_stage_pipeline_yields_five_layer_provenance_chain(tmp_path: Path) 
         StageRunner,
         ValidateWorkflowIR,
     )
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     # Wire ctx + stub gateway with two canned responses.
     db = tmp_path / "events.sqlite"
@@ -128,7 +128,7 @@ def test_event_log_contains_four_quartets(tmp_path: Path) -> None:
         StageRunner,
         ValidateWorkflowIR,
     )
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     db = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")

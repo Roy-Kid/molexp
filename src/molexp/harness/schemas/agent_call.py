@@ -4,7 +4,7 @@ Per ``.claude/notes/harness-goal.md`` §10.1-10.2: every harness call into
 an agent flows through this typed envelope, so the audit log can answer
 "which agent ran, against which inputs, returning which artifacts" without
 guessing. The two ``ArtifactRef`` fields on the result are an explicit
-invariant: any :class:`molexp.harness.agents.gateway.AgentGateway` impl
+invariant: any :class:`molexp.harness.gateways.gateway.AgentGateway` impl
 MUST persist both the parsed output and the raw response before returning,
 giving the audit pipeline a verbatim record of what the LLM emitted (not
 just the parsed shape downstream stages see).

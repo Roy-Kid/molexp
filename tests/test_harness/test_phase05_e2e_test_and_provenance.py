@@ -26,7 +26,7 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
         SQLiteProvenanceStore,
         StageRunner,
     )
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")

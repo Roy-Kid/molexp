@@ -218,15 +218,21 @@ async def test_run_events_propagates_mode_exception_without_orphan_task() -> Non
     """
     import asyncio
 
-    from molexp.agent.events import ModeStartedEvent
+    from molexp.agent.events import AsyncIteratorEventSink, ModeStartedEvent
+    from molexp.agent.runtime import AgentRuntime
 
     class _ExplodingMode:
         name = "exploding"
 
-        async def run(self, *, harness: Any, user_input: str):
-            await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+        async def run(
+            self,
+            *,
+            runtime: AgentRuntime,
+            sink: AsyncIteratorEventSink,
+            user_input: str,
+        ) -> None:
+            await sink(ModeStartedEvent(mode_name=self.name, user_input=user_input))
             raise RuntimeError("mode boom")
-            yield  # pragma: no cover — keep as async generator
 
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
@@ -469,11 +475,14 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
 
 def test_public_surface_unchanged() -> None:
     """``molexp.agent`` re-exports the mode-orchestration core plus the
-    workflow-orthogonal approval primitives."""
+    workflow-orthogonal approval primitives. Post spec 03b the surface
+    gains :class:`AgentRuntime` (the frozen-dataclass bundle modes
+    receive at run time)."""
     assert tuple(sorted(molexp.agent.__all__)) == (
         "AgentMode",
         "AgentRunResult",
         "AgentRunner",
+        "AgentRuntime",
         "AgentSession",
         "ReviewDecision",
         "ReviewPolicy",

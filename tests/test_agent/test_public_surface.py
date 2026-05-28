@@ -1,12 +1,16 @@
-"""Public-surface contract for ``molexp.agent`` (spec ac-001 / ac-002 / ac-003 / ac-006).
+"""Public-surface contract for ``molexp.agent`` (post spec 03b).
 
-The original "four-name contract" covered the mode-orchestration core
-(:class:`AgentRunner`, :class:`AgentMode`, :class:`AgentRunResult`,
-:class:`AgentSession`). It is extended with three workflow-orthogonal
-approval primitives — :class:`ReviewDecision`, the :data:`ReviewPolicy`
-callable alias, and the bundled :func:`cli_ask` policy — because the
-``before_approval`` hook is not mode-specific and any mode that reaches
-an :class:`ApprovalGate` consults it.
+The agent layer is a pydantic-ai facade. Surface contract:
+
+* Mode-orchestration core: :class:`AgentRunner`, :class:`AgentMode`,
+  :class:`AgentRunResult`, :class:`AgentRuntime`, :class:`AgentSession`.
+* Workflow-orthogonal approval primitives: :class:`ReviewDecision`,
+  the :data:`ReviewPolicy` callable alias, and the bundled
+  :func:`cli_ask` policy.
+
+Modes contract — only :class:`ChatMode` (one round-trip) and the
+emergent :class:`InteractiveMode` ship; the prior pipeline modes
+(Plan / Author / Run / Review) moved to :mod:`molexp.harness`.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ def test_agent_all_is_the_public_contract() -> None:
         "AgentRunner",
         "AgentMode",
         "AgentRunResult",
+        "AgentRuntime",
         "AgentSession",
         # Workflow-orthogonal approval primitives (parallel to mode).
         "ReviewPolicy",
@@ -31,31 +36,15 @@ def test_agent_all_is_the_public_contract() -> None:
     }
 
 
-def test_modes_all_is_the_six_mode_contract() -> None:
-    """The five declarative modes (``ChatMode`` / ``PlanMode`` /
-    ``AuthorMode`` / ``RunMode`` / ``ReviewMode``) plus the emergent
-    ``InteractiveMode`` — all six ship on the harness."""
+def test_modes_all_is_chat_and_interactive_only() -> None:
+    """Post spec 03b, ``molexp.agent.modes`` re-exports ChatMode +
+    InteractiveMode (+configs). The prior pipeline modes moved to
+    :mod:`molexp.harness`."""
     assert set(modes.__all__) == {
-        "ApprovedPlanHandoff",
-        "AuthorMode",
-        "AuthorModeConfig",
         "ChatMode",
         "ChatModeConfig",
         "InteractiveMode",
         "InteractiveModeConfig",
-        "MaterializedWorkspaceHandoff",
-        "PlanFolder",
-        "PlanMode",
-        "PlanModeConfig",
-        "RepairEscalation",
-        "ReviewMode",
-        "ReviewModeConfig",
-        "RunFolder",
-        "RunMode",
-        "RunModeConfig",
-        "RunProgress",
-        "RunReport",
-        "StepProgress",
     }
 
 
@@ -69,7 +58,7 @@ def test_no_pydantic_ai_or_pydantic_graph_in_public_surface() -> None:
 
 
 def test_no_factory_callables_in_public_surface() -> None:
-    """Anti-factory invariant — ac-006."""
+    """Anti-factory invariant."""
     for ns in (agent, modes):
         for name, obj in inspect.getmembers(ns):
             if name in ns.__all__ and callable(obj):

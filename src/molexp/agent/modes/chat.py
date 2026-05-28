@@ -1,37 +1,30 @@
-"""``ChatMode`` — the simple harness-based reference mode.
+"""``ChatMode`` — the minimal one-turn LLM mode.
 
 ChatMode is one ``user_input`` → one LLM round-trip → one
-:class:`~molexp.agent.mode.AgentRunResult`. It is the minimal
-:class:`~molexp.agent.mode.AgentMode` implementation and the canonical
-example of the harness-based contract:
-
-- ``run`` is an async generator that *yields*
-  :data:`~molexp.agent.events.AgentEvent`\\ s;
-- it appends the user turn and the assistant turn to the harness's
-  :class:`~molexp.agent.session.Session` entry-tree;
-- it delegates the core LLM-call body to a single
-  :class:`~molexp.agent.modes.chat_stages.ChatTurn` Stage driven by
-  the substrate's :func:`execute_pipeline`;
-- its terminal yield is a
-  :class:`~molexp.agent.events.ModeCompletedEvent` carrying the
-  final :class:`AgentRunResult`.
+:class:`~molexp.agent.mode.AgentRunResult`. Plain ``async def run`` body
+(no ``Stage`` / ``ModePipeline`` / ``RepairPolicy``); events flow
+through the injected :class:`~molexp.agent.events.AsyncIteratorEventSink`
+in emission order.
 
 Conversation context comes from the session entry-tree: prior turns are
-rebuilt with :meth:`Session.build_context` and rendered into the prompt.
+rebuilt with :meth:`Session.build_context` and rendered into the prompt
+when the router supports it. The terminal
+:class:`~molexp.agent.events.ModeCompletedEvent` carries the JSON dump
+of the run's :class:`AgentRunResult` so the runner can rebuild it.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.events import AgentEvent, ModeCompletedEvent, ModeStartedEvent
-from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
-from molexp.agent.modes.chat_stages import ChatTurn
-from molexp.agent.runtime import AgentHarness
-from molexp.agent.stage import NameOnlyStage
+from molexp.agent.events import (
+    AsyncIteratorEventSink,
+    ModeCompletedEvent,
+    ModeStartedEvent,
+)
+from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.runtime import AgentRuntime
 from molexp.agent.types import Message
 
 _LOG = get_logger(__name__)
@@ -48,70 +41,47 @@ class ChatModeConfig(BaseModel):
     temperature: float | None = None
 
 
-# Class-level declarative pipeline (NameOnlyStage placeholder) — used
-# by ``get_flowchart`` on bare instances + the no-drift guard. The real
-# instance-level pipeline (carrying the executable ``ChatTurn`` Stage)
-# is built in ``__init__`` and shadows this attribute.
-_CLASS_PIPELINE = ModePipeline(
-    stages=(NameOnlyStage("chat-turn"),),
-    edges=(PipelineEdge(from_stage="chat-turn", to_stage="completed"),),
-    terminal_states=("completed",),
-    entry="chat-turn",
-)
-
-
 class ChatMode(AgentMode):
     """One ``user_input`` → one LLM round-trip → one :class:`AgentRunResult`."""
 
     name = "chat"
-    pipeline = _CLASS_PIPELINE
 
     def __init__(self, *, config: ChatModeConfig | None = None) -> None:
         self.config = config or ChatModeConfig()
-        self._captured_prior: tuple[Message, ...] = ()
-        self._result_text: str = ""
-        self.pipeline = ModePipeline(
-            stages=(ChatTurn(chat_mode=self),),
-            edges=_CLASS_PIPELINE.edges,
-            terminal_states=_CLASS_PIPELINE.terminal_states,
-            entry="chat-turn",
-        )
 
     async def run(
         self,
         *,
-        harness: AgentHarness,
+        runtime: AgentRuntime,
+        sink: AsyncIteratorEventSink,
         user_input: str,
-    ) -> AsyncIterator[AgentEvent]:
-        """Drive one chat turn, yielding the orchestration event stream."""
-        await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
-        harness.router.clear_usage()
+    ) -> None:
+        """Drive one chat turn; emit events through ``sink``."""
+        await sink(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+        runtime.router.clear_usage()
 
-        self._captured_prior = harness.session.build_context()
-        harness.session.append_message(Message(role="user", content=user_input))
-        self._result_text = ""
+        runtime.session.append_message(Message(role="user", content=user_input))
+        result = await runtime.router.complete_text(
+            prompt=user_input,
+            system=self.config.system_prompt,
+        )
+        runtime.session.append_message(Message(role="assistant", content=result.text))
 
-        async for event in self.run_pipeline(
-            harness=harness,
-            user_input=user_input,
-            initial_input=user_input,
-        ):
-            yield event
-
-        harness.session.append_message(Message(role="assistant", content=self._result_text))
-        breakdown = harness.router.snapshot_usage()
+        breakdown = runtime.router.snapshot_usage()
         _LOG.info(
             f"[chat-mode] usage in={breakdown.total.input_tokens} "
             f"out={breakdown.total.output_tokens} "
             f"total={breakdown.total.total_tokens} reqs={breakdown.total.requests}"
         )
         run_result = AgentRunResult(
-            text=self._result_text,
-            messages=harness.session.build_context(),
+            text=result.text,
+            messages=runtime.session.build_context(),
             usage=breakdown.total,
             usage_breakdown=breakdown,
         )
-        yield ModeCompletedEvent(
-            text=self._result_text,
-            result=run_result.model_dump(mode="json"),
+        await sink(
+            ModeCompletedEvent(
+                text=result.text,
+                result=run_result.model_dump(mode="json"),
+            )
         )

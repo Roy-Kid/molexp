@@ -50,7 +50,7 @@ def user_plan_ref(ctx):
 
 @pytest.fixture()
 def stub(ctx):
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     return StubAgentGateway(artifact_store=ctx.artifact_store)
 
@@ -64,8 +64,8 @@ def test_generate_experiment_report_name() -> None:
 def test_generate_experiment_report_builds_correct_spec(ctx, user_plan_ref, stub) -> None:
     """The stage must hand the gateway a spec wired to the user_plan
     artifact and carrying ExperimentReport.model_json_schema()."""
-    from molexp.harness.agents.gateway import AgentGateway
     from molexp.harness.core.stage_runner import StageRunner
+    from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import AgentCallResult, AgentCallSpec
     from molexp.harness.schemas.experiment_report import ExperimentReport
     from molexp.harness.stages.generate_experiment_report import GenerateExperimentReport

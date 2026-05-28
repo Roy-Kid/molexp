@@ -116,7 +116,7 @@ async def test_call_persists_raw_then_returns_typed_output(tmp_path: Path) -> No
     # Import inside the test body so the RED failure mode is the missing
     # symbol (``ImportError``) rather than collection-time crash, matching
     # the project's test-body-imports convention for stage tests.
-    from molexp.harness.agents.router_backed import RouterBackedAgentGateway
+    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
     from molexp.harness.schemas import AgentCallSpec
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
@@ -188,8 +188,8 @@ async def test_call_raises_on_unknown_agent_name(tmp_path: Path) -> None:
     Parity with :class:`StubAgentGateway`'s behavior so harness stages can
     raise the same exception regardless of which backend is wired in.
     """
-    from molexp.harness.agents.router_backed import RouterBackedAgentGateway
     from molexp.harness.errors import AgentResponseNotRegisteredError, HarnessError
+    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
     from molexp.harness.schemas import AgentCallSpec
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
@@ -233,7 +233,7 @@ async def test_raw_artifact_persisted_before_typed_output_on_parse_failure(
     """
     from pydantic import ValidationError
 
-    from molexp.harness.agents.router_backed import RouterBackedAgentGateway
+    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
     from molexp.harness.schemas import AgentCallSpec
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 

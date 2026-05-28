@@ -35,6 +35,8 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "molexp.server",
     "molexp.cli",
     "molexp.sweep",
+    "molexp.workflow",  # spec 03b: agent stopped being the orchestrator
+    "molexp.harness",  # spec 03b: agent sits below harness in the DAG
 )
 
 
@@ -133,8 +135,9 @@ def test_pydantic_ai_imports_confined_to_pydanticai_subtree() -> None:
 def test_pydantic_graph_never_imported_in_agent() -> None:
     """``pydantic_graph`` is a workflow-layer concern; ``agent/`` never imports it.
 
-    PlanMode drives multi-step workflows through the public
-    ``molexp.workflow`` API, which is the sole sanctioned pg site.
+    Post spec 03b, the agent layer is a pydantic-ai facade with only LLM-only
+    modes (Chat + Interactive); pipeline orchestration moved to the harness
+    layer, so any ``pydantic_graph`` reference under ``agent/`` is a defect.
     """
     hits = _files_importing("pydantic_graph", AGENT_ROOT)
     bad = _format(hits)
@@ -229,10 +232,13 @@ def test_importing_mcp_defaults_stays_lazy() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_agent_workspace_and_workflow_imports_are_allowed() -> None:
-    """Sanity guard: workspace + workflow are not in FORBIDDEN_PREFIXES.
+def test_agent_workspace_only_is_allowed() -> None:
+    """Sanity guard: workspace is the ONLY downstream layer agent may reach.
 
-    Agent is the top of the DAG; both downstream layers are reachable.
+    Post spec 03b the charter is reversed — agent sits *below* harness in the
+    DAG and no longer drives the workflow engine, so both ``molexp.workflow``
+    and ``molexp.harness`` are forbidden alongside the application shell.
     """
     assert "molexp.workspace" not in FORBIDDEN_PREFIXES
-    assert "molexp.workflow" not in FORBIDDEN_PREFIXES
+    assert "molexp.workflow" in FORBIDDEN_PREFIXES
+    assert "molexp.harness" in FORBIDDEN_PREFIXES

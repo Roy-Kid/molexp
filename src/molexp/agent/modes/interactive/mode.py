@@ -1,52 +1,56 @@
 """``InteractiveMode`` — the emergent, tool-using agentic loop.
 
-InteractiveMode is the CLI's default interactive mode and the one
-*emergent* :class:`~molexp.agent.mode.AgentMode`: the LLM autonomously
-decides whether to answer or call a tool, observes the result, and
-loops until done. The declarative modes (Chat / Plan / Author / Run /
-Review) are its siblings — InteractiveMode neither inherits from nor
-specializes them; it *composes* PlanMode through
-:func:`~molexp.agent.modes.interactive.delegation.delegate_to_plan`.
+The CLI's default interactive mode. Plain ``async def run`` body
+drives :meth:`molexp.agent.router.Router.stream_agentic` and forwards
+each :data:`AgenticChunk` to the injected sink as the corresponding
+:data:`AgentEvent`:
 
-The loop itself is pydantic-ai's native ``Agent.iter()``, reached
-through :meth:`~molexp.agent.router.Router.stream_agentic`. After
-``agent-mode-stage-pipeline-03``, the whole loop lives inside one
-:class:`~molexp.agent.modes.interactive.stages.EmergentLoop` Stage —
-:class:`InteractiveMode.run` delegates to the substrate's
-:meth:`AgentMode.run_pipeline`. The Stage's internals stay
-sequential by construction; the substrate's :class:`Stage` ABC does
-not constrain what happens *inside* a stage body.
+* ``TextDeltaChunk`` → ``TokenDeltaEvent``
+* ``ToolCallChunk``  → ``ToolCallStartedEvent``
+* ``ToolResultChunk`` → ``ToolCallCompletedEvent``
+* ``FinalChunk``     → the assistant's terminal text (captured + appended
+  to the session entry-tree; emitted as ``ModeCompletedEvent``)
 
-Two delegation paths into the structured PlanMode pipeline:
+Read-only tools are pulled from
+:func:`~molexp.agent.modes.interactive.tools.readonly_tools` and passed
+to ``stream_agentic`` as the ``tools=`` kwarg; the loop body itself is
+pydantic-ai's native ``Agent.iter()``, reached through the Router
+Protocol — this module imports nothing from pydantic-ai directly.
 
-- a human ``/plan <preliminary plan>`` prefix — handled
-  deterministically inside the Stage, skipping the emergent LLM turn
-  entirely;
-- a ``run_plan_pipeline`` tool the LLM may call mid-loop on its own.
-
-Both funnel through ``delegate_to_plan``. v1 ships **read-only**
-tools: the auditable output (executable workflow / plan) is
-PlanMode's job.
+Post spec ``harness-as-mode-substrate-03b``, PlanMode is gone from the
+agent layer, so the prior ``/plan`` slash-command delegation is removed.
+The CLI now reaches the harness pipeline via a separate entry point
+(``examples/harness/full_pipeline.py`` until a dedicated CLI lands).
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.events import (
-    AgentEvent,
+    AsyncIteratorEventSink,
     ModeCompletedEvent,
     ModeStartedEvent,
+    TokenDeltaEvent,
+    ToolCallCompletedEvent,
+    ToolCallStartedEvent,
 )
-from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
-from molexp.agent.modes.interactive.stages import EmergentLoop
-from molexp.agent.runtime import AgentHarness
-from molexp.agent.stage import NameOnlyStage
+from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.modes.interactive.tools import readonly_tools
+from molexp.agent.router import (
+    FinalChunk,
+    TextDeltaChunk,
+    ToolCallChunk,
+    ToolResultChunk,
+)
 from molexp.agent.types import Message
+
+if TYPE_CHECKING:
+    from molexp.agent.runtime import AgentRuntime
 
 _LOG = get_logger(__name__)
 
@@ -59,9 +63,9 @@ class InteractiveModeConfig(BaseModel):
     Attributes:
         system_prompt: Extra system-prompt text appended to the
             built-in interactive-assistant preamble.
-        workspace_root: Directory the read-only tools are confined to
-            and PlanMode delegation persists under. ``None`` falls
-            back to the current working directory at run time.
+        workspace_root: Directory the read-only tools are confined to.
+            ``None`` falls back to the current working directory at run
+            time.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -70,61 +74,70 @@ class InteractiveModeConfig(BaseModel):
     workspace_root: Path | None = None
 
 
-_CLASS_PIPELINE = ModePipeline(
-    stages=(NameOnlyStage("agentic-loop"),),
-    edges=(PipelineEdge(from_stage="agentic-loop", to_stage="completed"),),
-    terminal_states=("completed",),
-    entry="agentic-loop",
-)
-
-
 class InteractiveMode(AgentMode):
     """The emergent tool-using loop — the CLI's default interactive mode."""
 
     name = "interactive"
-    pipeline = _CLASS_PIPELINE
 
     def __init__(self, *, config: InteractiveModeConfig | None = None) -> None:
         self.config = config or InteractiveModeConfig()
-        self._captured_prior: tuple[Message, ...] = ()
-        self._final_text: str = ""
-        self.pipeline = ModePipeline(
-            stages=(EmergentLoop(interactive_mode=self),),
-            edges=_CLASS_PIPELINE.edges,
-            terminal_states=_CLASS_PIPELINE.terminal_states,
-            entry="agentic-loop",
-        )
 
     async def run(
         self,
         *,
-        harness: AgentHarness,
+        runtime: AgentRuntime,
+        sink: AsyncIteratorEventSink,
         user_input: str,
-    ) -> AsyncIterator[AgentEvent]:
-        """Drive one interactive turn, yielding the orchestration event stream."""
-        await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
-        harness.router.clear_usage()
-        self._captured_prior = harness.session.build_context()
-        harness.session.append_message(Message(role="user", content=user_input))
-        self._final_text = ""
+    ) -> None:
+        """Drive one interactive turn; forward router chunks to ``sink``."""
+        await sink(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+        runtime.router.clear_usage()
+        runtime.session.append_message(Message(role="user", content=user_input))
 
-        async for event in self.run_pipeline(
-            harness=harness,
-            user_input=user_input,
-            initial_input=user_input,
+        workspace = self.config.workspace_root or Path.cwd()
+        tools = tuple(readonly_tools(workspace_root=workspace))
+
+        final_text = ""
+        async for chunk in runtime.router.stream_agentic(
+            prompt=user_input,
+            system=self.config.system_prompt,
+            tools=tools,
         ):
-            yield event
+            if isinstance(chunk, TextDeltaChunk):
+                await sink(TokenDeltaEvent(text=chunk.text))
+            elif isinstance(chunk, ToolCallChunk):
+                await sink(
+                    ToolCallStartedEvent(
+                        tool_name=chunk.tool_name,
+                        args_summary=chunk.args_summary,
+                    )
+                )
+            elif isinstance(chunk, ToolResultChunk):
+                await sink(
+                    ToolCallCompletedEvent(
+                        tool_name=chunk.tool_name,
+                        result_summary=chunk.result_summary,
+                        ok=chunk.ok,
+                    )
+                )
+            elif isinstance(chunk, FinalChunk):
+                final_text = chunk.text
 
-        harness.session.append_message(Message(role="assistant", content=self._final_text))
-        breakdown = harness.router.snapshot_usage()
+        runtime.session.append_message(Message(role="assistant", content=final_text))
+        breakdown = runtime.router.snapshot_usage()
         _LOG.info(
             f"[interactive] turn done — usage in={breakdown.total.input_tokens} "
             f"out={breakdown.total.output_tokens} reqs={breakdown.total.requests}"
         )
         run_result = AgentRunResult(
-            text=self._final_text,
-            messages=harness.session.build_context(),
+            text=final_text,
+            messages=runtime.session.build_context(),
             usage=breakdown.total,
             usage_breakdown=breakdown,
         )
-        yield ModeCompletedEvent(text=self._final_text, result=run_result.model_dump(mode="json"))
+        await sink(
+            ModeCompletedEvent(
+                text=final_text,
+                result=run_result.model_dump(mode="json"),
+            )
+        )

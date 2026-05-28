@@ -1,15 +1,20 @@
-"""``ChatMode`` unit tests — harness-based reference mode (spec 02)."""
+"""``ChatMode`` unit tests — plain async + sink-driven (spec 03b)."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 import pytest
 
-from molexp.agent.events import ModeCompletedEvent, ModeStartedEvent
+from molexp.agent.events import (
+    AsyncIteratorEventSink,
+    ModeCompletedEvent,
+    ModeStartedEvent,
+)
 from molexp.agent.modes import ChatMode, ChatModeConfig
-from molexp.agent.router import ModelTier, RouterTextResult
-from molexp.agent.runtime import AgentHarness
+from molexp.agent.router import AgenticChunk, ModelTier, RouterTextResult
+from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session
 from molexp.agent.session_entry import MessageEntry
 from molexp.agent.session_storage import InMemorySessionStorage
@@ -48,7 +53,7 @@ class _CapturingRouter:
         *,
         prompt: str,
         system: str = "",
-        message_history: tuple[object, ...] = (),
+        message_history: tuple[Any, ...] = (),
         tier: ModelTier = ModelTier.DEFAULT,
     ) -> RouterTextResult:
         self.calls.append({"prompt": prompt, "system": system, "tier": tier})
@@ -58,6 +63,21 @@ class _CapturingRouter:
     async def complete_structured(self, **_: object) -> object:
         raise AssertionError("ChatMode never reaches complete_structured")
 
+    def stream_agentic(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        tools: tuple[Any, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+        message_history: tuple[Any, ...] = (),
+    ) -> AsyncIterator[AgenticChunk]:
+        async def _empty() -> AsyncIterator[AgenticChunk]:
+            if False:  # pragma: no cover
+                yield  # type: ignore[unreachable]
+
+        return _empty()
+
     def clear_usage(self) -> None:
         return None
 
@@ -65,76 +85,66 @@ class _CapturingRouter:
         return UsageBreakdown()
 
 
-def _harness(router: _CapturingRouter) -> tuple[AgentHarness, list[object]]:
-    sink_events: list[object] = []
+def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime, Session]:
+    """Build a minimal :class:`AgentRuntime` for a ChatMode run."""
+    import tempfile
+    from pathlib import Path
 
-    async def sink(ev: object) -> None:
-        sink_events.append(ev)
+    from molexp.agent.execution_env import LocalExecutionEnv
+    from molexp.agent.hooks import HookRegistry
 
     session = Session(storage=InMemorySessionStorage(), session_id="chat")
-    harness = AgentHarness(session=session, event_sink=sink, router=router)  # type: ignore[arg-type]
-    return harness, sink_events
+    scratch = Path(tempfile.mkdtemp(prefix="chat_test_"))
+    runtime = AgentRuntime(
+        session=session,
+        router=router,  # type: ignore[arg-type]
+        execution_env=LocalExecutionEnv(scratch_dir=scratch),
+        hooks=HookRegistry(),
+    )
+    return runtime, session
 
 
-# ── run() yields an event stream ───────────────────────────────────────────
+# ── ChatMode emits the expected sink-event sequence ────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_run_yields_mode_completed() -> None:
+async def test_chat_mode_emits_started_then_completed() -> None:
     router = _CapturingRouter(responses=["the answer"])
-    harness, _ = _harness(router)
-    events = [ev async for ev in ChatMode().run(harness=harness, user_input="ping")]
+    runtime, _ = _runtime(router)
+    sink = AsyncIteratorEventSink()
+    await ChatMode().run(runtime=runtime, sink=sink, user_input="ping")
+    await sink.close()
+    events = [ev async for ev in sink]
+    assert isinstance(events[0], ModeStartedEvent)
     assert isinstance(events[-1], ModeCompletedEvent)
     assert events[-1].text == "the answer"
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_emits_mode_started() -> None:
-    router = _CapturingRouter()
-    harness, sink_events = _harness(router)
-    async for _ in ChatMode().run(harness=harness, user_input="ping"):
-        pass
-    assert any(isinstance(e, ModeStartedEvent) for e in sink_events)
-
-
-@pytest.mark.asyncio
 async def test_chat_mode_records_turns_in_session_tree() -> None:
     router = _CapturingRouter(responses=["a reply"])
-    harness, _ = _harness(router)
-    async for _ in ChatMode().run(harness=harness, user_input="a question"):
-        pass
-    messages = [e.message for e in harness.session.path_to_root() if isinstance(e, MessageEntry)]
+    runtime, session = _runtime(router)
+    sink = AsyncIteratorEventSink()
+    await ChatMode().run(runtime=runtime, sink=sink, user_input="a question")
+    await sink.close()
+    messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
     roles_contents = [(m.role, m.content) for m in messages]
     assert ("user", "a question") in roles_contents
     assert ("assistant", "a reply") in roles_contents
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_threads_prior_context_into_prompt() -> None:
-    """A second turn's system preamble carries the first turn's content."""
-    router = _CapturingRouter(responses=["first-reply", "second-reply"])
-    harness, _ = _harness(router)
-    mode = ChatMode()
-    async for _ in mode.run(harness=harness, user_input="first"):
-        pass
-    async for _ in mode.run(harness=harness, user_input="second"):
-        pass
-    # the second call's system prompt references the first conversation turn.
-    second_call = router.calls[1]
-    assert "first" in str(second_call["system"])
-
-
-@pytest.mark.asyncio
 async def test_chat_mode_passes_system_prompt() -> None:
     router = _CapturingRouter()
-    harness, _ = _harness(router)
+    runtime, _ = _runtime(router)
+    sink = AsyncIteratorEventSink()
     mode = ChatMode(config=ChatModeConfig(system_prompt="be terse"))
-    async for _ in mode.run(harness=harness, user_input="hi"):
-        pass
-    assert "be terse" in str(router.calls[0]["system"])
+    await mode.run(runtime=runtime, sink=sink, user_input="hi")
+    await sink.close()
+    assert router.calls[0]["system"] == "be terse"
 
 
-# ── round trip via TestModel ───────────────────────────────────────────────
+# ── round trip via pydantic-ai TestModel ───────────────────────────────────
 
 
 @pytest.mark.asyncio
@@ -152,19 +162,11 @@ async def test_chat_mode_run_returns_non_empty_text_via_test_model() -> None:
             ModelTier.HEAVY: test_model,
         },
     )
-    harness, _ = _harness_with_router(router)
-    events = [ev async for ev in ChatMode().run(harness=harness, user_input="ping")]
+    runtime, _ = _runtime(router)  # type: ignore[arg-type]
+    sink = AsyncIteratorEventSink()
+    await ChatMode().run(runtime=runtime, sink=sink, user_input="ping")
+    await sink.close()
+    events = [ev async for ev in sink]
     completed = events[-1]
     assert isinstance(completed, ModeCompletedEvent)
     assert completed.text
-
-
-def _harness_with_router(router: object) -> tuple[AgentHarness, list[object]]:
-    sink_events: list[object] = []
-
-    async def sink(ev: object) -> None:
-        sink_events.append(ev)
-
-    session = Session(storage=InMemorySessionStorage(), session_id="chat")
-    harness = AgentHarness(session=session, event_sink=sink, router=router)  # type: ignore[arg-type]
-    return harness, sink_events

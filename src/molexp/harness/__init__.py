@@ -23,7 +23,6 @@ Imports from ``molexp.workflow``, ``molexp.plugins``, ``molexp.server``,
 
 from __future__ import annotations
 
-from molexp.harness.agents import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.audit import (
     find_last_successful_stage,
     generate_audit_report,
@@ -42,6 +41,7 @@ from molexp.harness.errors import (
     StagePersistedFailureError,
 )
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
+from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.policy import (
     evaluate_approval_policy,
     make_final_report_approval_request,

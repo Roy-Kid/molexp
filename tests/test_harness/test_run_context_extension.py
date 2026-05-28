@@ -43,8 +43,8 @@ def test_construct_with_only_phase1_args_backward_compatible(tmp_path: Path, sto
 
 
 def test_construct_with_all_new_services(tmp_path: Path, stores) -> None:
-    from molexp.harness.agents.stub import StubAgentGateway
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.gateways.stub import StubAgentGateway
     from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
     from molexp.harness.schemas.policy import ApprovalPolicy
 

@@ -2,8 +2,9 @@
 
 InteractiveMode is the one *emergent* :class:`~molexp.agent.mode.AgentMode`:
 the LLM autonomously decides → calls a read-only tool → observes →
-loops, and may delegate to the structured PlanMode pipeline. It is a
-sibling of the declarative modes, composing — never inheriting — them.
+loops. Drives :meth:`molexp.agent.router.Router.stream_agentic`; reaches
+no structured-output pipeline (those moved to ``molexp.harness`` in spec
+03b).
 """
 
 from molexp.agent.modes.interactive.mode import InteractiveMode, InteractiveModeConfig

@@ -1,9 +1,10 @@
 """``AgentRunner`` — public orchestration entry point.
 
 Takes a mode + a model config; builds an
-:class:`~molexp.agent.runtime.AgentHarness`, injects it into the
+:class:`~molexp.agent.runtime.AgentRuntime`, injects it into the
 mode, drains the mode's :data:`~molexp.agent.events.AgentEvent`
-stream, and returns the terminal :class:`~molexp.agent.mode.AgentRunResult`.
+stream through an :class:`AsyncIteratorEventSink`, and returns the
+terminal :class:`~molexp.agent.mode.AgentRunResult`.
 
 The router is constructed lazily on first :meth:`run` — the private
 :class:`~molexp.agent._pydanticai.router.PydanticAIRouter` is the only
@@ -66,7 +67,7 @@ from molexp.agent.hooks import HookContext, HookPoint, HookRegistry
 from molexp.agent.mode import AgentRunResult
 from molexp.agent.review import ReviewDecision, ReviewPolicy
 from molexp.agent.router import ModelTier, Router, TierModels
-from molexp.agent.runtime import AgentHarness
+from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session
 from molexp.agent.session_storage import (
     InMemorySessionStorage,
@@ -99,7 +100,7 @@ class AgentRunnerConfigError(ValueError):
 
 
 class AgentRunner:
-    """Drive an ``AgentMode`` end-to-end on an :class:`AgentHarness`.
+    """Drive an ``AgentMode`` end-to-end with an :class:`AgentRuntime`.
 
     Construction performs no network IO — the underlying pydantic-ai
     ``Agent``\\ s are built lazily on first :meth:`run`.
@@ -172,12 +173,14 @@ class AgentRunner:
     async def run_events(self, session: Session, user_input: str) -> AsyncIterator[AgentEvent]:
         """Drive the mode and yield its :data:`AgentEvent` stream live.
 
-        Events flow through an :class:`AsyncIteratorEventSink`: the
-        harness pushes to ``event_sink``; the runner drives the mode in
-        a background task and iterates the sink. When the mode finishes
-        (or raises) the driver closes the sink, the consumer's
-        ``async for`` loop terminates naturally, and any exception the
-        mode raised is re-raised here so the caller sees it.
+        Modes are plain ``async def`` coroutines after spec
+        ``harness-as-mode-substrate-03b``: they accept the
+        :class:`AgentRuntime` bundle + the sink + the user prompt and
+        return ``None``; every event flows through the sink. The runner
+        spawns a driver task to run the mode and iterates the sink in
+        emission order. When the mode finishes (or raises), the driver
+        closes the sink, the consumer's ``async for`` loop terminates
+        naturally, and any exception the mode raised is re-raised here.
 
         Cancellation safety: if the consumer breaks out early the driver
         task is cancelled and awaited before this generator exits, so
@@ -185,9 +188,8 @@ class AgentRunner:
         """
         router = self._ensure_router()
         sink = AsyncIteratorEventSink()
-        harness = AgentHarness(
+        runtime = AgentRuntime(
             session=session,
-            event_sink=sink,
             router=router,
             execution_env=self._build_execution_env(),
             hooks=self._build_hooks(),
@@ -198,13 +200,11 @@ class AgentRunner:
         async def _drive() -> None:
             nonlocal driver_exc
             try:
-                async for event in self.mode.run(harness=harness, user_input=user_input):
-                    # Modes route some events through ``harness.emit``
-                    # (sink) and yield others directly — most notably
-                    # ``ModeCompletedEvent`` is yield-only. Re-route the
-                    # yields into the sink so it becomes the single
-                    # ordered stream this generator iterates.
-                    await sink(event)
+                await self.mode.run(
+                    runtime=runtime,
+                    sink=sink,
+                    user_input=user_input,
+                )
             except Exception as exc:
                 driver_exc = exc
             finally:

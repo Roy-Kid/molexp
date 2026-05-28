@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from molexp.harness.agents.gateway import AgentGateway
+from molexp.harness.gateways.gateway import AgentGateway
 from molexp.harness.registry.capability_registry import CapabilityRegistry
 from molexp.harness.schemas.policy import ApprovalPolicy
 from molexp.harness.store.artifact_store import ArtifactStore

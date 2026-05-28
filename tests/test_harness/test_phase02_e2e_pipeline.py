@@ -7,7 +7,7 @@ provenance chain `raw_text → user_plan → experiment_report`. This is the
 
 Also verifies the public-surface discipline from ac-008:
 - Phase-2 symbols importable from molexp.harness top level
-- StubAgentGateway NOT importable from molexp.harness or molexp.harness.agents
+- StubAgentGateway NOT importable from molexp.harness or molexp.harness.gateways
 """
 
 from __future__ import annotations
@@ -48,7 +48,7 @@ def test_e2e_pipeline_three_layer_provenance(ctx) -> None:
         SaveUserPlan,
         StageRunner,
     )
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     stub = StubAgentGateway(artifact_store=ctx.artifact_store)
     stub.register(
@@ -92,7 +92,7 @@ def test_e2e_event_log_contains_two_stage_quartets(ctx) -> None:
         SaveUserPlan,
         StageRunner,
     )
-    from molexp.harness.agents.stub import StubAgentGateway
+    from molexp.harness.gateways.stub import StubAgentGateway
 
     stub = StubAgentGateway(artifact_store=ctx.artifact_store)
     stub.register(
@@ -149,8 +149,8 @@ def test_stub_agent_gateway_not_at_top_level() -> None:
     """ac-008 (negative direction): StubAgentGateway stays private."""
     harness = importlib.import_module("molexp.harness")
     assert not hasattr(harness, "StubAgentGateway")
-    agents_pkg = importlib.import_module("molexp.harness.agents")
+    agents_pkg = importlib.import_module("molexp.harness.gateways")
     assert not hasattr(agents_pkg, "StubAgentGateway")
     # Only reachable via the stub module's full dotted path.
-    stub_mod = importlib.import_module("molexp.harness.agents.stub")
+    stub_mod = importlib.import_module("molexp.harness.gateways.stub")
     assert hasattr(stub_mod, "StubAgentGateway")

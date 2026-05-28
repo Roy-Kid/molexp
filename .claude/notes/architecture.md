@@ -75,41 +75,28 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
 - `molexp.workflow._pydantic_graph` (private subpackage; sole `import pydantic_graph` site): `compiler.py` (`WorkflowGraphCompiler`), `node.py` (`WorkflowStep`), `persistence.py` (`RunStorePersistence`), `runtime.py` (`GraphWorkflowRuntime`, `make_execution_id`), `state.py` (`WorkflowState`, `WorkflowDeps`, `CompiledWorkflow`).
 - `molexp.workflow.schema` — JSON-Schema Draft-07 wire-format docs (`workflow.json`, `task_config.json`, `link.json`, `task_io.json`, `workflow_contract.json` + `README.md`).
 
-**Layer 3 — `src/molexp/agent/` (LLM harness — proposal generator)**
-- `molexp.agent` (`__init__.py`) — minimal public surface: `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`, `ReviewDecision`, `ReviewPolicy`, `cli_ask`.
-- `molexp.agent.mode` — `AgentMode` ABC + `AgentRunResult` + `ModePipeline` (pipeline-mode container).
-- `molexp.agent.runner` — `AgentRunner` + `AgentRunnerConfigError`; lazy `PydanticAIRouter`, per-run `AgentHarness`. Surfaces `run()` and `run_events()`.
-- `molexp.agent.router` — `Router` Protocol + `ModelTier` enum + `RouterTextResult` + `TierModels`.
-- `molexp.agent.review` — `ReviewPolicy` (callable alias), `ReviewDecision`, `ReviewView` / `StepView`, `BypassPolicy` / `AutoPolicy` / `HumanPolicy`, `cli_ask`.
+**Layer 3 — `src/molexp/agent/` (pydantic-ai facade + LLM-only modes; sibling of workflow, below harness)**
+
+Post spec `harness-as-mode-substrate-03b` the agent layer is a **thin pydantic-ai facade** plus two LLM-only modes. Pipeline orchestration (Plan / Author / Run / Review) moved up into `molexp.harness`; agent now owns only Session / Router / Event / ExecutionEnv / HookRegistry primitives + ChatMode + InteractiveMode.
+
+- `molexp.agent` (`__init__.py`) — public surface: `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentRuntime`, `AgentSession`, `ReviewDecision`, `ReviewPolicy`, `cli_ask`.
+- `molexp.agent.mode` — `AgentMode` ABC (abstract `async def run(*, runtime, sink, user_input) -> None`) + `AgentRunResult`.
+- `molexp.agent.runner` — `AgentRunner` + `AgentRunnerConfigError`; lazy `PydanticAIRouter`, per-run `AgentRuntime`. Surfaces `run()` and `run_events()`.
+- `molexp.agent.runtime` — `AgentRuntime` frozen dataclass: bundles `session` / `router` / `execution_env` / `hooks` for the mode's `run()` call.
+- `molexp.agent.router` — `Router` Protocol + `ModelTier` enum + `RouterTextResult` + `TierModels` + `AgenticChunk` discriminated union (`TextDeltaChunk` / `ToolCallChunk` / `ToolResultChunk` / `FinalChunk`).
+- `molexp.agent.events` — `AgentEvent` discriminated union (`ModeStarted/CompletedEvent`, `ApprovalRequested/DecidedEvent`, `ArtifactWrittenEvent`, `TokenDeltaEvent`, `ToolCallStarted/CompletedEvent`, `ErrorEvent`, …) + `AsyncIteratorEventSink` (queue-backed `EventSink` + `AsyncIterator[AgentEvent]`).
+- `molexp.agent.session` / `session_storage` / `session_entry` — `Session` (append-only entry-tree + leaf pointer), `SessionStorage` Protocol + `JsonlSessionStorage` / `InMemorySessionStorage`, the `SessionEntry` union (`MessageEntry` / `StageEntry` / `ApprovalEntry` / `ArtifactEntry` / `CompactionEntry` / `ModelChangeEntry`).
+- `molexp.agent.compaction` — `CompactionSettings` / `CompactionPlan` / `prepare_compaction` / `estimate_tokens`.
+- `molexp.agent.execution_env` — `ExecutionEnv` Protocol + `LocalExecutionEnv` + `ExecResult` / `ExecutionError`.
+- `molexp.agent.hooks` — `HookRegistry` / `HookPoint` / `HookContext`.
+- `molexp.agent.review` — `ReviewPolicy` callable alias, `ReviewDecision`, `ReviewView` / `StepView`, `BypassPolicy` / `AutoPolicy` / `HumanPolicy`, `cli_ask`.
 - `molexp.agent.folders` — `Agent(Folder)` (`kind = "agent.agent"`) + `AgentSession(Folder)` (`kind = "agent.session"`).
 - `molexp.agent.folders_metadata` — `AgentMetadata` / `AgentSessionMetadata`.
 - `molexp.agent.types` — `Message`, `Usage`, `CallUsage`, `UsageBreakdown`, `AgentFailure`, `FailureKind`, `SessionStatus`, `Goal` / `GoalMode`, `utc_now`.
 - `molexp.agent.settings` — `AgentSettings` (workspace-scoped tunables; frozen pydantic).
-- `molexp.agent.harness` (subpackage — pi-inspired shared runtime; imports neither pydantic SDK):
-  - `harness.py` — `AgentHarness` (owns the live `Session`, the `AgentEvent` sink, `stage()` brackets, the unified `approve()` gate, `compact()`, `run_subprocess()`, `HookRegistry`).
-  - `events.py` — `AgentEvent` discriminated union: `ModeStarted/CompletedEvent`, `StageStarted/CompletedEvent`, `ApprovalRequested/DecidedEvent`, `ArtifactWrittenEvent`, `PlanEmittedEvent`, `PreflightFailedEvent`, `RepairProposedEvent`, `CompactionPerformedEvent`, `ClarificationRequiredEvent`, `TokenDeltaEvent`, `ToolCallStarted/CompletedEvent`, `ErrorEvent`, plus `AnyAgentEvent` / `EventSink`.
-  - `session.py` / `session_storage.py` / `session_entry.py` — `Session` (append-only entry-tree + leaf pointer), `SessionStorage` Protocol + `JsonlSessionStorage` / `InMemorySessionStorage`, the `SessionEntry` union (`MessageEntry` / `StageEntry` / `ApprovalEntry` / `ArtifactEntry` / `CompactionEntry` / `ModelChangeEntry`).
-  - `compaction.py` — `CompactionSettings` / `CompactionPlan` / `prepare_compaction` / `estimate_tokens`.
-  - `execution_env.py` — `ExecutionEnv` Protocol + `LocalExecutionEnv` + `ExecResult` / `ExecutionError`.
-  - `hooks.py` — `HookRegistry` / `HookPoint` / `HookContext`.
-  - `stage.py` — **NEW.** First-class `Stage` ABC (async-generator `run(ctx, input)`); subclasses set `name` ClassVar + implement `run`. Plain Python class (`arbitrary_types_allowed=True` forbidden under `agent/`). Also exposes `NameOnlyStage`.
-  - `pipeline.py` — **NEW.** `execute_pipeline()`: walks a `ModePipeline`'s Stage tuple, brackets each in `harness.stage()`, drains the async generator, threads terminal yield as next stage's `input`, honours `RepairPolicy` rewind/exhaustion routing. The substrate every mode pipeline eventually drains through (no `pydantic_graph`, no eager pydantic-ai load).
-  - `repair.py` — **NEW.** `RepairPolicy` (frozen pydantic): declarative "on event kind X yielded by stage, rewind to stage Y at most N times, on exhaustion route to Z." Routing-only — per-mode repair *executors* stay under each mode (`modes/author/repair.py`, `modes/run/repair.py`).
-- `molexp.agent.modes` (subpackage) — six modes:
-  - `chat.py` + `chat_stages.py` — `ChatMode` / `ChatModeConfig` (one LLM round-trip).
-  - `plan/` — `PlanMode` / `PlanModeConfig`: now a **collapsed 5-stage, 2-LLM-op pipeline** (was the prior 7-stage planner). Modules: `_mode.py`, `handoff.py` (`ApprovedPlanHandoff`), `plan_folder.py` (`PlanFolder`, `AGENT_PLAN_KIND`), `plan_graph_preflight.py` (`PlanGraphPreflightReport` + `preflight_plan_graph`), `tasks_planning.py`, and the new `stages/` subpackage:
-    - `stages/__init__.py`
-    - `stages/synthesize_intent.py` — one structured call → `IntentSpec`.
-    - `stages/clarify_intent.py` — pure routing.
-    - `stages/research_and_plan.py` — one MCP-attached agentic call → `PlanGraph` (`api_refs` + `composition_notes` inline on each step).
-    - `stages/preflight_plan_graph.py` — pure structural check.
-    - `stages/emit_approved_plan.py` — approval gate + handoff emit.
-    - `stages/thread_state.py` — shared inter-stage state container.
-  - `author/` — `AuthorMode` / `AuthorModeConfig`; modules: `_mode.py`, `codegen.py`, `codegen_evidence.py`, `contract_normalize.py`, `debug_loop.py`, `handoff.py` (`MaterializedWorkspaceHandoff`), `lowering.py`, `materialize.py`, `renderers.py`, `repair.py`, `stages.py`, `workspace_layout.py`. Lowers approved `PlanGraph` → `WorkflowContract`, codegens task source + tests, runs each test through `ExecutionEnv` with the LLM debug→repair loop, gated behind `approve_materialization`.
-  - `run/` — `RunMode` / `RunModeConfig`; modules: `_mode.py`, `executor.py`, `gate.py`, `loader.py`, `monitor.py` (`RunProgress` / `StepProgress` / `StepStatus`), `repair.py` (`RepairEscalation` / `RuntimeFailureKind`), `run_folder.py` (`RunFolder` + `RunReport`), `stages.py`. Executes materialized workflow via the public `molexp.workflow` API bound to a workspace `Run`, projects per-step progress, gated behind `approve_execution`.
-  - `review/` — `ReviewMode` / `ReviewModeConfig`; modules: `_mode.py`, `checks.py` (the three checkers `check_intent_conformance` / `check_capability_evidence` / `check_lifecycle_consistency`), `renderers.py`, `stages.py`, `target.py` (`ReviewTarget` / `ReviewTargetKind` / `detect_review_target`), `verdict.py` (`ReviewVerdict` / `StepFinding` / `build_review_verdict`), `verdict_folder.py` (`ReviewVerdictFolder`, `AGENT_REVIEW_KIND`).
-  - `interactive/` — **NEW.** The emergent CLI-default mode. Modules: `mode.py` (`InteractiveMode` / `InteractiveModeConfig`), `delegation.py` (slash-command routing to `PlanMode`), `stages.py`, `tools.py` (read-only tool surface registered via `Agent(tools=…)`). LLM-driven `Agent.iter()` tool loop; composes — never inherits — the declarative five.
-  - `_planning/` — pure frozen-pydantic planning contracts shared by every mode: `intent.py` (`IntentSpec`, `IntentConstraint`, `SuccessCriterion`, `ResourceBudget`, `RiskLevel`, `MissingInfoItem`), `plan_graph.py` (`PlanGraph` / `PlanStep` / `PlanStepIO` / `PlanStepInput` / `PlanStepArtifact` / `PlanCheck` / `RetryPolicy` / `IsolatedTestSketch`), `lifecycle.py` (`PlanState`, `LEGAL_TRANSITIONS`, `assert_legal_transition` / `is_legal_transition` / `legal_successors`, `IllegalPlanTransitionError`), `diff.py` (`PlanDiff` / `PlanNodeOp` / `DiffOpKind` / `ApprovalGate`). **`CapabilityGraph` / `CapabilityNode` / `CapabilityEdge` / `EvidenceState` are gone** — capability evidence now lives inline on each `PlanStep` as `api_refs` + `composition_notes`.
+- `molexp.agent.modes` (subpackage) — **two** modes only:
+  - `chat.py` — `ChatMode` / `ChatModeConfig` (one LLM round-trip → terminal `ModeCompletedEvent`).
+  - `interactive/{mode.py, tools.py}` — `InteractiveMode` / `InteractiveModeConfig` (emergent CLI-default mode; drives `Router.stream_agentic` and forwards each `AgenticChunk` to the sink); `tools.py` ships read-only `read_file` / `list_directory` / `search_code` callables for `Agent(tools=[…])`.
 - `molexp.agent._pydanticai` (private — sole `import pydantic_ai` site; `__all__ = []`):
   - `router.py` — `PydanticAIRouter`.
   - `mcp.py` — `build_mcp_server` / `check_stdio_handshake`.
@@ -117,8 +104,6 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
   - `errors.py` — `ProviderError`.
   - `events.py` — pydantic-ai-side event helpers.
   - `retry.py` — pydantic-ai retry config.
-  - `research_planner.py` — **NEW.** `build_research_planner`: the single MCP-attached `pydantic_ai.Agent` PlanMode's `ResearchAndPlan` stage delegates to (model + tool loop end-to-end inside pydantic-ai, structured output `PlanGraph`).
-  - `debug_repair.py` — **NEW.** Source-grounded debug-loop repair: a single MCP-attached `pydantic_ai.Agent` AuthorMode reaches for when a generated test fails (`AttributeError` / `ImportError` / etc.). The prior `capability_probe.py` + `capability_probe_factory.py` are gone — replaced by these two purpose-built planners.
 - `molexp.agent.mcp` (subpackage: `__init__.py`, `defaults.py`, `oauth.py`, `store.py`) — MCP config layer only.
 - `molexp.agent.persistence` (subpackage: `__init__.py`, `router.py`, `tiered.py`) — `TieredResourceStore` / `ResourceSpec` / `Scope` / `tiered_router_factory`.
 
@@ -132,7 +117,7 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
   - `run_context.py` — `HarnessRunContext` (frozen container handing services to stages).
   - `stage.py` — `Stage` ABC with `async run(ctx) -> ArtifactRef`.
   - `stage_runner.py` — `StageRunner` (wraps each stage with `stage_started` / `artifact_created` / `stage_completed` events, auto-wires `derived_from` provenance edges).
-- `molexp.harness.agents/` — agent gateway contract:
+- `molexp.harness.gateways/` — agent gateway contract + impls (renamed from `agents/` in spec 03b):
   - `gateway.py` — `AgentGateway` Protocol.
   - `stub.py` — `StubAgentGateway` (in-memory; intentionally NOT re-exported from package root).
 - `molexp.harness.audit/` — audit + replay helpers:
@@ -379,13 +364,13 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 - `molexp.workflow` — **Layer 2 (workflow)**. Graph engine. Uses `molexp.workspace` only (for `Run`, `RunContext`, `atomic_write_json`, the `CacheFolder.as_cache_store()` adapter). **MUST NOT import** `molexp.agent`, `molexp.harness`, or `pydantic_ai`. May import `pydantic_graph` only under `workflow/_pydantic_graph/`.
 - `molexp.workflow._pydantic_graph` — **Layer 2 / private**. Sole `import pydantic_graph` site in the repo.
 - `molexp.workflow.schema` — **Layer 2 / wire-format**. JSON-Schema documents consumed by the agent layer's IR emitters and the server's IR round-trip.
-- `molexp.agent` — **Layer 3 (agent — proposal generator)**. LLM harness. Uses `molexp.workspace` and `molexp.workflow` through their public surfaces. **MUST NOT import** `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli`. May import `pydantic_ai` only under `agent/_pydanticai/`; **never** imports `pydantic_graph`; `import molexp.agent` must not eagerly load either SDK.
+- `molexp.agent` — **Layer 3 (agent — pydantic-ai facade)**. Sibling of workflow above workspace. Post spec 03b the agent owns only LLM primitives + `ChatMode` + `InteractiveMode`; pipeline orchestration moved to harness. Uses workspace only. MUST NOT import `molexp.workflow` or `molexp.harness`. Uses `molexp.workspace` and `molexp.workflow` through their public surfaces. **MUST NOT import** `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli`. May import `pydantic_ai` only under `agent/_pydanticai/`; **never** imports `pydantic_graph`; `import molexp.agent` must not eagerly load either SDK.
 - `molexp.agent.harness` — **Layer 3 / shared runtime**. The `AgentHarness` every mode drives — `AgentEvent` stream, `Session` entry-tree + `SessionStorage`, compaction, `ExecutionEnv`, `HookRegistry`, and the new `Stage` / `execute_pipeline` / `RepairPolicy` substrate. Imports neither SDK.
 - `molexp.agent.modes._planning` — **Layer 3 / pure contracts**. Frozen-pydantic planning types; zero LLM, zero I/O; substrate every mode reads.
-- `molexp.agent.modes` — **Layer 3 / modes**. `ChatMode` + the four declarative pipeline modes (Plan / Author / Run / Review) + the emergent `InteractiveMode`. Folder kinds `agent.plan` / `agent.run` / `agent.review`.
-- `molexp.agent._pydanticai` — **Layer 3 / private**. Sole `import pydantic_ai` site (`router.py`, `mcp.py`, `messages_codec.py`, `errors.py`, `events.py`, `retry.py`, plus the new `research_planner.py` for PlanMode's `ResearchAndPlan` stage and `debug_repair.py` for AuthorMode's repair loop).
+- `molexp.agent.modes` — **Layer 3 / modes**. Post spec 03b only two ship: `ChatMode` (one round-trip) and the emergent `InteractiveMode` (drives `Router.stream_agentic`). Pipeline orchestration (Plan / Author / Run / Review) moved up into `molexp.harness`. Folder kinds `agent.agent` / `agent.session` still ship; the obsolete `agent.plan` / `agent.run` / `agent.review` kinds are gone.
+- `molexp.agent._pydanticai` — **Layer 3 / private**. Sole `import pydantic_ai` site (`router.py`, `mcp.py`, `messages_codec.py`, `errors.py`, `events.py`, `retry.py`).
 - `molexp.agent.mcp` / `molexp.agent.persistence` — **Layer 3 / agent subsystems**. MCP config layer and the generic three-tier resource store.
-- `molexp.harness` — **Layer 4 (provenance-first workflow harness — NEW)**. **Sibling** of agent/workflow/workspace; after spec `harness-as-mode-substrate-03a` it gained one upward edge into agent for production LLM dispatch. Allowed edges: `harness → workspace` (for `atomic_write_json` / `atomic_write_text`, `compute_content_hash`, `FileSystem` types) + `harness → molexp.agent.router` (SDK-free Protocol module — sole sanctioned agent edge; lets `RouterBackedAgentGateway` drive a `Router` without pulling pydantic-ai into the harness). **MUST NOT import** `molexp.workflow`, the rest of `molexp.agent` outside the `agent.router` Protocol, `molexp.plugins`, `molexp.server`, `molexp.cli`, `molexp.sweep`; `pydantic_ai` / `pydantic_graph` must not be transitively pulled in either. Enforced by `tests/test_harness/test_import_guard.py`. The harness owns state, provenance, validation, approval, execution, and audit for harness-driven runs; agents are demoted to proposal generators behind hard boundaries.
+- `molexp.harness` — **Layer 4 (experiment orchestrator — top of the DAG)**. Sits **above** agent/workflow/workspace and composes all three. Allowed edges: `harness → agent + workflow + workspace`. Owns the 8-stage canonical pipeline (`SaveUserPlan → … → ApprovalGate`), `Stage` + `StageRunner` substrate, `ArtifactStore` / `EventLog` / `ProvenanceStore`, `CapabilityRegistry`, executors, validators, `ApprovalGate`, audit + replay. The `harness/gateways/` subpackage (renamed from `harness/agents/` in spec 03b) holds the `AgentGateway` Protocol + `StubAgentGateway` (test stub) + `RouterBackedAgentGateway` (production impl driven by `molexp.agent.router.Router`). **MUST NOT be imported by** workspace / workflow / agent / plugins / server / cli / sweep. Enforced by `tests/test_harness/test_import_guard.py`; the symmetric agent-side guard in `tests/test_agent/test_import_guard.py` forbids `molexp.harness` (and `molexp.workflow`) from being imported under `agent/`.
 - `molexp.server` — **Layer 5 (application shell — FastAPI app)**. Sits on top of `agent + workflow + workspace`. Route-domain split + Pydantic schemas for the wire. **`server/workspace_targets.py` documents its layer position explicitly**: imports downward into `workspace.base.atomic_write_json` and `workspace.fs` only, never `agent` / `workflow` / `harness` upward.
 - `molexp.cli` — **Layer 6 (application shell — Typer CLI)**. Sits on top of `agent + workflow + workspace`. Organized around `molexp workspace [TARGET] …` as the primary entrypoint, with `init` / `agent` / `session` / `config` / `runs prune` / `target` as top-level siblings. Discovers third-party CLI plugins via the `molexp.cli_plugins` entry-point group.
 - `molexp.plugins` — **Layer 7 (registered plugin packages)**. Registry of optional capabilities (`GH` currently). Discovers third-party CLI / UI plugins via entry-point groups. **`molexp.plugins.tensorboard` is the first optional-extra plugin** (behind `pip install molexp[tensorboard]`).

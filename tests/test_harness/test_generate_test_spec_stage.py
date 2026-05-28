@@ -62,8 +62,8 @@ def ctx_no_gw(tmp_path: Path):
 
 @pytest.fixture()
 def ctx_with_gw(tmp_path: Path):
-    from molexp.harness.agents.stub import StubAgentGateway
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.gateways.stub import StubAgentGateway
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
     from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
@@ -103,7 +103,7 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
 
 
 def test_builds_correct_spec(ctx_with_gw) -> None:
-    from molexp.harness.agents.gateway import AgentGateway
+    from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSpec
     from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 

@@ -1,7 +1,7 @@
 """In-memory test stub for the :class:`AgentGateway` Protocol.
 
 **Test-only**. Production paths must never import this module. The stub is
-not re-exported through :mod:`molexp.harness.agents` or
+not re-exported through :mod:`molexp.harness.gateways` or
 :mod:`molexp.harness` precisely so a stray
 ``from molexp.harness import StubAgentGateway`` fails loudly.
 
