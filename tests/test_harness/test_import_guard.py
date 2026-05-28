@@ -1,13 +1,18 @@
 """Architectural direction guard for ``molexp.harness``.
 
-Spec ac-011 — ``import molexp.harness`` MUST NOT pull
-``pydantic_ai`` / ``pydantic_graph`` / ``molexp.agent`` / ``molexp.workflow``
-into ``sys.modules``. The harness is a foundational layer that the agent
-and workflow layers will eventually rebuild on top of; if it ever depends
-upward, that becomes a circular import waiting to happen.
+``import molexp.harness`` MUST NOT pull ``pydantic_ai`` / ``pydantic_graph``
+/ ``molexp.workflow`` into ``sys.modules``.
+
+Post spec ``harness-as-mode-substrate-03a``: ``molexp.agent`` is **allowed**
+— the new ``RouterBackedAgentGateway`` legally imports ``agent.router``
+(the Protocol module, which is itself SDK-free per spec 01 ac-013). The
+charter pivot lets harness sit above agent in the DAG; the only remaining
+forbidden-edge invariant is that pydantic-ai SDKs and the workflow layer
+must not load eagerly when the harness package is imported.
 
 We run the check in a fresh subprocess so a stale ``sys.modules`` (from
-another test that did import ``molexp.agent``) can't poison the assertion.
+another test that already imported the workflow layer) can't poison the
+assertion.
 """
 
 from __future__ import annotations
@@ -15,7 +20,7 @@ from __future__ import annotations
 import subprocess
 import sys
 
-_FORBIDDEN = ("pydantic_ai", "pydantic_graph", "molexp.agent", "molexp.workflow")
+_FORBIDDEN = ("pydantic_ai", "pydantic_graph", "molexp.workflow")
 
 
 def test_import_molexp_harness_does_not_pull_forbidden_modules() -> None:

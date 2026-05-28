@@ -12,15 +12,18 @@ store, and a Stage / StageRunner wrapper that brackets each execution unit
 with events + lineage. Later Phases add WorkflowIR, BoundWorkflow,
 CapabilityRegistry, TestSpec, executors, approval gates, replay, and CLI.
 
-Dependency direction is one-way: ``molexp.harness → molexp.workspace``.
-Imports from ``molexp.workflow``, ``molexp.agent``, ``molexp.plugins``,
-``molexp.server``, ``molexp.cli``, or ``molexp.sweep`` are forbidden — see
+Dependency direction: ``molexp.harness → molexp.workspace`` plus a single
+sanctioned edge ``molexp.harness → molexp.agent.router`` (the SDK-free
+Protocol module — see spec ``harness-as-mode-substrate-03a``).
+Imports from ``molexp.workflow``, ``molexp.plugins``, ``molexp.server``,
+``molexp.cli``, or ``molexp.sweep`` are forbidden, and ``pydantic_ai`` /
+``pydantic_graph`` must not be transitively pulled in — see
 ``tests/test_harness/test_import_guard.py``.
 """
 
 from __future__ import annotations
 
-from molexp.harness.agents import AgentGateway
+from molexp.harness.agents import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.audit import (
     find_last_successful_stage,
     generate_audit_report,
@@ -156,6 +159,7 @@ __all__ = [
     "PathPolicy",
     "ProvenanceStore",
     "ResourcePolicy",
+    "RouterBackedAgentGateway",
     "SQLiteEventLog",
     "SQLiteProvenanceStore",
     "SaveUserPlan",

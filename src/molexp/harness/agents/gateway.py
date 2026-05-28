@@ -1,9 +1,11 @@
 """``AgentGateway`` — single Protocol every agent-call backend implements.
 
 Harness stages program against this Protocol, never against a concrete
-class. The Phase-2 substrate ships only the contract + a test stub
-(:class:`molexp.harness.agents.stub.StubAgentGateway`); the real
-LLM-backed impl lands in Phase 5+.
+class. Two implementations ship today:
+:class:`molexp.harness.agents.stub.StubAgentGateway` (in-memory, test-only)
+and :class:`molexp.harness.agents.router_backed.RouterBackedAgentGateway`
+(production, driven by :class:`molexp.agent.router.Router`; added by spec
+``harness-as-mode-substrate-03a``).
 
 Per :file:`.claude/notes/harness-goal.md` §10.2: every implementation MUST
 persist both ``AgentCallResult.output_artifact`` and
