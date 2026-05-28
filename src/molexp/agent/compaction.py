@@ -1,11 +1,11 @@
-"""Cluster 3 — context compaction.
+"""Context compaction.
 
 When a session's entry tree grows past a token budget, the harness
 *compacts* it: an LLM summarizes the oldest span and a
-:class:`~molexp.agent.harness.session_entry.CompactionEntry` records the
+:class:`~molexp.agent.session_entry.CompactionEntry` records the
 cut. This module owns the **deterministic** half — choosing the cut
 point and estimating tokens — leaving the LLM call to
-:meth:`~molexp.agent.harness.harness.AgentHarness.compact`, which routes
+:meth:`~molexp.agent.runtime.AgentHarness.compact`, which routes
 it through the :class:`~molexp.agent.router.Router` protocol (never
 ``pydantic_ai`` directly).
 
@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.agent.harness.session_entry import MessageEntry, SessionEntry
+from molexp.agent.session_entry import MessageEntry, SessionEntry
 
 __all__ = [
     "CompactionPlan",
@@ -75,7 +75,7 @@ class CompactionPlan(BaseModel):
     Attributes:
         first_kept_entry_id: ``id`` of the first entry retained after
             the cut — becomes
-            :attr:`~molexp.agent.harness.session_entry.CompactionEntry.first_kept_entry_id`.
+            :attr:`~molexp.agent.session_entry.CompactionEntry.first_kept_entry_id`.
         entries_to_summarize: The pre-cut entries the LLM must
             summarize, in order.
         tokens_before: Estimated token count of the summarized span.

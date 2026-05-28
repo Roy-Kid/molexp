@@ -7,7 +7,7 @@ RunMode owns ``approve_execution``: the gate a human must clear before
 *any* LLM-authored experiment code is imported or executed.
 
 The gate runs through the harness's unified approval path —
-:meth:`~molexp.agent.harness.harness.AgentHarness.approve` — which fires
+:meth:`~molexp.agent.runtime.AgentHarness.approve` — which fires
 the ``before_approval`` hook where a :class:`~molexp.agent.review.ReviewPolicy`
 -shaped handler returns the :class:`~molexp.agent.review.ReviewDecision`.
 :func:`approve_execution_gate` is the thin wrapper RunMode calls; it
@@ -23,9 +23,9 @@ from typing import TYPE_CHECKING
 from molexp.agent.modes._planning import ApprovalGate
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.author.handoff import MaterializedWorkspaceHandoff
     from molexp.agent.review import ReviewDecision
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["ExecutionApprovalView", "approve_execution_gate"]
 

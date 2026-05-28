@@ -1,11 +1,11 @@
-"""Cluster 6 — the executable ``ModePipeline`` runner.
+"""The executable ``ModePipeline`` runner.
 
 :func:`execute_pipeline` walks a :class:`~molexp.agent.mode.ModePipeline`'s
 Stage tuple starting at :attr:`~molexp.agent.mode.ModePipeline.entry`,
 brackets each Stage in :meth:`AgentHarness.stage`, drains the Stage's
 async-generator :meth:`Stage.run` body, threads the terminal yielded
 value as the next stage's ``input``, and honours
-:class:`~molexp.agent.harness.repair.RepairPolicy` rewind / exhaustion
+:class:`~molexp.agent.repair.RepairPolicy` rewind / exhaustion
 routing.
 
 Plain async loop — no ``pydantic_graph``, no compiled graph object,
@@ -19,9 +19,9 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.events import AgentEvent
-    from molexp.agent.harness.harness import AgentHarness
+    from molexp.agent.events import AgentEvent
     from molexp.agent.mode import ModePipeline
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["execute_pipeline"]
 

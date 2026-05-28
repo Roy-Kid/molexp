@@ -11,7 +11,7 @@ attribute. This mechanical test keeps that declaration honest:
 - **Post-migration modes** (PlanMode after
   ``agent-mode-stage-pipeline-02``): all ``harness.stage(...)``
   brackets are emitted by
-  :func:`~molexp.agent.harness.pipeline.execute_pipeline`, reading
+  :func:`~molexp.agent.pipeline.execute_pipeline`, reading
   each :class:`Stage.name` ClassVar dynamically. The literals move
   from the mode source into per-stage subclass ``name: ClassVar[str] =
   "..."`` declarations. The test scans the entire

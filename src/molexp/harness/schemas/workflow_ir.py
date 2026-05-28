@@ -14,6 +14,8 @@ artifact whose ``parent_ids`` references the original.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.harness.schemas.artifact import ArtifactKind
@@ -54,7 +56,7 @@ class ExpectedOutput(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     name: str
-    kind: ArtifactKind
+    kind: Annotated[ArtifactKind, Field(min_length=1)]
     description: str
     required: bool = True
 

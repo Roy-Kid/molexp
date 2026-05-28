@@ -97,14 +97,14 @@ _REPAIR_SYSTEM_PROMPT = (
     "IMPL PATCH SHAPE — when you emit `impl`, the codegen layer "
     "assembles a function around your draft. The assembled module is:\n"
     "  ```\n"
-    "  \"\"\"<PlanStep.composition_notes>\"\"\"\n"
+    '  """<PlanStep.composition_notes>"""\n'
     "  <imports>\n"
     "\n"
     "  async def <task_function>(ctx):\n"
     "      <input_name1> = ctx.inputs[...]   # auto-bound\n"
     "      <input_name2> = ctx.inputs[...]   # auto-bound\n"
     "      <YOUR BODY>\n"
-    "      return {\"<output_name>\": <output_name>, ...}   # auto\n"
+    '      return {"<output_name>": <output_name>, ...}   # auto\n'
     "  ```\n"
     "RepairDecision fields:\n"
     "  - `imports`: tuple of import lines used in the body; each "

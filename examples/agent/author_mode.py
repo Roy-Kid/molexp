@@ -41,7 +41,7 @@ import mollog
 from mollog import TextFormatter, Timer
 
 from molexp.agent import AgentRunner, cli_ask
-from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent
+from molexp.agent.events import AgentEvent, ModeCompletedEvent
 from molexp.agent.modes import (
     AuthorMode,
     AuthorModeConfig,

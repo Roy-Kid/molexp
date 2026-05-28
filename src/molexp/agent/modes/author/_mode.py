@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ApprovalDecidedEvent,
     ArtifactWrittenEvent,
@@ -39,8 +39,6 @@ from molexp.agent.harness.events import (
     ModeStartedEvent,
     RepairProposedEvent,
 )
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     ApprovalGate,
@@ -64,6 +62,8 @@ from molexp.agent.modes.author.workspace_layout import MaterializedLayout
 from molexp.agent.modes.plan.handoff import ApprovedPlanHandoff
 from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.router import ModelTier
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.stage import NameOnlyStage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:

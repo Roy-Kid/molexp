@@ -192,6 +192,21 @@ def test_expected_output_kind_accepts_open_string() -> None:
     assert eo.kind == "intent_spec"
 
 
+def test_expected_output_rejects_empty_kind() -> None:
+    """ac-008 — ``ExpectedOutput(kind="")`` is rejected by the
+    ``min_length=1`` constraint, consistent with ``ArtifactRef.kind``.
+
+    Spec 01 janitor finding #1b: opening ``ArtifactKind = str`` lost
+    the implicit non-empty constraint that ``Literal[...]`` enforced;
+    ``ArtifactRef.kind`` already pins ``min_length=1`` and
+    ``ExpectedOutput.kind`` now matches.
+    """
+    from molexp.harness.schemas.workflow_ir import ExpectedOutput
+
+    with pytest.raises(ValidationError):
+        ExpectedOutput(name="x", kind="", description="x")
+
+
 def test_expected_output_is_frozen() -> None:
     from molexp.harness.schemas.workflow_ir import ExpectedOutput
 

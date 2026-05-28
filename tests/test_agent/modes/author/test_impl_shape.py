@@ -41,10 +41,7 @@ def test_module_with_no_task_function_is_rejected() -> None:
 
 def test_module_with_sync_def_is_rejected() -> None:
     """A sync ``def`` at module level is banned (must be async)."""
-    source = (
-        "def helper(x):\n"
-        "    return x + 1\n"
-    )
+    source = "def helper(x):\n    return x + 1\n"
     issue = _check_impl_shape(source)
     assert issue is not None
     assert "def helper" in issue
@@ -52,14 +49,7 @@ def test_module_with_sync_def_is_rejected() -> None:
 
 def test_module_with_class_definition_is_rejected() -> None:
     """No classes at module level — the function shape has no room for them."""
-    source = (
-        "class Helper:\n"
-        "    pass\n"
-        "\n"
-        "\n"
-        "async def task(ctx):\n"
-        "    return None\n"
-    )
+    source = "class Helper:\n    pass\n\n\nasync def task(ctx):\n    return None\n"
     issue = _check_impl_shape(source)
     assert issue is not None
     assert "class Helper" in issue
@@ -84,13 +74,7 @@ def test_module_level_attribute_assignment_is_rejected() -> None:
 def test_module_level_plain_assignment_is_rejected() -> None:
     """Even a bare ``X = 1`` at module level isn't allowed — the shape
     has imports + the one function, nothing else."""
-    source = (
-        "X = 1\n"
-        "\n"
-        "\n"
-        "async def task(ctx):\n"
-        "    return None\n"
-    )
+    source = "X = 1\n\n\nasync def task(ctx):\n    return None\n"
     issue = _check_impl_shape(source)
     assert issue is not None
     assert "X = ..." in issue
@@ -98,12 +82,7 @@ def test_module_level_plain_assignment_is_rejected() -> None:
 
 def test_multiple_async_functions_rejected() -> None:
     source = (
-        "async def task_a(ctx):\n"
-        "    return None\n"
-        "\n"
-        "\n"
-        "async def task_b(ctx):\n"
-        "    return None\n"
+        "async def task_a(ctx):\n    return None\n\n\nasync def task_b(ctx):\n    return None\n"
     )
     issue = _check_impl_shape(source)
     assert issue is not None
@@ -112,10 +91,7 @@ def test_multiple_async_functions_rejected() -> None:
 
 def test_async_test_function_rejected() -> None:
     """A test-shaped async function in the impl path is rejected."""
-    source = (
-        "async def test_runs(ctx):\n"
-        "    return None\n"
-    )
+    source = "async def test_runs(ctx):\n    return None\n"
     issue = _check_impl_shape(source)
     assert issue is not None
     assert "looks like a test" in issue
@@ -123,10 +99,7 @@ def test_async_test_function_rejected() -> None:
 
 def test_wrong_signature_rejected() -> None:
     """``async def task(self)`` is rejected — the parameter must be ``ctx``."""
-    source = (
-        "async def task(self):\n"
-        "    return None\n"
-    )
+    source = "async def task(self):\n    return None\n"
     issue = _check_impl_shape(source)
     assert issue is not None
     assert "wrong signature" in issue

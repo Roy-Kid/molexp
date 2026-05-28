@@ -10,14 +10,14 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar
 
-from molexp.agent.harness.events import AgentEvent
-from molexp.agent.harness.stage import Stage
+from molexp.agent.events import AgentEvent
 from molexp.agent.router import ModelTier
+from molexp.agent.stage import Stage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.chat import ChatMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["ChatTurn"]
 

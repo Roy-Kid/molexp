@@ -247,6 +247,4 @@ async def test_repair_callable_aexit_grace_counted_in_budget(tmp_path) -> None:
     )
     with pytest.raises(TimeoutError):
         await repair("test")
-    assert aexit_completed, (
-        "wrapper must let __aexit__ finish so MCP subprocess teardown completes"
-    )
+    assert aexit_completed, "wrapper must let __aexit__ finish so MCP subprocess teardown completes"

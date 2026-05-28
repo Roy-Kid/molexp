@@ -3,7 +3,7 @@
 A multi-turn REPL on top of the emergent
 :class:`~molexp.agent.modes.interactive.InteractiveMode`. Each turn
 drives :meth:`AgentRunner.run_events` and hands the live
-:data:`~molexp.agent.harness.events.AgentEvent` stream to the
+:data:`~molexp.agent.events.AgentEvent` stream to the
 :class:`~molexp.cli.agent_render.AgentEventRenderer`.
 
 Slash-command split: **REPL-meta** commands (``/help``, ``/exit``,
@@ -25,8 +25,8 @@ import typer
 
 if TYPE_CHECKING:
     from molexp.agent import AgentRunner
-    from molexp.agent.harness.session import Session
     from molexp.agent.modes import InteractiveMode
+    from molexp.agent.session import Session
 
 __all__ = ["agent"]
 

@@ -1,8 +1,8 @@
-"""Cluster 2 — the ``Session`` runtime class.
+"""The ``Session`` runtime class.
 
 :class:`Session` is the runtime conversation value the agent layer
 passes through :class:`~molexp.agent.runner.AgentRunner`. It wraps a
-:class:`~molexp.agent.harness.session_storage.SessionStorage` and
+:class:`~molexp.agent.session_storage.SessionStorage` and
 exposes ergonomic ``append_*`` helpers, tree navigation
 (:meth:`path_to_root`, :meth:`branch`), and :meth:`build_context` — the
 message-list rebuild that honours the most recent compaction cut.
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import secrets
 
-from molexp.agent.harness.session_entry import (
+from molexp.agent.session_entry import (
     ApprovalEntry,
     ArtifactEntry,
     CompactionEntry,
@@ -26,7 +26,7 @@ from molexp.agent.harness.session_entry import (
     SessionEntry,
     StageEntry,
 )
-from molexp.agent.harness.session_storage import SessionStorage
+from molexp.agent.session_storage import SessionStorage
 from molexp.agent.types import Message
 
 __all__ = ["Session"]

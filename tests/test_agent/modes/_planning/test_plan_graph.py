@@ -518,12 +518,12 @@ def test_plan_step_without_test_sketch_raises_validation_error() -> None:
 @pytest.mark.parametrize(
     "name",
     [
-        "data.peo",         # filename with dot
-        "path/to/file",     # path
-        "with-hyphen",      # hyphen
-        "peo_chain",        # plain identifier
-        "data_peo",         # snake_case
-        "atomistic",        # word
+        "data.peo",  # filename with dot
+        "path/to/file",  # path
+        "with-hyphen",  # hyphen
+        "peo_chain",  # plain identifier
+        "data_peo",  # snake_case
+        "atomistic",  # word
     ],
 )
 def test_plan_step_io_accepts_free_form_names(name: str) -> None:

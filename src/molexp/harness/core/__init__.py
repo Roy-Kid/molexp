@@ -8,7 +8,7 @@ Three plain-Python runtime classes:
   ``artifact_created`` / ``stage_completed`` events and auto-wires
   ``derived_from`` provenance edges from the returned ref's ``parent_ids``.
 
-These are intentionally distinct from :class:`molexp.agent.harness.Stage`
+These are intentionally distinct from :class:`molexp.agent.Stage`
 (which is an async-generator yielding ``AgentEvent``). The harness layer's
 ``Stage`` is the workflow-level abstraction returning one ``ArtifactRef``;
 the agent layer's ``Stage`` is the mode-pipeline abstraction streaming

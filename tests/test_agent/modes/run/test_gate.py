@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     ApprovalDecidedEvent,
     ApprovalRequestedEvent,
     ModeCompletedEvent,

@@ -15,7 +15,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import (
     AgentMode,
     ModePipeline,
@@ -30,6 +29,7 @@ from molexp.agent.modes import (
     ReviewMode,
     RunMode,
 )
+from molexp.agent.stage import NameOnlyStage
 
 _MODES = (ChatMode, PlanMode, AuthorMode, RunMode, ReviewMode, InteractiveMode)
 

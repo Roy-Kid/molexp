@@ -1,4 +1,4 @@
-"""Cluster 5 — the typed hook registry.
+"""The typed hook registry.
 
 :class:`HookRegistry` maps a :class:`HookPoint` to an ordered list of
 async handlers. The harness fires hooks at five well-defined points; a

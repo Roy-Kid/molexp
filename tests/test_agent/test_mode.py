@@ -13,9 +13,9 @@ from typing import Any
 
 import pytest
 
-from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent
-from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.events import AgentEvent, ModeCompletedEvent
 from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.runtime import AgentHarness
 
 
 def test_agent_mode_cannot_be_instantiated_directly() -> None:

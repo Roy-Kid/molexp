@@ -8,7 +8,7 @@ per-``run_id`` monotonic ``seq``.
 Phase 1 ships the **flat** single-class shape; ``type`` is a
 ``Literal[...]`` discriminator. A future Phase may evolve this into a
 discriminated union of variant classes (mirroring
-:mod:`molexp.agent.harness.events`) — the flat shape's ``type`` discriminator
+:mod:`molexp.agent.events`) — the flat shape's ``type`` discriminator
 is forward-compatible.
 """
 

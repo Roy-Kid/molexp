@@ -19,10 +19,10 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import InMemorySessionStorage
 from molexp.agent.router import ModelTier, RouterTextResult
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
 

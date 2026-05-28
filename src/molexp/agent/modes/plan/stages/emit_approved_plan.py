@@ -6,16 +6,16 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
-from molexp.agent.harness.events import AgentEvent, RepairProposedEvent
-from molexp.agent.harness.stage import Stage
+from molexp.agent.events import AgentEvent, RepairProposedEvent
 from molexp.agent.modes._planning import ApprovalGate, PlanState
 from molexp.agent.modes.plan.handoff import ApprovedPlanHandoff
 from molexp.agent.modes.plan.stages.thread_state import PlanThreadState
+from molexp.agent.stage import Stage
 from molexp.agent.types import utc_now
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.plan._mode import PlanMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["EmitApprovedPlan"]
 

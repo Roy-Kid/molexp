@@ -1,12 +1,12 @@
 """PlanMode's five first-class stage classes + thread-state carrier.
 
-The substrate's :class:`~molexp.agent.harness.pipeline.execute_pipeline`
+The substrate's :class:`~molexp.agent.pipeline.execute_pipeline`
 walks the five Stage subclasses below in declared order, threading a
 typed :class:`PlanThreadState` carrier between them. PlanState
 lifecycle transitions are driven by :class:`~molexp.agent.mode.ModePipeline`'s
 ``lifecycle_validator`` (interpreted by PlanMode's
 ``_build_lifecycle_validator``); repair routing is driven by registered
-:class:`~molexp.agent.harness.repair.RepairPolicy`\\ s on the pipeline.
+:class:`~molexp.agent.repair.RepairPolicy`\\ s on the pipeline.
 
 After the ``plan-mode-pydanticai-rewrite`` collapse, the previous three
 LLM-driven stages (``ExploreCapabilities`` + ``SynthesizeCandidates`` +

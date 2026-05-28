@@ -14,7 +14,7 @@ from typing import ClassVar
 import pytest
 from pydantic import BaseModel
 
-from molexp.agent.harness.stage import Stage
+from molexp.agent.stage import Stage
 
 
 def test_stage_is_not_a_pydantic_basemodel() -> None:

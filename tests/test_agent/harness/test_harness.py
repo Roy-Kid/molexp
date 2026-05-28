@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     ApprovalDecidedEvent,
     ApprovalRequestedEvent,
     CompactionPerformedEvent,
@@ -12,12 +12,12 @@ from molexp.agent.harness.events import (
     StageCompletedEvent,
     StageStartedEvent,
 )
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.hooks import HookContext, HookPoint
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_entry import CompactionEntry
+from molexp.agent.hooks import HookContext, HookPoint
 from molexp.agent.modes._planning import ApprovalGate
 from molexp.agent.review import ReviewDecision
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_entry import CompactionEntry
 from molexp.agent.types import Message
 
 
@@ -177,7 +177,7 @@ async def test_compact_summarizes_via_router_and_appends_entry(
     # Build a long conversation that exceeds the keep-recent window.
     for _ in range(8):
         session.append_message(Message(role="user", content="x" * 400))
-    from molexp.agent.harness.compaction import CompactionSettings
+    from molexp.agent.compaction import CompactionSettings
 
     harness = _harness(
         session,
@@ -208,7 +208,7 @@ async def test_compact_before_compact_hook_can_veto(
 ) -> None:
     for _ in range(8):
         session.append_message(Message(role="user", content="x" * 400))
-    from molexp.agent.harness.compaction import CompactionSettings
+    from molexp.agent.compaction import CompactionSettings
 
     harness = _harness(
         session,
@@ -229,7 +229,7 @@ async def test_compact_before_compact_hook_can_veto(
 async def test_compact_without_router_raises(session: Session) -> None:
     for _ in range(8):
         session.append_message(Message(role="user", content="x" * 400))
-    from molexp.agent.harness.compaction import CompactionSettings
+    from molexp.agent.compaction import CompactionSettings
 
     harness = _harness(session, compaction_settings=CompactionSettings(keep_recent_tokens=250))
     with pytest.raises(RuntimeError, match="router"):

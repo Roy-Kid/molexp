@@ -6,7 +6,7 @@ import io
 
 from rich.console import Console
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ApprovalDecidedEvent,
     ApprovalRequestedEvent,

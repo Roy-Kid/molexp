@@ -45,9 +45,7 @@ class TestTensorboardScalarsRoute:
         # name. Patching `parser.require_tensorboard` alone would leave
         # the re-export pointing at the original function and the test
         # would silently false-pass once tensorboard is installed.
-        monkeypatch.setattr(
-            "molexp.plugins.tensorboard.require_tensorboard", _raise
-        )
+        monkeypatch.setattr("molexp.plugins.tensorboard.require_tensorboard", _raise)
         resp = client.get(f"{_prefix(project, experiment, run)}/tensorboard/scalars")
         assert resp.status_code == 503
         assert "molexp[tensorboard]" in resp.json()["detail"]

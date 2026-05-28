@@ -5,16 +5,16 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar
 
-from molexp.agent.harness.events import AgentEvent, ClarificationRequiredEvent
-from molexp.agent.harness.stage import Stage
+from molexp.agent.events import AgentEvent, ClarificationRequiredEvent
 from molexp.agent.modes._planning import PlanState
 from molexp.agent.modes.plan.stages.thread_state import PlanThreadState
 from molexp.agent.modes.plan.tasks_planning import clarify_intent
+from molexp.agent.stage import Stage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.plan._mode import PlanMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["ClarifyIntent"]
 
@@ -25,7 +25,7 @@ class ClarifyIntent(Stage[PlanThreadState, PlanThreadState]):
     On a blocking item: transition ``plan_folder`` to
     ``needs_clarification``, append an assistant message asking the
     questions, and yield :class:`ClarificationRequiredEvent` — a
-    registered :class:`~molexp.agent.harness.repair.RepairPolicy`
+    registered :class:`~molexp.agent.repair.RepairPolicy`
     routes the pipeline to the ``needs_clarification`` terminal.
     Otherwise: transition to ``exploring`` and pass the state through.
     """

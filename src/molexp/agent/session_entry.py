@@ -1,4 +1,4 @@
-"""Cluster 2 — the ``SessionEntry`` discriminated union.
+"""The ``SessionEntry`` discriminated union.
 
 A :data:`SessionEntry` is one append-only record in the session tree.
 Every member carries ``id``, ``parent_id`` (``None`` only for the

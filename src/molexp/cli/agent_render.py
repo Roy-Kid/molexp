@@ -1,7 +1,7 @@
 """Rich terminal renderer for the agent :data:`AgentEvent` stream.
 
 The renderer lives in the CLI layer on purpose: the agent library emits
-plain typed :data:`~molexp.agent.harness.events.AgentEvent`\\ s and never
+plain typed :data:`~molexp.agent.events.AgentEvent`\\ s and never
 imports ``rich``. :class:`AgentEventRenderer` is the ``molexp agent``
 REPL's *consumer* of that stream — one render path per event kind.
 
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from rich.console import Console
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ApprovalDecidedEvent,
     ApprovalRequestedEvent,

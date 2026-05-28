@@ -2,7 +2,7 @@
 
 After a task's implementation and test land on disk, :func:`run_task_debug_loop`
 runs that test in an *isolated subprocess* — via the harness
-:class:`~molexp.agent.harness.execution_env.ExecutionEnv`, never raw
+:class:`~molexp.agent.execution_env.ExecutionEnv`, never raw
 :mod:`subprocess` — with a hard timeout and a ``cwd`` confined to the
 generated ``src/`` tree. On a non-zero exit or a timeout, the pytest
 traceback plus the current impl + test source are fed back to the LLM
@@ -38,7 +38,7 @@ from pathlib import Path
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.execution_env import ExecutionEnv, ExecutionError
+from molexp.agent.execution_env import ExecutionEnv, ExecutionError
 from molexp.agent.modes._planning import PlanDiff, PlanGraph
 from molexp.agent.modes.author.codegen import (
     RepairDecision,
@@ -272,9 +272,7 @@ async def run_task_debug_loop(
                 repair=repair,
             )
         except _RepairGateExhausted as exc:
-            _LOG.warning(
-                f"[debug-loop] {task_id}: gate retry budget exhausted — {exc.last_issue}"
-            )
+            _LOG.warning(f"[debug-loop] {task_id}: gate retry budget exhausted — {exc.last_issue}")
             outcome = TaskTestOutcome(
                 passed=False,
                 timed_out=False,
@@ -302,10 +300,7 @@ async def run_task_debug_loop(
             # error, network blip) is isolated to this task — convert to
             # a failed iteration so ``asyncio.gather`` doesn't cancel the
             # sibling debug loops and abort the whole AuthorMode run.
-            _LOG.warning(
-                f"[debug-loop] {task_id}: repair raised "
-                f"{type(exc).__name__}: {exc}"
-            )
+            _LOG.warning(f"[debug-loop] {task_id}: repair raised {type(exc).__name__}: {exc}")
             outcome = TaskTestOutcome(
                 passed=False,
                 timed_out=False,
@@ -373,9 +368,7 @@ async def _apply_targeted_fix(
         # The repair loop was asked to fix a task that the current plan
         # doesn't know about — leave the files untouched and bubble up
         # via the exhausted path so the caller records the failure.
-        raise _RepairGateExhausted(
-            f"plan has no step for task_id={task_id!r}; cannot repair"
-        )
+        raise _RepairGateExhausted(f"plan has no step for task_id={task_id!r}; cannot repair")
 
     from molexp.agent.modes.author.renderers import module_id
 
@@ -384,14 +377,12 @@ async def _apply_targeted_fix(
     allowed_refs = sorted({ref for s in plan_graph.steps for ref in s.api_refs})
     refs_block = "\n".join(f"  - {ref}" for ref in allowed_refs) or "  (none)"
     input_locals = [
-        f"  - {module_id(inp.name)}  (from PlanStep.io.inputs[{i}], "
-        f"original name {inp.name!r})"
+        f"  - {module_id(inp.name)}  (from PlanStep.io.inputs[{i}], original name {inp.name!r})"
         for i, inp in enumerate(step.io.inputs)
         if inp.source_step is not None
     ]
     output_locals = [
-        f"  - {module_id(name)}  (returned under key {name!r})"
-        for name in step.io.outputs
+        f"  - {module_id(name)}  (returned under key {name!r})" for name in step.io.outputs
     ]
     func_name = module_id(step.id)
     bindings_block = (

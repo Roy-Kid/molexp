@@ -1,11 +1,11 @@
-"""Cluster 5 — the ``AgentHarness`` runtime object.
+"""The ``AgentHarness`` runtime object.
 
 :class:`AgentHarness` is the orchestration runtime a mode drives. It
-owns the live :class:`~molexp.agent.harness.session.Session`, the
-:data:`~molexp.agent.harness.events.EventSink`, the optional
+owns the live :class:`~molexp.agent.session.Session`, the
+:data:`~molexp.agent.events.EventSink`, the optional
 :class:`~molexp.agent.router.Router` (for compaction summarization
-only), the optional :class:`~molexp.agent.harness.execution_env.ExecutionEnv`,
-and the :class:`~molexp.agent.harness.hooks.HookRegistry`.
+only), the optional :class:`~molexp.agent.execution_env.ExecutionEnv`,
+and the :class:`~molexp.agent.hooks.HookRegistry`.
 
 It exposes the five capabilities a mode needs:
 
@@ -31,8 +31,8 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from molexp.agent.harness.compaction import CompactionSettings, prepare_compaction
-from molexp.agent.harness.events import (
+from molexp.agent.compaction import CompactionSettings, prepare_compaction
+from molexp.agent.events import (
     AgentEvent,
     ApprovalDecidedEvent,
     ApprovalRequestedEvent,
@@ -42,15 +42,15 @@ from molexp.agent.harness.events import (
     StageCompletedEvent,
     StageStartedEvent,
 )
-from molexp.agent.harness.hooks import HookContext, HookPoint, HookRegistry
-from molexp.agent.harness.session import Session
+from molexp.agent.hooks import HookContext, HookPoint, HookRegistry
 from molexp.agent.review import ReviewDecision
 from molexp.agent.router import ModelTier
+from molexp.agent.session import Session
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from molexp.agent.harness.execution_env import ExecResult, ExecutionEnv
+    from molexp.agent.execution_env import ExecResult, ExecutionEnv
     from molexp.agent.router import Router
 
 __all__ = ["AgentHarness"]
@@ -132,15 +132,15 @@ class AgentHarness:
         """Bracket a unit of work with stage events + hooks.
 
         On entry: fires the ``before_stage`` hook, records a
-        :class:`~molexp.agent.harness.session_entry.StageEntry`, emits
-        :class:`~molexp.agent.harness.events.StageStartedEvent`.
+        :class:`~molexp.agent.session_entry.StageEntry`, emits
+        :class:`~molexp.agent.events.StageStartedEvent`.
 
         On normal exit: emits
-        :class:`~molexp.agent.harness.events.StageCompletedEvent`, fires
+        :class:`~molexp.agent.events.StageCompletedEvent`, fires
         the ``after_stage`` hook.
 
         On exception: emits
-        :class:`~molexp.agent.harness.events.ErrorEvent` and re-raises.
+        :class:`~molexp.agent.events.ErrorEvent` and re-raises.
         """
         await self.hooks.dispatch(
             HookPoint.before_stage,
@@ -177,7 +177,7 @@ class AgentHarness:
         handler returning a denying
         :class:`~molexp.agent.review.ReviewDecision` rejects the gate),
         records an
-        :class:`~molexp.agent.harness.session_entry.ApprovalEntry`, and
+        :class:`~molexp.agent.session_entry.ApprovalEntry`, and
         emits ``approval_decided``.
 
         ``gate`` is an
@@ -247,11 +247,11 @@ class AgentHarness:
         """Compact the session entry tree if it exceeds the token budget.
 
         Picks the cut point deterministically via
-        :func:`~molexp.agent.harness.compaction.prepare_compaction`,
+        :func:`~molexp.agent.compaction.prepare_compaction`,
         fires the ``before_compact`` hook (any non-``None`` result
         vetoes), summarizes the pre-cut span through the
         :class:`Router` (CHEAP tier), appends a
-        :class:`~molexp.agent.harness.session_entry.CompactionEntry`,
+        :class:`~molexp.agent.session_entry.CompactionEntry`,
         and emits ``compaction_performed``.
 
         Returns ``True`` when a compaction ran, ``False`` on a no-op
@@ -311,7 +311,7 @@ class AgentHarness:
 
 def _render_transcript(entries: Sequence[Any]) -> str:
     """Flatten message entries into a plain transcript for summarization."""
-    from molexp.agent.harness.session_entry import MessageEntry
+    from molexp.agent.session_entry import MessageEntry
 
     lines: list[str] = []
     for entry in entries:

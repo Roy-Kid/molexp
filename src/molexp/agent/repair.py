@@ -1,8 +1,8 @@
-"""Cluster 6 — declarative ``RepairPolicy`` for the executable pipeline.
+"""Declarative ``RepairPolicy`` for the executable pipeline.
 
 A :class:`RepairPolicy` says "when an event of kind X is yielded by a
 stage, jump back to stage Y at most N times; on exhaustion route to
-terminal Z." Pure data — :func:`~molexp.agent.harness.pipeline.execute_pipeline`
+terminal Z." Pure data — :func:`~molexp.agent.pipeline.execute_pipeline`
 reads it; modes register repairs on their
 :class:`~molexp.agent.mode.ModePipeline`.
 
@@ -24,7 +24,7 @@ class RepairPolicy(BaseModel):
     """Declarative routing for one repair condition in a pipeline.
 
     Attributes:
-        trigger_event_kind: The :attr:`~molexp.agent.harness.events.AgentEvent.kind`
+        trigger_event_kind: The :attr:`~molexp.agent.events.AgentEvent.kind`
             literal to listen for (e.g. ``"preflight_failed"``,
             ``"repair_proposed"``). When a stage yields an event whose
             ``kind`` equals this, the policy fires.

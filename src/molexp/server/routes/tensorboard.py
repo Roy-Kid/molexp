@@ -95,13 +95,9 @@ def get_run_tensorboard_scalars(
         try:
             target.relative_to(run_dir.resolve())
         except ValueError as exc:
-            raise HTTPException(
-                status_code=400, detail="logdir escapes run directory"
-            ) from exc
+            raise HTTPException(status_code=400, detail="logdir escapes run directory") from exc
         if not target.is_dir():
-            raise HTTPException(
-                status_code=404, detail=f"logdir not found: {logdir}"
-            )
+            raise HTTPException(status_code=404, detail=f"logdir not found: {logdir}")
         logdirs = [target]
     else:
         logdirs = discover_logdirs(run_dir)
@@ -123,9 +119,7 @@ def get_run_tensorboard_scalars(
                     tag=series.tag,
                     logdir=series.logdir,
                     points=[
-                        TensorboardScalarPoint(
-                            step=p.step, wallTime=p.wall_time, value=p.value
-                        )
+                        TensorboardScalarPoint(step=p.step, wallTime=p.wall_time, value=p.value)
                         for p in series.points
                     ],
                 )

@@ -2,7 +2,7 @@
 
 The suite never reaches a live LLM or a real MCP server: a
 ``ScriptedRouter`` feeds canned structured responses keyed by schema,
-and a real :class:`~molexp.agent.harness.execution_env.LocalExecutionEnv`
+and a real :class:`~molexp.agent.execution_env.LocalExecutionEnv`
 runs the generated tests in genuine subprocesses (the debug loop's
 isolation floor).
 """
@@ -16,10 +16,7 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from molexp.agent.harness.execution_env import LocalExecutionEnv
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import InMemorySessionStorage
+from molexp.agent.execution_env import LocalExecutionEnv
 from molexp.agent.modes._planning import (
     ApprovalGate,
     IntentSpec,
@@ -36,6 +33,9 @@ from molexp.agent.modes._planning import (
 from molexp.agent.modes.plan.handoff import ApprovedPlanHandoff
 from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.router import ModelTier, RouterTextResult
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 from molexp.workspace import Workspace
 

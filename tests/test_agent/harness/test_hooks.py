@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent.harness.hooks import HookContext, HookPoint, HookRegistry
+from molexp.agent.hooks import HookContext, HookPoint, HookRegistry
 
 
 def test_hook_point_has_five_members() -> None:

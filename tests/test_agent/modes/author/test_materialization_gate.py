@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.events import ModeCompletedEvent
-from molexp.agent.harness.hooks import HookContext, HookPoint
+from molexp.agent.events import ModeCompletedEvent
+from molexp.agent.hooks import HookContext, HookPoint
 from molexp.agent.modes._planning import (
     IllegalPlanTransitionError,
     PlanState,

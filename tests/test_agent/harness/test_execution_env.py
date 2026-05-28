@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.execution_env import (
+from molexp.agent.execution_env import (
     ExecResult,
     ExecutionEnv,
     ExecutionError,

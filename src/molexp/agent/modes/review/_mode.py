@@ -21,7 +21,7 @@ first-class :class:`~molexp.agent.modes.review.stages.IngestReviewTarget`
 / :class:`RunReviewChecks` / :class:`RenderReviewVerdict` Stage
 subclasses; :meth:`ReviewMode.run` delegates to
 :meth:`AgentMode.run_pipeline`. The terminal
-:class:`~molexp.agent.harness.events.ModeCompletedEvent` carries an
+:class:`~molexp.agent.events.ModeCompletedEvent` carries an
 :class:`~molexp.agent.mode.AgentRunResult` whose
 ``mode_state["verdict"]`` holds the JSON-mode :class:`ReviewVerdict`.
 """
@@ -34,12 +34,11 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
 )
-from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     IntentSpec,
@@ -52,11 +51,12 @@ from molexp.agent.modes.review.stages import (
 )
 from molexp.agent.modes.review.target import ReviewTarget, ReviewTargetKind
 from molexp.agent.modes.review.verdict import ReviewVerdict, StepFinding
+from molexp.agent.stage import NameOnlyStage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.plan.plan_folder import PlanFolder
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["ReviewMode", "ReviewModeConfig"]
 

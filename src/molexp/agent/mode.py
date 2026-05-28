@@ -3,28 +3,28 @@
 A mode encodes the strategy: ChatMode does a single LLM round-trip;
 the four pipeline modes (Plan / Author / Run / Review, specs 03-06)
 drive multi-stage workflows. Every mode runs *on* an
-:class:`~molexp.agent.harness.harness.AgentHarness` — the shared runtime
-that owns the :class:`~molexp.agent.harness.session.Session`, the
-:data:`~molexp.agent.harness.events.AgentEvent` stream, compaction, the
-:class:`~molexp.agent.harness.execution_env.ExecutionEnv`, and the hook
+:class:`~molexp.agent.runtime.AgentHarness` — the shared runtime
+that owns the :class:`~molexp.agent.session.Session`, the
+:data:`~molexp.agent.events.AgentEvent` stream, compaction, the
+:class:`~molexp.agent.execution_env.ExecutionEnv`, and the hook
 registry.
 
 :meth:`AgentMode.run` is an async generator: it *yields*
 :data:`AgentEvent`\\ s as the mode progresses, and its terminal yield
-is a :class:`~molexp.agent.harness.events.ModeCompletedEvent` carrying
+is a :class:`~molexp.agent.events.ModeCompletedEvent` carrying
 the final :class:`AgentRunResult`. :class:`~molexp.agent.runner.AgentRunner`
 drains the stream, accumulates it, and returns the terminal result.
 
 :class:`ModePipeline` is the **executable IR** the substrate built in
 spec ``agent-mode-stage-pipeline-01`` introduces: a plain Python
 container (not a pydantic BaseModel — it carries live
-:class:`~molexp.agent.harness.stage.Stage` instances) listing the
+:class:`~molexp.agent.stage.Stage` instances) listing the
 mode's stages, the typed control-flow edges, the terminal-state
 names, the entry-stage name, and any
-:class:`~molexp.agent.harness.repair.RepairPolicy`s. Subclasses set
+:class:`~molexp.agent.repair.RepairPolicy`s. Subclasses set
 their ``pipeline`` once at class-body level and may delegate ``run``
 to :meth:`run_pipeline` (a thin wrapper around the substrate's
-:func:`~molexp.agent.harness.pipeline.execute_pipeline`).
+:func:`~molexp.agent.pipeline.execute_pipeline`).
 """
 
 from __future__ import annotations
@@ -38,10 +38,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from molexp.agent.types import Message, Usage, UsageBreakdown
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.events import AgentEvent
-    from molexp.agent.harness.harness import AgentHarness
-    from molexp.agent.harness.repair import RepairPolicy
-    from molexp.agent.harness.stage import Stage
+    from molexp.agent.events import AgentEvent
+    from molexp.agent.repair import RepairPolicy
+    from molexp.agent.runtime import AgentHarness
+    from molexp.agent.stage import Stage
 
 
 class AgentRunResult(BaseModel):
@@ -55,7 +55,7 @@ class AgentRunResult(BaseModel):
     trip). Both default empty when no LLM call is made.
 
     ``events`` holds the accumulated orchestration-level
-    :data:`~molexp.agent.harness.events.AgentEvent` stream the mode
+    :data:`~molexp.agent.events.AgentEvent` stream the mode
     emitted while running — it defaults to ``()`` so callers that only
     want the terminal text are unaffected. All other fields are
     unchanged from the pre-harness contract.
@@ -101,7 +101,7 @@ class ModePipeline:
     Constructor accepts:
 
     Attributes:
-        stages: Tuple of :class:`~molexp.agent.harness.stage.Stage`
+        stages: Tuple of :class:`~molexp.agent.stage.Stage`
             instances making up the pipeline (order is informational
             — execution follows :attr:`edges`).
         edges: Tuple of :class:`PipelineEdge`s describing control
@@ -109,7 +109,7 @@ class ModePipeline:
         terminal_states: Names of the run's terminal states.
         entry: Name of the first stage to execute. Defaults to the
             first stage's name when stages are supplied.
-        repairs: Tuple of :class:`~molexp.agent.harness.repair.RepairPolicy`
+        repairs: Tuple of :class:`~molexp.agent.repair.RepairPolicy`
             instances; the executor honours these in declaration
             order.
         lifecycle_validator: Optional callable invoked once per stage
@@ -186,7 +186,7 @@ class AgentMode(ABC):
     Pipeline delegation
     -------------------
     :meth:`run_pipeline` is a concrete helper that drains
-    :func:`~molexp.agent.harness.pipeline.execute_pipeline` on
+    :func:`~molexp.agent.pipeline.execute_pipeline` on
     ``self.pipeline``. Subclasses migrating to the new substrate may
     delegate their ``run`` body to it with ``async for ev in
     self.run_pipeline(harness=harness, user_input=user_input): yield ev``.
@@ -207,7 +207,7 @@ class AgentMode(ABC):
         """Drive the mode, yielding orchestration events as it progresses.
 
         The final yield must be a
-        :class:`~molexp.agent.harness.events.ModeCompletedEvent` whose
+        :class:`~molexp.agent.events.ModeCompletedEvent` whose
         ``result`` carries the JSON dump of the terminal
         :class:`AgentRunResult`.
         """
@@ -227,7 +227,7 @@ class AgentMode(ABC):
         to ``user_input`` for simplicity; modes that need a typed
         entry payload can pass it explicitly.
         """
-        from molexp.agent.harness.pipeline import execute_pipeline
+        from molexp.agent.pipeline import execute_pipeline
 
         payload = user_input if initial_input is None else initial_input
         async for event in execute_pipeline(
@@ -263,7 +263,7 @@ class AgentMode(ABC):
 # imported above to keep the module's import graph shallow).
 def _rebuild_models() -> None:
     """Inject ``AgentEvent`` and rebuild :class:`AgentRunResult`."""
-    from molexp.agent.harness.events import AgentEvent as _AgentEvent
+    from molexp.agent.events import AgentEvent as _AgentEvent
 
     AgentRunResult.model_rebuild(_types_namespace={"AgentEvent": _AgentEvent})
 

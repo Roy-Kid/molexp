@@ -6,17 +6,17 @@ import inspect
 
 import pytest
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
     StageCompletedEvent,
     StageStartedEvent,
 )
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.session import Session
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.runner import AgentRunner
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
 from molexp.agent.types import Message
 
 
@@ -69,7 +69,7 @@ def test_agent_run_result_events_round_trip() -> None:
 
 @pytest.mark.asyncio
 async def test_stub_mode_yields_event_stream() -> None:
-    from molexp.agent.harness.session_storage import InMemorySessionStorage
+    from molexp.agent.session_storage import InMemorySessionStorage
 
     collected: list[AgentEvent] = []
 

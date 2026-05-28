@@ -1,7 +1,7 @@
 """Tests for the per-task subprocess debug loop.
 
 The loop runs each generated task's pytest test in a genuine isolated
-subprocess via :class:`~molexp.agent.harness.execution_env.LocalExecutionEnv`.
+subprocess via :class:`~molexp.agent.execution_env.LocalExecutionEnv`.
 On failure it asks the LLM for a
 :class:`~molexp.agent.modes.author.codegen.RepairDecision` — diagnose
 the root cause then patch the impl, the test, or both. Each patched
@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.execution_env import LocalExecutionEnv
+from molexp.agent.execution_env import LocalExecutionEnv
 from molexp.agent.modes.author.codegen import RepairDecision, TaskImplDraft
 from molexp.agent.modes.author.debug_loop import (
     run_subprocess_test,
@@ -310,7 +310,9 @@ async def test_apply_targeted_fix_falls_back_to_router_when_repair_is_none(
         "def test() -> None:\n    assert True\n",
     )
 
-    router = _ScriptedDraftRouter([_impl_decision(body="result = 7", diagnosis="impl missed the return value")])
+    router = _ScriptedDraftRouter(
+        [_impl_decision(body="result = 7", diagnosis="impl missed the return value")]
+    )
 
     await _apply_targeted_fix(
         task_id="run",
@@ -444,9 +446,7 @@ async def test_apply_targeted_fix_prompt_carries_allowlist(tmp_path: Path) -> No
     from molexp.agent.router import ModelTier
 
     impl = _write(tmp_path / "src" / "experiment" / "tasks" / "run.py", "x = 1\n")
-    test = _write(
-        tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n"
-    )
+    test = _write(tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n")
 
     captured: list[str] = []
 
@@ -483,9 +483,7 @@ async def test_apply_targeted_fix_fallback_router_respects_wall_clock(
     from molexp.agent.router import ModelTier
 
     impl = _write(tmp_path / "src" / "experiment" / "tasks" / "run.py", "x = 1\n")
-    test = _write(
-        tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n"
-    )
+    test = _write(tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n")
 
     class _HangingRouter:
         """``complete_structured`` blocks for longer than the timeout."""
@@ -532,14 +530,12 @@ async def test_debug_loop_isolates_non_timeout_exception_to_one_task(
     recorded as one task's failed iteration (not propagated), so a
     sibling task running in parallel via ``asyncio.gather`` isn't
     cancelled by an unrelated error in another task's repair."""
-    from molexp.agent.harness.execution_env import LocalExecutionEnv
+    from molexp.agent.execution_env import LocalExecutionEnv
 
     env = LocalExecutionEnv(scratch_dir=tmp_path / "scratch")
     src = tmp_path / "src"
     impl = _write(src / "experiment" / "tasks" / "run.py", "x = 1\n")
-    test = _write(
-        src / "tests" / "test_run.py", "def test(): assert False\n"
-    )
+    test = _write(src / "tests" / "test_run.py", "def test(): assert False\n")
 
     async def exploding_repair(prompt: str) -> RepairDecision:
         raise RuntimeError("simulated pydantic-ai UnexpectedModelBehavior")
@@ -626,9 +622,7 @@ async def test_apply_targeted_fix_rejects_empty_decision(tmp_path: Path) -> None
     from molexp.agent.router import ModelTier
 
     impl = _write(tmp_path / "src" / "experiment" / "tasks" / "run.py", "x = 1\n")
-    test = _write(
-        tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n"
-    )
+    test = _write(tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n")
 
     prompts_seen: list[str] = []
 
@@ -665,9 +659,7 @@ async def test_apply_targeted_fix_requires_diagnosis(tmp_path: Path) -> None:
     from molexp.agent.router import ModelTier
 
     impl = _write(tmp_path / "src" / "experiment" / "tasks" / "run.py", "x = 1\n")
-    test = _write(
-        tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n"
-    )
+    test = _write(tmp_path / "src" / "tests" / "test_run.py", "def test(): assert True\n")
 
     async def no_diagnosis(prompt: str) -> RepairDecision:
         return RepairDecision(

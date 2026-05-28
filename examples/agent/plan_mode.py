@@ -37,7 +37,7 @@ import mollog
 from mollog import TextFormatter, Timer
 
 from molexp.agent import AgentRunner, cli_ask
-from molexp.agent.harness.events import ModeCompletedEvent
+from molexp.agent.events import ModeCompletedEvent
 from molexp.agent.modes import PlanMode, PlanModeConfig
 from molexp.agent.modes.plan import PlanFolder
 from molexp.agent.router import ModelTier

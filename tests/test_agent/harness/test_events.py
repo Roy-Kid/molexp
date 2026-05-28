@@ -9,7 +9,7 @@ from datetime import datetime
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ApprovalDecidedEvent,
     ApprovalRequestedEvent,
@@ -131,7 +131,7 @@ def test_async_iterator_event_sink_module_surface() -> None:
     Spec ac-006: exposes `__call__` (async), `__aiter__`, `__anext__` (async),
     `close` (async).
     """
-    from molexp.agent.harness import events as events_mod
+    from molexp.agent import events as events_mod
 
     assert "AsyncIteratorEventSink" in events_mod.__all__
     cls = events_mod.AsyncIteratorEventSink
@@ -148,7 +148,7 @@ async def test_async_iterator_event_sink_single_producer_ordered_drain() -> None
 
     Spec ac-007.
     """
-    from molexp.agent.harness.events import AsyncIteratorEventSink
+    from molexp.agent.events import AsyncIteratorEventSink
 
     sink = AsyncIteratorEventSink()
     pushed = [TokenDeltaEvent(text=f"e{i}") for i in range(5)]
@@ -170,7 +170,7 @@ async def test_async_iterator_event_sink_preserves_per_producer_order_under_conc
     Spec ac-008: cross-producer interleaving is allowed; per-producer order is
     strictly increasing in the producer's monotonic counter.
     """
-    from molexp.agent.harness.events import AsyncIteratorEventSink
+    from molexp.agent.events import AsyncIteratorEventSink
 
     sink = AsyncIteratorEventSink()
     n = 100
@@ -206,7 +206,7 @@ async def test_async_iterator_event_sink_close_terminates_async_for() -> None:
 
     Spec ac-009.
     """
-    from molexp.agent.harness.events import AsyncIteratorEventSink
+    from molexp.agent.events import AsyncIteratorEventSink
 
     sink = AsyncIteratorEventSink()
     k = 3
@@ -231,7 +231,7 @@ async def test_async_iterator_event_sink_cancelled_consumer_raises() -> None:
     Spec ac-010: cancellation is observable to the awaiter; not silently
     swallowed by `__anext__`.
     """
-    from molexp.agent.harness.events import AsyncIteratorEventSink
+    from molexp.agent.events import AsyncIteratorEventSink
 
     sink = AsyncIteratorEventSink()
 
@@ -253,7 +253,7 @@ async def test_async_iterator_event_sink_bounded_backpressure() -> None:
     Spec ac-011: producer's second `await sink(event)` does not complete
     within 200ms when no consumer drains; the producer task stays PENDING.
     """
-    from molexp.agent.harness.events import AsyncIteratorEventSink
+    from molexp.agent.events import AsyncIteratorEventSink
 
     sink = AsyncIteratorEventSink(maxsize=1)
     await sink(TokenDeltaEvent(text="first"))

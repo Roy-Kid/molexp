@@ -6,14 +6,14 @@ ChatMode is one ``user_input`` → one LLM round-trip → one
 example of the harness-based contract:
 
 - ``run`` is an async generator that *yields*
-  :data:`~molexp.agent.harness.events.AgentEvent`\\ s;
+  :data:`~molexp.agent.events.AgentEvent`\\ s;
 - it appends the user turn and the assistant turn to the harness's
-  :class:`~molexp.agent.harness.session.Session` entry-tree;
+  :class:`~molexp.agent.session.Session` entry-tree;
 - it delegates the core LLM-call body to a single
   :class:`~molexp.agent.modes.chat_stages.ChatTurn` Stage driven by
   the substrate's :func:`execute_pipeline`;
 - its terminal yield is a
-  :class:`~molexp.agent.harness.events.ModeCompletedEvent` carrying the
+  :class:`~molexp.agent.events.ModeCompletedEvent` carrying the
   final :class:`AgentRunResult`.
 
 Conversation context comes from the session entry-tree: prior turns are
@@ -27,11 +27,11 @@ from collections.abc import AsyncIterator
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent, ModeStartedEvent
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.stage import NameOnlyStage
+from molexp.agent.events import AgentEvent, ModeCompletedEvent, ModeStartedEvent
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes.chat_stages import ChatTurn
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.stage import NameOnlyStage
 from molexp.agent.types import Message
 
 _LOG = get_logger(__name__)

@@ -15,13 +15,12 @@ from typing import TYPE_CHECKING, ClassVar
 
 from mollog import get_logger
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from molexp.agent.harness.stage import Stage
 from molexp.agent.modes.interactive.delegation import delegate_to_plan, run_plan_pipeline_tool
 from molexp.agent.modes.interactive.tools import readonly_tools
 from molexp.agent.router import (
@@ -32,11 +31,12 @@ from molexp.agent.router import (
     ToolCallChunk,
     ToolResultChunk,
 )
+from molexp.agent.stage import Stage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.interactive.mode import InteractiveMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["PLAN_COMMAND", "EmergentLoop"]
 

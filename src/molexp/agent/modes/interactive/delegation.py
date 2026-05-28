@@ -6,7 +6,7 @@ owned by the structured :class:`~molexp.agent.modes.plan.PlanMode`.
 This module is the single seam between the two:
 
 - :func:`delegate_to_plan` drives PlanMode end-to-end on the *same*
-  :class:`~molexp.agent.harness.harness.AgentHarness` InteractiveMode is
+  :class:`~molexp.agent.runtime.AgentHarness` InteractiveMode is
   running, so PlanMode's own :data:`AgentEvent` stream surfaces in the
   parent event flow, and returns a one-line handoff summary.
 - :func:`run_plan_pipeline_tool` wraps that call as a pydantic-ai tool
@@ -25,9 +25,9 @@ from typing import cast
 
 from mollog import get_logger
 
-from molexp.agent.harness.events import ModeCompletedEvent
-from molexp.agent.harness.harness import AgentHarness
+from molexp.agent.events import ModeCompletedEvent
 from molexp.agent.modes.plan import PlanFolder, PlanMode
+from molexp.agent.runtime import AgentHarness
 from molexp.workspace import Workspace
 
 _LOG = get_logger(__name__)

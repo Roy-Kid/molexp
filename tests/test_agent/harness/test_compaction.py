@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from molexp.agent.harness.compaction import (
+from molexp.agent.compaction import (
     CompactionPlan,
     CompactionSettings,
     estimate_tokens,
     prepare_compaction,
 )
-from molexp.agent.harness.session_entry import MessageEntry
+from molexp.agent.session_entry import MessageEntry
 from molexp.agent.types import Message
 
 

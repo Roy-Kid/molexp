@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from molexp.agent.harness.repair import RepairPolicy
+from molexp.agent.repair import RepairPolicy
 
 
 def test_repair_policy_is_a_pydantic_basemodel() -> None:

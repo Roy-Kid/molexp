@@ -8,7 +8,7 @@ returns.
 ``ChatMode`` is the minimal :class:`~molexp.agent.mode.AgentMode`: each
 turn is one user input -> one LLM round-trip -> one
 :class:`~molexp.agent.mode.AgentRunResult`. Every mode runs *on* an
-:class:`~molexp.agent.harness.harness.AgentHarness` that ``AgentRunner``
+:class:`~molexp.agent.runtime.AgentHarness` that ``AgentRunner``
 builds and injects; ``run`` drains the mode's ``AgentEvent`` stream and
 folds it into the terminal result.
 

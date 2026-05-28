@@ -22,15 +22,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar, cast
 
-from molexp.agent.harness.events import AgentEvent, ArtifactWrittenEvent
-from molexp.agent.harness.stage import Stage
+from molexp.agent.events import AgentEvent, ArtifactWrittenEvent
 from molexp.agent.modes._planning import IntentSpec, PlanGraph
 from molexp.agent.modes.plan.plan_graph_preflight import PlanGraphPreflightReport
 from molexp.agent.modes.plan.stages.thread_state import PlanThreadState
+from molexp.agent.stage import Stage
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.plan._mode import PlanMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["ResearchAndPlan"]
 

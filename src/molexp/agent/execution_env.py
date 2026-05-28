@@ -1,4 +1,4 @@
-"""Cluster 4 — the ``ExecutionEnv`` subprocess + scratch-dir abstraction.
+"""The ``ExecutionEnv`` subprocess + scratch-dir abstraction.
 
 :class:`ExecutionEnv` is the shell/subprocess boundary the harness
 exposes to modes that need to run a command (e.g. a generated test

@@ -35,14 +35,11 @@ from typing import Any, cast
 
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
 )
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.repair import RepairPolicy
-from molexp.agent.harness.stage import NameOnlyStage, Stage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import (
     IllegalPlanTransitionError,
@@ -57,6 +54,9 @@ from molexp.agent.modes.plan.stages import (
     ResearchAndPlan,
     SynthesizeIntent,
 )
+from molexp.agent.repair import RepairPolicy
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.stage import NameOnlyStage, Stage
 from molexp.agent.types import Message
 
 # The research_planner is a pydantic-ai ``Agent[None, PlanGraph]`` —

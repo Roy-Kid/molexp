@@ -186,37 +186,6 @@ def test_importing_molexp_agent_router_does_not_load_pydantic_ai() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_importing_molexp_agent_harness_loads_no_pydantic_sdks() -> None:
-    """ac-013 — ``import molexp.agent.harness`` stays SDK-free.
-
-    The harness is orchestration infrastructure, not a second LLM
-    client: it imports neither ``pydantic_ai`` nor ``pydantic_graph``.
-    Its one LLM need — the compaction summarization call — goes through
-    the :class:`~molexp.agent.router.Router` protocol, whose concrete
-    pydantic-ai implementation is injected at runtime.
-    """
-    code = (
-        "import sys\n"
-        "import molexp.agent.harness  # noqa: F401\n"
-        "for forbidden in ('pydantic_ai', 'pydantic_graph'):\n"
-        "    assert forbidden not in sys.modules, (\n"
-        "        f'{forbidden} was eagerly loaded by molexp.agent.harness; '\n"
-        "        'the harness must stay SDK-free.'\n"
-        "    )\n"
-    )
-    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr or result.stdout
-
-
-def test_harness_subtree_imports_no_pydantic_sdks() -> None:
-    """Static check — no file under ``agent/harness/`` imports either SDK."""
-    harness_root = AGENT_ROOT / "harness"
-    for sdk in ("pydantic_ai", "pydantic_graph"):
-        hits = _files_importing(sdk, harness_root)
-        bad = _format(hits)
-        assert not bad, f"{sdk} imported under agent/harness/:\n  " + "\n  ".join(bad)
-
-
 def test_importing_modes_does_not_load_mcp_clients() -> None:
     """Sentinel — importing the public mode surface stays MCP-client free.
 

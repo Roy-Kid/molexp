@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.session_entry import MessageEntry, StageEntry
-from molexp.agent.harness.session_storage import (
+from molexp.agent.session_entry import MessageEntry, StageEntry
+from molexp.agent.session_storage import (
     InMemorySessionStorage,
     JsonlSessionStorage,
     SessionStorage,

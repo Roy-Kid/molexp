@@ -19,19 +19,19 @@ from typing import ClassVar
 
 import pytest
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     PreflightFailedEvent,
     StageCompletedEvent,
     StageStartedEvent,
 )
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.pipeline import execute_pipeline
-from molexp.agent.harness.repair import RepairPolicy
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import InMemorySessionStorage
-from molexp.agent.harness.stage import Stage
 from molexp.agent.mode import ModePipeline, PipelineEdge
+from molexp.agent.pipeline import execute_pipeline
+from molexp.agent.repair import RepairPolicy
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_storage import InMemorySessionStorage
+from molexp.agent.stage import Stage
 
 # ── test fixtures ───────────────────────────────────────────────────────────
 

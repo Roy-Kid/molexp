@@ -15,8 +15,7 @@ from unittest.mock import patch
 import pytest
 
 import molexp.agent
-from molexp.agent.harness.events import ModeCompletedEvent, ModeStartedEvent
-from molexp.agent.harness.session import Session
+from molexp.agent.events import ModeCompletedEvent, ModeStartedEvent
 from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
 from molexp.agent.mcp.defaults import MOLMCP_USAGE_INSTRUCTIONS
@@ -25,6 +24,7 @@ from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.modes import ChatMode, ChatModeConfig
 from molexp.agent.router import ModelTier, RouterTextResult
 from molexp.agent.runner import AgentRunner, AgentRunnerConfigError
+from molexp.agent.session import Session
 from molexp.agent.types import UsageBreakdown
 
 # ── Construction (no-network + arg validation) ────────────────────────────
@@ -190,6 +190,58 @@ async def test_runner_run_events_exposes_live_stream() -> None:
     streamed = [ev async for ev in runner.run_events(runner.session("s"), "hi")]
     assert any(isinstance(e, ModeStartedEvent) for e in streamed)
     assert isinstance(streamed[-1], ModeCompletedEvent)
+
+
+def test_run_events_drains_via_async_iterator_sink() -> None:
+    """ac-006 — ``_SinkCollector`` is replaced by ``AsyncIteratorEventSink``.
+
+    Structural assertion: spec 02 swaps the drain-after-yield collector
+    for the queue-backed sink primitive landed in spec 01. The collector
+    class must no longer be reachable from the runner module.
+    """
+    import molexp.agent.runner as runner_mod
+
+    assert not hasattr(runner_mod, "_SinkCollector"), (
+        "_SinkCollector should be deleted in favour of AsyncIteratorEventSink "
+        "(see spec harness-as-mode-substrate-02 §改动 3)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_events_propagates_mode_exception_without_orphan_task() -> None:
+    """ac-007 — mode raising mid-stream propagates cleanly; no orphan driver.
+
+    Drives a fake mode that raises after one yield. The consumer must see
+    the exception bubble out of ``run_events`` and ``asyncio.all_tasks()``
+    must contain no leftover task referencing the runner's internal
+    driver after the loop exits.
+    """
+    import asyncio
+
+    from molexp.agent.events import ModeStartedEvent
+
+    class _ExplodingMode:
+        name = "exploding"
+
+        async def run(self, *, harness: Any, user_input: str):
+            await harness.emit(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+            raise RuntimeError("mode boom")
+            yield  # pragma: no cover — keep as async generator
+
+    pytest.importorskip("pydantic_ai")
+    from pydantic_ai.models.test import TestModel
+
+    runner = AgentRunner(mode=_ExplodingMode(), model=TestModel())  # type: ignore[arg-type]
+    tasks_before = set(asyncio.all_tasks())
+
+    with pytest.raises(RuntimeError, match="mode boom"):
+        async for _ in runner.run_events(runner.session("explode"), "go"):
+            pass
+
+    # Yield once to let any pending task cancellation/finalization complete.
+    await asyncio.sleep(0)
+    leaked = set(asyncio.all_tasks()) - tasks_before - {asyncio.current_task()}
+    assert not leaked, f"orphan tasks left by run_events: {leaked!r}"
 
 
 # ── molmcp-agent-default: usage_instructions composition ──────────────────
@@ -401,7 +453,7 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
     restored_beta = runner.session("beta")
 
     def _user_texts(session: Session) -> list[str]:
-        from molexp.agent.harness.session_entry import MessageEntry
+        from molexp.agent.session_entry import MessageEntry
 
         return [
             e.message.content

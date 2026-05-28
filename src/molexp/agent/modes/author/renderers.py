@@ -167,7 +167,7 @@ def render_stub_implementation(task_id: str) -> str:
         "\n"
         "\n"
         f"async def {module_id(task_id)}(ctx):  # type: ignore[no-untyped-def]\n"
-        f'    raise NotImplementedError({task_id + " is a stub"!r})\n'
+        f"    raise NotImplementedError({task_id + ' is a stub'!r})\n"
     )
 
 

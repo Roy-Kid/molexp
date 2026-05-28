@@ -13,15 +13,15 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.execution_env import ExecResult
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import InMemorySessionStorage
+from molexp.agent.execution_env import ExecResult
 from molexp.agent.router import ModelTier, RouterTextResult
+from molexp.agent.session import Session
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
 
 class FakeExecutionEnv:
-    """In-memory :class:`~molexp.agent.harness.execution_env.ExecutionEnv`.
+    """In-memory :class:`~molexp.agent.execution_env.ExecutionEnv`.
 
     Records every ``exec`` call and returns a canned result; spawns no
     real process. Satisfies the ``ExecutionEnv`` Protocol structurally.

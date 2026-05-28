@@ -33,12 +33,11 @@ from typing import TYPE_CHECKING
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
 )
-from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes._planning import IllegalPlanTransitionError, PlanState
 from molexp.agent.modes.run.executor import ExecutionOutcome
@@ -51,12 +50,13 @@ from molexp.agent.modes.run.stages import (
     LoadMaterializedWorkflow,
     RepairRuntimeFailure,
 )
+from molexp.agent.stage import NameOnlyStage
 from molexp.agent.types import Message
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.author.handoff import MaterializedWorkspaceHandoff
     from molexp.agent.modes.plan.plan_folder import PlanFolder
+    from molexp.agent.runtime import AgentHarness
     from molexp.workflow import Workflow
     from molexp.workspace import Experiment
 

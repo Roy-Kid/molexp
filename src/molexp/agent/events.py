@@ -1,4 +1,4 @@
-"""Cluster 1 — the typed orchestration-level ``AgentEvent`` stream.
+"""The typed orchestration-level ``AgentEvent`` stream.
 
 An :data:`AgentEvent` is a discriminated union (pydantic
 ``Field(discriminator="kind")``) of frozen-pydantic event models. Each
@@ -155,7 +155,7 @@ class ClarificationRequiredEvent(_BaseEvent):
 
     PlanMode's ``ClarifyIntent`` stage yields this when the intent spec
     carries unresolved ``MissingInfoItem``\\ s with ``blocking=True``;
-    a registered :class:`~molexp.agent.harness.repair.RepairPolicy`
+    a registered :class:`~molexp.agent.repair.RepairPolicy`
     routes the pipeline to the ``needs_clarification`` terminal state.
 
     Attributes:

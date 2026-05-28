@@ -486,7 +486,7 @@ _TASK_IMPL_DRAFT_SYSTEM_PROMPT = (
     "and return statement are all already wired. You contribute only "
     "imports and the body:\n"
     "\n"
-    "    \"\"\"<PlanStep.composition_notes>\"\"\"\n"
+    '    """<PlanStep.composition_notes>"""\n'
     "    <your imports>\n"
     "\n"
     "    async def <task_function>(ctx):\n"
@@ -535,9 +535,7 @@ async def generate_task_implementations(
             paths.append(str(layout.write(layout.task_impl_path(brief.task_id), "")))
             continue
         if brief.is_stub:
-            source = assemble_impl_module(
-                TaskImplDraft(is_stub=True), step
-            )
+            source = assemble_impl_module(TaskImplDraft(is_stub=True), step)
         else:
             source = await _generate_impl_one(
                 router=router,
@@ -597,9 +595,7 @@ def assemble_impl_module(draft: TaskImplDraft, step: PlanStep) -> str:
     if draft.is_stub or not draft.body.strip():
         # repr() yields a correctly-escaped Python literal regardless
         # of what step.id contains (quotes, backslashes, non-ASCII).
-        func_lines.append(
-            f"    raise NotImplementedError({step.id + ' is a stub'!r})"
-        )
+        func_lines.append(f"    raise NotImplementedError({step.id + ' is a stub'!r})")
     else:
         # Auto-bind named inputs from upstream return values. The
         # workflow runtime delivers ``ctx.inputs`` as the upstream's
@@ -617,9 +613,7 @@ def assemble_impl_module(draft: TaskImplDraft, step: PlanStep) -> str:
             if dep_count <= 1:
                 func_lines.append(f"    {local} = ctx.inputs[{inp.name!r}]")
             else:
-                func_lines.append(
-                    f"    {local} = ctx.inputs[{inp.source_step!r}][{inp.name!r}]"
-                )
+                func_lines.append(f"    {local} = ctx.inputs[{inp.source_step!r}][{inp.name!r}]")
         # User body — indented under the function.
         func_lines.append(textwrap.indent(draft.body.strip("\n"), "    "))
         # Auto return — from PlanStep.io.outputs. Tasks always return a
@@ -627,9 +621,7 @@ def assemble_impl_module(draft: TaskImplDraft, step: PlanStep) -> str:
         # the body binds is the sanitised form (so the dict key can be
         # ``data.peo`` while the local is ``data_peo``).
         if step.io.outputs:
-            return_pairs = ", ".join(
-                f"{name!r}: {module_id(name)}" for name in step.io.outputs
-            )
+            return_pairs = ", ".join(f"{name!r}: {module_id(name)}" for name in step.io.outputs)
             func_lines.append(f"    return {{{return_pairs}}}")
         else:
             func_lines.append("    return None")
@@ -674,14 +666,12 @@ async def _generate_impl_one(
     # Surface the sanitised local names explicitly so the body can bind
     # them directly — the LLM doesn't need to compute the mapping.
     input_locals = [
-        f"  - {module_id(inp.name)}  (from PlanStep.io.inputs[{i}], "
-        f"original name {inp.name!r})"
+        f"  - {module_id(inp.name)}  (from PlanStep.io.inputs[{i}], original name {inp.name!r})"
         for i, inp in enumerate(step.io.inputs)
         if inp.source_step is not None
     ]
     output_locals = [
-        f"  - {module_id(name)}  (returned under key {name!r})"
-        for name in step.io.outputs
+        f"  - {module_id(name)}  (returned under key {name!r})" for name in step.io.outputs
     ]
     bindings_block = (
         "INPUT LOCALS — already bound for you before your body runs:\n"
@@ -853,9 +843,7 @@ async def _generate_one(
     assert last_issue is not None
     if "un-evidenced symbols" in last_issue:
         # Preserve the structured ``missing`` payload for the caller.
-        re_missing = (
-            validate_codegen_evidence(last_source, plan_graph) if last_source else ()
-        )
+        re_missing = validate_codegen_evidence(last_source, plan_graph) if last_source else ()
         raise CodegenError(f"{where}: {last_issue}", missing=re_missing)
     raise CodegenError(f"{where}: {last_issue}")
 
@@ -918,8 +906,10 @@ def _check_impl_shape(source: str) -> str | None:
     bad_top_level: list[str] = []
 
     for stmt in tree.body:
-        if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and isinstance(
-            stmt.value.value, str
+        if (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and isinstance(stmt.value.value, str)
         ):
             # Module docstring.
             continue

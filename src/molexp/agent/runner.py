@@ -1,8 +1,8 @@
 """``AgentRunner`` — public orchestration entry point.
 
 Takes a mode + a model config; builds an
-:class:`~molexp.agent.harness.harness.AgentHarness`, injects it into the
-mode, drains the mode's :data:`~molexp.agent.harness.events.AgentEvent`
+:class:`~molexp.agent.runtime.AgentHarness`, injects it into the
+mode, drains the mode's :data:`~molexp.agent.events.AgentEvent`
 stream, and returns the terminal :class:`~molexp.agent.mode.AgentRunResult`.
 
 The router is constructed lazily on first :meth:`run` — the private
@@ -43,33 +43,35 @@ Named sessions
 When ``workspace=<path>`` is supplied, the runner anchors each
 conversation to a :class:`~molexp.agent.folders.AgentSession` ``Folder``
 under an :class:`~molexp.agent.folders.Agent` named after the mode, and
-backs the :class:`~molexp.agent.harness.session.Session` with a
-:class:`~molexp.agent.harness.session_storage.JsonlSessionStorage`
+backs the :class:`~molexp.agent.session.Session` with a
+:class:`~molexp.agent.session_storage.JsonlSessionStorage`
 writing ``entries.jsonl`` in that folder's directory. Without a
 workspace, sessions use an
-:class:`~molexp.agent.harness.session_storage.InMemorySessionStorage`.
+:class:`~molexp.agent.session_storage.InMemorySessionStorage`.
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from mollog import get_logger
 
-from molexp.agent.harness.events import AgentEvent, ModeCompletedEvent
-from molexp.agent.harness.execution_env import LocalExecutionEnv
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.hooks import HookContext, HookPoint, HookRegistry
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import (
-    InMemorySessionStorage,
-    JsonlSessionStorage,
-)
+from molexp.agent.events import AgentEvent, AsyncIteratorEventSink, ModeCompletedEvent
+from molexp.agent.execution_env import LocalExecutionEnv
+from molexp.agent.hooks import HookContext, HookPoint, HookRegistry
 from molexp.agent.mode import AgentRunResult
 from molexp.agent.review import ReviewDecision, ReviewPolicy
 from molexp.agent.router import ModelTier, Router, TierModels
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_storage import (
+    InMemorySessionStorage,
+    JsonlSessionStorage,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.tools import Tool
@@ -158,7 +160,7 @@ class AgentRunner:
 
         Drains the mode's :data:`AgentEvent` stream, accumulates every
         event, and folds the terminal
-        :class:`~molexp.agent.harness.events.ModeCompletedEvent` into
+        :class:`~molexp.agent.events.ModeCompletedEvent` into
         the returned result (whose ``events`` field carries the whole
         stream).
         """
@@ -170,28 +172,56 @@ class AgentRunner:
     async def run_events(self, session: Session, user_input: str) -> AsyncIterator[AgentEvent]:
         """Drive the mode and yield its :data:`AgentEvent` stream live.
 
-        Every event the mode yields *and* every event the harness emits
-        to its sink is surfaced here, in emission order. The future SSE
-        endpoint consumes this generator directly.
+        Events flow through an :class:`AsyncIteratorEventSink`: the
+        harness pushes to ``event_sink``; the runner drives the mode in
+        a background task and iterates the sink. When the mode finishes
+        (or raises) the driver closes the sink, the consumer's
+        ``async for`` loop terminates naturally, and any exception the
+        mode raised is re-raised here so the caller sees it.
+
+        Cancellation safety: if the consumer breaks out early the driver
+        task is cancelled and awaited before this generator exits, so
+        no orphan task is left behind.
         """
         router = self._ensure_router()
-        collector = _SinkCollector()
+        sink = AsyncIteratorEventSink()
         harness = AgentHarness(
             session=session,
-            event_sink=collector,
+            event_sink=sink,
             router=router,
             execution_env=self._build_execution_env(),
             hooks=self._build_hooks(),
         )
 
-        async for yielded in self.mode.run(harness=harness, user_input=user_input):
-            # Surface anything the harness emitted before this yield.
-            for emitted in collector.drain():
-                yield emitted
-            yield yielded
-        # Surface a trailing tail (events emitted after the last yield).
-        for emitted in collector.drain():
-            yield emitted
+        driver_exc: Exception | None = None
+
+        async def _drive() -> None:
+            nonlocal driver_exc
+            try:
+                async for event in self.mode.run(harness=harness, user_input=user_input):
+                    # Modes route some events through ``harness.emit``
+                    # (sink) and yield others directly — most notably
+                    # ``ModeCompletedEvent`` is yield-only. Re-route the
+                    # yields into the sink so it becomes the single
+                    # ordered stream this generator iterates.
+                    await sink(event)
+            except Exception as exc:
+                driver_exc = exc
+            finally:
+                await sink.close()
+
+        driver = asyncio.create_task(_drive())
+        try:
+            async for event in sink:
+                yield event
+        finally:
+            if not driver.done():
+                driver.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await driver
+
+        if driver_exc is not None:
+            raise driver_exc
 
     # ── named sessions ──────────────────────────────────────────────────────
 
@@ -342,31 +372,11 @@ class AgentRunner:
 # ── stream accumulation ────────────────────────────────────────────────────
 
 
-class _SinkCollector:
-    """Buffer harness-emitted events so the runner can interleave them.
-
-    The harness emits to ``event_sink``; the mode also *yields* events.
-    The runner wants one ordered stream — this collector lets it drain
-    the harness side between the mode's yields.
-    """
-
-    def __init__(self) -> None:
-        self._buffer: list[AgentEvent] = []
-
-    async def __call__(self, event: AgentEvent) -> None:
-        self._buffer.append(event)
-
-    def drain(self) -> list[AgentEvent]:
-        """Return and clear the buffered events."""
-        drained, self._buffer = self._buffer, []
-        return drained
-
-
 def _result_from_stream(events: tuple[AgentEvent, ...]) -> AgentRunResult:
     """Fold an accumulated event stream into the terminal :class:`AgentRunResult`.
 
     The mode's terminal
-    :class:`~molexp.agent.harness.events.ModeCompletedEvent` carries the
+    :class:`~molexp.agent.events.ModeCompletedEvent` carries the
     result's JSON dump in ``result``; we rebuild the typed result from
     it and attach the whole stream as ``events``.
     """

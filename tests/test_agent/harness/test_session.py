@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_entry import CompactionEntry, MessageEntry
-from molexp.agent.harness.session_storage import InMemorySessionStorage
+from molexp.agent.session import Session
+from molexp.agent.session_entry import CompactionEntry, MessageEntry
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import Message
 
 

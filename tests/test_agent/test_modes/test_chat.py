@@ -6,13 +6,13 @@ from collections.abc import Sequence
 
 import pytest
 
-from molexp.agent.harness.events import ModeCompletedEvent, ModeStartedEvent
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_entry import MessageEntry
-from molexp.agent.harness.session_storage import InMemorySessionStorage
+from molexp.agent.events import ModeCompletedEvent, ModeStartedEvent
 from molexp.agent.modes import ChatMode, ChatModeConfig
 from molexp.agent.router import ModelTier, RouterTextResult
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_entry import MessageEntry
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
 # ── config ─────────────────────────────────────────────────────────────────

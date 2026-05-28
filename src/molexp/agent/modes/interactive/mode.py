@@ -37,15 +37,15 @@ from pathlib import Path
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
 )
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.stage import NameOnlyStage
 from molexp.agent.mode import AgentMode, AgentRunResult, ModePipeline, PipelineEdge
 from molexp.agent.modes.interactive.stages import EmergentLoop
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.stage import NameOnlyStage
 from molexp.agent.types import Message
 
 _LOG = get_logger(__name__)

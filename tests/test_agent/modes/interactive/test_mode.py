@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
@@ -20,9 +20,6 @@ from molexp.agent.harness.events import (
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_entry import MessageEntry
-from molexp.agent.harness.session_storage import InMemorySessionStorage
 from molexp.agent.modes._planning.intent import (
     IntentSpec,
     MissingInfoItem,
@@ -40,6 +37,9 @@ from molexp.agent.router import (
     ToolResultChunk,
 )
 from molexp.agent.runner import AgentRunner
+from molexp.agent.session import Session
+from molexp.agent.session_entry import MessageEntry
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
 

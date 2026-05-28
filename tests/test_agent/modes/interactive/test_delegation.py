@@ -13,10 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.events import ModeCompletedEvent, ModeStartedEvent
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import InMemorySessionStorage
+from molexp.agent.events import ModeCompletedEvent, ModeStartedEvent
 from molexp.agent.modes._planning.intent import (
     IntentSpec,
     MissingInfoItem,
@@ -25,6 +22,9 @@ from molexp.agent.modes._planning.intent import (
 )
 from molexp.agent.modes.interactive.delegation import delegate_to_plan, run_plan_pipeline_tool
 from molexp.agent.router import ModelTier, RouterTextResult
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 
 pytestmark = pytest.mark.asyncio

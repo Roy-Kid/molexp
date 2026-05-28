@@ -30,8 +30,7 @@ from typing import TYPE_CHECKING, ClassVar
 
 import yaml
 
-from molexp.agent.harness.events import AgentEvent
-from molexp.agent.harness.stage import Stage
+from molexp.agent.events import AgentEvent
 from molexp.agent.modes.author.codegen import (
     CodegenError,
     TaskIRBrief,
@@ -44,10 +43,11 @@ from molexp.agent.modes.author.codegen import (
 )
 from molexp.agent.modes.author.debug_loop import DebugLoopResult, run_task_debug_loop
 from molexp.agent.modes.author.lowering import lower_plan_graph
+from molexp.agent.stage import Stage
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.author._mode import AuthorMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = [
     "CompileTaskIR",

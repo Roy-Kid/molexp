@@ -1,7 +1,7 @@
-"""Cluster 2 — the ``SessionStorage`` repository + two implementations.
+"""The ``SessionStorage`` repository + two implementations.
 
 :class:`SessionStorage` is a Repository-pattern :class:`typing.Protocol`
-the :class:`~molexp.agent.harness.session.Session` runtime class talks
+the :class:`~molexp.agent.session.Session` runtime class talks
 to. It abstracts *where* the append-only entry tree lives so the same
 ``Session`` code drives an on-disk JSONL file (production) or an
 in-memory dict (tests).
@@ -27,7 +27,7 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import TypeAdapter
 
-from molexp.agent.harness.session_entry import SessionEntry
+from molexp.agent.session_entry import SessionEntry
 
 __all__ = [
     "InMemorySessionStorage",

@@ -18,12 +18,11 @@ from typing import TYPE_CHECKING, ClassVar
 
 from mollog import get_logger
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ArtifactWrittenEvent,
     RepairProposedEvent,
 )
-from molexp.agent.harness.stage import Stage
 from molexp.agent.modes.review.checks import (
     check_capability_evidence,
     check_intent_conformance,
@@ -37,10 +36,11 @@ from molexp.agent.modes.review.verdict import (
 )
 from molexp.agent.modes.review.verdict_folder import ReviewVerdictFolder
 from molexp.agent.router import ModelTier
+from molexp.agent.stage import Stage
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes.review._mode import ReviewMode
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["IngestReviewTarget", "RenderReviewVerdict", "RunReviewChecks"]
 

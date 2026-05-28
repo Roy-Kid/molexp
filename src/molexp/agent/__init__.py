@@ -8,16 +8,17 @@ workflow-orthogonal approval primitives (:class:`ReviewDecision`, the
 policy) that wire into the harness's ``before_approval`` hook.
 
 ``AgentSession`` is the runtime conversation value — it is the
-harness's :class:`~molexp.agent.harness.session.Session` entry-tree
-class (re-exported under the historical name). The shared agent-runtime
-layer it sits on lives under :mod:`molexp.agent.harness`
-(:class:`~molexp.agent.harness.harness.AgentHarness`, the
-:data:`~molexp.agent.harness.events.AgentEvent` stream, the
-:class:`SessionStorage` repository, context compaction, and
-:class:`~molexp.agent.harness.execution_env.ExecutionEnv`). The
-reference mode :class:`~molexp.agent.modes.ChatMode` lives under
-:mod:`molexp.agent.modes`; the four pipeline modes (Plan / Author /
-Run / Review) are rebuilt in later specs.
+:class:`~molexp.agent.session.Session` entry-tree class (re-exported
+under the historical name). The agent-runtime primitives are flat
+siblings under :mod:`molexp.agent`: :class:`~molexp.agent.runtime.AgentHarness`
+(the runtime object a mode drives), the
+:data:`~molexp.agent.events.AgentEvent` discriminated-union stream, the
+:class:`~molexp.agent.session_storage.SessionStorage` repository,
+:mod:`~molexp.agent.compaction` context compaction, and
+:class:`~molexp.agent.execution_env.ExecutionEnv`. The reference mode
+:class:`~molexp.agent.modes.ChatMode` lives under :mod:`molexp.agent.modes`;
+the four pipeline modes (Plan / Author / Run / Review) are rebuilt in
+later specs.
 
 The review module sits parallel to ``mode.py`` because approval is NOT
 a mode-specific concept — every mode that reaches an
@@ -76,10 +77,10 @@ See ``§ Layer charters`` in CLAUDE.md and the import-guard tests
 under ``tests/test_agent/`` for the binding rules.
 """
 
-from molexp.agent.harness.session import Session as AgentSession
 from molexp.agent.mode import AgentMode, AgentRunResult
 from molexp.agent.review import ReviewDecision, ReviewPolicy, cli_ask
 from molexp.agent.runner import AgentRunner
+from molexp.agent.session import Session as AgentSession
 
 __all__ = [
     "AgentMode",

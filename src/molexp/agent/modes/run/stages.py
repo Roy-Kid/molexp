@@ -14,12 +14,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar
 
-from molexp.agent.harness.events import (
+from molexp.agent.events import (
     AgentEvent,
     ErrorEvent,
     RepairProposedEvent,
 )
-from molexp.agent.harness.stage import Stage
 from molexp.agent.modes._planning import IllegalPlanTransitionError, PlanState
 from molexp.agent.modes.run.executor import RunExecutor
 from molexp.agent.modes.run.loader import WorkflowLoadError
@@ -30,13 +29,14 @@ from molexp.agent.modes.run.repair import (
     build_repair_escalation,
 )
 from molexp.agent.modes.run.run_folder import RunFolder, RunReport
+from molexp.agent.stage import Stage
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.harness import AgentHarness
     from molexp.agent.modes._planning import PlanDiff, PlanGraph
     from molexp.agent.modes.run._mode import RunMode
     from molexp.agent.modes.run.executor import ExecutionOutcome
     from molexp.agent.modes.run.repair import RepairEscalation
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["ExecuteWorkflow", "LoadMaterializedWorkflow", "RepairRuntimeFailure"]
 

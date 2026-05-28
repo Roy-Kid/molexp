@@ -1,8 +1,8 @@
-"""Cluster 6 — the ``Stage`` first-class abstraction.
+"""The ``Stage`` first-class abstraction.
 
 A :class:`Stage` is one unit of work in an
 :class:`~molexp.agent.mode.AgentMode`'s pipeline. The harness's
-:func:`~molexp.agent.harness.pipeline.execute_pipeline` walks a
+:func:`~molexp.agent.pipeline.execute_pipeline` walks a
 :class:`~molexp.agent.mode.ModePipeline`'s tuple of Stage instances,
 brackets each one in :meth:`AgentHarness.stage` and drains the stage's
 async-generator :meth:`Stage.run` body.
@@ -27,8 +27,8 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, ClassVar, Generic, TypeVar
 
 if TYPE_CHECKING:
-    from molexp.agent.harness.events import AgentEvent
-    from molexp.agent.harness.harness import AgentHarness
+    from molexp.agent.events import AgentEvent
+    from molexp.agent.runtime import AgentHarness
 
 __all__ = ["NameOnlyStage", "Stage"]
 
@@ -42,7 +42,7 @@ class Stage(Generic[InputT, OutputT], ABC):  # noqa: UP046 — keep classic Gene
 
     Subclasses pin :attr:`name` (a stable identifier) and implement
     :meth:`run` as an async generator. The generator yields
-    :data:`~molexp.agent.harness.events.AgentEvent` instances as the
+    :data:`~molexp.agent.events.AgentEvent` instances as the
     stage progresses; the *final* yielded value (whatever its type) is
     treated as the stage's typed output and threaded as the next
     stage's ``input``.
@@ -93,7 +93,7 @@ class NameOnlyStage(Stage[object, object]):
     ``pipeline = ModePipeline(stages=(NameOnlyStage("X"), ...), ...)``
     declarations with the new Stage-instance shape *without* migrating
     each mode's ``run()`` body to drive
-    :func:`~molexp.agent.harness.pipeline.execute_pipeline`.
+    :func:`~molexp.agent.pipeline.execute_pipeline`.
 
     Phase 02 + 03 of the chain replace each use of this with a real
     Stage subclass. At chain-end the class is deleted.

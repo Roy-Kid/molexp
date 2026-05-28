@@ -20,10 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.harness.harness import AgentHarness
-from molexp.agent.harness.hooks import HookContext, HookPoint
-from molexp.agent.harness.session import Session
-from molexp.agent.harness.session_storage import InMemorySessionStorage
+from molexp.agent.hooks import HookContext, HookPoint
 from molexp.agent.modes._planning import (
     ApprovalGate,
     IsolatedTestSketch,
@@ -39,6 +36,9 @@ from molexp.agent.modes.author.handoff import MaterializedWorkspaceHandoff
 from molexp.agent.modes.plan.plan_folder import PlanFolder
 from molexp.agent.review import ReviewDecision
 from molexp.agent.router import ModelTier, RouterTextResult
+from molexp.agent.runtime import AgentHarness
+from molexp.agent.session import Session
+from molexp.agent.session_storage import InMemorySessionStorage
 from molexp.agent.types import UsageBreakdown
 from molexp.workflow import ValidationReport, WorkflowResult
 from molexp.workspace import Experiment, Workspace

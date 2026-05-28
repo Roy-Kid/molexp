@@ -33,7 +33,6 @@ import yaml
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict
 
-from molexp.agent.harness.harness import AgentHarness
 from molexp.agent.modes._planning import PlanDiff, PlanGraph
 from molexp.agent.modes.author.codegen import (
     CodegenError,
@@ -48,6 +47,7 @@ from molexp.agent.modes.author.codegen import (
 from molexp.agent.modes.author.debug_loop import run_task_debug_loop
 from molexp.agent.modes.author.lowering import lower_plan_graph
 from molexp.agent.modes.author.workspace_layout import MaterializedLayout
+from molexp.agent.runtime import AgentHarness
 from molexp.workflow import ValidationReport
 
 _LOG = get_logger(__name__)
