@@ -52,6 +52,7 @@ molexp = "molexp.cli:app"
 markers = [
     "unit: fast standalone tests for a single function/class",
     "integration: tests that exercise multi-component flows (FastAPI, workspace)",
+    "perf: event-loop responsiveness / performance regression guards (stdlib timing)",
 ]
 
 [tool.ruff]

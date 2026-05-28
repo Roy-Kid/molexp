@@ -45,6 +45,7 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 
 from pydantic import BaseModel
@@ -101,7 +102,9 @@ class RouterBackedAgentGateway:
 
         output_kind = self._output_kinds[spec.agent_name]
         system_prompt = self._system_prompts.get(spec.agent_name, "")
-        prompt = self._compose_prompt(spec)
+        # Reading input artifacts is blocking filesystem I/O — offload it so
+        # the event loop stays responsive (matches the StageRunner boundary).
+        prompt = await asyncio.to_thread(self._compose_prompt, spec)
 
         result = await self._router.complete_text(
             prompt=prompt,
@@ -111,7 +114,8 @@ class RouterBackedAgentGateway:
         raw_text = result.text
 
         # §10.2 audit invariant: persist raw response BEFORE parsing.
-        raw_ref: ArtifactRef = self._artifacts.put_text(
+        raw_ref: ArtifactRef = await asyncio.to_thread(
+            self._artifacts.put_text,
             kind="log",
             text=raw_text,
             created_by=f"agent:{spec.agent_name}",
@@ -124,7 +128,8 @@ class RouterBackedAgentGateway:
         # still trace the failure to the raw response.
         instance = schema.model_validate_json(raw_text)
 
-        output_ref: ArtifactRef = self._artifacts.put_json(
+        output_ref: ArtifactRef = await asyncio.to_thread(
+            self._artifacts.put_json,
             kind=output_kind,
             obj=instance.model_dump(mode="json"),
             created_by=f"agent:{spec.agent_name}",

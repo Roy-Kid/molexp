@@ -31,7 +31,11 @@ class SQLiteEventLog:
 
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
-        self._conn: sqlite3.Connection = open_db(self._path)
+        # ``_lock`` is shared per DB file (see ``store._sqlite``); the
+        # provenance store on the same path holds the same lock instance so
+        # the cross-table writes serialize. All connection access goes
+        # through it because ``StageRunner`` calls us from worker threads.
+        self._conn, self._lock = open_db(self._path)
 
     def append(
         self,
@@ -52,11 +56,12 @@ class SQLiteEventLog:
         )
 
     def list_events(self, run_id: str) -> list[HarnessEvent]:
-        rows = self._conn.execute(
-            "SELECT id, run_id, seq, type, actor, created_at, payload_json, "
-            "artifact_ids_json FROM events WHERE run_id = ? ORDER BY seq",
-            (run_id,),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, run_id, seq, type, actor, created_at, payload_json, "
+                "artifact_ids_json FROM events WHERE run_id = ? ORDER BY seq",
+                (run_id,),
+            ).fetchall()
         return [self._row_to_event(row) for row in rows]
 
     def get_timeline(self, run_id: str) -> list[HarnessEvent]:
@@ -106,36 +111,40 @@ class SQLiteEventLog:
         created_at = datetime.now(tz=UTC)
         payload_json = json.dumps(payload, default=str)
         artifact_ids_json = json.dumps(artifact_ids)
-        try:
-            self._conn.execute("BEGIN")
-            if seq is None:
-                row = self._conn.execute(
-                    "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?",
-                    (run_id,),
-                ).fetchone()
-                assigned_seq = int(row[0])
-            else:
-                assigned_seq = seq
-            self._conn.execute(
-                "INSERT INTO events (id, run_id, seq, type, actor, created_at, "
-                "payload_json, artifact_ids_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    event_id,
-                    run_id,
-                    assigned_seq,
-                    type_,
-                    actor,
-                    created_at.isoformat(),
-                    payload_json,
-                    artifact_ids_json,
-                ),
-            )
-            self._conn.execute("COMMIT")
-        except sqlite3.IntegrityError as exc:
-            self._conn.execute("ROLLBACK")
-            raise EventSeqConflictError(
-                f"duplicate (run_id={run_id!r}, seq={seq}) in event log"
-            ) from exc
+        # Hold the shared lock across the whole SELECT MAX(seq) → INSERT
+        # read-modify-write so concurrent appends from to_thread workers
+        # cannot interleave and assign the same (run_id, seq).
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                if seq is None:
+                    row = self._conn.execute(
+                        "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?",
+                        (run_id,),
+                    ).fetchone()
+                    assigned_seq = int(row[0])
+                else:
+                    assigned_seq = seq
+                self._conn.execute(
+                    "INSERT INTO events (id, run_id, seq, type, actor, created_at, "
+                    "payload_json, artifact_ids_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        event_id,
+                        run_id,
+                        assigned_seq,
+                        type_,
+                        actor,
+                        created_at.isoformat(),
+                        payload_json,
+                        artifact_ids_json,
+                    ),
+                )
+                self._conn.execute("COMMIT")
+            except sqlite3.IntegrityError as exc:
+                self._conn.execute("ROLLBACK")
+                raise EventSeqConflictError(
+                    f"duplicate (run_id={run_id!r}, seq={seq}) in event log"
+                ) from exc
 
         return HarnessEvent(
             id=event_id,

@@ -22,9 +22,18 @@ strict mode aborts the pipeline).
 
 This way, individual stages stay pure (read inputs from the context, write
 one artifact) while the harness owns the audit trail.
+
+Every store write (``event_log.append`` / ``provenance_store.add_edge``) is
+blocking SQLite I/O, so the runner dispatches each through
+:func:`asyncio.to_thread`. That keeps the event loop responsive when the
+pipeline runs behind a server route or alongside agent token-streaming; the
+stores serialize concurrent worker-thread access behind their shared per-file
+lock (see :mod:`molexp.harness.store._sqlite`).
 """
 
 from __future__ import annotations
+
+import asyncio
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
@@ -42,7 +51,8 @@ class StageRunner:
 
     async def run_stage(self, stage: Stage) -> ArtifactRef:
         ctx = self._ctx
-        ctx.event_log.append(
+        await asyncio.to_thread(
+            ctx.event_log.append,
             run_id=ctx.run_id,
             type="stage_started",
             actor="harness",
@@ -58,8 +68,9 @@ class StageRunner:
             # ``StagePersistedFailureError`` already extends
             # ``StageExecutionError`` so we re-raise unchanged rather than
             # double-wrapping.
-            self._record_artifact(stage, exc.persisted_ref)
-            ctx.event_log.append(
+            await self._record_artifact(stage, exc.persisted_ref)
+            await asyncio.to_thread(
+                ctx.event_log.append,
                 run_id=ctx.run_id,
                 type="stage_failed",
                 actor="harness",
@@ -67,7 +78,8 @@ class StageRunner:
             )
             raise
         except Exception as exc:
-            ctx.event_log.append(
+            await asyncio.to_thread(
+                ctx.event_log.append,
                 run_id=ctx.run_id,
                 type="stage_failed",
                 actor="harness",
@@ -75,8 +87,9 @@ class StageRunner:
             )
             raise StageExecutionError(f"stage {stage.name!r} failed: {exc!r}") from exc
 
-        self._record_artifact(stage, ref)
-        ctx.event_log.append(
+        await self._record_artifact(stage, ref)
+        await asyncio.to_thread(
+            ctx.event_log.append,
             run_id=ctx.run_id,
             type="stage_completed",
             actor="harness",
@@ -84,9 +97,10 @@ class StageRunner:
         )
         return ref
 
-    def _record_artifact(self, stage: Stage, ref: ArtifactRef) -> None:
+    async def _record_artifact(self, stage: Stage, ref: ArtifactRef) -> None:
         ctx = self._ctx
-        ctx.event_log.append(
+        await asyncio.to_thread(
+            ctx.event_log.append,
             run_id=ctx.run_id,
             type="artifact_created",
             actor="harness",
@@ -94,7 +108,8 @@ class StageRunner:
             artifact_ids=[ref.id],
         )
         for parent_id in ref.parent_ids:
-            ctx.provenance_store.add_edge(
+            await asyncio.to_thread(
+                ctx.provenance_store.add_edge,
                 parent_id=parent_id,
                 child_id=ref.id,
                 relation="derived_from",

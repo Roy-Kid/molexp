@@ -33,7 +33,10 @@ class SQLiteProvenanceStore:
 
     def __init__(self, path: Path, artifact_store: ArtifactStore) -> None:
         self._path = Path(path)
-        self._conn: sqlite3.Connection = open_db(self._path)
+        # Shares the per-DB-file lock with the SQLiteEventLog on the same path
+        # (see ``store._sqlite``); all connection access serializes through it
+        # because ``StageRunner`` drives add_edge from worker threads.
+        self._conn, self._lock = open_db(self._path)
         self._artifacts = artifact_store
 
     def add_edge(
@@ -42,15 +45,16 @@ class SQLiteProvenanceStore:
         child_id: str,
         relation: str = "derived_from",
     ) -> None:
-        try:
-            self._conn.execute(
-                "INSERT INTO artifact_edges (parent_id, child_id, relation, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (parent_id, child_id, relation, datetime.now(tz=UTC).isoformat()),
-            )
-        except sqlite3.IntegrityError:
-            # PRIMARY KEY (parent_id, child_id, relation) — duplicate is a no-op.
-            return
+        with self._lock:
+            try:
+                self._conn.execute(
+                    "INSERT INTO artifact_edges (parent_id, child_id, relation, created_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (parent_id, child_id, relation, datetime.now(tz=UTC).isoformat()),
+                )
+            except sqlite3.IntegrityError:
+                # PRIMARY KEY (parent_id, child_id, relation) — duplicate is a no-op.
+                return
 
     def trace_backward(self, artifact_id: str) -> list[ArtifactRef]:
         order = self._bfs(artifact_id, direction="up")
@@ -76,11 +80,12 @@ class SQLiteProvenanceStore:
                 nodes.append({"id": aid})
         # Pull every edge touching any node in the subgraph.
         placeholders = ",".join(["?"] * len(ids))
-        rows = self._conn.execute(
-            f"SELECT parent_id, child_id, relation FROM artifact_edges "
-            f"WHERE parent_id IN ({placeholders}) OR child_id IN ({placeholders})",
-            (*ids, *ids),
-        ).fetchall()
+        with self._lock:
+            rows = self._conn.execute(
+                f"SELECT parent_id, child_id, relation FROM artifact_edges "
+                f"WHERE parent_id IN ({placeholders}) OR child_id IN ({placeholders})",
+                (*ids, *ids),
+            ).fetchall()
         edges = [
             {"parent_id": p, "child_id": c, "relation": r}
             for p, c, r in rows
@@ -105,12 +110,16 @@ class SQLiteProvenanceStore:
         seen: set[str] = {start}
         order: list[str] = []
         queue: deque[str] = deque([start])
-        while queue:
-            current = queue.popleft()
-            for (neighbour,) in self._conn.execute(query, (current,)).fetchall():
-                if neighbour in seen:
-                    continue
-                seen.add(neighbour)
-                order.append(neighbour)
-                queue.append(neighbour)
+        # Serialize the whole walk on the shared lock — one acquisition for
+        # the loop rather than per-node. Hydration (get_ref) runs outside this
+        # in the callers, so the lock is never held during filesystem I/O.
+        with self._lock:
+            while queue:
+                current = queue.popleft()
+                for (neighbour,) in self._conn.execute(query, (current,)).fetchall():
+                    if neighbour in seen:
+                        continue
+                    seen.add(neighbour)
+                    order.append(neighbour)
+                    queue.append(neighbour)
         return order
