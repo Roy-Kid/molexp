@@ -28,7 +28,7 @@ from molexp.harness.audit import (
     generate_audit_report,
     replay_metadata,
 )
-from molexp.harness.core import HarnessRunContext, Stage, StageRunner
+from molexp.harness.core import HarnessRunContext, Stage, StageRunner, StageTask
 from molexp.harness.errors import (
     AgentResponseNotRegisteredError,
     ArtifactNotFoundError,
@@ -42,6 +42,7 @@ from molexp.harness.errors import (
 )
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
+from molexp.harness.mode import Mode
 from molexp.harness.policy import (
     evaluate_approval_policy,
     make_final_report_approval_request,
@@ -70,6 +71,7 @@ from molexp.harness.schemas import (
     ExpectedOutput,
     ExperimentReport,
     HarnessEvent,
+    ModeResult,
     ParameterSource,
     ParameterValue,
     PathPolicy,
@@ -154,6 +156,8 @@ __all__ = [
     "HarnessRunContext",
     "InMemoryCapabilityRegistry",
     "LocalExecutor",
+    "Mode",
+    "ModeResult",
     "ParameterSource",
     "ParameterValue",
     "PathPolicy",
@@ -167,6 +171,7 @@ __all__ = [
     "StageExecutionError",
     "StagePersistedFailureError",
     "StageRunner",
+    "StageTask",
     "TaskIR",
     "TestKind",
     "TestResult",

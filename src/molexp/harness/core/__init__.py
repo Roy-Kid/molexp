@@ -20,9 +20,12 @@ from __future__ import annotations
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.core.stage_runner import StageRunner
+from molexp.harness.core.stage_task import StageTask, run_stage_bracketed
 
 __all__ = [
     "HarnessRunContext",
     "Stage",
     "StageRunner",
+    "StageTask",
+    "run_stage_bracketed",
 ]

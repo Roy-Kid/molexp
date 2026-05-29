@@ -29,6 +29,7 @@ from molexp.harness.schemas.capability import ToolCapability
 from molexp.harness.schemas.command import CommandResult, CommandSpec
 from molexp.harness.schemas.event import EventType, HarnessEvent
 from molexp.harness.schemas.experiment_report import ExperimentReport
+from molexp.harness.schemas.mode_result import ModeResult
 from molexp.harness.schemas.parameter import ParameterSource, ParameterValue
 from molexp.harness.schemas.policy import ApprovalPolicy, PathPolicy, ToolPolicy
 from molexp.harness.schemas.test_spec import TestKind, TestResult, TestSpec, TestStatus
@@ -62,6 +63,7 @@ __all__ = [
     "ExpectedOutput",
     "ExperimentReport",
     "HarnessEvent",
+    "ModeResult",
     "ParameterSource",
     "ParameterValue",
     "PathPolicy",

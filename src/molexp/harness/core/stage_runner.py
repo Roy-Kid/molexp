@@ -33,84 +33,24 @@ lock (see :mod:`molexp.harness.store._sqlite`).
 
 from __future__ import annotations
 
-import asyncio
-
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
-from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
+from molexp.harness.core.stage_task import run_stage_bracketed
 from molexp.harness.schemas import ArtifactRef
 
 __all__ = ["StageRunner"]
 
 
 class StageRunner:
-    """Bracket each :class:`Stage` with events + lineage edges."""
+    """Bracket each :class:`Stage` with events + lineage edges.
+
+    Legacy/direct-use sequential driver. The audit bracket itself lives in
+    :func:`molexp.harness.core.stage_task.run_stage_bracketed` so this path and
+    the engine-backed :class:`~molexp.harness.mode.Mode` path stay identical.
+    """
 
     def __init__(self, ctx: HarnessRunContext) -> None:
         self._ctx = ctx
 
     async def run_stage(self, stage: Stage) -> ArtifactRef:
-        ctx = self._ctx
-        await asyncio.to_thread(
-            ctx.event_log.append,
-            run_id=ctx.run_id,
-            type="stage_started",
-            actor="harness",
-            payload={"stage": stage.name},
-        )
-
-        try:
-            ref = await stage.run(ctx)
-        except StagePersistedFailureError as exc:
-            # Stage already persisted a failure artifact (e.g. parse-error
-            # ValidationReport). Emit its artifact_created + edges so
-            # trace_backward can still surface it, then fail the stage.
-            # ``StagePersistedFailureError`` already extends
-            # ``StageExecutionError`` so we re-raise unchanged rather than
-            # double-wrapping.
-            await self._record_artifact(stage, exc.persisted_ref)
-            await asyncio.to_thread(
-                ctx.event_log.append,
-                run_id=ctx.run_id,
-                type="stage_failed",
-                actor="harness",
-                payload={"stage": stage.name, "error": repr(exc)},
-            )
-            raise
-        except Exception as exc:
-            await asyncio.to_thread(
-                ctx.event_log.append,
-                run_id=ctx.run_id,
-                type="stage_failed",
-                actor="harness",
-                payload={"stage": stage.name, "error": repr(exc)},
-            )
-            raise StageExecutionError(f"stage {stage.name!r} failed: {exc!r}") from exc
-
-        await self._record_artifact(stage, ref)
-        await asyncio.to_thread(
-            ctx.event_log.append,
-            run_id=ctx.run_id,
-            type="stage_completed",
-            actor="harness",
-            payload={"stage": stage.name},
-        )
-        return ref
-
-    async def _record_artifact(self, stage: Stage, ref: ArtifactRef) -> None:
-        ctx = self._ctx
-        await asyncio.to_thread(
-            ctx.event_log.append,
-            run_id=ctx.run_id,
-            type="artifact_created",
-            actor="harness",
-            payload={"stage": stage.name, "kind": ref.kind},
-            artifact_ids=[ref.id],
-        )
-        for parent_id in ref.parent_ids:
-            await asyncio.to_thread(
-                ctx.provenance_store.add_edge,
-                parent_id=parent_id,
-                child_id=ref.id,
-                relation="derived_from",
-            )
+        return await run_stage_bracketed(self._ctx, stage)
