@@ -41,6 +41,7 @@ from molexp.harness.schemas.workflow_ir import (
     TaskIR,
     WorkflowIR,
 )
+from molexp.harness.schemas.workflow_source import WorkflowSource
 
 __all__ = [
     "WELL_KNOWN_ARTIFACT_KINDS",
@@ -79,4 +80,5 @@ __all__ = [
     "ValidationReport",
     "ValidationViolation",
     "WorkflowIR",
+    "WorkflowSource",
 ]

@@ -21,7 +21,9 @@ from pydantic import BaseModel, ConfigDict, Field
 __all__ = ["ValidationReport", "ValidationViolation"]
 
 
-_TARGET_KINDS = Literal["workflow_ir", "bound_workflow", "test_spec", "provenance"]
+_TARGET_KINDS = Literal[
+    "workflow_ir", "bound_workflow", "workflow_source", "test_spec", "provenance"
+]
 _SEVERITIES = Literal["error", "warning"]
 
 

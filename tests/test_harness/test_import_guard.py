@@ -20,6 +20,8 @@ from __future__ import annotations
 import subprocess
 import sys
 
+import pytest
+
 _FORBIDDEN = ("pydantic_ai", "pydantic_graph", "molexp.workflow")
 
 
@@ -68,3 +70,38 @@ def test_import_molexp_harness_mode_does_not_pull_forbidden_modules() -> None:
     assert output.startswith("LOADED:"), output
     loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
     assert loaded == [], f"forbidden modules imported transitively by harness.mode: {loaded}"
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        "molexp.harness.stages.validate_workflow_source",
+        "molexp.harness.stages.generate_workflow_source",
+    ],
+)
+def test_import_workflow_source_stage_modules_lazy(module: str) -> None:
+    """ac-010: the codegen stage modules defer ``molexp.workflow``.
+
+    ``ValidateWorkflowSource.run`` imports ``molexp.workflow`` *inside* the
+    method body so the heavy ``pydantic_graph`` chain only loads when the
+    source is actually compiled. Importing either stage module at top level
+    must therefore leave ``molexp.workflow`` / ``pydantic_graph`` /
+    ``pydantic_ai`` out of ``sys.modules``. Fresh subprocess so a stale
+    ``sys.modules`` from another test cannot poison the assertion.
+    """
+    probe = (
+        "import sys, importlib;"
+        f"importlib.import_module({module!r});"
+        "loaded = [m for m in sys.modules if m in " + repr(list(_FORBIDDEN)) + "];"
+        "print('LOADED:' + ','.join(loaded))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    output = result.stdout.strip()
+    assert output.startswith("LOADED:"), output
+    loaded = [m for m in output.removeprefix("LOADED:").split(",") if m]
+    assert loaded == [], f"forbidden modules imported transitively by {module}: {loaded}"

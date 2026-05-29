@@ -87,6 +87,7 @@ from molexp.harness.schemas import (
     ValidationReport,
     ValidationViolation,
     WorkflowIR,
+    WorkflowSource,
 )
 from molexp.harness.stages import (
     ApprovalGate,
@@ -94,9 +95,11 @@ from molexp.harness.stages import (
     ExtractWorkflowIR,
     GenerateExperimentReport,
     GenerateTestSpec,
+    GenerateWorkflowSource,
     SaveUserPlan,
     ValidateBoundWorkflow,
     ValidateWorkflowIR,
+    ValidateWorkflowSource,
 )
 from molexp.harness.store import (
     ArtifactStore,
@@ -111,6 +114,7 @@ from molexp.harness.validators import (
     validate_provenance,
     validate_test_spec,
     validate_workflow_ir,
+    validate_workflow_source,
 )
 
 __all__ = [
@@ -151,6 +155,7 @@ __all__ = [
     "FileArtifactStore",
     "GenerateExperimentReport",
     "GenerateTestSpec",
+    "GenerateWorkflowSource",
     "HarnessError",
     "HarnessEvent",
     "HarnessRunContext",
@@ -182,9 +187,11 @@ __all__ = [
     "UserPlan",
     "ValidateBoundWorkflow",
     "ValidateWorkflowIR",
+    "ValidateWorkflowSource",
     "ValidationReport",
     "ValidationViolation",
     "WorkflowIR",
+    "WorkflowSource",
     "evaluate_approval_policy",
     "find_last_successful_stage",
     "generate_audit_report",
@@ -196,4 +203,5 @@ __all__ = [
     "validate_provenance",
     "validate_test_spec",
     "validate_workflow_ir",
+    "validate_workflow_source",
 ]

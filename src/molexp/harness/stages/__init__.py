@@ -14,9 +14,11 @@ from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks
 from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 from molexp.harness.stages.generate_experiment_report import GenerateExperimentReport
 from molexp.harness.stages.generate_test_spec import GenerateTestSpec
+from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
 from molexp.harness.stages.save_user_plan import SaveUserPlan
 from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
+from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
 __all__ = [
     "ApprovalGate",
@@ -24,7 +26,9 @@ __all__ = [
     "ExtractWorkflowIR",
     "GenerateExperimentReport",
     "GenerateTestSpec",
+    "GenerateWorkflowSource",
     "SaveUserPlan",
     "ValidateBoundWorkflow",
     "ValidateWorkflowIR",
+    "ValidateWorkflowSource",
 ]
