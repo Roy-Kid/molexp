@@ -115,9 +115,7 @@ class _RecordingRouter:
         tier: ModelTier = ModelTier.DEFAULT,
     ) -> RouterTextResult:
         self.complete_text_calls += 1
-        raise AssertionError(
-            "complete_text must not be called by the structured gateway path"
-        )
+        raise AssertionError("complete_text must not be called by the structured gateway path")
 
     async def complete_structured(
         self,
@@ -410,9 +408,7 @@ async def test_raw_log_persisted_with_parent_ids_alongside_output(
     # Raw log artifact present, holds the model_dump_json of the instance.
     log_refs = store.list_by_kind("log")
     log_payloads = [store.get(ref.id).decode("utf-8") for ref in log_refs]
-    assert json.loads(instance.model_dump_json()) in [
-        json.loads(p) for p in log_payloads
-    ]
+    assert json.loads(instance.model_dump_json()) in [json.loads(p) for p in log_payloads]
 
     # Both refs carry the spec's parent_ids.
     assert result.raw_response_artifact.kind == "log"
@@ -431,9 +427,8 @@ async def test_gateway_forwards_system_prompt_into_complete_structured(
     matching ``SYSTEM_PROMPT`` as the ``system=`` arg into
     ``complete_structured`` for a known ``agent_name``.
     """
-    from molexp.harness.prompts import prompts_by_agent
-
     from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+    from molexp.harness.prompts import prompts_by_agent
     from molexp.harness.schemas import AgentCallSpec
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
