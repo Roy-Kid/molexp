@@ -31,15 +31,17 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
 2. Compose the user prompt from the contents of
    ``spec.input_artifact_ids`` plus the optional
    ``spec.prompt_artifact_id``.
-3. Drive ``router.complete_text`` to obtain the raw text response.
-4. Persist the raw text as a ``kind="log"`` artifact whose
-   ``parent_ids`` mirror ``spec.input_artifact_ids``.
-5. Parse the raw text via ``schema.model_validate_json``. If parsing
-   raises, the raw artifact is already persisted — the audit trail
-   survives.
-6. Persist the parsed output as the registered ``ArtifactKind`` with
-   the same ``parent_ids``.
-7. Return an :class:`AgentCallResult` carrying both refs + the gateway's
+3. Drive ``router.complete_structured(schema=...)`` — pydantic-ai native
+   ``output_type`` + ``output_retries`` — to obtain a parsed ``schema``
+   instance. Unlike ``complete_text`` + ``model_validate_json``, a model
+   wrapping its answer in prose/markdown does not crash the harness; the
+   SDK enforces the schema.
+4. Persist the instance's ``model_dump_json()`` as a ``kind="log"`` raw
+   artifact whose ``parent_ids`` mirror ``spec.input_artifact_ids`` —
+   the §10.2 raw-before-parsed audit invariant.
+5. Persist the parsed output (``model_dump(mode="json")``) as the
+   registered ``ArtifactKind`` with the same ``parent_ids``.
+6. Return an :class:`AgentCallResult` carrying both refs + the gateway's
    ``model`` label.
 """
 
@@ -106,27 +108,28 @@ class RouterBackedAgentGateway:
         # the event loop stays responsive (matches the StageRunner boundary).
         prompt = await asyncio.to_thread(self._compose_prompt, spec)
 
-        result = await self._router.complete_text(
-            prompt=prompt,
-            system=system_prompt,
+        # Use pydantic-ai native structured output (output_type=schema +
+        # output_retries) rather than complete_text + manual model_validate_json:
+        # a real model wrapping its answer in prose/markdown no longer crashes
+        # the harness — the SDK enforces the schema and returns an instance.
+        instance = await self._router.complete_structured(
             tier=self._tier,
+            system=system_prompt,
+            user=prompt,
+            schema=schema,
+            node_id=spec.agent_name,
         )
-        raw_text = result.text
 
-        # §10.2 audit invariant: persist raw response BEFORE parsing.
+        # §10.2 audit invariant: persist the raw response BEFORE the parsed
+        # output. With structured output the "raw" record is the model's
+        # structured dump; persist it as the log artifact first.
         raw_ref: ArtifactRef = await asyncio.to_thread(
             self._artifacts.put_text,
             kind="log",
-            text=raw_text,
+            text=instance.model_dump_json(),
             created_by=f"agent:{spec.agent_name}",
             parent_ids=list(spec.input_artifact_ids),
         )
-
-        # ``schema.model_validate_json`` raises ``pydantic.ValidationError``
-        # on malformed payloads. The raw artifact above is already in the
-        # store; the caller observes the exception, but audit replay can
-        # still trace the failure to the raw response.
-        instance = schema.model_validate_json(raw_text)
 
         output_ref: ArtifactRef = await asyncio.to_thread(
             self._artifacts.put_json,
