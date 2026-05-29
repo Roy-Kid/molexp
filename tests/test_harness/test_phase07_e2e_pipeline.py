@@ -84,17 +84,9 @@ def test_four_stage_pipeline_yields_five_layer_provenance_chain(tmp_path: Path) 
 
     # Drive the four-stage pipeline.
     user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K")))
-    report_ref = asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(user_plan_artifact_id=user_plan_ref.id, gateway=stub)
-        )
-    )
-    workflow_ir_ref = asyncio.run(
-        runner.run_stage(ExtractWorkflowIR(experiment_report_artifact_id=report_ref.id))
-    )
-    validation_ref = asyncio.run(
-        runner.run_stage(ValidateWorkflowIR(workflow_ir_artifact_id=workflow_ir_ref.id))
-    )
+    report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
+    workflow_ir_ref = asyncio.run(runner.run_stage(ExtractWorkflowIR()))
+    validation_ref = asyncio.run(runner.run_stage(ValidateWorkflowIR()))
 
     # Four kinds in expected sequence.
     assert user_plan_ref.kind == "user_plan"
@@ -158,16 +150,10 @@ def test_event_log_contains_four_quartets(tmp_path: Path) -> None:
         agent_gateway=stub,
     )
     runner = StageRunner(ctx)
-    user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="hi")))
-    report_ref = asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(user_plan_artifact_id=user_plan_ref.id, gateway=stub)
-        )
-    )
-    workflow_ir_ref = asyncio.run(
-        runner.run_stage(ExtractWorkflowIR(experiment_report_artifact_id=report_ref.id))
-    )
-    asyncio.run(runner.run_stage(ValidateWorkflowIR(workflow_ir_artifact_id=workflow_ir_ref.id)))
+    asyncio.run(runner.run_stage(SaveUserPlan(user_text="hi")))
+    asyncio.run(runner.run_stage(GenerateExperimentReport()))
+    asyncio.run(runner.run_stage(ExtractWorkflowIR()))
+    asyncio.run(runner.run_stage(ValidateWorkflowIR()))
 
     types = [e.type for e in events.list_events("run-p7-events")]
     # Four quartets: each stage produces [stage_started, artifact_created, stage_completed].

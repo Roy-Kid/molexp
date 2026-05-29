@@ -2,7 +2,7 @@
 
 Locks:
 - Stage subclass, name="extract_workflow_ir"
-- single positional ctor arg: experiment_report_artifact_id
+- resolves latest experiment_report from the store (no ctor args)
 - fail-fast on ctx.agent_gateway is None
 - builds AgentCallSpec(agent_name="workflow_ir_extractor", ...) with correct input_artifact_ids + output_schema
 - returns gateway.output_artifact (kind=workflow_ir, parent_ids=[experiment_report_artifact_id])
@@ -92,8 +92,8 @@ def test_extract_fail_fast_when_gateway_missing(ctx_no_gateway) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 
-    er_ref = _seed_experiment_report_ref(ctx_no_gateway.artifact_store)
-    stage = ExtractWorkflowIR(experiment_report_artifact_id=er_ref.id)
+    _seed_experiment_report_ref(ctx_no_gateway.artifact_store)
+    stage = ExtractWorkflowIR()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx_no_gateway))
     assert "agent_gateway" in str(exc.value)
@@ -144,7 +144,7 @@ def test_extract_builds_correct_spec(ctx_with_gateway) -> None:
     ctx_with_gateway.agent_gateway = cast(AgentGateway, CapturingGateway())
     object.__setattr__(ctx_with_gateway, "_frozen", True)
 
-    stage = ExtractWorkflowIR(experiment_report_artifact_id=er_ref.id)
+    stage = ExtractWorkflowIR()
     asyncio.run(stage.run(ctx_with_gateway))
     assert len(captured) == 1
     spec = captured[0]
@@ -162,7 +162,7 @@ def test_extract_returns_workflow_ir_ref_with_parent_ids(ctx_with_gateway) -> No
         output=_make_workflow_ir_canned_response(),
         output_kind="workflow_ir",
     )
-    stage = ExtractWorkflowIR(experiment_report_artifact_id=er_ref.id)
+    stage = ExtractWorkflowIR()
     result_ref = asyncio.run(stage.run(ctx_with_gateway))
     assert result_ref.kind == "workflow_ir"
     assert er_ref.id in result_ref.parent_ids

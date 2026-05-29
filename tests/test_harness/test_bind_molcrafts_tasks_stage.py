@@ -102,8 +102,8 @@ def test_bind_fail_fast_when_gateway_missing(ctx_no_gw) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.bind_molcrafts_tasks import BindMolcraftsTasks
 
-    ir_ref = _seed_workflow_ir_ref(ctx_no_gw.artifact_store)
-    stage = BindMolcraftsTasks(workflow_ir_artifact_id=ir_ref.id)
+    _seed_workflow_ir_ref(ctx_no_gw.artifact_store)
+    stage = BindMolcraftsTasks()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx_no_gw))
     assert "agent_gateway" in str(exc.value)
@@ -132,7 +132,7 @@ def test_bind_builds_correct_spec(ctx_with_gw) -> None:
     ctx_with_gw.agent_gateway = cast(AgentGateway, Capturing())
     object.__setattr__(ctx_with_gw, "_frozen", True)
 
-    stage = BindMolcraftsTasks(workflow_ir_artifact_id=ir_ref.id)
+    stage = BindMolcraftsTasks()
     asyncio.run(stage.run(ctx_with_gw))
 
     assert len(captured) == 1
@@ -151,7 +151,7 @@ def test_bind_returns_bound_workflow_ref(ctx_with_gw) -> None:
         output=_bound_workflow_canned(),
         output_kind="bound_workflow",
     )
-    stage = BindMolcraftsTasks(workflow_ir_artifact_id=ir_ref.id)
+    stage = BindMolcraftsTasks()
     ref = asyncio.run(stage.run(ctx_with_gw))
     assert ref.kind == "bound_workflow"
     assert ir_ref.id in ref.parent_ids

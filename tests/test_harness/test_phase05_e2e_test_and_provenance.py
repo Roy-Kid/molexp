@@ -32,14 +32,6 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
     provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
-    ctx = HarnessRunContext(
-        run_id="run-p5-e2e",
-        workspace_root=tmp_path,
-        artifact_store=artifacts,
-        event_log=events,
-        provenance_store=provenance,
-    )
-
     stub = StubAgentGateway(artifact_store=artifacts)
     stub.register(
         agent_name="experiment_report_writer",
@@ -51,16 +43,18 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
         },
         raw_text="<verbatim LLM>",
     )
+    ctx = HarnessRunContext(
+        run_id="run-p5-e2e",
+        workspace_root=tmp_path,
+        artifact_store=artifacts,
+        event_log=events,
+        provenance_store=provenance,
+        agent_gateway=stub,
+    )
+
     runner = StageRunner(ctx)
     user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K")))
-    report_ref = asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(
-                user_plan_artifact_id=user_plan_ref.id,
-                gateway=stub,
-            )
-        )
-    )
+    report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
     return ctx, user_plan_ref, report_ref
 
 

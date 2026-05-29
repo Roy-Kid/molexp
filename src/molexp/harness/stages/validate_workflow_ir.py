@@ -36,6 +36,7 @@ from molexp.harness.schemas import (
     ValidationViolation,
     WorkflowIR,
 )
+from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.workflow_ir import validate_workflow_ir
 
 __all__ = ["ValidateWorkflowIR"]
@@ -46,17 +47,13 @@ class ValidateWorkflowIR(Stage):
 
     name: ClassVar[str] = "validate_workflow_ir"
 
-    def __init__(
-        self,
-        workflow_ir_artifact_id: str,
-        *,
-        raise_on_failure: bool = True,
-    ) -> None:
-        self._workflow_ir_artifact_id = workflow_ir_artifact_id
+    def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
-        raw = ctx.artifact_store.get(self._workflow_ir_artifact_id)
+        ir_ref = require_latest(ctx, "workflow_ir", stage=self.name)
+        target_id = ir_ref.id
+        raw = ctx.artifact_store.get(target_id)
 
         # Parse the IR; on any parse/schema error, synthesize a
         # parse-error ValidationReport so the audit trail captures it.
@@ -65,7 +62,7 @@ class ValidateWorkflowIR(Stage):
         except Exception as exc:
             report = ValidationReport.from_violations(
                 target_kind="workflow_ir",
-                target_id=self._workflow_ir_artifact_id,
+                target_id=target_id,
                 violations=[
                     ValidationViolation(
                         code="ir_parse_error",
@@ -78,7 +75,7 @@ class ValidateWorkflowIR(Stage):
                 kind="validation_report",
                 obj=json.loads(report.model_dump_json()),
                 created_by="ValidateWorkflowIR",
-                parent_ids=[self._workflow_ir_artifact_id],
+                parent_ids=[target_id],
             )
             if self._raise_on_failure:
                 raise StagePersistedFailureError(
@@ -95,7 +92,7 @@ class ValidateWorkflowIR(Stage):
             kind="validation_report",
             obj=json.loads(report.model_dump_json()),
             created_by="ValidateWorkflowIR",
-            parent_ids=[self._workflow_ir_artifact_id],
+            parent_ids=[target_id],
         )
 
         if not report.passed and self._raise_on_failure:

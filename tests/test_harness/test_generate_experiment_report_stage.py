@@ -20,6 +20,7 @@ import pytest
 @pytest.fixture()
 def ctx(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.gateways.stub import StubAgentGateway
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
     from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
@@ -28,12 +29,14 @@ def ctx(tmp_path: Path):
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
     provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    gateway = StubAgentGateway(artifact_store=artifacts)
     return HarnessRunContext(
         run_id="run-gen-report",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
         provenance_store=provenance,
+        agent_gateway=gateway,
     )
 
 
@@ -50,9 +53,7 @@ def user_plan_ref(ctx):
 
 @pytest.fixture()
 def stub(ctx):
-    from molexp.harness.gateways.stub import StubAgentGateway
-
-    return StubAgentGateway(artifact_store=ctx.artifact_store)
+    return ctx.agent_gateway
 
 
 def test_generate_experiment_report_name() -> None:
@@ -88,16 +89,11 @@ def test_generate_experiment_report_builds_correct_spec(ctx, user_plan_ref, stub
         },
     )
 
-    gateway = cast(AgentGateway, CapturingGateway())
+    object.__setattr__(ctx, "_frozen", False)
+    ctx.agent_gateway = cast(AgentGateway, CapturingGateway())
+    object.__setattr__(ctx, "_frozen", True)
     runner = StageRunner(ctx)
-    asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(
-                user_plan_artifact_id=user_plan_ref.id,
-                gateway=gateway,
-            )
-        )
-    )
+    asyncio.run(runner.run_stage(GenerateExperimentReport()))
 
     assert len(captured) == 1
     spec = captured[0]
@@ -120,14 +116,7 @@ def test_generate_experiment_report_wires_provenance(ctx, user_plan_ref, stub) -
         },
     )
     runner = StageRunner(ctx)
-    report_ref = asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(
-                user_plan_artifact_id=user_plan_ref.id,
-                gateway=stub,
-            )
-        )
-    )
+    report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
     assert report_ref.kind == "experiment_report"
     assert user_plan_ref.id in report_ref.parent_ids
     ancestors = ctx.provenance_store.trace_backward(report_ref.id)
@@ -148,14 +137,7 @@ def test_generate_experiment_report_event_log_quartet(ctx, user_plan_ref, stub) 
         },
     )
     runner = StageRunner(ctx)
-    asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(
-                user_plan_artifact_id=user_plan_ref.id,
-                gateway=stub,
-            )
-        )
-    )
+    asyncio.run(runner.run_stage(GenerateExperimentReport()))
     events = ctx.event_log.list_events("run-gen-report")
     assert [e.type for e in events] == [
         "stage_started",

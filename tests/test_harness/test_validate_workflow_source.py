@@ -248,7 +248,7 @@ def test_validate_workflow_source_compiles_valid_to_workflow(ctx) -> None:
     from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
     ws_ref = _seed_workflow_source(ctx, VALID_SOURCE)
-    stage = ValidateWorkflowSource(workflow_source_artifact_id=ws_ref.id)
+    stage = ValidateWorkflowSource()
     report_ref = asyncio.run(stage.run(ctx))
 
     assert report_ref.kind == "validation_report"
@@ -286,8 +286,8 @@ def test_validate_workflow_source_persists_report_and_raises(ctx, source: str) -
     from molexp.harness.schemas.validation import ValidationReport
     from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
-    ws_ref = _seed_workflow_source(ctx, source)
-    stage = ValidateWorkflowSource(workflow_source_artifact_id=ws_ref.id)
+    _seed_workflow_source(ctx, source)
+    stage = ValidateWorkflowSource()
 
     with pytest.raises(StageExecutionError) as exc_info:
         asyncio.run(stage.run(ctx))
@@ -330,8 +330,8 @@ def test_syntax_and_private_rejected_before_exec(ctx, monkeypatch) -> None:
 
     for source in (SYNTAX_ERROR_SOURCE, PRIVATE_IMPORT_SOURCE):
         exec_calls.clear()
-        ws_ref = _seed_workflow_source(ctx, source)
-        stage = ValidateWorkflowSource(workflow_source_artifact_id=ws_ref.id)
+        _seed_workflow_source(ctx, source)
+        stage = ValidateWorkflowSource()
         with pytest.raises(StagePersistedFailureError):
             asyncio.run(stage.run(ctx))
         assert exec_calls == [], f"exec must not run for ast-rejected source ({source[:20]!r})"
@@ -354,8 +354,8 @@ def test_valid_source_exec_uses_restricted_builtins(ctx, monkeypatch) -> None:
 
     monkeypatch.setattr(builtins, "exec", _capturing_exec)
 
-    ws_ref = _seed_workflow_source(ctx, VALID_SOURCE)
-    stage = ValidateWorkflowSource(workflow_source_artifact_id=ws_ref.id)
+    _seed_workflow_source(ctx, VALID_SOURCE)
+    stage = ValidateWorkflowSource()
     asyncio.run(stage.run(ctx))
 
     assert captured_globals, "exec was expected to run for the valid fixture"

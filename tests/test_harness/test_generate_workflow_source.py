@@ -123,8 +123,8 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
 
-    bw_ref = _seed_bw_ref(ctx_no_gw.artifact_store)
-    stage = GenerateWorkflowSource(bound_workflow_artifact_id=bw_ref.id)
+    _seed_bw_ref(ctx_no_gw.artifact_store)
+    stage = GenerateWorkflowSource()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx_no_gw))
     assert "agent_gateway" in str(exc.value)
@@ -153,7 +153,7 @@ def test_builds_correct_spec(ctx_with_gw) -> None:
     ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
     object.__setattr__(ctx_with_gw, "_frozen", True)
 
-    asyncio.run(GenerateWorkflowSource(bound_workflow_artifact_id=bw_ref.id).run(ctx_with_gw))
+    asyncio.run(GenerateWorkflowSource().run(ctx_with_gw))
     assert len(captured) == 1
     spec = captured[0]
     assert spec.agent_name == "workflow_source_writer"
@@ -170,6 +170,6 @@ def test_persists_workflow_source_artifact_with_lineage(ctx_with_gw) -> None:
         output=_workflow_source_canned(),
         output_kind="workflow_source",
     )
-    ref = asyncio.run(GenerateWorkflowSource(bound_workflow_artifact_id=bw_ref.id).run(ctx_with_gw))
+    ref = asyncio.run(GenerateWorkflowSource().run(ctx_with_gw))
     assert ref.kind == "workflow_source"
     assert bw_ref.id in ref.parent_ids

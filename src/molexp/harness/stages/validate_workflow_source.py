@@ -38,6 +38,7 @@ from molexp.harness.schemas import (
     ValidationViolation,
     WorkflowSource,
 )
+from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.workflow_source import validate_workflow_source
 
 __all__ = ["ValidateWorkflowSource"]
@@ -71,17 +72,11 @@ class ValidateWorkflowSource(Stage):
 
     name: ClassVar[str] = "validate_workflow_source"
 
-    def __init__(
-        self,
-        workflow_source_artifact_id: str,
-        *,
-        raise_on_failure: bool = True,
-    ) -> None:
-        self._workflow_source_artifact_id = workflow_source_artifact_id
+    def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
-        target = self._workflow_source_artifact_id
+        target = require_latest(ctx, "workflow_source", stage=self.name).id
         raw = ctx.artifact_store.get(target)
 
         try:
@@ -97,13 +92,14 @@ class ValidateWorkflowSource(Stage):
                     )
                 ],
                 f"WorkflowSource parse failed: {exc!r}",
+                target=target,
             )
 
         # Pure pre-checks first — reject syntax errors + private imports BEFORE
         # any compile/exec of the untrusted source.
         report = validate_workflow_source(ws.source, target_id=target)
         if not report.passed:
-            return self._persist_report_and_maybe_raise(ctx, report)
+            return self._persist_report_and_maybe_raise(ctx, report, target=target)
 
         # Pre-checks passed: lazily import the engine and compile the program.
         violations = self._compile_violations(ws.source)
@@ -111,6 +107,7 @@ class ValidateWorkflowSource(Stage):
             ctx,
             violations,
             f"generated workflow source did not build: {[v.code for v in violations]}",
+            target=target,
         )
 
     def _compile_violations(self, source: str) -> list[ValidationViolation]:
@@ -167,25 +164,29 @@ class ValidateWorkflowSource(Stage):
         ctx: HarnessRunContext,
         violations: list[ValidationViolation],
         error_message: str,
+        *,
+        target: str,
     ) -> ArtifactRef:
         report = ValidationReport.from_violations(
             target_kind="workflow_source",
-            target_id=self._workflow_source_artifact_id,
+            target_id=target,
             violations=violations,
         )
-        return self._persist_report_and_maybe_raise(ctx, report, error_message)
+        return self._persist_report_and_maybe_raise(ctx, report, error_message, target=target)
 
     def _persist_report_and_maybe_raise(
         self,
         ctx: HarnessRunContext,
         report: ValidationReport,
         error_message: str | None = None,
+        *,
+        target: str,
     ) -> ArtifactRef:
         report_ref = ctx.artifact_store.put_json(
             kind="validation_report",
             obj=json.loads(report.model_dump_json()),
             created_by="ValidateWorkflowSource",
-            parent_ids=[self._workflow_source_artifact_id],
+            parent_ids=[target],
         )
         if not report.passed and self._raise_on_failure:
             codes = [v.code for v in report.violations if v.severity == "error"]

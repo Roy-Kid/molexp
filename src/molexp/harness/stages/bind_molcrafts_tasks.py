@@ -14,6 +14,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
 from molexp.harness.schemas import AgentCallSpec, ArtifactRef, BoundWorkflow
+from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["BindMolcraftsTasks"]
 
@@ -23,15 +24,13 @@ class BindMolcraftsTasks(Stage):
 
     name: ClassVar[str] = "bind_molcrafts_tasks"
 
-    def __init__(self, workflow_ir_artifact_id: str) -> None:
-        self._workflow_ir_artifact_id = workflow_ir_artifact_id
-
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("BindMolcraftsTasks requires ctx.agent_gateway to be set")
+        ir = require_latest(ctx, "workflow_ir", stage=self.name)
         spec = AgentCallSpec(
             agent_name="bound_workflow_binder",
-            input_artifact_ids=[self._workflow_ir_artifact_id],
+            input_artifact_ids=[ir.id],
             output_schema=BoundWorkflow.model_json_schema(),
         )
         result = await ctx.agent_gateway.call(spec)

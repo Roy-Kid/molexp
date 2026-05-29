@@ -259,21 +259,12 @@ async def _drive(workspace: Path) -> dict[str, Any]:
     runner = StageRunner(ctx)
 
     user_plan = await runner.run_stage(SaveUserPlan(user_text="Simulate water NEMD"))
-    report = await runner.run_stage(
-        GenerateExperimentReport(user_plan_artifact_id=user_plan.id, gateway=gateway)
-    )
-    workflow_ir = await runner.run_stage(ExtractWorkflowIR(experiment_report_artifact_id=report.id))
-    ir_validation = await runner.run_stage(
-        ValidateWorkflowIR(workflow_ir_artifact_id=workflow_ir.id)
-    )
-    bound_wf = await runner.run_stage(BindMolcraftsTasks(workflow_ir_artifact_id=workflow_ir.id))
-    bw_validation = await runner.run_stage(
-        ValidateBoundWorkflow(
-            bound_workflow_artifact_id=bound_wf.id,
-            workflow_ir_artifact_id=workflow_ir.id,
-        )
-    )
-    test_spec = await runner.run_stage(GenerateTestSpec(bound_workflow_artifact_id=bound_wf.id))
+    report = await runner.run_stage(GenerateExperimentReport())
+    workflow_ir = await runner.run_stage(ExtractWorkflowIR())
+    ir_validation = await runner.run_stage(ValidateWorkflowIR())
+    bound_wf = await runner.run_stage(BindMolcraftsTasks())
+    bw_validation = await runner.run_stage(ValidateBoundWorkflow())
+    test_spec = await runner.run_stage(GenerateTestSpec())
     # ApprovalGate takes pre-resolved (request, decision) pairs. In a real
     # interactive pipeline the orchestrator would surface the request to a
     # human reviewer; here we auto-grant for the offline demo.

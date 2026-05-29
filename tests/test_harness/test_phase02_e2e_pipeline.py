@@ -61,17 +61,13 @@ def test_e2e_pipeline_three_layer_provenance(ctx) -> None:
         },
         raw_text="<verbatim LLM response>",
     )
+    object.__setattr__(ctx, "_frozen", False)
+    ctx.agent_gateway = stub
+    object.__setattr__(ctx, "_frozen", True)
 
     runner = StageRunner(ctx)
     user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water at 300K")))
-    report_ref = asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(
-                user_plan_artifact_id=user_plan_ref.id,
-                gateway=stub,
-            )
-        )
-    )
+    report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
 
     # Three-layer chain: raw_text → user_plan → experiment_report.
     ancestors = ctx.provenance_store.trace_backward(report_ref.id)
@@ -104,16 +100,12 @@ def test_e2e_event_log_contains_two_stage_quartets(ctx) -> None:
             "experimental_design": "e",
         },
     )
+    object.__setattr__(ctx, "_frozen", False)
+    ctx.agent_gateway = stub
+    object.__setattr__(ctx, "_frozen", True)
     runner = StageRunner(ctx)
-    user_plan_ref = asyncio.run(runner.run_stage(SaveUserPlan(user_text="hi")))
-    asyncio.run(
-        runner.run_stage(
-            GenerateExperimentReport(
-                user_plan_artifact_id=user_plan_ref.id,
-                gateway=stub,
-            )
-        )
-    )
+    asyncio.run(runner.run_stage(SaveUserPlan(user_text="hi")))
+    asyncio.run(runner.run_stage(GenerateExperimentReport()))
     events = ctx.event_log.list_events("run-e2e")
     types = [e.type for e in events]
     assert types == [

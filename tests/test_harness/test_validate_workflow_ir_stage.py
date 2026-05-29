@@ -2,7 +2,7 @@
 
 Locks:
 - Stage subclass, name="validate_workflow_ir"
-- positional: workflow_ir_artifact_id; keyword-only: raise_on_failure (default True)
+- resolves latest workflow_ir from the store; keyword-only: raise_on_failure (default True)
 - happy path persists validation_report artifact + returns its ref
 - strict failure (default) raises StageExecutionError AFTER persisting report
 - soft failure (raise_on_failure=False) returns ref without raising
@@ -123,7 +123,7 @@ def test_happy_path_persists_validation_report_and_returns_ref(ctx) -> None:
     from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
     ir_ref = _seed_workflow_ir(ctx, _valid_workflow_ir_dict())
-    stage = ValidateWorkflowIR(workflow_ir_artifact_id=ir_ref.id)
+    stage = ValidateWorkflowIR()
     report_ref = asyncio.run(stage.run(ctx))
 
     assert report_ref.kind == "validation_report"
@@ -142,8 +142,8 @@ def test_strict_failure_raises_after_persisting_report(ctx) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
-    ir_ref = _seed_workflow_ir(ctx, _invalid_workflow_ir_dict_with_cycle())
-    stage = ValidateWorkflowIR(workflow_ir_artifact_id=ir_ref.id)  # default raise_on_failure=True
+    _seed_workflow_ir(ctx, _invalid_workflow_ir_dict_with_cycle())
+    stage = ValidateWorkflowIR()  # default raise_on_failure=True
 
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx))
@@ -163,8 +163,8 @@ def test_strict_failure_raises_after_persisting_report(ctx) -> None:
 def test_soft_failure_returns_ref_without_raising(ctx) -> None:
     from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
-    ir_ref = _seed_workflow_ir(ctx, _invalid_workflow_ir_dict_with_cycle())
-    stage = ValidateWorkflowIR(workflow_ir_artifact_id=ir_ref.id, raise_on_failure=False)
+    _seed_workflow_ir(ctx, _invalid_workflow_ir_dict_with_cycle())
+    stage = ValidateWorkflowIR(raise_on_failure=False)
     report_ref = asyncio.run(stage.run(ctx))
     assert report_ref.kind == "validation_report"
 
@@ -188,13 +188,13 @@ def test_unparseable_input_persists_parse_error_report_and_raises(ctx) -> None:
     from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
     # Seed a non-WorkflowIR artifact under the kind="workflow_ir" slot.
-    bogus_ref = ctx.artifact_store.put_json(
+    ctx.artifact_store.put_json(
         kind="workflow_ir",
         obj={"not": "a workflow ir at all"},
         created_by="seed",
         parent_ids=[],
     )
-    stage = ValidateWorkflowIR(workflow_ir_artifact_id=bogus_ref.id)
+    stage = ValidateWorkflowIR()
 
     with pytest.raises(StageExecutionError) as exc_info:
         asyncio.run(stage.run(ctx))
@@ -217,13 +217,13 @@ def test_unparseable_input_soft_mode_returns_parse_error_report(ctx) -> None:
     from molexp.harness.schemas.validation import ValidationReport
     from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
-    bogus_ref = ctx.artifact_store.put_json(
+    ctx.artifact_store.put_json(
         kind="workflow_ir",
         obj={"oops": True},
         created_by="seed",
         parent_ids=[],
     )
-    stage = ValidateWorkflowIR(workflow_ir_artifact_id=bogus_ref.id, raise_on_failure=False)
+    stage = ValidateWorkflowIR(raise_on_failure=False)
     report_ref = asyncio.run(stage.run(ctx))
     raw = ctx.artifact_store.get(report_ref.id)
     report = ValidationReport.model_validate(json.loads(raw))

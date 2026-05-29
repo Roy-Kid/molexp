@@ -20,8 +20,9 @@ from typing import ClassVar
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
-from molexp.harness.gateways.gateway import AgentGateway
+from molexp.harness.errors import StageExecutionError
 from molexp.harness.schemas import AgentCallSpec, ArtifactRef, ExperimentReport
+from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["GenerateExperimentReport"]
 
@@ -31,19 +32,16 @@ class GenerateExperimentReport(Stage):
 
     name: ClassVar[str] = "generate_experiment_report"
 
-    def __init__(
-        self,
-        user_plan_artifact_id: str,
-        gateway: AgentGateway,
-    ) -> None:
-        self._user_plan_artifact_id = user_plan_artifact_id
-        self._gateway = gateway
-
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:  # noqa: ARG002  — `ctx` is the Stage ABC's contract; this stage delegates to its injected gateway, which already holds an ArtifactStore reference
+    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+        if ctx.agent_gateway is None:
+            raise StageExecutionError(
+                "GenerateExperimentReport requires ctx.agent_gateway to be set"
+            )
+        user_plan = require_latest(ctx, "user_plan", stage=self.name)
         spec = AgentCallSpec(
             agent_name="experiment_report_writer",
-            input_artifact_ids=[self._user_plan_artifact_id],
+            input_artifact_ids=[user_plan.id],
             output_schema=ExperimentReport.model_json_schema(),
         )
-        result = await self._gateway.call(spec)
+        result = await ctx.agent_gateway.call(spec)
         return result.output_artifact

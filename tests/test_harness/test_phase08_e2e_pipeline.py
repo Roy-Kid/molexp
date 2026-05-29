@@ -112,29 +112,12 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
     runner = StageRunner(ctx)
 
     user_plan = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water")))
-    report = asyncio.run(
-        runner.run_stage(GenerateExperimentReport(user_plan_artifact_id=user_plan.id, gateway=stub))
-    )
-    workflow_ir = asyncio.run(
-        runner.run_stage(ExtractWorkflowIR(experiment_report_artifact_id=report.id))
-    )
-    ir_validation = asyncio.run(
-        runner.run_stage(ValidateWorkflowIR(workflow_ir_artifact_id=workflow_ir.id))
-    )
-    bound_wf = asyncio.run(
-        runner.run_stage(BindMolcraftsTasks(workflow_ir_artifact_id=workflow_ir.id))
-    )
-    bw_validation = asyncio.run(
-        runner.run_stage(
-            ValidateBoundWorkflow(
-                bound_workflow_artifact_id=bound_wf.id,
-                workflow_ir_artifact_id=workflow_ir.id,
-            )
-        )
-    )
-    test_spec = asyncio.run(
-        runner.run_stage(GenerateTestSpec(bound_workflow_artifact_id=bound_wf.id))
-    )
+    report = asyncio.run(runner.run_stage(GenerateExperimentReport()))
+    workflow_ir = asyncio.run(runner.run_stage(ExtractWorkflowIR()))
+    ir_validation = asyncio.run(runner.run_stage(ValidateWorkflowIR()))
+    bound_wf = asyncio.run(runner.run_stage(BindMolcraftsTasks()))
+    bw_validation = asyncio.run(runner.run_stage(ValidateBoundWorkflow()))
+    test_spec = asyncio.run(runner.run_stage(GenerateTestSpec()))
 
     # Sanity kinds
     assert user_plan.kind == "user_plan"

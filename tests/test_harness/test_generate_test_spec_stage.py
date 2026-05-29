@@ -95,8 +95,8 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
-    bw_ref = _seed_bw_ref(ctx_no_gw.artifact_store)
-    stage = GenerateTestSpec(bound_workflow_artifact_id=bw_ref.id)
+    _seed_bw_ref(ctx_no_gw.artifact_store)
+    stage = GenerateTestSpec()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx_no_gw))
     assert "agent_gateway" in str(exc.value)
@@ -125,7 +125,7 @@ def test_builds_correct_spec(ctx_with_gw) -> None:
     ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
     object.__setattr__(ctx_with_gw, "_frozen", True)
 
-    asyncio.run(GenerateTestSpec(bound_workflow_artifact_id=bw_ref.id).run(ctx_with_gw))
+    asyncio.run(GenerateTestSpec().run(ctx_with_gw))
     assert len(captured) == 1
     spec = captured[0]
     assert spec.agent_name == "test_spec_writer"
@@ -142,6 +142,6 @@ def test_returns_test_spec_ref(ctx_with_gw) -> None:
         output=_test_spec_canned(),
         output_kind="test_spec",
     )
-    ref = asyncio.run(GenerateTestSpec(bound_workflow_artifact_id=bw_ref.id).run(ctx_with_gw))
+    ref = asyncio.run(GenerateTestSpec().run(ctx_with_gw))
     assert ref.kind == "test_spec"
     assert bw_ref.id in ref.parent_ids

@@ -113,10 +113,7 @@ def test_happy_path_persists_report_and_returns_ref(ctx) -> None:
     from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
     ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
-    stage = ValidateBoundWorkflow(
-        bound_workflow_artifact_id=bw_ref.id,
-        workflow_ir_artifact_id=ir_ref.id,
-    )
+    stage = ValidateBoundWorkflow()
     report_ref = asyncio.run(stage.run(ctx))
     assert report_ref.kind == "validation_report"
     assert bw_ref.id in report_ref.parent_ids
@@ -134,12 +131,9 @@ def test_strict_failure_raises_after_persisting(ctx) -> None:
 
     bad_bw = _valid_bw_dict()
     bad_bw["resource_policy"]["denied_paths"] = []  # missing baseline deny
-    ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), bad_bw)
+    _seed_pair(ctx, _valid_ir_dict(), bad_bw)
 
-    stage = ValidateBoundWorkflow(
-        bound_workflow_artifact_id=bw_ref.id,
-        workflow_ir_artifact_id=ir_ref.id,
-    )
+    stage = ValidateBoundWorkflow()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx))
     assert "missing_baseline_deny" in str(exc.value)
@@ -155,13 +149,9 @@ def test_soft_failure_returns_ref(ctx) -> None:
 
     bad_bw = _valid_bw_dict()
     bad_bw["resource_policy"]["denied_paths"] = []
-    ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), bad_bw)
+    _seed_pair(ctx, _valid_ir_dict(), bad_bw)
 
-    stage = ValidateBoundWorkflow(
-        bound_workflow_artifact_id=bw_ref.id,
-        workflow_ir_artifact_id=ir_ref.id,
-        raise_on_failure=False,
-    )
+    stage = ValidateBoundWorkflow(raise_on_failure=False)
     ref = asyncio.run(stage.run(ctx))
     assert ref.kind == "validation_report"
 
@@ -190,11 +180,8 @@ def test_uses_ctx_capability_registry_when_set(tmp_path: Path) -> None:
         provenance_store=p,
         capability_registry=registry,
     )
-    ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
-    stage = ValidateBoundWorkflow(
-        bound_workflow_artifact_id=bw_ref.id,
-        workflow_ir_artifact_id=ir_ref.id,
-    )
+    _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
+    stage = ValidateBoundWorkflow()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx))
     assert "unknown_capability" in str(exc.value)

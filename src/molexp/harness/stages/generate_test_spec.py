@@ -14,6 +14,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
 from molexp.harness.schemas import AgentCallSpec, ArtifactRef, TestSpec
+from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["GenerateTestSpec"]
 
@@ -23,15 +24,13 @@ class GenerateTestSpec(Stage):
 
     name: ClassVar[str] = "generate_test_spec"
 
-    def __init__(self, bound_workflow_artifact_id: str) -> None:
-        self._bound_workflow_artifact_id = bound_workflow_artifact_id
-
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("GenerateTestSpec requires ctx.agent_gateway to be set")
+        bound = require_latest(ctx, "bound_workflow", stage=self.name)
         spec = AgentCallSpec(
             agent_name="test_spec_writer",
-            input_artifact_ids=[self._bound_workflow_artifact_id],
+            input_artifact_ids=[bound.id],
             output_schema=TestSpec.model_json_schema(),
         )
         result = await ctx.agent_gateway.call(spec)

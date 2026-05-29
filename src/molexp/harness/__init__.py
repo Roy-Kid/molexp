@@ -43,6 +43,7 @@ from molexp.harness.errors import (
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.mode import Mode
+from molexp.harness.modes import PlanMode
 from molexp.harness.policy import (
     evaluate_approval_policy,
     make_final_report_approval_request,
@@ -166,6 +167,7 @@ __all__ = [
     "ParameterSource",
     "ParameterValue",
     "PathPolicy",
+    "PlanMode",
     "ProvenanceStore",
     "ResourcePolicy",
     "RouterBackedAgentGateway",

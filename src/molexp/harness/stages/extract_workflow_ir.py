@@ -23,6 +23,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
 from molexp.harness.schemas import AgentCallSpec, ArtifactRef, WorkflowIR
+from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["ExtractWorkflowIR"]
 
@@ -32,15 +33,13 @@ class ExtractWorkflowIR(Stage):
 
     name: ClassVar[str] = "extract_workflow_ir"
 
-    def __init__(self, experiment_report_artifact_id: str) -> None:
-        self._experiment_report_artifact_id = experiment_report_artifact_id
-
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("ExtractWorkflowIR requires ctx.agent_gateway to be set")
+        report = require_latest(ctx, "experiment_report", stage=self.name)
         spec = AgentCallSpec(
             agent_name="workflow_ir_extractor",
-            input_artifact_ids=[self._experiment_report_artifact_id],
+            input_artifact_ids=[report.id],
             output_schema=WorkflowIR.model_json_schema(),
         )
         result = await ctx.agent_gateway.call(spec)

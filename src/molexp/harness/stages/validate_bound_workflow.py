@@ -26,6 +26,7 @@ from molexp.harness.schemas import (
     ValidationViolation,
     WorkflowIR,
 )
+from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.bound_workflow import validate_bound_workflow
 
 __all__ = ["ValidateBoundWorkflow"]
@@ -36,20 +37,14 @@ class ValidateBoundWorkflow(Stage):
 
     name: ClassVar[str] = "validate_bound_workflow"
 
-    def __init__(
-        self,
-        bound_workflow_artifact_id: str,
-        workflow_ir_artifact_id: str,
-        *,
-        raise_on_failure: bool = True,
-    ) -> None:
-        self._bw_artifact_id = bound_workflow_artifact_id
-        self._ir_artifact_id = workflow_ir_artifact_id
+    def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
-        bw_raw = ctx.artifact_store.get(self._bw_artifact_id)
-        ir_raw = ctx.artifact_store.get(self._ir_artifact_id)
+        bw_id = require_latest(ctx, "bound_workflow", stage=self.name).id
+        ir_id = require_latest(ctx, "workflow_ir", stage=self.name).id
+        bw_raw = ctx.artifact_store.get(bw_id)
+        ir_raw = ctx.artifact_store.get(ir_id)
 
         try:
             bw = BoundWorkflow.model_validate_json(bw_raw)
@@ -57,7 +52,7 @@ class ValidateBoundWorkflow(Stage):
         except Exception as exc:
             report = ValidationReport.from_violations(
                 target_kind="bound_workflow",
-                target_id=self._bw_artifact_id,
+                target_id=bw_id,
                 violations=[
                     ValidationViolation(
                         code="bound_workflow_parse_error",
@@ -72,7 +67,7 @@ class ValidateBoundWorkflow(Stage):
                 kind="validation_report",
                 obj=json.loads(report.model_dump_json()),
                 created_by="ValidateBoundWorkflow",
-                parent_ids=[self._bw_artifact_id, self._ir_artifact_id],
+                parent_ids=[bw_id, ir_id],
             )
             if self._raise_on_failure:
                 raise StagePersistedFailureError(
@@ -92,7 +87,7 @@ class ValidateBoundWorkflow(Stage):
             kind="validation_report",
             obj=json.loads(report.model_dump_json()),
             created_by="ValidateBoundWorkflow",
-            parent_ids=[self._bw_artifact_id, self._ir_artifact_id],
+            parent_ids=[bw_id, ir_id],
         )
 
         if not report.passed and self._raise_on_failure:
