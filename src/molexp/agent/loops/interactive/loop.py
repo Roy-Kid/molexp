@@ -1,6 +1,6 @@
-"""``InteractiveMode`` — the emergent, tool-using agentic loop.
+"""``InteractiveLoop`` — the emergent, tool-using agentic loop.
 
-The CLI's default interactive mode. Plain ``async def run`` body
+The CLI's default interactive loop. Plain ``async def run`` body
 drives :meth:`molexp.agent.router.Router.stream_agentic` and forwards
 each :data:`AgenticChunk` to the injected sink as the corresponding
 :data:`AgentEvent`:
@@ -12,15 +12,15 @@ each :data:`AgenticChunk` to the injected sink as the corresponding
   to the session entry-tree; emitted as ``ModeCompletedEvent``)
 
 Read-only tools are pulled from
-:func:`~molexp.agent.modes.interactive.tools.readonly_tools` and passed
+:func:`~molexp.agent.loops.interactive.tools.readonly_tools` and passed
 to ``stream_agentic`` as the ``tools=`` kwarg; the loop body itself is
 pydantic-ai's native ``Agent.iter()``, reached through the Router
 Protocol — this module imports nothing from pydantic-ai directly.
 
-Post spec ``harness-as-mode-substrate-03b``, PlanMode is gone from the
-agent layer, so the prior ``/plan`` slash-command delegation is removed.
-The CLI now reaches the harness pipeline via a separate entry point
-(``examples/harness/full_pipeline.py`` until a dedicated CLI lands).
+The harness's planning pipeline lives in ``molexp.harness.PlanMode`` (a
+harness ``Mode``), reached through the ``AgentGateway`` Protocol — not from
+this agent loop. See ``examples/harness/plan_mode_offline.py`` (deterministic)
+and ``plan_mode_live.py`` (real DeepSeek) for the end-to-end flow.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ from molexp.agent.events import (
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from molexp.agent.mode import AgentMode, AgentRunResult
-from molexp.agent.modes.interactive.tools import readonly_tools
+from molexp.agent.loop import AgentLoop, AgentRunResult
+from molexp.agent.loops.interactive.tools import readonly_tools
 from molexp.agent.router import (
     FinalChunk,
     TextDeltaChunk,
@@ -54,11 +54,11 @@ if TYPE_CHECKING:
 
 _LOG = get_logger(__name__)
 
-__all__ = ["InteractiveMode", "InteractiveModeConfig"]
+__all__ = ["InteractiveLoop", "InteractiveLoopConfig"]
 
 
-class InteractiveModeConfig(BaseModel):
-    """Tunables for :class:`InteractiveMode`.
+class InteractiveLoopConfig(BaseModel):
+    """Tunables for :class:`InteractiveLoop`.
 
     Attributes:
         system_prompt: Extra system-prompt text appended to the
@@ -74,13 +74,13 @@ class InteractiveModeConfig(BaseModel):
     workspace_root: Path | None = None
 
 
-class InteractiveMode(AgentMode):
-    """The emergent tool-using loop — the CLI's default interactive mode."""
+class InteractiveLoop(AgentLoop):
+    """The emergent tool-using loop — the CLI's default interactive loop."""
 
     name = "interactive"
 
-    def __init__(self, *, config: InteractiveModeConfig | None = None) -> None:
-        self.config = config or InteractiveModeConfig()
+    def __init__(self, *, config: InteractiveLoopConfig | None = None) -> None:
+        self.config = config or InteractiveLoopConfig()
 
     async def run(
         self,

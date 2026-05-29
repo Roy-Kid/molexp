@@ -1,7 +1,7 @@
-"""``ChatMode`` — the minimal one-turn LLM mode.
+"""``ChatLoop`` — the minimal one-turn LLM loop.
 
-ChatMode is one ``user_input`` → one LLM round-trip → one
-:class:`~molexp.agent.mode.AgentRunResult`. Plain ``async def run`` body
+ChatLoop is one ``user_input`` → one LLM round-trip → one
+:class:`~molexp.agent.loop.AgentRunResult`. Plain ``async def run`` body
 (no ``Stage`` / ``ModePipeline`` / ``RepairPolicy``); events flow
 through the injected :class:`~molexp.agent.events.AsyncIteratorEventSink`
 in emission order.
@@ -23,17 +23,17 @@ from molexp.agent.events import (
     ModeCompletedEvent,
     ModeStartedEvent,
 )
-from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.types import Message
 
 _LOG = get_logger(__name__)
 
-__all__ = ["ChatMode", "ChatModeConfig"]
+__all__ = ["ChatLoop", "ChatLoopConfig"]
 
 
-class ChatModeConfig(BaseModel):
-    """Tunables for :class:`ChatMode`."""
+class ChatLoopConfig(BaseModel):
+    """Tunables for :class:`ChatLoop`."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -41,13 +41,13 @@ class ChatModeConfig(BaseModel):
     temperature: float | None = None
 
 
-class ChatMode(AgentMode):
+class ChatLoop(AgentLoop):
     """One ``user_input`` → one LLM round-trip → one :class:`AgentRunResult`."""
 
     name = "chat"
 
-    def __init__(self, *, config: ChatModeConfig | None = None) -> None:
-        self.config = config or ChatModeConfig()
+    def __init__(self, *, config: ChatLoopConfig | None = None) -> None:
+        self.config = config or ChatLoopConfig()
 
     async def run(
         self,
@@ -69,7 +69,7 @@ class ChatMode(AgentMode):
 
         breakdown = runtime.router.snapshot_usage()
         _LOG.info(
-            f"[chat-mode] usage in={breakdown.total.input_tokens} "
+            f"[chat-loop] usage in={breakdown.total.input_tokens} "
             f"out={breakdown.total.output_tokens} "
             f"total={breakdown.total.total_tokens} reqs={breakdown.total.requests}"
         )

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.agent.modes.interactive.tools import readonly_tools
+from molexp.agent.loops.interactive.tools import readonly_tools
 
 
 @pytest.fixture

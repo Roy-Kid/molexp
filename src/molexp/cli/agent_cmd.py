@@ -1,14 +1,14 @@
 """``molexp agent`` — the interactive agent REPL.
 
 A multi-turn REPL on top of the emergent
-:class:`~molexp.agent.modes.interactive.InteractiveMode`. Each turn
+:class:`~molexp.agent.loops.interactive.InteractiveLoop`. Each turn
 drives :meth:`AgentRunner.run_events` and hands the live
 :data:`~molexp.agent.events.AgentEvent` stream to the
 :class:`~molexp.cli.agent_render.AgentEventRenderer`.
 
 Slash-command split: **REPL-meta** commands (``/help``, ``/exit``,
 ``/quit``) are handled here and never reach the runner; **agent-semantic**
-commands (notably ``/plan``) are passed straight through — InteractiveMode
+commands (notably ``/plan``) are passed straight through — InteractiveLoop
 routes ``/plan`` deterministically to the structured planning pipeline.
 
 Heavy imports (``molexp.agent`` …) are deferred into the command body so
@@ -25,7 +25,7 @@ import typer
 
 if TYPE_CHECKING:
     from molexp.agent import AgentRunner
-    from molexp.agent.modes import InteractiveMode
+    from molexp.agent.loops import InteractiveLoop
     from molexp.agent.session import Session
 
 __all__ = ["agent"]
@@ -46,7 +46,7 @@ def _configured_model() -> str | None:
 
 def _make_runner(
     *,
-    mode: InteractiveMode,
+    loop: InteractiveLoop,
     model: str,
     workspace: Path,
 ) -> AgentRunner:
@@ -57,7 +57,7 @@ def _make_runner(
     """
     from molexp.agent import AgentRunner, cli_ask
 
-    return AgentRunner(mode=mode, model=model, workspace=workspace, approval=cli_ask)
+    return AgentRunner(loop=loop, model=model, workspace=workspace, approval=cli_ask)
 
 
 def _print_help() -> None:
@@ -121,8 +121,8 @@ def agent(
         typer.Option("--workspace", help="Workspace root; defaults to the current directory."),
     ] = None,
 ) -> None:
-    """Start an interactive molexp agent REPL (emergent InteractiveMode)."""
-    from molexp.agent.modes import InteractiveMode, InteractiveModeConfig
+    """Start an interactive molexp agent REPL (emergent InteractiveLoop)."""
+    from molexp.agent.loops import InteractiveLoop, InteractiveLoopConfig
     from molexp.cli._common import rprint
 
     workspace_root = (workspace or Path.cwd()).resolve()
@@ -134,7 +134,7 @@ def agent(
         )
         raise typer.Exit(1)
 
-    mode = InteractiveMode(config=InteractiveModeConfig(workspace_root=workspace_root))
-    runner = _make_runner(mode=mode, model=resolved_model, workspace=workspace_root)
+    loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=workspace_root))
+    runner = _make_runner(loop=loop, model=resolved_model, workspace=workspace_root)
     repl_session = runner.session(session)
     asyncio.run(_repl(runner, repl_session))

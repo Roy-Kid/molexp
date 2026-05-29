@@ -1,14 +1,14 @@
-"""Public agent surface — pydantic-ai facade + LLM-only modes.
+"""Public agent surface — pydantic-ai facade + LLM-only loops.
 
 Post spec ``harness-as-mode-substrate-03b`` the agent layer is a
 **pydantic-ai facade**: ``Session`` / ``Router`` / ``ExecutionEnv`` /
-``HookRegistry`` primitives + two LLM-only modes (:class:`ChatMode` for
-single round-trip, :class:`InteractiveMode` for the emergent tool loop).
+``HookRegistry`` primitives + two LLM-only loops (:class:`ChatLoop` for
+single round-trip, :class:`InteractiveLoop` for the emergent tool loop).
 Pipeline-style orchestration (Plan / Author / Run / Review) moved to
 :mod:`molexp.harness`.
 
 The user-visible surface is six names — :class:`AgentRunner`,
-:class:`AgentMode`, :class:`AgentRunResult`, :class:`AgentRuntime`,
+:class:`AgentLoop`, :class:`AgentRunResult`, :class:`AgentRuntime`,
 :class:`AgentSession` — plus three workflow-orthogonal approval
 primitives (:class:`ReviewDecision`, the :data:`ReviewPolicy` callable
 alias, and the bundled :func:`cli_ask` policy).
@@ -16,9 +16,9 @@ alias, and the bundled :func:`cli_ask` policy).
 ``AgentSession`` is the runtime conversation value — the
 :class:`~molexp.agent.session.Session` entry-tree class re-exported
 under the historical name. ``AgentRuntime`` is the frozen dataclass
-bundle a mode reaches for at run time (session + router +
+bundle a loop reaches for at run time (session + router +
 execution_env + hooks); ``AgentRunner`` constructs it once per
-:meth:`run` and passes it through to the mode.
+:meth:`run` and passes it through to the loop.
 
 Layer position: **agent uses workspace only**. The agent imports the
 public surface of workspace (for ``Workspace`` / ``Folder`` / session
@@ -39,14 +39,14 @@ Two SDKs sit behind import-boundary firewalls:
 Tool injection
 ==============
 
-To register tools on :class:`ChatMode` (or any single-shot mode that
+To register tools on :class:`ChatLoop` (or any single-shot loop that
 takes the runner's text path), build a :class:`pydantic_ai.tools.Tool`
 or pass a bare async callable — pydantic-ai accepts both shapes
 natively — then forward them through :class:`AgentRunner`::
 
     from pydantic_ai.tools import Tool
     from molexp.agent import AgentRunner
-    from molexp.agent.modes import ChatMode
+    from molexp.agent.loops import ChatLoop
 
 
     async def echo(message: str) -> str:
@@ -54,7 +54,7 @@ natively — then forward them through :class:`AgentRunner`::
 
 
     runner = AgentRunner(
-        mode=ChatMode(),
+        loop=ChatLoop(),
         model="openai:gpt-5.2",
         tools=(Tool(echo), echo),  # Tool instance OR bare callable
     )
@@ -66,14 +66,14 @@ See ``§ Architecture`` in CLAUDE.md and the import-guard tests under
 ``tests/test_agent/`` for the binding rules.
 """
 
-from molexp.agent.mode import AgentMode, AgentRunResult
+from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.review import ReviewDecision, ReviewPolicy, cli_ask
 from molexp.agent.runner import AgentRunner
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session as AgentSession
 
 __all__ = [
-    "AgentMode",
+    "AgentLoop",
     "AgentRunResult",
     "AgentRunner",
     "AgentRuntime",

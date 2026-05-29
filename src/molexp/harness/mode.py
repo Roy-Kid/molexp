@@ -14,10 +14,10 @@ caching and resume fall out cleanly:
   that fails mid-way leaves the completed stages recorded; re-running skips
   them and resumes from the failed stage.
 
-Contrast with :class:`molexp.agent.AgentMode`: that is an LLM-conversation
+Contrast with :class:`molexp.agent.AgentLoop`: that is an LLM-conversation
 coroutine streaming ``AgentEvent`` to a sink; ``harness.Mode`` is a multi-stage
-experiment-orchestration mode. The names coexist deliberately in sibling
-layers.
+experiment-orchestration mode. The agent side was renamed loop → so the
+``Mode`` name now belongs unambiguously to the harness layer.
 
 The eager loop here drives stages directly through the harness audit helper.
 A future workflow-engine *eager execution mode* (a clean task-by-task public

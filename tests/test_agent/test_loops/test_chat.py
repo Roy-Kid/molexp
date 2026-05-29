@@ -1,4 +1,4 @@
-"""``ChatMode`` unit tests — plain async + sink-driven (spec 03b)."""
+"""``ChatLoop`` unit tests — plain async + sink-driven (spec 03b)."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from molexp.agent.events import (
     ModeCompletedEvent,
     ModeStartedEvent,
 )
-from molexp.agent.modes import ChatMode, ChatModeConfig
+from molexp.agent.loops import ChatLoop, ChatLoopConfig
 from molexp.agent.router import AgenticChunk, ModelTier, RouterTextResult
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session
@@ -23,17 +23,17 @@ from molexp.agent.types import UsageBreakdown
 # ── config ─────────────────────────────────────────────────────────────────
 
 
-def test_chat_mode_carries_config() -> None:
-    cfg = ChatModeConfig(system_prompt="you are helpful")
-    mode = ChatMode(config=cfg)
-    assert mode.name == "chat"
-    assert mode.config is cfg
+def test_chat_loop_carries_config() -> None:
+    cfg = ChatLoopConfig(system_prompt="you are helpful")
+    loop = ChatLoop(config=cfg)
+    assert loop.name == "chat"
+    assert loop.config is cfg
 
 
-def test_chat_mode_config_is_frozen() -> None:
+def test_chat_loop_config_is_frozen() -> None:
     from pydantic import ValidationError
 
-    cfg = ChatModeConfig(system_prompt="x")
+    cfg = ChatLoopConfig(system_prompt="x")
     with pytest.raises(ValidationError):
         cfg.system_prompt = "y"  # type: ignore[misc]
 
@@ -61,7 +61,7 @@ class _CapturingRouter:
         return RouterTextResult(text=text)
 
     async def complete_structured(self, **_: object) -> object:
-        raise AssertionError("ChatMode never reaches complete_structured")
+        raise AssertionError("ChatLoop never reaches complete_structured")
 
     def stream_agentic(
         self,
@@ -86,7 +86,7 @@ class _CapturingRouter:
 
 
 def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime, Session]:
-    """Build a minimal :class:`AgentRuntime` for a ChatMode run."""
+    """Build a minimal :class:`AgentRuntime` for a ChatLoop run."""
     import tempfile
     from pathlib import Path
 
@@ -104,15 +104,15 @@ def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime
     return runtime, session
 
 
-# ── ChatMode emits the expected sink-event sequence ────────────────────────
+# ── ChatLoop emits the expected sink-event sequence ────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_emits_started_then_completed() -> None:
+async def test_chat_loop_emits_started_then_completed() -> None:
     router = _CapturingRouter(responses=["the answer"])
     runtime, _ = _runtime(router)
     sink = AsyncIteratorEventSink()
-    await ChatMode().run(runtime=runtime, sink=sink, user_input="ping")
+    await ChatLoop().run(runtime=runtime, sink=sink, user_input="ping")
     await sink.close()
     events = [ev async for ev in sink]
     assert isinstance(events[0], ModeStartedEvent)
@@ -121,11 +121,11 @@ async def test_chat_mode_emits_started_then_completed() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_records_turns_in_session_tree() -> None:
+async def test_chat_loop_records_turns_in_session_tree() -> None:
     router = _CapturingRouter(responses=["a reply"])
     runtime, session = _runtime(router)
     sink = AsyncIteratorEventSink()
-    await ChatMode().run(runtime=runtime, sink=sink, user_input="a question")
+    await ChatLoop().run(runtime=runtime, sink=sink, user_input="a question")
     await sink.close()
     messages = [e.message for e in session.path_to_root() if isinstance(e, MessageEntry)]
     roles_contents = [(m.role, m.content) for m in messages]
@@ -134,12 +134,12 @@ async def test_chat_mode_records_turns_in_session_tree() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_passes_system_prompt() -> None:
+async def test_chat_loop_passes_system_prompt() -> None:
     router = _CapturingRouter()
     runtime, _ = _runtime(router)
     sink = AsyncIteratorEventSink()
-    mode = ChatMode(config=ChatModeConfig(system_prompt="be terse"))
-    await mode.run(runtime=runtime, sink=sink, user_input="hi")
+    loop = ChatLoop(config=ChatLoopConfig(system_prompt="be terse"))
+    await loop.run(runtime=runtime, sink=sink, user_input="hi")
     await sink.close()
     assert router.calls[0]["system"] == "be terse"
 
@@ -148,7 +148,7 @@ async def test_chat_mode_passes_system_prompt() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_mode_run_returns_non_empty_text_via_test_model() -> None:
+async def test_chat_loop_run_returns_non_empty_text_via_test_model() -> None:
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
@@ -164,7 +164,7 @@ async def test_chat_mode_run_returns_non_empty_text_via_test_model() -> None:
     )
     runtime, _ = _runtime(router)  # type: ignore[arg-type]
     sink = AsyncIteratorEventSink()
-    await ChatMode().run(runtime=runtime, sink=sink, user_input="ping")
+    await ChatLoop().run(runtime=runtime, sink=sink, user_input="ping")
     await sink.close()
     events = [ev async for ev in sink]
     completed = events[-1]

@@ -1,14 +1,14 @@
-"""``AgentMode`` ABC + ``AgentRunResult`` value type.
+"""``AgentLoop`` ABC + ``AgentRunResult`` value type.
 
 Post spec ``harness-as-mode-substrate-03b`` the agent layer ships only
-two modes — :class:`~molexp.agent.modes.ChatMode` (one LLM round trip)
-and :class:`~molexp.agent.modes.InteractiveMode` (emergent tool loop).
+two loops — :class:`~molexp.agent.loops.ChatLoop` (one LLM round trip)
+and :class:`~molexp.agent.loops.InteractiveLoop` (emergent tool loop).
 Pipeline-style orchestration (Plan / Author / Run / Review) moved to
 :mod:`molexp.harness`, so the substrate that ran them (``Stage``,
 ``ModePipeline``, ``PipelineEdge``, ``RepairPolicy``,
 ``run_pipeline``) is gone.
 
-A mode is a plain async coroutine: ``async def run(*, runtime, sink,
+A loop is a plain async coroutine: ``async def run(*, runtime, sink,
 user_input) -> None``. Events flow through the injected
 :class:`~molexp.agent.events.AsyncIteratorEventSink`; the terminal
 :class:`~molexp.agent.events.ModeCompletedEvent` carries the JSON dump
@@ -32,15 +32,15 @@ if TYPE_CHECKING:
 class AgentRunResult(BaseModel):
     """Outcome of one ``AgentRunner.run(...)`` call.
 
-    Modes populate ``mode_state`` with mode-specific structured output;
-    ChatMode + InteractiveMode leave it ``None``.
+    Loops populate ``mode_state`` with loop-specific structured output;
+    ChatLoop + InteractiveLoop leave it ``None``.
 
     ``usage`` is the aggregate token / request count for the run;
     ``usage_breakdown`` is the per-call list (one entry per LLM round
     trip). Both default empty when no LLM call is made.
 
     ``events`` holds the accumulated orchestration-level
-    :data:`~molexp.agent.events.AgentEvent` stream the mode emitted
+    :data:`~molexp.agent.events.AgentEvent` stream the loop emitted
     while running — it defaults to ``()`` so callers that only want the
     terminal text are unaffected.
     """
@@ -55,8 +55,8 @@ class AgentRunResult(BaseModel):
     events: tuple[AgentEvent, ...] = ()
 
 
-class AgentMode(ABC):
-    """Abstract strategy a mode must implement to be drivable by ``AgentRunner``.
+class AgentLoop(ABC):
+    """Abstract strategy a loop must implement to be drivable by ``AgentRunner``.
 
     Subclasses set ``name`` to a stable identifier and implement
     :meth:`run` as a plain async coroutine that emits events through
@@ -66,7 +66,7 @@ class AgentMode(ABC):
 
     Resume contract
     ---------------
-    :meth:`resume` is a classmethod that reconstructs a mode instance
+    :meth:`resume` is a classmethod that reconstructs a loop instance
     from persisted state. The default raises :exc:`NotImplementedError`;
     subclasses override it to read their own on-disk format.
     """
@@ -81,9 +81,9 @@ class AgentMode(ABC):
         sink: AsyncIteratorEventSink,
         user_input: str,
     ) -> None:
-        """Drive the mode, emitting orchestration events through ``sink``.
+        """Drive the loop, emitting orchestration events through ``sink``.
 
-        The mode MUST emit a terminal
+        The loop MUST emit a terminal
         :class:`~molexp.agent.events.ModeCompletedEvent` whose
         ``result`` carries the JSON dump of the run's
         :class:`AgentRunResult` so the runner can rebuild it.
@@ -91,8 +91,8 @@ class AgentMode(ABC):
         ...
 
     @classmethod
-    def resume(cls, **kwargs: Any) -> AgentMode:  # noqa: ANN401
-        """Reconstruct this mode from persisted state.
+    def resume(cls, **kwargs: Any) -> AgentLoop:  # noqa: ANN401
+        """Reconstruct this loop from persisted state.
 
         Subclasses override this to read their own on-disk format.
         The default raises :exc:`NotImplementedError`.
@@ -113,4 +113,4 @@ def _rebuild_models() -> None:
 _rebuild_models()
 
 
-__all__ = ["AgentMode", "AgentRunResult"]
+__all__ = ["AgentLoop", "AgentRunResult"]

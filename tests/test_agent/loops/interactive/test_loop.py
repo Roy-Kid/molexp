@@ -1,9 +1,9 @@
-"""``InteractiveMode`` — emergent loop, sink-driven (spec 03b).
+"""``InteractiveLoop`` — emergent loop, sink-driven (spec 03b).
 
-Drives the mode through :class:`AgentRunner` with a scripted fake
+Drives the loop through :class:`AgentRunner` with a scripted fake
 :class:`~molexp.agent.router.Router`. After spec 03b the ``/plan``
 slash-command delegation is gone (PlanMode left the agent layer);
-InteractiveMode is purely the emergent tool loop translated into
+InteractiveLoop is purely the emergent tool loop translated into
 sink events.
 """
 
@@ -23,7 +23,7 @@ from molexp.agent.events import (
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
-from molexp.agent.modes.interactive import InteractiveMode, InteractiveModeConfig
+from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -41,7 +41,7 @@ from molexp.agent.types import UsageBreakdown
 
 
 class _ScriptedRouter:
-    """Fake :class:`~molexp.agent.router.Router` for the InteractiveMode tests.
+    """Fake :class:`~molexp.agent.router.Router` for the InteractiveLoop tests.
 
     ``stream_agentic`` replays a fixed chunk script that includes one
     tool round-trip. ``complete_text`` / ``complete_structured`` are
@@ -79,7 +79,7 @@ class _ScriptedRouter:
         return RouterTextResult(text=f"echo:{prompt}")
 
     async def complete_structured(self, **_: object) -> object:
-        raise AssertionError("InteractiveMode never reaches complete_structured")
+        raise AssertionError("InteractiveLoop never reaches complete_structured")
 
     def clear_usage(self) -> None:
         return None
@@ -88,8 +88,8 @@ class _ScriptedRouter:
         return UsageBreakdown()
 
 
-def _mode(tmp_path: Path) -> InteractiveMode:
-    return InteractiveMode(config=InteractiveModeConfig(workspace_root=tmp_path))
+def _loop(tmp_path: Path) -> InteractiveLoop:
+    return InteractiveLoop(config=InteractiveLoopConfig(workspace_root=tmp_path))
 
 
 def _kinds(events: list[AgentEvent]) -> list[type]:
@@ -99,7 +99,7 @@ def _kinds(events: list[AgentEvent]) -> list[type]:
 @pytest.mark.asyncio
 async def test_emergent_loop_translates_chunks_to_events(tmp_path: Path) -> None:
     router = _ScriptedRouter()
-    runner = AgentRunner(mode=_mode(tmp_path), router=router)  # type: ignore[arg-type]
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
     session = Session(storage=InMemorySessionStorage(), session_id="emergent")
 
     events = [ev async for ev in runner.run_events(session, "inspect the project")]
@@ -117,7 +117,7 @@ async def test_emergent_loop_translates_chunks_to_events(tmp_path: Path) -> None
 @pytest.mark.asyncio
 async def test_emergent_loop_event_ordering(tmp_path: Path) -> None:
     router = _ScriptedRouter()
-    runner = AgentRunner(mode=_mode(tmp_path), router=router)  # type: ignore[arg-type]
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
     session = Session(storage=InMemorySessionStorage(), session_id="ordering")
 
     events = [ev async for ev in runner.run_events(session, "inspect")]
@@ -137,7 +137,7 @@ async def test_emergent_loop_event_ordering(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_tool_call_events_carry_names_and_summaries(tmp_path: Path) -> None:
     router = _ScriptedRouter()
-    runner = AgentRunner(mode=_mode(tmp_path), router=router)  # type: ignore[arg-type]
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
     session = Session(storage=InMemorySessionStorage(), session_id="toolnames")
 
     events = [ev async for ev in runner.run_events(session, "inspect")]
@@ -153,7 +153,7 @@ async def test_tool_call_events_carry_names_and_summaries(tmp_path: Path) -> Non
 @pytest.mark.asyncio
 async def test_emergent_loop_persists_user_and_assistant_turns(tmp_path: Path) -> None:
     router = _ScriptedRouter()
-    runner = AgentRunner(mode=_mode(tmp_path), router=router)  # type: ignore[arg-type]
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
     session = Session(storage=InMemorySessionStorage(), session_id="turns")
 
     async for _ in runner.run_events(session, "what is here?"):
@@ -168,7 +168,7 @@ async def test_emergent_loop_persists_user_and_assistant_turns(tmp_path: Path) -
 @pytest.mark.asyncio
 async def test_run_returns_terminal_result(tmp_path: Path) -> None:
     router = _ScriptedRouter()
-    runner = AgentRunner(mode=_mode(tmp_path), router=router)  # type: ignore[arg-type]
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
     session = Session(storage=InMemorySessionStorage(), session_id="result")
 
     result = await runner.run(session, "inspect")
@@ -177,6 +177,6 @@ async def test_run_returns_terminal_result(tmp_path: Path) -> None:
     assert any(isinstance(e, TokenDeltaEvent) for e in result.events)
 
 
-def test_interactive_mode_name() -> None:
-    mode = InteractiveMode()
-    assert mode.name == "interactive"
+def test_interactive_loop_name() -> None:
+    loop = InteractiveLoop()
+    assert loop.name == "interactive"

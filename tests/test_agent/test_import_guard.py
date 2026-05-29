@@ -136,7 +136,7 @@ def test_pydantic_graph_never_imported_in_agent() -> None:
     """``pydantic_graph`` is a workflow-layer concern; ``agent/`` never imports it.
 
     Post spec 03b, the agent layer is a pydantic-ai facade with only LLM-only
-    modes (Chat + Interactive); pipeline orchestration moved to the harness
+    loops (Chat + Interactive); pipeline orchestration moved to the harness
     layer, so any ``pydantic_graph`` reference under ``agent/`` is a defect.
     """
     hits = _files_importing("pydantic_graph", AGENT_ROOT)
@@ -189,20 +189,20 @@ def test_importing_molexp_agent_router_does_not_load_pydantic_ai() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_importing_modes_does_not_load_mcp_clients() -> None:
-    """Sentinel — importing the public mode surface stays MCP-client free.
+def test_importing_loops_does_not_load_mcp_clients() -> None:
+    """Sentinel — importing the public loop surface stays MCP-client free.
 
-    Plain ``import molexp.agent.modes`` (ChatMode + future pipeline
-    modes) must not pull ``pydantic_ai.mcp`` / the ``mcp`` SDK into
+    Plain ``import molexp.agent.loops`` (ChatLoop + future pipeline
+    loops) must not pull ``pydantic_ai.mcp`` / the ``mcp`` SDK into
     ``sys.modules``; MCP wiring stays lazy until a router is built.
     """
     code = (
         "import sys\n"
-        "import molexp.agent.modes  # noqa: F401\n"
+        "import molexp.agent.loops  # noqa: F401\n"
         "for forbidden in ('pydantic_ai', 'pydantic_ai.mcp', 'mcp', 'mcp.client'):\n"
         "    assert forbidden not in sys.modules, (\n"
-        "        f'{forbidden} eagerly loaded by molexp.agent.modes; '\n"
-        "        'mode imports should stay SDK-free until run().'\n"
+        "        f'{forbidden} eagerly loaded by molexp.agent.loops; '\n"
+        "        'loop imports should stay SDK-free until run().'\n"
         "    )\n"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)

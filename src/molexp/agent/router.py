@@ -1,7 +1,7 @@
 """``Router`` — unified LLM dispatch protocol for ``molexp.agent``.
 
-Every :class:`AgentMode` reaches the LLM through a :class:`Router`.
-ChatMode wants a single text completion; PlanMode wants tier-routed
+Every :class:`AgentLoop` reaches the LLM through a :class:`Router`.
+ChatLoop wants a single text completion; PlanMode wants tier-routed
 structured output. Both methods share one configuration surface
 (:class:`AgentRunner` ``model=`` / ``models=`` kwargs) and one cache.
 
@@ -142,7 +142,7 @@ AgenticChunk = TextDeltaChunk | ToolCallChunk | ToolResultChunk | FinalChunk
 
 Defined in this protocol module — *not* importing ``pydantic_ai`` — so
 test fakes and the emergent
-:class:`~molexp.agent.modes.interactive.InteractiveMode` consume the
+:class:`~molexp.agent.loops.interactive.InteractiveLoop` consume the
 agentic loop without paying the SDK load cost. The terminal yield is
 always a :class:`FinalChunk`."""
 
@@ -160,11 +160,11 @@ class Router(Protocol):
     Three keyword-only dispatch methods:
 
     * :meth:`complete_text` — one free-form text round trip
-      (``ChatMode`` and any future single-shot mode).
+      (``ChatLoop`` and any future single-shot mode).
     * :meth:`complete_structured` — schema-typed dispatch with retry
       and event hooks (``PlanMode`` per-task LLM calls).
     * :meth:`stream_agentic` — the emergent tool-using loop
-      (``InteractiveMode``): the model autonomously decides → calls a
+      (``InteractiveLoop``): the model autonomously decides → calls a
       tool → observes → loops, streamed as an :data:`AgenticChunk` flow.
 
     All honor the ``tier`` axis: ``complete_text`` / ``stream_agentic``
@@ -269,7 +269,7 @@ class Router(Protocol):
     def clear_usage(self) -> None:
         """Forget any accumulated :class:`~molexp.agent.types.CallUsage`
         records. Modes call this at the start of each
-        :meth:`AgentMode.run` so the snapshot at the end reflects only
+        :meth:`AgentLoop.run` so the snapshot at the end reflects only
         that one run."""
         ...
 

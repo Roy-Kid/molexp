@@ -48,8 +48,22 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 | Example | What it shows |
 |---|---|
-| `agent/chat_mode.py` | Minimum viable agent loop — `ChatMode` + a named runtime `AgentSession` driven through `AgentRunner`, using `pydantic_ai.models.test.TestModel` so it runs offline. Shows the harness-based contract: `runner.run` drains the mode's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
-| `agent/plan_mode.py` | The read-only `PlanMode` planner — its seven-stage async pipeline on the `AgentHarness` turning a free-text report into an approved typed `PlanGraph`. Runs offline with a scripted `Router` + stub `CapabilityProbe` (mirroring the test-suite); the docstring shows how to wire a real provider. `runner.run_events` exposes the live `AgentEvent` stream. |
+| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner`, using `pydantic_ai.models.test.TestModel` so it runs offline. Shows the harness-based contract: `runner.run` drains the loop's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
+| `agent/interactive_loop.py` | The emergent read-only tool loop — `InteractiveLoop` driving `Router.stream_agentic` so the model calls workspace/code tools across turns before answering, runs offline via `TestModel`. The loop behind the `molexp agent` CLI REPL. |
+
+> Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode`).
+
+## Harness Layer
+
+`PlanMode` is the harness `Mode` that turns a short natural-language experiment
+draft into generated, validated, runnable `molexp.workflow` source — running its
+stage pipeline (ExperimentReport → WorkflowIR → BoundWorkflow → workflow source)
+on a `workspace.Run` with full provenance + audit.
+
+| Example | What it shows |
+|---|---|
+| `harness/plan_mode_offline.py` | `PlanMode` end-to-end, deterministic, **no API key** — a `StubAgentGateway` returns canned valid stage outputs. Prints the per-stage artifacts, the generated `molexp.workflow` source, the `workflow_source → user_plan` lineage, and the audit summary. Read this first; it's the shape the test suite exercises. |
+| `harness/plan_mode_live.py` | The same `PlanMode` pipeline against the **real DeepSeek API** (`deepseek:deepseek-v4-flash`) — a draft in, generated + validated workflow code out. Requires `DEEPSEEK_API_KEY`; skips cleanly with a message if unset. Makes real paid calls. |
 
 ## Driving a Run
 

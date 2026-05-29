@@ -2,8 +2,8 @@
 
 Replaces the prior ``AgentHarness`` god-object. After spec
 ``harness-as-mode-substrate-03b``, ``molexp.agent`` only ships two
-modes (:class:`~molexp.agent.modes.ChatMode` + the emergent
-:class:`~molexp.agent.modes.InteractiveMode`), neither of which needs
+modes (:class:`~molexp.agent.loops.ChatLoop` + the emergent
+:class:`~molexp.agent.loops.InteractiveLoop`), neither of which needs
 stage brackets, unified-approval gates, or compaction wiring — those
 concerns moved to ``molexp.harness``. What a mode does need is a typed
 bundle of the four runtime services the agent layer still owns: the

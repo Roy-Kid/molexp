@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from molexp.agent.modes import InteractiveMode
+from molexp.agent.loops import InteractiveLoop
 from molexp.agent.router import (
     AgenticChunk,
     FinalChunk,
@@ -68,8 +68,8 @@ def runner() -> CliRunner:
 def _patch_runner(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the REPL build an AgentRunner backed by the scripted router."""
 
-    def _fake_make_runner(*, mode: InteractiveMode, model: str, workspace: Path) -> AgentRunner:
-        return AgentRunner(mode=mode, router=_ScriptedRouter(), workspace=workspace, approval=None)
+    def _fake_make_runner(*, loop: InteractiveLoop, model: str, workspace: Path) -> AgentRunner:
+        return AgentRunner(loop=loop, router=_ScriptedRouter(), workspace=workspace, approval=None)
 
     monkeypatch.setattr("molexp.cli.agent_cmd._make_runner", _fake_make_runner)
 

@@ -2,7 +2,7 @@
 
 Subclasses pin :attr:`name` (a stable identifier used in events) and
 implement :meth:`run` as ``async def run(self, ctx) -> ArtifactRef``. Unlike
-an :class:`molexp.agent.AgentMode` (a coroutine that streams ``AgentEvent``
+an :class:`molexp.agent.AgentLoop` (a coroutine that streams ``AgentEvent``
 to an injected sink), a harness ``Stage`` returns a single ``ArtifactRef``;
 the framing events (``stage_started`` / ``artifact_created`` /
 ``stage_completed`` / ``stage_failed``) are written by ``StageRunner``, not

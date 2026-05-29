@@ -1,10 +1,10 @@
 """``AgentRunner`` — public orchestration entry point.
 
-Takes a mode + a model config; builds an
+Takes a loop + a model config; builds an
 :class:`~molexp.agent.runtime.AgentRuntime`, injects it into the
-mode, drains the mode's :data:`~molexp.agent.events.AgentEvent`
+loop, drains the loop's :data:`~molexp.agent.events.AgentEvent`
 stream through an :class:`AsyncIteratorEventSink`, and returns the
-terminal :class:`~molexp.agent.mode.AgentRunResult`.
+terminal :class:`~molexp.agent.loop.AgentRunResult`.
 
 The router is constructed lazily on first :meth:`run` — the private
 :class:`~molexp.agent._pydanticai.router.PydanticAIRouter` is the only
@@ -23,7 +23,7 @@ Exactly one must be supplied; zero or two-or-more raise
 
 Two run surfaces:
 
-* :meth:`run` — drains the mode's event stream and returns the terminal
+* :meth:`run` — drains the loop's event stream and returns the terminal
   :class:`AgentRunResult` (the back-compat shape, now with ``events``).
 * :meth:`run_events` — an async generator exposing the live event
   stream for the future SSE consumer.
@@ -34,7 +34,7 @@ Approval
 ``approval=`` takes a :data:`~molexp.agent.review.ReviewPolicy` — an
 async ``(gate, summary) -> ReviewDecision`` callable. The runner
 registers it as the harness's ``before_approval`` hook, so every
-:class:`~molexp.agent.modes._planning.ApprovalGate` a mode reaches
+``ApprovalGate`` a loop reaches
 consults it. ``approval=None`` (the default) registers no hook and the
 harness auto-approves; ``approval=cli_ask`` prompts the operator.
 
@@ -43,7 +43,7 @@ Named sessions
 
 When ``workspace=<path>`` is supplied, the runner anchors each
 conversation to a :class:`~molexp.agent.folders.AgentSession` ``Folder``
-under an :class:`~molexp.agent.folders.Agent` named after the mode, and
+under an :class:`~molexp.agent.folders.Agent` named after the loop, and
 backs the :class:`~molexp.agent.session.Session` with a
 :class:`~molexp.agent.session_storage.JsonlSessionStorage`
 writing ``entries.jsonl`` in that folder's directory. Without a
@@ -64,7 +64,7 @@ from mollog import get_logger
 from molexp.agent.events import AgentEvent, AsyncIteratorEventSink, ModeCompletedEvent
 from molexp.agent.execution_env import LocalExecutionEnv
 from molexp.agent.hooks import HookContext, HookPoint, HookRegistry
-from molexp.agent.mode import AgentRunResult
+from molexp.agent.loop import AgentRunResult
 from molexp.agent.review import ReviewDecision, ReviewPolicy
 from molexp.agent.router import ModelTier, Router, TierModels
 from molexp.agent.runtime import AgentRuntime
@@ -78,7 +78,7 @@ if TYPE_CHECKING:
     from pydantic_ai.tools import Tool
 
     from molexp.agent.folders import Agent as AgentFolder
-    from molexp.agent.mode import AgentMode
+    from molexp.agent.loop import AgentLoop
 
 
 _LOG = get_logger(__name__)
@@ -100,7 +100,7 @@ class AgentRunnerConfigError(ValueError):
 
 
 class AgentRunner:
-    """Drive an ``AgentMode`` end-to-end with an :class:`AgentRuntime`.
+    """Drive an ``AgentLoop`` end-to-end with an :class:`AgentRuntime`.
 
     Construction performs no network IO — the underlying pydantic-ai
     ``Agent``\\ s are built lazily on first :meth:`run`.
@@ -109,7 +109,7 @@ class AgentRunner:
     def __init__(
         self,
         *,
-        mode: AgentMode,
+        loop: AgentLoop,
         model: str | object | None = None,
         models: Mapping[ModelTier | str, str | object] | None = None,
         router: Router | None = None,
@@ -129,7 +129,7 @@ class AgentRunner:
                 f"Got {supplied} of them."
             )
 
-        self.mode = mode
+        self.loop = loop
         self.tools = tools
         self.workspace = workspace
         self._approval = approval
@@ -157,9 +157,9 @@ class AgentRunner:
     # ── run surfaces ────────────────────────────────────────────────────────
 
     async def run(self, session: Session, user_input: str) -> AgentRunResult:
-        """Drive the mode and return its terminal :class:`AgentRunResult`.
+        """Drive the loop and return its terminal :class:`AgentRunResult`.
 
-        Drains the mode's :data:`AgentEvent` stream, accumulates every
+        Drains the loop's :data:`AgentEvent` stream, accumulates every
         event, and folds the terminal
         :class:`~molexp.agent.events.ModeCompletedEvent` into
         the returned result (whose ``events`` field carries the whole
@@ -171,16 +171,16 @@ class AgentRunner:
         return _result_from_stream(tuple(accumulated))
 
     async def run_events(self, session: Session, user_input: str) -> AsyncIterator[AgentEvent]:
-        """Drive the mode and yield its :data:`AgentEvent` stream live.
+        """Drive the loop and yield its :data:`AgentEvent` stream live.
 
-        Modes are plain ``async def`` coroutines after spec
+        Loops are plain ``async def`` coroutines after spec
         ``harness-as-mode-substrate-03b``: they accept the
         :class:`AgentRuntime` bundle + the sink + the user prompt and
         return ``None``; every event flows through the sink. The runner
-        spawns a driver task to run the mode and iterates the sink in
-        emission order. When the mode finishes (or raises), the driver
+        spawns a driver task to run the loop and iterates the sink in
+        emission order. When the loop finishes (or raises), the driver
         closes the sink, the consumer's ``async for`` loop terminates
-        naturally, and any exception the mode raised is re-raised here.
+        naturally, and any exception the loop raised is re-raised here.
 
         Cancellation safety: if the consumer breaks out early the driver
         task is cancelled and awaited before this generator exits, so
@@ -200,7 +200,7 @@ class AgentRunner:
         async def _drive() -> None:
             nonlocal driver_exc
             try:
-                await self.mode.run(
+                await self.loop.run(
                     runtime=runtime,
                     sink=sink,
                     user_input=user_input,
@@ -231,7 +231,7 @@ class AgentRunner:
         With a workspace, the session is backed by a
         :class:`JsonlSessionStorage` anchored to a
         :class:`~molexp.agent.folders.AgentSession` ``Folder`` under an
-        :class:`~molexp.agent.folders.Agent` named after the mode —
+        :class:`~molexp.agent.folders.Agent` named after the loop —
         ``entries.jsonl`` survives across processes. Without a
         workspace, an :class:`InMemorySessionStorage` is used.
         """
@@ -243,7 +243,7 @@ class AgentRunner:
     def _session_directory(self, session_id: str) -> Path | None:
         """Return the on-disk anchor dir for ``session_id``, or ``None``.
 
-        Mounts (or attaches to) the mode's :class:`Agent` folder and a
+        Mounts (or attaches to) the loop's :class:`Agent` folder and a
         named :class:`~molexp.agent.folders.AgentSession` child, then
         resolves its directory. Returns ``None`` when no workspace is
         configured or the folder cannot be opened.
@@ -275,7 +275,7 @@ class AgentRunner:
             from molexp.workspace import Workspace
 
             ws = Workspace(self.workspace)
-            agent_name = getattr(self.mode, "name", "") or "default"
+            agent_name = getattr(self.loop, "name", "") or "default"
             if ws.has_folder(agent_name, cls=AgentFolder):
                 self._agent_folder = ws.get_folder(agent_name, cls=AgentFolder)
             else:
@@ -375,7 +375,7 @@ class AgentRunner:
 def _result_from_stream(events: tuple[AgentEvent, ...]) -> AgentRunResult:
     """Fold an accumulated event stream into the terminal :class:`AgentRunResult`.
 
-    The mode's terminal
+    The loop's terminal
     :class:`~molexp.agent.events.ModeCompletedEvent` carries the
     result's JSON dump in ``result``; we rebuild the typed result from
     it and attach the whole stream as ``events``.
@@ -386,8 +386,8 @@ def _result_from_stream(events: tuple[AgentEvent, ...]) -> AgentRunResult:
             terminal = event
     if terminal is None:
         raise RuntimeError(
-            "the mode's event stream ended without a ModeCompletedEvent; "
-            "every AgentMode.run must yield one as its terminal event."
+            "the loop's event stream ended without a ModeCompletedEvent; "
+            "every AgentLoop.run must yield one as its terminal event."
         )
     if terminal.result is not None:
         payload = dict(terminal.result)

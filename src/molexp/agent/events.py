@@ -11,7 +11,7 @@ or decided, a plan being emitted, a preflight failing, a repair being
 proposed, a compaction running, a mode finishing, an error.
 
 Three members carry the **emergent loop** of
-:class:`~molexp.agent.modes.interactive.InteractiveMode`: a token-level
+:class:`~molexp.agent.loops.interactive.InteractiveLoop`: a token-level
 :class:`TokenDeltaEvent` and the :class:`ToolCallStartedEvent` /
 :class:`ToolCallCompletedEvent` pair. They are the orchestration-level
 projection of the pydantic-ai agentic loop — the per-call streaming
@@ -180,7 +180,7 @@ class ModeCompletedEvent(_BaseEvent):
     """Terminal event — carries the run's final text + optional result.
 
     ``result`` is the JSON-mode dump of the terminal
-    :class:`~molexp.agent.mode.AgentRunResult` (minus ``events`` to
+    :class:`~molexp.agent.loop.AgentRunResult` (minus ``events`` to
     avoid recursion); the harness reconstructs the typed result from
     the accumulated stream.
     """
@@ -202,10 +202,10 @@ class ErrorEvent(_BaseEvent):
 class TokenDeltaEvent(_BaseEvent):
     """Emitted for one token-level text increment from the emergent loop.
 
-    :class:`~molexp.agent.modes.interactive.InteractiveMode` yields one
+    :class:`~molexp.agent.loops.interactive.InteractiveLoop` yields one
     of these per assistant text delta so a CLI / SSE consumer can render
     the reply as it streams. v1 keeps these in the accumulated
-    :attr:`~molexp.agent.mode.AgentRunResult.events` stream unfiltered.
+    :attr:`~molexp.agent.loop.AgentRunResult.events` stream unfiltered.
     """
 
     kind: Literal["token_delta"] = "token_delta"

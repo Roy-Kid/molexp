@@ -1,7 +1,7 @@
 """``AgentRunner`` end-to-end — harness-based contract (spec 02).
 
 ``AgentRunner`` now builds an :class:`AgentHarness`, injects it into the
-mode, drains the :data:`AgentEvent` stream, and returns the terminal
+loop, drains the :data:`AgentEvent` stream, and returns the terminal
 :class:`AgentRunResult`. Sessions are :class:`Session` instances.
 """
 
@@ -16,12 +16,12 @@ import pytest
 
 import molexp.agent
 from molexp.agent.events import ModeCompletedEvent, ModeStartedEvent
+from molexp.agent.loop import AgentLoop, AgentRunResult
+from molexp.agent.loops import ChatLoop, ChatLoopConfig
 from molexp.agent.mcp import defaults as defaults_mod
 from molexp.agent.mcp import store as mcp_mod
 from molexp.agent.mcp.defaults import MOLMCP_USAGE_INSTRUCTIONS
 from molexp.agent.mcp.store import MCP_CONFIG_FILENAME
-from molexp.agent.mode import AgentMode, AgentRunResult
-from molexp.agent.modes import ChatMode, ChatModeConfig
 from molexp.agent.router import ModelTier, RouterTextResult
 from molexp.agent.runner import AgentRunner, AgentRunnerConfigError
 from molexp.agent.session import Session
@@ -40,23 +40,23 @@ def test_construction_no_network_io() -> None:
 
     with patch("socket.socket", side_effect=deny):
         runner = AgentRunner(
-            mode=ChatMode(config=ChatModeConfig()),
+            loop=ChatLoop(config=ChatLoopConfig()),
             model="openai:gpt-5.2",
         )
     socket.socket = real_socket
-    assert runner.mode is not None
+    assert runner.loop is not None
     assert runner.model == "openai:gpt-5.2"
 
 
 def test_runner_rejects_zero_model_config() -> None:
     with pytest.raises(AgentRunnerConfigError, match="one of"):
-        AgentRunner(mode=ChatMode())
+        AgentRunner(loop=ChatLoop())
 
 
 def test_runner_rejects_both_model_and_models() -> None:
     with pytest.raises(AgentRunnerConfigError, match="exactly one"):
         AgentRunner(
-            mode=ChatMode(),
+            loop=ChatLoop(),
             model="openai:gpt-5.2",
             models={
                 ModelTier.CHEAP: "openai:gpt-5.2",
@@ -69,13 +69,13 @@ def test_runner_rejects_both_model_and_models() -> None:
 def test_runner_rejects_models_missing_tier() -> None:
     with pytest.raises(AgentRunnerConfigError, match="must cover"):
         AgentRunner(
-            mode=ChatMode(),
+            loop=ChatLoop(),
             models={ModelTier.DEFAULT: "openai:gpt-5.2"},
         )
 
 
 def test_runner_normalizes_model_string_to_all_tiers() -> None:
-    runner = AgentRunner(mode=ChatMode(), model="openai:gpt-5.2")
+    runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2")
     assert runner._tier_models == {
         ModelTier.CHEAP: "openai:gpt-5.2",
         ModelTier.DEFAULT: "openai:gpt-5.2",
@@ -85,7 +85,7 @@ def test_runner_normalizes_model_string_to_all_tiers() -> None:
 
 def test_runner_accepts_string_keyed_models_map() -> None:
     runner = AgentRunner(
-        mode=ChatMode(),
+        loop=ChatLoop(),
         models={
             "cheap": "openai:gpt-5.2-mini",
             "default": "openai:gpt-5.2",
@@ -101,7 +101,7 @@ def test_runner_accepts_string_keyed_models_map() -> None:
 
 def test_runner_accepts_modeltier_keyed_models_map() -> None:
     runner = AgentRunner(
-        mode=ChatMode(),
+        loop=ChatLoop(),
         models={
             ModelTier.CHEAP: "a",
             ModelTier.DEFAULT: "b",
@@ -118,7 +118,7 @@ def test_runner_accepts_modeltier_keyed_models_map() -> None:
 def test_runner_rejects_unknown_string_tier_key() -> None:
     with pytest.raises(AgentRunnerConfigError, match="unknown tier"):
         AgentRunner(
-            mode=ChatMode(),
+            loop=ChatLoop(),
             models={
                 "cheap": "x",
                 "default": "y",
@@ -136,7 +136,7 @@ def test_runner_with_custom_router_skips_tier_normalization() -> None:
         async def complete_structured(self, **_):  # type: ignore[no-untyped-def]
             raise AssertionError("not called by this test")
 
-    runner = AgentRunner(mode=ChatMode(), router=_Stub())
+    runner = AgentRunner(loop=ChatLoop(), router=_Stub())
     assert runner._tier_models is None
     assert runner.model is None
 
@@ -150,7 +150,7 @@ async def test_chat_mode_round_trip_via_model_string() -> None:
     from pydantic_ai.models.test import TestModel
 
     runner = AgentRunner(
-        mode=ChatMode(config=ChatModeConfig()),
+        loop=ChatLoop(config=ChatLoopConfig()),
         model=TestModel(),  # type: ignore[arg-type]
     )
     session = runner.session("rt1")
@@ -168,7 +168,7 @@ async def test_chat_mode_round_trip_via_models_map() -> None:
 
     test_model = TestModel()
     runner = AgentRunner(
-        mode=ChatMode(config=ChatModeConfig()),
+        loop=ChatLoop(config=ChatLoopConfig()),
         models={
             ModelTier.CHEAP: test_model,
             ModelTier.DEFAULT: test_model,
@@ -186,7 +186,7 @@ async def test_runner_run_events_exposes_live_stream() -> None:
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
-    runner = AgentRunner(mode=ChatMode(), model=TestModel())  # type: ignore[arg-type]
+    runner = AgentRunner(loop=ChatLoop(), model=TestModel())  # type: ignore[arg-type]
     streamed = [ev async for ev in runner.run_events(runner.session("s"), "hi")]
     assert any(isinstance(e, ModeStartedEvent) for e in streamed)
     assert isinstance(streamed[-1], ModeCompletedEvent)
@@ -237,7 +237,7 @@ async def test_run_events_propagates_mode_exception_without_orphan_task() -> Non
     pytest.importorskip("pydantic_ai")
     from pydantic_ai.models.test import TestModel
 
-    runner = AgentRunner(mode=_ExplodingMode(), model=TestModel())  # type: ignore[arg-type]
+    runner = AgentRunner(loop=_ExplodingMode(), model=TestModel())  # type: ignore[arg-type]
     tasks_before = set(asyncio.all_tasks())
 
     with pytest.raises(RuntimeError, match="mode boom"):
@@ -272,7 +272,7 @@ class _RecordingRouter:
         return RouterTextResult(text="stub-ok")
 
     async def complete_structured(self, **_: Any) -> Any:
-        raise AssertionError("ChatMode does not invoke complete_structured")
+        raise AssertionError("ChatLoop does not invoke complete_structured")
 
     def clear_usage(self) -> None:
         return None
@@ -330,7 +330,7 @@ async def test_runner_prepends_active_mcp_usage_instructions(tmp_path, hermetic_
         side_effect=_patched_router(captured),
     ):
         runner = AgentRunner(
-            mode=ChatMode(),
+            loop=ChatLoop(),
             model="openai:gpt-5.2",
             workspace=workspace,
         )
@@ -360,7 +360,7 @@ async def test_runner_no_preamble_when_user_opted_out(tmp_path, hermetic_user_di
         side_effect=_patched_router(captured),
     ):
         runner = AgentRunner(
-            mode=ChatMode(),
+            loop=ChatLoop(),
             model="openai:gpt-5.2",
             workspace=workspace,
         )
@@ -377,7 +377,7 @@ def test_runner_drops_obsolete_molcrafts_surface() -> None:
 
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("molexp.agent._molcrafts")
-    assert not hasattr(AgentMode, "requires_molcrafts")
+    assert not hasattr(AgentLoop, "requires_molcrafts")
     import inspect
 
     sig = inspect.signature(AgentRunner.__init__)
@@ -392,7 +392,7 @@ def test_runner_drops_obsolete_molcrafts_surface() -> None:
 @pytest.mark.asyncio
 async def test_runner_session_without_workspace_is_in_memory(hermetic_user_dir) -> None:
     """Without a workspace, ``runner.session(id)`` is in-memory only."""
-    runner = AgentRunner(mode=ChatMode(), model="openai:gpt-5.2")
+    runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2")
     s = runner.session("anything")
     assert isinstance(s, Session)
     assert s.session_id == "anything"
@@ -417,7 +417,7 @@ async def test_runner_session_persists_entries_across_processes(
 
     test_model = TestModel()
     runner_a = AgentRunner(
-        mode=ChatMode(config=ChatModeConfig()),
+        loop=ChatLoop(config=ChatLoopConfig()),
         model=test_model,  # type: ignore[arg-type]
         workspace=workspace,
     )
@@ -428,7 +428,7 @@ async def test_runner_session_persists_entries_across_processes(
     assert entries_after_first > 0
 
     runner_b = AgentRunner(
-        mode=ChatMode(config=ChatModeConfig()),
+        loop=ChatLoop(config=ChatLoopConfig()),
         model=test_model,  # type: ignore[arg-type]
         workspace=workspace,
     )
@@ -448,7 +448,7 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
 
     test_model = TestModel()
     runner = AgentRunner(
-        mode=ChatMode(config=ChatModeConfig()),
+        loop=ChatLoop(config=ChatLoopConfig()),
         model=test_model,  # type: ignore[arg-type]
         workspace=workspace,
     )
@@ -474,12 +474,12 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
 
 
 def test_public_surface_unchanged() -> None:
-    """``molexp.agent`` re-exports the mode-orchestration core plus the
+    """``molexp.agent`` re-exports the loop-orchestration core plus the
     workflow-orthogonal approval primitives. Post spec 03b the surface
-    gains :class:`AgentRuntime` (the frozen-dataclass bundle modes
+    gains :class:`AgentRuntime` (the frozen-dataclass bundle loops
     receive at run time)."""
     assert tuple(sorted(molexp.agent.__all__)) == (
-        "AgentMode",
+        "AgentLoop",
         "AgentRunResult",
         "AgentRunner",
         "AgentRuntime",
