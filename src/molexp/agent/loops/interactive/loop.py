@@ -19,8 +19,8 @@ Protocol — this module imports nothing from pydantic-ai directly.
 
 The harness's planning pipeline lives in ``molexp.harness.PlanMode`` (a
 harness ``Mode``), reached through the ``AgentGateway`` Protocol — not from
-this agent loop. See ``examples/harness/plan_mode_offline.py`` (deterministic)
-and ``plan_mode_live.py`` (real DeepSeek) for the end-to-end flow.
+this agent loop. See ``examples/harness/plan_mode_live.py`` for the
+end-to-end flow.
 """
 
 from __future__ import annotations

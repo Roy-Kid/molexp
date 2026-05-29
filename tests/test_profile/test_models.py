@@ -1,10 +1,10 @@
-"""Tests for molexp.config.models (ProfileConfig, MolCfg)."""
+"""Tests for molexp.profile.models (ProfileConfig, MolCfg)."""
 
 from __future__ import annotations
 
 import pytest
 
-from molexp.config import MolCfg, ProfileConfig, normalize_profile_name
+from molexp.profile import MolCfg, ProfileConfig, normalize_profile_name
 
 
 class TestNormalization:

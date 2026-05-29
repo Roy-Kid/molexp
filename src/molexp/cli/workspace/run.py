@@ -13,8 +13,8 @@ import typer
 from molexp._typing import JSONValue
 from molexp.cli._common import deterministic_run_id, reap_zombie_run, rprint
 from molexp.cli.workspace import _get_ctx_target, workspace_app
-from molexp.config import MolCfg, ProfileConfig, load_molcfg
-from molexp.config.loader import find_default_config
+from molexp.profile import MolCfg, ProfileConfig, load_molcfg
+from molexp.profile.loader import find_default_config
 from molexp.workflow import Workflow
 from molexp.workspace.target import LocalTarget, RemoteTarget
 

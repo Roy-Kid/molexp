@@ -1,4 +1,4 @@
-"""Tests for molexp.config.loader."""
+"""Tests for molexp.profile.loader."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-from molexp.config import load_molcfg
-from molexp.config.loader import find_default_config
+from molexp.profile import load_molcfg
+from molexp.profile.loader import find_default_config
 
 YAML_SAMPLE = """\
 version: 1

@@ -21,7 +21,8 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
 - `molexp.monitor` — `RunMonitor`: lifecycle controller for the full-screen run dashboard.
 - `molexp.path` — `Path` (subclass of `pathlib.PurePosixPath`); cross-host POSIX path primitive, no I/O.
 - `molexp.tree_monitor` — Interactive collapsible workspace tree for `molexp workspace ... explore`.
-- `molexp.config` (subpackage: `__init__.py`, `loader.py`, `models.py`) — `MolCfg` / `ProfileConfig` / `load_molcfg` / `normalize_profile_name` / `DEFAULT_CONFIG_FILENAMES`.
+- `molexp.config` — process-global, in-code config: a live `molcfg.Config` instance defined in `molexp/__init__.py`. Register runtime values (LLM keys etc.) with molcfg-native syntax (`molexp.config["deepseek_api_key"] = ...`); never read from env. The agent router reads provider keys from here.
+- `molexp.profile` (subpackage: `__init__.py`, `loader.py`, `models.py`) — file-based, per-run profile config: `MolCfg` / `ProfileConfig` / `load_molcfg` / `find_default_config` / `normalize_profile_name` / `DEFAULT_CONFIG_FILENAMES`.
 - `molexp.git` (subpackage: `__init__.py`, `_subprocess.py`, `operations.py`, `worktree.py`) — `ensure_clone` / `fetch` / `push` / `GitWorktreeManager`; thin async wrappers around the `git` binary.
 - `molexp.openapi.json` — vendored OpenAPI schema snapshot used by `npm run generate:api` (not a Python module).
 
@@ -241,7 +242,8 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 - `molexp.entry`: `entry`, `load_workspaces`, `find_workflow_for_run`, `clear_registry`, `load_workflow_from_entrypoint`.
 - `molexp.monitor`: `RunMonitor`.
 - `molexp.tree_monitor`: interactive tree-monitor entry consumed by `cli.workspace.explore`.
-- `molexp.config`: `MolCfg`, `ProfileConfig`, `load_molcfg`, `normalize_profile_name`, `DEFAULT_CONFIG_FILENAMES`.
+- `molexp.config`: the process-global `molcfg.Config` instance (in-code runtime values; LLM keys).
+- `molexp.profile`: `MolCfg`, `ProfileConfig`, `load_molcfg`, `find_default_config`, `normalize_profile_name`, `DEFAULT_CONFIG_FILENAMES`.
 - `molexp.git`: `ensure_clone`, `fetch`, `push`, `GitWorktreeManager`.
 
 **Layer 1 — workspace**
@@ -359,7 +361,7 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 
 ### Layer roles
 
-- `molexp.path` / `molexp._typing` / `molexp._logger` / `molexp.entry` / `molexp.monitor` / `molexp.tree_monitor` / `molexp._run_cancel` / `molexp.config` / `molexp.git` — **Layer 0 (cross-layer primitives)**. Citable from any layer. They MUST NOT import any of `molexp.workspace`, `molexp.workflow`, `molexp.agent`, `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli` at module load (`molexp.entry` and `molexp.monitor` lazy-import workspace types inside functions or under `TYPE_CHECKING`).
+- `molexp.path` / `molexp._typing` / `molexp._logger` / `molexp.entry` / `molexp.monitor` / `molexp.tree_monitor` / `molexp._run_cancel` / `molexp.config` / `molexp.profile` / `molexp.git` — **Layer 0 (cross-layer primitives)**. Citable from any layer. They MUST NOT import any of `molexp.workspace`, `molexp.workflow`, `molexp.agent`, `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli` at module load (`molexp.entry` and `molexp.monitor` lazy-import workspace types inside functions or under `TYPE_CHECKING`).
 - `molexp.workspace` — **Layer 1 (workspace)**, bottom of the dependency DAG. Pure storage primitive. Owns the `Folder` base, the `FileSystem` Protocol + three implementations (local / remote / cached-mirror), assets, hierarchy, atomic JSON, singleton `CacheFolder` / `CatalogFolder`. **MUST NOT import** `molexp.workflow`, `molexp.agent`, `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli`, `pydantic_ai`, or `pydantic_graph`.
 - `molexp.workflow` — **Layer 2 (workflow)**. Graph engine. Uses `molexp.workspace` only (for `Run`, `RunContext`, `atomic_write_json`, the `CacheFolder.as_cache_store()` adapter). **MUST NOT import** `molexp.agent`, `molexp.harness`, or `pydantic_ai`. May import `pydantic_graph` only under `workflow/_pydantic_graph/`.
 - `molexp.workflow._pydantic_graph` — **Layer 2 / private**. Sole `import pydantic_graph` site in the repo.

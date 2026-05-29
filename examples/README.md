@@ -48,10 +48,12 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 | Example | What it shows |
 |---|---|
-| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner`, using `pydantic_ai.models.test.TestModel` so it runs offline. Shows the harness-based contract: `runner.run` drains the loop's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
-| `agent/interactive_loop.py` | The emergent read-only tool loop — `InteractiveLoop` driving `Router.stream_agentic` so the model calls workspace/code tools across turns before answering, runs offline via `TestModel`. The loop behind the `molexp agent` CLI REPL. |
+| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner` against real DeepSeek. Shows the contract: `runner.run` drains the loop's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
+| `agent/interactive_loop.py` | The emergent read-only tool loop — `InteractiveLoop` driving `Router.stream_agentic` so the model calls workspace/code tools across turns before answering. The loop behind the `molexp agent` CLI REPL. |
 
 > Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode`).
+>
+> **API keys** — every example registers its LLM key *in code* via `molexp.config["deepseek_api_key"] = ...` (paste into the `API_KEY` constant at the top of each file). `molexp.config` is a live `molcfg.Config`; molexp reads the key from it, **never from environment variables**.
 
 ## Harness Layer
 
@@ -62,8 +64,7 @@ on a `workspace.Run` with full provenance + audit.
 
 | Example | What it shows |
 |---|---|
-| `harness/plan_mode_offline.py` | `PlanMode` end-to-end, deterministic, **no API key** — a `StubAgentGateway` returns canned valid stage outputs. Prints the per-stage artifacts, the generated `molexp.workflow` source, the `workflow_source → user_plan` lineage, and the audit summary. Read this first; it's the shape the test suite exercises. |
-| `harness/plan_mode_live.py` | The same `PlanMode` pipeline against the **real DeepSeek API** (`deepseek:deepseek-v4-flash`) — a draft in, generated + validated workflow code out. Requires `DEEPSEEK_API_KEY`; skips cleanly with a message if unset. Makes real paid calls. |
+| `harness/plan_mode_live.py` | `PlanMode` end-to-end against the **real DeepSeek API** (`deepseek:deepseek-v4-flash`) — a short draft in, generated + validated runnable `molexp.workflow` code out. Prints the per-stage artifacts, the generated source, the `workflow_source → user_plan` lineage, and the audit summary. Register your key via `molexp.config["deepseek_api_key"] = ...` (the `API_KEY` constant). |
 
 ## Driving a Run
 

@@ -625,7 +625,31 @@ def _coerce_model_value(value: object) -> PydanticAiModel:
     Accepts strings (``"deepseek:deepseek-v4-flash"``), known model
     names, and ``models.Model`` instances. Rejects ``None`` so a
     later cache hit cannot silently call ``Agent(model=None)``.
+
+    For a ``"deepseek:<name>"`` string, the API key is read from
+    ``molexp.config`` (``"deepseek_api_key"``) — registered in code via
+    ``molexp.config["deepseek_api_key"] = ...``, never from ``os.environ`` —
+    and the model is built with an explicit :class:`DeepSeekProvider`. Missing
+    key → a clear error pointing at ``molexp.config``.
     """
     if value is None:
         raise ValueError("PydanticAIRouter model values may not be None")
-    return value  # type: ignore[return-value]
+
+    if isinstance(value, str):
+        provider_name, sep, model_name = value.partition(":")
+        if sep and provider_name == "deepseek":
+            from pydantic_ai.models.openai import OpenAIChatModel
+            from pydantic_ai.providers.deepseek import DeepSeekProvider
+
+            import molexp
+
+            api_key = molexp.config.get("deepseek_api_key")
+            if not api_key:
+                raise ValueError(
+                    f"DeepSeek model {value!r} requested but no key is registered. "
+                    'Set molexp.config["deepseek_api_key"] = ... first '
+                    "(molexp does not read DEEPSEEK_API_KEY from the environment)."
+                )
+            return OpenAIChatModel(model_name, provider=DeepSeekProvider(api_key=api_key))
+
+    return value  # ty: ignore[invalid-return-type]  — opaque pydantic-ai model value

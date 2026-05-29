@@ -7,32 +7,37 @@ SaveUserPlan → GenerateExperimentReport → ExtractWorkflowIR → ValidateWork
 ValidateWorkflowSource → ApprovalGate, and the generated, validated
 ``molexp.workflow`` source is printed.
 
-Makes REAL paid DeepSeek API calls — requires ``DEEPSEEK_API_KEY`` in the env.
+Makes REAL paid DeepSeek API calls. Register the key *in code* — molexp reads
+it from ``molexp.config``, never from the environment — by pasting it
+into the ``API_KEY`` constant below.
 Run directly::
 
     python examples/harness/plan_mode_live.py
 
-With the key unset it prints a clear message and exits 0 (no traceback). All
+With no key registered it prints a clear message and exits 0 (no traceback). All
 network / LLM work is under ``__main__``; importing this module does nothing.
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import tempfile
 from pathlib import Path
 
+import molexp
+
 MODEL = "deepseek:deepseek-v4-flash"
 DRAFT = "Simulate NEMD ionic mobility of an SPC/E water box under an applied electric field"
+API_KEY = ""  # ← paste your DeepSeek key here (registered via molexp.config, not env)
 
 
 def _run() -> int:
-    if not os.environ.get("DEEPSEEK_API_KEY"):
-        print("DEEPSEEK_API_KEY is not set — skipping the live PlanMode demo.")
-        print("Set it and re-run to generate real molexp.workflow code from a draft.")
+    if not API_KEY:
+        print("Set API_KEY at the top of this file and re-run.")
+        print("molexp reads the DeepSeek key from molexp.config, never from the environment.")
         return 0
+    molexp.config["deepseek_api_key"] = API_KEY
 
     # Imports are inside _run so module import stays side-effect-free.
     from molexp.agent._pydanticai.router import PydanticAIRouter

@@ -68,13 +68,13 @@ molexp is a workflow-and-agent platform for research experiment management — P
      workflow ─→ workspace
 ```
 
-`agent` and `workflow` are **siblings** above workspace; `harness` sits one layer above them, composing all three. Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of the server's OpenAPI. Cross-layer primitives (`molexp.path`, `molexp.config`, `molexp.entry`, …) sit above workspace and may be cited from any layer.
+`agent` and `workflow` are **siblings** above workspace; `harness` sits one layer above them, composing all three. Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of the server's OpenAPI. Cross-layer primitives (`molexp.path`, `molexp.profile`, `molexp.entry`, …) sit above workspace and may be cited from any layer. `molexp.config` is the process-global in-code config — a live `molcfg.Config` instance defined in `molexp/__init__.py` (LLM keys etc., registered in code, never from env); `molexp.profile` is the separate file-based, per-run profile config (`ProfileConfig` / `MolCfg` / `load_molcfg`).
 
 ### Layer charters
 
 **`molexp.workspace`** — bottom; pure storage.
 - Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (`CatalogFolder` hosting the global `AssetCatalog`).
-- MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `server` / `cli` / `sweep`). Allowed `molexp.*` imports are only `_typing` / `config` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
+- MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `server` / `cli` / `sweep`). Allowed `molexp.*` imports are only `_typing` / `profile` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
 - `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
 
 **`molexp.workflow`** — middle; graph execution engine.

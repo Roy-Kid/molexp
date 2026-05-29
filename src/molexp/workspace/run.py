@@ -53,7 +53,7 @@ class _WorkflowLike(Protocol):
 if TYPE_CHECKING:
     from .experiment import Experiment
 
-from molexp.config import ProfileConfig  # noqa: E402
+from molexp.profile import ProfileConfig  # noqa: E402
 
 from .assets import (  # noqa: E402
     ArtifactAccessor,
@@ -161,7 +161,7 @@ class RunContext:
     Entered via ``with run.start() as ctx:`` — manages lifecycle,
     result binding, checkpointing, artifact storage, and asset access.
 
-    The active :class:`~molexp.config.ProfileConfig` is fixed at
+    The active :class:`~molexp.profile.ProfileConfig` is fixed at
     construction time via ``profile_config``.  Late-binding after
     construction is not permitted.
 

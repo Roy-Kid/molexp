@@ -1,4 +1,4 @@
-"""File loading for molexp configuration (YAML / JSON)."""
+"""File loading for molexp profiles (YAML / JSON)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from pathlib import Path
 
 from molcfg import JsonFileSource, YamlFileSource
 
-from molexp.config.models import MolCfg
+from molexp.profile.models import MolCfg
 
 DEFAULT_CONFIG_FILENAMES: tuple[str, ...] = ("molcfg.yaml", "molcfg.yml", "molcfg.json")
 

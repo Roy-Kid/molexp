@@ -1,4 +1,8 @@
-"""molexp configuration: molcfg.yaml loading + named profiles.
+"""molexp profiles: molcfg.yaml loading + named per-run profiles.
+
+This is the **file-based, per-run** configuration surface — distinct from the
+process-global in-code config object :data:`molexp.config` (a live
+``molcfg.Config`` defined in :mod:`molexp`).
 
 Public surface:
 
@@ -16,13 +20,14 @@ Any semantics (dataset choice, whether to skip heavy compute, etc.) are
 user-defined fields that the user's task code reads explicitly.
 """
 
-from molexp.config.loader import DEFAULT_CONFIG_FILENAMES, load_molcfg
-from molexp.config.models import MolCfg, ProfileConfig, normalize_profile_name
+from molexp.profile.loader import DEFAULT_CONFIG_FILENAMES, find_default_config, load_molcfg
+from molexp.profile.models import MolCfg, ProfileConfig, normalize_profile_name
 
 __all__ = [
     "DEFAULT_CONFIG_FILENAMES",
     "MolCfg",
     "ProfileConfig",
+    "find_default_config",
     "load_molcfg",
     "normalize_profile_name",
 ]
