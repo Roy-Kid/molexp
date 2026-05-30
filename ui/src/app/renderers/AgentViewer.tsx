@@ -40,6 +40,7 @@ import {
   derivePendingUserRequest,
   EVENT_META,
   groupEventsIntoTurns,
+  normalizeStreamFrame,
 } from "./agentEvents";
 
 // ---------------------------------------------------------------------------
@@ -89,14 +90,14 @@ const EventRow = ({
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{meta.label}</span>
-          {event.type === "ToolCallRequested" && Boolean(payload.tool_name) && (
+          {event.type === "tool_call_started" && Boolean(payload.tool_name) && (
             <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
               {String(payload.tool_name)}
             </Badge>
           )}
-          {event.type === "ToolCallCompleted" && Boolean(payload.run_id) && (
+          {event.type === "tool_call_completed" && Boolean(payload.tool_name) && (
             <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
-              {String(payload.run_id)}
+              {String(payload.tool_name)}
             </Badge>
           )}
           <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
@@ -119,59 +120,52 @@ const EventRow = ({
         </div>
 
         {/* Inline content for common event types */}
-        {event.type === "PlanCreated" && (
+        {event.type === "plan_emitted" && (
           <PlanCard sessionId={sessionId} event={event} onResolved={onPlanResolved} />
         )}
 
-        {event.type === "SessionCompleted" && (
+        {event.type === "mode_completed" && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
-            {Boolean(payload.summary) && (
+            {Boolean(payload.text) && (
               <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                {String(payload.summary)}
+                {String(payload.text)}
               </p>
             )}
           </div>
         )}
 
-        {event.type === "ToolApprovalRequested" && Boolean(payload.request_id) && (
+        {event.type === "approval_requested" && Boolean(payload.gate) && (
           <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30">
             <p className="flex-1 text-xs text-orange-700 dark:text-orange-400">
               Approve{" "}
-              <span className="font-mono font-semibold">
-                {String(payload.tool_name ?? "action")}
-              </span>
-              ?
+              <span className="font-mono font-semibold">{String(payload.gate ?? "action")}</span>?
             </p>
             <Button
               size="sm"
               variant="outline"
               className="h-6 border-orange-400 text-orange-700 hover:bg-orange-100"
-              onClick={() => onApprovalRespond(String(payload.request_id), false)}
+              onClick={() => onApprovalRespond(String(payload.gate), false)}
             >
               Deny
             </Button>
             <Button
               size="sm"
               className="h-6 bg-orange-500 text-white hover:bg-orange-600"
-              onClick={() => onApprovalRespond(String(payload.request_id), true)}
+              onClick={() => onApprovalRespond(String(payload.gate), true)}
             >
               Approve
             </Button>
           </div>
         )}
 
-        {event.type === "ToolCallCompleted" && <ToolResultArtifacts payload={payload} />}
+        {event.type === "tool_call_completed" && <ToolResultArtifacts payload={payload} />}
 
-        {event.type === "UserMessageRequested" && Boolean(payload.prompt) && (
+        {event.type === "clarification_required" && Boolean(payload.questions) && (
           <div className="rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 dark:border-fuchsia-800 dark:bg-fuchsia-950/30">
             <p className="text-xs text-fuchsia-700 dark:text-fuchsia-300">
-              {String(payload.prompt)}
+              {String(payload.questions)}
             </p>
           </div>
-        )}
-
-        {event.type === "UserMessageReceived" && Boolean(payload.content) && (
-          <p className="text-xs italic text-muted-foreground">“{String(payload.content)}”</p>
         )}
 
         {expanded && hasDetail && (
@@ -302,14 +296,14 @@ const TurnAnswer = ({
     );
   }
 
-  if (result.type === "PlanCreated") {
+  if (result.type === "plan_emitted") {
     return <PlanCard sessionId={sessionId} event={result} onResolved={onPlanResolved} />;
   }
 
   const payload = (result.payload ?? {}) as Record<string, unknown>;
 
-  if (result.type === "SessionCompleted") {
-    const summary = typeof payload.summary === "string" ? payload.summary : "";
+  if (result.type === "mode_completed") {
+    const summary = typeof payload.text === "string" ? payload.text : "";
     return (
       <div className="space-y-2">
         {summary ? (
@@ -323,7 +317,7 @@ const TurnAnswer = ({
     );
   }
 
-  if (result.type === "ToolCallCompleted") {
+  if (result.type === "tool_call_completed") {
     return <ToolResultArtifacts payload={payload} />;
   }
 
@@ -391,13 +385,13 @@ const TurnCard = ({
   // Surface approvals immediately even when the steps section is collapsed —
   // a hidden approval would block the agent indefinitely.
   const pendingApproval = turn.steps.find((s) => {
-    if (s.type !== "ToolApprovalRequested") return false;
+    if (s.type !== "approval_requested") return false;
     const p = (s.payload ?? {}) as Record<string, unknown>;
-    if (typeof p.request_id !== "string") return false;
+    if (typeof p.gate !== "string") return false;
     return !turn.steps.some(
       (other) =>
-        other.type === "ApprovalDecisionEvent" &&
-        ((other.payload ?? {}) as Record<string, unknown>).request_id === p.request_id,
+        other.type === "approval_decided" &&
+        ((other.payload ?? {}) as Record<string, unknown>).gate === p.gate,
     );
   });
 
@@ -430,7 +424,7 @@ const TurnCard = ({
           </div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {turn.result?.type === "SessionCompleted" && isLast ? "Final answer" : "Answer"}
+              {turn.result?.type === "mode_completed" && isLast ? "Final answer" : "Answer"}
             </p>
             <div className="mt-1">
               <TurnAnswer
@@ -1084,8 +1078,11 @@ const AgentSessionViewer = ({
           });
           return;
         }
-        if (data.type !== "waiting") {
-          setEvents((prev) => [...prev, data as ApiSessionEvent]);
+        // Normalize live AgentEvent frames ({kind, timestamp, …}) into the UI's
+        // {type, ts, payload} shape; `waiting` (and any control frame) → null.
+        const normalized = normalizeStreamFrame(data);
+        if (normalized) {
+          setEvents((prev) => [...prev, normalized]);
         }
       } catch {
         // ignore parse errors

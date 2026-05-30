@@ -75,6 +75,11 @@ export type ApiCacheClear = CacheClearResponse;
 // session. It already carries taskId/title/updatedAt/sessionId so legacy
 // consumers that expected ``ApiAgentSession`` see the same shape.
 export type ApiAgentSession = AgentTaskResponse;
+// The wire shape is {type, ts, payload}; `type` now carries the snake_case
+// AgentEvent `kind` (the server snapshot sets type=kind, and live SSE frames
+// are normalized by normalizeStreamFrame). Deliberately NOT repointed to the
+// generated AgentEvent union — that would cascade into the server's
+// PascalCase-keyed review-sync logic.
 export type ApiSessionEvent = SessionEventResponse;
 
 /**

@@ -1,51 +1,94 @@
 import { describe, expect, it } from "@rstest/core";
 
 import type { ApiSessionEvent } from "@/app/types";
-import { derivePendingUserRequest, EVENT_META, groupEventsIntoTurns } from "../agentEvents";
+import {
+  derivePendingUserRequest,
+  EVENT_META,
+  groupEventsIntoTurns,
+  normalizeStreamFrame,
+} from "../agentEvents";
 
 const ev = (type: string, payload: Record<string, unknown> = {}): ApiSessionEvent => ({
   type,
-  ts: "2026-04-28T00:00:00Z",
+  ts: "2026-05-30T00:00:00Z",
   payload,
 });
 
+const KINDS = [
+  "mode_started",
+  "mode_completed",
+  "stage_started",
+  "stage_completed",
+  "plan_emitted",
+  "approval_requested",
+  "approval_decided",
+  "tool_call_started",
+  "tool_call_completed",
+  "artifact_written",
+  "preflight_failed",
+  "repair_proposed",
+  "clarification_required",
+  "compaction_performed",
+  "error",
+  "thinking_delta",
+  "token_delta",
+];
+
 describe("EVENT_META", () => {
-  // ac-001 — agentEvents map matches §6.5 new names; legacy entries removed.
-  it("exports an entry for every kept harness event name", () => {
-    const kept = [
-      "PlanCreated",
-      "PlanDecided",
-      "ToolCallRequested",
-      "ToolCallCompleted",
-      "ToolApprovalRequested",
-      "UserMessageRequested",
-      "UserMessageReceived",
-      "SessionStarted",
-      "SessionCompleted",
-      "TurnStarted",
-      "ContextBuilt",
-      "ModelRequested",
-      "ModelResponded",
-      "FailureRecorded",
-    ];
-    for (const name of kept) {
-      expect(EVENT_META[name]).toBeDefined();
-      expect(typeof EVENT_META[name].label).toBe("string");
+  it("defines an entry for every snake_case AgentEvent kind", () => {
+    for (const kind of KINDS) {
+      expect(EVENT_META[kind]).toBeDefined();
+      expect(typeof EVENT_META[kind].label).toBe("string");
+      expect(EVENT_META[kind].label.length).toBeGreaterThan(0);
+      expect(EVENT_META[kind].icon).toBeDefined();
+      expect(typeof EVENT_META[kind].colorClass).toBe("string");
     }
   });
 
-  it("does NOT export entries for events dropped in §6.5", () => {
-    // ObservationEvent and ReplanEvent are dropped outright.
-    // ResultArtifactEvent and WorkflowStartedEvent fold into ToolCallCompleted.
+  it("drops every old PascalCase key", () => {
     const dropped = [
-      "ObservationEvent",
-      "ReplanEvent",
-      "ResultArtifactEvent",
-      "WorkflowStartedEvent",
+      "SessionStarted",
+      "PlanCreated",
+      "PlanDecided",
+      "ToolApprovalRequested",
+      "UserMessageRequested",
+      "UserMessageReceived",
+      "ModelResponded",
+      "ModelRequested",
+      "TurnStarted",
+      "ContextBuilt",
+      "FailureRecorded",
+      "SessionCompleted",
+      "ToolCallRequested",
+      "ToolCallCompleted",
     ];
     for (const name of dropped) {
       expect(EVENT_META[name]).toBeUndefined();
     }
+  });
+});
+
+describe("normalizeStreamFrame", () => {
+  it("maps an AgentEvent frame to {type, ts, payload}", () => {
+    const frame = { kind: "token_delta", timestamp: "2026-05-30T00:00:01Z", text: "hi" };
+    expect(normalizeStreamFrame(frame)).toEqual({
+      type: "token_delta",
+      ts: "2026-05-30T00:00:01Z",
+      payload: frame,
+    });
+  });
+
+  it("returns null for a done control frame", () => {
+    expect(normalizeStreamFrame({ type: "done" })).toBeNull();
+  });
+
+  it("returns null for a waiting control frame", () => {
+    expect(normalizeStreamFrame({ type: "waiting" })).toBeNull();
+  });
+
+  it("passes through an already-normalized {type, ts, payload} envelope", () => {
+    const env = { type: "mode_completed", ts: "2026-05-30T00:00:02Z", payload: { text: "done" } };
+    expect(normalizeStreamFrame(env)).toEqual(env);
   });
 });
 
@@ -57,60 +100,35 @@ describe("derivePendingUserRequest", () => {
   it("returns null when the last event is unrelated", () => {
     expect(
       derivePendingUserRequest([
-        ev("ToolCallRequested", { tool_name: "list_runs" }),
-        ev("ToolCallCompleted", { tool_name: "list_runs" }),
+        ev("tool_call_started", { tool_name: "list_runs" }),
+        ev("tool_call_completed", { tool_name: "list_runs" }),
       ]),
     ).toBeNull();
   });
 
-  it("returns the latest pending request when no reply followed", () => {
+  it("returns a pending request for a trailing clarification_required (no request_id dep)", () => {
     const result = derivePendingUserRequest([
-      ev("ToolCallRequested", { tool_name: "list_task_types" }),
-      ev("UserMessageRequested", { request_id: "req-1", prompt: "Which scope?" }),
-      ev("ToolCallCompleted", { tool_name: "list_task_types" }),
+      ev("tool_call_started", { tool_name: "list_task_types" }),
+      ev("clarification_required", { gate: "scope", questions: "Which scope?" }),
     ]);
-    expect(result).toEqual({ requestId: "req-1", prompt: "Which scope?" });
+    expect(result).toEqual({ requestId: "scope", prompt: "Which scope?" });
   });
 
-  it("clears the request once a UserMessageReceived answers it", () => {
+  it("clears once a later mode_completed supersedes the clarification", () => {
     expect(
       derivePendingUserRequest([
-        ev("UserMessageRequested", { request_id: "req-1", prompt: "?" }),
-        ev("UserMessageReceived", { content: "scope=project", request_id: "req-1" }),
+        ev("clarification_required", { gate: "scope", questions: "?" }),
+        ev("mode_completed", { text: "resolved" }),
       ]),
     ).toBeNull();
   });
 
-  it("treats a request without a string request_id as no pending request", () => {
-    expect(
-      derivePendingUserRequest([ev("UserMessageRequested", { prompt: "no-id question" })]),
-    ).toBeNull();
-  });
-
-  it("treats a missing prompt as null prompt rather than failure", () => {
-    expect(derivePendingUserRequest([ev("UserMessageRequested", { request_id: "r" })])).toEqual({
-      requestId: "r",
-      prompt: null,
-    });
-  });
-
-  it("handles multiple request/reply cycles, returning only the latest unanswered one", () => {
-    const result = derivePendingUserRequest([
-      ev("UserMessageRequested", { request_id: "r1", prompt: "first" }),
-      ev("UserMessageReceived", { content: "answer 1", request_id: "r1" }),
-      ev("ToolCallCompleted", { tool_name: "noop" }),
-      ev("UserMessageRequested", { request_id: "r2", prompt: "second" }),
-    ]);
-    expect(result).toEqual({ requestId: "r2", prompt: "second" });
-  });
-
-  it("ignores a legacy event type without crashing (§6.5 mixed-log compatibility)", () => {
-    // Edge case 1 from the spec — logs that mix old + new must not break the UI.
+  it("ignores an unknown/legacy event without crashing (mixed-log compatibility)", () => {
     const result = derivePendingUserRequest([
       ev("ObservationEvent", { content: "thinking…" }),
-      ev("UserMessageRequested", { request_id: "req-1", prompt: "?" }),
+      ev("clarification_required", { gate: "g", questions: "pick one" }),
     ]);
-    expect(result).toEqual({ requestId: "req-1", prompt: "?" });
+    expect(result).toEqual({ requestId: "g", prompt: "pick one" });
   });
 });
 
@@ -127,36 +145,35 @@ describe("groupEventsIntoTurns", () => {
     expect(turns[0].steps).toEqual([]);
   });
 
-  it("collects intermediate events as steps and promotes a SessionCompleted to the result", () => {
+  it("absorbs the leading mode_started into the goal turn and promotes mode_completed", () => {
     const events: ApiSessionEvent[] = [
-      ev("ToolCallRequested", { tool_name: "list_runs" }),
-      ev("ToolCallCompleted", { tool_name: "list_runs", result: { ok: true } }),
-      ev("SessionCompleted", { summary: "Found 3 runs." }),
+      ev("mode_started", { user_input: "List runs" }),
+      ev("tool_call_started", { tool_name: "list_runs" }),
+      ev("tool_call_completed", { tool_name: "list_runs" }),
+      ev("mode_completed", { text: "Found 3 runs." }),
     ];
     const turns = groupEventsIntoTurns(events, "List runs");
     expect(turns).toHaveLength(1);
     expect(turns[0].source).toBe("goal");
+    // mode_started is a boundary, not a step; the two tool events are steps.
     expect(turns[0].steps).toHaveLength(2);
-    expect(turns[0].result?.type).toBe("SessionCompleted");
+    expect(turns[0].steps.every((s) => s.type !== "mode_started")).toBe(true);
+    expect(turns[0].result?.type).toBe("mode_completed");
     expect(turns[0].inProgress).toBe(false);
   });
 
-  it("opens a new turn when a UserMessageReceived appears mid-stream", () => {
+  it("opens a new turn on a subsequent mode_started using its user_input", () => {
     const events: ApiSessionEvent[] = [
-      ev("ToolCallCompleted", { tool_name: "first_answer" }),
-      ev("UserMessageReceived", { content: "follow-up question" }),
-      ev("ToolCallRequested", { tool_name: "list_runs" }),
+      ev("mode_started", { user_input: "Initial goal" }),
+      ev("tool_call_completed", { tool_name: "first" }),
+      ev("mode_completed", { text: "first answer" }),
+      ev("mode_started", { user_input: "follow-up question" }),
+      ev("tool_call_started", { tool_name: "list_runs" }),
     ];
     const turns = groupEventsIntoTurns(events, "Initial goal");
     expect(turns).toHaveLength(2);
-    expect(turns[0]).toMatchObject({
-      question: "Initial goal",
-      source: "goal",
-      inProgress: false,
-    });
-    // ToolCallCompleted is intermediate — it should land as a step, not a result.
-    expect(turns[0].steps.some((s) => s.type === "ToolCallCompleted")).toBe(true);
-    expect(turns[0].result).toBeNull();
+    expect(turns[0]).toMatchObject({ question: "Initial goal", source: "goal", inProgress: false });
+    expect(turns[0].result?.type).toBe("mode_completed");
     expect(turns[1]).toMatchObject({
       question: "follow-up question",
       source: "user",
@@ -166,103 +183,29 @@ describe("groupEventsIntoTurns", () => {
     expect(turns[1].result).toBeNull();
   });
 
-  it("folds inline artifacts into a ToolCallCompleted instead of a separate event (§6.5)", () => {
-    // ResultArtifactEvent / WorkflowStartedEvent merge into ToolCallCompleted —
-    // artifacts ride on result.artifacts and metadata carries run_id / workflow_id.
+  it("promotes a plan_emitted to the turn result and keeps tool calls as steps", () => {
     const events: ApiSessionEvent[] = [
-      ev("ToolCallRequested", { tool_name: "execute_run" }),
-      ev("ToolCallCompleted", {
-        tool_name: "execute_run",
-        result: {
-          ok: true,
-          value: { status: "running" },
-          artifacts: [{ kind: "text", payload: { body: "started" } }],
-          metadata: { run_id: "r-1", workflow_id: "w-1" },
-        },
-      }),
-      ev("SessionCompleted", { summary: "Done." }),
-    ];
-    const turns = groupEventsIntoTurns(events, "Run something");
-    expect(turns).toHaveLength(1);
-    expect(turns[0].result?.type).toBe("SessionCompleted");
-    // The completed tool call carries the artifact inline; no standalone artifact event.
-    expect(turns[0].steps.some((s) => s.type === "ToolCallCompleted")).toBe(true);
-    expect(turns[0].steps.some((s) => s.type === "ResultArtifactEvent")).toBe(false);
-  });
-
-  it("promotes a PlanCreated to the turn result", () => {
-    // Every PlanCreated IS the agent's answer for the plan-mode turn —
-    // the user reviews + approves it as the headline.
-    const events: ApiSessionEvent[] = [
-      ev("ToolCallRequested", { tool_name: "list_task_types" }),
-      ev("PlanCreated", {
-        request_id: "plan-1",
-        plan_markdown: "1. inspect\n2. plan\n",
-        workflow_preview: {
-          workflow_ir: {
-            task_configs: [{ task_id: "t1", task_type: "noop", config: {} }],
-            links: [],
-          },
-        },
-      }),
+      ev("mode_started", { user_input: "Plan something" }),
+      ev("tool_call_started", { tool_name: "list_task_types" }),
+      ev("plan_emitted", { plan_id: "plan-1", step_count: 2 }),
     ];
     const turns = groupEventsIntoTurns(events, "Plan something");
     expect(turns).toHaveLength(1);
-    expect(turns[0].result?.type).toBe("PlanCreated");
+    expect(turns[0].result?.type).toBe("plan_emitted");
     expect(turns[0].inProgress).toBe(false);
-    // The earlier tool call stays as a step.
-    expect(turns[0].steps.some((s) => s.type === "ToolCallRequested")).toBe(true);
+    expect(turns[0].steps.some((s) => s.type === "tool_call_started")).toBe(true);
   });
 
-  it("treats an investigation-heavy plan as the turn result", () => {
-    // Investigation steps are nodes in the IR; the plan event still
-    // wins the turn-result slot exactly like any other workflow plan.
+  it("demotes an earlier plan_emitted to a step when mode_completed follows", () => {
     const events: ApiSessionEvent[] = [
-      ev("ToolCallRequested", { tool_name: "list_projects" }),
-      ev("PlanCreated", {
-        request_id: "plan-investigate-1",
-        plan_markdown: "1. inspect_dataset\n2. summarize",
-        workflow_preview: {
-          workflow_ir: {
-            task_configs: [
-              { task_id: "inspect", task_type: "inspect_dataset", config: {} },
-              { task_id: "summary", task_type: "summarize_dataset", config: {} },
-            ],
-            links: [{ source: "inspect", target: "summary" }],
-          },
-        },
-      }),
+      ev("mode_started", { user_input: "Run it" }),
+      ev("plan_emitted", { plan_id: "plan-1", step_count: 1 }),
+      ev("tool_call_started", { tool_name: "execute_run" }),
+      ev("mode_completed", { text: "done" }),
     ];
-    const turns = groupEventsIntoTurns(events, "Survey datasets");
+    const turns = groupEventsIntoTurns(events, "Run it");
     expect(turns).toHaveLength(1);
-    expect(turns[0].result?.type).toBe("PlanCreated");
-    const payload = turns[0].result?.payload as {
-      workflow_preview?: { workflow_ir?: { task_configs?: unknown[] } };
-    };
-    expect(payload?.workflow_preview?.workflow_ir?.task_configs).toHaveLength(2);
-  });
-
-  it("a SessionCompleted after a plan demotes the plan to a step", () => {
-    // Post-approval the agent finishes the workflow and emits a
-    // SessionCompleted. That becomes the new headline; the prior
-    // plan event is still inspectable via the steps drawer.
-    const events: ApiSessionEvent[] = [
-      ev("PlanCreated", {
-        request_id: "plan-1",
-        plan_markdown: "1. step",
-        workflow_preview: {
-          workflow_ir: {
-            task_configs: [{ task_id: "t1", task_type: "noop", config: {} }],
-            links: [],
-          },
-        },
-      }),
-      ev("ToolCallRequested", { tool_name: "execute_run" }),
-      ev("SessionCompleted", { summary: "Done." }),
-    ];
-    const turns = groupEventsIntoTurns(events, "Goal");
-    expect(turns[0].result?.type).toBe("SessionCompleted");
-    expect(turns[0].steps.some((s) => s.type === "PlanCreated")).toBe(true);
-    expect(turns[0].steps.some((s) => s.type === "ToolCallRequested")).toBe(true);
+    expect(turns[0].result?.type).toBe("mode_completed");
+    expect(turns[0].steps.some((s) => s.type === "plan_emitted")).toBe(true);
   });
 });
