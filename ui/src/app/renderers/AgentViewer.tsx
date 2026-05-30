@@ -33,12 +33,15 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ThinkingBlock } from "@/components/ui/thinking-block";
+import { ToolCallRow } from "@/components/ui/tool-call-row";
 import { MolvisRawChart } from "@/lib/charts";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import {
   type ConversationTurn,
   derivePendingUserRequest,
   EVENT_META,
+  foldStreamedTurn,
   groupEventsIntoTurns,
   normalizeStreamFrame,
 } from "./agentEvents";
@@ -379,6 +382,12 @@ const TurnCard = ({
   const [stepsOpen, setStepsOpen] = useState(false);
   const stepCount = turn.steps.length;
 
+  // Streamed render state for this turn: token answer, reasoning, tool calls.
+  const streamed = useMemo(
+    () => foldStreamedTurn(turn.result ? [...turn.steps, turn.result] : turn.steps),
+    [turn.steps, turn.result],
+  );
+
   const QuestionIcon = turn.source === "goal" ? Sparkles : CircleUser;
   const questionLabel = turn.source === "goal" ? "Goal" : "You asked";
 
@@ -418,6 +427,18 @@ const TurnCard = ({
       </header>
 
       <div className="space-y-3 px-4 py-3">
+        {streamed.thinking && (
+          <ThinkingBlock thinking={streamed.thinking} streaming={turn.inProgress} />
+        )}
+
+        {streamed.toolCalls.length > 0 && (
+          <div className="space-y-1">
+            {streamed.toolCalls.map((call) => (
+              <ToolCallRow key={call.id} call={call} />
+            ))}
+          </div>
+        )}
+
         <div className="flex items-start gap-3">
           <div className="mt-0.5 flex-none rounded-full bg-emerald-500/10 p-1.5 text-emerald-500">
             <Bot className="h-3.5 w-3.5" />
@@ -427,12 +448,19 @@ const TurnCard = ({
               {turn.result?.type === "mode_completed" && isLast ? "Final answer" : "Answer"}
             </p>
             <div className="mt-1">
-              <TurnAnswer
-                result={turn.result}
-                inProgress={turn.inProgress}
-                sessionId={sessionId}
-                onPlanResolved={onPlanResolved}
-              />
+              {turn.inProgress && !turn.result && streamed.answer ? (
+                // Token-by-token streaming answer before a terminal result lands.
+                <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
+                  {streamed.answer}
+                </p>
+              ) : (
+                <TurnAnswer
+                  result={turn.result}
+                  inProgress={turn.inProgress}
+                  sessionId={sessionId}
+                  onPlanResolved={onPlanResolved}
+                />
+              )}
             </div>
           </div>
         </div>

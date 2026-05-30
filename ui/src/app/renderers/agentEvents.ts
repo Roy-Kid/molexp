@@ -218,3 +218,89 @@ export const groupEventsIntoTurns = (
   turns.push(current);
   return turns;
 };
+
+/** One tool call's live state, folded from its started/completed delta pair. */
+export interface ToolCallState {
+  id: string;
+  toolName: string;
+  argsSummary: string;
+  status: "started" | "completed";
+  ok: boolean | null;
+  resultSummary: string | null;
+}
+
+/** Render-ready streamed state for one turn (token answer, reasoning, tools). */
+export interface StreamedTurn {
+  /** Concatenated `token_delta` text — the answer as it streams. */
+  answer: string;
+  /** Concatenated `thinking_delta` text — kept strictly separate from `answer`. */
+  thinking: string;
+  /** One entry per `tool_call_started`, upgraded in place on completion. */
+  toolCalls: ToolCallState[];
+}
+
+const _payload = (event: ApiSessionEvent): Record<string, unknown> =>
+  (event.payload ?? {}) as Record<string, unknown>;
+
+const _str = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/**
+ * Fold a turn's events into render-ready streamed state.
+ *
+ * Pure (no React, no input mutation): consecutive `token_delta` text
+ * concatenates into `answer`; `thinking_delta` text into a separate `thinking`
+ * (never leaking into `answer`); each `tool_call_started` pushes a `started`
+ * tool entry, upgraded in place to `completed` (with `ok`/`resultSummary`) by
+ * the matching `tool_call_completed` — matched FIFO by `tool_name`, falling
+ * back to the earliest still-`started` entry. When no `token_delta` streamed,
+ * `answer` falls back to a trailing `mode_completed.text`.
+ */
+export const foldStreamedTurn = (events: ApiSessionEvent[]): StreamedTurn => {
+  let answer = "";
+  let thinking = "";
+  let fallback = "";
+  const toolCalls: ToolCallState[] = [];
+
+  for (const event of events) {
+    const p = _payload(event);
+    switch (event.type) {
+      case "token_delta":
+        answer += _str(p.text);
+        break;
+      case "thinking_delta":
+        thinking += _str(p.text);
+        break;
+      case "tool_call_started":
+        toolCalls.push({
+          id: `${_str(p.tool_name) || "tool"}-${toolCalls.length}`,
+          toolName: _str(p.tool_name),
+          argsSummary: _str(p.args_summary),
+          status: "started",
+          ok: null,
+          resultSummary: null,
+        });
+        break;
+      case "tool_call_completed": {
+        const name = _str(p.tool_name);
+        let idx = toolCalls.findIndex((t) => t.status === "started" && t.toolName === name);
+        if (idx < 0) idx = toolCalls.findIndex((t) => t.status === "started");
+        if (idx >= 0) {
+          toolCalls[idx] = {
+            ...toolCalls[idx],
+            status: "completed",
+            ok: typeof p.ok === "boolean" ? p.ok : true,
+            resultSummary: typeof p.result_summary === "string" ? p.result_summary : null,
+          };
+        }
+        break;
+      }
+      case "mode_completed":
+        fallback = _str(p.text);
+        break;
+      default:
+        break;
+    }
+  }
+
+  return { answer: answer || fallback, thinking, toolCalls };
+};
