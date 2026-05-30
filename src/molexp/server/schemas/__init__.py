@@ -41,6 +41,7 @@ from .requests import (
     WorkspaceOpenRequest,
 )
 from .responses import (
+    AgentEvent,
     AgentHealthResponse,
     AgentProviderResponse,
     AgentProviderTestResponse,
@@ -145,6 +146,7 @@ from .workspace_targets import (
 
 __all__ = [
     # Responses
+    "AgentEvent",
     "AgentHealthResponse",
     "AgentProviderResponse",
     "AgentProviderTestResponse",

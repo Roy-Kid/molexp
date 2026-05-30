@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from ..dependencies import get_workspace
 from ..schemas import (
+    AgentEvent,
     AgentSessionResponse,
     AgentTaskListResponse,
     AgentTaskResponse,
@@ -270,7 +271,18 @@ def get_agent_task(
     return task
 
 
-@router.get("/{task_id}/events")
+@router.get(
+    "/{task_id}/events",
+    responses={
+        200: {
+            "model": AgentEvent,
+            "description": (
+                "Server-Sent Events stream; each `data:` frame is one AgentEvent "
+                "(discriminated on `kind`), terminated by a `done` control frame."
+            ),
+        }
+    },
+)
 async def stream_agent_task_events(
     task_id: str,
     workspace=Depends(get_workspace),  # noqa: ANN001

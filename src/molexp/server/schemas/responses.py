@@ -12,6 +12,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# The typed AgentEvent discriminated union is the wire shape the live SSE event
+# stream frames carry (spec 01). Re-exported here so the OpenAPI surface owns a
+# typed reference; it supersedes the generic SessionEventResponse for the stream
+# (SessionEventResponse stays the session-snapshot shape). Pure data — importing
+# it pulls no pydantic-ai.
+from molexp.agent.events import AgentEvent as AgentEvent
 from molexp.workspace import (
     Asset,
     Experiment,
