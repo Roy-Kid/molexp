@@ -102,10 +102,11 @@ const createMockTaskSession = (body: {
                 ...(current.events ?? []),
                 planMode
                     ? {
-                          type: "PlanCreated",
+                          type: "plan_emitted",
                           ts,
                           payload: {
-                              request_id: `plan-${sessionId}`,
+                              plan_id: `plan-${sessionId}`,
+                              step_count: 1,
                               plan_markdown: "1. Inspect workspace\n2. Draft workflow\n3. Validate outputs",
                               workflow_preview: {
                                   workflow_ir: {
@@ -127,9 +128,9 @@ const createMockTaskSession = (body: {
                           },
                       }
                     : {
-                          type: "SessionCompleted",
+                          type: "mode_completed",
                           ts,
-                          payload: { summary: `Goal completed: "${body.description}"` },
+                          payload: { text: `Goal completed: "${body.description}"` },
                       },
             ],
             stats: {
@@ -248,24 +249,48 @@ export const agentHandlers = [
         return HttpResponse.json(taskFromSession(session));
     }),
 
-    // GET /api/agent-tasks/:taskId/events — SSE stream of task events
+    // GET /api/agent-tasks/:taskId/events — SSE stream of AgentEvent frames.
+    //
+    // Emits the new snake_case AgentEvent vocabulary ({kind, timestamp, …})
+    // as a timed sequence so the streaming UI is observable: reasoning →
+    // tool call → token-by-token answer → terminal. A non-running session
+    // just closes with a `done` control frame.
     http.get(`${API_BASE}/agent-tasks/:taskId/events`, ({ params }) => {
         const session = getAgentSession(params.taskId as string);
         const encoder = new TextEncoder();
+        const frame = (obj: Record<string, unknown>): Uint8Array =>
+            encoder.encode(`data: ${JSON.stringify(obj)}\n\n`);
+        const now = (): string => new Date().toISOString();
         const stream = new ReadableStream({
-            start(controller) {
+            async start(controller) {
                 if (!session) {
-                    controller.enqueue(encoder.encode('data: {"type":"error","message":"Task not found"}\n\n'));
+                    controller.enqueue(frame({ type: "error", message: "Task not found" }));
                     controller.close();
                     return;
                 }
-                controller.enqueue(
-                    encoder.encode(
-                        session.status !== "running"
-                            ? 'data: {"type":"done"}\n\n'
-                            : 'data: {"type":"waiting"}\n\n',
-                    ),
-                );
+                if (session.status !== "running") {
+                    controller.enqueue(frame({ type: "done" }));
+                    controller.close();
+                    return;
+                }
+                const goal = session.goal ?? "demo";
+                const seq: Record<string, unknown>[] = [
+                    { kind: "mode_started", timestamp: now(), mode_name: "interactive", user_input: goal },
+                    { kind: "thinking_delta", timestamp: now(), text: "Let me reason about " },
+                    { kind: "thinking_delta", timestamp: now(), text: "the request before answering." },
+                    { kind: "tool_call_started", timestamp: now(), tool_name: "read_file", args_summary: "path=README.md" },
+                    { kind: "tool_call_completed", timestamp: now(), tool_name: "read_file", result_summary: "42 lines", ok: true },
+                    { kind: "token_delta", timestamp: now(), text: "Here " },
+                    { kind: "token_delta", timestamp: now(), text: "is " },
+                    { kind: "token_delta", timestamp: now(), text: "the " },
+                    { kind: "token_delta", timestamp: now(), text: "answer." },
+                    { kind: "mode_completed", timestamp: now(), text: "Here is the answer." },
+                ];
+                for (const ev of seq) {
+                    controller.enqueue(frame(ev));
+                    await new Promise((resolve) => setTimeout(resolve, 250));
+                }
+                controller.enqueue(frame({ type: "done" }));
                 controller.close();
             },
         });

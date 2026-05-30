@@ -1152,7 +1152,12 @@ export function getAllAgentSessions(): ApiAgentSession[] {
 }
 
 export function getAgentSession(id: string): ApiAgentSession | undefined {
-    return db.agentSessions.get(id);
+    // Sessions are keyed by sessionId, but routes look them up by taskId
+    // (the /agent-tasks/:taskId URL param). Resolve by either.
+    return (
+        db.agentSessions.get(id) ??
+        Array.from(db.agentSessions.values()).find((s) => (s.taskId ?? s.sessionId) === id)
+    );
 }
 
 export function setAgentSession(session: ApiAgentSession): void {

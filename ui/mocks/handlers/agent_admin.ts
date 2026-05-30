@@ -315,8 +315,8 @@ let _provider: MockProvider = {
   provider: "anthropic",
   model: "claude-sonnet-4-6",
   baseUrl: "",
-  apiKeyPreview: "",
-  apiKeySet: false,
+  apiKeyPreview: "sk-…mock",
+  apiKeySet: true,
   instructions: "",
   supportedProviders: _SUPPORTED_PROVIDERS,
 };
