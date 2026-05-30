@@ -474,17 +474,13 @@ async def test_runner_session_isolates_distinct_ids(tmp_path, hermetic_user_dir)
 
 
 def test_public_surface_unchanged() -> None:
-    """``molexp.agent`` re-exports the loop-orchestration core plus the
-    workflow-orthogonal approval primitives. Post spec 03b the surface
-    gains :class:`AgentRuntime` (the frozen-dataclass bundle loops
-    receive at run time)."""
+    """``molexp.agent`` re-exports exactly the loop-orchestration core —
+    :class:`AgentRuntime` is the frozen-dataclass bundle loops receive at
+    run time."""
     assert tuple(sorted(molexp.agent.__all__)) == (
         "AgentLoop",
         "AgentRunResult",
         "AgentRunner",
         "AgentRuntime",
         "AgentSession",
-        "ReviewDecision",
-        "ReviewPolicy",
-        "cli_ask",
     )

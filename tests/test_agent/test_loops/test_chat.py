@@ -91,7 +91,6 @@ def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime
     from pathlib import Path
 
     from molexp.agent.execution_env import LocalExecutionEnv
-    from molexp.agent.hooks import HookRegistry
 
     session = Session(storage=InMemorySessionStorage(), session_id="chat")
     scratch = Path(tempfile.mkdtemp(prefix="chat_test_"))
@@ -99,7 +98,6 @@ def _runtime(router: object, tmp_path_factory: Any = None) -> tuple[AgentRuntime
         session=session,
         router=router,  # type: ignore[arg-type]
         execution_env=LocalExecutionEnv(scratch_dir=scratch),
-        hooks=HookRegistry(),
     )
     return runtime, session
 

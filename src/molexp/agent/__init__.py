@@ -1,24 +1,22 @@
 """Public agent surface — pydantic-ai facade + LLM-only loops.
 
 Post spec ``harness-as-mode-substrate-03b`` the agent layer is a
-**pydantic-ai facade**: ``Session`` / ``Router`` / ``ExecutionEnv`` /
-``HookRegistry`` primitives + two LLM-only loops (:class:`ChatLoop` for
-single round-trip, :class:`InteractiveLoop` for the emergent tool loop).
+**pydantic-ai facade**: ``Session`` / ``Router`` / ``ExecutionEnv``
+primitives + two LLM-only loops (:class:`ChatLoop` for single
+round-trip, :class:`InteractiveLoop` for the emergent tool loop).
 Pipeline-style orchestration (Plan / Author / Run / Review) moved to
 :mod:`molexp.harness`.
 
-The user-visible surface is six names — :class:`AgentRunner`,
+The user-visible surface is five names — :class:`AgentRunner`,
 :class:`AgentLoop`, :class:`AgentRunResult`, :class:`AgentRuntime`,
-:class:`AgentSession` — plus three workflow-orthogonal approval
-primitives (:class:`ReviewDecision`, the :data:`ReviewPolicy` callable
-alias, and the bundled :func:`cli_ask` policy).
+:class:`AgentSession`.
 
 ``AgentSession`` is the runtime conversation value — the
 :class:`~molexp.agent.session.Session` entry-tree class re-exported
 under the historical name. ``AgentRuntime`` is the frozen dataclass
 bundle a loop reaches for at run time (session + router +
-execution_env + hooks); ``AgentRunner`` constructs it once per
-:meth:`run` and passes it through to the loop.
+execution_env); ``AgentRunner`` constructs it once per :meth:`run`
+and passes it through to the loop.
 
 Layer position: **agent uses workspace only**. The agent imports the
 public surface of workspace (for ``Workspace`` / ``Folder`` / session
@@ -67,7 +65,6 @@ See ``§ Architecture`` in CLAUDE.md and the import-guard tests under
 """
 
 from molexp.agent.loop import AgentLoop, AgentRunResult
-from molexp.agent.review import ReviewDecision, ReviewPolicy, cli_ask
 from molexp.agent.runner import AgentRunner
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session as AgentSession
@@ -78,7 +75,4 @@ __all__ = [
     "AgentRunner",
     "AgentRuntime",
     "AgentSession",
-    "ReviewDecision",
-    "ReviewPolicy",
-    "cli_ask",
 ]

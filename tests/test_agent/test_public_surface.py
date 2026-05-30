@@ -4,9 +4,6 @@ The agent layer is a pydantic-ai facade. Surface contract:
 
 * Loop-orchestration core: :class:`AgentRunner`, :class:`AgentLoop`,
   :class:`AgentRunResult`, :class:`AgentRuntime`, :class:`AgentSession`.
-* Workflow-orthogonal approval primitives: :class:`ReviewDecision`,
-  the :data:`ReviewPolicy` callable alias, and the bundled
-  :func:`cli_ask` policy.
 
 Loops contract — only :class:`ChatLoop` (one round-trip) and the
 emergent :class:`InteractiveLoop` ship; the prior pipeline modes
@@ -29,10 +26,6 @@ def test_agent_all_is_the_public_contract() -> None:
         "AgentRunResult",
         "AgentRuntime",
         "AgentSession",
-        # Workflow-orthogonal approval primitives (parallel to loop).
-        "ReviewPolicy",
-        "ReviewDecision",
-        "cli_ask",
     }
 
 

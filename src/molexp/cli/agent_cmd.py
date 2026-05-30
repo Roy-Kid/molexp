@@ -55,9 +55,9 @@ def _make_runner(
     A seam: tests monkeypatch this to inject a fake router instead of
     constructing a live pydantic-ai backend.
     """
-    from molexp.agent import AgentRunner, cli_ask
+    from molexp.agent import AgentRunner
 
-    return AgentRunner(loop=loop, model=model, workspace=workspace, approval=cli_ask)
+    return AgentRunner(loop=loop, model=model, workspace=workspace)
 
 
 def _print_help() -> None:
