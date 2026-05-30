@@ -100,11 +100,10 @@ def test_unknown_task_returns_404(agent_client: TestClient) -> None:
     assert agent_client.get("/api/agent-tasks/task-does-not-exist").status_code == 404
 
 
-def test_still_stubbed_routes_return_503(agent_client: TestClient) -> None:
-    # stream_events (00c) and the approval routes (deferred) remain 503;
-    # /messages was relit in 00b and is covered by test_agent_messages.py.
+def test_deferred_approval_routes_return_503(agent_client: TestClient) -> None:
+    # Only the deferred approval routes remain 503. /events was relit in 00c,
+    # /messages in 00b — both covered by their own test modules.
     task_id = agent_client.post("/api/agent-tasks", json={"description": "hi"}).json()["taskId"]
-    assert agent_client.get(f"/api/agent-tasks/{task_id}/events").status_code == 503
     assert (
         agent_client.post(
             f"/api/agent-tasks/{task_id}/approve",

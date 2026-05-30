@@ -15,7 +15,7 @@ explicit ``workspace``. They reach the process-singleton
 from __future__ import annotations
 
 import secrets
-from collections.abc import Callable
+from collections.abc import AsyncGenerator, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -44,6 +44,10 @@ if TYPE_CHECKING:
     )
 
 router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+# Copied from routes/molq.py:27 (the canonical SSE idiom) — not imported, so the
+# agent stream stays decoupled from the molq job dashboard.
+_SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
 
 
 _GONE_DETAIL = (
@@ -208,8 +212,41 @@ def get_session(session_id: str, *, workspace: Workspace) -> AgentSessionRespons
 # ── Still-stubbed calls (owned by 00b / 00c) ────────────────────────────────
 
 
-async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingResponse:  # noqa: ARG001
-    raise _gone()
+async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingResponse:
+    """Stream a session's live ``AgentEvent`` flow as Server-Sent Events.
+
+    Fails fast with 404 (before any stream byte) when the session is not
+    registered. Otherwise frames each event as ``data: {json}\\n\\n`` in
+    replay-then-tail order, closes with a terminal ``done`` frame after the
+    turn's ``mode_completed``, and emits exactly one ``error`` frame (then a
+    clean close) when the turn ended in failure.
+    """
+    runtime = get_agent_runtime().get(_workspace_root(workspace), session_id)
+    if runtime is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"agent session {session_id!r} not found",
+        )
+
+    async def _generate() -> AsyncGenerator[str, None]:
+        from molexp.server.agent_runtime.serialize import (
+            done_frame,
+            error_frame,
+            event_to_sse_frame,
+        )
+
+        try:
+            async for event in runtime.subscribe_events():
+                yield event_to_sse_frame(event)
+        except Exception as exc:  # streaming failure → one error frame, clean close
+            yield error_frame(str(exc))
+            return
+        if runtime.status() == "failed":
+            yield error_frame(str(runtime.error) if runtime.error else "turn failed")
+        else:
+            yield done_frame()
+
+    return StreamingResponse(_generate(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 async def respond_approval(

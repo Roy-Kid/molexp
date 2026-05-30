@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Literal
+
+from molexp.agent.events import AsyncIteratorEventSink
 
 if TYPE_CHECKING:
     from molexp.agent.events import AgentEvent
@@ -30,6 +33,12 @@ class AgentTurn:
         self.status: TurnStatus = "running"
         self.error: BaseException | None = None
         self._task: asyncio.Task[None] | None = None
+        # Replay-then-tail fan-out: each live subscriber registers a sink the
+        # drive loop pushes into; ``_lock`` makes (append + fan-out) atomic with
+        # (snapshot + register) so no event is lost or duplicated at the seam.
+        self._sinks: list[AsyncIteratorEventSink] = []
+        self._lock = asyncio.Lock()
+        self._closed = False
 
     @classmethod
     def start(cls, *, runner: AgentRunner, session: Session, user_input: str) -> AgentTurn:
@@ -58,7 +67,10 @@ class AgentTurn:
         """
         try:
             async for event in runner.run_events(session, user_input):
-                self.events.append(event)
+                async with self._lock:
+                    self.events.append(event)
+                    for sink in self._sinks:
+                        await sink(event)
             self.status = "completed"
         except asyncio.CancelledError:
             self.status = "cancelled"
@@ -66,6 +78,33 @@ class AgentTurn:
         except Exception as exc:
             self.status = "failed"
             self.error = exc
+        finally:
+            async with self._lock:
+                self._closed = True
+                for sink in self._sinks:
+                    await sink.close()
+
+    async def subscribe(self) -> AsyncIterator[AgentEvent]:
+        """Yield this turn's events replay-then-tail.
+
+        Under ``_lock`` (so atomic with the drive loop's append + fan-out), the
+        already-collected events are snapshotted and — when the turn is still
+        live — a fresh sink is registered. The snapshot is yielded first
+        (replay), then everything pushed after registration (tail), in emission
+        order with no event lost or duplicated at the seam. A subscriber that
+        connects after the turn has ended gets the full replay and stops.
+        """
+        async with self._lock:
+            replay = list(self.events)
+            sink: AsyncIteratorEventSink | None = None
+            if not self._closed:
+                sink = AsyncIteratorEventSink()
+                self._sinks.append(sink)
+        for event in replay:
+            yield event
+        if sink is not None:
+            async for event in sink:
+                yield event
 
     def cancel(self) -> None:
         """Request cancellation of the background turn task (idempotent)."""

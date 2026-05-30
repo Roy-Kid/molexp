@@ -9,6 +9,7 @@ objects themselves never cross into ``server.schemas``.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from molexp.server.agent_runtime.turn import AgentTurn
@@ -55,6 +56,18 @@ class AgentSessionRuntime:
     def status(self) -> str:
         """The current turn's status, or ``"idle"`` before any turn started."""
         return self._turn.status if self._turn is not None else "idle"
+
+    @property
+    def error(self) -> BaseException | None:
+        """The current turn's failure, if it ended in ``failed`` status."""
+        return self._turn.error if self._turn is not None else None
+
+    async def subscribe_events(self) -> AsyncIterator[AgentEvent]:
+        """Live replay-then-tail of the current turn's events (empty if none)."""
+        if self._turn is None:
+            return
+        async for event in self._turn.subscribe():
+            yield event
 
     async def await_finished(self) -> None:
         """Await the current turn (no-op when no turn has started)."""
