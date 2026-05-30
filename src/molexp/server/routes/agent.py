@@ -26,6 +26,7 @@ from ..dependencies import get_agent_runtime
 from ..schemas import (
     AgentSessionListResponse,
     AgentSessionResponse,
+    MessageResponse,
     SessionEventResponse,
     SessionStatsResponse,
 )
@@ -38,7 +39,6 @@ if TYPE_CHECKING:
     from ..schemas import (
         ApprovalRespondRequest,
         GoalCreateRequest,
-        MessageResponse,
         PlanDecisionRequest,
         UserMessageCreateRequest,
     )
@@ -231,12 +231,31 @@ async def respond_plan(
 
 
 async def post_user_message(
-    session_id: str,  # noqa: ARG001
-    request: UserMessageCreateRequest,  # noqa: ARG001
+    session_id: str,
+    request: UserMessageCreateRequest,
     *,
-    workspace: Workspace,  # noqa: ARG001
+    workspace: Workspace,
 ) -> MessageResponse:
-    raise _gone()
+    """Start a follow-up turn on an existing session from a user message.
+
+    Resolves the live runtime (404 when absent). A message arriving while the
+    current turn is still ``running`` is rejected with 409 (no interleaving);
+    otherwise a fresh background turn is spawned on the same ``Session`` so the
+    conversation continues, and a wire ``MessageResponse`` is returned.
+    """
+    runtime = get_agent_runtime().get(_workspace_root(workspace), session_id)
+    if runtime is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"agent session {session_id!r} not found",
+        )
+    if runtime.status() == "running":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="a turn is already in flight for this session",
+        )
+    runtime.start_turn(request.content)
+    return MessageResponse(message="accepted")
 
 
 __all__ = [

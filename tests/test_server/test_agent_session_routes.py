@@ -101,18 +101,14 @@ def test_unknown_task_returns_404(agent_client: TestClient) -> None:
 
 
 def test_still_stubbed_routes_return_503(agent_client: TestClient) -> None:
+    # stream_events (00c) and the approval routes (deferred) remain 503;
+    # /messages was relit in 00b and is covered by test_agent_messages.py.
     task_id = agent_client.post("/api/agent-tasks", json={"description": "hi"}).json()["taskId"]
     assert agent_client.get(f"/api/agent-tasks/{task_id}/events").status_code == 503
     assert (
         agent_client.post(
             f"/api/agent-tasks/{task_id}/approve",
             json={"request_id": "r1", "approved": True},
-        ).status_code
-        == 503
-    )
-    assert (
-        agent_client.post(
-            f"/api/agent-tasks/{task_id}/messages", json={"content": "more"}
         ).status_code
         == 503
     )
