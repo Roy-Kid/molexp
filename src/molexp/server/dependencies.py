@@ -15,12 +15,15 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from molcfg import Config, ConfigLoader, DictSource, Source
 from pydantic import BaseModel
 
 from molexp.workspace import Workspace
+
+if TYPE_CHECKING:
+    from molexp.server.agent_runtime import AgentSessionRegistry
 
 _SERVER_DEFAULTS: dict[str, Any] = {
     "workspace_path": "",
@@ -227,6 +230,47 @@ def reset_workspace_folder_store() -> None:
     """Reset the workspace folder store (for testing)."""
     global _workspace_folder_store
     _workspace_folder_store = None
+
+
+# ============================================================================
+# Agent session runtime (server-process singleton)
+# ============================================================================
+#
+# A process-singleton mirroring ``get_workspace_folder_store`` rather than
+# ``app.state``: the relit session routes in ``routes/agent.py`` are plain
+# functions called directly by ``agent_tasks.py`` (not request-scoped FastAPI
+# endpoints), so they need a callable accessor, not a ``request``. The same
+# accessor doubles as a FastAPI dependency; tests reset via
+# ``reset_agent_runtime()`` (which cancels any in-flight turns).
+
+_agent_runtime_registry: AgentSessionRegistry | None = None
+
+
+def get_agent_runtime() -> AgentSessionRegistry:
+    """Return the process-singleton :class:`AgentSessionRegistry`.
+
+    Usable both as a FastAPI dependency (``Depends(get_agent_runtime)``) and as
+    a plain accessor from the directly-called session routes. Lazily created on
+    first use; the app lifespan cancels its in-flight turns on shutdown via
+    :func:`reset_agent_runtime`.
+    """
+    global _agent_runtime_registry
+    if _agent_runtime_registry is None:
+        from molexp.server.agent_runtime import AgentSessionRegistry
+
+        _agent_runtime_registry = AgentSessionRegistry()
+    return _agent_runtime_registry
+
+
+async def reset_agent_runtime() -> None:
+    """Cancel every in-flight turn and drop the registry singleton.
+
+    Awaited by the app lifespan on shutdown and by test fixtures for isolation.
+    """
+    global _agent_runtime_registry
+    if _agent_runtime_registry is not None:
+        await _agent_runtime_registry.aclose()
+        _agent_runtime_registry = None
 
 
 _workspace_descriptor_override: str | None = None
