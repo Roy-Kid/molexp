@@ -10,12 +10,12 @@ stage opening/closing, an artefact landing, an approval being requested
 or decided, a plan being emitted, a preflight failing, a repair being
 proposed, a compaction running, a mode finishing, an error.
 
-Three members carry the **emergent loop** of
-:class:`~molexp.agent.loops.interactive.InteractiveLoop`: a token-level
-:class:`TokenDeltaEvent` and the :class:`ToolCallStartedEvent` /
-:class:`ToolCallCompletedEvent` pair. They are the orchestration-level
-projection of the pydantic-ai agentic loop — the per-call streaming
-machinery itself stays inside pydantic-ai, behind the
+Four members carry the **emergent loop** of
+:class:`~molexp.agent.loops.interactive.InteractiveLoop`: a reasoning-level
+:class:`ThinkingDeltaEvent`, a token-level :class:`TokenDeltaEvent`, and the
+:class:`ToolCallStartedEvent` / :class:`ToolCallCompletedEvent` pair. They are
+the orchestration-level projection of the pydantic-ai agentic loop — the
+per-call streaming machinery itself stays inside pydantic-ai, behind the
 :meth:`~molexp.agent.router.Router.stream_agentic` surface.
 
 The module imports nothing from ``pydantic_ai`` / ``pydantic_graph`` —
@@ -51,6 +51,7 @@ __all__ = [
     "RepairProposedEvent",
     "StageCompletedEvent",
     "StageStartedEvent",
+    "ThinkingDeltaEvent",
     "TokenDeltaEvent",
     "ToolCallCompletedEvent",
     "ToolCallStartedEvent",
@@ -199,6 +200,22 @@ class ErrorEvent(_BaseEvent):
     stage_name: str = ""
 
 
+class ThinkingDeltaEvent(_BaseEvent):
+    """Emitted for one reasoning-token increment from the emergent loop.
+
+    The orchestration-level projection of a
+    :class:`~molexp.agent.router.ThinkingDeltaChunk`: a reasoning model's
+    private chain-of-thought, streamed *before* the answer.
+    :class:`~molexp.agent.loops.interactive.InteractiveLoop` yields one per
+    reasoning delta so a CLI / SSE consumer can surface "thinking…" in a
+    collapsed / dimmed treatment, kept distinct from the answer's
+    :class:`TokenDeltaEvent`\\ s. A model that does not reason emits none.
+    """
+
+    kind: Literal["thinking_delta"] = "thinking_delta"
+    text: str
+
+
 class TokenDeltaEvent(_BaseEvent):
     """Emitted for one token-level text increment from the emergent loop.
 
@@ -251,6 +268,7 @@ AgentEvent = Annotated[
     | CompactionPerformedEvent
     | ModeCompletedEvent
     | ErrorEvent
+    | ThinkingDeltaEvent
     | TokenDeltaEvent
     | ToolCallStartedEvent
     | ToolCallCompletedEvent,

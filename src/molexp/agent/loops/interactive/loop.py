@@ -5,6 +5,7 @@ drives :meth:`molexp.agent.router.Router.stream_agentic` and forwards
 each :data:`AgenticChunk` to the injected sink as the corresponding
 :data:`AgentEvent`:
 
+* ``ThinkingDeltaChunk`` → ``ThinkingDeltaEvent``
 * ``TextDeltaChunk`` → ``TokenDeltaEvent``
 * ``ToolCallChunk``  → ``ToolCallStartedEvent``
 * ``ToolResultChunk`` → ``ToolCallCompletedEvent``
@@ -35,6 +36,7 @@ from molexp.agent.events import (
     AsyncIteratorEventSink,
     ModeCompletedEvent,
     ModeStartedEvent,
+    ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
@@ -44,6 +46,7 @@ from molexp.agent.loops.interactive.tools import readonly_tools
 from molexp.agent.router import (
     FinalChunk,
     TextDeltaChunk,
+    ThinkingDeltaChunk,
     ToolCallChunk,
     ToolResultChunk,
 )
@@ -103,7 +106,9 @@ class InteractiveLoop(AgentLoop):
             system=self.config.system_prompt,
             tools=tools,
         ):
-            if isinstance(chunk, TextDeltaChunk):
+            if isinstance(chunk, ThinkingDeltaChunk):
+                await sink(ThinkingDeltaEvent(text=chunk.text))
+            elif isinstance(chunk, TextDeltaChunk):
                 await sink(TokenDeltaEvent(text=chunk.text))
             elif isinstance(chunk, ToolCallChunk):
                 await sink(

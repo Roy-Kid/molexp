@@ -29,12 +29,16 @@ from molexp.agent.events import (
     RepairProposedEvent,
     StageCompletedEvent,
     StageStartedEvent,
+    ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
 
 __all__ = ["AgentEventRenderer"]
+
+_STREAM_KINDS = frozenset({"token_delta", "thinking_delta"})
+"""Event kinds that stream inline without a trailing newline per delta."""
 
 
 class AgentEventRenderer:
@@ -48,10 +52,15 @@ class AgentEventRenderer:
         self.console = console
         self._streaming = False
         self._saw_token_delta = False
+        self._stream_mode: str | None = None
 
     def render(self, event: AgentEvent) -> None:
         """Render one event, dispatching on its discriminator ``kind``."""
-        if not isinstance(event, TokenDeltaEvent):
+        # Reasoning ("thinking_delta") and answer ("token_delta") are two
+        # distinct inline streams: close the current one on any non-stream
+        # event, or when switching from one stream mode to the other, so a
+        # newline separates reasoning from the answer it precedes.
+        if event.kind not in _STREAM_KINDS or event.kind != self._stream_mode:
             self._end_stream()
         handler = getattr(self, f"_render_{event.kind}", None)
         if handler is None:  # pragma: no cover - dispatch is exhaustive
@@ -60,10 +69,11 @@ class AgentEventRenderer:
         handler(event)
 
     def _end_stream(self) -> None:
-        """Close an in-progress streamed token line with a newline."""
+        """Close an in-progress streamed line with a newline."""
         if self._streaming:
             self.console.print()
             self._streaming = False
+        self._stream_mode = None
 
     # ── per-kind render paths ────────────────────────────────────────────
 
@@ -71,10 +81,22 @@ class AgentEventRenderer:
         self._saw_token_delta = False
         self.console.print(f"[bold cyan]▶ {event.mode_name}[/bold cyan]")
 
+    def _render_thinking_delta(self, event: ThinkingDeltaEvent) -> None:
+        # Reasoning streams dimmed/italic and labelled once per run, so it
+        # reads as private chain-of-thought rather than the answer.
+        if self._stream_mode != "thinking_delta":
+            self.console.print("[dim italic]💭 [/dim italic]", end="")
+        self.console.print(
+            event.text, end="", style="dim italic", soft_wrap=True, markup=False, highlight=False
+        )
+        self._streaming = True
+        self._stream_mode = "thinking_delta"
+
     def _render_token_delta(self, event: TokenDeltaEvent) -> None:
         self.console.print(event.text, end="", soft_wrap=True, markup=False, highlight=False)
         self._streaming = True
         self._saw_token_delta = True
+        self._stream_mode = "token_delta"
 
     def _render_tool_call_started(self, event: ToolCallStartedEvent) -> None:
         detail = f"({event.args_summary})" if event.args_summary else "()"

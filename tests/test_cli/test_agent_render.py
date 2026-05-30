@@ -20,6 +20,7 @@ from molexp.agent.events import (
     RepairProposedEvent,
     StageCompletedEvent,
     StageStartedEvent,
+    ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
@@ -92,3 +93,34 @@ def test_mode_completed_without_token_deltas_prints_text() -> None:
 def test_failed_tool_call_marked_distinctly() -> None:
     out = _render([ToolCallCompletedEvent(tool_name="read_file", ok=False)])
     assert "read_file" in out
+
+
+def test_thinking_deltas_stream_inline() -> None:
+    out = _render([ThinkingDeltaEvent(text="weigh"), ThinkingDeltaEvent(text="ing")])
+    assert "weighing" in out
+
+
+def test_thinking_then_token_inserts_newline_between_streams() -> None:
+    """Reasoning and answer are distinct streams — a newline separates them."""
+    out = _render(
+        [
+            ThinkingDeltaEvent(text="reasoning"),
+            TokenDeltaEvent(text="answer"),
+        ]
+    )
+    assert "reasoning" in out
+    assert "answer" in out
+    # the answer is not concatenated onto the reasoning line
+    assert "reasoninganswer" not in out
+
+
+def test_thinking_does_not_suppress_final_text() -> None:
+    """Thinking deltas are not answer tokens — final text must still print."""
+    out = _render(
+        [
+            ModeStartedEvent(mode_name="interactive", user_input="q"),
+            ThinkingDeltaEvent(text="hmm"),
+            ModeCompletedEvent(text="the answer"),
+        ]
+    )
+    assert "the answer" in out

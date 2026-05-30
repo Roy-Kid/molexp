@@ -45,6 +45,8 @@ from pydantic_ai.messages import (
     RetryPromptPart,
     TextPart,
     TextPartDelta,
+    ThinkingPart,
+    ThinkingPartDelta,
 )
 from pydantic_ai.tools import Tool
 
@@ -54,6 +56,7 @@ from molexp.agent.router import (
     ModelTier,
     RouterTextResult,
     TextDeltaChunk,
+    ThinkingDeltaChunk,
     TierModels,
     ToolCallChunk,
     ToolResultChunk,
@@ -537,9 +540,9 @@ class PydanticAIRouter:
                     if Agent.is_model_request_node(node):
                         async with node.stream(run.ctx) as request_stream:
                             async for event in request_stream:
-                                text_chunk = _text_delta_chunk(event)
-                                if text_chunk is not None:
-                                    yield text_chunk
+                                request_chunk = _request_stream_chunk(event)
+                                if request_chunk is not None:
+                                    yield request_chunk
                     elif Agent.is_call_tools_node(node):
                         async with node.stream(run.ctx) as tools_stream:
                             async for event in tools_stream:
@@ -592,6 +595,21 @@ def _summarize_args(args: Any) -> str:  # noqa: ANN401 — opaque pydantic-ai to
     return _truncate(str(args))
 
 
+def _request_stream_chunk(
+    event: Any,  # noqa: ANN401 — opaque SDK event
+) -> TextDeltaChunk | ThinkingDeltaChunk | None:
+    """Translate a model-request-node stream event into a request chunk.
+
+    A model-request node interleaves two part streams: reasoning
+    (``ThinkingPart`` / ``ThinkingPartDelta``) and the answer
+    (``TextPart`` / ``TextPartDelta``). Reasoning is checked first so a
+    reasoning model's chain-of-thought surfaces as a
+    :class:`~molexp.agent.router.ThinkingDeltaChunk`; everything else falls
+    through to the answer-text translation. Non-text events yield ``None``.
+    """
+    return _thinking_delta_chunk(event) or _text_delta_chunk(event)
+
+
 def _text_delta_chunk(event: Any) -> TextDeltaChunk | None:  # noqa: ANN401 — opaque SDK event
     """Translate a model-request-node stream event into a text chunk."""
     if isinstance(event, PartStartEvent) and isinstance(event.part, TextPart):
@@ -599,6 +617,22 @@ def _text_delta_chunk(event: Any) -> TextDeltaChunk | None:  # noqa: ANN401 — 
     if isinstance(event, PartDeltaEvent) and isinstance(event.delta, TextPartDelta):
         delta = event.delta.content_delta
         return TextDeltaChunk(text=delta) if delta else None
+    return None
+
+
+def _thinking_delta_chunk(event: Any) -> ThinkingDeltaChunk | None:  # noqa: ANN401 — opaque SDK
+    """Translate a reasoning stream event into a thinking chunk.
+
+    Mirrors :func:`_text_delta_chunk` but for the reasoning part stream:
+    ``ThinkingPart.content`` on a part start, ``ThinkingPartDelta.content_delta``
+    on a part delta. Empty / ``None`` content is dropped so the chunk stream
+    never carries no-op deltas.
+    """
+    if isinstance(event, PartStartEvent) and isinstance(event.part, ThinkingPart):
+        return ThinkingDeltaChunk(text=event.part.content) if event.part.content else None
+    if isinstance(event, PartDeltaEvent) and isinstance(event.delta, ThinkingPartDelta):
+        delta = event.delta.content_delta
+        return ThinkingDeltaChunk(text=delta) if delta else None
     return None
 
 

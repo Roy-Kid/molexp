@@ -23,6 +23,7 @@ from molexp.agent.events import (
     RepairProposedEvent,
     StageCompletedEvent,
     StageStartedEvent,
+    ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
@@ -41,6 +42,7 @@ ALL_EVENT_CLASSES = (
     CompactionPerformedEvent,
     ModeCompletedEvent,
     ErrorEvent,
+    ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallStartedEvent,
     ToolCallCompletedEvent,
@@ -59,16 +61,17 @@ EXPECTED_KINDS = {
     "compaction_performed",
     "mode_completed",
     "error",
+    "thinking_delta",
     "token_delta",
     "tool_call_started",
     "tool_call_completed",
 }
 
 
-def test_union_covers_all_fifteen_kinds() -> None:
+def test_union_covers_all_sixteen_kinds() -> None:
     kinds = {cls.model_fields["kind"].default for cls in ALL_EVENT_CLASSES}
     assert kinds == EXPECTED_KINDS
-    assert len(ALL_EVENT_CLASSES) == 15
+    assert len(ALL_EVENT_CLASSES) == 16
 
 
 def test_each_event_carries_a_timestamp() -> None:
@@ -98,6 +101,7 @@ def test_discriminated_union_round_trips_through_json() -> None:
         CompactionPerformedEvent(summary="...", tokens_before=100, entries_summarized=4),
         ModeCompletedEvent(text="done"),
         ErrorEvent(message="boom", error_type="ValueError"),
+        ThinkingDeltaEvent(text="reasoning"),
         TokenDeltaEvent(text="hel"),
         ToolCallStartedEvent(tool_name="read_file", args_summary="path=a.py"),
         ToolCallCompletedEvent(tool_name="read_file", result_summary="42 lines", ok=True),

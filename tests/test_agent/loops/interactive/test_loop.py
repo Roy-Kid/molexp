@@ -19,6 +19,7 @@ from molexp.agent.events import (
     AgentEvent,
     ModeCompletedEvent,
     ModeStartedEvent,
+    ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
@@ -30,6 +31,7 @@ from molexp.agent.router import (
     ModelTier,
     RouterTextResult,
     TextDeltaChunk,
+    ThinkingDeltaChunk,
     ToolCallChunk,
     ToolResultChunk,
 )
@@ -112,6 +114,51 @@ async def test_emergent_loop_translates_chunks_to_events(tmp_path: Path) -> None
     assert ToolCallCompletedEvent in kinds
     assert isinstance(events[-1], ModeCompletedEvent)
     assert events[-1].text == "Looking into it. Done."
+
+
+class _ThinkingRouter(_ScriptedRouter):
+    """A scripted router whose turn opens with a reasoning chunk.
+
+    Mirrors a reasoning model (DeepSeek reasoner / Claude extended thinking):
+    the model reasons before it answers, so a ``ThinkingDeltaChunk`` precedes
+    the answer's ``TextDeltaChunk``\\ s.
+    """
+
+    async def stream_agentic(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        tools: tuple[Any, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+        message_history: tuple[Any, ...] = (),
+    ) -> AsyncIterator[AgenticChunk]:
+        self.stream_agentic_calls += 1
+        yield ThinkingDeltaChunk(text="weighing the options")
+        yield TextDeltaChunk(text="The answer.")
+        yield FinalChunk(text="The answer.")
+
+
+@pytest.mark.asyncio
+async def test_emergent_loop_surfaces_thinking_event(tmp_path: Path) -> None:
+    router = _ThinkingRouter()
+    runner = AgentRunner(loop=_loop(tmp_path), router=router)  # type: ignore[arg-type]
+    session = Session(storage=InMemorySessionStorage(), session_id="thinking")
+
+    events = [ev async for ev in runner.run_events(session, "decide")]
+
+    thinking = [e for e in events if isinstance(e, ThinkingDeltaEvent)]
+    assert thinking, "ThinkingDeltaChunk must map to a ThinkingDeltaEvent"
+    assert thinking[0].text == "weighing the options"
+
+    def first(kind: type) -> int:
+        return next(i for i, e in enumerate(events) if isinstance(e, kind))
+
+    # reasoning streams before the answer text, before the terminal result
+    assert first(ThinkingDeltaEvent) < first(TokenDeltaEvent) < first(ModeCompletedEvent)
+    # the final answer never includes the reasoning text
+    assert isinstance(events[-1], ModeCompletedEvent)
+    assert events[-1].text == "The answer."
 
 
 @pytest.mark.asyncio

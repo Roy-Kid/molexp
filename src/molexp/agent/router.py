@@ -35,6 +35,7 @@ __all__ = [
     "Router",
     "RouterTextResult",
     "TextDeltaChunk",
+    "ThinkingDeltaChunk",
     "TierModels",
     "ToolCallChunk",
     "ToolResultChunk",
@@ -100,6 +101,24 @@ class TextDeltaChunk(BaseModel):
     text: str
 
 
+class ThinkingDeltaChunk(BaseModel):
+    """One reasoning-token increment from the agentic loop.
+
+    Reasoning models (DeepSeek reasoner, Claude extended thinking) emit a
+    private chain-of-thought *before* the answer. pydantic-ai surfaces it as
+    a ``ThinkingPart`` / ``ThinkingPartDelta``, structurally a sibling of the
+    answer's ``TextPart`` / ``TextPartDelta``. This chunk is its SDK-free
+    projection — kept distinct from :class:`TextDeltaChunk` so a consumer can
+    render reasoning in a collapsed / dimmed treatment rather than inline with
+    the answer. A model that does not reason simply never yields one.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["thinking_delta"] = "thinking_delta"
+    text: str
+
+
 class ToolCallChunk(BaseModel):
     """A tool call the model dispatched inside the agentic loop.
 
@@ -137,14 +156,15 @@ class FinalChunk(BaseModel):
     text: str
 
 
-AgenticChunk = TextDeltaChunk | ToolCallChunk | ToolResultChunk | FinalChunk
+AgenticChunk = TextDeltaChunk | ThinkingDeltaChunk | ToolCallChunk | ToolResultChunk | FinalChunk
 """SDK-free union of every chunk :meth:`Router.stream_agentic` yields.
 
 Defined in this protocol module — *not* importing ``pydantic_ai`` — so
 test fakes and the emergent
 :class:`~molexp.agent.loops.interactive.InteractiveLoop` consume the
-agentic loop without paying the SDK load cost. The terminal yield is
-always a :class:`FinalChunk`."""
+agentic loop without paying the SDK load cost. A :class:`ThinkingDeltaChunk`
+(reasoning models only) precedes the answer's :class:`TextDeltaChunk`\\ s;
+the terminal yield is always a :class:`FinalChunk`."""
 
 
 # ── Router protocol ────────────────────────────────────────────────────────
@@ -245,8 +265,10 @@ class Router(Protocol):
         The model autonomously decides whether to answer or call a
         tool; the router runs the full agentic loop (tool dispatch,
         retries, message history) through pydantic-ai's native
-        ``Agent.iter()`` — no hand-rolled loop. Each model text
-        increment is a :class:`TextDeltaChunk`, each dispatched call a
+        ``Agent.iter()`` — no hand-rolled loop. Each reasoning-token
+        increment (reasoning models only) is a
+        :class:`ThinkingDeltaChunk`, each model answer increment a
+        :class:`TextDeltaChunk`, each dispatched call a
         :class:`ToolCallChunk`, each return a :class:`ToolResultChunk`.
         The terminal yield is always a :class:`FinalChunk`.
 
