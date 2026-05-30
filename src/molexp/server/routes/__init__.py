@@ -16,7 +16,6 @@ from . import (
     molq,
     project,
     registry,
-    reviews,
     run,
     targets,
     tensorboard,
@@ -42,7 +41,6 @@ def create_api_router() -> APIRouter:
     api_router.include_router(catalog.router)
     api_router.include_router(workspace.router)
     api_router.include_router(registry.router)
-    api_router.include_router(reviews.router)
     api_router.include_router(execution.router)
     api_router.include_router(molq.router)
     api_router.include_router(targets.router)
@@ -63,7 +61,6 @@ __all__ = [
     "molq",
     "project",
     "registry",
-    "reviews",
     "run",
     "targets",
     "tensorboard",

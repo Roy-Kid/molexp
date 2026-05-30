@@ -816,19 +816,6 @@ export const agentApi = {
     return new EventSource(`/api/agent-tasks/${sessionId}/events`);
   },
 
-  respondApproval: async (
-    sessionId: string,
-    requestId: string,
-    approved: boolean,
-  ): Promise<void> => {
-    const response = await fetch(`/api/agent-tasks/${sessionId}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ request_id: requestId, approved }),
-    });
-    if (!response.ok) throw new Error(`Failed to respond approval: ${response.statusText}`);
-  },
-
   postMessage: async (
     sessionId: string,
     content: string,
@@ -840,30 +827,6 @@ export const agentApi = {
       body: JSON.stringify({ content, request_id: requestId }),
     });
     if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
-  },
-
-  respondPlan: async (
-    sessionId: string,
-    args: {
-      requestId: string;
-      approved: boolean;
-      editedPlan?: string | null;
-      editedWorkflowIr?: Record<string, unknown> | null;
-      feedback?: string;
-    },
-  ): Promise<void> => {
-    const response = await fetch(`/api/agent-tasks/${sessionId}/plan-decision`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        request_id: args.requestId,
-        approved: args.approved,
-        edited_plan: args.editedPlan ?? null,
-        edited_workflow_ir: args.editedWorkflowIr ?? null,
-        feedback: args.feedback ?? "",
-      }),
-    });
-    if (!response.ok) throw new Error(`Failed to respond plan: ${response.statusText}`);
   },
 };
 

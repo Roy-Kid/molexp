@@ -37,9 +37,7 @@ if TYPE_CHECKING:
     from molexp.workspace.workspace import Workspace
 
     from ..schemas import (
-        ApprovalRespondRequest,
         GoalCreateRequest,
-        PlanDecisionRequest,
         UserMessageCreateRequest,
     )
 
@@ -249,24 +247,6 @@ async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingRe
     return StreamingResponse(_generate(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
-async def respond_approval(
-    session_id: str,  # noqa: ARG001
-    request: ApprovalRespondRequest,  # noqa: ARG001
-    *,
-    workspace: Workspace,  # noqa: ARG001
-) -> dict[str, object]:
-    raise _gone()
-
-
-async def respond_plan(
-    session_id: str,  # noqa: ARG001
-    request: PlanDecisionRequest,  # noqa: ARG001
-    *,
-    workspace: Workspace,  # noqa: ARG001
-) -> MessageResponse:
-    raise _gone()
-
-
 async def post_user_message(
     session_id: str,
     request: UserMessageCreateRequest,
@@ -301,8 +281,6 @@ __all__ = [
     "list_sessions",
     "post_user_message",
     "reset_runner_factory",
-    "respond_approval",
-    "respond_plan",
     "router",
     "set_runner_factory",
     "stream_events",

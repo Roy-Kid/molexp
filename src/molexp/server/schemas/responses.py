@@ -437,32 +437,6 @@ class AgentTaskListResponse(BaseModel):
     total: int
 
 
-class ReviewTargetRefResponse(BaseModel):
-    type: str
-    id: str
-    taskId: str | None = None
-    sessionId: str | None = None
-
-
-class ReviewItemResponse(BaseModel):
-    id: str
-    kind: str
-    title: str
-    description: str | None = None
-    riskLevel: str
-    status: str
-    targetRef: ReviewTargetRefResponse
-    createdAt: str
-    resolvedAt: str | None = None
-    resolutionComment: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ReviewListResponse(BaseModel):
-    reviews: list[ReviewItemResponse]
-    total: int
-
-
 class CommandParameterSpec(BaseModel):
     """One ``{{param}}`` slot in a slash command's goal_template."""
 

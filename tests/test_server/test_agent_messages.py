@@ -142,18 +142,3 @@ async def test_message_mid_turn_409(tmp_path: Path, registry: AgentSessionRegist
         )
     assert exc.value.status_code == 409
     await registry.aclose()
-
-
-async def test_approval_routes_still_503(tmp_path: Path) -> None:
-    from molexp.server.schemas import ApprovalRespondRequest, PlanDecisionRequest
-
-    with pytest.raises(HTTPException) as e1:
-        await agent_routes.respond_approval(
-            "s1", ApprovalRespondRequest(request_id="r", approved=True), workspace=_ws(tmp_path)
-        )
-    assert e1.value.status_code == 503
-    with pytest.raises(HTTPException) as e2:
-        await agent_routes.respond_plan(
-            "s1", PlanDecisionRequest(request_id="r", approved=True), workspace=_ws(tmp_path)
-        )
-    assert e2.value.status_code == 503

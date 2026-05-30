@@ -161,67 +161,6 @@ class GoalCreateRequest(BaseModel):
     )
 
 
-class ApprovalRespondRequest(BaseModel):
-    request_id: str = Field(..., description="Approval request ID")
-    approved: bool = Field(..., description="Whether to approve")
-
-
-class PlanDecisionRequest(BaseModel):
-    """User decision on a plan emitted by ``exit_plan_mode``.
-
-    Pairs with :class:`PlanCreatedEvent` via ``request_id``. Approval
-    flips the session out of plan mode so the agent can bind / run
-    the (possibly user-edited) workflow IR. Rejection hands the
-    feedback back to the agent so it can revise + call
-    ``exit_plan_mode`` again.
-    """
-
-    request_id: str = Field(..., description="ID from the PlanCreatedEvent payload.")
-    approved: bool = Field(
-        ...,
-        description=(
-            "True to approve the plan. False to reject and keep the agent "
-            "in plan mode for revision."
-        ),
-    )
-    edited_plan: str | None = Field(
-        None,
-        description=(
-            "Optional user edit of the plan markdown. When set, the agent "
-            "sees this exact text as the post-approval starting point "
-            "instead of its own draft."
-        ),
-    )
-    edited_proposal: dict[str, Any] | None = Field(
-        None,
-        description=(
-            "Optional user edit of the plan proposal (PlanProposal-shaped JSON). "
-            "Replaces the agent's drafted proposal on approval."
-        ),
-    )
-    feedback: str = Field(
-        "",
-        description=(
-            "Free-form rejection rationale. Surfaced to the agent so its "
-            "next attempt addresses the user's concern."
-        ),
-    )
-
-
-class ReviewDecisionRequest(BaseModel):
-    """Approve or reject a persisted review item."""
-
-    comment: str = Field("", description="Optional human resolution comment.")
-    edited_plan: str | None = Field(
-        None,
-        description="Optional edited plan markdown when approving a plan review.",
-    )
-    edited_proposal: dict[str, Any] | None = Field(
-        None,
-        description="Optional edited plan proposal (PlanProposal-shaped) when approving a plan review.",
-    )
-
-
 class UserMessageCreateRequest(BaseModel):
     """Mid-session chat message from the user to the agent."""
 

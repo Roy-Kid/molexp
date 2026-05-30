@@ -18,10 +18,8 @@ from ..schemas import (
     AgentSessionResponse,
     AgentTaskListResponse,
     AgentTaskResponse,
-    ApprovalRespondRequest,
     GoalCreateRequest,
     MessageResponse,
-    PlanDecisionRequest,
     UserMessageCreateRequest,
 )
 from . import agent as agent_routes
@@ -30,13 +28,6 @@ from .agent_task_store import (
     list_agent_task_metadata,
     read_agent_task_metadata,
     write_agent_task_metadata,
-)
-from .review_store import (
-    ensure_plan_review,
-    list_review_metadata,
-    plan_review_id,
-    read_review_metadata,
-    resolve_review,
 )
 
 router = APIRouter(prefix="/agent-tasks", tags=["agent-tasks"])
@@ -116,54 +107,6 @@ def _persist_task_response(workspace, task: AgentTaskResponse) -> None:  # noqa:
     )
 
 
-def _sync_review_items_for_task(workspace, task: AgentTaskResponse) -> AgentTaskResponse:  # noqa: ANN001
-    root = _workspace_root(workspace)
-    if root is None:
-        return task
-    has_pending_review = False
-    for event in task.events:
-        if event.type != "PlanCreatedEvent":
-            continue
-        request_id = event.payload.get("request_id")
-        if not isinstance(request_id, str) or not request_id:
-            continue
-        plan_markdown = event.payload.get("plan_markdown")
-        workflow_preview = event.payload.get("workflow_preview")
-        review = ensure_plan_review(
-            root,
-            task_id=task.taskId,
-            session_id=task.sessionId,
-            task_title=task.title,
-            request_id=request_id,
-            plan_markdown=plan_markdown if isinstance(plan_markdown, str) else "",
-            workflow_preview=workflow_preview if isinstance(workflow_preview, dict) else {},
-            created_at=event.ts,
-        )
-        has_pending_review = has_pending_review or review.status == "pending"
-    if has_pending_review and task.status == "running":
-        task.status = "waiting_for_review"
-    return task
-
-
-def _resolve_plan_review_for_decision(
-    workspace,  # noqa: ANN001
-    task_id: str,
-    request: PlanDecisionRequest,
-) -> None:
-    root = _workspace_root(workspace)
-    if root is None:
-        return
-    review = read_review_metadata(root, plan_review_id(task_id, request.request_id))
-    if review is None or review.status != "pending":
-        return
-    resolve_review(
-        root,
-        review,
-        status="approved" if request.approved else "rejected",
-        comment=request.feedback,
-    )
-
-
 def _persisted_for_session(workspace, session_id: str) -> PersistedAgentTask | None:  # noqa: ANN001
     root = _workspace_root(workspace)
     if root is None:
@@ -187,16 +130,6 @@ def _session_id_for_task(workspace, task_id: str) -> str:  # noqa: ANN001
     return task.session_id if task is not None else task_id
 
 
-def _has_pending_review(workspace, task_id: str) -> bool:  # noqa: ANN001
-    root = _workspace_root(workspace)
-    if root is None:
-        return False
-    return any(
-        review.task_id == task_id and review.status == "pending"
-        for review in list_review_metadata(root)
-    )
-
-
 @router.post("", response_model=AgentTaskResponse)
 async def create_agent_task(
     request: GoalCreateRequest,
@@ -209,7 +142,6 @@ async def create_agent_task(
     """
     session = await agent_routes.create_session(request, workspace=workspace)
     task = _task_from_session(session, task_id=f"task-{uuid.uuid4().hex[:12]}")
-    task = _sync_review_items_for_task(workspace, task)
     _persist_task_response(workspace, task)
     return task
 
@@ -225,9 +157,6 @@ def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:
             session,
             persisted=_persisted_for_session(workspace, session.sessionId),
         )
-        task = _sync_review_items_for_task(workspace, task)
-        if _has_pending_review(workspace, task.taskId) and task.status == "running":
-            task.status = "waiting_for_review"
         _persist_task_response(workspace, task)
         tasks.append(task)
         seen_task_ids.add(task.taskId)
@@ -236,10 +165,7 @@ def list_agent_tasks(workspace=Depends(get_workspace)) -> AgentTaskListResponse:
         for persisted in list_agent_task_metadata(root):
             if persisted.task_id in seen_task_ids:
                 continue
-            task = _task_from_metadata(persisted)
-            if _has_pending_review(workspace, task.taskId) and task.status == "running":
-                task.status = "waiting_for_review"
-            tasks.append(task)
+            tasks.append(_task_from_metadata(persisted))
     tasks.sort(key=lambda task: task.updatedAt or task.createdAt, reverse=True)
     return AgentTaskListResponse(tasks=tasks, total=len(tasks))
 
@@ -264,9 +190,6 @@ def get_agent_task(
         session,
         persisted=_persisted_for_session(workspace, session.sessionId),
     )
-    task = _sync_review_items_for_task(workspace, task)
-    if _has_pending_review(workspace, task.taskId) and task.status == "running":
-        task.status = "waiting_for_review"
     _persist_task_response(workspace, task)
     return task
 
@@ -295,32 +218,6 @@ async def stream_agent_task_events(
     return await agent_routes.stream_events(
         _session_id_for_task(workspace, task_id), workspace=workspace
     )
-
-
-@router.post("/{task_id}/approve")
-async def respond_agent_task_approval(
-    task_id: str,
-    request: ApprovalRespondRequest,
-    workspace=Depends(get_workspace),  # noqa: ANN001
-) -> dict:
-    """Respond to a runtime approval request for this task."""
-    return await agent_routes.respond_approval(
-        _session_id_for_task(workspace, task_id), request, workspace=workspace
-    )
-
-
-@router.post("/{task_id}/plan-decision", response_model=MessageResponse)
-async def respond_agent_task_plan(
-    task_id: str,
-    request: PlanDecisionRequest,
-    workspace=Depends(get_workspace),  # noqa: ANN001
-) -> MessageResponse:
-    """Approve or reject the current task plan."""
-    session_id = _session_id_for_task(workspace, task_id)
-    response = await agent_routes.respond_plan(session_id, request, workspace=workspace)
-    _resolve_plan_review_for_decision(workspace, task_id, request)
-    get_agent_task(task_id, workspace)
-    return response
 
 
 @router.post("/{task_id}/messages", response_model=MessageResponse)

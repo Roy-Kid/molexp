@@ -100,19 +100,6 @@ def test_unknown_task_returns_404(agent_client: TestClient) -> None:
     assert agent_client.get("/api/agent-tasks/task-does-not-exist").status_code == 404
 
 
-def test_deferred_approval_routes_return_503(agent_client: TestClient) -> None:
-    # Only the deferred approval routes remain 503. /events was relit in 00c,
-    # /messages in 00b — both covered by their own test modules.
-    task_id = agent_client.post("/api/agent-tasks", json={"description": "hi"}).json()["taskId"]
-    assert (
-        agent_client.post(
-            f"/api/agent-tasks/{task_id}/approve",
-            json={"request_id": "r1", "approved": True},
-        ).status_code
-        == 503
-    )
-
-
 def test_missing_model_config_yields_503(
     workspace: object, monkeypatch: pytest.MonkeyPatch
 ) -> None:

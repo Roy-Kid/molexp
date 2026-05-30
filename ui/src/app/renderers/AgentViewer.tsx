@@ -14,7 +14,6 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette, useCommandPalette } from "@/app/components/CommandPalette";
 import { EntityHeader, StatusBadge } from "@/app/components/entity";
-import { PlanCard } from "@/app/renderers/PlanCard";
 import {
   AgentNotConfiguredError,
   type ApiAgentHealth,
@@ -64,17 +63,7 @@ const formatTs = (ts: string): string => {
 
 const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
 
-const EventRow = ({
-  event,
-  sessionId,
-  onApprovalRespond,
-  onPlanResolved,
-}: {
-  event: ApiSessionEvent;
-  sessionId: string;
-  onApprovalRespond: (requestId: string, approved: boolean) => void;
-  onPlanResolved?: () => void;
-}): JSX.Element => {
+const EventRow = ({ event }: { event: ApiSessionEvent }): JSX.Element => {
   const [expanded, setExpanded] = useState(false);
   const meta = EVENT_META[event.type] ?? {
     icon: Bot,
@@ -123,10 +112,6 @@ const EventRow = ({
         </div>
 
         {/* Inline content for common event types */}
-        {event.type === "plan_emitted" && (
-          <PlanCard sessionId={sessionId} event={event} onResolved={onPlanResolved} />
-        )}
-
         {event.type === "mode_completed" && (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
             {Boolean(payload.text) && (
@@ -134,30 +119,6 @@ const EventRow = ({
                 {String(payload.text)}
               </p>
             )}
-          </div>
-        )}
-
-        {event.type === "approval_requested" && Boolean(payload.gate) && (
-          <div className="flex items-center gap-2 rounded-md border border-orange-200 bg-orange-50 px-3 py-2 dark:border-orange-800 dark:bg-orange-950/30">
-            <p className="flex-1 text-xs text-orange-700 dark:text-orange-400">
-              Approve{" "}
-              <span className="font-mono font-semibold">{String(payload.gate ?? "action")}</span>?
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-6 border-orange-400 text-orange-700 hover:bg-orange-100"
-              onClick={() => onApprovalRespond(String(payload.gate), false)}
-            >
-              Deny
-            </Button>
-            <Button
-              size="sm"
-              className="h-6 bg-orange-500 text-white hover:bg-orange-600"
-              onClick={() => onApprovalRespond(String(payload.gate), true)}
-            >
-              Approve
-            </Button>
           </div>
         )}
 
@@ -275,13 +236,9 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
 const TurnAnswer = ({
   result,
   inProgress,
-  sessionId,
-  onPlanResolved,
 }: {
   result: ApiSessionEvent | null;
   inProgress: boolean;
-  sessionId: string;
-  onPlanResolved?: () => void;
 }): JSX.Element => {
   if (!result) {
     if (inProgress) {
@@ -297,10 +254,6 @@ const TurnAnswer = ({
         No final answer recorded for this turn.
       </p>
     );
-  }
-
-  if (result.type === "plan_emitted") {
-    return <PlanCard sessionId={sessionId} event={result} onResolved={onPlanResolved} />;
   }
 
   const payload = (result.payload ?? {}) as Record<string, unknown>;
@@ -367,16 +320,10 @@ const TurnCard = ({
   turn,
   index,
   total,
-  sessionId,
-  onApprovalRespond,
-  onPlanResolved,
 }: {
   turn: ConversationTurn;
   index: number;
   total: number;
-  sessionId: string;
-  onApprovalRespond: (requestId: string, approved: boolean) => void;
-  onPlanResolved?: () => void;
 }): JSX.Element => {
   const isLast = index === total - 1;
   const [stepsOpen, setStepsOpen] = useState(false);
@@ -390,19 +337,6 @@ const TurnCard = ({
 
   const QuestionIcon = turn.source === "goal" ? Sparkles : CircleUser;
   const questionLabel = turn.source === "goal" ? "Goal" : "You asked";
-
-  // Surface approvals immediately even when the steps section is collapsed —
-  // a hidden approval would block the agent indefinitely.
-  const pendingApproval = turn.steps.find((s) => {
-    if (s.type !== "approval_requested") return false;
-    const p = (s.payload ?? {}) as Record<string, unknown>;
-    if (typeof p.gate !== "string") return false;
-    return !turn.steps.some(
-      (other) =>
-        other.type === "approval_decided" &&
-        ((other.payload ?? {}) as Record<string, unknown>).gate === p.gate,
-    );
-  });
 
   return (
     <article className="rounded-xl border border-border/70 bg-card shadow-sm">
@@ -454,26 +388,11 @@ const TurnCard = ({
                   {streamed.answer}
                 </p>
               ) : (
-                <TurnAnswer
-                  result={turn.result}
-                  inProgress={turn.inProgress}
-                  sessionId={sessionId}
-                  onPlanResolved={onPlanResolved}
-                />
+                <TurnAnswer result={turn.result} inProgress={turn.inProgress} />
               )}
             </div>
           </div>
         </div>
-
-        {pendingApproval && (
-          <div className="ml-9">
-            <EventRow
-              event={pendingApproval}
-              sessionId={sessionId}
-              onApprovalRespond={onApprovalRespond}
-            />
-          </div>
-        )}
 
         {stepCount > 0 && (
           <div className="ml-9">
@@ -495,13 +414,7 @@ const TurnCard = ({
             {stepsOpen && (
               <div className="mt-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
                 {turn.steps.map((event) => (
-                  <EventRow
-                    key={`${turn.key}-step-${event.type}-${event.ts}`}
-                    event={event}
-                    sessionId={sessionId}
-                    onApprovalRespond={onApprovalRespond}
-                    onPlanResolved={onPlanResolved}
-                  />
+                  <EventRow key={`${turn.key}-step-${event.type}-${event.ts}`} event={event} />
                 ))}
               </div>
             )}
@@ -1197,18 +1110,6 @@ const AgentSessionViewer = ({
     [nav, onRefresh],
   );
 
-  const handleApprovalRespond = useCallback(
-    async (requestId: string, approved: boolean) => {
-      if (!session) return;
-      try {
-        await agentApi.respondApproval(getAgentTaskId(session), requestId, approved);
-      } catch (err) {
-        setError(String(err));
-      }
-    },
-    [session],
-  );
-
   const handleChatSubmit = useCallback(
     async (content: string, requestId: string | null) => {
       if (!session) return;
@@ -1310,21 +1211,6 @@ const AgentSessionViewer = ({
   const isRunning = session.status === "running";
   const turns = groupEventsIntoTurns(events, session.goal);
 
-  // After a structured plan is approved/rejected, re-fetch the session
-  // so the freshly-flipped planMode flag, status, and post-handoff
-  // events land in state. The PlanCard fires this callback inline.
-  const refreshAfterPlanDecision = (): void => {
-    agentApi
-      .getSession(getAgentTaskId(session))
-      .then((s) => {
-        setSession(s);
-        setEvents(s.events ?? []);
-      })
-      .catch(() => {
-        // Polling will pick up the change on the next tick.
-      });
-  };
-
   return (
     <div className="flex h-full flex-col bg-background">
       <SessionHeader session={session} snapshot={snapshot} />
@@ -1332,15 +1218,7 @@ const AgentSessionViewer = ({
       <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 pb-6 pt-4 md:px-8">
           {turns.map((turn, turnIdx) => (
-            <TurnCard
-              key={turn.key}
-              turn={turn}
-              index={turnIdx}
-              total={turns.length}
-              sessionId={getAgentTaskId(session)}
-              onApprovalRespond={handleApprovalRespond}
-              onPlanResolved={refreshAfterPlanDecision}
-            />
+            <TurnCard key={turn.key} turn={turn} index={turnIdx} total={turns.length} />
           ))}
         </div>
       </ScrollArea>
