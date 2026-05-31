@@ -298,7 +298,12 @@ describe("mapAgentSessions", () => {
 
   it("falls back to sessionId for id when taskId is absent", () => {
     const { taskId: _drop, ...withoutTaskId } = rawSession;
-    const [result] = mapAgentSessions([withoutTaskId]);
+    // mapAgentSessions defensively falls back to sessionId when taskId is
+    // absent; AgentTaskResponse types taskId as required, so cast the
+    // deliberately-incomplete fixture to the param element type.
+    const [result] = mapAgentSessions([
+      withoutTaskId as Parameters<typeof mapAgentSessions>[0][number],
+    ]);
     expect(result.id).toBe("sess-abc");
     expect(result.sessionId).toBe("sess-abc");
   });
