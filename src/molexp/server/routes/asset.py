@@ -18,6 +18,7 @@ from molexp.workspace.assets import AssetScope, LogAsset, lineage
 
 from ..dependencies import get_workspace
 from ..exceptions import AssetNotFoundError
+from ..preview import asset_has_sidecar
 from ..schemas import AssetLineageNode, AssetLineageResponse, AssetResponse
 from ._scope import resolve_scope_dir
 
@@ -64,13 +65,16 @@ def list_assets(
         producer_task=task_id,
         limit=limit,
     )
-    return [AssetResponse.from_model(a) for a in assets]
+    return [
+        AssetResponse.from_model(a, has_preview_sidecar=asset_has_sidecar(workspace, a))
+        for a in assets
+    ]
 
 
 @router.get("/{asset_id}", response_model=AssetResponse)
 def get_asset(asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:  # noqa: ANN001
     asset = _require_asset(workspace, asset_id)
-    return AssetResponse.from_model(asset)
+    return AssetResponse.from_model(asset, has_preview_sidecar=asset_has_sidecar(workspace, asset))
 
 
 @router.get("/{asset_id}/lineage", response_model=AssetLineageResponse)

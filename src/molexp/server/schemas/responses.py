@@ -288,9 +288,12 @@ class AssetResponse(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
     content_hash: str | None = None
+    has_preview_sidecar: bool = False
+    """True when the asset's on-disk file has a same-stem ``.py`` preview
+    sidecar (existence-only signal; no user code is executed to compute it)."""
 
     @classmethod
-    def from_model(cls, asset: Asset) -> AssetResponse:
+    def from_model(cls, asset: Asset, *, has_preview_sidecar: bool = False) -> AssetResponse:
         from molexp.workspace.assets import ASSET_ADAPTER
 
         dumped = ASSET_ADAPTER.dump_python(asset, mode="json")
@@ -320,6 +323,7 @@ class AssetResponse(BaseModel):
             tags=dict(asset.tags),
             extra=extra,
             content_hash=asset.content_hash,
+            has_preview_sidecar=has_preview_sidecar,
         )
 
 

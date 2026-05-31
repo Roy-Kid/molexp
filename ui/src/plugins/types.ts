@@ -68,6 +68,12 @@ export interface FileMatchContext {
   relPath: string;
   size?: number | null;
   type: string;
+  /**
+   * Server-computed signal: the file has a same-stem `.py` preview sidecar
+   * (existence-only — no user code was executed to determine it). Lets a
+   * contribution light up for datasets that match no extension pattern.
+   */
+  hasPreviewSidecar?: boolean;
 }
 
 export interface FileTypeMatcher {

@@ -36,6 +36,10 @@ const molvisPlugin: UiPluginModule = {
           "*.pdb",
           "**/*.pdb",
         ],
+        // Sidecar-backed datasets match no extension — the server flags
+        // them via a same-stem `.py` reader sidecar. See
+        // molexp.server.preview and GET /api/assets/{id}/preview.
+        matches: (file) => file.hasPreviewSidecar === true,
       },
       Component: MolvisTab,
     });

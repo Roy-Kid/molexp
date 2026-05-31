@@ -362,6 +362,70 @@ class TargetTaskNotFoundError(WorkflowValidationError):
 
 
 # ============================================================================
+# Preview Errors (404 / 422)
+# ============================================================================
+#
+# Sidecar-backed dataset preview. A missing / empty / ambiguous / broken
+# sidecar is always a typed 4xx — never a 500 — so the UI can distinguish
+# "no preview available" from "the preview machinery crashed". These are
+# auto-mapped to JSON by the base ``MolExpError`` handler via ``status_code``.
+
+
+class PreviewSidecarNotFoundError(MolExpError):
+    """No same-stem ``.py`` sidecar sits next to the dataset."""
+
+    def __init__(self, dataset_path: str) -> None:
+        super().__init__(
+            message=f"No preview sidecar found for dataset: {dataset_path}",
+            code="PREVIEW_SIDECAR_NOT_FOUND",
+            status_code=404,
+            details={"dataset_path": dataset_path},
+        )
+
+
+class NoReaderInSidecarError(MolExpError):
+    """The sidecar defines no concrete ``BaseTrajectoryReader`` subclass."""
+
+    def __init__(self, sidecar_path: str) -> None:
+        super().__init__(
+            message=(
+                f"Sidecar defines no molpy.io.BaseTrajectoryReader subclass: {sidecar_path}"
+            ),
+            code="NO_READER_IN_SIDECAR",
+            status_code=422,
+            details={"sidecar_path": sidecar_path},
+        )
+
+
+class AmbiguousReaderError(MolExpError):
+    """The sidecar defines more than one ``BaseTrajectoryReader`` subclass."""
+
+    def __init__(self, sidecar_path: str, reader_names: list[str]) -> None:
+        super().__init__(
+            message=(
+                f"Sidecar defines {len(reader_names)} BaseTrajectoryReader subclasses "
+                f"(expected exactly one): {', '.join(reader_names)}"
+            ),
+            code="AMBIGUOUS_READER",
+            status_code=422,
+            details={"sidecar_path": sidecar_path, "readers": reader_names},
+        )
+
+
+class PreviewReaderError(MolExpError):
+    """Importing, instantiating, or iterating the sidecar reader failed."""
+
+    def __init__(self, dataset_path: str, reason: str | None = None) -> None:
+        detail = f": {reason}" if reason else ""
+        super().__init__(
+            message=f"Failed to read dataset preview for {dataset_path}{detail}",
+            code="PREVIEW_READER_ERROR",
+            status_code=422,
+            details={"dataset_path": dataset_path, **({"reason": reason} if reason else {})},
+        )
+
+
+# ============================================================================
 # Storage Errors (500)
 # ============================================================================
 

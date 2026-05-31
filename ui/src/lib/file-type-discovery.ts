@@ -66,6 +66,7 @@ interface RawFileNode {
   relPath: string;
   type: string;
   size?: number | null;
+  hasPreviewSidecar?: boolean;
   children?: RawFileNode[];
 }
 
@@ -78,7 +79,13 @@ export const flattenFileNodes = (nodes: RawFileNode[] | undefined): FileMatchCon
       continue;
     }
     if (node.type === "file") {
-      out.push({ name: node.name, relPath: node.relPath, size: node.size, type: node.type });
+      out.push({
+        name: node.name,
+        relPath: node.relPath,
+        size: node.size,
+        type: node.type,
+        hasPreviewSidecar: node.hasPreviewSidecar,
+      });
     }
     if (node.children) {
       stack.push(...node.children);
