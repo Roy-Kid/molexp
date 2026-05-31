@@ -46,7 +46,7 @@ class TestAdd:
     def test_stdio_default(self, cfg):
         result = runner.invoke(
             app,
-            ["workspace", str(cfg.parent), "mcp", "add", "molmcp", "molmcp", "--config", str(cfg)],
+            ["mcp", "add", "molmcp", "molmcp", "--config", str(cfg)],
         )
         assert result.exit_code == 0, result.output
         assert _read(cfg)["mcpServers"]["molmcp"] == {
@@ -60,8 +60,6 @@ class TestAdd:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(cfg.parent),
                 "mcp",
                 "add",
                 "myserver",
@@ -83,8 +81,6 @@ class TestAdd:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(cfg.parent),
                 "mcp",
                 "add",
                 "x",
@@ -106,8 +102,6 @@ class TestAdd:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(cfg.parent),
                 "mcp",
                 "add",
                 "sentry",
@@ -129,22 +123,16 @@ class TestAdd:
         }
 
     def test_duplicate_without_force_fails(self, cfg):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "cmd", "--config", str(cfg)]
-        )
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "other", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "n", "cmd", "--config", str(cfg)])
+        result = runner.invoke(app, ["mcp", "add", "n", "other", "--config", str(cfg)])
         assert result.exit_code == 1
         assert "already exists" in result.output
 
     def test_duplicate_with_force_overwrites(self, cfg):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "cmd", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "n", "cmd", "--config", str(cfg)])
         result = runner.invoke(
             app,
-            ["workspace", str(cfg.parent), "mcp", "add", "n", "other", "-f", "--config", str(cfg)],
+            ["mcp", "add", "n", "other", "-f", "--config", str(cfg)],
         )
         assert result.exit_code == 0, result.output
         assert _read(cfg)["mcpServers"]["n"]["command"] == "other"
@@ -152,20 +140,7 @@ class TestAdd:
     def test_http_rejects_env(self, cfg):
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "h",
-                "https://x",
-                "-t",
-                "http",
-                "-e",
-                "A=B",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "h", "https://x", "-t", "http", "-e", "A=B", "--config", str(cfg)],
         )
         assert result.exit_code != 0
         assert "stdio" in result.output
@@ -173,18 +148,7 @@ class TestAdd:
     def test_stdio_rejects_header(self, cfg):
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "s",
-                "cmd",
-                "-H",
-                "X: 1",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "s", "cmd", "-H", "X: 1", "--config", str(cfg)],
         )
         assert result.exit_code != 0
         assert "http" in result.output or "sse" in result.output
@@ -192,18 +156,7 @@ class TestAdd:
     def test_unknown_transport(self, cfg):
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "x",
-                "cmd",
-                "-t",
-                "smoke",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "x", "cmd", "-t", "smoke", "--config", str(cfg)],
         )
         assert result.exit_code != 0
         assert "transport" in result.output.lower()
@@ -211,18 +164,7 @@ class TestAdd:
     def test_bad_env_pair(self, cfg):
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "x",
-                "cmd",
-                "-e",
-                "no_equals_sign",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "x", "cmd", "-e", "no_equals_sign", "--config", str(cfg)],
         )
         assert result.exit_code != 0
         assert "--env" in _strip_ansi(result.output)
@@ -246,16 +188,7 @@ class TestAddJson:
         )
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add-json",
-                "molmcp",
-                payload,
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add-json", "molmcp", payload, "--config", str(cfg)],
         )
         assert result.exit_code == 0, result.output
         entry = _read(cfg)["mcpServers"]["molmcp"]
@@ -264,16 +197,7 @@ class TestAddJson:
     def test_invalid_json(self, cfg):
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add-json",
-                "x",
-                "{not json",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add-json", "x", "{not json", "--config", str(cfg)],
         )
         assert result.exit_code == 1
         assert "Invalid JSON" in result.output
@@ -286,52 +210,29 @@ class TestAddJson:
 
 class TestGet:
     def test_existing(self, cfg):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "cmd", "--config", str(cfg)]
-        )
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "get", "n", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "n", "cmd", "--config", str(cfg)])
+        result = runner.invoke(app, ["mcp", "get", "n", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert "stdio" in result.output
 
     def test_missing(self, cfg):
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "get", "ghost", "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "get", "ghost", "--config", str(cfg)])
         assert result.exit_code == 1
 
 
 class TestList:
     def test_empty(self, cfg):
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "list", "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "list", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert "No MCP servers configured" in result.output
 
     def test_two_servers(self, cfg):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "a", "cmd-a", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "a", "cmd-a", "--config", str(cfg)])
         runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "b",
-                "https://x",
-                "-t",
-                "http",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "b", "https://x", "-t", "http", "--config", str(cfg)],
         )
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "list", "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "list", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert "a" in result.output
         assert "b" in result.output
@@ -341,19 +242,13 @@ class TestList:
 
 class TestRemove:
     def test_existing(self, cfg):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "cmd", "--config", str(cfg)]
-        )
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "remove", "n", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "n", "cmd", "--config", str(cfg)])
+        result = runner.invoke(app, ["mcp", "remove", "n", "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert _read(cfg)["mcpServers"] == {}
 
     def test_missing(self, cfg):
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "remove", "ghost", "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "remove", "ghost", "--config", str(cfg)])
         assert result.exit_code == 1
 
 
@@ -374,9 +269,7 @@ def test_unknown_toplevel_keys_round_trip(cfg):
             }
         )
     )
-    result = runner.invoke(
-        app, ["workspace", str(cfg.parent), "mcp", "add", "new", "cmd", "--config", str(cfg)]
-    )
+    result = runner.invoke(app, ["mcp", "add", "new", "cmd", "--config", str(cfg)])
     assert result.exit_code == 0, result.output
     data = _read(cfg)
     assert data["_comment"] == "hand-written file"
@@ -402,9 +295,7 @@ def test_preserves_unknown_fields_inside_a_server_entry(cfg):
             }
         )
     )
-    runner.invoke(
-        app, ["workspace", str(cfg.parent), "mcp", "add", "newone", "cmd", "--config", str(cfg)]
-    )
+    runner.invoke(app, ["mcp", "add", "newone", "cmd", "--config", str(cfg)])
     data = _read(cfg)
     assert data["mcpServers"]["molmcp"]["usage_instructions"] == "preserve me"
 
@@ -464,20 +355,9 @@ class TestImport:
         )
         runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "shared",
-                "from-dst",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "shared", "from-dst", "--config", str(cfg)],
         )
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "import", str(src), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "import", str(src), "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         servers = _read(cfg)["mcpServers"]
         assert servers["shared"]["command"] == "from-dst"  # kept
@@ -493,38 +373,25 @@ class TestImport:
         )
         runner.invoke(
             app,
-            [
-                "workspace",
-                str(cfg.parent),
-                "mcp",
-                "add",
-                "shared",
-                "from-dst",
-                "--config",
-                str(cfg),
-            ],
+            ["mcp", "add", "shared", "from-dst", "--config", str(cfg)],
         )
         result = runner.invoke(
             app,
-            ["workspace", str(cfg.parent), "mcp", "import", str(src), "-f", "--config", str(cfg)],
+            ["mcp", "import", str(src), "-f", "--config", str(cfg)],
         )
         assert result.exit_code == 0, result.output
         assert _read(cfg)["mcpServers"]["shared"]["command"] == "from-src"
 
     def test_missing_source(self, cfg, tmp_path):
         src = tmp_path / "nope.json"
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "import", str(src), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "import", str(src), "--config", str(cfg)])
         assert result.exit_code == 1
         assert "not found" in result.output
 
     def test_empty_source(self, cfg, tmp_path):
         src = tmp_path / "empty.json"
         src.write_text(json.dumps({"mcpServers": {}}))
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "import", str(src), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "import", str(src), "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert "no `mcpServers`" in result.output
 
@@ -539,9 +406,7 @@ class TestImport:
         )
         src = tmp_path / "src.json"
         src.write_text(json.dumps({"mcpServers": {"a": {"type": "stdio", "command": "x"}}}))
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "import", str(src), "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "import", str(src), "--config", str(cfg)])
         data = _read(cfg)
         assert data["claude_setting"] == "keep me"
         assert "a" in data["mcpServers"]
@@ -549,38 +414,28 @@ class TestImport:
 
 class TestExport:
     def test_copies_to_destination(self, cfg, tmp_path):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "a", "cmd", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "a", "cmd", "--config", str(cfg)])
         dst = tmp_path / "dst.json"
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "export", str(dst), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "export", str(dst), "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert _read(dst)["mcpServers"]["a"]["command"] == "cmd"
 
     def test_skips_existing_in_destination(self, cfg, tmp_path):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "from-src", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "n", "from-src", "--config", str(cfg)])
         dst = tmp_path / "dst.json"
         dst.write_text(json.dumps({"mcpServers": {"n": {"type": "stdio", "command": "from-dst"}}}))
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "export", str(dst), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "export", str(dst), "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert _read(dst)["mcpServers"]["n"]["command"] == "from-dst"
         assert "skipped" in result.output
 
     def test_force_overwrites(self, cfg, tmp_path):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "n", "from-src", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "n", "from-src", "--config", str(cfg)])
         dst = tmp_path / "dst.json"
         dst.write_text(json.dumps({"mcpServers": {"n": {"type": "stdio", "command": "from-dst"}}}))
         result = runner.invoke(
             app,
-            ["workspace", str(cfg.parent), "mcp", "export", str(dst), "-f", "--config", str(cfg)],
+            ["mcp", "export", str(dst), "-f", "--config", str(cfg)],
         )
         assert result.exit_code == 0, result.output
         assert _read(dst)["mcpServers"]["n"]["command"] == "from-src"
@@ -588,20 +443,14 @@ class TestExport:
     def test_empty_source(self, cfg, tmp_path):
         cfg.write_text(json.dumps({"mcpServers": {}}))
         dst = tmp_path / "dst.json"
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "export", str(dst), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "export", str(dst), "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert "registry is empty" in result.output
 
     def test_creates_parent_dirs(self, cfg, tmp_path):
-        runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "add", "a", "cmd", "--config", str(cfg)]
-        )
+        runner.invoke(app, ["mcp", "add", "a", "cmd", "--config", str(cfg)])
         dst = tmp_path / "deep" / "nested" / "dst.json"
-        result = runner.invoke(
-            app, ["workspace", str(cfg.parent), "mcp", "export", str(dst), "--config", str(cfg)]
-        )
+        result = runner.invoke(app, ["mcp", "export", str(dst), "--config", str(cfg)])
         assert result.exit_code == 0, result.output
         assert dst.exists()
 

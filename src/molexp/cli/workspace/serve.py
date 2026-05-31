@@ -1,4 +1,4 @@
-"""``molexp workspace serve`` — start FastAPI server + bundled UI."""
+"""``molexp serve`` — start FastAPI server + bundled UI."""
 
 from __future__ import annotations
 
@@ -8,19 +8,20 @@ from typing import Annotated
 import typer
 import uvicorn
 
+from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.workspace.target import RemoteTarget
 
 
-@workspace_app.command()
+@app.command()
 def serve(
-    ctx: typer.Context,
     port: Annotated[int, typer.Option("--port", "-p", help="Server port")] = 8000,
-    host: Annotated[str, typer.Option("--host", "-h", help="Server host")] = "localhost",
+    host: Annotated[str, typer.Option("--host", help="Server host")] = "localhost",
+    target_spec: TargetOption = ".",
 ) -> None:
     """Start the MolExp server (API + bundled web UI)."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
 
     if isinstance(target, RemoteTarget):
         rprint("[red]Error:[/red] Cannot serve a remote workspace.")
@@ -36,7 +37,7 @@ def serve(
         else:
             rprint(
                 f"[yellow]Warning:[/yellow] No workspace.json found in {resolved}. "
-                "Run [bold]molexp workspace . init[/bold] first."
+                "Run [bold]molexp init[/bold] first."
             )
 
     os.chdir(resolved)

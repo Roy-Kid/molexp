@@ -1,4 +1,4 @@
-"""``molexp workspace {sync,upload,download}`` — remote file operations."""
+"""``molexp {sync,push,pull}`` — remote file operations."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from typing import Annotated
 
 import typer
 
+from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.workspace.target import LocalTarget
 
 
-@workspace_app.command()
+@app.command()
 def sync(
-    ctx: typer.Context,
     source: Annotated[
         str | None,
         typer.Argument(help="Local path to sync (default: current directory)."),
@@ -31,13 +31,13 @@ def sync(
         bool,
         typer.Option("--dry-run", "-n", help="Show what would be transferred."),
     ] = False,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Sync files between local and remote workspace via rsync.
 
     Default direction is push (local → remote). Use --pull to reverse.
     """
-    target = _get_ctx_target(ctx)
-    transport = ctx.obj["transport"]
+    target, transport, _fs = resolve_workspace_target(target_spec)
 
     if isinstance(target, LocalTarget):
         rprint("[yellow]Sync is only meaningful for remote targets.[/yellow]")
@@ -70,9 +70,8 @@ def sync(
         rprint(f"[green]Pushed[/green] {local_path} → {target}:{remote_path}")
 
 
-@workspace_app.command()
-def upload(
-    ctx: typer.Context,
+@app.command()
+def push(
     local: Annotated[str, typer.Argument(help="Local file or directory to upload.")],
     remote: Annotated[
         str | None, typer.Argument(help="Remote path (default: same basename in workspace root).")
@@ -80,13 +79,13 @@ def upload(
     recursive: Annotated[
         bool, typer.Option("-r", "--recursive", help="Upload directory recursively.")
     ] = False,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Upload a file or directory to the remote workspace."""
-    target = _get_ctx_target(ctx)
-    transport = ctx.obj["transport"]
+    target, transport, _fs = resolve_workspace_target(target_spec)
 
     if isinstance(target, LocalTarget):
-        rprint("[yellow]Upload is only meaningful for remote targets.[/yellow]")
+        rprint("[yellow]push is only meaningful for remote targets.[/yellow]")
         return
 
     local_path = Path(local).expanduser().resolve()
@@ -106,9 +105,8 @@ def upload(
     rprint(f"[green]OK[/green] Uploaded to {target}:{remote_path}")
 
 
-@workspace_app.command()
-def download(
-    ctx: typer.Context,
+@app.command()
+def pull(
     remote: Annotated[str, typer.Argument(help="Remote file or directory to download.")],
     local: Annotated[
         str | None, typer.Argument(help="Local path (default: current directory).")
@@ -116,13 +114,13 @@ def download(
     recursive: Annotated[
         bool, typer.Option("-r", "--recursive", help="Download directory recursively.")
     ] = False,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Download a file or directory from the remote workspace."""
-    target = _get_ctx_target(ctx)
-    transport = ctx.obj["transport"]
+    target, transport, _fs = resolve_workspace_target(target_spec)
 
     if isinstance(target, LocalTarget):
-        rprint("[yellow]Download is only meaningful for remote targets.[/yellow]")
+        rprint("[yellow]pull is only meaningful for remote targets.[/yellow]")
         return
 
     remote_path = remote if remote.startswith("/") else f"{target.path.rstrip('/')}/{remote}"

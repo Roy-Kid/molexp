@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 from molcfg import Config, ConfigError
@@ -18,7 +18,7 @@ from molexp.cli._common import (
     run_executor_info,
     status_color,
 )
-from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.workspace.target import LocalTarget
 
 _console = Console()
@@ -28,16 +28,15 @@ _console = Console()
 # ---------------------------------------------------------------------------
 
 project_app = typer.Typer(help="Project management commands", no_args_is_help=True)
-workspace_app.add_typer(project_app, name="project")
 
 
 @project_app.command("create")
 def project_create(
-    ctx: typer.Context,
     name: Annotated[str, typer.Argument(help="Project name")],
+    target_spec: TargetOption = ".",
 ) -> None:
     """Create a new project."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("project create")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -51,9 +50,9 @@ def project_create(
 
 
 @project_app.command("list")
-def project_list(ctx: typer.Context) -> None:
+def project_list(target_spec: TargetOption = ".") -> None:
     """List all projects."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("project list")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -80,13 +79,13 @@ def project_list(ctx: typer.Context) -> None:
 
 @project_app.command("info")
 def project_info(
-    ctx: typer.Context,
     project_id: Annotated[str, typer.Argument(help="Project ID")],
+    target_spec: TargetOption = ".",
 ) -> None:
     """Show project information."""
     from molexp.workspace import ProjectNotFoundError
 
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("project info")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -110,19 +109,18 @@ def project_info(
 # ---------------------------------------------------------------------------
 
 experiment_app = typer.Typer(help="Experiment management commands", no_args_is_help=True)
-workspace_app.add_typer(experiment_app, name="experiment")
 
 
 @experiment_app.command("create")
 def experiment_create(
-    ctx: typer.Context,
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     name: Annotated[str, typer.Option("--name", "-n", help="Experiment name")],
+    target_spec: TargetOption = ".",
 ) -> None:
     """Create a new experiment."""
     from molexp.workspace import ProjectNotFoundError
 
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("experiment create")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -145,13 +143,13 @@ def experiment_create(
 
 @experiment_app.command("list")
 def experiment_list(
-    ctx: typer.Context,
     project_id: Annotated[str, typer.Argument(help="Project ID")],
+    target_spec: TargetOption = ".",
 ) -> None:
     """List all experiments in a project."""
     from molexp.workspace import ProjectNotFoundError
 
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("experiment list")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -178,20 +176,19 @@ def experiment_list(
 # ---------------------------------------------------------------------------
 
 run_app = typer.Typer(help="Run management commands", no_args_is_help=True)
-workspace_app.add_typer(run_app, name="runs")
 
 
 @run_app.command("create")
 def run_create(
-    ctx: typer.Context,
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
     params: Annotated[
         str | None, typer.Option("--params", help="Parameters JSON string or file path")
     ] = None,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Create a new run."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("runs create")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -237,12 +234,12 @@ def run_create(
 
 @run_app.command("list")
 def run_list(
-    ctx: typer.Context,
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
+    target_spec: TargetOption = ".",
 ) -> None:
     """List all runs in an experiment."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("runs list")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -283,7 +280,6 @@ def run_list(
 
 @run_app.command("cancel")
 def run_cancel(
-    ctx: typer.Context,
     run_ids: Annotated[
         list[str] | None,
         typer.Argument(
@@ -316,9 +312,10 @@ def run_cancel(
         str | None, typer.Option("--cluster", help="molq cluster name (default: 'default').")
     ] = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt.")] = False,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Cancel one or more scheduled runs."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("runs cancel")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -462,13 +459,13 @@ def run_cancel(
 
 @run_app.command("info")
 def run_info(
-    ctx: typer.Context,
     project_id: Annotated[str, typer.Argument(help="Project ID")],
     experiment_id: Annotated[str, typer.Argument(help="Experiment ID")],
     run_id: Annotated[str, typer.Argument(help="Run ID")],
+    target_spec: TargetOption = ".",
 ) -> None:
     """Show run information."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("runs info")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -516,196 +513,16 @@ _prune.register(run_app)
 # target
 # ---------------------------------------------------------------------------
 
-target_app = typer.Typer(help="Manage compute targets", no_args_is_help=True)
-workspace_app.add_typer(target_app, name="target")
-
-
-@target_app.command("list")
-def target_list(ctx: typer.Context) -> None:
-    """List all compute targets registered on the workspace."""
-    from molexp.workspace.targets import list_targets as _list_targets
-
-    target = _get_ctx_target(ctx)
-    if not isinstance(target, LocalTarget):
-        _remote_only("target list")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
-    targets = _list_targets(ws)
-    if not targets:
-        rprint("[yellow]No compute targets registered.[/yellow]")
-        rprint(
-            "  Add one with: [cyan]molexp workspace . target add NAME --scratch /path [--host user@host] [--scheduler slurm|pbs|lsf][/cyan]"
-        )
-        return
-    for t in targets:
-        location = f"[cyan]{t.host}[/cyan]" if t.host else "[dim]local[/dim]"
-        rprint(
-            f"[bold]{t.name}[/bold]  location={location}  scheduler=[magenta]{t.scheduler}[/magenta]  scratch={t.scratch_root}"
-        )
-
-
-@target_app.command("add")
-def target_add(
-    ctx: typer.Context,
-    name: Annotated[str, typer.Argument(help="Target name (used by --target)")],
-    scratch: Annotated[
-        str, typer.Option("--scratch", help="Absolute scratch root on the target's filesystem")
-    ],
-    scheduler: Annotated[
-        str, typer.Option("--scheduler", help="Dispatch axis: local | slurm | pbs | lsf")
-    ] = "local",
-    host: Annotated[str | None, typer.Option("--host", help="user@host for SSH transport")] = None,
-    port: Annotated[int | None, typer.Option("--port", help="SSH port")] = None,
-    identity: Annotated[str | None, typer.Option("--identity", help="SSH identity file")] = None,
-    ssh_opt: Annotated[
-        list[str] | None, typer.Option("--ssh-opt", help="Extra ssh argv (repeatable)")
-    ] = None,
-) -> None:
-    """Add a compute target to the workspace."""
-    from typing import Literal
-
-    from molexp.workspace import ComputeTarget
-    from molexp.workspace import add_target as _add_target
-
-    target = _get_ctx_target(ctx)
-    if not isinstance(target, LocalTarget):
-        _remote_only("target add")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
-    narrowed_scheduler: Literal["local", "slurm", "pbs", "lsf"]
-    if scheduler == "local":
-        narrowed_scheduler = "local"
-    elif scheduler == "slurm":
-        narrowed_scheduler = "slurm"
-    elif scheduler == "pbs":
-        narrowed_scheduler = "pbs"
-    elif scheduler == "lsf":
-        narrowed_scheduler = "lsf"
-    else:
-        rprint(
-            f"[red]Invalid scheduler {scheduler!r}[/red] — must be one of: local, slurm, pbs, lsf"
-        )
-        raise typer.Exit(2)
-
-    try:
-        ct = ComputeTarget(
-            name=name,
-            host=host,
-            port=port,
-            identity_file=identity,
-            ssh_opts=list(ssh_opt or []),
-            scheduler=narrowed_scheduler,
-            scratch_root=scratch,
-        )
-    except ValueError as exc:
-        rprint(f"[red]Invalid target:[/red] {exc}")
-        raise typer.Exit(2) from exc
-
-    try:
-        _add_target(ws, ct)
-    except ValueError as exc:
-        rprint(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
-
-    location = host or "local"
-    rprint(
-        f"[green]OK[/green] Added target [bold]{name}[/bold] ({location}, scheduler={scheduler}, scratch={scratch})"
-    )
-
-
-@target_app.command("remove")
-def target_remove(
-    ctx: typer.Context,
-    name: Annotated[str, typer.Argument(help="Target name to remove")],
-) -> None:
-    """Remove a compute target from the workspace."""
-    from molexp.workspace.targets import remove_target as _remove_target
-
-    target = _get_ctx_target(ctx)
-    if not isinstance(target, LocalTarget):
-        _remote_only("target remove")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
-    try:
-        _remove_target(ws, name)
-    except KeyError as exc:
-        rprint(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
-    rprint(f"[green]OK[/green] Removed target [bold]{name}[/bold]")
-
-
-@target_app.command("test")
-def target_test(
-    ctx: typer.Context,
-    name: Annotated[str, typer.Argument(help="Target name to verify")],
-) -> None:
-    """Verify connectivity to a target."""
-    import shutil
-
-    from molexp.workspace.targets import get_target as _get_target
-    from molexp.workspace.targets import to_transport as _to_transport
-
-    target = _get_ctx_target(ctx)
-    if not isinstance(target, LocalTarget):
-        _remote_only("target test")
-    ws = get_workspace(target.path if target.path != Path.cwd() else None)
-    try:
-        ct = _get_target(ws, name)
-    except KeyError as exc:
-        rprint(f"[red]{exc}[/red]")
-        raise typer.Exit(1) from exc
-
-    if ct.is_remote:
-        if shutil.which("ssh") is None:
-            rprint("[red]ssh binary not found in PATH[/red]")
-            raise typer.Exit(2)
-        if shutil.which("rsync") is None:
-            rprint("[red]rsync binary not found in PATH[/red]")
-            raise typer.Exit(2)
-
-    transport = _to_transport(ct)
-    rprint(f"[bold]Testing target {name!r}...[/bold]")
-    try:
-        result = transport.run(["true"], timeout=15)
-        if result.returncode != 0:
-            rprint(f"[red]Command 'true' returned {result.returncode}: {result.stderr}[/red]")
-            raise typer.Exit(1)
-    except Exception as exc:
-        rprint(f"[red]Transport.run() failed:[/red] {exc}")
-        raise typer.Exit(1) from exc
-    rprint("  [green]ok[/green] command execution")
-    try:
-        transport.mkdir(ct.scratch_root, parents=True, exist_ok=True)
-    except Exception as exc:
-        rprint(f"[red]mkdir {ct.scratch_root!r} failed:[/red] {exc}")
-        raise typer.Exit(1) from exc
-    rprint(f"  [green]ok[/green] mkdir {ct.scratch_root}")
-    probe = f"{ct.scratch_root.rstrip('/')}/.molexp-target-test"
-    try:
-        transport.write_text(probe, "x")
-        if transport.read_text(probe) != "x":
-            rprint("[red]Round-trip mismatch on probe file[/red]")
-            raise typer.Exit(1)
-        transport.remove(probe)
-    except Exception as exc:
-        rprint(f"[red]Probe round-trip failed:[/red] {exc}")
-        raise typer.Exit(1) from exc
-    rprint("  [green]ok[/green] file round-trip")
-    rprint(f"[green]Target {name!r} is reachable.[/green]")
-
-
-# ---------------------------------------------------------------------------
-# asset
-# ---------------------------------------------------------------------------
-
 asset_app = typer.Typer(help="Asset management commands", no_args_is_help=True)
-workspace_app.add_typer(asset_app, name="asset")
 
 
 @asset_app.command("list")
 def asset_list(
-    ctx: typer.Context,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Limit results")] = 50,
+    target_spec: TargetOption = ".",
 ) -> None:
     """List workspace-level assets."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("asset list")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
@@ -729,7 +546,6 @@ def asset_list(
 mcp_app = typer.Typer(
     name="mcp", help="Configure MCP servers (mirrors `claude mcp`).", no_args_is_help=True
 )
-workspace_app.add_typer(mcp_app, name="mcp")
 
 _USER_SCOPE_PATH = Path.home() / ".claude.json"
 _PROJECT_SCOPE_FILENAME = ".mcp.json"
@@ -1050,8 +866,8 @@ def mcp_export(
 # ---------------------------------------------------------------------------
 
 
-def _remote_only(cmd_name: str) -> None:  # noqa: ARG001
+def _remote_only(cmd_name: str) -> NoReturn:  # noqa: ARG001
     """Raise an error for commands not yet supported on remote targets."""
     from molexp.cli.workspace import RemoteWorkspaceError
 
-    raise RemoteWorkspaceError(None)  # type: ignore[arg-type]
+    raise RemoteWorkspaceError(None)
