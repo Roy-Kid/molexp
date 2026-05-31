@@ -1,28 +1,19 @@
-"""``molexp workspace monitor`` — job monitoring dashboard (TUI)."""
+"""``molexp monitor`` — job monitoring dashboard (TUI)."""
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
+from molexp.cli._app import app
 from molexp.cli._common import rprint
-from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.workspace.target import RemoteTarget
 
 
-def _logical_cwd() -> Path:
-    pwd = os.environ.get("PWD")
-    if pwd and os.path.samefile(pwd, os.getcwd()):  # noqa: PTH109, PTH121
-        return Path(pwd)
-    return Path(os.getcwd())  # noqa: PTH109
-
-
-@workspace_app.command()
+@app.command()
 def monitor(
-    ctx: typer.Context,
     project: Annotated[
         str | None,
         typer.Option("--project", "-p", help="Filter by project name or ID."),
@@ -35,12 +26,13 @@ def monitor(
         float,
         typer.Option("--refresh", "-r", help="Refresh interval in seconds."),
     ] = 2.0,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Open the run dashboard for every run in the workspace.
 
     Press ``q`` to close; jobs keep running in the background.
     """
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
 
     if isinstance(target, RemoteTarget):
         rprint("[yellow]Remote job monitoring via workspace is not yet supported.[/yellow]")
@@ -53,7 +45,7 @@ def monitor(
         ws = _Workspace.load(target.path)
     except FileNotFoundError:
         rprint(f"[red]Error:[/red] No workspace found at {target.path}")
-        rprint("  Run [bold]molexp workspace . init[/bold] to create one.")
+        rprint("  Run [bold]molexp init[/bold] to create one.")
         raise typer.Exit(1)  # noqa: B904
 
     runs: list[Any] = []

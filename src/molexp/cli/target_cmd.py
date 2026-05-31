@@ -110,7 +110,7 @@ def add_cmd(
         host=host,
         port=port,
         identity_file=identity_file,
-        scheduler=scheduler,  # type: ignore[arg-type]
+        scheduler=scheduler,  # ty: ignore[invalid-argument-type]
         scratch_root=scratch,
     )
     try:
