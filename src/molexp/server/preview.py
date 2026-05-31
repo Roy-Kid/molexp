@@ -5,15 +5,19 @@ dataset downloaded via molnex) carries its own loader as a *same-stem* ``.py``
 sidecar placed next to it: ``qm9.tar.bz2`` → ``qm9.py``. The sidecar defines
 **exactly one** concrete subclass of :class:`molpy.io.BaseTrajectoryReader` — a
 pure ``Iterable[molpy.Frame]`` reader. The sidecar knows nothing about molvis
-or the server; molexp (the host) discovers it, imports it on an explicit
-preview request only, instantiates the single reader with the dataset path,
-takes a host-owned :func:`itertools.islice` of frames, and renders them.
+or the server; molexp (the host) imports it on an explicit preview request
+only, instantiates the single reader with the dataset path, takes a host-owned
+:func:`itertools.islice` of frames, and renders them.
 
-Two mechanisms are kept deliberately apart:
+**Everything is index-driven.** Previews operate on a *registered* dataset
+asset (resolved through the catalog by ``asset_id``) — there is no scanning of
+the workspace file tree to auto-discover previewable files, and no path-based
+preview of unregistered files. The sidecar itself is **not** an asset: it is
+simply the same-stem ``.py`` sibling of the registered asset's resolved path.
 
-* :func:`discover_reader_sidecar` is **pure and side-effect-free** — it computes
-  the sibling ``.py`` path and checks existence only. It never imports the
-  module, so passive catalog/file listing never executes user code.
+* :func:`resolve_sidecar` is **pure and side-effect-free** — given a known
+  (registered) path it computes the sibling ``.py`` and checks existence only.
+  It never imports the module, so listing the catalog never executes user code.
 * :func:`load_sidecar_reader` is the **explicit** path — it imports the sidecar
   under a private, non-``"__main__"`` module name (so the sidecar's
   ``if __name__ == "__main__"`` guard never runs), collects the concrete
@@ -66,17 +70,17 @@ __all__ = [
     "PreviewSidecarNotFoundError",
     "SidecarInfo",
     "asset_has_sidecar",
-    "discover_reader_sidecar",
     "frames_to_extxyz",
     "load_sidecar_reader",
     "preview_frames",
+    "resolve_sidecar",
     "snapshot_reader",
 ]
 
 
 @dataclass(frozen=True)
 class SidecarInfo:
-    """Result of existence-only sidecar discovery.
+    """Result of existence-only sidecar resolution.
 
     Attributes:
         dataset_path: The dataset file the sidecar binds to.
@@ -98,7 +102,7 @@ def _sidecar_path_for(dataset_path: Path) -> Path:
     return dataset_path.parent / f"{stem}.py"
 
 
-def discover_reader_sidecar(dataset_path: str | os.PathLike[str]) -> SidecarInfo | None:
+def resolve_sidecar(dataset_path: str | os.PathLike[str]) -> SidecarInfo | None:
     """Probe for a same-stem ``.py`` sidecar **without importing it**.
 
     Pure and side-effect-free: computes the sibling path and checks existence
@@ -179,7 +183,7 @@ def load_sidecar_reader(dataset_path: str | os.PathLike[str]) -> BaseTrajectoryR
         AmbiguousReaderError: It defines more than one (422).
         PreviewReaderError: Import or instantiation failed (422).
     """
-    info = discover_reader_sidecar(dataset_path)
+    info = resolve_sidecar(dataset_path)
     if info is None:
         raise PreviewSidecarNotFoundError(str(dataset_path))
 
@@ -288,4 +292,4 @@ def asset_has_sidecar(workspace, asset) -> bool:  # noqa: ANN001
     scope_dir = resolve_scope_dir(workspace, asset.scope)
     if scope_dir is None:
         return False
-    return discover_reader_sidecar(asset.absolute_path(scope_dir)) is not None
+    return resolve_sidecar(asset.absolute_path(scope_dir)) is not None

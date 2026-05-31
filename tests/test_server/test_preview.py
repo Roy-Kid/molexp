@@ -30,9 +30,9 @@ from molexp.server.preview import (  # noqa: E402
     NoReaderInSidecarError,
     PreviewReaderError,
     PreviewSidecarNotFoundError,
-    discover_reader_sidecar,
     load_sidecar_reader,
     preview_frames,
+    resolve_sidecar,
 )
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "fake_sidecar.py"
@@ -119,22 +119,22 @@ def _register_inplace_asset(workspace, dataset_path: Path, *, asset_id: str = "d
 # ── ac-001 / ac-002 : trust gate ──────────────────────────────────────────
 
 
-def test_discovery_does_not_import_the_sidecar(tmp_path, monkeypatch):
+def test_resolve_does_not_import_the_sidecar(tmp_path, monkeypatch):
     sentinel = tmp_path / "import.sentinel"
     monkeypatch.setenv("MOLEXP_TEST_IMPORT_SENTINEL", str(sentinel))
 
     dataset = _make_sidecar_dataset(tmp_path)
-    info = discover_reader_sidecar(dataset)
+    info = resolve_sidecar(dataset)
 
     assert info is not None
     assert info.sidecar_path == tmp_path / "qm9.py"
     assert not sentinel.exists(), "discovery must not execute the sidecar module body"
 
 
-def test_discovery_returns_none_without_sibling(tmp_path):
+def test_resolve_returns_none_without_sibling(tmp_path):
     dataset = tmp_path / "plain.bin"
     dataset.write_bytes(b"x")
-    assert discover_reader_sidecar(dataset) is None
+    assert resolve_sidecar(dataset) is None
 
 
 def test_load_runs_body_but_not_main_guard(tmp_path, monkeypatch):
@@ -266,6 +266,33 @@ def test_listing_surfaces_sidecar_flag(client, workspace):
     by_id = {a["id"]: a for a in resp.json()}
     assert by_id["with-sidecar"]["has_preview_sidecar"] is True
     assert by_id["no-sidecar"]["has_preview_sidecar"] is False
+
+
+# ── register-in-place → preview (index-driven, no auto-discovery) ──────────
+
+
+def test_register_then_preview_follows_the_index(client, workspace):
+    # A QM9-style dataset + sidecar sit in the workspace tree.
+    _make_sidecar_dataset(Path(workspace.root), stem="qm9")
+
+    # Register the file in place (no upload, no copy) — this is the explicit
+    # step that puts it in the catalog index.
+    reg = client.post("/api/assets/data/register", json={"path": "qm9.bin"})
+    assert reg.status_code == 201
+    body = reg.json()
+    assert body["has_preview_sidecar"] is True
+
+    # Preview follows the registered asset id.
+    resp = client.get(f"/api/assets/{body['id']}/preview", params={"format": "frames"})
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("chemical/x-xyz")
+    # Atom-count line is correct (guards the molpy XYZ-writer fix end-to-end).
+    assert resp.content.splitlines()[0] == b"2"
+
+
+def test_register_rejects_path_outside_workspace(client):
+    resp = client.post("/api/assets/data/register", json={"path": "/etc/passwd"})
+    assert resp.status_code == 400
 
 
 # ── ac-008 : QM9 reference reader (skip-gated) ─────────────────────────────

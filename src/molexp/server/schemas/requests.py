@@ -129,6 +129,14 @@ class AssetUpdateRequest(BaseModel):
     metadata: dict[str, Any] | None = None
 
 
+class DataAssetRegisterRequest(BaseModel):
+    """Register an existing workspace file in place as a ``DataAsset``."""
+
+    path: str = Field(..., description="Workspace-relative path to the existing file")
+    name: str | None = Field(None, description="Display name (defaults to the file name)")
+    metadata: dict[str, str] = Field(default_factory=dict, description="Free-form tags")
+
+
 # ── Agent ───────────────────────────────────────────────────────────────────
 
 
