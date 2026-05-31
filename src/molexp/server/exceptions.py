@@ -388,9 +388,7 @@ class NoReaderInSidecarError(MolExpError):
 
     def __init__(self, sidecar_path: str) -> None:
         super().__init__(
-            message=(
-                f"Sidecar defines no molpy.io.BaseTrajectoryReader subclass: {sidecar_path}"
-            ),
+            message=(f"Sidecar defines no molpy.io.BaseTrajectoryReader subclass: {sidecar_path}"),
             code="NO_READER_IN_SIDECAR",
             status_code=422,
             details={"sidecar_path": sidecar_path},
