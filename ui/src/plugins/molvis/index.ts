@@ -1,5 +1,7 @@
 import { registerFileTypeContribution } from "@/app/registry";
+import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
 import type { UiPluginModule } from "@/plugins/types";
+import { MolvisDatasetPreview } from "./MolvisDatasetPreview";
 import { MolvisTab } from "./MolvisTab";
 
 const molvisPlugin: UiPluginModule = {
@@ -42,6 +44,14 @@ const molvisPlugin: UiPluginModule = {
         matches: (file) => file.hasPreviewSidecar === true,
       },
       Component: MolvisTab,
+    });
+
+    filePreviewPluginRegistry.register({
+      id: "molvis:dataset-preview",
+      name: "Molvis",
+      extensions: [],
+      canHandle: ({ hasPreviewSidecar }) => hasPreviewSidecar === true,
+      Component: MolvisDatasetPreview,
     });
   },
 };

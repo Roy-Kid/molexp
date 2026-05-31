@@ -22,6 +22,7 @@ from ..dependencies import (
     set_active_workspace_descriptor,
     set_workspace_path_override,
 )
+from ..preview import resolve_sidecar
 from ..schemas import (
     FileContentResponse,
     TargetTestCheck,
@@ -195,6 +196,7 @@ def list_workspace_files(
                 "assetKind": asset.kind,  # type: ignore[attr-defined]
                 "producerRunId": asset.producer.run_id if asset.producer else None,
                 "producerTaskId": asset.producer.task_id if asset.producer else None,
+                "hasPreviewSidecar": resolve_sidecar(abs_path) is not None,
             }
 
     def build_node(node_path: Path, depth: int) -> dict[str, Any]:

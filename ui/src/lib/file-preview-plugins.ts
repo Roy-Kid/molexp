@@ -16,7 +16,11 @@ class FilePreviewPluginRegistry {
     return unregisterFilePreviewContribution(pluginId);
   }
 
-  getPluginForFile(filename: string, path?: string): FilePreviewPlugin | null {
+  getPluginForFile(
+    filename: string,
+    path?: string,
+    opts?: { hasPreviewSidecar?: boolean },
+  ): FilePreviewPlugin | null {
     const extension = this.getExtension(filename);
 
     for (const plugin of listFilePreviewContributions()) {
@@ -24,7 +28,13 @@ class FilePreviewPluginRegistry {
         return plugin;
       }
 
-      if (plugin.canHandle?.({ name: filename, path: path ?? filename })) {
+      if (
+        plugin.canHandle?.({
+          name: filename,
+          path: path ?? filename,
+          hasPreviewSidecar: opts?.hasPreviewSidecar,
+        })
+      ) {
         return plugin;
       }
     }

@@ -19,7 +19,9 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
     }
 
     const name = selection.filePath.split("/").pop() ?? selection.filePath;
-    return filePreviewPluginRegistry.getPluginForFile(name, selection.filePath);
+    return filePreviewPluginRegistry.getPluginForFile(name, selection.filePath, {
+      hasPreviewSidecar: selection.hasPreviewSidecar,
+    });
   }, [selection]);
 
   const language = useMemo(() => {
@@ -138,6 +140,9 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
                   name={selection.filePath.split("/").pop() ?? selection.filePath}
                   path={selection.filePath}
                   folderId="workspace"
+                  assetId={
+                    selection.objectType === "workspace-file" ? selection.assetId : undefined
+                  }
                 />
               </TabsContent>
             ) : null}

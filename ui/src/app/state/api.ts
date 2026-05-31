@@ -41,6 +41,7 @@ interface WorkspaceFileNode {
   assetKind?: string | null;
   producerRunId?: string | null;
   producerTaskId?: string | null;
+  hasPreviewSidecar?: boolean | null;
 }
 
 interface WorkspaceFilesResponse {
@@ -661,6 +662,8 @@ const mapWorkspaceNode = (node: WorkspaceFileNode): WorkspaceTreeNode => {
     children: (node.children ?? []).map(mapWorkspaceNode),
     sizeBytes: node.size ?? 0,
     updatedAt,
+    assetId: node.assetId ?? undefined,
+    hasPreviewSidecar: node.hasPreviewSidecar ?? undefined,
   };
 };
 

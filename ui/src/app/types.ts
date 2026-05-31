@@ -210,6 +210,10 @@ export interface WorkspaceTreeNode {
   children: WorkspaceTreeNode[];
   sizeBytes: number;
   updatedAt: string;
+  // Populated when the file tree is fetched with `?include=catalog`: the
+  // registered asset id and the server's existence-only sidecar flag.
+  assetId?: string;
+  hasPreviewSidecar?: boolean;
 }
 
 export interface ConsoleEntry {
@@ -249,6 +253,8 @@ export interface WorkspaceFileSelection {
   filePath: string;
   fileKind: FileKind;
   objectId: string;
+  assetId?: string;
+  hasPreviewSidecar?: boolean;
 }
 
 export interface AgentSelection {

@@ -43,6 +43,7 @@ export interface FilePreviewContentProps {
   name: string;
   path: string;
   folderId: string;
+  assetId?: string;
 }
 
 export interface FilePreviewPlugin {
@@ -50,7 +51,7 @@ export interface FilePreviewPlugin {
   name: string;
   extensions: string[];
   priority?: number;
-  canHandle?: (props: { name: string; path: string }) => boolean;
+  canHandle?: (props: { name: string; path: string; hasPreviewSidecar?: boolean }) => boolean;
   Component: React.ComponentType<FilePreviewContentProps>;
 }
 
