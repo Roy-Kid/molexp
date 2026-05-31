@@ -26,6 +26,7 @@ const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection |
     return null;
   }
 
+  const assetId = searchParams.get("assetId");
   return {
     objectType: "workspace-file",
     objectId: filePath,
@@ -39,6 +40,8 @@ const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection |
       fileKind === "image"
         ? fileKind
         : "unknown",
+    assetId: assetId ?? undefined,
+    hasPreviewSidecar: searchParams.get("hasPreviewSidecar") === "1",
   };
 };
 
@@ -189,6 +192,12 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
         file: selection.filePath,
         fileKind: selection.fileKind,
       });
+      if (selection.assetId) {
+        params.set("assetId", selection.assetId);
+      }
+      if (selection.hasPreviewSidecar) {
+        params.set("hasPreviewSidecar", "1");
+      }
       return `/workspace?${params.toString()}`;
     }
   }
