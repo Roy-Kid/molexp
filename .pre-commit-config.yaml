@@ -1,3 +1,22 @@
+# Mirrors every check in .github/workflows/*.yml. Any divergence is a bug —
+# when you add/modify a CI step, update this file in the same commit.
+#
+# CI mapping (.github/workflows/ci.yml):
+#   job `lint`  → runs `pre-commit run --all-files` (= every default-stage hook
+#                 below: pre-commit-hooks + ruff-format + ruff-check + ty)
+#   job `test`  → `pytest tests/ -q --cov=src/molexp --cov-report=xml`
+#                 (mirrored by the local `pytest` hook at stage pre-push)
+#
+# CAVEAT (dependency-source mismatch — category D): CI's test job installs the
+# unreleased sibling `molcrafts-molq @ git+https://github.com/MolCrafts/molq.git`
+# BEFORE running tests. The local `pytest` hook runs against whatever molq is
+# already in the dev's environment, which may differ from CI. Keep your local
+# molq in sync (e.g. `pip install "molcrafts-molq @ git+https://github.com/MolCrafts/molq.git"`)
+# if a pre-push pass must predict green CI.
+
+# Install both stages: pre-commit run --hook-stage pre-push runs everything.
+default_install_hook_types: [pre-commit, pre-push]
+
 # Generated codegen output (OpenAPI client) is not hand-edited — skip all hooks.
 exclude: '^ui/src/api/generated/'
 
@@ -34,3 +53,13 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+      # Mirrors CI test job: `pytest tests/ -q --cov=src/molexp --cov-report=xml`.
+      # Runs at pre-push only (slow). See dependency-source CAVEAT above.
+      - id: pytest
+        name: pytest (CI test suite — mirrors ci.yml `test` job)
+        entry: pytest tests/ -q --cov=src/molexp --cov-report=xml
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]
