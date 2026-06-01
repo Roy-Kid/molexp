@@ -10,3 +10,4 @@ export type WorkspaceRunsResponse = {
     total: number;
     truncated?: boolean;
 };
+

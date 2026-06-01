@@ -3,7 +3,7 @@
 This subpackage owns the **config layer** for MCP servers — config files,
 secrets, OAuth flows, default seeds. It does **not** implement MCP tool
 dispatch, server probing, or tool-source registration: those are pydantic-ai
-native (``Agent(toolsets=[MCPServerStdio(...)])``) and constructed inside
+native (``Agent(toolsets=[MCPToolset(...)])``) and constructed inside
 :mod:`molexp.agent._pydanticai`.
 
 What lives here:
@@ -19,8 +19,8 @@ What used to live here and was deleted by ``agent-pydanticai-rectification``:
 
 - ``source.py`` / ``tool_store.py`` / ``probe.py`` — parallel-to-pydantic-ai
   implementations of tool dispatch and server probing; replaced by
-  ``pydantic_ai.Agent(toolsets=[MCPServerStdio(...)])`` and
-  ``MCPServerStdio.list_tools()`` respectively.
+  ``pydantic_ai.Agent(toolsets=[MCPToolset(...)])`` and
+  ``MCPToolset.list_tools()`` respectively.
 """
 
 from __future__ import annotations

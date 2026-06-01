@@ -9,3 +9,4 @@ export type MolqJobsResponse = {
     stats: MolqQueueStats;
     total: number;
 };
+

@@ -412,6 +412,8 @@ const buildWorkspaceNodes = (
             objectId: node.path,
             filePath: node.path,
             fileKind: detectFileKind(node.path),
+            assetId: node.assetId ?? undefined,
+            hasPreviewSidecar: node.hasPreviewSidecar ?? undefined,
           });
           return;
         }
@@ -431,6 +433,8 @@ const buildWorkspaceNodes = (
                   objectId: node.path,
                   filePath: node.path,
                   fileKind: detectFileKind(node.path),
+                  assetId: node.assetId ?? undefined,
+                  hasPreviewSidecar: node.hasPreviewSidecar ?? undefined,
                 }),
             },
             {
@@ -585,7 +589,7 @@ const buildAgentNodes = (
     const isLive = session.status === "running";
     return {
       id: session.id,
-      label: shortenGoal(session.goalDescription),
+      label: shortenGoal(session.goal),
       icon: Bot,
       iconClassName: isLive ? "text-info animate-pulse" : "text-violet-500",
       right: (

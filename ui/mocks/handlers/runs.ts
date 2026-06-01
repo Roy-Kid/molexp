@@ -59,6 +59,103 @@ export const runHandlers = [
         }
     ),
 
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/logs - latest-attempt logs
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/logs`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            const history = run.executionHistory ?? [];
+            const latest = history[history.length - 1];
+            if (!latest) {
+                return HttpResponse.json({ executionId: null, stdout: null, stderr: null });
+            }
+            return HttpResponse.json({
+                executionId: latest.executionId,
+                stdout: `[mock] stdout for ${run.id} attempt ${latest.executionId}\nrun completed normally`,
+                stderr: latest.status === "failed"
+                    ? `[mock] stderr — attempt ${latest.executionId} failed`
+                    : "",
+            });
+        }
+    ),
+
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/executions/:executionId/logs
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/executions/:executionId/logs`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            const executionId = params.executionId as string;
+            const rec = (run.executionHistory ?? []).find((r) => r.executionId === executionId);
+            return HttpResponse.json({
+                executionId,
+                stdout: rec
+                    ? `[mock] stdout for ${run.id} attempt ${executionId}\nattempt status: ${rec.status}`
+                    : `[mock] stdout for ${run.id} attempt ${executionId} (no record)`,
+                stderr: rec?.status === "failed"
+                    ? `[mock] stderr — attempt ${executionId} failed`
+                    : "",
+            });
+        }
+    ),
+
+    // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/execution - workflow.json
+    http.get(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/execution`,
+        ({ params }) => {
+            const run = getRun(params.runId as string);
+            if (!run) {
+                return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
+            }
+            const history = run.executionHistory ?? [];
+            const latest = history[history.length - 1];
+            if (!latest) {
+                return HttpResponse.json({
+                    execution_id: null,
+                    status: "pending",
+                    steps: [],
+                    end: null,
+                });
+            }
+            // Mock 3-step workflow whose statuses mirror the run's terminal state.
+            const isSuccess = run.status === "succeeded";
+            const isFailure = run.status === "failed";
+            return HttpResponse.json({
+                execution_id: latest.executionId,
+                status: run.status,
+                steps: [
+                    {
+                        index: 0,
+                        status: "succeeded",
+                        outputs: { records_loaded: 1024 },
+                    },
+                    {
+                        index: 1,
+                        status: isFailure ? "failed" : isSuccess ? "succeeded" : "running",
+                        outputs: isSuccess ? { model_path: "artifacts/model.bin" } : {},
+                    },
+                    {
+                        index: 2,
+                        status: isFailure
+                            ? "skipped"
+                            : isSuccess
+                                ? "succeeded"
+                                : "pending",
+                        outputs: isSuccess
+                            ? { metrics: { mae: 0.041, rmse: 0.072 } }
+                            : {},
+                    },
+                ],
+                end: isSuccess ? { final_loss: 0.142 } : null,
+            });
+        }
+    ),
+
     // GET /api/projects/:projectId/experiments/:experimentId/runs/:runId/metrics - Run metrics
     http.get(
         `${API_BASE}/projects/:projectId/experiments/:experimentId/runs/:runId/metrics`,
@@ -247,6 +344,59 @@ export const runHandlers = [
                 return HttpResponse.json({ detail: "Run not found" }, { status: 404 });
             }
             const now = Date.now() / 1000;
+            const history = run.executionHistory ?? [];
+            const executionNodes = history.map((rec) => ({
+                name: rec.executionId,
+                relPath: `executions/${rec.executionId}`,
+                type: "folder" as const,
+                modified: now,
+                children: [
+                    {
+                        name: "execution.json",
+                        relPath: `executions/${rec.executionId}/execution.json`,
+                        type: "file" as const,
+                        size: 256,
+                        modified: now,
+                        assetId: null,
+                        assetKind: null,
+                        taskId: null,
+                        children: [],
+                    },
+                    {
+                        name: "workflow.json",
+                        relPath: `executions/${rec.executionId}/workflow.json`,
+                        type: "file" as const,
+                        size: 512,
+                        modified: now,
+                        assetId: null,
+                        assetKind: null,
+                        taskId: null,
+                        children: [],
+                    },
+                    {
+                        name: "stdout.log",
+                        relPath: `executions/${rec.executionId}/stdout.log`,
+                        type: "file" as const,
+                        size: 2048,
+                        modified: now,
+                        assetId: `${run.id}-${rec.executionId}-stdout`,
+                        assetKind: "log",
+                        taskId: null,
+                        children: [],
+                    },
+                    {
+                        name: "stderr.log",
+                        relPath: `executions/${rec.executionId}/stderr.log`,
+                        type: "file" as const,
+                        size: rec.status === "failed" ? 512 : 0,
+                        modified: now,
+                        assetId: `${run.id}-${rec.executionId}-stderr`,
+                        assetKind: "log",
+                        taskId: null,
+                        children: [],
+                    },
+                ],
+            }));
             return HttpResponse.json({
                 runId: run.id,
                 runDir: `projects/${params.projectId}/experiments/${params.experimentId}/runs/run-${run.id}`,
@@ -280,6 +430,13 @@ export const runHandlers = [
                                 children: [],
                             },
                         ],
+                    },
+                    {
+                        name: "executions",
+                        relPath: "executions",
+                        type: "folder" as const,
+                        modified: now,
+                        children: executionNodes,
                     },
                     {
                         name: "metrics.jsonl",
@@ -354,8 +511,12 @@ export const runHandlers = [
                 status: "pending",
                 finished: null,
                 parameters: { ...run.parameters },
+                results: {},
                 created: new Date().toISOString(),
                 executorInfo: {},
+                workflow: run.workflow ?? null,
+                workflowSource: run.workflowSource ?? null,
+                executionHistory: [],
             };
             setRun(cloned);
             return HttpResponse.json(

@@ -69,7 +69,7 @@ class TestNoProfileConfigInContextModule:
         from molexp.workflow import context as context_mod
 
         src = inspect.getsource(context_mod)
-        assert "from molexp.config import ProfileConfig" not in src
+        assert "from molexp.profile import ProfileConfig" not in src
         assert "ProfileConfig" not in src or "# " in src.split("ProfileConfig")[0][-2:]
 
 

@@ -254,14 +254,14 @@ def prune_runs(
         raise typer.Exit(0)
 
     removed_ids = {t.execution_id for t in targets}
-    exec_root: Path = run.run_dir / "executions"
+    exec_root = Path(run.run_dir / "executions")
     deleted_dirs = 0
     for exec_id in removed_ids:
         exec_dir = exec_root / exec_id
         if exec_dir.exists():
             shutil.rmtree(exec_dir)
             deleted_dirs += 1
-            rprint(f"  [green]OK[/green] removed {exec_dir.relative_to(run.run_dir)}")
+            rprint(f"  [green]OK[/green] removed {exec_dir.relative_to(Path(run.run_dir))}")
         else:
             rprint(f"  [dim]skip[/dim]  {exec_id} (no directory)")
 

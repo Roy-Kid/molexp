@@ -21,13 +21,12 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "baseUrl": ".",
     "paths": {
       "@/*": [
         "./src/*"
       ],
       "@schemas/*": [
-        "../src/molexp/schemas/*"
+        "../src/molexp/workflow/schema/*"
       ]
     }
   },

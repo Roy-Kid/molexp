@@ -102,7 +102,7 @@ export class ExperimentsService {
     }
     /**
      * Get Experiment Comparison
-     * Sweep matrix: parameter columns x run rows + final metric values per run.
+     * Comparison matrix: parameter columns x run rows + final metric values per run.
      * @param projectId
      * @param experimentId
      * @returns ExperimentComparisonResponse Successful Response

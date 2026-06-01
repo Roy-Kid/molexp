@@ -20,7 +20,7 @@ from molexp.agent._pydanticai.errors import (
     ProviderError,
     classify,
 )
-from molexp.agent.modes.plan.protocols import ModelTier
+from molexp.agent.router import ModelTier
 
 # ── ErrorKind enum ─────────────────────────────────────────────────────────
 
@@ -110,6 +110,52 @@ def test_provider_error_message_explicit_overrides_default() -> None:
         message="custom",
     )
     assert str(err) == "custom"
+
+
+# ── dunder attribute mutability — Python exception machinery ──────────────────
+
+
+def test_provider_error_traceback_can_be_set_post_init() -> None:
+    """Python's exception propagation sets ``__traceback__``; the immutability
+    guard must not block dunder attribute writes."""
+    err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
+    try:
+        raise RuntimeError("synthesize a traceback")
+    except RuntimeError as inner:
+        err.__traceback__ = inner.__traceback__
+    assert err.__traceback__ is not None
+
+
+def test_provider_error_raise_from_sets_cause() -> None:
+    """``raise X from Y`` sets ``X.__cause__``; must not crash on the frozen guard."""
+    inner = RuntimeError("inner")
+    err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
+    with pytest.raises(ProviderError) as exc_info:
+        raise err from inner
+    assert exc_info.value.__cause__ is inner
+
+
+@pytest.mark.asyncio
+async def test_provider_error_propagates_through_async_context_manager() -> None:
+    """A ProviderError raised inside ``@asynccontextmanager`` must surface as
+    itself, not be masked by a secondary ``AttributeError`` on
+    ``__traceback__`` assignment in contextlib's ``__aexit__``.
+
+    Regression: every molexp mode runs inside ``harness.stage()`` (an
+    ``@asynccontextmanager``); without this guarantee, any ``ProviderError``
+    inside a stage crashed the whole run instead of propagating.
+    """
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def stage():
+        yield
+
+    err = ProviderError(ErrorKind.unknown, node_id="x", tier=ModelTier.DEFAULT)
+    with pytest.raises(ProviderError) as exc_info:
+        async with stage():
+            raise err
+    assert exc_info.value is err
 
 
 # ── classify ───────────────────────────────────────────────────────────────

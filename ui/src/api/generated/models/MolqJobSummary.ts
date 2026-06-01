@@ -17,3 +17,4 @@ export type MolqJobSummary = {
     durationSeconds?: (number | null);
     cwd?: (string | null);
 };
+

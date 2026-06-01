@@ -43,6 +43,7 @@ export interface FilePreviewContentProps {
   name: string;
   path: string;
   folderId: string;
+  assetId?: string;
 }
 
 export interface FilePreviewPlugin {
@@ -50,7 +51,7 @@ export interface FilePreviewPlugin {
   name: string;
   extensions: string[];
   priority?: number;
-  canHandle?: (props: { name: string; path: string }) => boolean;
+  canHandle?: (props: { name: string; path: string; hasPreviewSidecar?: boolean }) => boolean;
   Component: React.ComponentType<FilePreviewContentProps>;
 }
 
@@ -68,6 +69,12 @@ export interface FileMatchContext {
   relPath: string;
   size?: number | null;
   type: string;
+  /**
+   * Server-computed signal: the file has a same-stem `.py` preview sidecar
+   * (existence-only — no user code was executed to determine it). Lets a
+   * contribution light up for datasets that match no extension pattern.
+   */
+  hasPreviewSidecar?: boolean;
 }
 
 export interface FileTypeMatcher {

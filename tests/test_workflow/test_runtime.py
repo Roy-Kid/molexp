@@ -123,7 +123,7 @@ class TestFunctionalExecution:
 
     async def test_legacy_profile_config_kwarg_is_rejected(self, tmp_path):
         """The runtime no longer accepts ``profile_config=``. Use ``config=``."""
-        from molexp.config import ProfileConfig
+        from molexp.profile import ProfileConfig
 
         wf = WorkflowBuilder(name="no-profile-config-kwarg")
 

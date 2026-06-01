@@ -218,5 +218,4 @@ export const registerDefaultRenderers = (): void => {
     panelSlot: "right",
     Component: AgentSessionInspector,
   });
-
 };

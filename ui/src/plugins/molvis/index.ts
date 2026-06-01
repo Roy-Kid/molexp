@@ -1,5 +1,7 @@
 import { registerFileTypeContribution } from "@/app/registry";
+import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
 import type { UiPluginModule } from "@/plugins/types";
+import { MolvisDatasetPreview } from "./MolvisDatasetPreview";
 import { MolvisTab } from "./MolvisTab";
 
 const molvisPlugin: UiPluginModule = {
@@ -36,8 +38,20 @@ const molvisPlugin: UiPluginModule = {
           "*.pdb",
           "**/*.pdb",
         ],
+        // Sidecar-backed datasets match no extension — the server flags
+        // them via a same-stem `.py` reader sidecar. See
+        // molexp.server.preview and GET /api/assets/{id}/preview.
+        matches: (file) => file.hasPreviewSidecar === true,
       },
       Component: MolvisTab,
+    });
+
+    filePreviewPluginRegistry.register({
+      id: "molvis:dataset-preview",
+      name: "Molvis",
+      extensions: [],
+      canHandle: ({ hasPreviewSidecar }) => hasPreviewSidecar === true,
+      Component: MolvisDatasetPreview,
     });
   },
 };

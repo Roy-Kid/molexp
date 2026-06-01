@@ -1,4 +1,4 @@
-"""``molexp workspace {run,exec,shell}`` — execution commands."""
+"""``molexp {run,exec,shell}`` — execution commands."""
 
 from __future__ import annotations
 
@@ -11,10 +11,11 @@ from typing import TYPE_CHECKING, Annotated, cast
 import typer
 
 from molexp._typing import JSONValue
+from molexp.cli._app import app
 from molexp.cli._common import deterministic_run_id, reap_zombie_run, rprint
-from molexp.cli.workspace import _get_ctx_target, workspace_app
-from molexp.config import MolCfg, ProfileConfig, load_molcfg
-from molexp.config.loader import find_default_config
+from molexp.cli._target import TargetOption, resolve_workspace_target
+from molexp.profile import MolCfg, ProfileConfig, load_molcfg
+from molexp.profile.loader import find_default_config
 from molexp.workflow import Workflow
 from molexp.workspace.target import LocalTarget, RemoteTarget
 
@@ -123,7 +124,7 @@ def _watch_path_for(workspace_arg: Path | None, submitted: list[Run]) -> str:
         root = Path(workspace_arg)
     elif submitted:
         try:
-            root = submitted[0].experiment.project.workspace.root
+            root = Path(submitted[0].experiment.project.workspace.root)
         except AttributeError:
             root = None
     if root is None:
@@ -285,9 +286,8 @@ def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
 # ── Commands ──────────────────────────────────────────────────────────────────
 
 
-@workspace_app.command()
+@app.command()
 def run(
-    ctx: typer.Context,
     script: _SCRIPT_ARG,
     local: Annotated[
         bool,
@@ -333,7 +333,7 @@ def run(
     ] = None,
     time: Annotated[
         str | None,
-        typer.Option("--time", "-t", help="Wall-clock time limit.", rich_help_panel="HPC Options"),
+        typer.Option("--time", help="Wall-clock time limit.", rich_help_panel="HPC Options"),
     ] = None,
     gpus: Annotated[
         int | None, typer.Option("--gpus", help="GPUs per job.", rich_help_panel="HPC Options")
@@ -357,7 +357,7 @@ def run(
     target_cli: Annotated[
         str | None,
         typer.Option(
-            "--target",
+            "--compute-target",
             help="Named compute target from workspace.",
             rich_help_panel="Execution Backend",
         ),
@@ -381,14 +381,13 @@ def run(
             "--block", help="Block and open monitor after submit.", rich_help_panel="HPC Options"
         ),
     ] = False,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Execute the workflow(s) defined by *script*."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         rprint("[red]Error:[/red] 'run' on remote targets is not yet supported.")
-        rprint(
-            "  Use [bold]molexp workspace <target> exec[/bold] or [bold]shell[/bold] for remote execution."
-        )
+        rprint("  Use [bold]molexp exec[/bold] or [bold]shell[/bold] for remote execution.")
         raise typer.Exit(1)
 
     backend_flags = sum(1 for f in (local, scheduler is not None, target_cli is not None) if f)
@@ -406,7 +405,7 @@ def run(
         try:
             selected_target = get_target(ws, target_cli)
         except KeyError as exc:
-            rprint(f"[red]{exc}[/red] — see `molexp workspace . target list`.")
+            rprint(f"[red]{exc}[/red] — see `molexp target list`.")
             raise typer.Exit(1) from exc
 
     selected_scheduler = selected_target.scheduler if selected_target is not None else scheduler
@@ -476,17 +475,16 @@ def run(
         rprint(f"\n[dim]Submitted {n} runs. Opening monitor… (press q to close)[/dim]")
         RunMonitor(title=f"{script.stem}  [{mode_label}]").watch(submitted)
         rprint(f"\n[dim]Monitor closed. {n} runs are still executing (if any).[/dim]")
-        rprint(f"[dim]Reopen with:  molexp workspace {watch_arg} monitor[/dim]")
+        rprint(f"[dim]Reopen with:  molexp monitor -t {watch_arg}[/dim]")
     else:
         verb = "resumed" if resume else "submitted"
         rprint(f"\n[green]OK[/green] {n} runs {verb}.")
         if submitted:
-            rprint(f"[dim]Monitor runs with:  molexp workspace {watch_arg} monitor[/dim]")
+            rprint(f"[dim]Monitor runs with:  molexp monitor -t {watch_arg}[/dim]")
 
 
-@workspace_app.command()
+@app.command(name="exec")
 def exec_cmd(
-    ctx: typer.Context,
     command: Annotated[
         list[str] | None, typer.Argument(help="Command to execute on the target")
     ] = None,
@@ -494,10 +492,10 @@ def exec_cmd(
         str | None, typer.Option("--cwd", help="Working directory on the target")
     ] = None,
     timeout: Annotated[float | None, typer.Option("--timeout", help="Timeout in seconds")] = None,
+    target_spec: TargetOption = ".",
 ) -> None:
     """Execute a command on the workspace target (local or remote transport)."""
-    target = _get_ctx_target(ctx)
-    transport = ctx.obj["transport"]
+    target, transport, _fs = resolve_workspace_target(target_spec)
 
     cmd: list[str] = list(command) if command else []
     if not cmd:
@@ -526,10 +524,10 @@ def exec_cmd(
         raise typer.Exit(result.returncode)
 
 
-@workspace_app.command()
-def shell(ctx: typer.Context) -> None:
+@app.command()
+def shell(target_spec: TargetOption = ".") -> None:
     """Open an interactive shell on the target (SSH for remote, $SHELL for local)."""
-    target = _get_ctx_target(ctx)
+    target, _transport, _fs = resolve_workspace_target(target_spec)
 
     if isinstance(target, RemoteTarget):
         import subprocess

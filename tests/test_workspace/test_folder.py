@@ -54,11 +54,11 @@ def test_construction_is_side_effect_free_first_path_creates_dir(
     target = tmp_path / "alpha"
     assert not target.exists(), "construction must be side-effect-free"
 
-    first = folder.path()
+    first = Path(folder.path())
     assert first == target
     assert first.is_dir()
 
-    second = folder.path()
+    second = Path(folder.path())
     assert second == first
     assert second.is_dir()
 
@@ -77,14 +77,15 @@ def test_write_json_persists_atomically(tmp_path: Path, monkeypatch: pytest.Monk
 
     # Happy path.
     written = folder.write_json("data.json", {"k": 1})
-    assert written.exists()
-    with written.open() as fh:
+    written_local = Path(str(written))
+    assert written_local.exists()
+    with written_local.open() as fh:
         loaded = json.load(fh)
     assert loaded == {"k": 1}
 
     # Failure path: original file (here: pre-existing payload) survives a
     # mid-write os.replace failure on the *next* write attempt.
-    target_path = folder.path() / "data.json"
+    target_path = Path(folder.path()) / "data.json"
 
     def _explode(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("simulated mid-write failure")
@@ -165,13 +166,13 @@ def test_parent_root_path_mutual_exclusion(tmp_path: Path) -> None:
       raise ``RuntimeError`` until ``parent.add_folder(child)`` mounts it.
     - ``parent=other`` with ``root_path`` set → ``ValueError`` (still
       mutually exclusive when both are non-None).
-    - 3-level nesting walks correctly: ``leaf.path() == root / mid / leaf``.
+    - 3-level nesting walks correctly: ``Path(leaf.path()) == root / mid / leaf``.
     """
     # parent=None with root_path=None is now ALLOWED (unmounted state).
     unmounted = Folder(parent=None, name="alpha", kind="test.root", root_path=None)
     assert unmounted._parent is None
     with pytest.raises(RuntimeError, match="unmounted"):
-        unmounted.path()
+        Path(unmounted.path())
 
     other = Folder(parent=None, name="other", kind="test.root", root_path=tmp_path)
 
@@ -183,7 +184,7 @@ def test_parent_root_path_mutual_exclusion(tmp_path: Path) -> None:
     root = Folder(parent=None, name="root", kind="test.root", root_path=tmp_path)
     mid = Folder(parent=root, name="mid", kind="test.mid")
     leaf = Folder(parent=mid, name="leaf", kind="test.leaf")
-    assert leaf.path() == root.path() / "mid" / "leaf"
+    assert Path(leaf.path()) == Path(root.path()) / "mid" / "leaf"
 
 
 # ── ac-005 ────────────────────────────────────────────────────────────────
@@ -201,7 +202,7 @@ def test_children_lists_and_filters_by_kind(tmp_path: Path) -> None:
 
     # Lazy semantics: pre-materialize, children() returns [].
     # Use a fresh non-materialized folder so we can test the empty case
-    # without forcing parent.path() to mkdir.
+    # without forcing Path(parent.path()) to mkdir.
     fresh = Folder(parent=None, name="fresh", kind="test.root", root_path=tmp_path)
     assert fresh.children() == []
     assert not (tmp_path / "fresh").exists(), "children() must not mkdir"
@@ -255,7 +256,7 @@ def test_folder_metadata_round_trip_with_monotonic_updated_at(
     time.sleep(0.001)
     folder.save()
 
-    loaded = _load_metadata(FolderMetadata, folder.path() / "metadata.json")
+    loaded = _load_metadata(FolderMetadata, Path(folder.path()) / "metadata.json")
     assert isinstance(loaded, FolderMetadata)
     assert loaded.updated_at > loaded.created_at, (
         "save() must bump updated_at past created_at — this is the "
@@ -268,19 +269,19 @@ def test_delete_removes_directory_recursively(tmp_path: Path) -> None:
     """``delete()`` removes the directory tree (including nested files).
 
     Covers ac-007. We capture ``path()`` BEFORE ``delete()`` because
-    re-calling ``folder.path()`` afterward would re-mkdir the directory
+    re-calling ``Path(folder.path())`` afterward would re-mkdir the directory
     (lazy mkdir contract from ac-001).
     """
     folder = Folder(parent=None, name="alpha", kind="test.root", root_path=tmp_path)
     folder.materialize()
     folder.write_json("file.json", {})
 
-    captured = folder.path()
+    captured = Path(folder.path())
     assert captured.exists()
 
     folder.delete()
 
-    # Do NOT call folder.path() here; it would re-mkdir.
+    # Do NOT call Path(folder.path()) here; it would re-mkdir.
     assert not captured.exists()
 
 
@@ -298,7 +299,7 @@ def test_move_to_relocates_and_bumps_updated_at(tmp_path: Path) -> None:
     folder = Folder(parent=parent_a, name="movable", kind="test.child")
     folder.materialize()
 
-    old_path = folder.path()
+    old_path = Path(folder.path())
     before = folder.metadata.updated_at
     assert old_path.exists()
 
@@ -307,8 +308,8 @@ def test_move_to_relocates_and_bumps_updated_at(tmp_path: Path) -> None:
 
     assert not old_path.exists(), "old path must be gone after move"
     assert folder.parent is parent_b
-    new_path = folder.path()
-    assert new_path == parent_b.path() / "movable"
+    new_path = Path(folder.path())
+    assert new_path == Path(parent_b.path()) / "movable"
     assert new_path.exists()
     assert folder.metadata.updated_at > before
 
@@ -325,7 +326,7 @@ def test_move_to_collision_raises(tmp_path: Path) -> None:
     folder.materialize()
 
     # Pre-create a colliding directory at the target.
-    parent_b.path().joinpath("movable").mkdir(parents=True, exist_ok=True)
+    Path(parent_b.path()).joinpath("movable").mkdir(parents=True, exist_ok=True)
 
     with pytest.raises(FolderMoveCollisionError):
         folder.move_to(parent_b)

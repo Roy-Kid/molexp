@@ -23,3 +23,4 @@ export type AgentTaskResponse = {
     planMode?: boolean;
     skillId?: (string | null);
 };
+

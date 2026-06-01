@@ -8,6 +8,7 @@ handling are out of scope — validated manually.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -39,7 +40,7 @@ def seeded_workspace(tmp_path):
     hist = []
     for i, status in enumerate(("failed", "succeeded"), start=1):
         eid = f"exec-{r1.id}" if i == 1 else f"exec-{r1.id}-{i}"
-        (r1.run_dir / "executions" / eid).mkdir(parents=True)
+        Path(r1.run_dir / "executions" / eid).mkdir(parents=True)
         hist.append(
             ExecutionRecord(
                 execution_id=eid,

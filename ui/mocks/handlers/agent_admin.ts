@@ -315,8 +315,8 @@ let _provider: MockProvider = {
   provider: "anthropic",
   model: "claude-sonnet-4-6",
   baseUrl: "",
-  apiKeyPreview: "",
-  apiKeySet: false,
+  apiKeyPreview: "sk-…mock",
+  apiKeySet: true,
   instructions: "",
   supportedProviders: _SUPPORTED_PROVIDERS,
 };
@@ -829,7 +829,7 @@ export const agentAdminHandlers = [
     return HttpResponse.json({
       sessionId: `session-${Math.random().toString(36).slice(2, 10)}`,
       status: "running",
-      goalDescription: skill.goalTemplate,
+      goal: skill.goalTemplate,
       createdAt: _now(),
       events: [],
       stats: {

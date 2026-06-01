@@ -54,10 +54,16 @@ class ErrorKind(StrEnum):
 class ProviderError(Exception):
     """Single normalized exception every provider failure path raises.
 
-    Attributes are immutable post-construction: ``__init__`` is the
-    only writer, and any subsequent ``setattr`` raises
-    :class:`AttributeError`. Pydantic is intentionally not used here
-    because it does not subclass :class:`Exception` cleanly.
+    Data attributes are immutable post-construction: ``__init__`` is
+    the only writer of the documented fields, and any subsequent
+    ``setattr`` of a non-dunder attribute raises :class:`AttributeError`.
+    Dunder attributes (notably ``__traceback__`` / ``__cause__`` /
+    ``__context__`` / ``__suppress_context__``) remain mutable so
+    Python's exception-propagation machinery can populate them during
+    raise / re-raise — blocking them would crash any context manager
+    that re-raises with a secondary ``AttributeError``. Pydantic is
+    intentionally not used here because it does not subclass
+    :class:`Exception` cleanly.
 
     Attributes:
         kind: Classified failure class.
@@ -100,7 +106,17 @@ class ProviderError(Exception):
         object.__setattr__(self, "_initialized", True)
 
     def __setattr__(self, name: str, value: object) -> None:
-        # Once __init__ has completed, reject all attribute writes.
+        # Always allow dunder attributes — Python's exception machinery
+        # sets `__traceback__` / `__cause__` / `__context__` /
+        # `__suppress_context__` during propagation (e.g. contextlib's
+        # `_GeneratorContextManager.__aexit__` does `exc.__traceback__ =
+        # traceback`), and blocking them would crash every
+        # `async with harness.stage(): ... raise ProviderError(...)`
+        # path with a masking AttributeError.
+        if name.startswith("__") and name.endswith("__"):
+            object.__setattr__(self, name, value)
+            return
+        # Once __init__ has completed, reject all other attribute writes.
         # During init, _initialized has not been set yet so the guard passes.
         if getattr(self, "_initialized", False):
             raise AttributeError(

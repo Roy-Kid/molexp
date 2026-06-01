@@ -9,3 +9,4 @@ export type LammpsThermoStage = {
     columns?: Array<string>;
     rows?: Array<Array<number>>;
 };
+

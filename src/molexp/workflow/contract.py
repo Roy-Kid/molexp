@@ -9,7 +9,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
     from .spec import Workflow
@@ -57,7 +57,15 @@ class TaskInputSpec(BaseModel):
     name: str
     type: str
     required: bool = True
-    source: str | None = None
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The bare task_id of the upstream task that produces this "
+            "input (e.g. 'parse_monomer'), exactly as that task's "
+            "'task_id' field reads. Never 'task_id.output_name'. "
+            "None for a workflow-level input no upstream task produces."
+        ),
+    )
     description: str = ""
 
 

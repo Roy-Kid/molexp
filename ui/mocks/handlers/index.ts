@@ -13,6 +13,7 @@ import { projectHandlers } from "./projects";
 import { registryHandlers } from "./registry";
 import { runHandlers } from "./runs";
 import { targetsHandlers } from "./targets";
+import { workspaceTargetsHandlers } from "./workspace_targets";
 import { workspaceHandlers } from "./workspace";
 
 /**
@@ -30,5 +31,6 @@ export const handlers = [
     ...registryHandlers,
     ...runHandlers,
     ...targetsHandlers,
+    ...workspaceTargetsHandlers,
     ...workspaceHandlers,
 ];

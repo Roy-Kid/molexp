@@ -1,10 +1,10 @@
 import { Activity, AlertTriangle, BarChart3 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState, OverviewSection } from "@/app/components/entity";
 import type { MetricRecord } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { Plot } from "@/lib/plot";
+import { MolvisLineChart } from "@/lib/charts";
 import type { DiscoveredFile } from "@/plugins/types";
 import { smoothEma } from "./smoothing";
 
@@ -107,90 +107,61 @@ interface ChartProps {
 }
 
 const MetricChart = ({ series, xMode, yScale, smoothing, color }: ChartProps): JSX.Element => {
-  const xs = series.points.map((p) => (xMode === "step" ? p.step : p.wall));
-  const ys = series.points.map((p) => p.y);
-  const smoothed = smoothing > 0 ? smoothEma(ys, smoothing) : null;
+  const config = useMemo(() => {
+    const xs = series.points.map((p) => (xMode === "step" ? p.step : p.wall));
+    const ys = series.points.map((p) => p.y);
+    const smoothed = smoothing > 0 ? smoothEma(ys, smoothing) : null;
+    // Restore the two-trace overlay (faded raw behind the smoothed
+    // curve) — the migration to a single series hid noise that the
+    // smoothing slider is supposed to reveal vs. the raw signal.
+    const seriesList = smoothed
+      ? [
+          {
+            id: `${series.key}::raw`,
+            label: "raw",
+            color,
+            width: 1,
+            initialPoints: ys.map((y, i) => ({ x: xs[i], y })),
+          },
+          {
+            id: series.key,
+            label: series.key,
+            color,
+            width: 2,
+            initialPoints: smoothed.map((y, i) => ({ x: xs[i], y })),
+          },
+        ]
+      : [
+          {
+            id: series.key,
+            label: series.key,
+            color,
+            mode: "lines+markers" as const,
+            initialPoints: ys.map((y, i) => ({ x: xs[i], y })),
+          },
+        ];
+    return {
+      series: seriesList,
+      xAxis: {
+        label: xMode === "step" ? "step" : "wall time",
+        type: "linear" as const,
+      },
+      yAxis: { type: yScale, label: series.key },
+      hovertemplate: "%{y:.6g}<extra></extra>",
+      hovermode: "x unified" as const,
+      modebar: true,
+      modebarRemove: [
+        "lasso2d",
+        "select2d",
+        "toggleSpikelines",
+        "hoverClosestCartesian",
+        "hoverCompareCartesian",
+      ],
+      theme: "auto" as const,
+    };
+  }, [series, xMode, yScale, smoothing, color]);
 
-  const data: Record<string, unknown>[] = smoothed
-    ? [
-        {
-          type: "scatter",
-          mode: "lines",
-          name: "raw",
-          x: xs,
-          y: ys,
-          line: { color, width: 1 },
-          opacity: 0.25,
-          hoverinfo: "skip",
-          showlegend: false,
-        },
-        {
-          type: "scatter",
-          mode: "lines",
-          name: "smoothed",
-          x: xs,
-          y: smoothed,
-          line: { color, width: 2, shape: "spline", smoothing: 0.6 },
-          hovertemplate: "%{y:.6g}<extra></extra>",
-        },
-      ]
-    : [
-        {
-          type: "scatter",
-          mode: "lines+markers",
-          name: series.key,
-          x: xs,
-          y: ys,
-          line: { color, width: 2 },
-          marker: { size: 4, color },
-          hovertemplate: "%{y:.6g}<extra></extra>",
-        },
-      ];
-
-  const layout: Record<string, unknown> = {
-    autosize: true,
-    margin: { l: 48, r: 16, t: 8, b: 36 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: "ui-sans-serif, system-ui, sans-serif", size: 11, color: "#64748b" },
-    xaxis: {
-      type: xMode === "wall" ? "date" : "linear",
-      gridcolor: "rgba(148,163,184,0.18)",
-      zerolinecolor: "rgba(148,163,184,0.3)",
-      tickfont: { size: 10 },
-    },
-    yaxis: {
-      type: yScale,
-      gridcolor: "rgba(148,163,184,0.18)",
-      zerolinecolor: "rgba(148,163,184,0.3)",
-      tickfont: { size: 10 },
-    },
-    hovermode: "x unified",
-    showlegend: false,
-  };
-
-  const config: Record<string, unknown> = {
-    displaylogo: false,
-    responsive: true,
-    modeBarButtonsToRemove: [
-      "lasso2d",
-      "select2d",
-      "toggleSpikelines",
-      "hoverClosestCartesian",
-      "hoverCompareCartesian",
-    ],
-    displayModeBar: "hover",
-  };
-
-  return (
-    <Plot
-      data={data}
-      layout={layout}
-      config={config}
-      useResizeHandler
-      style={{ width: "100%", height: "220px" }}
-    />
-  );
+  return <MolvisLineChart config={config} style={{ width: "100%", height: "220px" }} />;
 };
 
 const OtherRecords = ({ records }: { records: MetricRecord[] }): JSX.Element | null => {
@@ -303,6 +274,15 @@ export const RunMetricsTab = ({ selection, snapshot }: RunMetricsTabProps): JSX.
   const scalarSeries = useMemo(() => buildScalarSeries(records), [records]);
   const grouped = useMemo(() => groupSeries(scalarSeries), [scalarSeries]);
 
+  // Track the latest tail position in a ref so the polling effect
+  // doesn't list it as a dependency — otherwise every successful fetch
+  // (which advances nextLine) tears down the interval and re-fires an
+  // immediate fetch, collapsing POLL_INTERVAL_MS into a tight loop.
+  const nextLineRef = useRef(nextLine);
+  useEffect(() => {
+    nextLineRef.current = nextLine;
+  }, [nextLine]);
+
   useEffect(() => {
     if (!run) {
       setLoading(false);
@@ -311,7 +291,8 @@ export const RunMetricsTab = ({ selection, snapshot }: RunMetricsTabProps): JSX.
 
     let cancelled = false;
 
-    const fetchMetrics = async (sinceLine: number): Promise<void> => {
+    const fetchMetrics = async (): Promise<void> => {
+      const sinceLine = nextLineRef.current;
       try {
         const response = await workspaceApi.getRunMetrics(run.projectId, run.experimentId, run.id, {
           sinceLine,
@@ -336,16 +317,16 @@ export const RunMetricsTab = ({ selection, snapshot }: RunMetricsTabProps): JSX.
       }
     };
 
-    void fetchMetrics(nextLine);
+    void fetchMetrics();
     const intervalId = window.setInterval(() => {
-      void fetchMetrics(nextLine);
+      void fetchMetrics();
     }, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [nextLine, run]);
+  }, [run]);
 
   if (!run) {
     return (

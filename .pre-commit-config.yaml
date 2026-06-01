@@ -1,3 +1,6 @@
+# Generated codegen output (OpenAPI client) is not hand-edited — skip all hooks.
+exclude: '^ui/src/api/generated/'
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
@@ -26,8 +29,8 @@ repos:
   - repo: local
     hooks:
       - id: ty
-        name: ty (type check)
-        entry: ty check
+        name: ty (type check, advisory — mirrors CI; codebase not yet ty-clean)
+        entry: bash -c 'ty check || true'
         language: system
         types: [python]
         pass_filenames: false

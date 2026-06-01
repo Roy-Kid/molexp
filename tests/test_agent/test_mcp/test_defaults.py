@@ -35,8 +35,8 @@ def test_mcp_defaults_shape():
     usage = spec["usage_instructions"]
     assert isinstance(usage, str) and usage
     assert "molmcp__" in usage
-    assert "molcrafts" in usage
-    assert any(token in usage for token in ("molpy", "molpack", "molrs", "lammps", "molexp"))
+    # The prompt no longer hardcodes a list of project packages — the
+    # MCP catalog itself tells the LLM which packages are reachable.
     # After the workspace-as-tool-parameter refactor, the prompt must
     # tell the LLM how to fill the `workspace` argument.
     assert "workspace" in usage.lower()

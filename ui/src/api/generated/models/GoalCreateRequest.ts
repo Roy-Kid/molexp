@@ -22,3 +22,4 @@ export type GoalCreateRequest = {
      */
     skill_id?: (string | null);
 };
+

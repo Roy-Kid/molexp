@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 from molexp._typing import JSONValue
+from molexp.path import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import (
@@ -46,6 +47,7 @@ from .folder import (
     WORKSPACE_RUN_KIND,
     Folder,
 )
+from .fs import PathArg
 from .models import ExperimentMetadata, FolderMetadata
 from .run import Run
 from .utils import generate_id
@@ -138,39 +140,32 @@ class Experiment(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> str:
+    def resolve(self) -> Path:
         return self.experiment_dir
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
-        """:class:`Folder.attach` hook — experiments live under ``experiments/<id>/``."""
-        return parent._fs.join(parent.path(), "experiments", derived_id)
+    def child_dir(cls, parent: Folder, derived_id: str) -> Path:
+        """Folder hook — experiments live under ``experiments/<id>/``."""
+        return Path(parent._fs.join(parent.path(), "experiments", derived_id))
 
     @classmethod
-    def _from_disk(cls, child_dir: str, parent: Folder) -> Experiment:
-        """:class:`Folder.attach` hook — load ``experiment.json`` and rebuild entity state."""
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> Experiment:
+        """Load ``experiment.json`` and rebuild entity state. See Folder.from_disk hook docs."""
         meta = _load_metadata(
             ExperimentMetadata, parent._fs.join(child_dir, "experiment.json"), fs=parent._fs
         )
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": meta.id,
-                "_kind": WORKSPACE_EXPERIMENT_KIND,
-                "_root_path": None,
-                "_metadata": FolderMetadata(
-                    id=meta.id,
-                    name=meta.name,
-                    kind=WORKSPACE_EXPERIMENT_KIND,
-                    created_at=meta.created_at,
-                    updated_at=meta.created_at,
-                ),
-                "_children_cache": {},
-                "_entity_metadata": meta,
-                "_data_assets": None,
-            },
+        folder_meta = FolderMetadata(
+            id=meta.id,
+            name=meta.name,
+            kind=WORKSPACE_EXPERIMENT_KIND,
+            created_at=meta.created_at,
+            updated_at=meta.created_at,
         )
+        attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
+            "_entity_metadata": meta,
+            "_data_assets": None,
+        }
+        return _reconstruct(cls, attrs)
 
     # ── Properties (entity-specific) ─────────────────────────────────────
 
@@ -235,8 +230,8 @@ class Experiment(Folder):
         return self.project.workspace
 
     @property
-    def experiment_dir(self) -> str:
-        return self._fs.join(self.project.project_dir, "experiments", self.id)
+    def experiment_dir(self) -> Path:
+        return Path(self._fs.join(self.project.project_dir, "experiments", self.id))
 
     @property
     def scope(self) -> AssetScope:
@@ -324,9 +319,9 @@ class Experiment(Folder):
         cached = self._children_cache.get(resolved_id)
         if isinstance(cached, Run):
             return cached
-        child_dir = Run._child_dir(self, resolved_id)
+        child_dir = Run.child_dir(self, resolved_id)
         if self._fs.is_dir(child_dir):
-            existing = Run._from_disk(child_dir, self)
+            existing = Run.from_disk(child_dir, self)
             self._children_cache[resolved_id] = existing
             return existing
         r = Run(
@@ -366,7 +361,7 @@ class Experiment(Folder):
             if self._fs.is_dir(entry_path) and self._fs.exists(
                 self._fs.join(entry_path, "run.json")
             ):
-                result.append(Run._from_disk(entry_path, self))
+                result.append(Run.from_disk(entry_path, self))
         return result
 
     def children(self, kind: str | None = None) -> list[Folder]:

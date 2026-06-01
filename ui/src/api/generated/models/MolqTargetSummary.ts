@@ -11,3 +11,4 @@ export type MolqTargetSummary = {
     healthReason?: (string | null);
     activeJobs: number;
 };
+

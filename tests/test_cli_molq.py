@@ -68,7 +68,7 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
     monkeypatch.setattr(submit_mod, "make_submit_handler", fake_make_submit_handler)
 
     result = runner.invoke(
-        app, ["workspace", str(workspace_root), "run", str(script), "--scheduler", "local"]
+        app, ["run", str(script), "--scheduler", "local", "-t", str(workspace_root)]
     )
 
     assert result.exit_code == 0, result.output
@@ -113,7 +113,7 @@ def test_run_cancel_uses_molq_handle(monkeypatch, tmp_path):
 
     result = runner.invoke(
         app,
-        ["workspace", str(workspace.root), "runs", "cancel", run.id, "--yes"],
+        ["runs", "cancel", run.id, "--yes", "-t", str(workspace.root)],
     )
 
     assert result.exit_code == 0, result.output

@@ -87,6 +87,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
   const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
   const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
+  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
   const [runAssets, setRunAssets] = useState<ApiAssetResponse[]>([]);
   const runTabContributions = listEntityTabs("run");
 
@@ -115,17 +116,26 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     }
   }, [requestedTab, selectedRunId]);
 
+  // Capture IDs as primitives so the log effect's dep array doesn't churn
+  // every poll — useWorkspaceState rebuilds snapshot.runs each tick.
+  const runProjectId = run?.projectId;
+  const runExperimentId = run?.experimentId;
+  const runId = run?.id;
+
   useEffect(() => {
     let cancelled = false;
     setLogsError(null);
 
-    if (!run || activeTab !== "logs") {
+    if (!runId || !runProjectId || !runExperimentId || activeTab !== "logs") {
       return;
     }
 
     setLogs(null);
-    workspaceApi
-      .getRunLogs(run.projectId, run.experimentId, run.id)
+    const fetcher = selectedExecutionId
+      ? workspaceApi.getRunExecutionLogs(runProjectId, runExperimentId, runId, selectedExecutionId)
+      : workspaceApi.getRunLogs(runProjectId, runExperimentId, runId);
+
+    fetcher
       .then((nextLogs) => {
         if (!cancelled) {
           setLogs(nextLogs);
@@ -140,7 +150,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, run]);
+  }, [activeTab, runProjectId, runExperimentId, runId, selectedExecutionId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -408,26 +418,38 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
           <p className="text-sm italic text-muted-foreground">No execution attempts recorded.</p>
         ) : (
           <ol className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
-            {run.executionHistory.map((rec, index) => (
-              <li
-                key={rec.executionId}
-                className="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-xs"
-              >
-                <span className="font-mono text-muted-foreground">#{index + 1}</span>
-                <span className="truncate font-mono text-foreground" title={rec.executionId}>
-                  {rec.executionId}
-                </span>
-                <span className="text-muted-foreground">
-                  {formatTimeOfDay(rec.startedAt)}
-                  {rec.finishedAt ? ` → ${formatTimeOfDay(rec.finishedAt)}` : ""}
-                  {(() => {
-                    const d = formatDuration(rec.startedAt, rec.finishedAt);
-                    return d ? ` · ${d}` : "";
-                  })()}
-                </span>
-                <StatusBadge status={rec.status} size="sm" />
-              </li>
-            ))}
+            {run.executionHistory.map((rec, index) => {
+              const isSelected = selectedExecutionId === rec.executionId;
+              return (
+                <li key={rec.executionId}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedExecutionId(rec.executionId);
+                      setActiveTab("logs");
+                    }}
+                    className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40 ${
+                      isSelected ? "bg-muted/60 ring-1 ring-inset ring-primary/40" : ""
+                    }`}
+                    title="View logs for this attempt"
+                  >
+                    <span className="font-mono text-muted-foreground">#{index + 1}</span>
+                    <span className="truncate font-mono text-foreground" title={rec.executionId}>
+                      {rec.executionId}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {formatTimeOfDay(rec.startedAt)}
+                      {rec.finishedAt ? ` → ${formatTimeOfDay(rec.finishedAt)}` : ""}
+                      {(() => {
+                        const d = formatDuration(rec.startedAt, rec.finishedAt);
+                        return d ? ` · ${d}` : "";
+                      })()}
+                    </span>
+                    <StatusBadge status={rec.status} size="sm" />
+                  </button>
+                </li>
+              );
+            })}
           </ol>
         )}
       </OverviewSection>
@@ -474,11 +496,36 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     </OverviewPage>
   );
 
+  const selectedExecutionIndex = selectedExecutionId
+    ? run.executionHistory.findIndex((rec) => rec.executionId === selectedExecutionId)
+    : -1;
+  const attemptCountForLabel = run.executionHistory.length;
+  let attemptLabel: string;
+  if (selectedExecutionIndex >= 0) {
+    attemptLabel = `attempt #${selectedExecutionIndex + 1} (${selectedExecutionId})`;
+  } else if (attemptCountForLabel > 0) {
+    attemptLabel = `latest attempt (#${attemptCountForLabel})`;
+  } else {
+    attemptLabel = "latest attempt";
+  }
   const logsContent = (
     <div className="flex h-full flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-50 dark:bg-black">
-      <div className="flex items-center gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-400">
-        <Terminal className="h-3 w-3" />
-        stdout/stderr
+      <div className="flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-400">
+        <div className="flex items-center gap-2">
+          <Terminal className="h-3 w-3" />
+          <span>stdout/stderr</span>
+          <span className="text-zinc-500">·</span>
+          <span className="text-zinc-300">{attemptLabel}</span>
+        </div>
+        {selectedExecutionId && (
+          <button
+            type="button"
+            className="text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline"
+            onClick={() => setSelectedExecutionId(null)}
+          >
+            view latest
+          </button>
+        )}
       </div>
       <div className="flex-1 overflow-auto p-3 font-mono text-xs">
         {logsError ? (
@@ -527,7 +574,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
           ) : null,
       };
     }),
-    { value: "snapshot", label: "Snapshot", content: <RunSnapshotPanel runId={run.id} /> },
+    { value: "snapshot", label: "Snapshot", content: <RunSnapshotPanel run={run} /> },
   ];
 
   return (

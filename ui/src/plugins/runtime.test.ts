@@ -23,10 +23,10 @@ import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
 
 import { PluginsService } from "@/api/generated/services/PluginsService";
 import {
-  type LoaderState,
-  UI_PLUGIN_API_VERSION,
   createLoaderState,
   discoverAndLoad,
+  type LoaderState,
+  UI_PLUGIN_API_VERSION,
 } from "@/plugins/loader";
 import type { PluginManifest, UiBundleManifest } from "@/plugins/types";
 

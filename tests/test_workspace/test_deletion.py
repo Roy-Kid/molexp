@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -25,7 +26,7 @@ def _build(tmp_path):
     hist = []
     for i, status in enumerate(("failed", "succeeded"), start=1):
         eid = f"exec-{r.id}" if i == 1 else f"exec-{r.id}-{i}"
-        (r.run_dir / "executions" / eid).mkdir(parents=True)
+        (Path(r.run_dir) / "executions" / eid).mkdir(parents=True)
         hist.append(
             ExecutionRecord(
                 execution_id=eid,
@@ -43,7 +44,7 @@ class TestDeleteExecution:
         _ws, _p, _e, r = _build(tmp_path)
         first_exec = r.metadata.execution_history[0].execution_id
         r.delete_execution(first_exec)
-        assert not (r.run_dir / "executions" / first_exec).exists()
+        assert not (Path(r.run_dir) / "executions" / first_exec).exists()
         assert all(rec.execution_id != first_exec for rec in r.metadata.execution_history)
 
     def test_catalog_row_removed(self, tmp_path):
@@ -68,7 +69,7 @@ class TestDeleteExecution:
 class TestDeleteRun:
     def test_removes_run_dir(self, tmp_path):
         _ws, _p, e, r = _build(tmp_path)
-        run_dir = r.run_dir
+        run_dir = Path(r.run_dir)
         assert run_dir.exists()
         e.remove_run(r.id)
         assert not run_dir.exists()
@@ -90,7 +91,7 @@ class TestDeleteRun:
 class TestDeleteExperiment:
     def test_removes_experiment_dir(self, tmp_path):
         _ws, p, e, _r = _build(tmp_path)
-        exp_dir = e.experiment_dir
+        exp_dir = Path(e.experiment_dir)
         assert exp_dir.exists()
         p.remove_experiment(e.id)
         assert not exp_dir.exists()
@@ -114,6 +115,6 @@ class TestDeleteProject:
         ws, p, e, r = _build(tmp_path)
         r.save()
         ws.remove_project(p.id)
-        assert not p.project_dir.exists()
+        assert not Path(p.project_dir).exists()
         assert ws.catalog.query_runs(experiment_id=e.id) == []
         assert ws.catalog.query_executions(run_id=r.id) == []

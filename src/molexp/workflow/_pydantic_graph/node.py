@@ -544,7 +544,7 @@ def _resolve_dependent_params(
 
     ``fn`` receives ``dict[str, _UpstreamView]`` keyed by upstream task name.
     Its return mapping is overlayed onto a fresh
-    :class:`~molexp.config.ProfileConfig` and the result replaces the task's
+    :class:`~molexp.profile.ProfileConfig` and the result replaces the task's
     base config. The base config is returned unchanged when no
     ``dependent_params`` is declared.
     """
@@ -552,7 +552,7 @@ def _resolve_dependent_params(
     if fn is None:
         return base_config
 
-    from molexp.config import ProfileConfig
+    from molexp.profile import ProfileConfig
 
     prev: dict[str, _UpstreamView] = {}
     for dep in registration.depends_on:

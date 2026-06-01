@@ -10,9 +10,9 @@
  * is ready, the first fetch escapes to the rsbuild proxy, and the
  * loader silently logs a warning instead of finding any plugins.
  *
- * Internal plugins (`core`, `metrics`, `molq`, `molvis`) are
- * statically imported here and registered eagerly inside
- * `bootPlugins()`. They do NOT appear in `/api/plugins`.
+ * Internal plugins (`core`, `metrics`, `molq`, `molvis`,
+ * `tensorboard`) are statically imported here and registered
+ * eagerly inside `bootPlugins()`. They do NOT appear in `/api/plugins`.
  * Third-party bundles discovered through Python's
  * `molexp.ui_plugins` entry-point group are the only consumers of
  * the dynamic-import loader path.
@@ -21,22 +21,23 @@
  * without dragging in `corePlugin`'s DOM-bound transitive imports.
  */
 
+import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
 import corePlugin from "@/plugins/core";
+import {
+  createLoaderState,
+  type DynamicImport,
+  discoverAndLoad,
+  type LoaderState,
+  loadRemotePlugin,
+  type ManifestFetcher,
+  registerPluginInstance,
+  resetLoaderState,
+  UI_PLUGIN_API_VERSION,
+} from "@/plugins/loader";
 import metricsPlugin from "@/plugins/metrics";
 import molqPlugin from "@/plugins/molq";
 import molvisPlugin from "@/plugins/molvis";
-import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
-import {
-  type DynamicImport,
-  type LoaderState,
-  type ManifestFetcher,
-  UI_PLUGIN_API_VERSION,
-  createLoaderState,
-  discoverAndLoad,
-  loadRemotePlugin,
-  registerPluginInstance,
-  resetLoaderState,
-} from "@/plugins/loader";
+import tensorboardPlugin from "@/plugins/tensorboard";
 
 /**
  * UI-plugin contract version frozen into this build. Defined in
@@ -71,6 +72,7 @@ export const bootPlugins = (): void => {
   registerPluginInstance(state, metricsPlugin);
   registerPluginInstance(state, molqPlugin);
   registerPluginInstance(state, molvisPlugin);
+  registerPluginInstance(state, tensorboardPlugin);
 
   if (typeof window === "undefined") {
     return;

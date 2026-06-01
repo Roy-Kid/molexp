@@ -2,7 +2,8 @@
 
 Workspace is the bottom of the dependency DAG. The only ``molexp.*``
 imports allowed under ``src/molexp/workspace/`` are ``molexp._typing``,
-``molexp.config``, and the root-level helpers (``mollog``, ``molcfg``).
+``molexp.profile``, ``molexp.path`` (the cross-host POSIX path primitive),
+and the root-level helpers (``mollog``, ``molcfg``).
 Every other ``molexp.*`` subpackage — ``workflow``, ``agent``,
 ``plugins``, ``server``, ``cli``, ``sweep`` — is forbidden.
 

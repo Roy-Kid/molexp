@@ -1,11 +1,10 @@
 /**
  * WorkflowGraph — inline ReactFlow renderer for a molexp workflow IR.
  *
- * Used in the chat ``PlanCard`` as the visual half of an
- * ``exit_plan_mode`` handoff: the agent submits the IR, this component
- * lays it out (via the project's existing :func:`getLayoutedElements`
- * helper) and draws it with xyflow so the user can see the proposed
- * topology before approving.
+ * Renders a workflow IR as the visual half of an ``exit_plan_mode``
+ * handoff: the agent submits the IR, this component lays it out (via the
+ * project's existing :func:`getLayoutedElements` helper) and draws it with
+ * xyflow so the user can see the proposed topology.
  *
  * Why xyflow rather than custom SVG: ``WorkflowGraphViewer`` and
  * ``WorkflowFileViewer`` already use ``@xyflow/react`` for every other

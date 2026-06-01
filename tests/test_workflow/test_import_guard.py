@@ -74,7 +74,7 @@ def test_workflow_forbids_upstream_and_application_layers() -> None:
             offenders[prefix] = _format(hits)
     assert not offenders, (
         "molexp.workflow must not import upstream / sibling layers.\n"
-        "Allowed downward: molexp.workspace.*, molexp._typing, molexp.config.\n"
+        "Allowed downward: molexp.workspace.*, molexp._typing, molexp.profile.\n"
         "Offenders:\n  "
         + "\n  ".join(f"[{prefix}] {hit}" for prefix, lines in offenders.items() for hit in lines)
     )

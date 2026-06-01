@@ -4,7 +4,7 @@ import { EmptyState, OverviewSection } from "@/app/components/entity";
 import type { LammpsLogResponse, LammpsThermoStage } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { Plot } from "@/lib/plot";
+import { MolvisLineChart } from "@/lib/charts";
 import type { DiscoveredFile } from "@/plugins/types";
 import { TrajectoryViewer } from "./TrajectoryViewer";
 
@@ -43,61 +43,36 @@ interface ThermoChartProps {
 }
 
 const ThermoChart = ({ stage, columnIndex, color }: ThermoChartProps): JSX.Element => {
-  const columns = stage.columns ?? [];
-  const rows = stage.rows ?? [];
-  const stepIndex = columns.indexOf("Step");
-  const xs = rows.map((row, idx) => (stepIndex >= 0 ? row[stepIndex] : idx));
-  const ys = rows.map((row) => row[columnIndex]);
-
-  const data: Record<string, unknown>[] = [
-    {
-      type: "scatter",
-      mode: "lines",
-      name: columns[columnIndex],
-      x: xs,
-      y: ys,
-      line: { color, width: 2 },
+  // Defaults live inside useMemo so a missing ``stage.columns``/``rows``
+  // doesn't materialise a fresh ``[]`` per render and invalidate the
+  // memo, which would tear down + re-mount the plotly chart on every
+  // parent update.
+  const config = useMemo(() => {
+    const columns = stage.columns ?? [];
+    const rows = stage.rows ?? [];
+    const stepIndex = columns.indexOf("Step");
+    return {
+      series: [
+        {
+          id: columns[columnIndex] ?? `col${columnIndex}`,
+          label: columns[columnIndex],
+          color,
+          initialPoints: rows.map((row, idx) => ({
+            x: stepIndex >= 0 ? row[stepIndex] : idx,
+            y: row[columnIndex],
+          })),
+        },
+      ],
+      xAxis: { label: "Step" },
       hovertemplate: "%{y:.6g}<extra></extra>",
-    },
-  ];
+      hovermode: "x unified" as const,
+      modebar: true,
+      modebarRemove: ["lasso2d", "select2d", "toggleSpikelines"],
+      theme: "auto" as const,
+    };
+  }, [color, stage, columnIndex]);
 
-  const layout: Record<string, unknown> = {
-    autosize: true,
-    margin: { l: 48, r: 16, t: 8, b: 36 },
-    paper_bgcolor: "rgba(0,0,0,0)",
-    plot_bgcolor: "rgba(0,0,0,0)",
-    font: { family: "ui-sans-serif, system-ui, sans-serif", size: 11, color: "#64748b" },
-    xaxis: {
-      title: { text: "Step", font: { size: 10 } },
-      gridcolor: "rgba(148,163,184,0.18)",
-      zerolinecolor: "rgba(148,163,184,0.3)",
-      tickfont: { size: 10 },
-    },
-    yaxis: {
-      gridcolor: "rgba(148,163,184,0.18)",
-      zerolinecolor: "rgba(148,163,184,0.3)",
-      tickfont: { size: 10 },
-    },
-    hovermode: "x unified",
-    showlegend: false,
-  };
-
-  const config: Record<string, unknown> = {
-    displaylogo: false,
-    responsive: true,
-    modeBarButtonsToRemove: ["lasso2d", "select2d", "toggleSpikelines"],
-    displayModeBar: "hover",
-  };
-
-  return (
-    <Plot
-      data={data}
-      layout={layout}
-      config={config}
-      useResizeHandler
-      style={{ width: "100%", height: "220px" }}
-    />
-  );
+  return <MolvisLineChart config={config} style={{ width: "100%", height: "220px" }} />;
 };
 
 interface ThermoStageProps {

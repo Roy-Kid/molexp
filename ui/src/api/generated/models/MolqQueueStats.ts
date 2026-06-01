@@ -9,3 +9,4 @@ export type MolqQueueStats = {
     succeeded?: number;
     avgWaitSeconds?: (number | null);
 };
+

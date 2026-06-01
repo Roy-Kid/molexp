@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from molexp.workspace.run import RunStatus
 
@@ -16,7 +17,7 @@ class TestRunCancel:
 
     def test_cancel_writes_run_json(self, run):
         run.cancel()
-        data = json.loads((run.run_dir / "run.json").read_text())
+        data = json.loads((Path(run.run_dir) / "run.json").read_text())
         assert data["status"] == "cancelled"
 
     def test_cancel_running_run(self, run):

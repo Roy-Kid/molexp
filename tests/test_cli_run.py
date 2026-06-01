@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -90,14 +91,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "dry-run",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -113,14 +114,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "dry-run",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -140,7 +141,7 @@ class TestRunCommand:
         # run succeeded (profile is orthogonal to status)
         assert run.status == "succeeded"
 
-        run_json = json.loads((run.run_dir / "run.json").read_text())
+        run_json = json.loads(Path(run.run_dir / "run.json").read_text())
         assert run_json["context"]["results"]["epochs"] == 1
 
     def test_resume_replays_non_succeeded_runs_of_same_profile(self, tmp_path):
@@ -165,14 +166,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "smoke",
+                "-t",
+                str(workspace_root),
             ],
         )
         ws = Workspace.load(workspace_root)
@@ -185,8 +186,6 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
@@ -194,6 +193,8 @@ class TestRunCommand:
                 "--profile",
                 "smoke",
                 "--resume",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -214,14 +215,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "smoke",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -230,14 +231,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "smoke",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -253,14 +254,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "dry-run",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -268,14 +269,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "smoke",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 0, result.output
@@ -297,14 +298,14 @@ class TestRunCommand:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(workspace_root),
                 "run",
                 str(script),
                 "--config",
                 str(molcfg),
                 "--profile",
                 "missing",
+                "-t",
+                str(workspace_root),
             ],
         )
         assert result.exit_code == 1
@@ -317,19 +318,19 @@ class TestRunCommand:
 
         # No molcfg.yaml in CWD and no --config
         result = runner.invoke(
-            app, ["workspace", str(workspace_root), "run", str(script), "--profile", "dry-run"]
+            app, ["run", str(script), "--profile", "dry-run", "-t", str(workspace_root)]
         )
         assert result.exit_code == 1
         assert "no config file" in result.output.lower()
 
     def test_run_help_shows_backends(self):
-        result = runner.invoke(app, ["workspace", ".", "run", "--help"], env={"COLUMNS": "200"})
+        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
         plain = _plain(result.output)
         assert "local" in plain
 
     def test_run_help_has_grouped_options(self):
-        result = runner.invoke(app, ["workspace", ".", "run", "--help"], env={"COLUMNS": "200"})
+        result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})
         assert result.exit_code == 0
         plain = _plain(result.output)
         assert "--local" in plain

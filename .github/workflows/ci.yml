@@ -20,18 +20,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install tools
-        run: pip install ruff ty
+      - name: Install lint tooling
+        run: pip install pre-commit ty
 
-      - name: Ruff format
-        run: ruff format --check src/ tests/
-
-      - name: Ruff lint
-        run: ruff check src/ tests/
-
-      - name: Type check (advisory)
-        run: ty check src/
-        continue-on-error: true
+      - name: Run pre-commit (mirrors .pre-commit-config.yaml)
+        run: pre-commit run --all-files --show-diff-on-failure
 
   test:
     name: Test on Python ${{ matrix.python-version }}
@@ -50,7 +43,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install dependencies
-        run: pip install -e ".[dev]"
+        run: |
+          # Tests rely on newer-than-PyPI behaviour of molcrafts-molq
+          # (MOLCRAFTS_HOME honoured for JobStore redirection — added in
+          # 0.5.0 on master, not yet released to PyPI). Pip ignores
+          # [tool.uv.sources], so install the sibling repo from git first;
+          # molexp's `molcrafts-molq>=0.2.0` pin is then satisfied by it.
+          pip install "molcrafts-molq @ git+https://github.com/MolCrafts/molq.git"
+          pip install -e ".[dev]"
 
       - name: Run tests
         run: pytest tests/ -q --cov=src/molexp --cov-report=xml

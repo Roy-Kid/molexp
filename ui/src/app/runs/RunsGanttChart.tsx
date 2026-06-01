@@ -1,9 +1,12 @@
 import type { JSX } from "react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-import { Plot } from "@/lib/plot";
+import { MolvisGanttChart } from "@/lib/charts";
 
 import type { WorkspaceExecutionRow, WorkspaceRunRow } from "./types";
+
+/** Tick the wall-clock-derived end time for active bars at this cadence. */
+const LIVE_TICK_MS = 5_000;
 
 interface RunsGanttChartProps {
   rows: WorkspaceRunRow[];
@@ -12,7 +15,7 @@ interface RunsGanttChartProps {
   onSelectExecution: (run: WorkspaceRunRow, execution: WorkspaceExecutionRow) => void;
 }
 
-interface GanttTask {
+interface GanttTaskLocal {
   runId: string;
   executionId: string | null;
   label: string;
@@ -76,7 +79,7 @@ const safeDate = (value: string | null | undefined): Date | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
 
-const buildRunTask = (run: WorkspaceRunRow): GanttTask | null => {
+const buildRunTask = (run: WorkspaceRunRow, nowMs: number): GanttTaskLocal | null => {
   const execStarts = run.executions
     .map((exec) => safeDate(exec.startedAt))
     .filter((d): d is Date => d !== null);
@@ -91,7 +94,7 @@ const buildRunTask = (run: WorkspaceRunRow): GanttTask | null => {
 
   const isOpen = run.status.toLowerCase() === "running" || execStarts.length === 0;
   const end = isOpen
-    ? new Date(Math.max(start.getTime() + PENDING_BAR_DURATION_MIN * 60_000, Date.now()))
+    ? new Date(Math.max(start.getTime() + PENDING_BAR_DURATION_MIN * 60_000, nowMs))
     : execEnds.length > 0
       ? new Date(Math.max(...execEnds.map((d) => d.getTime())))
       : new Date(start.getTime() + PENDING_BAR_DURATION_MIN * 60_000);
@@ -119,14 +122,14 @@ const buildRunTask = (run: WorkspaceRunRow): GanttTask | null => {
   };
 };
 
-const buildExecutionTasks = (run: WorkspaceRunRow): GanttTask[] => {
-  const tasks: GanttTask[] = [];
+const buildExecutionTasks = (run: WorkspaceRunRow, nowMs: number): GanttTaskLocal[] => {
+  const tasks: GanttTaskLocal[] = [];
   for (const exec of run.executions) {
     const start = safeDate(exec.startedAt) ?? safeDate(run.createdAt);
     if (!start) continue;
     const isOpen = exec.status.toLowerCase() === "running" || !exec.finishedAt;
     const end = isOpen
-      ? new Date(Math.max(start.getTime() + PENDING_BAR_DURATION_MIN * 60_000, Date.now()))
+      ? new Date(Math.max(start.getTime() + PENDING_BAR_DURATION_MIN * 60_000, nowMs))
       : (safeDate(exec.finishedAt) ??
         new Date(start.getTime() + PENDING_BAR_DURATION_MIN * 60_000));
 
@@ -159,104 +162,46 @@ export const RunsGanttChart = ({
   onSelectRun,
   onSelectExecution,
 }: RunsGanttChartProps): JSX.Element => {
-  const tasks = useMemo<GanttTask[]>(() => {
+  // Tick `nowMs` periodically so in-progress bars keep growing without
+  // waiting for `rows` to refetch — `buildRunTask`/`buildExecutionTasks`
+  // pin open-ended `end` to this value rather than `Date.now()`.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, LIVE_TICK_MS);
+    return () => window.clearInterval(intervalId);
+  }, []);
+
+  const tasks = useMemo<GanttTaskLocal[]>(() => {
     if (mode === "runs") {
-      const out: GanttTask[] = [];
+      const out: GanttTaskLocal[] = [];
       for (const row of rows) {
-        const task = buildRunTask(row);
+        const task = buildRunTask(row, nowMs);
         if (task) out.push(task);
       }
       return out;
     }
-    return rows.flatMap(buildExecutionTasks);
-  }, [rows, mode]);
+    return rows.flatMap((row) => buildExecutionTasks(row, nowMs));
+  }, [rows, mode, nowMs]);
 
-  // Plotly's recommended Gantt pattern: one scatter trace per status group, with
-  // each task represented as a thick line segment between (start, end) on the
-  // shared categorical y-axis. Grouping by status gives us a free legend.
-  // See: https://plotly.com/javascript/gantt/
-  const traces = useMemo(() => {
-    const yOrder = tasks.map((task) => task.label);
-    const grouped = new Map<StatusGroup, GanttTask[]>();
-    for (const task of tasks) {
-      const list = grouped.get(task.statusGroup) ?? [];
-      list.push(task);
-      grouped.set(task.statusGroup, list);
-    }
-
-    return STATUS_GROUP_ORDER.filter((group) => grouped.has(group)).map((group) => {
-      const groupTasks = grouped.get(group) ?? [];
-      const x: Array<string | null> = [];
-      const y: Array<string | null> = [];
-      const customdata: Array<{ runId: string; executionId: string | null } | null> = [];
-      const hovertemplate: string[] = [];
-
-      for (const task of groupTasks) {
-        x.push(task.start.toISOString(), task.end.toISOString(), null);
-        y.push(task.label, task.label, null);
-        const cd = { runId: task.runId, executionId: task.executionId };
-        customdata.push(cd, cd, null);
-        const hover = `${task.hover}<extra></extra>`;
-        hovertemplate.push(hover, hover, "");
-      }
-
-      return {
-        type: "scatter",
-        mode: "lines",
-        name: STATUS_GROUP_LABEL[group],
-        x,
-        y,
-        customdata,
-        hovertemplate,
-        line: {
-          color: STATUS_GROUP_COLOR[group],
-          width: 18,
-        },
-        opacity: group === "pending" ? 0.55 : 1,
-        connectgaps: false,
-        // Keep y-axis ordering stable across traces.
-        yaxis: "y",
-        yref: "y",
-        meta: yOrder,
-      };
-    });
-  }, [tasks]);
-
-  const handleClick = (event: { points: Array<{ customdata?: unknown }> }): void => {
-    const point = event.points?.[0];
-    if (!point) return;
-    const data = point.customdata as { runId: string; executionId: string | null } | undefined;
-    if (!data) return;
-    const run = rows.find((r) => r.id === data.runId);
-    if (!run) return;
-    if (data.executionId) {
-      const exec = run.executions.find((e) => e.executionId === data.executionId);
-      if (exec) onSelectExecution(run, exec);
-    } else {
-      onSelectRun(run);
-    }
-  };
-
-  const layout = useMemo(
+  const config = useMemo(
     () => ({
-      height: Math.max(220, Math.min(720, 28 * tasks.length + 90)),
-      margin: { l: 240, r: 24, t: 12, b: 40 },
-      xaxis: {
-        type: "date" as const,
-        showgrid: true,
-        gridcolor: "rgba(125,125,125,0.15)",
-      },
-      yaxis: {
-        type: "category" as const,
-        categoryorder: "array" as const,
-        categoryarray: tasks.map((task) => task.label).reverse(),
-        automargin: true,
-        tickfont: { size: 11 },
-      },
-      hovermode: "closest" as const,
-      legend: { orientation: "h" as const, y: -0.18, x: 0 },
-      paper_bgcolor: "rgba(0,0,0,0)",
-      plot_bgcolor: "rgba(0,0,0,0)",
+      tasks: tasks.map((task) => ({
+        id: `${task.runId}::${task.executionId ?? ""}`,
+        label: task.label,
+        start: task.start,
+        end: task.end,
+        statusGroup: task.statusGroup,
+        hover: task.hover,
+        customdata: { runId: task.runId, executionId: task.executionId },
+      })),
+      statusColors: STATUS_GROUP_COLOR,
+      statusLabels: STATUS_GROUP_LABEL,
+      statusOrder: STATUS_GROUP_ORDER,
+      statusOpacity: { pending: 0.55 },
+      showLegend: true,
+      theme: "auto" as const,
     }),
     [tasks],
   );
@@ -271,17 +216,24 @@ export const RunsGanttChart = ({
 
   return (
     <div className="rounded border border-border bg-background">
-      <Plot
-        data={traces}
-        layout={layout}
-        config={GANTT_CONFIG}
-        style={GANTT_STYLE}
-        useResizeHandler
-        onClick={handleClick}
+      <MolvisGanttChart
+        config={config}
+        onTaskClick={(event) => {
+          const data = event.customdata as
+            | { runId: string; executionId: string | null }
+            | undefined;
+          if (!data) return;
+          const run = rows.find((r) => r.id === data.runId);
+          if (!run) return;
+          if (data.executionId) {
+            const exec = run.executions.find((e) => e.executionId === data.executionId);
+            if (exec) onSelectExecution(run, exec);
+          } else {
+            onSelectRun(run);
+          }
+        }}
+        style={{ width: "100%" }}
       />
     </div>
   );
 };
-
-const GANTT_CONFIG = { displayModeBar: false, responsive: true };
-const GANTT_STYLE = { width: "100%" };
