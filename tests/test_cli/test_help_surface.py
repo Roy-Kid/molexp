@@ -17,8 +17,18 @@ from molexp.cli import app
 runner = CliRunner()
 
 VERBS = [
-    "run", "serve", "monitor", "explore", "info",
-    "exec", "shell", "sync", "push", "pull", "init", "agent",
+    "run",
+    "serve",
+    "monitor",
+    "explore",
+    "info",
+    "exec",
+    "shell",
+    "sync",
+    "push",
+    "pull",
+    "init",
+    "agent",
 ]
 NOUN_GROUPS = ["project", "experiment", "runs", "asset", "target", "session", "config", "mcp"]
 
