@@ -159,6 +159,7 @@ describe("resolveRenderer", () => {
           parameters: {},
           results: {},
           workflowSource: null,
+          workflowSnapshot: null,
           startedAt: "2026-01-01T00:00:00Z",
           finishedAt: null,
           executionHistory: [],

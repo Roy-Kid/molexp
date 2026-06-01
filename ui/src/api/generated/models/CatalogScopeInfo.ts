@@ -11,3 +11,4 @@ export type CatalogScopeInfo = {
     experimentId?: (string | null);
     runId?: (string | null);
 };
+

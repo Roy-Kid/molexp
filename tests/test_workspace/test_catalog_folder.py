@@ -65,7 +65,7 @@ def test_catalog_index_lands_at_root_catalog_index(workspace: Workspace) -> None
     assert catalog.path.exists()
     assert catalog.path.name == "index.json"
     assert catalog.path.parent.name == "catalog"
-    assert not (workspace.root / ".catalog").exists()
+    assert not Path(workspace.root / ".catalog").exists()
 
 
 def test_workspace_catalog_is_idempotent_property(workspace: Workspace) -> None:
@@ -89,7 +89,7 @@ def test_register_and_query_round_trip(workspace: Workspace) -> None:
 def test_rebuild_uses_new_path(workspace: Workspace) -> None:
     catalog = workspace.catalog
     catalog.rebuild()
-    payload = json.loads((workspace.root / "catalog" / "index.json").read_text())
+    payload = json.loads(Path(workspace.root / "catalog" / "index.json").read_text())
     assert isinstance(payload, dict)
     assert "workspaces" in payload
 

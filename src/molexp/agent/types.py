@@ -32,7 +32,7 @@ class GoalMode(StrEnum):
     """Legacy enum tagging a :class:`Goal`'s intended runtime mode.
 
     Retained on :class:`Goal` for in-flight session metadata; the runtime
-    ``AgentMode`` ABC (in :mod:`molexp.agent.mode`) is the post-refactor
+    ``AgentLoop`` ABC (in :mod:`molexp.agent.loop`) is the post-refactor
     successor for *strategy* selection at the runner layer.
     """
 

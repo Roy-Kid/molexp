@@ -51,7 +51,7 @@ import type { RunCreateRequest } from "../api/generated/models/RunCreateRequest"
 
 export type { ExperimentCreateRequest, ProjectCreateRequest, RunCreateRequest };
 
-import type { AgentSessionResponse } from "../api/generated/models/AgentSessionResponse";
+import type { AgentTaskResponse } from "../api/generated/models/AgentTaskResponse";
 import type { AssetResponse } from "../api/generated/models/AssetResponse";
 import type { CacheClearResponse } from "../api/generated/models/CacheClearResponse";
 import type { CacheStatsResponse } from "../api/generated/models/CacheStatsResponse";
@@ -71,11 +71,15 @@ export type ApiWorkflowSnapshot = WorkflowSnapshotResponse;
 export type ApiRunSummary = ApiRunSummaryModel;
 export type ApiCacheStats = CacheStatsResponse;
 export type ApiCacheClear = CacheClearResponse;
-export type ApiAgentSession = AgentSessionResponse & {
-  taskId?: string;
-  title?: string;
-  updatedAt?: string | null;
-};
+// AgentTaskResponse is the user-facing task envelope around one runtime
+// session. It already carries taskId/title/updatedAt/sessionId so legacy
+// consumers that expected ``ApiAgentSession`` see the same shape.
+export type ApiAgentSession = AgentTaskResponse;
+// The wire shape is {type, ts, payload}; `type` now carries the snake_case
+// AgentEvent `kind` (the server snapshot sets type=kind, and live SSE frames
+// are normalized by normalizeStreamFrame). Deliberately NOT repointed to the
+// generated AgentEvent union — that would cascade into the server's
+// PascalCase-keyed review-sync logic.
 export type ApiSessionEvent = SessionEventResponse;
 
 /**
@@ -134,6 +138,7 @@ export interface RunSummary {
   parameters: Record<string, unknown>;
   results: Record<string, unknown>;
   workflowSource: string | null;
+  workflowSnapshot: WorkflowSnapshotResponse | null;
   startedAt: string | null;
   finishedAt: string | null;
   executionHistory: ExecutionRecordSummary[];
@@ -165,7 +170,7 @@ export interface WorkflowSummary {
 export interface AgentSessionSummary {
   id: string;
   sessionId: string;
-  goalDescription: string;
+  goal: string;
   status: SemanticStatus;
   createdAt: string;
   eventCount: number;
@@ -205,6 +210,10 @@ export interface WorkspaceTreeNode {
   children: WorkspaceTreeNode[];
   sizeBytes: number;
   updatedAt: string;
+  // Populated when the file tree is fetched with `?include=catalog`: the
+  // registered asset id and the server's existence-only sidecar flag.
+  assetId?: string;
+  hasPreviewSidecar?: boolean;
 }
 
 export interface ConsoleEntry {
@@ -244,6 +253,8 @@ export interface WorkspaceFileSelection {
   filePath: string;
   fileKind: FileKind;
   objectId: string;
+  assetId?: string;
+  hasPreviewSidecar?: boolean;
 }
 
 export interface AgentSelection {

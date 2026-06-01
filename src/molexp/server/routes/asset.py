@@ -17,9 +17,15 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from molexp.workspace.assets import AssetScope, LogAsset, lineage
 
 from ..dependencies import get_workspace
-from ..exceptions import AssetNotFoundError
-from ..schemas import AssetLineageNode, AssetLineageResponse, AssetResponse
-from ._scope import resolve_scope_dir
+from ..exceptions import AssetNotFoundError, InvalidPathError
+from ..preview import asset_has_sidecar
+from ..schemas import (
+    AssetLineageNode,
+    AssetLineageResponse,
+    AssetResponse,
+    DataAssetRegisterRequest,
+)
+from ._scope import resolve_scope_dir, split_workspace_relpath
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -64,13 +70,16 @@ def list_assets(
         producer_task=task_id,
         limit=limit,
     )
-    return [AssetResponse.from_model(a) for a in assets]
+    return [
+        AssetResponse.from_model(a, has_preview_sidecar=asset_has_sidecar(workspace, a))
+        for a in assets
+    ]
 
 
 @router.get("/{asset_id}", response_model=AssetResponse)
 def get_asset(asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:  # noqa: ANN001
     asset = _require_asset(workspace, asset_id)
-    return AssetResponse.from_model(asset)
+    return AssetResponse.from_model(asset, has_preview_sidecar=asset_has_sidecar(workspace, asset))
 
 
 @router.get("/{asset_id}/lineage", response_model=AssetLineageResponse)
@@ -160,3 +169,28 @@ async def import_data_asset(
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
+
+
+@router.post("/data/register", response_model=AssetResponse, status_code=201)
+def register_data_asset(
+    body: DataAssetRegisterRequest,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> AssetResponse:
+    """Register an existing workspace file in place as a ``DataAsset``.
+
+    The file stays where it is — only an index entry is created — so a
+    same-stem preview sidecar remains a real sibling of the resolved path.
+    """
+    try:
+        target = split_workspace_relpath(workspace, body.path)
+    except ValueError as exc:
+        raise InvalidPathError(body.path, "path is outside the workspace") from exc
+    if not target.exists():
+        raise InvalidPathError(body.path, "file does not exist")
+
+    asset = workspace.data_assets.register_in_place(
+        name=body.name or target.name,
+        src=target,
+        meta=body.metadata,
+    )
+    return AssetResponse.from_model(asset, has_preview_sidecar=asset_has_sidecar(workspace, asset))

@@ -1,13 +1,40 @@
-"""Retry policy + helpers for the provider's invoke loop.
+"""Retry policy + helpers for the router's transport-only retry shim.
 
-The provider applies the policy via :func:`should_retry` (decision)
-and :func:`sleep_for` (delay computation); the awaiting itself stays
-inside the provider so tests can monkey-patch :func:`asyncio.sleep`
-to drive the loop deterministically.
+Retry ownership is split three ways; this module owns only the third:
 
-This module imports neither ``pydantic_ai`` nor ``asyncio`` — it is
-pure data + arithmetic. ``RetryPolicy`` is a frozen pydantic model
-with construction-time validation rejecting nonsensical values.
+1. **Output / structured-parse validation** → ``Agent(output_retries=N)``.
+   pydantic-ai re-runs the model with the validation error fed back as a
+   cheap follow-up turn. The router's structured agent sets
+   ``output_retries=2``; ``schema_parse`` is therefore **excluded** from
+   :attr:`RetryPolicy.retry_on` so the two layers never compound (re-sending
+   the full multi-thousand-token prompt at the router level burned 14:30 min
+   on one production call — once is enough).
+2. **``ModelRetry`` / tool-validation** → ``Agent(retries=N)``. pydantic-ai
+   owns tool-call retry loops.
+3. **Transport failures** (``model_unavailable`` / ``timeout``) → *this shim*.
+   pydantic-ai does not retry transport-level errors by default, so the
+   router's :func:`should_retry` / :func:`sleep_for` loop covers exactly
+   that gap, and nothing else.
+
+pydantic-ai 1.97 ships a native HTTP-layer alternative —
+``pydantic_ai.retries.AsyncTenacityTransport`` / ``RetryConfig`` — which
+*could* retry transport failures inside the httpx client. It is deliberately
+**not** adopted here: ``PydanticAIRouter`` accepts caller-supplied opaque
+``Model`` instances (``_coerce_model_value(models[tier])``), and the native
+mechanism wires at the httpx-client layer, so adopting it would force the
+router to rebuild every caller-provided model with a per-provider custom
+httpx client — breaking the model-injection contract. The post-``agent.run``
+``classify`` + bounded loop is the layer molexp actually controls, so the
+shim stays.
+
+The router applies the policy via :func:`should_retry` (decision) and
+:func:`sleep_for` (delay computation); the awaiting itself stays inside the
+router so tests can monkey-patch :func:`asyncio.sleep` to drive the loop
+deterministically.
+
+This module imports neither ``pydantic_ai`` nor ``asyncio`` — it is pure data
++ arithmetic. ``RetryPolicy`` is a frozen pydantic model with construction-time
+validation rejecting nonsensical values.
 """
 
 from __future__ import annotations
@@ -33,9 +60,16 @@ class RetryPolicy(BaseModel):
             is ``backoff_seconds * 2 ** (attempt - 1)``. Validated
             ``>= 0``.
         retry_on: Tuple of :class:`ErrorKind` members that count as
-            retryable. Defaults to the three transient classes
-            (``model_unavailable``, ``schema_parse``, ``timeout``);
-            ``validation`` and ``unknown`` are deliberately excluded.
+            retryable. Defaults to the two truly-transient classes
+            (``model_unavailable``, ``timeout``). ``schema_parse`` is
+            **deliberately excluded** — pydantic-ai's
+            ``Agent(output_retries=N)`` retries schema-parse failures
+            at the model level with the validation error fed back as a
+            short follow-up turn (cheap). Re-sending the full
+            multi-thousand-token prompt at the router level on the
+            same kind of failure burned 14:30 min on one call in
+            production; once is enough. ``validation`` and ``unknown``
+            also stay excluded.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -44,7 +78,6 @@ class RetryPolicy(BaseModel):
     backoff_seconds: float = 0.5
     retry_on: tuple[ErrorKind, ...] = (
         ErrorKind.model_unavailable,
-        ErrorKind.schema_parse,
         ErrorKind.timeout,
     )
 

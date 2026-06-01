@@ -10,8 +10,10 @@ unified workspace folder abstraction: ``kind`` is
 
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path as _LocalPath
 from typing import TYPE_CHECKING, Any, cast
+
+from molexp.path import Path
 
 if TYPE_CHECKING:
     from .workspace import Workspace
@@ -33,6 +35,7 @@ from .folder import (
     WORKSPACE_PROJECT_KIND,
     Folder,
 )
+from .fs import PathArg
 from .models import FolderMetadata, ProjectMetadata
 from .utils import slugify
 
@@ -96,40 +99,33 @@ class Project(Folder):
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
-    def _compute_path(self) -> str:
+    def resolve(self) -> Path:
         return self.project_dir
 
     @classmethod
-    def _child_dir(cls, parent: Folder, derived_id: str) -> str:
-        """:class:`Folder.attach` hook — projects live under ``projects/<id>/``."""
-        return parent._fs.join(parent.path(), "projects", derived_id)
+    def child_dir(cls, parent: Folder, derived_id: str) -> Path:
+        """Folder hook — projects live under ``projects/<id>/``."""
+        return Path(parent._fs.join(parent.path(), "projects", derived_id))
 
     @classmethod
-    def _from_disk(cls, child_dir: str, parent: Folder) -> Project:
-        """:class:`Folder.attach` hook — load ``project.json`` and rebuild entity state."""
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> Project:
+        """Load ``project.json`` and rebuild entity state. See Folder.from_disk hook docs."""
         meta = _load_metadata(
             ProjectMetadata, parent._fs.join(child_dir, "project.json"), fs=parent._fs
         )
-        return _reconstruct(
-            cls,
-            {
-                "_parent": parent,
-                "_name": meta.id,
-                "_kind": WORKSPACE_PROJECT_KIND,
-                "_root_path": None,
-                "_metadata": FolderMetadata(
-                    id=meta.id,
-                    name=meta.name,
-                    kind=WORKSPACE_PROJECT_KIND,
-                    created_at=meta.created_at,
-                    updated_at=meta.created_at,
-                ),
-                "_children_cache": {},
-                "_entity_metadata": meta,
-                "_data_assets": None,
-                "_experiments_cache": {},
-            },
+        folder_meta = FolderMetadata(
+            id=meta.id,
+            name=meta.name,
+            kind=WORKSPACE_PROJECT_KIND,
+            created_at=meta.created_at,
+            updated_at=meta.created_at,
         )
+        attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
+            "_entity_metadata": meta,
+            "_data_assets": None,
+            "_experiments_cache": {},
+        }
+        return _reconstruct(cls, attrs)
 
     # ── Properties (entity-specific) ─────────────────────────────────────
 
@@ -178,9 +174,9 @@ class Project(Folder):
         return self._entity_metadata.config
 
     @property
-    def project_dir(self) -> str:
-        ws_root = self.workspace._compute_path()
-        return self._fs.join(ws_root, "projects", self.id)
+    def project_dir(self) -> Path:
+        ws_root = self.workspace.resolve()
+        return Path(self._fs.join(ws_root, "projects", self.id))
 
     @property
     def scope(self) -> AssetScope:
@@ -234,7 +230,7 @@ class Project(Folder):
     def import_asset(  # noqa: ANN201
         self,
         name: str,
-        src: str | Path,
+        src: str | _LocalPath,
         action: ImportAction = "copy",
         meta: dict[str, Any] | None = None,
     ):
@@ -258,9 +254,9 @@ class Project(Folder):
         cached = self._experiments_cache.get(resolved_id)
         if cached is not None:
             return cached
-        child_dir = Experiment._child_dir(self, resolved_id)
+        child_dir = Experiment.child_dir(self, resolved_id)
         if self._fs.is_dir(child_dir):
-            existing = Experiment._from_disk(child_dir, self)
+            existing = Experiment.from_disk(child_dir, self)
             self._experiments_cache[existing.id] = existing
             self._children_cache[existing.id] = existing
             return existing

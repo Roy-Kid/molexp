@@ -25,3 +25,4 @@ export type MolqJobDetailResponse = {
     upstreamSatisfied?: number;
     downstreamTotal?: number;
 };
+

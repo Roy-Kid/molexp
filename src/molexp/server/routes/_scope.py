@@ -20,10 +20,14 @@ from molexp.workspace.assets import AssetScope
 def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:  # noqa: ANN001
     """Return the on-disk directory for ``scope`` using the public workspace API.
 
-    Returns ``None`` if any segment of the scope cannot be resolved.
+    The workspace abstraction returns :class:`molexp.Path`; the server routes
+    are local-FS only (FastAPI serves a workspace mounted on this host), so
+    we coerce to :class:`pathlib.Path` at this boundary for ``.resolve()`` /
+    ``.exists()`` ergonomics.  Returns ``None`` if any segment cannot be
+    resolved.
     """
     if scope.kind == "workspace":
-        return workspace.root
+        return Path(workspace.root)
 
     if not scope.ids:
         return None
@@ -33,7 +37,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:  # noqa: ANN
     except ProjectNotFoundError:
         return None
     if scope.kind == "project":
-        return project.project_dir
+        return Path(project.project_dir)
 
     if len(scope.ids) < 2:
         return None
@@ -42,7 +46,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:  # noqa: ANN
     except ExperimentNotFoundError:
         return None
     if scope.kind == "experiment":
-        return experiment.experiment_dir
+        return Path(experiment.experiment_dir)
 
     if scope.kind == "run":
         if len(scope.ids) < 3:
@@ -51,7 +55,7 @@ def resolve_scope_dir(workspace, scope: AssetScope) -> Path | None:  # noqa: ANN
             run = experiment.get_run(scope.ids[2])
         except RunNotFoundError:
             return None
-        return run.run_dir
+        return Path(run.run_dir)
 
     return None
 

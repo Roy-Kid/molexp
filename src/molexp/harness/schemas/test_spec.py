@@ -1,0 +1,80 @@
+"""``TestSpec`` + ``TestResult`` — first-class structured test artifacts.
+
+Per ``.claude/notes/harness-goal.md`` §4.8: tests are not natural-language
+appendices but typed, validatable artifacts. Phase 5 ships only the
+**shape** + structural validators; actual test execution and TestResult
+production land in later phases.
+
+A ``TestSpec`` carries enough metadata for a future runner to:
+- decide whether to run (``kind``, ``required``)
+- locate its target (``target_task_id`` or ``target_workflow_id``)
+- supply inputs (``inputs: dict[str, ParameterValue]``)
+- optionally invoke a CLI (``command: list[str] | None``)
+- assert what should exist after (``expected_artifacts``)
+- assert numerical bounds (``expected_metrics`` + ``tolerance``)
+
+A ``TestResult`` records the outcome with full provenance (status,
+metrics, produced artifacts, stdout/stderr refs, optional human-readable
+reason).
+"""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.parameter import ParameterValue
+
+__all__ = ["TestKind", "TestResult", "TestSpec", "TestStatus"]
+
+
+TestKind = Literal[
+    "schema_test",
+    "unit_test",
+    "dry_run_test",
+    "integration_test",
+    "regression_test",
+    "numerical_tolerance_test",
+    "artifact_existence_test",
+    "provenance_test",
+    "resource_policy_test",
+]
+
+
+TestStatus = Literal["passed", "failed", "skipped", "error"]
+
+
+class TestSpec(BaseModel):
+    """Structural description of one harness test."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    name: str
+    kind: TestKind
+    target_task_id: str | None = None
+    target_workflow_id: str | None = None
+    description: str
+    inputs: dict[str, ParameterValue] = Field(default_factory=dict)
+    command: list[str] | None = None
+    expected_artifacts: list[str] = Field(default_factory=list)
+    expected_metrics: dict[str, ParameterValue] = Field(default_factory=dict)
+    tolerance: dict[str, float] = Field(default_factory=dict)
+    required: bool = True
+
+
+class TestResult(BaseModel):
+    """Outcome of running one :class:`TestSpec`."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    test_spec_id: str
+    status: TestStatus
+    metrics: dict[str, float] = Field(default_factory=dict)
+    produced_artifacts: list[ArtifactRef] = Field(default_factory=list)
+    stdout: ArtifactRef | None = None
+    stderr: ArtifactRef | None = None
+    reason: str | None = None

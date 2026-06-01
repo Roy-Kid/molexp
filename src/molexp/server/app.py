@@ -27,10 +27,19 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:  # noqa: ARG001
-    """Application lifespan: startup and shutdown events."""
+    """Application lifespan: startup and shutdown events.
+
+    On shutdown the agent session registry is closed, which cancels and awaits
+    every in-flight background turn so no orphan task survives teardown.
+    """
+    from .dependencies import reset_agent_runtime
+
     logger.info("MolExp server starting up")
-    yield
-    logger.info("MolExp server shutting down")
+    try:
+        yield
+    finally:
+        await reset_agent_runtime()
+        logger.info("MolExp server shutting down")
 
 
 # ---------------------------------------------------------------------------

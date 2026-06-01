@@ -9,6 +9,7 @@ Covers acceptance criteria:
 from __future__ import annotations
 
 import hashlib
+from pathlib import Path
 
 from molexp.workspace import Workspace
 from molexp.workspace.assets import lineage
@@ -40,7 +41,7 @@ class TestContentHash:
         run = ws.add_project("p").add_experiment("e").add_run()
         with run.start() as ctx:
             ctx.log("train").append("hi")
-            log_assets = list(run.experiment.list_runs()[0].run_dir.iterdir())
+            log_assets = list(Path(run.experiment.list_runs()[0].run_dir).iterdir())
             assert log_assets  # placeholder — actual log retrieval below
             from molexp.workspace.assets import LogAsset
 
@@ -101,7 +102,7 @@ class TestLineageTraversal:
         ws.catalog.update(asset_loop)
         from molexp.workspace.assets import AssetManifest
 
-        AssetManifest(run.run_dir).update(asset_loop)
+        AssetManifest(Path(run.run_dir)).update(asset_loop)
 
         anc = lineage.ancestors(ws, asset.asset_id)
         assert anc == set()  # self-loop excluded from ancestors of self

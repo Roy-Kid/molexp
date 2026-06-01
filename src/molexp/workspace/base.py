@@ -77,7 +77,7 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
     original file remains intact.
 
     Public surface — re-exported through ``molexp.workspace`` so the
-    agent layer (``PlanMode`` validation reports) and any future
+    harness layer (validation reports / audit records) and any future
     plain-text consumer can write through workspace's atomicity
     guarantee.
 

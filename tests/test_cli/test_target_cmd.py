@@ -8,6 +8,13 @@ from typer.testing import CliRunner
 from molexp.cli import app
 
 
+def _plain(text: str) -> str:
+    """Strip ANSI colour codes so substring asserts survive rich styling."""
+    import re
+
+    return re.sub(r"\x1b\[[0-9;]*m", "", text)
+
+
 @pytest.fixture
 def runner():
     return CliRunner()
@@ -43,7 +50,7 @@ def test_add_local_target(runner, initialized_ws):
     )
     assert result.exit_code == 0, result.stdout
     assert "Added target laptop" in result.stdout
-    assert "scheduler=local" in result.stdout
+    assert "scheduler=local" in _plain(result.stdout)
 
     listing = runner.invoke(app, ["target", "list", "--path", str(initialized_ws)])
     assert "laptop" in listing.stdout
@@ -71,10 +78,10 @@ def test_add_remote_target(runner, initialized_ws):
         ],
     )
     assert result.exit_code == 0, result.stdout
-    assert "scheduler=slurm" in result.stdout
+    assert "scheduler=slurm" in _plain(result.stdout)
 
     listing = runner.invoke(app, ["target", "list", "--path", str(initialized_ws)])
-    assert "me@cluster" in listing.stdout
+    assert "me@cluster" in _plain(listing.stdout)
 
 
 @pytest.mark.integration

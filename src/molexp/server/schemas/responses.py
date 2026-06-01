@@ -7,10 +7,17 @@ no ``getattr`` guessing.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+# The typed AgentEvent discriminated union is the wire shape the live SSE event
+# stream frames carry (spec 01). Re-exported here so the OpenAPI surface owns a
+# typed reference; it supersedes the generic SessionEventResponse for the stream
+# (SessionEventResponse stays the session-snapshot shape). Pure data — importing
+# it pulls no pydantic-ai.
+from molexp.agent.events import AgentEvent as AgentEvent
 from molexp.workspace import (
     Asset,
     Experiment,
@@ -35,7 +42,7 @@ def _read_context_results(run: Run) -> dict[str, Any]:
     REST response can show "what did this run produce" without bringing
     runtime state into the persisted ``RunMetadata`` model.
     """
-    run_json = run.run_dir / "run.json"
+    run_json = Path(run.run_dir / "run.json")
     if not run_json.exists():
         return {}
     try:
@@ -281,9 +288,12 @@ class AssetResponse(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
     content_hash: str | None = None
+    has_preview_sidecar: bool = False
+    """True when the asset's on-disk file has a same-stem ``.py`` preview
+    sidecar (existence-only signal; no user code is executed to compute it)."""
 
     @classmethod
-    def from_model(cls, asset: Asset) -> AssetResponse:
+    def from_model(cls, asset: Asset, *, has_preview_sidecar: bool = False) -> AssetResponse:
         from molexp.workspace.assets import ASSET_ADAPTER
 
         dumped = ASSET_ADAPTER.dump_python(asset, mode="json")
@@ -313,6 +323,7 @@ class AssetResponse(BaseModel):
             tags=dict(asset.tags),
             extra=extra,
             content_hash=asset.content_hash,
+            has_preview_sidecar=has_preview_sidecar,
         )
 
 
@@ -323,6 +334,7 @@ class WorkspaceInfoResponse(BaseModel):
     root: str
     projectCount: int
     assetCount: int
+    warnings: list[str] = []
 
 
 class FolderEntryResponse(BaseModel):
@@ -426,32 +438,6 @@ class AgentTaskResponse(BaseModel):
 
 class AgentTaskListResponse(BaseModel):
     tasks: list[AgentTaskResponse]
-    total: int
-
-
-class ReviewTargetRefResponse(BaseModel):
-    type: str
-    id: str
-    taskId: str | None = None
-    sessionId: str | None = None
-
-
-class ReviewItemResponse(BaseModel):
-    id: str
-    kind: str
-    title: str
-    description: str | None = None
-    riskLevel: str
-    status: str
-    targetRef: ReviewTargetRefResponse
-    createdAt: str
-    resolvedAt: str | None = None
-    resolutionComment: str | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
-
-
-class ReviewListResponse(BaseModel):
-    reviews: list[ReviewItemResponse]
     total: int
 
 
@@ -615,6 +601,31 @@ class LammpsLogResponse(BaseModel):
     version: str | None = None
     nStages: int = 0
     stages: list[LammpsThermoStage] = Field(default_factory=list)
+
+
+class TensorboardScalarPoint(BaseModel):
+    """One scalar sample read from a tfevents file."""
+
+    step: int
+    wallTime: float
+    value: float
+
+
+class TensorboardScalarSeries(BaseModel):
+    """All scalar samples for a single tag inside one logdir."""
+
+    tag: str
+    logdir: str  # path relative to run_dir
+    points: list[TensorboardScalarPoint] = Field(default_factory=list)
+
+
+class TensorboardScalarsResponse(BaseModel):
+    """Parsed scalars across every tfevents logdir found under a run."""
+
+    runId: str
+    runDir: str
+    logdirs: list[str] = Field(default_factory=list)
+    series: list[TensorboardScalarSeries] = Field(default_factory=list)
 
 
 class WorkflowStepInfo(BaseModel):

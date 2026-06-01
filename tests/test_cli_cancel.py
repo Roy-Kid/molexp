@@ -37,8 +37,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -47,6 +45,8 @@ class TestRunsCancelExperimentScope:
                 exp.id,
                 "--all",
                 "--yes",
+                "-t",
+                str(ws_path),
             ],
         )
 
@@ -62,8 +62,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -73,6 +71,8 @@ class TestRunsCancelExperimentScope:
                 "--status",
                 "running",
                 "--yes",
+                "-t",
+                str(ws_path),
             ],
         )
 
@@ -88,8 +88,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -98,6 +96,8 @@ class TestRunsCancelExperimentScope:
                 exp.id,
                 "--all",
                 "--yes",
+                "-t",
+                str(ws_path),
             ],
         )
 
@@ -116,8 +116,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -127,6 +125,8 @@ class TestRunsCancelExperimentScope:
                 "--status",
                 "running",
                 "--yes",
+                "-t",
+                str(ws_path),
             ],
         )
 
@@ -139,8 +139,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -148,6 +146,8 @@ class TestRunsCancelExperimentScope:
                 "--experiment",
                 exp.id,
                 "--yes",
+                "-t",
+                str(ws_path),
             ],
         )
 
@@ -159,16 +159,7 @@ class TestRunsCancelExperimentScope:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                "--project",
-                project.id,
-                "--all",
-                "--yes",
-            ],
+            ["runs", "cancel", "--project", project.id, "--all", "--yes", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 1
@@ -180,8 +171,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -189,6 +178,8 @@ class TestRunsCancelExperimentScope:
                 "--experiment",
                 exp.id,
                 "--all",
+                "-t",
+                str(ws_path),
             ],
             input="N\n",
         )
@@ -206,8 +197,6 @@ class TestRunsCancelExperimentScope:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 "--project",
@@ -216,6 +205,8 @@ class TestRunsCancelExperimentScope:
                 exp.id,
                 "--all",
                 "--yes",
+                "-t",
+                str(ws_path),
             ],
         )
 
@@ -229,14 +220,7 @@ class TestRunsCancelByRunId:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-            ],
+            ["runs", "cancel", run.id, "--yes", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0, result.output
@@ -250,14 +234,7 @@ class TestRunsCancelByRunId:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-            ],
+            ["runs", "cancel", run.id, "--yes", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0
@@ -272,14 +249,7 @@ class TestRunsCancelByRunId:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                "nonexistent-run-id",
-                "--yes",
-            ],
+            ["runs", "cancel", "nonexistent-run-id", "--yes", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0
@@ -297,16 +267,7 @@ class TestRunsCancelMolqIntegration:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-                "--scheduler",
-                "slurm",
-            ],
+            ["runs", "cancel", run.id, "--yes", "--scheduler", "slurm", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0, result.output
@@ -325,14 +286,7 @@ class TestRunsCancelMolqIntegration:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-            ],
+            ["runs", "cancel", run.id, "--yes", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0
@@ -352,14 +306,7 @@ class TestRunsCancelMolqIntegration:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-            ],
+            ["runs", "cancel", run.id, "--yes", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0
@@ -375,16 +322,7 @@ class TestRunsCancelMolqIntegration:
 
         result = runner.invoke(
             app,
-            [
-                "workspace",
-                str(ws_path),
-                "runs",
-                "cancel",
-                run.id,
-                "--yes",
-                "--scheduler",
-                "local",
-            ],
+            ["runs", "cancel", run.id, "--yes", "--scheduler", "local", "-t", str(ws_path)],
         )
 
         assert result.exit_code == 0
@@ -404,8 +342,6 @@ class TestRunsCancelMolqIntegration:
         result = runner.invoke(
             app,
             [
-                "workspace",
-                str(ws_path),
                 "runs",
                 "cancel",
                 run.id,
@@ -414,6 +350,8 @@ class TestRunsCancelMolqIntegration:
                 "slurm",
                 "--cluster",
                 "alvis",
+                "-t",
+                str(ws_path),
             ],
         )
 

@@ -20,6 +20,7 @@ from __future__ import annotations
 import json
 import threading
 from collections.abc import Iterator
+from os import PathLike
 from pathlib import Path
 
 from ._adapter import ASSET_ADAPTER, parse_asset
@@ -34,11 +35,16 @@ type AssetList = list[Asset]
 
 
 class AssetManifest:
-    """JSON-backed dict of assets for one scope."""
+    """JSON-backed dict of assets for one scope.
 
-    def __init__(self, scope_dir: Path) -> None:
-        self.scope_dir = scope_dir
-        self.path = scope_dir / MANIFEST_FILENAME
+    ``scope_dir`` is coerced to :class:`pathlib.Path` because the manifest
+    does genuine local I/O (atomic rename, file locking) — callers may
+    pass :class:`molexp.Path` or :class:`str`.
+    """
+
+    def __init__(self, scope_dir: str | PathLike[str]) -> None:
+        self.scope_dir = Path(scope_dir)
+        self.path = self.scope_dir / MANIFEST_FILENAME
         self._lock = threading.Lock()
 
     # ── Read ──────────────────────────────────────────────────────────────

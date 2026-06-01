@@ -1,55 +1,24 @@
-"""``molexp workspace init`` / ``molexp workspace info`` — workspace lifecyle."""
+"""``molexp info`` — workspace statistics.
+
+(``init`` lives in :mod:`molexp.cli.init_cmd` as the single top-level command.)
+"""
 
 from __future__ import annotations
 
-from typing import Annotated
-
 import typer
 
+from molexp.cli._app import app
 from molexp.cli._common import rprint, status_color
-from molexp.cli.workspace import _get_ctx_target, workspace_app
+from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.workspace.target import LocalTarget
 
 
-@workspace_app.command()
-def init(
-    ctx: typer.Context,
-    name: Annotated[
-        str | None,
-        typer.Option("--name", "-n", help="Workspace name (derived from path if omitted)"),
-    ] = None,
-) -> None:
-    """Initialize a new workspace on the target."""
-    from molexp.workspace import Workspace
-
-    target = _get_ctx_target(ctx)
-    fs = ctx.obj.get("fs")
-    ws_root = str(target)
-
-    rprint(f"[bold]Initializing workspace at:[/bold] {target}")
-    try:
-        ws = Workspace(ws_root, name=name, fs=fs)
-        ws.materialize()
-    except Exception as exc:
-        rprint(f"[red]Failed to initialize workspace:[/red] {exc}")
-        raise typer.Exit(1) from exc
-
-    if isinstance(target, LocalTarget):
-        rprint(f"[green]OK[/green] Initialized workspace at: {ws.root}")
-        rprint(f"  - Projects directory: {ws.root / 'projects'}")
-        rprint(f"  - Assets directory: {ws.root / 'assets'}")
-    else:
-        rprint(f"[green]OK[/green] Initialized remote workspace: {target}")
-        rprint(f"  - Path: {target.path}")
-
-
-@workspace_app.command()
-def info(ctx: typer.Context) -> None:
+@app.command()
+def info(target_spec: TargetOption = ".") -> None:
     """Show workspace statistics."""
     from molexp.workspace import Workspace
 
-    target = _get_ctx_target(ctx)
-    fs = ctx.obj.get("fs")
+    target, _transport, fs = resolve_workspace_target(target_spec)
 
     try:
         ws = Workspace(str(target), fs=fs)

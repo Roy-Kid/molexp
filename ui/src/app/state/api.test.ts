@@ -278,9 +278,11 @@ describe("mapWorkspaceTree", () => {
 
 describe("mapAgentSessions", () => {
   const rawSession = {
+    taskId: "task-abc",
+    title: "Baseline experiment",
     sessionId: "sess-abc",
     status: "completed",
-    goalDescription: "Run baseline experiment",
+    goal: "Run baseline experiment",
     createdAt: "2026-03-01T10:00:00Z",
     events: [
       { type: "PlanCreated", ts: "2026-03-01T10:00:01Z", payload: {} },
@@ -288,14 +290,27 @@ describe("mapAgentSessions", () => {
     ],
   };
 
-  it("maps sessionId to id", () => {
+  it("uses taskId as the navigation id when present", () => {
     const [result] = mapAgentSessions([rawSession]);
-    expect(result.id).toBe("sess-abc");
+    expect(result.id).toBe("task-abc");
+    expect(result.sessionId).toBe("sess-abc");
   });
 
-  it("maps goalDescription", () => {
+  it("falls back to sessionId for id when taskId is absent", () => {
+    const { taskId: _drop, ...withoutTaskId } = rawSession;
+    // mapAgentSessions defensively falls back to sessionId when taskId is
+    // absent; AgentTaskResponse types taskId as required, so cast the
+    // deliberately-incomplete fixture to the param element type.
+    const [result] = mapAgentSessions([
+      withoutTaskId as Parameters<typeof mapAgentSessions>[0][number],
+    ]);
+    expect(result.id).toBe("sess-abc");
+    expect(result.sessionId).toBe("sess-abc");
+  });
+
+  it("maps goal", () => {
     const [result] = mapAgentSessions([rawSession]);
-    expect(result.goalDescription).toBe("Run baseline experiment");
+    expect(result.goal).toBe("Run baseline experiment");
   });
 
   it("maps status", () => {

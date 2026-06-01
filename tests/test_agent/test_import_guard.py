@@ -35,6 +35,8 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "molexp.server",
     "molexp.cli",
     "molexp.sweep",
+    "molexp.workflow",  # spec 03b: agent stopped being the orchestrator
+    "molexp.harness",  # spec 03b: agent sits below harness in the DAG
 )
 
 
@@ -133,8 +135,9 @@ def test_pydantic_ai_imports_confined_to_pydanticai_subtree() -> None:
 def test_pydantic_graph_never_imported_in_agent() -> None:
     """``pydantic_graph`` is a workflow-layer concern; ``agent/`` never imports it.
 
-    PlanMode drives multi-step workflows through the public
-    ``molexp.workflow`` API, which is the sole sanctioned pg site.
+    Post spec 03b, the agent layer is a pydantic-ai facade with only LLM-only
+    loops (Chat + Interactive); pipeline orchestration moved to the harness
+    layer, so any ``pydantic_graph`` reference under ``agent/`` is a defect.
     """
     hits = _files_importing("pydantic_graph", AGENT_ROOT)
     bad = _format(hits)
@@ -186,23 +189,20 @@ def test_importing_molexp_agent_router_does_not_load_pydantic_ai() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_importing_plan_modes_does_not_load_mcp_clients() -> None:
-    """Phase 4 sentinel — plan-mode import stays MCP-client free.
+def test_importing_loops_does_not_load_mcp_clients() -> None:
+    """Sentinel — importing the public loop surface stays MCP-client free.
 
-    ``DraftCapabilityNeeds`` and ``DiscoverCapabilities`` import the
-    :class:`CapabilityProbe` Protocol (not the pydantic-ai-backed
-    implementation). The probe lives in ``agent/_pydanticai/`` and is
-    only constructed by :class:`AgentRunner` on first ``run()`` —
-    plain ``import molexp.agent.modes.plan`` must not pull
-    ``pydantic_ai.mcp`` / the ``mcp`` SDK into ``sys.modules``.
+    Plain ``import molexp.agent.loops`` (ChatLoop + future pipeline
+    loops) must not pull ``pydantic_ai.mcp`` / the ``mcp`` SDK into
+    ``sys.modules``; MCP wiring stays lazy until a router is built.
     """
     code = (
         "import sys\n"
-        "import molexp.agent.modes.plan  # noqa: F401\n"
-        "for forbidden in ('pydantic_ai.mcp', 'mcp', 'mcp.client'):\n"
+        "import molexp.agent.loops  # noqa: F401\n"
+        "for forbidden in ('pydantic_ai', 'pydantic_ai.mcp', 'mcp', 'mcp.client'):\n"
         "    assert forbidden not in sys.modules, (\n"
-        "        f'{forbidden} eagerly loaded by molexp.agent.modes.plan; '\n"
-        "        'capability discovery wiring should stay lazy.'\n"
+        "        f'{forbidden} eagerly loaded by molexp.agent.loops; '\n"
+        "        'loop imports should stay SDK-free until run().'\n"
         "    )\n"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
@@ -232,10 +232,13 @@ def test_importing_mcp_defaults_stays_lazy() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_agent_workspace_and_workflow_imports_are_allowed() -> None:
-    """Sanity guard: workspace + workflow are not in FORBIDDEN_PREFIXES.
+def test_agent_workspace_only_is_allowed() -> None:
+    """Sanity guard: workspace is the ONLY downstream layer agent may reach.
 
-    Agent is the top of the DAG; both downstream layers are reachable.
+    Post spec 03b the charter is reversed — agent sits *below* harness in the
+    DAG and no longer drives the workflow engine, so both ``molexp.workflow``
+    and ``molexp.harness`` are forbidden alongside the application shell.
     """
     assert "molexp.workspace" not in FORBIDDEN_PREFIXES
-    assert "molexp.workflow" not in FORBIDDEN_PREFIXES
+    assert "molexp.workflow" in FORBIDDEN_PREFIXES
+    assert "molexp.harness" in FORBIDDEN_PREFIXES

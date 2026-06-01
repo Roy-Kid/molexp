@@ -183,7 +183,7 @@ class WorkflowDeps:
     Attributes:
         run: The molexp Run associated with this execution (may be None).
         run_context: The active RunContext (may be None).
-        config: The active :class:`~molexp.config.ProfileConfig` (may be None).
+        config: The active :class:`~molexp.profile.ProfileConfig` (may be None).
         user_deps: Application-level deps forwarded from the caller.
         remote_executor: Optional remote-execution gateway (set by molq).
         run_dir: Path to the run's directory on disk (may be None).

@@ -119,10 +119,7 @@ const resolveEntryUrl = (descriptor: PluginManifest, manifest: UiBundleManifest)
   return `${dir}${entry}`;
 };
 
-export const loadRemotePlugin = (
-  state: LoaderState,
-  descriptor: PluginManifest,
-): Promise<void> => {
+export const loadRemotePlugin = (state: LoaderState, descriptor: PluginManifest): Promise<void> => {
   const cached = state.remotePromises.get(descriptor.id);
   if (cached) {
     return cached;
@@ -162,7 +159,10 @@ export const loadRemotePlugin = (
       }
       registerPluginInstance(state, mod.default);
     } catch (error) {
-      console.warn(`[plugins] failed to load remote plugin "${descriptor.id}" from ${entryUrl}:`, error);
+      console.warn(
+        `[plugins] failed to load remote plugin "${descriptor.id}" from ${entryUrl}:`,
+        error,
+      );
       state.remotePromises.delete(descriptor.id);
     }
   })();

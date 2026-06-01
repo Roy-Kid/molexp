@@ -7,3 +7,4 @@ export type UiPluginListResponse = {
     plugins: Array<UiPluginResponse>;
     total: number;
 };
+

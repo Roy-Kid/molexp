@@ -22,14 +22,14 @@ import {
 type Scheduler = TargetCreateRequest.scheduler;
 
 const SCHEDULERS: Scheduler[] = [
-  TargetCreateRequest.scheduler.SHELL,
+  TargetCreateRequest.scheduler.LOCAL,
   TargetCreateRequest.scheduler.SLURM,
   TargetCreateRequest.scheduler.PBS,
   TargetCreateRequest.scheduler.LSF,
 ];
 
 const schedulerLabel: Record<Scheduler, string> = {
-  [TargetCreateRequest.scheduler.SHELL]: "Local shell",
+  [TargetCreateRequest.scheduler.LOCAL]: "Local shell",
   [TargetCreateRequest.scheduler.SLURM]: "SLURM",
   [TargetCreateRequest.scheduler.PBS]: "PBS",
   [TargetCreateRequest.scheduler.LSF]: "LSF",
@@ -38,7 +38,7 @@ const schedulerLabel: Record<Scheduler, string> = {
 const emptyForm = (): TargetCreateRequest => ({
   name: "",
   scratchRoot: "",
-  scheduler: TargetCreateRequest.scheduler.SHELL,
+  scheduler: TargetCreateRequest.scheduler.LOCAL,
   host: null,
   port: null,
   identityFile: null,
@@ -103,7 +103,7 @@ export function AddTargetForm({
         <div className="space-y-1">
           <Label htmlFor="add-target-scheduler">Scheduler</Label>
           <Select
-            value={form.scheduler ?? TargetCreateRequest.scheduler.SHELL}
+            value={form.scheduler ?? TargetCreateRequest.scheduler.LOCAL}
             onValueChange={(v) => setForm({ ...form, scheduler: v as Scheduler })}
           >
             <SelectTrigger id="add-target-scheduler">

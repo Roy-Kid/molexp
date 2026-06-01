@@ -1,7 +1,7 @@
 """``Router`` — unified LLM dispatch protocol for ``molexp.agent``.
 
-Every :class:`AgentMode` reaches the LLM through a :class:`Router`.
-ChatMode wants a single text completion; PlanMode wants tier-routed
+Every :class:`AgentLoop` reaches the LLM through a :class:`Router`.
+ChatLoop wants a single text completion; PlanMode wants tier-routed
 structured output. Both methods share one configuration surface
 (:class:`AgentRunner` ``model=`` / ``models=`` kwargs) and one cache.
 
@@ -19,20 +19,26 @@ per the layer charter — see CLAUDE.md § "Pydantic vs plain class").
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Literal, Protocol, TypeVar, runtime_checkable
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from molexp.agent.types import UsageBreakdown
 
 __all__ = [
+    "AgenticChunk",
+    "FinalChunk",
     "ModelTier",
     "Router",
     "RouterTextResult",
+    "TextDeltaChunk",
+    "ThinkingDeltaChunk",
     "TierModels",
+    "ToolCallChunk",
+    "ToolResultChunk",
 ]
 
 
@@ -83,6 +89,84 @@ class RouterTextResult:
     raw: Any = field(default=None)
 
 
+# ── Agentic-loop streaming chunks ──────────────────────────────────────────
+
+
+class TextDeltaChunk(BaseModel):
+    """One token-level assistant-text increment from the agentic loop."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["text_delta"] = "text_delta"
+    text: str
+
+
+class ThinkingDeltaChunk(BaseModel):
+    """One reasoning-token increment from the agentic loop.
+
+    Reasoning models (DeepSeek reasoner, Claude extended thinking) emit a
+    private chain-of-thought *before* the answer. pydantic-ai surfaces it as
+    a ``ThinkingPart`` / ``ThinkingPartDelta``, structurally a sibling of the
+    answer's ``TextPart`` / ``TextPartDelta``. This chunk is its SDK-free
+    projection — kept distinct from :class:`TextDeltaChunk` so a consumer can
+    render reasoning in a collapsed / dimmed treatment rather than inline with
+    the answer. A model that does not reason simply never yields one.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["thinking_delta"] = "thinking_delta"
+    text: str
+
+
+class ToolCallChunk(BaseModel):
+    """A tool call the model dispatched inside the agentic loop.
+
+    ``args_summary`` is a short human-readable rendering of the call
+    arguments, never the full payload.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["tool_call"] = "tool_call"
+    tool_name: str
+    args_summary: str = ""
+
+
+class ToolResultChunk(BaseModel):
+    """The return of a dispatched tool call.
+
+    ``ok`` is ``False`` when the tool raised / produced a retry prompt.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["tool_result"] = "tool_result"
+    tool_name: str
+    result_summary: str = ""
+    ok: bool = True
+
+
+class FinalChunk(BaseModel):
+    """The terminal chunk — carries the agentic loop's final assistant text."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["final"] = "final"
+    text: str
+
+
+AgenticChunk = TextDeltaChunk | ThinkingDeltaChunk | ToolCallChunk | ToolResultChunk | FinalChunk
+"""SDK-free union of every chunk :meth:`Router.stream_agentic` yields.
+
+Defined in this protocol module — *not* importing ``pydantic_ai`` — so
+test fakes and the emergent
+:class:`~molexp.agent.loops.interactive.InteractiveLoop` consume the
+agentic loop without paying the SDK load cost. A :class:`ThinkingDeltaChunk`
+(reasoning models only) precedes the answer's :class:`TextDeltaChunk`\\ s;
+the terminal yield is always a :class:`FinalChunk`."""
+
+
 # ── Router protocol ────────────────────────────────────────────────────────
 
 
@@ -91,19 +175,22 @@ SchemaT = TypeVar("SchemaT", bound=BaseModel)
 
 @runtime_checkable
 class Router(Protocol):
-    """Unified LLM dispatch — both text and structured paths.
+    """Unified LLM dispatch — text, structured, and agentic-loop paths.
 
-    Two methods, both keyword-only:
+    Three keyword-only dispatch methods:
 
     * :meth:`complete_text` — one free-form text round trip
-      (``ChatMode`` and any future single-shot mode).
+      (``ChatLoop`` and any future single-shot mode).
     * :meth:`complete_structured` — schema-typed dispatch with retry
       and event hooks (``PlanMode`` per-task LLM calls).
+    * :meth:`stream_agentic` — the emergent tool-using loop
+      (``InteractiveLoop``): the model autonomously decides → calls a
+      tool → observes → loops, streamed as an :data:`AgenticChunk` flow.
 
-    Both honor the ``tier`` axis: ``complete_text`` defaults to
-    :attr:`ModelTier.DEFAULT`, ``complete_structured`` requires it
-    explicitly. The router's tier→model resolution is private; callers
-    only know tiers.
+    All honor the ``tier`` axis: ``complete_text`` / ``stream_agentic``
+    default to :attr:`ModelTier.DEFAULT`, ``complete_structured``
+    requires it explicitly. The router's tier→model resolution is
+    private; callers only know tiers.
     """
 
     async def complete_text(
@@ -164,10 +251,47 @@ class Router(Protocol):
         """
         ...
 
+    def stream_agentic(
+        self,
+        *,
+        prompt: str,
+        system: str = "",
+        tools: tuple[Any, ...] = (),
+        tier: ModelTier = ModelTier.DEFAULT,
+        message_history: tuple[Any, ...] = (),
+    ) -> AsyncIterator[AgenticChunk]:
+        """Drive an emergent tool-using loop, streamed as :data:`AgenticChunk`\\ s.
+
+        The model autonomously decides whether to answer or call a
+        tool; the router runs the full agentic loop (tool dispatch,
+        retries, message history) through pydantic-ai's native
+        ``Agent.iter()`` — no hand-rolled loop. Each reasoning-token
+        increment (reasoning models only) is a
+        :class:`ThinkingDeltaChunk`, each model answer increment a
+        :class:`TextDeltaChunk`, each dispatched call a
+        :class:`ToolCallChunk`, each return a :class:`ToolResultChunk`.
+        The terminal yield is always a :class:`FinalChunk`.
+
+        Args:
+            prompt: The user message.
+            system: Optional system prompt for this loop.
+            tools: Tools the model may call — opaque pydantic-ai
+                ``Tool`` instances or bare callables, forwarded
+                verbatim. The protocol stays SDK-free, hence ``Any``.
+            tier: Which tier's model to use. Defaults to ``DEFAULT``.
+            message_history: Opaque prior-turn history (or empty),
+                forwarded verbatim to the underlying agent.
+
+        Yields:
+            :data:`AgenticChunk`\\ s in emission order; the last is a
+            :class:`FinalChunk`.
+        """
+        ...
+
     def clear_usage(self) -> None:
         """Forget any accumulated :class:`~molexp.agent.types.CallUsage`
         records. Modes call this at the start of each
-        :meth:`AgentMode.run` so the snapshot at the end reflects only
+        :meth:`AgentLoop.run` so the snapshot at the end reflects only
         that one run."""
         ...
 

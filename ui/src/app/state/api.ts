@@ -41,6 +41,7 @@ interface WorkspaceFileNode {
   assetKind?: string | null;
   producerRunId?: string | null;
   producerTaskId?: string | null;
+  hasPreviewSidecar?: boolean | null;
 }
 
 interface WorkspaceFilesResponse {
@@ -78,6 +79,40 @@ export interface RunMetricsQuery {
   key?: string;
   sinceLine?: number;
   limit?: number;
+}
+
+export interface TensorboardScalarPoint {
+  step: number;
+  wallTime: number;
+  value: number;
+}
+
+export interface TensorboardScalarSeries {
+  tag: string;
+  logdir: string;
+  points: TensorboardScalarPoint[];
+}
+
+export interface TensorboardScalarsResponse {
+  runId: string;
+  runDir: string;
+  logdirs: string[];
+  series: TensorboardScalarSeries[];
+}
+
+/**
+ * Error thrown by ``getRunTensorboardScalars`` — preserves the HTTP
+ * status so the UI can distinguish 503 (extra not installed) from
+ * generic failures. Subclasses ``Error`` so ``err instanceof Error``,
+ * Sentry stacks, and error boundaries behave correctly.
+ */
+export class TensorboardScalarsError extends Error {
+  public readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "TensorboardScalarsError";
+    this.status = status;
+  }
 }
 
 export type { LammpsLogResponse } from "@/api/generated/models/LammpsLogResponse";
@@ -133,6 +168,26 @@ export const workspaceApi = {
       runId,
     );
   },
+  getRunExecutionLogs: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    executionId: string,
+  ) => {
+    return RunsService.getRunExecutionLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionsExecutionIdLogsGet(
+      projectId,
+      experimentId,
+      runId,
+      executionId,
+    );
+  },
+  getRunExecution: async (projectId: string, experimentId: string, runId: string) => {
+    return RunsService.getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
+      projectId,
+      experimentId,
+      runId,
+    );
+  },
   getRunLammpsLog: async (projectId: string, experimentId: string, runId: string, path: string) => {
     return RunsService.getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
       projectId,
@@ -148,6 +203,41 @@ export const workspaceApi = {
       runId,
       path,
     );
+  },
+  getRunTensorboardScalars: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    opts: { tag?: string[]; logdir?: string } = {},
+  ): Promise<TensorboardScalarsResponse> => {
+    const params = new URLSearchParams();
+    if (opts.logdir) params.set("logdir", opts.logdir);
+    for (const t of opts.tag ?? []) params.append("tag", t);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/experiments/${encodeURIComponent(
+        experimentId,
+      )}/runs/${encodeURIComponent(runId)}/tensorboard/scalars${suffix}`,
+    );
+    if (!response.ok) {
+      const contentType = response.headers.get("Content-Type") ?? "";
+      const text = await response.text();
+      let message = `Failed to fetch tensorboard scalars: ${response.statusText}`;
+      if (contentType.includes("application/json")) {
+        try {
+          const body = JSON.parse(text);
+          if (typeof body?.detail === "string") message = body.detail;
+        } catch {
+          // ignore — fall through to generic statusText
+        }
+      } else if (text && text.length < 500) {
+        // Non-JSON bodies (proxy HTML, uvicorn text errors) are short
+        // enough to surface verbatim; long bodies are noise.
+        message = `${message}: ${text.trim()}`;
+      }
+      throw new TensorboardScalarsError(response.status, message);
+    }
+    return response.json();
   },
   getRunMetrics: async (
     projectId: string,
@@ -499,6 +589,7 @@ export const mapRuns = (
     parameters: (run.parameters ?? {}) as Record<string, unknown>,
     results: (run.results ?? {}) as Record<string, unknown>,
     workflowSource: run.workflowSource ?? run.workflow?.source ?? null,
+    workflowSnapshot: run.workflow ?? null,
     startedAt: run.created ?? null,
     finishedAt: run.finished ?? null,
     executionHistory: (run.executionHistory ?? []).map((rec) => ({
@@ -571,6 +662,8 @@ const mapWorkspaceNode = (node: WorkspaceFileNode): WorkspaceTreeNode => {
     children: (node.children ?? []).map(mapWorkspaceNode),
     sizeBytes: node.size ?? 0,
     updatedAt,
+    assetId: node.assetId ?? undefined,
+    hasPreviewSidecar: node.hasPreviewSidecar ?? undefined,
   };
 };
 
@@ -593,7 +686,7 @@ export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSumma
   return sessions.map((s) => ({
     id: s.taskId ?? s.sessionId,
     sessionId: s.sessionId,
-    goalDescription: s.goalDescription,
+    goal: s.goal,
     status: s.status as AgentSessionSummary["status"],
     createdAt: s.createdAt,
     eventCount: s.events?.length ?? 0,
@@ -658,7 +751,7 @@ const normalizeAgentTask = (task: ApiAgentTask): ApiAgentSession => ({
   title: task.title,
   sessionId: task.sessionId ?? task.taskId,
   status: task.status,
-  goalDescription: task.goal,
+  goal: task.goal,
   createdAt: task.createdAt,
   updatedAt: task.updatedAt,
   events: task.events ?? [],
@@ -726,19 +819,6 @@ export const agentApi = {
     return new EventSource(`/api/agent-tasks/${sessionId}/events`);
   },
 
-  respondApproval: async (
-    sessionId: string,
-    requestId: string,
-    approved: boolean,
-  ): Promise<void> => {
-    const response = await fetch(`/api/agent-tasks/${sessionId}/approve`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ request_id: requestId, approved }),
-    });
-    if (!response.ok) throw new Error(`Failed to respond approval: ${response.statusText}`);
-  },
-
   postMessage: async (
     sessionId: string,
     content: string,
@@ -750,30 +830,6 @@ export const agentApi = {
       body: JSON.stringify({ content, request_id: requestId }),
     });
     if (!response.ok) throw new Error(`Failed to post message: ${response.statusText}`);
-  },
-
-  respondPlan: async (
-    sessionId: string,
-    args: {
-      requestId: string;
-      approved: boolean;
-      editedPlan?: string | null;
-      editedWorkflowIr?: Record<string, unknown> | null;
-      feedback?: string;
-    },
-  ): Promise<void> => {
-    const response = await fetch(`/api/agent-tasks/${sessionId}/plan-decision`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        request_id: args.requestId,
-        approved: args.approved,
-        edited_plan: args.editedPlan ?? null,
-        edited_workflow_ir: args.editedWorkflowIr ?? null,
-        feedback: args.feedback ?? "",
-      }),
-    });
-    if (!response.ok) throw new Error(`Failed to respond plan: ${response.statusText}`);
   },
 };
 

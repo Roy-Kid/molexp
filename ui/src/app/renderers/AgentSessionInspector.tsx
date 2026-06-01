@@ -88,7 +88,7 @@ const buildStatRows = (
 const buildSessionRows = (session: ApiAgentSession): DetailRow[] => [
   { label: "Task ID", value: session.taskId ?? session.sessionId },
   { label: "Runtime Session", value: session.sessionId },
-  { label: "Goal", value: session.goalDescription || "—" },
+  { label: "Goal", value: session.goal || "—" },
   { label: "Created", value: session.createdAt || "—" },
 ];
 

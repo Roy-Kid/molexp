@@ -1,31 +1,32 @@
 /**
- * Snapshot & Diff components.
+ * Snapshot & diff components for the run/experiment tabs.
  *
- * Architecture:
- *   - Run    → fixed snapshot   → <RunSnapshotPanel>   (read-only list)
- *   - Experiment → compare runs → <SnapshotDiffPanel>  (pick two runs, show diff)
- *
- * Both panels are exported for use in RunViewer and ExperimentViewer respectively.
+ *   - <RunSnapshotPanel>  — live, backend-driven; per-run workflow execution
+ *   - <SnapshotDiffPanel> — mock-driven; experiment-level run/run diff
  */
 
 import {
   AlertCircle,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   Code,
   Database,
   GitCompareArrows,
   Hash,
+  ListChecks,
   Settings,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { RunExecutionResponse } from "@/api/generated/models/RunExecutionResponse";
+import type { WorkflowSnapshotResponse } from "@/api/generated/models/WorkflowSnapshotResponse";
+import type { WorkflowStepInfo } from "@/api/generated/models/WorkflowStepInfo";
+import { KeyValueGrid, StatusBadge } from "@/app/components/entity";
+import { workspaceApi } from "@/app/state/api";
+import type { RunSummary } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 
-// Local shape used by the snapshot viewer — the backend no longer exposes a
-// dedicated TaskSnapshotResponse schema; snapshots are derived from the run's
-// workflow persistence state. The extra fields (codeSource / configData /
-// snapshotKey) are rendered from mock fixtures only.
+// Local shape used by the diff viewer only. The backend no longer exposes a
+// per-task snapshot schema; the diff fixture is kept for the experiment-level
+// "compare runs" demo until a real diff backend lands.
 interface TaskSnapshotResponse {
   taskId: string;
   taskType: string;
@@ -287,16 +288,6 @@ const MOCK_RUN_SNAPSHOTS: Record<string, RunSnapshotSet> = {
   },
 };
 
-/** Look up mock snapshot set for a run. Falls back to empty. */
-export function getMockRunSnapshots(runId: string): RunSnapshotSet | null {
-  return MOCK_RUN_SNAPSHOTS[runId] ?? null;
-}
-
-/** All available mock run IDs (for the experiment-level selector). */
-export function getMockRunIds(): string[] {
-  return Object.keys(MOCK_RUN_SNAPSHOTS);
-}
-
 /** All mock run snapshot sets (for experiment diff). */
 export function getMockAllRunSnapshots(): RunSnapshotSet[] {
   return Object.values(MOCK_RUN_SNAPSHOTS);
@@ -368,7 +359,7 @@ function computeDiff(
 // Shared sub-components
 // ============================================================================
 
-const StatusBadge = ({ status }: { status: FieldStatus }): JSX.Element => {
+const DiffStatusBadge = ({ status }: { status: FieldStatus }): JSX.Element => {
   const styles: Record<FieldStatus, string> = {
     unchanged: "bg-emerald-500/10 text-emerald-700 border-emerald-500/20",
     modified: "bg-amber-500/10 text-amber-700 border-amber-500/20",
@@ -404,77 +395,6 @@ const ConfigValue = ({
         </span>
       ) : (
         <span className="font-mono text-foreground">{newVal ?? "—"}</span>
-      )}
-    </div>
-  );
-};
-
-// ============================================================================
-// SnapshotCard — single task snapshot (used in RunSnapshotPanel)
-// ============================================================================
-
-export const SnapshotCard = ({ snapshot }: { snapshot: TaskSnapshotResponse }): JSX.Element => {
-  const [codeExpanded, setCodeExpanded] = useState(false);
-
-  return (
-    <div className="rounded-md border p-4 bg-card space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Hash className="h-4 w-4 text-muted-foreground" />
-          <span className="font-mono text-sm font-medium">{snapshot.taskId}</span>
-        </div>
-        <Badge variant="outline" className="text-xs">
-          {snapshot.taskType}
-        </Badge>
-      </div>
-      <div className="grid grid-cols-2 gap-3 text-xs">
-        <div>
-          <p className="text-muted-foreground uppercase mb-1">Code Hash</p>
-          <p className="font-mono truncate" title={snapshot.codeHash}>
-            {snapshot.codeHash}
-          </p>
-        </div>
-        <div>
-          <p className="text-muted-foreground uppercase mb-1">Config Hash</p>
-          <p className="font-mono truncate" title={snapshot.configHash}>
-            {snapshot.configHash}
-          </p>
-        </div>
-        <div className="col-span-2">
-          <p className="text-muted-foreground uppercase mb-1">Snapshot Key</p>
-          <p className="font-mono text-xs truncate" title={snapshot.snapshotKey}>
-            {snapshot.snapshotKey}
-          </p>
-        </div>
-      </div>
-      {snapshot.configData && Object.keys(snapshot.configData).length > 0 && (
-        <div>
-          <p className="text-xs text-muted-foreground uppercase mb-1">Config</p>
-          <pre className="text-xs font-mono bg-muted/30 rounded p-2 overflow-x-auto max-h-32">
-            {JSON.stringify(snapshot.configData, null, 2)}
-          </pre>
-        </div>
-      )}
-      {snapshot.codeSource && (
-        <div>
-          <button
-            type="button"
-            className="flex items-center gap-1 text-xs text-muted-foreground uppercase mb-1 hover:text-foreground transition-colors cursor-pointer"
-            onClick={() => setCodeExpanded(!codeExpanded)}
-          >
-            {codeExpanded ? (
-              <ChevronDown className="h-3.5 w-3.5" />
-            ) : (
-              <ChevronRight className="h-3.5 w-3.5" />
-            )}
-            Source Code
-          </button>
-          {codeExpanded && (
-            <pre className="text-xs font-mono bg-slate-950 text-slate-50 rounded p-3 overflow-x-auto max-h-64">
-              {snapshot.codeSource}
-            </pre>
-          )}
-        </div>
       )}
     </div>
   );
@@ -575,7 +495,7 @@ const DiffCard = ({ diff }: { diff: TaskDiff }): JSX.Element => {
             {diff.taskType}
           </Badge>
         </div>
-        <StatusBadge status={diff.status} />
+        <DiffStatusBadge status={diff.status} />
       </div>
 
       {/* Change indicators */}
@@ -755,43 +675,139 @@ const DiffSummaryBar = ({ diffs }: { diffs: TaskDiff[] }): JSX.Element => {
 // RunSnapshotPanel — for RunViewer "Snapshot" tab
 // ============================================================================
 
-/**
- * Displays the fixed snapshot set for a single run.
- * This is read-only — a run's snapshot is immutable.
- */
-export const RunSnapshotPanel = ({ runId }: { runId: string }): JSX.Element => {
-  // In production: fetch from API.  For now: mock data.
-  const snapshotSet = getMockRunSnapshots(runId);
+interface RunSnapshotPanelProps {
+  run: Pick<RunSummary, "id" | "projectId" | "experimentId" | "workflowSnapshot">;
+}
 
-  if (!snapshotSet) {
-    return (
-      <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
-        <Database className="h-10 w-10 opacity-20" />
-        <p className="text-sm">No snapshot recorded for this run.</p>
+const snapshotMissing = <span className="italic text-muted-foreground">—</span>;
+
+const snapshotMonoValue = (value: string | null | undefined): JSX.Element =>
+  value ? (
+    <span className="break-all font-mono text-xs text-foreground">{value}</span>
+  ) : (
+    snapshotMissing
+  );
+
+const SnapshotHeader = ({
+  snapshot,
+}: {
+  snapshot: WorkflowSnapshotResponse | null;
+}): JSX.Element => (
+  <div className="rounded-md border border-border/70 bg-card p-4">
+    <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+      <Hash className="h-4 w-4 text-muted-foreground" />
+      Workflow snapshot
+    </div>
+    {snapshot ? (
+      <KeyValueGrid
+        items={[
+          { label: "Source", value: snapshotMonoValue(snapshot.source) },
+          { label: "Git commit", value: snapshotMonoValue(snapshot.gitCommit) },
+          { label: "Code hash", value: snapshotMonoValue(snapshot.codeHash) },
+          { label: "Config hash", value: snapshotMonoValue(snapshot.configHash) },
+        ]}
+      />
+    ) : (
+      <p className="text-xs italic text-muted-foreground">
+        No workflow snapshot was recorded for this run.
+      </p>
+    )}
+  </div>
+);
+
+const WorkflowStepRow = ({ step }: { step: WorkflowStepInfo }): JSX.Element => {
+  const status = step.status ?? "pending";
+  const outputEntries = Object.entries(step.outputs ?? {});
+  return (
+    <div className="rounded-md border border-border/70 bg-card p-3">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-mono text-muted-foreground">step #{step.index}</span>
+        <StatusBadge status={status} size="sm" />
       </div>
-    );
-  }
+      {outputEntries.length > 0 && (
+        <div className="mt-2 space-y-1">
+          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Outputs</p>
+          <pre className="max-h-40 overflow-x-auto rounded bg-muted/40 p-2 font-mono text-[11px]">
+            {JSON.stringify(step.outputs, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Displays the immutable workflow snapshot + live per-step execution status
+ * for the latest attempt of a single run.
+ */
+export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element => {
+  const [execution, setExecution] = useState<RunExecutionResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    workspaceApi
+      .getRunExecution(run.projectId, run.experimentId, run.id)
+      .then((data) => {
+        if (cancelled) return;
+        setExecution(data);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load workflow execution");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [run.id, run.projectId, run.experimentId]);
+
+  const steps = execution?.steps ?? [];
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
-      <div className="px-6 py-4 border-b bg-background flex items-center justify-between">
+      <div className="flex items-center justify-between border-b bg-background px-6 py-4">
         <div className="flex items-center gap-2">
-          <Hash className="h-4 w-4 text-muted-foreground" />
+          <ListChecks className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">
-            Task Snapshots
-            <span className="text-muted-foreground font-normal ml-1">
-              ({snapshotSet.snapshots.length})
-            </span>
+            Workflow steps
+            <span className="ml-1 font-normal text-muted-foreground">({steps.length})</span>
           </span>
         </div>
-        <span className="text-xs text-muted-foreground font-mono">
-          {new Date(snapshotSet.createdAt).toLocaleString()}
-        </span>
+        {execution?.execution_id && (
+          <span className="font-mono text-xs text-muted-foreground" title={execution.execution_id}>
+            {execution.execution_id}
+          </span>
+        )}
       </div>
-      <div className="flex-1 p-6 space-y-3">
-        {snapshotSet.snapshots.map((snap) => (
-          <SnapshotCard key={snap.taskId} snapshot={snap} />
-        ))}
+      <div className="flex-1 space-y-3 p-6">
+        <SnapshotHeader snapshot={run.workflowSnapshot ?? null} />
+        {loading ? (
+          <p className="text-xs italic text-muted-foreground">Loading workflow execution…</p>
+        ) : error ? (
+          <div className="flex items-center gap-2 rounded-md border border-rose-500/30 bg-rose-500/5 p-3 text-xs text-rose-700">
+            <AlertCircle className="h-4 w-4" />
+            {error}
+          </div>
+        ) : steps.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
+            <Database className="h-10 w-10 opacity-20" />
+            <p className="text-sm">
+              No workflow execution state yet. The run hasn't materialized a workflow.json file.
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {steps.map((step) => (
+              <WorkflowStepRow key={`step-${step.index}`} step={step} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

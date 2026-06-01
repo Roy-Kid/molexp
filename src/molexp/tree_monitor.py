@@ -159,7 +159,7 @@ def _elapsed(started: str | None, finished: str | None) -> str | None:
 
 
 def _read_run_json(run_dir: Path) -> dict[str, JSONValue]:
-    p = run_dir / "run.json"
+    p = Path(run_dir) / "run.json"
     if not p.exists():
         return {}
     try:

@@ -48,7 +48,23 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 | Example | What it shows |
 |---|---|
-| `agent/chat_mode.py` | Minimum viable agent loop — `ChatMode` + `AgentSession` driven through `PydanticAIHarness`, using `pydantic_ai.models.test.TestModel` so it runs offline. The four public names (`AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession`) plus the concrete `ChatMode`/`ChatModeConfig` are the entire user surface. |
+| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner` against real DeepSeek. Shows the contract: `runner.run` drains the loop's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
+| `agent/interactive_loop.py` | The emergent read-only tool loop — `InteractiveLoop` driving `Router.stream_agentic` so the model calls workspace/code tools across turns before answering. The loop behind the `molexp agent` CLI REPL. |
+
+> Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode`).
+>
+> **API keys** — every example registers its LLM key *in code* via `molexp.config["deepseek_api_key"] = ...` (paste into the `API_KEY` constant at the top of each file). `molexp.config` is a live `molcfg.Config`; molexp reads the key from it, **never from environment variables**.
+
+## Harness Layer
+
+`PlanMode` is the harness `Mode` that turns a short natural-language experiment
+draft into generated, validated, runnable `molexp.workflow` source — running its
+stage pipeline (ExperimentReport → WorkflowIR → BoundWorkflow → workflow source)
+on a `workspace.Run` with full provenance + audit.
+
+| Example | What it shows |
+|---|---|
+| `harness/plan_mode_live.py` | `PlanMode` end-to-end against the **real DeepSeek API** (`deepseek:deepseek-v4-flash`) — a short draft in, generated + validated runnable `molexp.workflow` code out. Prints the per-stage artifacts, the generated source, the `workflow_source → user_plan` lineage, and the audit summary. Register your key via `molexp.config["deepseek_api_key"] = ...` (the `API_KEY` constant). |
 
 ## Driving a Run
 

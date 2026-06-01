@@ -6,6 +6,7 @@ __pycache__/
 
 # Scratch workspaces materialised by CLI examples
 examples/**/_workspace/
+examples/agent/smoke_runs/
 
 # C extensions
 *.so
@@ -18,8 +19,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -53,6 +54,8 @@ coverage.xml
 *.py,cover
 .hypothesis/
 .pytest_cache/
+# pytest --basetemp=tmp/ leftovers (tmp_path fixture output landing in repo root)
+tmp/
 cover/
 
 # Translations
@@ -201,4 +204,5 @@ src/molexp/dist/*
 # Claude Code workflow scratch — in-flight specs, runtime artifacts, worktrees
 .claude/specs/
 .claude/worktrees/
+.claude/scheduled_tasks.lock
 .playwright-mcp/

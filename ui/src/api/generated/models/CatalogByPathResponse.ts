@@ -17,3 +17,4 @@ export type CatalogByPathResponse = {
     scope?: (CatalogScopeInfo | null);
     siblings?: Array<CatalogSibling>;
 };
+

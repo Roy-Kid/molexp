@@ -380,19 +380,69 @@ export const workspaceHandlers = [
         });
     }),
 
-    // POST /api/workspace/open - Set workspace path
+    // POST /api/workspace/open - Set workspace path (discriminated: local | remote)
     http.post(`${API_BASE}/workspace/open`, async ({ request }) => {
-        const body = (await request.json()) as { path: string; create_if_missing?: boolean };
+        const body = (await request.json()) as Record<string, unknown>;
+        const kind = (body.kind as string | undefined) ?? "local";
 
-        // Mock implementation - just return workspace info
+        if (kind === "remote") {
+            const name = String(body.name ?? "");
+            // Defer to the workspace-target mock store registered in
+            // workspace_targets.ts.  We import lazily to avoid a circular
+            // module load.
+            const { mockWorkspaceTargetsMap } = await import("./workspace_targets");
+            const target = mockWorkspaceTargetsMap.get(name);
+            if (!target) {
+                return HttpResponse.json(
+                    { detail: `workspace target ${name} not found` },
+                    { status: 404 },
+                );
+            }
+            // For dev:mock, a remote workspace exposes its own empty
+            // project/asset set — distinguishable from the local mock store.
+            return HttpResponse.json({
+                root: target.root_path,
+                projectCount: 0,
+                assetCount: 0,
+                warnings: [],
+            });
+        }
+
+        const path = String(body.path ?? "");
         const projects = getAllProjects();
         const assets = getAllAssets();
-
         return HttpResponse.json({
-            root: body.path,
+            root: path,
             projectCount: projects.length,
             assetCount: assets.length,
+            warnings: [],
         });
+    }),
+
+    // POST /api/workspace/cache/invalidate — drops cache entries on the
+    // active workspace's CachedRemoteFileSystem.  Mock always responds
+    // success because dev:mock has no real cache layer; production paths
+    // 409 when the active workspace is local.
+    http.post(`${API_BASE}/workspace/cache/invalidate`, async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as {
+            path?: string | null;
+            scope?: string;
+        };
+        const scope = body.scope ?? "all";
+        // Pretend we dropped one entry per "indices", more for "all".
+        const dropped = body.path ? 1 : scope === "indices" ? 3 : 7;
+        return HttpResponse.json({ dropped, warnings: [] });
+    }),
+
+    // POST /api/workspace/cache/refresh — invalidate + re-prefetch.
+    http.post(`${API_BASE}/workspace/cache/refresh`, async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as {
+            path?: string | null;
+            scope?: string;
+        };
+        const scope = body.scope ?? "all";
+        const dropped = body.path ? 1 : scope === "indices" ? 3 : 7;
+        return HttpResponse.json({ dropped, warnings: [] });
     }),
 
     // POST /api/workspace/directories - Create directory

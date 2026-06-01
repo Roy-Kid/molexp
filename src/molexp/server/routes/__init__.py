@@ -14,11 +14,12 @@ from . import (
     execution,
     experiment,
     molq,
+    preview,
     project,
     registry,
-    reviews,
     run,
     targets,
+    tensorboard,
     workspace,
 )
 
@@ -38,13 +39,14 @@ def create_api_router() -> APIRouter:
     api_router.include_router(experiment.router)
     api_router.include_router(run.router)
     api_router.include_router(asset.router)
+    api_router.include_router(preview.router)
     api_router.include_router(catalog.router)
     api_router.include_router(workspace.router)
     api_router.include_router(registry.router)
-    api_router.include_router(reviews.router)
     api_router.include_router(execution.router)
     api_router.include_router(molq.router)
     api_router.include_router(targets.router)
+    api_router.include_router(tensorboard.router)
 
     return api_router
 
@@ -59,10 +61,11 @@ __all__ = [
     "execution",
     "experiment",
     "molq",
+    "preview",
     "project",
     "registry",
-    "reviews",
     "run",
     "targets",
+    "tensorboard",
     "workspace",
 ]

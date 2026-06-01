@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { JSONValue } from './JSONValue';
 import type { WorkspaceExecutionRow } from './WorkspaceExecutionRow';
 /**
  * One run, with its execution history nested for tree expansion.
@@ -19,10 +20,11 @@ export type WorkspaceRunRow = {
     scheduler?: (string | null);
     target?: (string | null);
     profile?: (string | null);
-    parameters?: Record<string, any>;
+    parameters?: Record<string, JSONValue>;
     createdAt: string;
     finishedAt?: (string | null);
     executionCount?: number;
     latestSchedulerJobId?: (string | null);
     executions?: Array<WorkspaceExecutionRow>;
 };
+

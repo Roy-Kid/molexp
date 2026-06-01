@@ -10,3 +10,4 @@ export type WorkflowStepInfo = {
     status: string;
     outputs?: Record<string, any>;
 };
+

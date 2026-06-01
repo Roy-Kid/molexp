@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 from datetime import datetime
+from os import PathLike
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from ..catalog.index import AssetCatalog
 
 
-ImportAction = Literal["copy", "move", "symlink", "hardlink"]
+ImportAction = Literal["copy", "move", "symlink", "hardlink", "reference"]
 
 
 class DataAsset(Asset):
@@ -55,14 +56,17 @@ class DataAssetLibrary:
 
     def __init__(
         self,
-        scope_dir: Path,
+        scope_dir: str | PathLike[str],
         scope: AssetScope,
         catalog: AssetCatalog | None = None,
     ) -> None:
-        self.scope_dir = scope_dir
+        # Coerce to pathlib.Path — DataAssetLibrary does genuine local I/O
+        # (shutil.copy2, os.link, symlink_to); callers can pass molexp.Path
+        # or str.  Remote DataAsset storage is not supported by this class.
+        self.scope_dir = Path(scope_dir)
         self.scope = scope
         self.catalog = catalog
-        self.root = scope_dir / "assets"
+        self.root = self.scope_dir / "assets"
 
     def import_asset(
         self,
@@ -123,6 +127,63 @@ class DataAssetLibrary:
         asset_dir.mkdir(parents=True, exist_ok=True)
         with open(asset_dir / "asset.json", "w") as f:  # noqa: PTH123
             json.dump(asset.model_dump(mode="json"), f, indent=2)
+
+        if self.catalog is not None:
+            self.catalog.register(asset)
+
+        return asset
+
+    def register_in_place(
+        self,
+        name: str,
+        src: str | Path,
+        meta: dict[str, Any] | None = None,
+    ) -> DataAsset:
+        """Register a file already inside the scope as a ``DataAsset``.
+
+        Unlike :meth:`import_asset`, nothing is copied or moved: the asset's
+        ``path`` points at ``src`` where it already lives (relative to the
+        scope directory). This keeps the original filename, so a same-stem
+        sidecar (``qm9.tar.bz2`` ↔ ``qm9.py``) stays a real sibling of the
+        resolved path. The reference is recorded in the catalog index only —
+        there is no ``assets/<id>/`` payload directory.
+
+        Args:
+            name: Asset display name.
+            src: Path to a file/directory that must already live under the
+                scope directory.
+            meta: Free-form tags persisted with the asset.
+
+        Returns:
+            The registered :class:`DataAsset`.
+
+        Raises:
+            FileNotFoundError: ``src`` does not exist.
+            ValueError: ``src`` is not under the scope directory.
+        """
+        source_path = Path(src).resolve()
+        if not source_path.exists():
+            raise FileNotFoundError(f"Source path does not exist: {src}")
+
+        # Must live under the scope dir — the asset path is scope-relative for
+        # portability; ``relative_to`` raises ValueError otherwise.
+        rel_path = source_path.relative_to(self.scope_dir.resolve())
+
+        now = datetime.now()
+        content_hash = compute_content_hash(source_path)
+
+        asset = DataAsset(
+            asset_id=generate_asset_id(),
+            name=name,
+            scope=self.scope,
+            path=rel_path,
+            created_at=now,
+            updated_at=now,
+            tags=meta or {},
+            source_path=str(source_path),
+            import_action="reference",
+            content_hash=content_hash,
+        )
 
         if self.catalog is not None:
             self.catalog.register(asset)

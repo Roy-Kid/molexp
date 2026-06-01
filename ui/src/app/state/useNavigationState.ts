@@ -26,6 +26,7 @@ const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection |
     return null;
   }
 
+  const assetId = searchParams.get("assetId");
   return {
     objectType: "workspace-file",
     objectId: filePath,
@@ -39,6 +40,8 @@ const buildWorkspaceFileSelection = (searchParams: URLSearchParams): Selection |
       fileKind === "image"
         ? fileKind
         : "unknown",
+    assetId: assetId ?? undefined,
+    hasPreviewSidecar: searchParams.get("hasPreviewSidecar") === "1",
   };
 };
 
@@ -189,6 +192,12 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
         file: selection.filePath,
         fileKind: selection.fileKind,
       });
+      if (selection.assetId) {
+        params.set("assetId", selection.assetId);
+      }
+      if (selection.hasPreviewSidecar) {
+        params.set("hasPreviewSidecar", "1");
+      }
       return `/workspace?${params.toString()}`;
     }
   }
@@ -296,7 +305,7 @@ const buildBreadcrumbs = (
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return [
         { label: "Agent Tasks", to: "/agent-tasks" },
-        { label: session?.goalDescription ?? selection.objectId },
+        { label: session?.goal ?? selection.objectId },
       ];
     }
     case "workspace-file":
@@ -403,9 +412,7 @@ const buildContextMeta = (
       const session = snapshot.agentSessions.find((item) => item.id === selection.objectId);
       return {
         title:
-          selection.objectId === "new"
-            ? "New Agent Task"
-            : (session?.goalDescription ?? selection.objectId),
+          selection.objectId === "new" ? "New Agent Task" : (session?.goal ?? selection.objectId),
         subtitle:
           selection.objectId === "new"
             ? "Create a new agent task."
@@ -486,10 +493,6 @@ export const useNavigationState = (snapshot: WorkspaceSnapshot): NavigationState
           return;
         }
         if (view === "agent" && selection.objectType === "agent") {
-          navigate(getSelectionPath(selection, snapshot));
-          return;
-        }
-        if (view === "review" && selection.objectType === "review") {
           navigate(getSelectionPath(selection, snapshot));
           return;
         }

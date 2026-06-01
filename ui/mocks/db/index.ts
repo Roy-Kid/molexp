@@ -565,9 +565,11 @@ outputs:
     // Agent sessions
     const agentSessions: ApiAgentSession[] = [
         {
+            taskId: "task-sess-001",
+            title: "AlphaFold baseline",
             sessionId: "sess-001",
             status: "completed",
-            goalDescription: "Run the AlphaFold baseline experiment and summarise the results",
+            goal: "Run the AlphaFold baseline experiment and summarise the results",
             createdAt: isoAt(-180),
             events: [
                 {
@@ -688,9 +690,11 @@ outputs:
             ],
         },
         {
+            taskId: "task-sess-002",
+            title: "Benchmark dataset survey",
             sessionId: "sess-002",
             status: "running",
-            goalDescription: "Survey our existing molecular property datasets and propose a benchmark study",
+            goal: "Survey our existing molecular property datasets and propose a benchmark study",
             createdAt: isoAt(-90),
             events: [
                 {
@@ -755,9 +759,11 @@ outputs:
             ],
         },
         {
+            taskId: "task-sess-003",
+            title: "QM9 GNN baseline",
             sessionId: "sess-003",
             status: "running",
-            goalDescription: "Prepare a validated dataset from qm9.h5 and run a GNN baseline on it",
+            goal: "Prepare a validated dataset from qm9.h5 and run a GNN baseline on it",
             createdAt: isoAt(-5),
             events: [
                 // The agent is still allowed to inspect tool slugs / templates
@@ -1146,7 +1152,12 @@ export function getAllAgentSessions(): ApiAgentSession[] {
 }
 
 export function getAgentSession(id: string): ApiAgentSession | undefined {
-    return db.agentSessions.get(id);
+    // Sessions are keyed by sessionId, but routes look them up by taskId
+    // (the /agent-tasks/:taskId URL param). Resolve by either.
+    return (
+        db.agentSessions.get(id) ??
+        Array.from(db.agentSessions.values()).find((s) => (s.taskId ?? s.sessionId) === id)
+    );
 }
 
 export function setAgentSession(session: ApiAgentSession): void {
