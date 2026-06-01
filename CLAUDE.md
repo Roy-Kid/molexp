@@ -138,6 +138,8 @@ ui/src/  →  cd ui && npm run build  →  src/molexp/dist/  →  hatchling  →
 
 `src/molexp/dist/` is gitignored (except `.gitkeep`); `create_app()` locates assets via `importlib.resources.files("molexp") / "dist"` and falls back to API-only if empty. Dev mode: backend on `:8000`, frontend on `:5173`.
 
+**UI component library:** prefer **shadcn/ui** when building UI features; if a shadcn component doesn't fit, document the reason in the PR description.
+
 ## Data type ownership
 
 Each conceptual data category lives in exactly **one** layer. Cross-layer references flow downward through the public surface of the lower layer — `workflow` imports `workspace.Run` is fine; `workspace` importing `workflow.Workflow` is forbidden. For the full ownership table (concept → owning module) see `.claude/notes/architecture.md`.
