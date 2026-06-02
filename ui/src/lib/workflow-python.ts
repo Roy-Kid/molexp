@@ -1,7 +1,7 @@
 /**
  * Render a workflow IR dict as a runnable Python script.
  *
- * Mirrors :meth:`molexp.workflow.WorkflowCompiler.ir_to_python` so the
+ * Mirrors :meth:`molexp.workflow.WorkflowCodec.ir_to_python` so the
  * UI can preview the Python form of an in-memory IR — including edits
  * the user just made — without a server round-trip.
  *

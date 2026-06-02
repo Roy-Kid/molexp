@@ -1,4 +1,4 @@
-"""Workflow serializer — convert between IR, Python script, Mermaid, YAML, and Spec.
+"""Workflow codec — convert between IR, Python script, Mermaid, YAML, and Spec.
 
 The workflow has four equivalent surfaces:
 
@@ -13,12 +13,12 @@ The workflow has four equivalent surfaces:
 - **Mermaid** — a ``flowchart LR`` text rendering for read-only review
   surfaces.
 
-:class:`WorkflowCompiler` provides pairwise converters between these
+:class:`WorkflowCodec` provides pairwise converters between these
 surfaces and round-trip guarantees where they apply::
 
-    ir = compiler.python_to_ir(compiler.ir_to_python(ir))  # exact
-    ir = compiler.spec_to_ir(compiler.ir_to_spec(ir))  # exact (slugged tasks)
-    text = compiler.ir_to_mermaid(ir)  # one-way
+    ir = codec.python_to_ir(codec.ir_to_python(ir))  # exact
+    ir = codec.spec_to_ir(codec.ir_to_spec(ir))  # exact (slugged tasks)
+    text = codec.ir_to_mermaid(ir)  # one-way
 
 Every conversion is **AST-based / template-based** — we never ``exec``
 user-supplied Python. The Python surface is a structured carrier for
@@ -38,15 +38,18 @@ from typing import TYPE_CHECKING
 import yaml
 
 from .._typing import JSONMapping, JSONValue
+from ._graph_decl import TaskRegistration
+from ._helpers import _ir_object_list, _require_str, _stable_workflow_id
 from .contract import WorkflowContract
+from .protocols import Streamable
 from .spec import Workflow
 
 if TYPE_CHECKING:
     from .registry import TaskTypeRegistry
 
 __all__ = [
-    "WorkflowCompiler",
-    "default_compiler",
+    "WorkflowCodec",
+    "default_codec",
 ]
 
 
@@ -63,14 +66,19 @@ from molexp.workflow.spec import Workflow
 '''
 
 
-class WorkflowCompiler:
+class WorkflowCodec:
     """Stateless converter between workflow representations.
 
     Methods are instance methods (rather than classmethods) so callers
     can subclass and override individual conversions — e.g. swap the
     Mermaid renderer for a Graphviz one — without touching the rest of
     the API. The default instance is also exposed at module level as
-    :data:`default_compiler` for callers that don't need customization.
+    :data:`default_codec` for callers that don't need customization.
+
+    This codec is the single owner of IR conversion: ``spec_to_ir`` /
+    ``ir_to_spec`` hold the authoritative ``Workflow`` ⇄ IR bodies, and
+    ``Workflow.to_dict`` / ``from_dict`` are thin delegators to
+    :data:`default_codec`.
     """
 
     # ── IR ↔ Python script ─────────────────────────────────────────────
@@ -129,15 +137,104 @@ class WorkflowCompiler:
     def ir_to_spec(self, ir: JSONMapping, *, registry: TaskTypeRegistry | None = None) -> Workflow:
         """Build a :class:`Workflow` from JSON IR.
 
-        Thin wrapper over :meth:`Workflow.from_dict`; exposed here
-        so callers have one obvious entry point for *any* representation
-        conversion.
+        This is the authoritative IR → :class:`Workflow` body;
+        :meth:`Workflow.from_dict` delegates here.
         """
-        return Workflow.from_dict(ir, registry=registry)
+        if registry is None:
+            from .registry import default_registry
+
+            registry = default_registry
+
+        links_raw = _ir_object_list(ir.get("links"))
+        task_configs_raw = _ir_object_list(ir.get("task_configs"))
+
+        deps_by_target: dict[str, list[str]] = {}
+        for link in links_raw:
+            target = _require_str(link, "target")
+            source = _require_str(link, "source")
+            deps_by_target.setdefault(target, []).append(source)
+
+        tasks: list[TaskRegistration] = []
+        for tc in task_configs_raw:
+            slug = _require_str(tc, "task_type")
+            task_id = _require_str(tc, "task_id")
+            cfg_raw = tc.get("config")
+            config: dict[str, JSONValue] = dict(cfg_raw) if isinstance(cfg_raw, dict) else {}
+            factory = registry.get(slug)
+            instance = factory(config)
+            tasks.append(
+                TaskRegistration(
+                    name=task_id,
+                    fn_or_class=instance,
+                    depends_on=deps_by_target.get(task_id, []),
+                    is_actor=isinstance(instance, Streamable),
+                    task_type=slug,
+                    config=config,
+                )
+            )
+
+        known = {t.name for t in tasks}
+        for link in links_raw:
+            for endpoint in (_require_str(link, "source"), _require_str(link, "target")):
+                if endpoint not in known:
+                    raise ValueError(
+                        f"Link references unknown task_id {endpoint!r}; known: {sorted(known)}"
+                    )
+
+        name_raw = ir.get("name")
+        name = name_raw if isinstance(name_raw, str) else ""
+        return Workflow(
+            name=name,
+            workflow_id=_stable_workflow_id(name, tasks),
+            tasks=tasks,
+            mode="batch",
+        )
 
     def spec_to_ir(self, spec: Workflow) -> JSONMapping:
-        """Serialize a :class:`Workflow` to JSON IR."""
-        return spec.to_dict()
+        """Serialize a :class:`Workflow` to the JSON IR shape (see ``schema/workflow.json``).
+
+        This is the authoritative :class:`Workflow` → IR body;
+        :meth:`Workflow.to_dict` delegates here.
+        """
+        unslugged = [t.name for t in spec._tasks if t.task_type is None]
+        if unslugged:
+            raise ValueError(
+                "Cannot serialize workflow to IR: the following tasks have no "
+                f"task_type slug: {unslugged}. Use `WorkflowBuilder.add(..., task_type=...)` "
+                "or build the spec from IR via Workflow.from_dict()."
+            )
+        if spec._control_edges or spec._branch_edges or spec._entries:
+            raise ValueError(
+                "Cannot serialize workflow to IR: spec contains a control edge / "
+                "explicit entry (wf.control / wf.branch / wf.entry)."
+            )
+        task_configs: list[JSONValue] = [
+            {
+                "task_id": t.name,
+                "task_type": t.task_type,
+                "config": dict(t.config) if t.config else {},
+                "status": "pending",
+            }
+            for t in spec._tasks
+        ]
+        links: list[JSONValue] = [
+            {"source": dep, "target": t.name, "mapping": {}, "status": "pending"}
+            for t in spec._tasks
+            for dep in t.depends_on
+        ]
+        metadata: dict[str, JSONValue] = {
+            "label": None,
+            "description": None,
+            "tags": [],
+            "custom": {},
+        }
+        return {
+            "workflow_id": f"workflow_{spec.workflow_id[:8]}",
+            "name": spec.name,
+            "task_configs": task_configs,
+            "links": links,
+            "metadata": metadata,
+        }
 
     # ── Spec → Python / Mermaid (composition) ───────────────────────────
 
@@ -238,7 +335,7 @@ class WorkflowCompiler:
         return "\n".join(lines) + "\n"
 
 
-default_compiler = WorkflowCompiler()
+default_codec = WorkflowCodec()
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────

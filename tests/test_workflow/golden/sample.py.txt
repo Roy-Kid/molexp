@@ -1,0 +1,39 @@
+"""Auto-generated molexp workflow plan.
+
+The IR literal below is the source of truth — edit it, and the
+matching ``Workflow.from_dict(WORKFLOW_IR)`` call below will
+load your edits. The server reads the IR (not this script) when
+running the workflow; the script exists so the IR is comfortable
+to read and review in Python form.
+"""
+from molexp.workflow.spec import Workflow
+
+WORKFLOW_IR = {
+    'links': [
+        {
+            'source': 'inspect',
+            'target': 'train',
+        },
+    ],
+    'metadata': {},
+    'name': 'qm9-gnn-baseline',
+    'task_configs': [
+        {
+            'config': {
+                'path': 'qm9.h5',
+            },
+            'task_id': 'inspect',
+            'task_type': 'golden_inspect',
+        },
+        {
+            'config': {
+                'epochs': 50,
+                'lr': 0.001,
+            },
+            'task_id': 'train',
+            'task_type': 'golden_train',
+        },
+    ],
+}
+
+spec = Workflow.from_dict(WORKFLOW_IR)

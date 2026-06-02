@@ -39,12 +39,11 @@ from ._graph_decl import (
     TaskRegistration,
     _BoundaryStubTask,
 )
-from ._helpers import _callable_code_hash, _ir_object_list, _require_str, _stable_workflow_id
+from ._helpers import _callable_code_hash, _stable_workflow_id
 from .protocols import (
     JSONMapping,
     JSONValue,
     RunContextLike,
-    Streamable,
     TaskOutput,
     UserDeps,
 )
@@ -305,46 +304,15 @@ class Workflow:
     # ── IR serialization ─────────────────────────────────────────────────
 
     def to_dict(self) -> dict[str, JSONValue]:
-        """Serialize this spec to the JSON IR shape (see ``schema/workflow.json``)."""
-        unslugged = [t.name for t in self._tasks if t.task_type is None]
-        if unslugged:
-            raise ValueError(
-                "Cannot serialize workflow to IR: the following tasks have no "
-                f"task_type slug: {unslugged}. Use `WorkflowBuilder.add(..., task_type=...)` "
-                "or build the spec from IR via Workflow.from_dict()."
-            )
-        if self._control_edges or self._branch_edges or self._entries:
-            raise ValueError(
-                "Cannot serialize workflow to IR: spec contains a control edge / "
-                "explicit entry (wf.control / wf.branch / wf.entry)."
-            )
-        task_configs: list[JSONValue] = [
-            {
-                "task_id": t.name,
-                "task_type": t.task_type,
-                "config": dict(t.config) if t.config else {},
-                "status": "pending",
-            }
-            for t in self._tasks
-        ]
-        links: list[JSONValue] = [
-            {"source": dep, "target": t.name, "mapping": {}, "status": "pending"}
-            for t in self._tasks
-            for dep in t.depends_on
-        ]
-        metadata: dict[str, JSONValue] = {
-            "label": None,
-            "description": None,
-            "tags": [],
-            "custom": {},
-        }
-        return {
-            "workflow_id": f"workflow_{self.workflow_id[:8]}",
-            "name": self.name,
-            "task_configs": task_configs,
-            "links": links,
-            "metadata": metadata,
-        }
+        """Serialize this spec to the JSON IR shape (see ``schema/workflow.json``).
+
+        Thin delegator to :data:`molexp.workflow.codec.default_codec`, the
+        single owner of IR conversion. (Removed in spec 02 when ``Workflow``
+        dissolves into ``CompiledWorkflow``.)
+        """
+        from .codec import default_codec
+
+        return dict(default_codec.spec_to_ir(self))
 
     @classmethod
     def from_dict(
@@ -353,56 +321,15 @@ class Workflow:
         *,
         registry: TaskTypeRegistry | None = None,
     ) -> Workflow:
-        """Build a Workflow from JSON IR."""
-        if registry is None:
-            from .registry import default_registry
+        """Build a Workflow from JSON IR.
 
-            registry = default_registry
+        Thin delegator to :data:`molexp.workflow.codec.default_codec`, the
+        single owner of IR conversion. (Removed in spec 02 when ``Workflow``
+        dissolves into ``CompiledWorkflow``.)
+        """
+        from .codec import default_codec
 
-        links_raw = _ir_object_list(data.get("links"))
-        task_configs_raw = _ir_object_list(data.get("task_configs"))
-
-        deps_by_target: dict[str, list[str]] = {}
-        for link in links_raw:
-            target = _require_str(link, "target")
-            source = _require_str(link, "source")
-            deps_by_target.setdefault(target, []).append(source)
-
-        tasks: list[TaskRegistration] = []
-        for tc in task_configs_raw:
-            slug = _require_str(tc, "task_type")
-            task_id = _require_str(tc, "task_id")
-            cfg_raw = tc.get("config")
-            config: dict[str, JSONValue] = dict(cfg_raw) if isinstance(cfg_raw, dict) else {}
-            factory = registry.get(slug)
-            instance = factory(config)
-            tasks.append(
-                TaskRegistration(
-                    name=task_id,
-                    fn_or_class=instance,
-                    depends_on=deps_by_target.get(task_id, []),
-                    is_actor=isinstance(instance, Streamable),
-                    task_type=slug,
-                    config=config,
-                )
-            )
-
-        known = {t.name for t in tasks}
-        for link in links_raw:
-            for endpoint in (_require_str(link, "source"), _require_str(link, "target")):
-                if endpoint not in known:
-                    raise ValueError(
-                        f"Link references unknown task_id {endpoint!r}; known: {sorted(known)}"
-                    )
-
-        name_raw = data.get("name")
-        name = name_raw if isinstance(name_raw, str) else ""
-        return cls(
-            name=name,
-            workflow_id=_stable_workflow_id(name, tasks),
-            tasks=tasks,
-            mode="batch",
-        )
+        return default_codec.ir_to_spec(data, registry=registry)
 
     # ── Subgraph ─────────────────────────────────────────────────────────
 

@@ -44,6 +44,7 @@ from ._pydantic_graph.runtime import make_execution_id
 from .builder import WorkflowBuilder
 from .cache import Caching
 from .cache_store import CacheStore, FileCacheStore
+from .codec import WorkflowCodec, default_codec
 from .context import ActorContext, TaskContext
 from .contract import (
     ArtifactDecl,
@@ -70,7 +71,6 @@ from .mermaid import render_workflow_mermaid
 from .promote import promote_callable, resolve_callable_entrypoint, resolve_spec_entrypoint
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
-from .serializer import WorkflowCompiler, default_compiler
 from .snapshot import TaskSnapshot
 from .snapshot_ref import WorkflowSnapshotRef
 from .spec import Workflow
@@ -140,7 +140,7 @@ __all__ = [
     "ValidationReport",
     "Workflow",
     "WorkflowBuilder",
-    "WorkflowCompiler",
+    "WorkflowCodec",
     "WorkflowContract",
     "WorkflowDeadlockError",
     "WorkflowError",
@@ -151,7 +151,7 @@ __all__ = [
     "WorkflowVersion",
     "WorkflowVersionConflictError",
     "build_workflow_graph_ir",
-    "default_compiler",
+    "default_codec",
     "default_registry",
     "default_validation_checks",
     "generate_name",
