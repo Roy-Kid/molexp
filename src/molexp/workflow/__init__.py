@@ -59,6 +59,14 @@ from .contract import (
     default_validation_checks,
     validate_workflow_contract,
 )
+from .ir import (
+    GraphLoopIR,
+    GraphParallelIR,
+    GraphTaskIR,
+    WorkflowGraphIR,
+    build_workflow_graph_ir,
+)
+from .mermaid import render_workflow_mermaid
 from .promote import promote_callable, resolve_callable_entrypoint, resolve_spec_entrypoint
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
@@ -104,6 +112,9 @@ __all__ = [
     "End",
     "EntryAmbiguousError",
     "FileCacheStore",
+    "GraphLoopIR",
+    "GraphParallelIR",
+    "GraphTaskIR",
     "LoopMaxItersExceeded",
     "MissingRouteError",
     "OutEdges",
@@ -134,16 +145,19 @@ __all__ = [
     "WorkflowDeadlockError",
     "WorkflowError",
     "WorkflowExecution",
+    "WorkflowGraphIR",
     "WorkflowResult",
     "WorkflowSnapshotRef",
     "WorkflowVersion",
     "WorkflowVersionConflictError",
+    "build_workflow_graph_ir",
     "default_compiler",
     "default_registry",
     "default_validation_checks",
     "generate_name",
     "make_execution_id",
     "promote_callable",
+    "render_workflow_mermaid",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
     "validate_workflow_contract",

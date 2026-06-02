@@ -52,6 +52,7 @@ from .types import WorkflowExecution, WorkflowResult
 
 if TYPE_CHECKING:
     from ._pydantic_graph.runtime import GraphWorkflowRuntime
+    from .ir import WorkflowGraphIR
     from .registry import TaskTypeRegistry
     from .version import WorkflowVersion
 
@@ -279,6 +280,27 @@ class Workflow:
             name=self.name,
             topology=tuple(topo),
         )
+
+    # ── Full-graph IR + diagram export ────────────────────────────────────
+
+    def to_ir(self) -> WorkflowGraphIR:
+        """Export the full compiled-graph IR for this workflow.
+
+        Unlike :meth:`to_dict` (the DAG-only server/agent wire format), the
+        returned :class:`~molexp.workflow.ir.WorkflowGraphIR` captures the
+        entire topology — tasks, dependencies, entries, control edges,
+        branch routes, loops, and parallels — and never requires
+        ``task_type`` slugs, so decorator-defined workflows export too.
+        """
+        from .ir import build_workflow_graph_ir
+
+        return build_workflow_graph_ir(self)
+
+    def to_mermaid(self, *, direction: str = "LR") -> str:
+        """Render this workflow as a Mermaid ``flowchart`` (via :meth:`to_ir`)."""
+        from .mermaid import render_workflow_mermaid
+
+        return render_workflow_mermaid(self.to_ir(), direction=direction)
 
     # ── IR serialization ─────────────────────────────────────────────────
 
