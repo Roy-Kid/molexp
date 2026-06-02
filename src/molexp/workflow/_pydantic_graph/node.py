@@ -443,6 +443,116 @@ def _classify_return(
 # ── Body dispatcher (called by WorkflowStep._invoke_one) ────────────────────
 
 
+async def run_task_body(
+    name: str,
+    deps: WorkflowDeps,
+    state: WorkflowState,
+    *,
+    element: TaskInput = NO_OUTPUT,
+) -> TaskOutput:
+    """Invoke one task's body against freshly-built context (pg-node edition).
+
+    Extracted from the old ``WorkflowStep._invoke_one`` singleton path so the
+    per-task pydantic-graph ``Step`` nodes (see :mod:`.lowering`) reuse the
+    exact context-construction + remote-gate + dependent-params logic. When
+    *element* is provided (``wf.parallel`` fan-out), it is used as ``ctx.inputs``
+    directly instead of collecting upstream outputs.
+    """
+    registration = deps.registration_by_name.get(name)
+    if registration is None:
+        raise UnknownTaskError(f"run_task_body: unknown task {name!r}")
+
+    if element is not NO_OUTPUT:
+        inputs: TaskInput = element
+        effective_config = deps.config
+    else:
+        inputs = _collect_upstream_outputs(registration, state)
+        effective_config = _resolve_dependent_params(
+            registration=registration,
+            state=state,
+            run_context=deps.run_context,
+            base_config=deps.config,
+        )
+
+    task_ctx: ActorContext[WorkflowState, UserDeps, TaskInput] = ActorContext(
+        state=state,
+        deps=deps.user_deps,
+        inputs=inputs,
+        config=effective_config,
+        run_context=deps.run_context,
+    )
+
+    remote = getattr(registration, "remote", None)
+    if remote is not None and element is NO_OUTPUT:
+        remote_executor = getattr(deps, "remote_executor", None)
+        if remote_executor is not None:
+            return await remote_executor.execute_remote(
+                entry=registration,
+                inputs=task_ctx.inputs,
+                run_dir=getattr(deps, "run_dir", None),
+            )
+
+    return await _invoke_body_with_ctx(registration, task_ctx)
+
+
+async def run_parallel_body(
+    name: str, deps: WorkflowDeps, state: WorkflowState
+) -> list[TaskOutput]:
+    """Fan out a ``wf.parallel`` body over ``map_over``'s output (ordered, bounded).
+
+    Mirrors the old ``WorkflowStep._invoke_one`` parallel path: one body
+    invocation per element under ``Semaphore(max_concurrency)``, ordered
+    results, per-element exceptions aggregated into
+    :class:`ParallelExecutionError`.
+    """
+    decl = deps.parallel_decls[name]
+    elements = state.results.get(decl.map_over)
+    if elements is None:
+        raise ParallelExecutionError(
+            body=name,
+            failures={
+                -1: RuntimeError(
+                    f"wf.parallel({decl.body!r}): map_over task "
+                    f"{decl.map_over!r} produced no output to fan out over."
+                )
+            },
+        )
+    try:
+        element_list = list(elements)
+    except TypeError as exc:
+        raise ParallelExecutionError(
+            body=name,
+            failures={
+                -1: TypeError(
+                    f"wf.parallel({decl.body!r}): map_over task "
+                    f"{decl.map_over!r} output is not iterable: {exc}"
+                )
+            },
+        ) from exc
+
+    sem = asyncio.Semaphore(decl.max_concurrency)
+
+    async def _invoke_element(elem: TaskInput) -> TaskOutput:
+        async with sem:
+            return await run_task_body(name, deps, state, element=elem)
+
+    results_or_excs = await asyncio.gather(
+        *[_invoke_element(elem) for elem in element_list],
+        return_exceptions=True,
+    )
+    outputs: list[TaskOutput] = []
+    failures: dict[int, Exception] = {}
+    for idx, result in enumerate(results_or_excs):
+        if isinstance(result, BaseException):
+            failures[idx] = result if isinstance(result, Exception) else Exception(repr(result))
+            outputs.append(None)
+        else:
+            outputs.append(result)
+    if failures:
+        raise ParallelExecutionError(body=name, failures=failures)
+    return outputs
+
+
 async def _invoke_body_with_ctx(
     registration: TaskRegistration,
     task_ctx: ActorContext[TaskOutput, UserDeps, TaskInput],

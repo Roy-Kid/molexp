@@ -1,6 +1,6 @@
 ---
 title: Workflow refactor 04 — WorkflowRuntime + flat caching + asset-manifest re-registration
-status: draft
+status: approved
 created: 2026-06-02
 notes: |
   Final spec of the 4-spec workflow/ refactor. Renames GraphWorkflowRuntime →

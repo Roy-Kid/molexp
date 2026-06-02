@@ -1,6 +1,6 @@
 ---
 title: Workflow refactor 03 — lower to per-task pydantic-graph nodes; delete the hand-rolled scheduler
-status: draft
+status: approved
 created: 2026-06-02
 notes: |
   Third of the 4-spec workflow/ refactor. Internal executor swap only — the
