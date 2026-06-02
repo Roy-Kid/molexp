@@ -29,7 +29,7 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
         "\n".join(
             [
                 "import molexp as me",
-                "from molexp.workflow import promote_callable",
+                "from molexp.workflow import default_binding_registry, promote_callable",
                 "",
                 f"ws = me.Workspace({str(workspace_root)!r})",
                 "project = ws.add_project('demo')",
@@ -38,7 +38,7 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
                 "def train(ctx: me.RunContext) -> None:",
                 "    ctx.set_result('ok', True)",
                 "",
-                "promote_callable(train, name='train').bind_to(exp)",
+                "default_binding_registry.bind(exp, promote_callable(train, name='train'))",
                 "me.entry(ws)",
                 "",
             ]

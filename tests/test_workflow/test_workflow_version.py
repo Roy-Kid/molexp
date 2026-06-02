@@ -11,7 +11,7 @@ helpers (`write_record` / `load_record` / `_versions_dir` /
 
 from __future__ import annotations
 
-from molexp.workflow import Workflow, WorkflowBuilder
+from molexp.workflow import WorkflowCompiler
 from molexp.workflow.version import (
     TaskTopologyEntry,
     WorkflowVersion,
@@ -19,8 +19,8 @@ from molexp.workflow.version import (
 )
 
 
-def _make_two_task_workflow(version: str = "1.0.0") -> Workflow:
-    wf = WorkflowBuilder(name="pipeline", version=version)
+def _make_two_task_workflow(version: str = "1.0.0") -> WorkflowCompiler:
+    wf = WorkflowCompiler(name="pipeline", version=version)
 
     @wf.task
     async def fetch(ctx):
@@ -35,8 +35,8 @@ def _make_two_task_workflow(version: str = "1.0.0") -> Workflow:
 
 class TestWorkflowSpecVersionMethod:
     def test_version_returns_workflow_version_record(self):
-        spec = _make_two_task_workflow(version="1.0.0").build()
-        record = spec.version()
+        spec = _make_two_task_workflow(version="1.0.0").compile()
+        record = spec.version
 
         assert isinstance(record, WorkflowVersion)
         assert record.workflow_id == spec.workflow_id
@@ -44,8 +44,8 @@ class TestWorkflowSpecVersionMethod:
         assert record.name == "pipeline"
 
     def test_version_topology_shape(self):
-        spec = _make_two_task_workflow(version="1.0.0").build()
-        record = spec.version()
+        spec = _make_two_task_workflow(version="1.0.0").compile()
+        record = spec.version
 
         assert len(record.topology) == 2
         assert all(isinstance(t, TaskTopologyEntry) for t in record.topology)
@@ -54,11 +54,11 @@ class TestWorkflowSpecVersionMethod:
         assert record.topology[1].depends_on == ("fetch",)
 
     def test_version_label_is_separate_attribute(self):
-        spec = _make_two_task_workflow(version="3.1.4").build()
+        spec = _make_two_task_workflow(version="3.1.4").compile()
         # The version *label* (string) and the version *record* (WorkflowVersion)
         # are two different things; the record carries the label.
         assert spec.version_label == "3.1.4"
-        assert spec.version().version == "3.1.4"
+        assert spec.version.version == "3.1.4"
 
 
 class TestWorkflowVersionConflictErrorIsRuntimeError:
@@ -68,14 +68,14 @@ class TestWorkflowVersionConflictErrorIsRuntimeError:
 
 class TestNoFilesystemHelpers:
     def test_no_register_method_on_spec(self):
-        spec = _make_two_task_workflow().build()
+        spec = _make_two_task_workflow().compile()
         assert not hasattr(spec, "register"), (
             "WorkflowSpec.register(workspace) must be removed; persistence is "
             "no longer the workflow layer's responsibility."
         )
 
     def test_no_to_workflow_version_method(self):
-        spec = _make_two_task_workflow().build()
+        spec = _make_two_task_workflow().compile()
         assert not hasattr(spec, "to_workflow_version"), (
             "to_workflow_version() must be renamed to version()."
         )

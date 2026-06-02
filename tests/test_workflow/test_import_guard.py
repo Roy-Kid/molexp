@@ -21,6 +21,7 @@ direction; workflow now uses workspace for caching + persistence.
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 WORKFLOW_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow"
@@ -91,6 +92,35 @@ def test_pydantic_graph_imports_confined_to_pydantic_graph_subtree() -> None:
     ]
     assert not bad, "pydantic_graph imports outside workflow/_pydantic_graph/:\n  " + "\n  ".join(
         bad
+    )
+
+
+def test_compiled_graph_is_layer_private() -> None:
+    """No layer above ``workflow`` may read ``CompiledWorkflow.graph``.
+
+    ``.graph`` holds a layer-private ``LoweredGraph`` (live task callables);
+    only the workflow runtime reads it. Layers above workflow must use the
+    public codec / introspection surface, never ``compiled.graph``. This
+    guards the architect's N1 note on the build+compile merge (spec
+    workflow-refactor-02).
+    """
+    src_root = Path(__file__).resolve().parents[2] / "src" / "molexp"
+    upper_layers = ("server", "cli", "harness", "agent", "sweep", "plugins")
+    offenders: list[str] = []
+    for layer in upper_layers:
+        layer_root = src_root / layer
+        if not layer_root.exists():
+            continue
+        for py in layer_root.rglob("*.py"):
+            if "__pycache__" in py.parts:
+                continue
+            for lineno, line in enumerate(py.read_text(encoding="utf-8").splitlines(), 1):
+                if re.search(r"\.graph\b", line) and not line.lstrip().startswith("#"):
+                    offenders.append(f"{py.relative_to(src_root)}:{lineno}: {line.strip()}")
+    assert not offenders, (
+        "Layers above 'workflow' must not read the layer-private "
+        "CompiledWorkflow.graph; use the public codec/introspection surface.\n  "
+        + "\n  ".join(offenders)
     )
 
 

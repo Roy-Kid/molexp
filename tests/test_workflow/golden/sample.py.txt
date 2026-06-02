@@ -1,12 +1,12 @@
 """Auto-generated molexp workflow plan.
 
 The IR literal below is the source of truth — edit it, and the
-matching ``Workflow.from_dict(WORKFLOW_IR)`` call below will
+matching ``CompiledWorkflow.from_ir(WORKFLOW_IR)`` call below will
 load your edits. The server reads the IR (not this script) when
 running the workflow; the script exists so the IR is comfortable
 to read and review in Python form.
 """
-from molexp.workflow.spec import Workflow
+from molexp.workflow import CompiledWorkflow
 
 WORKFLOW_IR = {
     'links': [
@@ -36,4 +36,4 @@ WORKFLOW_IR = {
     ],
 }
 
-spec = Workflow.from_dict(WORKFLOW_IR)
+spec = CompiledWorkflow.from_ir(WORKFLOW_IR)

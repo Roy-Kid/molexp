@@ -1,8 +1,8 @@
 """IR (JSON) ↔ Workflow round-trip tests.
 
 These verify that:
-- ``Workflow.from_dict(d)`` produces a runnable spec.
-- ``Workflow.to_dict()`` is the inverse for IR-built specs.
+- ``CompiledWorkflow.from_ir(d)`` produces a runnable spec.
+- ``Workflow.to_ir()`` is the inverse for IR-built specs.
 - Python-built specs marked with ``task_type=`` slugs round-trip too.
 - The recomputed ``workflow_id`` (topology hash) is preserved.
 """
@@ -12,9 +12,10 @@ from __future__ import annotations
 import pytest
 
 from molexp.workflow import (
+    CompiledWorkflow,
+    GraphWorkflowRuntime,
     TaskTypeRegistry,
-    Workflow,
-    WorkflowBuilder,
+    WorkflowCompiler,
     default_registry,
 )
 
@@ -55,7 +56,7 @@ def _ir_constant_add() -> dict:
 
 class TestFromDict:
     def test_topology_is_recovered(self, registry: TaskTypeRegistry) -> None:
-        spec = Workflow.from_dict(_ir_constant_add(), registry=registry)
+        spec = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
         names = {t.name for t in spec._tasks}
         assert names == {"a", "b", "c"}
 
@@ -66,20 +67,20 @@ class TestFromDict:
         ir = _ir_constant_add()
         ir["task_configs"][0]["task_type"] = "nonexistent.thing"
         with pytest.raises(KeyError, match="nonexistent.thing"):  # noqa: RUF043
-            Workflow.from_dict(ir, registry=registry)
+            CompiledWorkflow.from_ir(ir, registry=registry)
 
     def test_dangling_link_raises(self, registry: TaskTypeRegistry) -> None:
         ir = _ir_constant_add()
         ir["links"].append({"source": "ghost", "target": "c", "mapping": {}, "status": "pending"})
         with pytest.raises(ValueError, match="ghost"):
-            Workflow.from_dict(ir, registry=registry)
+            CompiledWorkflow.from_ir(ir, registry=registry)
 
 
 class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_constant_add(self, registry: TaskTypeRegistry) -> None:
-        spec = Workflow.from_dict(_ir_constant_add(), registry=registry)
-        result = await spec.execute()
+        spec = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
+        result = await GraphWorkflowRuntime().execute(spec)
         # Final task `c` should receive a + b = 5
         assert result.outputs["c"] == 5.0
 
@@ -107,16 +108,16 @@ class TestExecute:
             ],
             "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
         }
-        spec = Workflow.from_dict(ir, registry=registry)
-        result = await spec.execute()
+        spec = CompiledWorkflow.from_ir(ir, registry=registry)
+        result = await GraphWorkflowRuntime().execute(spec)
         assert result.outputs["tripled"] == 21.0
 
 
 class TestRoundtrip:
     def test_to_dict_then_from_dict(self, registry: TaskTypeRegistry) -> None:
-        original = Workflow.from_dict(_ir_constant_add(), registry=registry)
-        ir = original.to_dict()
-        rebuilt = Workflow.from_dict(ir, registry=registry)
+        original = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
+        ir = original.to_ir()
+        rebuilt = CompiledWorkflow.from_ir(ir, registry=registry)
         assert rebuilt.workflow_id == original.workflow_id
         assert rebuilt.name == original.name
         assert {t.name for t in rebuilt._tasks} == {t.name for t in original._tasks}
@@ -124,7 +125,7 @@ class TestRoundtrip:
     def test_python_built_with_slug_serializes(self, registry: TaskTypeRegistry) -> None:
         from molexp.workflow.registry import _Add, _Constant
 
-        wf = WorkflowBuilder(name="py_built")
+        wf = WorkflowCompiler(name="py_built")
         wf.add(_Constant(value=4), name="four", task_type="core.constant", config={"value": 4})
         wf.add(_Constant(value=6), name="six", task_type="core.constant", config={"value": 6})
         wf.add(
@@ -134,8 +135,8 @@ class TestRoundtrip:
             task_type="core.add",
             config={},
         )
-        spec = wf.build()
-        ir = spec.to_dict()
+        spec = wf.compile()
+        ir = spec.to_ir()
         # IR reflects the topology faithfully
         assert ir["name"] == "py_built"
         assert {t["task_id"] for t in ir["task_configs"]} == {"four", "six", "sum"}
@@ -145,11 +146,11 @@ class TestRoundtrip:
     def test_to_dict_rejects_unslugged_tasks(self) -> None:
         from molexp.workflow.registry import _Constant
 
-        wf = WorkflowBuilder(name="unslugged")
+        wf = WorkflowCompiler(name="unslugged")
         wf.add(_Constant(value=1), name="lonely")  # no task_type passed
-        spec = wf.build()
+        spec = wf.compile()
         with pytest.raises(ValueError, match="task_type slug"):
-            spec.to_dict()
+            spec.to_ir()
 
     def test_cyclic_spec_to_dict_rejected(self) -> None:
         """IR (`to_dict`) does not yet model control edges — cyclic specs must
@@ -162,12 +163,12 @@ class TestRoundtrip:
         """
         from molexp.workflow.registry import _Constant
 
-        wf = WorkflowBuilder(name="cyclic-ir")
+        wf = WorkflowCompiler(name="cyclic-ir")
         wf.add(_Constant(value=1), name="head", task_type="core.constant", config={"value": 1})
         wf.add(_Constant(value=2), name="tail", task_type="core.constant", config={"value": 2})
         wf.entry("head")
         wf.control("head", "tail")
         wf.branch("tail", "back", "head")  # cyclic — control edge loop
-        spec = wf.build()
+        spec = wf.compile()
         with pytest.raises(ValueError, match="control edge"):
-            spec.to_dict()
+            spec.to_ir()

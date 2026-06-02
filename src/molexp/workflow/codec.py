@@ -39,12 +39,12 @@ import yaml
 
 from .._typing import JSONMapping, JSONValue
 from ._graph_decl import TaskRegistration
-from ._helpers import _ir_object_list, _require_str, _stable_workflow_id
+from ._helpers import _ir_object_list, _require_str
 from .contract import WorkflowContract
 from .protocols import Streamable
-from .spec import Workflow
 
 if TYPE_CHECKING:
+    from .compiled import CompiledWorkflow
     from .registry import TaskTypeRegistry
 
 __all__ = [
@@ -57,12 +57,12 @@ _SCRIPT_HEADER = '''\
 """Auto-generated molexp workflow plan.
 
 The IR literal below is the source of truth — edit it, and the
-matching ``Workflow.from_dict(WORKFLOW_IR)`` call below will
+matching ``CompiledWorkflow.from_ir(WORKFLOW_IR)`` call below will
 load your edits. The server reads the IR (not this script) when
 running the workflow; the script exists so the IR is comfortable
 to read and review in Python form.
 """
-from molexp.workflow.spec import Workflow
+from molexp.workflow import CompiledWorkflow
 '''
 
 
@@ -76,8 +76,8 @@ class WorkflowCodec:
     :data:`default_codec` for callers that don't need customization.
 
     This codec is the single owner of IR conversion: ``spec_to_ir`` /
-    ``ir_to_spec`` hold the authoritative ``Workflow`` ⇄ IR bodies, and
-    ``Workflow.to_dict`` / ``from_dict`` are thin delegators to
+    ``ir_to_spec`` hold the authoritative ``CompiledWorkflow`` ⇄ IR bodies,
+    and ``CompiledWorkflow.to_ir`` / ``from_ir`` are thin delegators to
     :data:`default_codec`.
     """
 
@@ -98,9 +98,7 @@ class WorkflowCodec:
         # which includes the concrete ``dict[str, JSONValue]`` arm. Convert
         # so the static-typing narrowing matches the dict arm explicitly.
         literal = _safe_literal_repr(dict(ir))
-        return (
-            f"{_SCRIPT_HEADER}\nWORKFLOW_IR = {literal}\n\nspec = Workflow.from_dict(WORKFLOW_IR)\n"
-        )
+        return f"{_SCRIPT_HEADER}\nWORKFLOW_IR = {literal}\n\nspec = CompiledWorkflow.from_ir(WORKFLOW_IR)\n"
 
     def python_to_ir(self, script: str) -> JSONMapping:
         """Extract the IR literal from a Python script.
@@ -132,13 +130,15 @@ class WorkflowCodec:
             return value
         raise ValueError("python_to_ir: no top-level WORKFLOW_IR assignment found.")
 
-    # ── IR ↔ Workflow ───────────────────────────────────────────────
+    # ── IR ↔ CompiledWorkflow ────────────────────────────────────────
 
-    def ir_to_spec(self, ir: JSONMapping, *, registry: TaskTypeRegistry | None = None) -> Workflow:
-        """Build a :class:`Workflow` from JSON IR.
+    def ir_to_spec(
+        self, ir: JSONMapping, *, registry: TaskTypeRegistry | None = None
+    ) -> CompiledWorkflow:
+        """Build a :class:`CompiledWorkflow` from JSON IR.
 
-        This is the authoritative IR → :class:`Workflow` body;
-        :meth:`Workflow.from_dict` delegates here.
+        This is the authoritative IR → :class:`CompiledWorkflow` body;
+        :meth:`CompiledWorkflow.from_ir` delegates here.
         """
         if registry is None:
             from .registry import default_registry
@@ -183,14 +183,11 @@ class WorkflowCodec:
 
         name_raw = ir.get("name")
         name = name_raw if isinstance(name_raw, str) else ""
-        return Workflow(
-            name=name,
-            workflow_id=_stable_workflow_id(name, tasks),
-            tasks=tasks,
-            mode="batch",
-        )
+        from .compiler import compile_registrations
 
-    def spec_to_ir(self, spec: Workflow) -> JSONMapping:
+        return compile_registrations(name=name, version_label="0", tasks=tasks)
+
+    def spec_to_ir(self, spec: CompiledWorkflow) -> JSONMapping:
         """Serialize a :class:`Workflow` to the JSON IR shape (see ``schema/workflow.json``).
 
         This is the authoritative :class:`Workflow` → IR body;
@@ -201,7 +198,7 @@ class WorkflowCodec:
             raise ValueError(
                 "Cannot serialize workflow to IR: the following tasks have no "
                 f"task_type slug: {unslugged}. Use `WorkflowBuilder.add(..., task_type=...)` "
-                "or build the spec from IR via Workflow.from_dict()."
+                "or build the spec from IR via CompiledWorkflow.from_ir()."
             )
         if spec._control_edges or spec._branch_edges or spec._entries:
             raise ValueError(
@@ -238,11 +235,11 @@ class WorkflowCodec:
 
     # ── Spec → Python / Mermaid (composition) ───────────────────────────
 
-    def spec_to_python(self, spec: Workflow) -> str:
+    def spec_to_python(self, spec: CompiledWorkflow) -> str:
         """Render a spec as a Python script (via the IR)."""
         return self.ir_to_python(self.spec_to_ir(spec))
 
-    def spec_to_mermaid(self, spec: Workflow) -> str:
+    def spec_to_mermaid(self, spec: CompiledWorkflow) -> str:
         """Render a spec as a Mermaid flowchart (via the IR)."""
         return self.ir_to_mermaid(self.spec_to_ir(spec))
 
@@ -297,11 +294,13 @@ class WorkflowCodec:
 
     # ── Spec ↔ YAML (composition) ───────────────────────────────────────
 
-    def spec_to_yaml(self, spec: Workflow) -> str:
+    def spec_to_yaml(self, spec: CompiledWorkflow) -> str:
         """Render a spec as YAML text (via the JSON IR)."""
         return self.ir_to_yaml(self.spec_to_ir(spec))
 
-    def yaml_to_spec(self, text: str, *, registry: TaskTypeRegistry | None = None) -> Workflow:
+    def yaml_to_spec(
+        self, text: str, *, registry: TaskTypeRegistry | None = None
+    ) -> CompiledWorkflow:
         """Build a :class:`Workflow` from a YAML text (via the JSON IR)."""
         return self.ir_to_spec(self.yaml_to_ir(text), registry=registry)
 

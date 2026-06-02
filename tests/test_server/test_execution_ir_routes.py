@@ -1,14 +1,14 @@
 """Tests for the /executions route consuming workflow IR.
 
 When the agent posts an :class:`ExecutionCreateRequest` carrying
-``workflow_json``, the server compiles it into a ``Workflow`` and
-binds it through ``Workflow.bind_to`` — workspace itself holds no
-workflow concept (rectification 2026-05-09).
+``workflow_json``, the server compiles it into a ``CompiledWorkflow``
+and binds it through ``default_binding_registry`` — workspace itself
+holds no workflow concept (rectification 2026-05-09).
 """
 
 from __future__ import annotations
 
-from molexp.workflow import Workflow
+from molexp.workflow import default_binding_registry
 
 
 def _ir() -> dict:
@@ -48,7 +48,7 @@ class TestExecutionIRRoute:
         )
         assert resp.status_code == 200
         # No workflow was bound — registry stays empty for this experiment.
-        assert Workflow.for_experiment(experiment) is None
+        assert default_binding_registry.for_experiment(experiment) is None
 
     def test_post_with_workflow_json_binds_and_persists(self, client, project, experiment):
         resp = client.post(
@@ -65,7 +65,7 @@ class TestExecutionIRRoute:
         # The compiled spec should be discoverable via the workflow-layer
         # registry, keyed by experiment.id (the registry is process-local
         # and survives across handler invocations within the test).
-        bound = Workflow.for_experiment(experiment)
+        bound = default_binding_registry.for_experiment(experiment)
         assert bound is not None
         assert bound.name == "exec_route_ir"
 
@@ -94,7 +94,7 @@ class TestExecutionIRRoute:
             },
         )
         assert resp.status_code == 200
-        bound = Workflow.for_experiment(experiment)
+        bound = default_binding_registry.for_experiment(experiment)
         assert bound is not None
         assert bound.name == "exec_route_ir"  # first wins
 

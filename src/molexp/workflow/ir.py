@@ -31,7 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .._typing import JSONValue
 
 if TYPE_CHECKING:
-    from .spec import Workflow
+    from .compiled import CompiledWorkflow as Workflow
 
 __all__ = [
     "GraphLoopIR",

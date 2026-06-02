@@ -21,7 +21,7 @@ import asyncio
 
 import pytest
 
-from molexp.workflow import WorkflowBuilder
+from molexp.workflow import GraphWorkflowRuntime, WorkflowCompiler
 from molexp.workflow.types import Next
 
 # ── T1 / ac-002, ac-003: encapsulation invariants ───────────────────────────
@@ -44,9 +44,7 @@ def test_no_per_element_node_growth() -> None:
     width is decided at run time from ``state.results[map_over]`` and never
     grows the compile-time entry set.
     """
-    from molexp.workflow._pydantic_graph.compiler import WorkflowGraphCompiler
-
-    wf = WorkflowBuilder(name="no-per-elem-growth", entry="enumerate")
+    wf = WorkflowCompiler(name="no-per-elem-growth", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -62,7 +60,7 @@ def test_no_per_element_node_growth() -> None:
 
     wf.parallel(map_over="enumerate", body="square", join="sum_results", max_concurrency=2)
 
-    compiled = WorkflowGraphCompiler().compile(wf.build())
+    compiled = wf.compile().graph
 
     assert set(compiled.task_by_name.keys()) == {"enumerate", "square", "sum_results"}, (
         f"Expected exactly 3 entries (enumerate + square + sum_results), "
@@ -76,7 +74,7 @@ def test_no_per_element_node_growth() -> None:
 @pytest.mark.asyncio
 async def test_parallel_happy_path() -> None:
     """ac-004 — squarer + summer pipeline; ordered list and reduced sum."""
-    wf = WorkflowBuilder(name="parallel-happy", entry="enumerate")
+    wf = WorkflowCompiler(name="parallel-happy", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -92,7 +90,7 @@ async def test_parallel_happy_path() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
-    result = await wf.build().execute()
+    result = await GraphWorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["body"] == [1, 4, 9]
     assert result.outputs["join"] == 14
@@ -105,7 +103,7 @@ async def test_parallel_preserves_iteration_order() -> None:
     Element 0 sleeps the longest; the recorded list MUST still be in
     iteration order, not completion order.
     """
-    wf = WorkflowBuilder(name="parallel-order", entry="enumerate")
+    wf = WorkflowCompiler(name="parallel-order", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[float]:
@@ -123,7 +121,7 @@ async def test_parallel_preserves_iteration_order() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=5)
 
-    result = await wf.build().execute()
+    result = await GraphWorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     # Iteration order, not completion order.
     assert result.outputs["body"] == [0.05, 0.04, 0.03, 0.02, 0.01]
@@ -145,7 +143,7 @@ async def test_max_concurrency_throttle() -> None:
     observed_max = 0
     lock = asyncio.Lock()
 
-    wf = WorkflowBuilder(name="parallel-throttle", entry="enumerate")
+    wf = WorkflowCompiler(name="parallel-throttle", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -170,7 +168,7 @@ async def test_max_concurrency_throttle() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=2)
 
-    result = await wf.build().execute()
+    result = await GraphWorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["join"] == 5
     assert observed_max <= 2, f"Expected in-flight cap of 2, observed {observed_max}"
@@ -181,11 +179,11 @@ async def test_parallel_failure_capture() -> None:
     """ac-006 — element 1 raises; siblings finish; ``ParallelExecutionError``
     surfaces with ``failures[1]`` populated.
     """
-    from molexp.workflow import ParallelExecutionError, WorkflowBuilder
+    from molexp.workflow import ParallelExecutionError, WorkflowCompiler
 
     sibling_completions: list[int] = []
 
-    wf = WorkflowBuilder(name="parallel-failure", entry="enumerate")
+    wf = WorkflowCompiler(name="parallel-failure", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -205,7 +203,7 @@ async def test_parallel_failure_capture() -> None:
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
     with pytest.raises(ParallelExecutionError) as exc_info:
-        await wf.build().execute()
+        await GraphWorkflowRuntime().execute(wf.compile())
 
     assert exc_info.value.body == "body"
     assert set(exc_info.value.failures.keys()) == {1}
@@ -224,7 +222,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
     workspace-backed run; in lieu of that, we re-execute and assert the
     outputs[body] length, which is the observable consequence.
     """
-    wf = WorkflowBuilder(name="parallel-count", entry="enumerate")
+    wf = WorkflowCompiler(name="parallel-count", entry="enumerate")
 
     @wf.task
     async def enumerate(ctx) -> list[int]:
@@ -240,7 +238,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=4)
 
-    result = await wf.build().execute()
+    result = await GraphWorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert len(result.outputs["body"]) == 4
     assert result.outputs["join"] == 4
@@ -251,7 +249,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
 
 def test_validation_max_concurrency_zero_rejected() -> None:
     """ac-007 — ``max_concurrency=0`` is a programming error, eager-rejected."""
-    wf = WorkflowBuilder(name="bad-concurrency", entry="seed")
+    wf = WorkflowCompiler(name="bad-concurrency", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -271,9 +269,9 @@ def test_validation_max_concurrency_zero_rejected() -> None:
 
 def test_validation_unregistered_map_over_rejected() -> None:
     """ac-007 — unregistered ``map_over`` task name → ``UnknownTaskError``."""
-    from molexp.workflow import UnknownTaskError, WorkflowBuilder
+    from molexp.workflow import UnknownTaskError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="bad-map-over", entry="body")
+    wf = WorkflowCompiler(name="bad-map-over", entry="body")
 
     @wf.task
     async def body(ctx) -> int:
@@ -286,15 +284,15 @@ def test_validation_unregistered_map_over_rejected() -> None:
     wf.parallel(map_over="missing", body="body", join="join", max_concurrency=2)
 
     with pytest.raises(UnknownTaskError) as exc_info:
-        wf.build()
+        wf.compile()
     assert "missing" in str(exc_info.value)
 
 
 def test_validation_unregistered_body_rejected() -> None:
     """ac-007 — unregistered ``body`` task name → ``UnknownTaskError``."""
-    from molexp.workflow import UnknownTaskError, WorkflowBuilder
+    from molexp.workflow import UnknownTaskError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="bad-body", entry="seed")
+    wf = WorkflowCompiler(name="bad-body", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -307,15 +305,15 @@ def test_validation_unregistered_body_rejected() -> None:
     wf.parallel(map_over="seed", body="missing", join="join", max_concurrency=2)
 
     with pytest.raises(UnknownTaskError) as exc_info:
-        wf.build()
+        wf.compile()
     assert "missing" in str(exc_info.value)
 
 
 def test_validation_unregistered_join_rejected() -> None:
     """ac-007 — unregistered ``join`` task name → ``UnknownTaskError``."""
-    from molexp.workflow import UnknownTaskError, WorkflowBuilder
+    from molexp.workflow import UnknownTaskError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="bad-join", entry="seed")
+    wf = WorkflowCompiler(name="bad-join", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -328,15 +326,15 @@ def test_validation_unregistered_join_rejected() -> None:
     wf.parallel(map_over="seed", body="body", join="missing", max_concurrency=2)
 
     with pytest.raises(UnknownTaskError) as exc_info:
-        wf.build()
+        wf.compile()
     assert "missing" in str(exc_info.value)
 
 
 def test_validation_parallel_of_parallel_rejected() -> None:
     """ac-007 — same ``body`` shared across two parallel decls → ``EdgeShapeError``."""
-    from molexp.workflow import EdgeShapeError, WorkflowBuilder
+    from molexp.workflow import EdgeShapeError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="parallel-of-parallel", entry="seed")
+    wf = WorkflowCompiler(name="parallel-of-parallel", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -358,15 +356,15 @@ def test_validation_parallel_of_parallel_rejected() -> None:
     wf.parallel(map_over="other_seed", body="shared_body", join="join", max_concurrency=2)
 
     with pytest.raises(EdgeShapeError) as exc_info:
-        wf.build()
+        wf.compile()
     assert "shared_body" in str(exc_info.value)
 
 
 def test_validation_loop_until_eq_parallel_body_rejected() -> None:
     """ac-007 — using a loop ``until`` task as a parallel ``body`` → ``EdgeShapeError``."""
-    from molexp.workflow import EdgeShapeError, WorkflowBuilder
+    from molexp.workflow import EdgeShapeError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="loop-parallel-collision", entry="seed")
+    wf = WorkflowCompiler(name="loop-parallel-collision", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -385,16 +383,16 @@ def test_validation_loop_until_eq_parallel_body_rejected() -> None:
     wf.parallel(map_over="seed", body="join", join="seed", max_concurrency=2)
 
     with pytest.raises(EdgeShapeError):
-        wf.build()
+        wf.compile()
 
 
 def test_validation_body_extra_depends_on_rejected() -> None:
     """ac-007 — body declared with extra ``depends_on`` than ``[map_over]`` →
     ``EdgeShapeError`` (parallel owns the wiring per D6).
     """
-    from molexp.workflow import EdgeShapeError, WorkflowBuilder
+    from molexp.workflow import EdgeShapeError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="body-extra-deps", entry="seed")
+    wf = WorkflowCompiler(name="body-extra-deps", entry="seed")
 
     @wf.task
     async def seed(ctx) -> list[int]:
@@ -415,4 +413,4 @@ def test_validation_body_extra_depends_on_rejected() -> None:
     wf.parallel(map_over="seed", body="body", join="join", max_concurrency=2)
 
     with pytest.raises(EdgeShapeError):
-        wf.build()
+        wf.compile()

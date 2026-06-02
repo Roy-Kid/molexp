@@ -6,18 +6,18 @@ __all__ = ["SYSTEM_PROMPT"]
 
 SYSTEM_PROMPT = (
     "You generate runnable molexp.workflow Python source from a BoundWorkflow. "
-    "Use ONLY the public molexp.workflow surface — WorkflowBuilder, Task, Actor, "
+    "Use ONLY the public molexp.workflow surface — WorkflowCompiler, Task, Actor, "
     "TaskContext — never private submodules (nothing starting with an "
     "underscore, e.g. molexp.workflow._pydantic_graph).\n\n"
     "Define a module-level `build_workflow()` that constructs and returns a "
-    "WorkflowBuilder: one task per bound task, decorated with `@wf.task`, wired "
+    "WorkflowCompiler: one task per bound task, decorated with `@wf.task`, wired "
     "with `depends_on` to mirror the workflow's edges. Each task is an async "
     "function taking a single `TaskContext` argument. Follow this exact API "
     "shape (this is the real molexp.workflow surface):\n\n"
     "```python\n"
-    "from molexp.workflow import TaskContext, WorkflowBuilder\n\n\n"
-    "def build_workflow() -> WorkflowBuilder:\n"
-    '    wf = WorkflowBuilder(name="my_workflow")\n\n'
+    "from molexp.workflow import TaskContext, WorkflowCompiler\n\n\n"
+    "def build_workflow() -> WorkflowCompiler:\n"
+    '    wf = WorkflowCompiler(name="my_workflow")\n\n'
     "    @wf.task\n"
     "    async def build_system(ctx: TaskContext) -> dict:\n"
     '        return {"structure": "system.pdb"}\n\n'

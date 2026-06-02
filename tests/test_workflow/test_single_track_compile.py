@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workflow import Actor, Task, TaskContext, WorkflowBuilder
+from molexp.workflow import Actor, GraphWorkflowRuntime, Task, TaskContext, WorkflowCompiler
 
 
 def test_task_is_not_pg_basenode_subclass():
@@ -44,16 +44,15 @@ def test_make_task_node_class_is_gone():
 
 
 def test_compiled_workflow_has_no_graph_attribute():
-    wf = WorkflowBuilder(name="probe")
+    wf = WorkflowCompiler(name="probe")
 
     @wf.task
     async def step(ctx: TaskContext) -> int:
         return 1
 
-    spec = wf.build()
-    from molexp.workflow._pydantic_graph.compiler import WorkflowGraphCompiler
+    spec = wf.compile()
 
-    compiled = WorkflowGraphCompiler().compile(spec)
+    compiled = spec.graph
 
     assert not hasattr(compiled, "graph"), (
         "CompiledWorkflow.graph (the dead pg Graph) must be removed."
@@ -72,11 +71,10 @@ def test_compiled_task_by_name_holds_user_instances():
             return 42
 
     user_instance = MyTask()
-    wf = WorkflowBuilder(name="identity").add(user_instance, name="my")
-    spec = wf.build()
-    from molexp.workflow._pydantic_graph.compiler import WorkflowGraphCompiler
+    wf = WorkflowCompiler(name="identity").add(user_instance, name="my")
+    spec = wf.compile()
 
-    compiled = WorkflowGraphCompiler().compile(spec)
+    compiled = spec.graph
 
     assert "my" in compiled.task_by_name
     assert compiled.task_by_name["my"] is user_instance, (
@@ -105,7 +103,7 @@ def test_task_no_basenode_run_stub():
 async def test_workflow_executes_without_per_task_codegen():
     """End-to-end: a workflow with two tasks compiles + runs to completion
     without per-task pg BaseNode codegen."""
-    wf = WorkflowBuilder(name="e2e")
+    wf = WorkflowCompiler(name="e2e")
 
     @wf.task
     async def a(ctx: TaskContext) -> int:
@@ -115,6 +113,6 @@ async def test_workflow_executes_without_per_task_codegen():
     async def b(ctx: TaskContext) -> int:
         return ctx.inputs + 1
 
-    result = await wf.build().execute()
+    result = await GraphWorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs == {"a": 1, "b": 2}

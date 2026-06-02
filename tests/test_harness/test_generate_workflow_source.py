@@ -20,11 +20,11 @@ import pytest
 # Mirror the schema fixture in test_validate_workflow_source so the
 # generated source the stub returns is itself a valid molexp.workflow program.
 _VALID_SOURCE = """\
-from molexp.workflow import Task, TaskContext, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, WorkflowCompiler
 
 
-def build_workflow() -> WorkflowBuilder:
-    wf = WorkflowBuilder(name="demo")
+def build_workflow() -> WorkflowCompiler:
+    wf = WorkflowCompiler(name="demo")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:
@@ -43,7 +43,7 @@ def _workflow_source_canned() -> dict:
         "source": _VALID_SOURCE,
         "module_name": "generated_workflow",
         "bound_workflow_id": "bw-x",
-        "symbols": ["WorkflowBuilder", "Task", "TaskContext"],
+        "symbols": ["WorkflowCompiler", "Task", "TaskContext"],
     }
 
 

@@ -69,13 +69,13 @@ def test_local_run_with_no_target(tmp_path: Path):
     script = tmp_path / "entry.py"
     script.write_text(
         "import molexp as me\n"
-        "from molexp.workflow import WorkflowBuilder\n"
+        "from molexp.workflow import WorkflowCompiler, default_binding_registry\n"
         "ws = me.Workspace('./_ws')\n"
         "e = ws.add_project('p').add_experiment('e')\n"
-        "wf = WorkflowBuilder(name='w')\n"
+        "wf = WorkflowCompiler(name='w')\n"
         "@wf.task\n"
         "async def t(ctx):\n    return 1\n"
-        "wf.build().bind_to(e)\n"
+        "default_binding_registry.bind(e, wf.compile())\n"
         "me.entry(ws)\n"
     )
     cwd = Path.cwd()

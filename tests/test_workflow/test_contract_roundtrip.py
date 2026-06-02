@@ -165,7 +165,7 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
     """``spec_to_yaml`` ⇄ ``yaml_to_spec`` is byte-stable through the
     JSON IR (slugged-task workflows only, matching the existing
     JSON-IR convention)."""
-    from molexp.workflow.builder import WorkflowBuilder
+    from molexp.workflow.compiler import WorkflowCompiler
     from molexp.workflow.registry import default_registry
     from molexp.workflow.task import Task
 
@@ -177,10 +177,10 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
         default_registry.register("test.inert_yaml_rt", lambda _config: Inert())
 
     spec = (
-        WorkflowBuilder(name="rt")
+        WorkflowCompiler(name="rt")
         .add(Inert(), name="A", task_type="test.inert_yaml_rt")
         .add(Inert(), name="B", task_type="test.inert_yaml_rt", depends_on=["A"])
-        .build()
+        .compile()
     )
     text = default_codec.spec_to_yaml(spec)
     spec2 = default_codec.yaml_to_spec(text)

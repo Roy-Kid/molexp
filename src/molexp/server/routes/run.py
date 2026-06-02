@@ -14,8 +14,8 @@ from fastapi.responses import StreamingResponse
 from molexp._run_cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workflow import (
-    Workflow,
     WorkflowSnapshotRef,
+    default_binding_registry,
     resolve_spec_entrypoint,
 )
 from molexp.workspace import (
@@ -96,7 +96,7 @@ def _synthesize_snapshot(experiment: Experiment) -> dict | None:
     submit_handler dispatch will refuse it later if a target is
     requested).
     """
-    spec = Workflow.for_experiment(experiment)
+    spec = default_binding_registry.for_experiment(experiment)
     if spec is None:
         return None
     try:

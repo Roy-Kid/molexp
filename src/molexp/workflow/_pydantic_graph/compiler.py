@@ -31,9 +31,8 @@ import graphlib
 from collections import defaultdict
 from pathlib import Path
 
-from .._graph_decl import ParallelDecl, TaskRegistration
+from .._graph_decl import ParallelDecl, TaskRegistration, WorkflowTopology
 from ..protocols import JSONMapping, RunContextLike, RunLike, TaskBody, UserDeps
-from ..spec import Workflow
 from ..types import (
     BranchEdges,
     CycleError,
@@ -48,8 +47,8 @@ from .node import END_TARGET
 from .state import WorkflowDeps
 
 
-class CompiledWorkflow:
-    """Output of :meth:`WorkflowGraphCompiler.compile`.
+class LoweredGraph:
+    """The executable graph produced by :meth:`WorkflowGraphCompiler.compile`.
 
     Carries the per-name task references (the user's :class:`Task` /
     :class:`Actor` instances, plain callables, or ``Runnable`` /
@@ -59,7 +58,11 @@ class CompiledWorkflow:
     :meth:`make_deps`.
 
     No pg ``Graph`` is constructed here; the runtime instantiates the
-    single ``WorkflowStep`` BaseNode against pg's state machine.
+    single ``WorkflowStep`` BaseNode against pg's state machine. This is a
+    **layer-private** type — it rides on the public
+    :class:`~molexp.workflow.compiled.CompiledWorkflow` as its ``.graph``
+    field, but only the workflow runtime (also inside the layer) ever
+    reads it; layers above ``workflow`` must not touch ``compiled.graph``.
     """
 
     def __init__(
@@ -105,9 +108,13 @@ class CompiledWorkflow:
 
 
 class WorkflowGraphCompiler:
-    """Compile a :class:`Workflow` into a :class:`CompiledWorkflow`."""
+    """Lower a :class:`WorkflowTopology` into an executable :class:`LoweredGraph`.
 
-    def compile(self, spec: Workflow) -> CompiledWorkflow:
+    Internal helper invoked exactly once by
+    :meth:`molexp.workflow.compiler.WorkflowCompiler.compile`.
+    """
+
+    def compile(self, spec: WorkflowTopology) -> LoweredGraph:
         self._validate_data_dag(spec)
         out_edges = self._compile_edge_sets(spec)
         entry_frontier = self._resolve_entry_frontier(spec)
@@ -125,7 +132,7 @@ class WorkflowGraphCompiler:
         loop_max_iters = {loop.until: loop.max_iters for loop in spec._loops}
         parallel_decls = {par.body: par for par in spec._parallels}
 
-        return CompiledWorkflow(
+        return LoweredGraph(
             task_by_name=task_by_name,
             registration_by_name=registration_by_name,
             out_edges=out_edges,
@@ -136,7 +143,7 @@ class WorkflowGraphCompiler:
 
     # ── Stage 1 ─ data DAG ──────────────────────────────────────────────
 
-    def _validate_data_dag(self, spec: Workflow) -> list[str]:
+    def _validate_data_dag(self, spec: WorkflowTopology) -> list[str]:
         names = {t.name for t in spec._tasks}
         for t in spec._tasks:
             for dep in t.depends_on:
@@ -157,7 +164,7 @@ class WorkflowGraphCompiler:
 
     # ── Stage 2 ─ edge sets ─────────────────────────────────────────────
 
-    def _compile_edge_sets(self, spec: Workflow) -> dict[str, OutEdges]:
+    def _compile_edge_sets(self, spec: WorkflowTopology) -> dict[str, OutEdges]:
         names = {t.name for t in spec._tasks}
         ctrl_by_src: dict[str, list[str]] = defaultdict(list)
         branch_by_src: dict[str, list[tuple[str, str]]] = defaultdict(list)
@@ -280,7 +287,7 @@ class WorkflowGraphCompiler:
 
     def _resolve_entry_frontier(
         self,
-        spec: Workflow,
+        spec: WorkflowTopology,
     ) -> tuple[str, ...]:
         names = {t.name for t in spec._tasks}
 
@@ -316,7 +323,7 @@ class WorkflowGraphCompiler:
 
     def _check_reachability(
         self,
-        spec: Workflow,
+        spec: WorkflowTopology,
         out_edges: dict[str, OutEdges],
         entry_frontier: tuple[str, ...],
     ) -> None:

@@ -19,10 +19,10 @@ Covers acceptance criteria:
 Fixtures
 --------
 ``VALID_SOURCE`` was verified against the real public ``molexp.workflow``
-surface (``WorkflowBuilder`` + decorator ``@wf.task`` + ``.build()``) — it
+surface (``WorkflowCompiler`` + decorator ``@wf.task`` + ``.compile()``) — it
 compiles to a ``Workflow``. The GREEN impl's restricted-exec namespace must
 accept exactly this shape: a module-level ``build_workflow()`` returning a
-``WorkflowBuilder`` whose ``.build()`` succeeds.
+``WorkflowCompiler`` whose ``.compile()`` succeeds.
 """
 
 from __future__ import annotations
@@ -36,13 +36,13 @@ import pytest
 # --------------------------------------------------------------- fixtures
 
 # ac-007 happy-path source: defines a builder via the decorator surface and
-# returns it; ``.build()`` accepts it. Verified against real molexp.workflow.
+# returns it; ``.compile()`` accepts it. Verified against real molexp.workflow.
 VALID_SOURCE = """\
-from molexp.workflow import Task, TaskContext, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, WorkflowCompiler
 
 
-def build_workflow() -> WorkflowBuilder:
-    wf = WorkflowBuilder(name="demo")
+def build_workflow() -> WorkflowCompiler:
+    wf = WorkflowCompiler(name="demo")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:
@@ -61,21 +61,21 @@ SYNTAX_ERROR_SOURCE = "def (:\n    pass\n"
 # (b) imports a private subpackage of molexp.workflow.
 PRIVATE_IMPORT_SOURCE = """\
 from molexp.workflow._pydantic_graph import something
-from molexp.workflow import WorkflowBuilder
+from molexp.workflow import WorkflowCompiler
 
 
-def build_workflow() -> WorkflowBuilder:
-    return WorkflowBuilder(name="sneaky")
+def build_workflow() -> WorkflowCompiler:
+    return WorkflowCompiler(name="sneaky")
 """
 
-# (c) parses + imports cleanly but ``.build()`` fails — a task depends on a
+# (c) parses + imports cleanly but ``.compile()`` fails — a task depends on a
 # task that is never registered → UnknownTaskError at build time.
 BUILD_FAILS_SOURCE = """\
-from molexp.workflow import TaskContext, WorkflowBuilder
+from molexp.workflow import TaskContext, WorkflowCompiler
 
 
-def build_workflow() -> WorkflowBuilder:
-    wf = WorkflowBuilder(name="baddep")
+def build_workflow() -> WorkflowCompiler:
+    wf = WorkflowCompiler(name="baddep")
 
     @wf.task(depends_on=["does_not_exist"])
     async def square(ctx: TaskContext) -> list[int]:
@@ -90,7 +90,7 @@ def _workflow_source_dict(source: str = VALID_SOURCE) -> dict:
         "source": source,
         "module_name": "generated_workflow",
         "bound_workflow_id": "bw-x",
-        "symbols": ["WorkflowBuilder", "Task", "TaskContext"],
+        "symbols": ["WorkflowCompiler", "Task", "TaskContext"],
     }
 
 
@@ -133,12 +133,12 @@ def test_workflow_source_schema_fields_and_frozen() -> None:
         source=VALID_SOURCE,
         module_name="generated_workflow",
         bound_workflow_id="bw-1",
-        symbols=("WorkflowBuilder", "Task"),
+        symbols=("WorkflowCompiler", "Task"),
     )
     assert ws.source == VALID_SOURCE
     assert ws.module_name == "generated_workflow"
     assert ws.bound_workflow_id == "bw-1"
-    assert ws.symbols == ("WorkflowBuilder", "Task")
+    assert ws.symbols == ("WorkflowCompiler", "Task")
 
 
 def test_workflow_source_is_frozen() -> None:
@@ -192,7 +192,7 @@ def test_validation_report_accepts_workflow_source_target_kind() -> None:
 def test_system_prompt_names_public_api() -> None:
     from molexp.harness.prompts.workflow_source import SYSTEM_PROMPT
 
-    for symbol in ("WorkflowBuilder", "Task", "Actor", "Workflow"):
+    for symbol in ("WorkflowCompiler", "Task", "Actor", "Workflow"):
         assert symbol in SYSTEM_PROMPT, f"{symbol} missing from SYSTEM_PROMPT"
     assert "molexp.workflow" in SYSTEM_PROMPT
 

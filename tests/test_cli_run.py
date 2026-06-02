@@ -31,7 +31,7 @@ def _write_script(
         "\n".join(
             [
                 "import molexp as me",
-                "from molexp.workflow import promote_callable",
+                "from molexp.workflow import default_binding_registry, promote_callable",
                 "",
                 f"ws = me.Workspace({str(workspace_root)!r})",
                 "project = ws.add_project('demo')",
@@ -40,7 +40,7 @@ def _write_script(
                 "def train(ctx: me.RunContext) -> None:",
                 f"    {body}",
                 "",
-                "promote_callable(train, name='train').bind_to(exp)",
+                "default_binding_registry.bind(exp, promote_callable(train, name='train'))",
                 "me.entry(ws)",
                 "",
             ]

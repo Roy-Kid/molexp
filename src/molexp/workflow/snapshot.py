@@ -108,6 +108,72 @@ class TaskSnapshot(BaseModel):
             config_data=_maybe_dump_config(task),
         )
 
+    @classmethod
+    def from_task_body(
+        cls,
+        task_id: str,
+        body: object,
+        config_data: dict[str, JSONValue] | None = None,
+    ) -> TaskSnapshot:
+        """Create a snapshot from any registered task body.
+
+        Unlike :meth:`create` (which needs a live ``Task`` exposing
+        ``task_id`` + ``execute``), this accepts the heterogeneous bodies a
+        workflow registers — a ``Task`` / ``Actor`` instance, a bare
+        ``async def`` function, or any ``Runnable`` / ``Streamable``. It
+        resolves the hashable callable the same way the workflow version
+        hasher used to (``execute`` → ``run`` → the body itself), so the
+        compiler can compute one snapshot per task and reuse its
+        ``code_hash`` for the :class:`WorkflowVersion` — collapsing the two
+        previously divergent code-hashers into one.
+        """
+        fn = getattr(body, "execute", None) or getattr(body, "run", None) or body
+        if hasattr(body, "execute") or hasattr(body, "run"):
+            task_type = f"{type(body).__module__}.{type(body).__qualname__}"
+            identity = task_type
+        else:
+            module = getattr(body, "__module__", "?")
+            qualname = getattr(body, "__qualname__", getattr(body, "__name__", "?"))
+            task_type = f"{module}.{qualname}"
+            identity = task_type
+        cfg = dict(config_data) if config_data else {}
+        config_raw = json.dumps(cfg, sort_keys=True, default=str)
+        try:
+            source = inspect.getsource(fn) if callable(fn) else ""
+        except (OSError, TypeError):
+            source = ""
+        return cls(
+            task_id=task_id,
+            task_type=task_type,
+            code_hash=cls._hash_callable(fn, identity, task_id),
+            config_hash=hashlib.sha256(config_raw.encode()).hexdigest()[:32],
+            code_source=source,
+            created_at=datetime.now(UTC),
+            config_data=cfg,
+        )
+
+    @staticmethod
+    def _hash_callable(fn: object, identity: str, task_id: str) -> str:
+        """AST-normalized code hash of *fn* with bytecode/identity fallbacks."""
+        if callable(fn):
+            try:
+                source = inspect.getsource(fn)
+                normalized = _normalize_ast(source)
+                return hashlib.sha256(normalized.encode()).hexdigest()[:32]
+            except (OSError, TypeError, SyntaxError):
+                pass
+            code_obj = getattr(fn, "__code__", None) or getattr(
+                getattr(fn, "__func__", None), "__code__", None
+            )
+            if code_obj is not None:
+                bytecode_data = code_obj.co_code + repr(code_obj.co_consts).encode()
+                return hashlib.sha256(bytecode_data).hexdigest()[:32]
+        logger.warning(
+            f"Cannot compute reliable code hash for task {task_id} ({identity}). "
+            "Falling back to identity."
+        )
+        return hashlib.sha256(identity.encode()).hexdigest()[:32]
+
     @property
     def key(self) -> str:
         """Deterministic identity key = f(code_hash, config_hash)."""

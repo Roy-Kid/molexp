@@ -20,10 +20,10 @@ Tests here exercise:
 from __future__ import annotations
 
 from molexp.workflow import (
+    CompiledWorkflow,
     Task,
     TaskContext,
-    Workflow,
-    WorkflowBuilder,
+    WorkflowCompiler,
     promote_callable,
     resolve_callable_entrypoint,
     resolve_spec_entrypoint,
@@ -52,18 +52,20 @@ class _ProbeTask(Task):
 
 
 # Module-level spec for the spec-entrypoint resolver test.
-_FIXTURE_SPEC: Workflow = WorkflowBuilder(name="probe").add(_ProbeTask(), name="step").build()
+_FIXTURE_SPEC: CompiledWorkflow = (
+    WorkflowCompiler(name="probe").add(_ProbeTask(), name="step").compile()
+)
 
 
 def test_promote_async_callable_yields_runnable_spec() -> None:
     spec = promote_callable(_async_fn, "p1")
-    assert isinstance(spec, Workflow)
+    assert isinstance(spec, CompiledWorkflow)
     assert spec.name == "p1"
 
 
 def test_promote_sync_callable_yields_runnable_spec() -> None:
     spec = promote_callable(_sync_fn, "p2")
-    assert isinstance(spec, Workflow)
+    assert isinstance(spec, CompiledWorkflow)
     assert spec.name == "p2"
 
 

@@ -57,28 +57,6 @@ def _sample_ir() -> dict:
 
 
 @pytest.mark.unit
-def test_workflow_compiler_name_is_freed():
-    """`WorkflowCompiler` is no longer importable or exported (ac-001)."""
-    import molexp.workflow as wf
-
-    assert "WorkflowCompiler" not in wf.__all__
-    with pytest.raises(ImportError):
-        from molexp.workflow import WorkflowCompiler  # noqa: F401
-
-
-@pytest.mark.unit
-def test_workflow_compiler_class_absent_from_workflow_package():
-    """Grep gate: no `WorkflowCompiler` class def / export under workflow/ (ac-001)."""
-    workflow_dir = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow"
-    offenders = []
-    for py in workflow_dir.rglob("*.py"):
-        text = py.read_text()
-        if "class WorkflowCompiler" in text or "WorkflowCompiler" in text:
-            offenders.append(py.name)
-    assert not offenders, f"WorkflowCompiler still referenced under workflow/: {offenders}"
-
-
-@pytest.mark.unit
 def test_workflow_codec_is_public_surface():
     """`WorkflowCodec` + `default_codec` import from the package root (ac-002)."""
     from molexp.workflow import WorkflowCodec as PublicCodec
@@ -157,24 +135,24 @@ def test_spec_to_ir_round_trips_through_ir_to_spec():
 
 
 @pytest.mark.unit
-def test_workflow_to_dict_delegates_to_default_codec():
-    """`Workflow.to_dict(s) == default_codec.spec_to_ir(s)` (ac-004)."""
+def test_compiled_to_ir_delegates_to_default_codec():
+    """`CompiledWorkflow.to_ir(s) == default_codec.spec_to_ir(s)`."""
     _register_golden_task_types()
     ir = json.loads((_GOLDEN / "sample_ir.json").read_text())
     spec = default_codec.ir_to_spec(ir)
-    assert spec.to_dict() == default_codec.spec_to_ir(spec)
+    assert spec.to_ir() == default_codec.spec_to_ir(spec)
 
 
 @pytest.mark.unit
-def test_workflow_from_dict_delegates_to_default_codec():
-    """`Workflow.from_dict(ir)` and `default_codec.ir_to_spec(ir)` agree (ac-004)."""
-    from molexp.workflow import Workflow
+def test_compiled_from_ir_delegates_to_default_codec():
+    """`CompiledWorkflow.from_ir(ir)` and `default_codec.ir_to_spec(ir)` agree."""
+    from molexp.workflow import CompiledWorkflow
 
     _register_golden_task_types()
     ir = json.loads((_GOLDEN / "sample_ir.json").read_text())
-    via_workflow = Workflow.from_dict(ir).to_dict()
+    via_compiled = CompiledWorkflow.from_ir(ir).to_ir()
     via_codec = default_codec.spec_to_ir(default_codec.ir_to_spec(ir))
-    assert via_workflow == via_codec
+    assert via_compiled == via_codec
 
 
 @pytest.mark.unit
@@ -200,7 +178,7 @@ def test_execution_route_uses_default_codec():
 def test_ir_to_python_emits_runnable_script_with_workflow_ir_literal():
     script = default_codec.ir_to_python(_sample_ir())
     assert "WORKFLOW_IR" in script
-    assert "Workflow.from_dict(WORKFLOW_IR)" in script
+    assert "CompiledWorkflow.from_ir(WORKFLOW_IR)" in script
     assert script.endswith("\n")
 
 

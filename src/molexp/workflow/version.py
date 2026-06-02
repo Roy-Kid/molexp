@@ -2,7 +2,8 @@
 
 A :class:`WorkflowVersion` is the user-facing label for a particular
 workflow topology. The ``workflow_id`` (topology hash, computed by
-``_stable_workflow_id`` in :mod:`molexp.workflow.spec`) is the cache and
+``_stable_workflow_id`` in :mod:`molexp.workflow._helpers` and carried on
+:class:`~molexp.workflow.compiled.CompiledWorkflow`) is the cache and
 execution identity; ``version`` is a free-form human label (typically a
 semver string like ``"1.2.0"``).
 
@@ -58,14 +59,15 @@ class TaskTopologyEntry(BaseModel):
 class WorkflowVersion(BaseModel):
     """Immutable record of one ``(workflow_id, version)`` pair.
 
-    Returned by :meth:`molexp.workflow.spec.Workflow.version`. The
-    workflow layer no longer writes this record to disk; persistence is a
-    workspace-layer concern.
+    Carried as the ``version`` field of
+    :class:`~molexp.workflow.compiled.CompiledWorkflow`. The workflow layer
+    no longer writes this record to disk; persistence is a workspace-layer
+    concern.
 
     Attributes:
         schema_version: On-disk format version for this record (current: 1).
         workflow_id: Deterministic topology hash from
-            :func:`molexp.workflow.spec._stable_workflow_id`.
+            :func:`molexp.workflow._helpers._stable_workflow_id`.
         version: User-declared human label, e.g. ``"1.2.0"``.
         name: Workflow display name at registration time.
         topology: Ordered snapshot of every task (name, qualname,

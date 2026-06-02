@@ -61,6 +61,47 @@ class _BoundaryStubTask:
         )
 
 
+class WorkflowTopology:
+    """Decoupled topology carrier handed to the CFG lowering pass.
+
+    Holds exactly the declaration state the lowering reads — task
+    registrations plus the control/branch/loop/parallel/entry decls — so
+    ``_pydantic_graph`` no longer needs to import the public
+    ``WorkflowCompiler`` / ``CompiledWorkflow``. The private attribute
+    names mirror the old ``Workflow`` spec so the lowering bodies are
+    unchanged.
+    """
+
+    __slots__ = (
+        "_branch_edges",
+        "_control_edges",
+        "_entries",
+        "_loops",
+        "_parallels",
+        "_tasks",
+        "name",
+    )
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        tasks: list[TaskRegistration],
+        entries: tuple[str, ...] = (),
+        control_edges: tuple[tuple[str, str], ...] = (),
+        branch_edges: tuple[tuple[str, str, str], ...] = (),
+        loops: tuple[LoopDecl, ...] = (),
+        parallels: tuple[ParallelDecl, ...] = (),
+    ) -> None:
+        self.name = name
+        self._tasks = tasks
+        self._entries = entries
+        self._control_edges = control_edges
+        self._branch_edges = branch_edges
+        self._loops = loops
+        self._parallels = parallels
+
+
 class TaskRegistration:
     """Internal record of one registered task or actor."""
 

@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import ast
 import hashlib
-import inspect
 import re
-import textwrap
 from collections.abc import Callable
 
 from ._graph_decl import TaskRegistration
-from .protocols import JSONValue, TaskBody
+from .protocols import JSONValue
 
 
 def _callable_name(f: Callable, fallback: str = "anonymous") -> str:
@@ -21,26 +18,6 @@ def _to_snake_case(name: str) -> str:
     name = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
     name = re.sub(r"([a-z\d])([A-Z])", r"\1_\2", name)
     return name.lower()
-
-
-def _callable_code_hash(target: TaskBody) -> str | None:
-    """Best-effort AST-normalized code hash. Returns None for uninspectable targets."""
-    fn = getattr(target, "execute", None) or getattr(target, "run", None) or target
-    if not callable(fn):
-        return None
-    try:
-        source = inspect.getsource(fn)
-    except (OSError, TypeError):
-        return None
-    try:
-        tree = ast.parse(textwrap.dedent(source))
-    except SyntaxError:
-        return None
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            node.decorator_list = []
-    normalized = ast.dump(tree, annotate_fields=True, include_attributes=False)
-    return hashlib.sha256(normalized.encode()).hexdigest()[:32]
 
 
 def _stable_workflow_id(name: str, tasks: list[TaskRegistration]) -> str:

@@ -139,21 +139,24 @@ class ValidateWorkflowSource(Stage):
 
         try:
             builder = builder_factory()
-            result = builder.build()
+            result = builder.compile()
         except Exception as exc:
             return [
                 ValidationViolation(
                     code="build_error",
-                    message=f"build_workflow().build() failed: {exc!r}",
+                    message=f"build_workflow().compile() failed: {exc!r}",
                     severity="error",
                 )
             ]
 
-        if not isinstance(result, workflow.Workflow):
+        if not isinstance(result, workflow.CompiledWorkflow):
             return [
                 ValidationViolation(
                     code="not_a_workflow",
-                    message=f"build_workflow().build() returned {type(result).__name__}, not a Workflow",
+                    message=(
+                        f"build_workflow().compile() returned {type(result).__name__}, "
+                        "not a CompiledWorkflow"
+                    ),
                     severity="error",
                 )
             ]

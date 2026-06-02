@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.workflow.spec import Workflow
+    from molexp.workflow import CompiledWorkflow as Workflow
     from molexp.workspace.run import Run
     from molexp.workspace.workspace import Workspace
 
@@ -87,7 +87,7 @@ def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> Workflow | N
     Returns:
         The matching :class:`~molexp.workflow.Workflow`, or ``None``.
     """
-    from molexp.workflow.spec import Workflow as _Workflow
+    from molexp.workflow import default_binding_registry
 
     target_project_id = run.experiment.project.id
     target_exp_id = run.experiment.id
@@ -98,7 +98,7 @@ def find_workflow_for_run(workspaces: list[Workspace], run: Run) -> Workflow | N
                 continue
             for exp in proj.list_experiments():
                 if exp.id == target_exp_id:
-                    bound = _Workflow.for_experiment(exp)
+                    bound = default_binding_registry.for_experiment(exp)
                     if bound is not None:
                         return bound
     return None
@@ -163,7 +163,7 @@ def load_workflow_from_entrypoint(entrypoint: str) -> Workflow:
     """
     import functools
 
-    from molexp.workflow.spec import Workflow as _Workflow
+    from molexp.workflow import CompiledWorkflow as _Workflow
 
     if ":" not in entrypoint:
         raise ValueError(

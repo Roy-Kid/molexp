@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.workflow import Task, TaskContext, WorkflowBuilder
+from molexp.workflow import GraphWorkflowRuntime, Task, TaskContext, WorkflowCompiler
 
 
 class _RunContextStub:
@@ -36,18 +36,18 @@ class _RunContextStub:
 @pytest.mark.asyncio
 class TestFunctionalExecution:
     async def test_single_task(self):
-        wf = WorkflowBuilder(name="single")
+        wf = WorkflowCompiler(name="single")
 
         @wf.task
         async def double(ctx: TaskContext) -> int:
             return (ctx.inputs or 5) * 2
 
-        result = await wf.build().execute()
+        result = await GraphWorkflowRuntime().execute(wf.compile())
         assert result.status == "completed"
         assert result.outputs["double"] == 10
 
     async def test_chain(self):
-        wf = WorkflowBuilder(name="chain")
+        wf = WorkflowCompiler(name="chain")
 
         @wf.task
         async def step_a(ctx: TaskContext) -> int:
@@ -57,21 +57,21 @@ class TestFunctionalExecution:
         async def step_b(ctx: TaskContext) -> int:
             return ctx.inputs + 5
 
-        result = await wf.build().execute()
+        result = await GraphWorkflowRuntime().execute(wf.compile())
         assert result.outputs == {"step_a": 10, "step_b": 15}
 
     async def test_failure_propagates(self):
-        wf = WorkflowBuilder(name="fail")
+        wf = WorkflowCompiler(name="fail")
 
         @wf.task
         async def boom(ctx):
             raise RuntimeError("oops")
 
-        result = await wf.build().execute()
+        result = await GraphWorkflowRuntime().execute(wf.compile())
         assert result.status == "failed"
 
     async def test_run_context_is_forwarded_to_tasks(self, tmp_path):
-        wf = WorkflowBuilder(name="with-run-context")
+        wf = WorkflowCompiler(name="with-run-context")
 
         run_ctx = _RunContextStub(
             work_dir=tmp_path / "run",
@@ -83,7 +83,7 @@ class TestFunctionalExecution:
             assert ctx.run_context is run_ctx
             return True
 
-        result = await wf.build().execute(run_context=run_ctx)
+        result = await GraphWorkflowRuntime().execute(wf.compile(), run_context=run_ctx)
         assert result.status == "completed"
         assert result.outputs["inspect"] is True
 
@@ -91,7 +91,7 @@ class TestFunctionalExecution:
         """Critical: runtime drives a workflow with a stub run_context that
         has no Workspace ancestry whatsoever, and writes workflow.json under
         run_dir/executions/<execution_id>/."""
-        wf = WorkflowBuilder(name="duck")
+        wf = WorkflowCompiler(name="duck")
 
         run_ctx = _RunContextStub(work_dir=tmp_path / "stub-run")
 
@@ -99,7 +99,7 @@ class TestFunctionalExecution:
         async def step(ctx: TaskContext) -> str:
             return "ok"
 
-        result = await wf.build().execute(run_context=run_ctx)
+        result = await GraphWorkflowRuntime().execute(wf.compile(), run_context=run_ctx)
         assert result.status == "completed"
         assert result.outputs["step"] == "ok"
 
@@ -112,48 +112,50 @@ class TestFunctionalExecution:
     async def test_legacy_run_kwarg_is_rejected(self, tmp_path):
         """The runtime no longer accepts ``run=``. Use ``run_dir=`` or
         ``run_context=``."""
-        wf = WorkflowBuilder(name="no-run-kwarg")
+        wf = WorkflowCompiler(name="no-run-kwarg")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
             return None
 
         with pytest.raises(TypeError):
-            await wf.build().execute(run=object())
+            await GraphWorkflowRuntime().execute(wf.compile(), run=object())
 
     async def test_legacy_profile_config_kwarg_is_rejected(self, tmp_path):
         """The runtime no longer accepts ``profile_config=``. Use ``config=``."""
         from molexp.profile import ProfileConfig
 
-        wf = WorkflowBuilder(name="no-profile-config-kwarg")
+        wf = WorkflowCompiler(name="no-profile-config-kwarg")
 
         @wf.task
         async def noop(ctx: TaskContext) -> None:
             return None
 
         with pytest.raises(TypeError):
-            await wf.build().execute(profile_config=ProfileConfig({}, name=None))
+            await GraphWorkflowRuntime().execute(
+                wf.compile(), profile_config=ProfileConfig({}, name=None)
+            )
 
     async def test_run_dir_kwarg_writes_workflow_json(self, tmp_path):
-        wf = WorkflowBuilder(name="run-dir-only")
+        wf = WorkflowCompiler(name="run-dir-only")
 
         @wf.task
         async def step(ctx: TaskContext) -> int:
             return 7
 
-        result = await wf.build().execute(run_dir=tmp_path / "rd")
+        result = await GraphWorkflowRuntime().execute(wf.compile(), run_dir=tmp_path / "rd")
         assert result.status == "completed"
         wf_jsons = list((tmp_path / "rd" / "executions").rglob("workflow.json"))
         assert wf_jsons
 
     async def test_config_is_plain_mapping(self, tmp_path):
-        wf = WorkflowBuilder(name="plain-config")
+        wf = WorkflowCompiler(name="plain-config")
 
         @wf.task
         async def inspect(ctx: TaskContext) -> int:
             return ctx.config["epochs"]
 
-        result = await wf.build().execute(config={"epochs": 42})
+        result = await GraphWorkflowRuntime().execute(wf.compile(), config={"epochs": 42})
         assert result.outputs["inspect"] == 42
 
 
@@ -164,8 +166,8 @@ class TestOOPExecution:
             async def execute(self, ctx: TaskContext) -> int:
                 return (ctx.inputs or 0) + 10
 
-        spec = WorkflowBuilder(name="oop").add(AddTen()).build()
-        result = await spec.execute()
+        spec = WorkflowCompiler(name="oop").add(AddTen()).compile()
+        result = await GraphWorkflowRuntime().execute(spec)
         assert result.outputs["add_ten"] == 10
 
 
@@ -176,8 +178,8 @@ class TestProtocolExecution:
             async def execute(self, ctx) -> int:
                 return 99
 
-        spec = WorkflowBuilder(name="ext").add(External(), name="ext").build()
-        result = await spec.execute()
+        spec = WorkflowCompiler(name="ext").add(External(), name="ext").compile()
+        result = await GraphWorkflowRuntime().execute(spec)
         assert result.outputs["ext"] == 99
 
     async def test_mixed_task_types(self):
@@ -190,19 +192,19 @@ class TestProtocolExecution:
                 return ctx.inputs + 90
 
         spec = (
-            WorkflowBuilder(name="mixed")
+            WorkflowCompiler(name="mixed")
             .add(OOP(), name="oop")
             .add(External(), name="ext", depends_on=["oop"])
-            .build()
+            .compile()
         )
-        result = await spec.execute()
+        result = await GraphWorkflowRuntime().execute(spec)
         assert result.outputs == {"oop": 10, "ext": 100}
 
 
 @pytest.mark.asyncio
 class TestParallelExecution:
     async def test_independent_tasks_parallel(self):
-        wf = WorkflowBuilder(name="parallel")
+        wf = WorkflowCompiler(name="parallel")
 
         @wf.task
         async def a(ctx):
@@ -212,11 +214,11 @@ class TestParallelExecution:
         async def b(ctx):
             return "b"
 
-        result = await wf.build().execute()
+        result = await GraphWorkflowRuntime().execute(wf.compile())
         assert result.outputs == {"a": "a", "b": "b"}
 
     async def test_diamond_dependency(self):
-        wf = WorkflowBuilder(name="diamond")
+        wf = WorkflowCompiler(name="diamond")
 
         @wf.task
         async def root(ctx):
@@ -234,5 +236,5 @@ class TestParallelExecution:
         async def merge(ctx):
             return ctx.inputs["left"] + ctx.inputs["right"]
 
-        result = await wf.build().execute()
+        result = await GraphWorkflowRuntime().execute(wf.compile())
         assert result.outputs["merge"] == 32
