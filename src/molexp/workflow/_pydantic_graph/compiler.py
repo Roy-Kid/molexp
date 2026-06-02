@@ -575,8 +575,8 @@ class WorkflowGraphCompiler:
 
     def _compile_edge_sets(self, spec: WorkflowTopology) -> dict[str, OutEdges]:
         names = {t.name for t in spec._tasks}
-        ctrl_by_src: dict[str, list[str]] = defaultdict(list)
-        branch_by_src: dict[str, list[tuple[str, str]]] = defaultdict(list)
+        ctrl_by_src: defaultdict[str, list[str]] = defaultdict(list)
+        branch_by_src: defaultdict[str, list[tuple[str, str]]] = defaultdict(list)
 
         for src, tgt in spec._control_edges:
             self._verify_known(src, names, "control edge source")
@@ -589,10 +589,22 @@ class WorkflowGraphCompiler:
                 self._verify_known(tgt, names, "branch edge target")
             branch_by_src[src].append((label, tgt))
 
-        # Spec 05 §4 — expand each parallel decl into two unconditional
-        # control edges (``map_over → body`` and ``body → join``), and
-        # cross-validate against loop / branch / control / depends_on
-        # collisions on the body task.
+        self._expand_parallels(spec, names, ctrl_by_src, branch_by_src)
+        self._expand_loops(spec, names, branch_by_src)
+        return self._assemble_out_edges(spec, ctrl_by_src, branch_by_src)
+
+    def _expand_parallels(
+        self,
+        spec: WorkflowTopology,
+        names: set[str],
+        ctrl_by_src: defaultdict[str, list[str]],
+        branch_by_src: defaultdict[str, list[tuple[str, str]]],
+    ) -> None:
+        """Expand each ``wf.parallel`` into ``map_over → body`` / ``body →
+        join`` control edges (spec 05 §4), cross-validating against loop /
+        branch / control / ``depends_on`` collisions on the body task, and
+        injecting ``body`` as a data dep of ``join`` so the aggregated list
+        threads into the join's ``ctx.inputs``. Mutates the edge maps."""
         loop_until_names = {loop.until for loop in spec._loops}
         loop_body_names: set[str] = set()
         for loop in spec._loops:
@@ -630,18 +642,20 @@ class WorkflowGraphCompiler:
                 )
             ctrl_by_src[par.map_over].append(par.body)
             ctrl_by_src[par.body].append(par.join)
-            # Inject ``body`` as a data dep of ``join`` so the existing
-            # _collect_upstream_outputs path threads the aggregated list
-            # into ``ctx.inputs``. Idempotent.
             join_reg = next((t for t in spec._tasks if t.name == par.join), None)
             if join_reg is not None and par.body not in join_reg.depends_on:
                 join_reg.depends_on.append(par.body)
 
-        # Spec 04 §4 — expand each loop into branch edges on `until`.
-        # The body chain (body[i] → body[i+1] → … → body[-1] → until) is
-        # the user's responsibility to wire via depends_on or
-        # ``wf.control``. The loop only owns the back-edge branch on
-        # ``until``: ``{"continue": body[0], "exit": on_exit}``.
+    def _expand_loops(
+        self,
+        spec: WorkflowTopology,
+        names: set[str],
+        branch_by_src: defaultdict[str, list[tuple[str, str]]],
+    ) -> None:
+        """Expand each ``wf.loop`` into a ``{"continue": body[0], "exit":
+        on_exit}`` branch on its ``until`` task (spec 04 §4). The body chain
+        is the user's wiring; the loop owns only the back-edge branch.
+        Mutates ``branch_by_src``."""
         for loop in spec._loops:
             for body_name in loop.body:
                 self._verify_known(body_name, names, "loop body task")
@@ -658,6 +672,15 @@ class WorkflowGraphCompiler:
             branch_by_src[loop.until].append(("continue", loop.body[0]))
             branch_by_src[loop.until].append(("exit", loop.on_exit))
 
+    def _assemble_out_edges(
+        self,
+        spec: WorkflowTopology,
+        ctrl_by_src: defaultdict[str, list[str]],
+        branch_by_src: defaultdict[str, list[tuple[str, str]]],
+    ) -> dict[str, OutEdges]:
+        """Bucket each task's collected edges into ``BranchEdges`` /
+        ``UnconditionalEdges``; tasks with neither default to a fan-out
+        synthesised from their reverse data edges (§2)."""
         out_edges: dict[str, OutEdges] = {}
         for t in spec._tasks:
             has_ctrl = t.name in ctrl_by_src
