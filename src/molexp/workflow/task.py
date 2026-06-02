@@ -62,7 +62,8 @@ class Actor[StateT, DepsT, InputT, OutputT](ABC):
     # functions return their iterator directly on call (no ``await``);
     # marking the abstract method ``async def`` would let static
     # checkers conclude callers must ``await`` first, breaking the
-    # ``async for chunk in actor.run(ctx)`` dispatch in the scheduler.
+    # ``async for chunk in actor.run(ctx)`` dispatch in the Step body
+    # (node._invoke_body_with_ctx).
     @abstractmethod
     def run(self, ctx: ActorContext[StateT, DepsT, InputT]) -> AsyncIterator[OutputT]:
         """Run continuously, yielding outputs."""

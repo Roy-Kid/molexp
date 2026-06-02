@@ -41,7 +41,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class _StepRecord:
-    """One scheduler-frame snapshot persisted to ``workflow.json``."""
+    """One Step-frame snapshot persisted to ``workflow.json``."""
 
     snapshot_id: str
     index: int

@@ -121,7 +121,7 @@ class WorkflowDeps:
     config: JSONMapping | None = None
     user_deps: UserDeps = None
     # ``remote_executor`` is a duck-typed callable from molq when present.
-    # It is reached only by molq-aware tasks and is opaque to the scheduler.
+    # It is reached only by molq-aware tasks and is opaque to the runtime.
     remote_executor: UserDeps = None
     run_dir: Path | None = None
     registration_by_name: Mapping[str, TaskRegistration] = field(default_factory=dict)

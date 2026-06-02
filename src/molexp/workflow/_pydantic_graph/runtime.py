@@ -361,8 +361,8 @@ class WorkflowRuntime:
             )
         except WorkflowError:
             # Programming errors in the workflow definition / task body
-            # (CycleError, UnknownRouteError, MissingRouteError,
-            # WorkflowDeadlockError, …) propagate to the caller.
+            # (CycleError, UnknownRouteError, MissingRouteError, …)
+            # propagate to the caller.
             raise
         except Exception as exc:
             logger.exception(f"Workflow {compiled.name!r} execution failed")
