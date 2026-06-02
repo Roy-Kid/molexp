@@ -130,15 +130,24 @@ def test_to_ir_captures_loops_and_parallels():
     async def process(ctx):
         return 3
 
+    # Parallel join is a distinct task `gather` (not the loop until): genuine
+    # pg lowering cannot fuse a parallel-join and a loop-until onto one node
+    # (the resulting Join lacks a dominating fork across the loop cycle), so
+    # the realistic topology uses separate tasks. The IR features asserted
+    # below (loop + parallel captured) are unchanged.
+    @wf.task(depends_on=["items"])
+    async def gather(ctx):
+        return 4
+
     wf.loop(body=["compute"], until="check_done", max_iters=10)
-    wf.parallel(map_over="items", body="process", join="check_done", max_concurrency=4)
+    wf.parallel(map_over="items", body="process", join="gather", max_concurrency=4)
     ir = wf.compile().to_graph_ir()
 
     assert ir.loops == (
         GraphLoopIR(body=("compute",), until="check_done", max_iters=10, on_exit="_end"),
     )
     assert ir.parallels == (
-        GraphParallelIR(map_over="items", body="process", join="check_done", max_concurrency=4),
+        GraphParallelIR(map_over="items", body="process", join="gather", max_concurrency=4),
     )
 
 
@@ -243,13 +252,19 @@ def test_to_mermaid_renders_loop_and_parallel_edges():
     async def process(ctx):
         return 3
 
+    # Parallel join is a distinct `gather` task (not the loop until) — genuine
+    # pg lowering cannot fuse a parallel-join and a loop-until onto one node.
+    @wf.task(depends_on=["items"])
+    async def gather(ctx):
+        return 4
+
     wf.loop(body=["compute"], until="check_done", max_iters=5)
-    wf.parallel(map_over="items", body="process", join="check_done", max_concurrency=3)
+    wf.parallel(map_over="items", body="process", join="gather", max_concurrency=3)
     out = wf.compile().to_graph_mermaid()
     assert "n_check_done -.->|continue| n_compute" in out
     assert "n_check_done -->|exit| n__end" in out
     assert "n_items -->|fan-out x3| n_process" in out
-    assert "n_process -->|join| n_check_done" in out
+    assert "n_process -->|join| n_gather" in out
 
 
 @pytest.mark.unit

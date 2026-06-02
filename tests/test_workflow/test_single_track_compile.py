@@ -62,9 +62,12 @@ def test_compiled_workflow_has_no_graph_attribute():
     )
 
 
-def test_compiled_task_by_name_holds_user_instances():
-    """``task_by_name`` must hold the exact user-registered Task instances —
-    no codegen subclass wrapping. ``is`` identity is the contract."""
+def test_compiled_registration_holds_user_instances():
+    """The compiled artifact must hold the exact user-registered Task instance —
+    no codegen subclass wrapping. ``is`` identity is the contract. (Asserts on
+    ``compiled._tasks`` — the removed ``graph.task_by_name`` was a LoweredGraph
+    internal; under genuine pg lowering the registration is the source of
+    truth for the per-task Step body.)"""
 
     class MyTask(Task):
         async def execute(self, ctx: TaskContext) -> int:
@@ -74,11 +77,9 @@ def test_compiled_task_by_name_holds_user_instances():
     wf = WorkflowCompiler(name="identity").add(user_instance, name="my")
     spec = wf.compile()
 
-    compiled = spec.graph
-
-    assert "my" in compiled.task_by_name
-    assert compiled.task_by_name["my"] is user_instance, (
-        "compiled.task_by_name['my'] must be the user-registered Task instance "
+    reg = next(t for t in spec._tasks if t.name == "my")
+    assert reg.fn_or_class is user_instance, (
+        "the registration's fn_or_class must be the user-registered Task instance "
         "itself, not a codegen subclass wrapping it."
     )
 

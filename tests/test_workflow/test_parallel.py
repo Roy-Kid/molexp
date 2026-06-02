@@ -38,11 +38,12 @@ def test_no_per_element_node_growth() -> None:
     """ac-003 — compiled spec carries one task entry per registered task,
     independent of how many elements the parallel section will fan out over.
 
-    After the single-track rectification, the compiler no longer emits per-task
-    pg ``BaseNode`` subclasses; it stores the user's registered Task /
-    Actor / callable directly under ``compiled.task_by_name``. The fan-out
-    width is decided at run time from ``state.results[map_over]`` and never
-    grows the compile-time entry set.
+    Under genuine per-task pg lowering, the fan-out is a single map-Fork +
+    Join in the compiled graph; the registered task set is exactly the three
+    declared tasks regardless of element count. The fan-out width is decided
+    at run time from ``state.results[map_over]`` and never grows the
+    compile-time task set. (Asserts on ``compiled._tasks`` — the removed
+    ``graph.task_by_name`` was a LoweredGraph internal.)
     """
     wf = WorkflowCompiler(name="no-per-elem-growth", entry="enumerate")
 
@@ -60,11 +61,11 @@ def test_no_per_element_node_growth() -> None:
 
     wf.parallel(map_over="enumerate", body="square", join="sum_results", max_concurrency=2)
 
-    compiled = wf.compile().graph
+    compiled = wf.compile()
 
-    assert set(compiled.task_by_name.keys()) == {"enumerate", "square", "sum_results"}, (
-        f"Expected exactly 3 entries (enumerate + square + sum_results), "
-        f"got {sorted(compiled.task_by_name.keys())}"
+    assert {t.name for t in compiled._tasks} == {"enumerate", "square", "sum_results"}, (
+        f"Expected exactly 3 task entries (enumerate + square + sum_results), "
+        f"got {sorted(t.name for t in compiled._tasks)}"
     )
 
 

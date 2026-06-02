@@ -4,7 +4,8 @@ This dissolves the old ``Workflow`` god-object. It carries everything the
 compiler derives in one pass:
 
 - the topology (tasks + control/branch/loop/parallel/entry decls),
-- the executable ``graph`` (a layer-private :class:`LoweredGraph`),
+- the executable ``graph`` (a layer-private ``pydantic_graph`` ``Graph`` with
+  one Step per task; only the workflow runtime reads it),
 - per-task ``snapshots`` (one :class:`TaskSnapshot` each),
 - the ``version`` (:class:`WorkflowVersion`, reusing the snapshot code-hash),
 - the experiment ``binding`` (``WorkflowBinding | None``).
@@ -34,7 +35,7 @@ from ._graph_decl import (
 from .protocols import JSONValue, TaskOutput
 
 if TYPE_CHECKING:
-    from ._pydantic_graph.compiler import LoweredGraph
+    from ._pydantic_graph.compiler import CompiledGraph
     from .binding import WorkflowBinding
     from .ir import WorkflowGraphIR
     from .registry import TaskTypeRegistry
@@ -59,7 +60,7 @@ class CompiledWorkflow:
         workflow_id: str,
         version_label: str,
         tasks: list[TaskRegistration],
-        graph: LoweredGraph,
+        graph: CompiledGraph,
         snapshots: Mapping[str, TaskSnapshot],
         version: WorkflowVersion,
         mode: str = "batch",
@@ -75,7 +76,7 @@ class CompiledWorkflow:
         self.workflow_id = workflow_id
         self.version_label = version_label
         self._mode = mode
-        # ``graph`` is a layer-private LoweredGraph; only the runtime reads it.
+        # ``graph`` is a layer-private pydantic_graph Graph; only the runtime reads it.
         self.graph = graph
         self.snapshots = snapshots
         self.version = version

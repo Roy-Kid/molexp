@@ -11,6 +11,12 @@ backends because there is only one.  Execution modes:
 expose ``iter_from_persistence``.  Per-frame snapshots are still written
 by :class:`RunStorePersistence` for observability, but they are no longer
 injected into the graph runner.
+
+Each ``CompiledWorkflow`` carries a genuine ``pydantic_graph`` ``Graph``
+(one Step per task; see :mod:`.compiler`). The runtime builds fresh state
++ deps per execution and drives ``compiled.graph.run(state=…, deps=…,
+inputs=None)``; final outputs are read from the shared, mutated
+``state.results``.
 """
 
 from __future__ import annotations
@@ -21,49 +27,36 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import anyio
 from mollog import get_logger
-from pydantic_graph.graph_builder import GraphBuilder
 
 from ..protocols import JSONMapping, JSONValue, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
-from .node import WorkflowStep
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
+    from pydantic_graph.graph_builder import Graph
+
     from ..compiled import CompiledWorkflow, _ExperimentLike
-    from .compiler import LoweredGraph
 
 logger = get_logger(__name__)
 
-# Single-track: ``WorkflowStep`` is the only pg BaseNode molexp exposes.
-# GraphBuilder auto-detects edges from WorkflowStep's return type hint
-# (``WorkflowStep | End[WorkflowState]``).
-_builder = GraphBuilder[WorkflowState, WorkflowDeps, None, WorkflowState](
-    name="workflow",
-    state_type=WorkflowState,
-    deps_type=WorkflowDeps,
-    output_type=WorkflowState,
-)
-_ws_edge = _builder.node(WorkflowStep)
-_builder.add(_ws_edge)
-_builder.add_edge(_builder.start_node, _ws_edge.sources[0])
-_GRAPH = _builder.build()
 
+async def _run_compiled(
+    graph: Graph[WorkflowState, WorkflowDeps, None, None],
+    state: WorkflowState,
+    deps: WorkflowDeps,
+) -> WorkflowState:
+    """Drive a compiled pg ``Graph`` to completion and return the final state.
 
-# Single source of truth for ``_GRAPH.run`` / ``_GRAPH.iter`` invocations.
-# pydantic-graph 1.x requires an explicit ``inputs=`` start node; forgetting
-# it bites every call site silently (the runtime raises
-# ``ValueError: Node None is not of type WorkflowStep`` mid-execution).
-# Route all callers through these helpers so adding a fourth call site can
-# never reintroduce that bug.
-
-
-def _run_graph(state: WorkflowState, deps: WorkflowDeps):  # noqa: ANN202 — thin pg pass-through; pydantic-graph's generic return type is a firewall implementation detail
-    return _GRAPH.run(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
-
-
-def _iter_graph(state: WorkflowState, deps: WorkflowDeps):  # noqa: ANN202 — thin pg pass-through; pydantic-graph's generic return type is a firewall implementation detail
-    return _GRAPH.iter(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
+    The graph mutates *state* in place (molexp tasks read/write
+    ``state.results`` directly), so the returned object is the same *state*
+    instance carrying the final outputs. pydantic-graph 1.x requires an
+    explicit ``inputs=`` start token; the lowered entry Steps ignore it
+    (``None``) and read their upstreams from ``state.results``.
+    """
+    await graph.run(state=state, deps=deps, inputs=None)
+    return state
 
 
 def _resolve_run_dir(
@@ -166,61 +159,38 @@ class GraphWorkflowRuntime:
         * Every key is validated against the spec's registered task names
           so unknown names fail fast (the ``planmode-review-repair-loop``
           ``ac-006`` contract).
-        * Seeded names land in ``state.completed`` (so the data-dep
-          satisfaction check passes for tasks that depend on them) and
-          ``state.seeded`` (so the frontier filter skips invoking the
-          seeded task's body).
-        * The initial ``state.pending_targets`` is computed by forward-
-          walking the spec's ``depends_on`` graph from each seeded name
-          and collecting non-seeded children. This bypasses the spec's
-          ``entry_frontier`` so that workflows where the seeded set
-          covers the entry frontier still advance to downstream nodes.
+        * Seeded names land in ``state.results`` + ``state.completed`` (so
+          downstream tasks find their values) and ``state.seeded`` (so the
+          seeded task's own Step skips invoking the body while still
+          routing normally through the lowered graph).
         """
         if not seed_outputs:
             return WorkflowState()
-        registrations = list(compiled.graph.registration_by_name.values())
-        registered = {t.name for t in registrations}
+        registered = {t.name for t in compiled._tasks}
         unknown = sorted(set(seed_outputs) - registered)
         if unknown:
             raise ValueError(
                 f"execute(seed_outputs=...): unknown task name(s) "
                 f"{unknown!r}; registered tasks: {sorted(registered)}"
             )
-
-        # Build a forward map: name → list of children (downstream tasks).
-        forward: dict[str, list[str]] = {}
-        for t in registrations:
-            for dep in t.depends_on:
-                forward.setdefault(dep, []).append(t.name)
-
-        seeded_set = set(seed_outputs)
-        pending: list[str] = []
-        seen: set[str] = set()
-        for seed_name in seed_outputs:
-            for child in forward.get(seed_name, ()):
-                if child in seeded_set or child in seen:
-                    continue
-                seen.add(child)
-                pending.append(child)
-
-        state = WorkflowState.from_seed(seed_outputs)
-        if pending:
-            state = state.set_pending(pending)
-        return state
+        return WorkflowState.from_seed(seed_outputs)
 
     @staticmethod
     def _build_deps(
-        graph: LoweredGraph,
+        compiled: CompiledWorkflow,
         *,
         run_context: RunContextLike | None,
         run_dir: Path | None,
         config: JSONMapping | None,
         deps: UserDeps,
     ) -> WorkflowDeps:
-        """Build WorkflowDeps from the duck-typed run_context payload.
+        """Build a fresh :class:`WorkflowDeps` for one execution.
 
-        When *run_context* is provided, its attached ``.config`` takes
-        precedence over the explicit *config* kwarg.
+        Topology fields (registration_by_name / parallel_decls /
+        loop_max_iters) are derived from the compiled artifact; one fresh
+        :class:`anyio.CapacityLimiter` is built per ``wf.parallel`` body,
+        sized to its ``max_concurrency``. When *run_context* is provided
+        its attached ``.config`` takes precedence over the *config* kwarg.
         """
         if run_context is not None:
             ctx_config = getattr(run_context, "config", None)
@@ -230,13 +200,24 @@ class GraphWorkflowRuntime:
 
         run_for_deps = getattr(run_context, "run", None) if run_context is not None else None
 
-        return graph.make_deps(
+        registration_by_name = {t.name: t for t in compiled._tasks}
+        parallel_decls = {par.body: par for par in compiled._parallels}
+        loop_max_iters = {loop.until: loop.max_iters for loop in compiled._loops}
+        parallel_limiters = {
+            par.body: anyio.CapacityLimiter(par.max_concurrency) for par in compiled._parallels
+        }
+
+        return WorkflowDeps(
             run=run_for_deps,
             run_context=run_context,
             config=effective_config,
             user_deps=deps,
             remote_executor=None,
             run_dir=run_dir,
+            registration_by_name=registration_by_name,
+            parallel_decls=parallel_decls,
+            loop_max_iters=loop_max_iters,
+            parallel_limiters=parallel_limiters,
         )
 
     # ── execute ──────────────────────────────────────────────────────────────
@@ -279,14 +260,14 @@ class GraphWorkflowRuntime:
 
         try:
             workflow_deps = self._build_deps(
-                compiled.graph,
+                compiled,
                 run_context=run_context,
                 run_dir=resolved_run_dir,
                 config=config,
                 deps=deps,
             )
 
-            result_state: WorkflowState = await _run_graph(state, workflow_deps)
+            result_state: WorkflowState = await _run_compiled(compiled.graph, state, workflow_deps)
 
             # Propagate task-failure to the workspace's RunContext so it can
             # tag the final run.status as failed when the caller's
@@ -360,13 +341,15 @@ class GraphWorkflowRuntime:
         async def _bg() -> None:
             try:
                 workflow_deps = self._build_deps(
-                    compiled.graph,
+                    compiled,
                     run_context=run_context,
                     run_dir=resolved_run_dir,
                     config=config,
                     deps=deps,
                 )
-                result_state: WorkflowState = await _run_graph(seed_state, workflow_deps)
+                result_state: WorkflowState = await _run_compiled(
+                    compiled.graph, seed_state, workflow_deps
+                )
                 handle._result = WorkflowResult(
                     status="failed" if result_state.failed else "completed",
                     outputs=result_state.results,
@@ -406,13 +389,13 @@ class GraphWorkflowRuntime:
         state = self._build_initial_state(compiled, seed_outputs)
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         workflow_deps = self._build_deps(
-            compiled.graph,
+            compiled,
             run_context=run_context,
             run_dir=resolved_run_dir,
             config=config,
             deps=deps,
         )
-        return _iter_graph(state, workflow_deps)
+        return compiled.graph.iter(state=state, deps=workflow_deps, inputs=None)
 
     # ── stream ───────────────────────────────────────────────────────────────
 
