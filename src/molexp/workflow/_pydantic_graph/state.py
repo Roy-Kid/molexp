@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     import anyio
 
     from .._graph_decl import ParallelDecl, TaskRegistration
+    from ..cache import Caching
+    from ..snapshot import TaskSnapshot
 
 
 @dataclass
@@ -105,6 +107,13 @@ class WorkflowDeps:
         parallel_limiters: ``body_task_name → anyio.CapacityLimiter`` —
             one fresh limiter per parallel body, sized to
             ``decl.max_concurrency``, bounding the map fan-out.
+        cache: Optional content-addressed :class:`~molexp.workflow.cache.Caching`.
+            ``None`` (default) disables caching — the per-task Step hook
+            behaves exactly as before. The runtime resolves the effective
+            cache and populates this field per execution.
+        snapshots: ``task_name → TaskSnapshot`` (the compiled artifact's
+            per-task static identity). The cache hook keys on
+            ``snapshots[name].key | input_hash``.
     """
 
     run: RunLike | None = None
@@ -119,3 +128,5 @@ class WorkflowDeps:
     parallel_decls: Mapping[str, ParallelDecl] = field(default_factory=dict)
     loop_max_iters: Mapping[str, int] = field(default_factory=dict)
     parallel_limiters: Mapping[str, anyio.CapacityLimiter] = field(default_factory=dict)
+    cache: Caching | None = None
+    snapshots: Mapping[str, TaskSnapshot] = field(default_factory=dict)

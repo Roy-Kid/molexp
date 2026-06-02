@@ -15,8 +15,8 @@ import pytest
 
 from molexp.workflow import (
     CompiledWorkflow,
-    GraphWorkflowRuntime,
     WorkflowCompiler,
+    WorkflowRuntime,
     default_binding_registry,
 )
 from molexp.workspace import RunStatus, Workspace
@@ -59,7 +59,7 @@ async def test_run_on_returns_workflow_result(tmp_path):
     exp = proj.add_experiment(name="trivial-exp")
     wf = _trivial_workflow()
 
-    result = await GraphWorkflowRuntime().run_on(wf, exp)
+    result = await WorkflowRuntime().run_on(wf, exp)
 
     assert result is not None
     assert result.outputs.get("emit") == 42
@@ -73,7 +73,7 @@ async def test_run_on_does_not_auto_bind(tmp_path):
     wf = _trivial_workflow()
 
     assert default_binding_registry.for_experiment(exp) is None
-    await GraphWorkflowRuntime().run_on(wf, exp)
+    await WorkflowRuntime().run_on(wf, exp)
     # run_on must NOT auto-bind — that's bind_to's job.
     assert default_binding_registry.for_experiment(exp) is None
 
@@ -86,7 +86,7 @@ async def test_run_on_creates_a_run_under_the_experiment(tmp_path):
     wf = _trivial_workflow()
 
     runs_before = exp.list_runs()
-    await GraphWorkflowRuntime().run_on(wf, exp, parameters={"lr": 1e-3})
+    await WorkflowRuntime().run_on(wf, exp, parameters={"lr": 1e-3})
     runs_after = exp.list_runs()
 
     assert len(runs_after) == len(runs_before) + 1
@@ -105,7 +105,7 @@ async def test_run_on_failure_propagates_and_records_failed_status(tmp_path):
     # task traceback is preserved in the runtime logs but not on the
     # rebuilt exception.
     with pytest.raises(RuntimeError, match=r"failing.*status 'failed'"):
-        await GraphWorkflowRuntime().run_on(wf, exp)
+        await WorkflowRuntime().run_on(wf, exp)
 
     runs = exp.list_runs()
     assert len(runs) == 1

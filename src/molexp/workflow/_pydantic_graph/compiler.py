@@ -67,6 +67,7 @@ from .node import (
     _Failure,
     _Trigger,
     run_task_body,
+    run_task_body_cached,
 )
 from .state import WorkflowDeps, WorkflowState
 
@@ -86,6 +87,21 @@ if TYPE_CHECKING:
 # destination — a Step, Join, Decision, or the start/end node markers.
 # pydantic-graph types these as overlapping generics; we keep the local
 # alias loose to avoid over-specifying the builder's internal generics.
+
+
+def _cache_is_active(deps: WorkflowDeps, name: str) -> bool:
+    """Gate the per-task cache hook (spec workflow-refactor-04 §Cache hook).
+
+    Caching is engaged for task *name* only when a cache is present, a
+    snapshot exists for the task, and the task is a batch ``Task`` (never an
+    ``Actor`` / streaming body — those are never cached).
+    """
+    if deps.cache is None or name not in deps.snapshots:
+        return False
+    registration = deps.registration_by_name.get(name)
+    if registration is None:
+        return False
+    return not getattr(registration, "is_actor", False)
 
 
 class WorkflowGraphCompiler:
@@ -260,6 +276,12 @@ class WorkflowGraphCompiler:
                 # Body already produced its value (seed_outputs); skip
                 # running it but still route as if it returned that value.
                 raw: object = state.results.get(name)
+            elif _cache_is_active(deps, name):
+                # Opt-in content-addressed caching (batch Task only): on a
+                # hit the body is skipped + cached artifacts re-registered;
+                # on a miss the body runs and the result + artifact manifest
+                # are stored. Routing below is identical to a plain return.
+                raw = await run_task_body_cached(name, deps, state)
             else:
                 raw = await run_task_body(name, deps, state)
 

@@ -13,9 +13,9 @@ import pytest
 
 from molexp.workflow import (
     CompiledWorkflow,
-    GraphWorkflowRuntime,
     TaskTypeRegistry,
     WorkflowCompiler,
+    WorkflowRuntime,
     default_registry,
 )
 
@@ -80,7 +80,7 @@ class TestExecute:
     @pytest.mark.asyncio
     async def test_execute_constant_add(self, registry: TaskTypeRegistry) -> None:
         spec = CompiledWorkflow.from_ir(_ir_constant_add(), registry=registry)
-        result = await GraphWorkflowRuntime().execute(spec)
+        result = await WorkflowRuntime().execute(spec)
         # Final task `c` should receive a + b = 5
         assert result.outputs["c"] == 5.0
 
@@ -109,7 +109,7 @@ class TestExecute:
             "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
         }
         spec = CompiledWorkflow.from_ir(ir, registry=registry)
-        result = await GraphWorkflowRuntime().execute(spec)
+        result = await WorkflowRuntime().execute(spec)
         assert result.outputs["tripled"] == 21.0
 
 

@@ -14,12 +14,14 @@ from __future__ import annotations
 import json
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from ..assets._adapter import ASSET_ADAPTER, parse_asset
-from ..assets.base import Asset, AssetScope
+from ..assets.base import Asset, AssetScope, Producer
 from ..assets.manifest import MANIFEST_FILENAME, AssetManifest
+from ..utils import generate_asset_id
 
 CATALOG_SCHEMA_VERSION = 2
 CATALOG_DIRNAME = "catalog"
@@ -70,6 +72,77 @@ class AssetCatalog:
 
     def update(self, asset: Asset) -> None:
         self.register(asset)
+
+    def find_by_content_hash(self, content_hash: str) -> Asset | None:
+        """Return any catalogued asset whose ``content_hash`` matches, else ``None``.
+
+        Content-addressed lookup used by the workflow cache's re-registration
+        path: the bytes are guaranteed present iff some asset row already
+        points at them (no row → the store does not hold the artifact, so
+        the caller skips it gracefully).
+        """
+        if not content_hash:
+            return None
+        data = self._load()
+        for entry in data["assets"].values():
+            if entry.get("content_hash") == content_hash:
+                return parse_asset(entry)
+        return None
+
+    def reregister_artifact(
+        self,
+        *,
+        name: str,
+        content_hash: str,
+        target_scope: AssetScope,
+        producer_task: str | None = None,
+    ) -> Asset | None:
+        """Idempotently re-register a content-addressed artifact into a new scope.
+
+        Looks the artifact up by ``content_hash`` (the bytes must already be
+        catalogued by an earlier run); if found, inserts a fresh artifact row
+        bound to *target_scope* that points at the SAME on-disk path and the
+        SAME ``content_hash`` — no recompute, no byte recopy. Returns the
+        new asset, or ``None`` when the bytes are absent (different / fresh
+        workspace) so the caller can skip gracefully.
+
+        Idempotent: when *target_scope* already holds an artifact with this
+        ``(name, content_hash)`` the existing row is returned unchanged.
+        """
+        source = self.find_by_content_hash(content_hash)
+        if source is None:
+            return None
+
+        with self._lock:
+            data = self._load()
+            for entry in data["assets"].values():
+                escope = entry.get("scope") or {}
+                if (
+                    entry.get("kind") == "artifact"
+                    and entry.get("content_hash") == content_hash
+                    and entry.get("name") == name
+                    and escope.get("kind") == target_scope.kind
+                    and tuple(escope.get("ids", ())) == target_scope.ids
+                ):
+                    return parse_asset(entry)
+
+            now = datetime.now()
+            clone = source.model_copy(
+                update={
+                    "asset_id": generate_asset_id(),
+                    "name": name,
+                    "scope": target_scope,
+                    "created_at": now,
+                    "updated_at": now,
+                    "producer": Producer(
+                        run_id=target_scope.ids[-1] if target_scope.ids else None,
+                        task_id=producer_task,
+                    ),
+                }
+            )
+            data["assets"][clone.asset_id] = _dump_asset(clone)
+            self._save(data)
+            return clone
 
     def deregister_asset(self, asset_id: str) -> None:
         with self._lock:

@@ -16,9 +16,9 @@ import asyncio
 
 import molexp as me
 from molexp.workflow import (
-    GraphWorkflowRuntime,
     TaskContext,
     WorkflowCompiler,
+    WorkflowRuntime,
     default_binding_registry,
 )
 
@@ -41,7 +41,7 @@ def test_single_task_workflow_executes(tmp_path):
     from molexp.workspace.run import RunContext
 
     with RunContext(run) as ctx:
-        result = asyncio.run(GraphWorkflowRuntime().execute(spec, run_context=ctx))
+        result = asyncio.run(WorkflowRuntime().execute(spec, run_context=ctx))
 
     assert result.status == "completed", (
         f"workflow execute regressed — likely missing inputs=WorkflowStep in _GRAPH.run; "
@@ -73,7 +73,7 @@ def test_two_task_chain_workflow_executes(tmp_path):
     from molexp.workspace.run import RunContext
 
     with RunContext(run) as ctx:
-        result = asyncio.run(GraphWorkflowRuntime().execute(spec, run_context=ctx))
+        result = asyncio.run(WorkflowRuntime().execute(spec, run_context=ctx))
 
     assert result.status == "completed"
     assert result.outputs == {"first": 1, "second": 2}

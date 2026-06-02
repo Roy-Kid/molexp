@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workflow import GraphWorkflowRuntime, TaskContext, WorkflowCompiler
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
 
 # ── ac-001 ── dependent_params ───────────────────────────────────────────────
 
@@ -34,7 +34,7 @@ class TestDependentParams:
         async def mechanical(ctx: TaskContext) -> float:
             return float(ctx.config["T"])
 
-        result = await GraphWorkflowRuntime().execute(wf.compile())
+        result = await WorkflowRuntime().execute(wf.compile())
         assert result.status == "completed"
         assert result.outputs["mechanical"] == pytest.approx(0.42)
 
@@ -50,7 +50,7 @@ class TestDependentParams:
         async def downstream(ctx: TaskContext) -> bool:
             return "T" not in ctx.config
 
-        result = await GraphWorkflowRuntime().execute(wf.compile())
+        result = await WorkflowRuntime().execute(wf.compile())
         assert result.outputs["downstream"] is True
 
 

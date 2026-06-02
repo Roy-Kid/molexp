@@ -21,7 +21,7 @@ import asyncio
 
 import pytest
 
-from molexp.workflow import GraphWorkflowRuntime, WorkflowCompiler
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 from molexp.workflow.types import Next
 
 # ── T1 / ac-002, ac-003: encapsulation invariants ───────────────────────────
@@ -91,7 +91,7 @@ async def test_parallel_happy_path() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["body"] == [1, 4, 9]
     assert result.outputs["join"] == 14
@@ -122,7 +122,7 @@ async def test_parallel_preserves_iteration_order() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=5)
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     # Iteration order, not completion order.
     assert result.outputs["body"] == [0.05, 0.04, 0.03, 0.02, 0.01]
@@ -169,7 +169,7 @@ async def test_max_concurrency_throttle() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=2)
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["join"] == 5
     assert observed_max <= 2, f"Expected in-flight cap of 2, observed {observed_max}"
@@ -204,7 +204,7 @@ async def test_parallel_failure_capture() -> None:
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
     with pytest.raises(ParallelExecutionError) as exc_info:
-        await GraphWorkflowRuntime().execute(wf.compile())
+        await WorkflowRuntime().execute(wf.compile())
 
     assert exc_info.value.body == "body"
     assert set(exc_info.value.failures.keys()) == {1}
@@ -239,7 +239,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=4)
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert len(result.outputs["body"]) == 4
     assert result.outputs["join"] == 4

@@ -24,10 +24,10 @@ import pytest
 
 from molexp.workflow import (
     CompiledWorkflow,
-    GraphWorkflowRuntime,
     Task,
     TaskContext,
     WorkflowCompiler,
+    WorkflowRuntime,
 )
 
 Workflow = CompiledWorkflow
@@ -198,7 +198,7 @@ async def test_seed_outputs_lets_subgraph_observe_upstream_value() -> None:
     spec = wf.compile()
 
     sub = spec.subgraph(["b"])
-    result = await GraphWorkflowRuntime().execute(sub, seed_outputs={"a": "SEEDED"})
+    result = await WorkflowRuntime().execute(sub, seed_outputs={"a": "SEEDED"})
     assert result.status == "completed"
     assert result.outputs["b"] == "consumed:SEEDED"
     assert captured["inputs"] == "SEEDED"
@@ -211,7 +211,7 @@ async def test_seed_outputs_skips_upstream_execution() -> None:
 
     spec, recorder = _build_chain()
     # Run the full spec but seed `a` and `b` — only `c` and `d` should run.
-    result = await GraphWorkflowRuntime().execute(spec, seed_outputs={"a": "A_SEED", "b": "B_SEED"})
+    result = await WorkflowRuntime().execute(spec, seed_outputs={"a": "A_SEED", "b": "B_SEED"})
     assert result.status == "completed"
     assert "a" not in recorder
     assert "b" not in recorder
@@ -226,7 +226,7 @@ async def test_seed_outputs_skips_upstream_execution() -> None:
 async def test_seed_outputs_unknown_task_name_fails_fast() -> None:
     spec, recorder = _build_chain()
     with pytest.raises(ValueError) as excinfo:
-        await GraphWorkflowRuntime().execute(spec, seed_outputs={"nonexistent_node": "X"})
+        await WorkflowRuntime().execute(spec, seed_outputs={"nonexistent_node": "X"})
     assert "nonexistent_node" in str(excinfo.value)
     # Fail-fast contract: no task body must have run.
     assert recorder == []
@@ -237,7 +237,7 @@ async def test_seed_outputs_default_none_preserves_legacy_behavior() -> None:
     """Calling ``execute()`` without ``seed_outputs`` (the default) must
     produce identical output ordering to the pre-extension behavior."""
     spec, recorder = _build_chain()
-    result = await GraphWorkflowRuntime().execute(spec)
+    result = await WorkflowRuntime().execute(spec)
     assert result.status == "completed"
     assert recorder == ["a", "b", "c", "d"]
     assert set(result.outputs) == {"a", "b", "c", "d"}

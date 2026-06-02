@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.workflow import Actor, GraphWorkflowRuntime, Task, TaskContext, WorkflowCompiler
+from molexp.workflow import Actor, Task, TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
 def test_task_is_not_pg_basenode_subclass():
@@ -114,6 +114,6 @@ async def test_workflow_executes_without_per_task_codegen():
     async def b(ctx: TaskContext) -> int:
         return ctx.inputs + 1
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs == {"a": 1, "b": 2}

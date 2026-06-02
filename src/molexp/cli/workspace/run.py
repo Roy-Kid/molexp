@@ -16,7 +16,7 @@ from molexp.cli._common import deterministic_run_id, reap_zombie_run, rprint
 from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.profile import MolCfg, ProfileConfig, load_molcfg
 from molexp.profile.loader import find_default_config
-from molexp.workflow import GraphWorkflowRuntime, default_binding_registry
+from molexp.workflow import WorkflowRuntime, default_binding_registry
 from molexp.workspace.target import LocalTarget, RemoteTarget
 
 if TYPE_CHECKING:
@@ -278,9 +278,7 @@ def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
         if spec is None:
             raise RuntimeError(f"Experiment {experiment.name!r} has no workflow attached.")
         with RunContext(mol_run, profile_config=profile_cfg) as ctx:
-            asyncio.run(
-                GraphWorkflowRuntime().execute(spec, run_context=cast("RunContextLike", ctx))
-            )
+            asyncio.run(WorkflowRuntime().execute(spec, run_context=cast("RunContextLike", ctx)))
 
     return _handler
 

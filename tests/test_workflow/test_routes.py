@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import pydantic_graph
 import pytest
 
-from molexp.workflow import Actor, End, GraphWorkflowRuntime, Task, WorkflowCompiler
+from molexp.workflow import Actor, End, Task, WorkflowCompiler, WorkflowRuntime
 from molexp.workflow.types import Next
 
 # ── Sentinel imports ────────────────────────────────────────────────────────
@@ -58,7 +58,7 @@ async def test_unconditional_advances_frontier():
     wf.entry("alpha")
     wf.control("alpha", "beta")
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs == {"alpha": "alpha-out", "beta": "beta-out"}
 
@@ -83,7 +83,7 @@ async def test_branch_routes_selected_by_next_label():
     async def bad(ctx) -> str:
         return "bad-ran"
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs.get("good") == "good-ran"
     assert "bad" not in result.outputs
@@ -112,7 +112,7 @@ async def test_counter_loop_via_control_edge():
     async def emit(ctx) -> int:
         return ctx.state.results["tick"].n
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["tick"] == _Counter(n=3)
     assert result.outputs["emit"] == 3
@@ -135,7 +135,7 @@ async def test_self_loop_entry_accepted():
     # Compile must succeed even with self-loop entry.
     spec = wf.compile()
     assert spec is not None  # compile didn't reject self-loop entry
-    result = await GraphWorkflowRuntime().execute(spec)
+    result = await WorkflowRuntime().execute(spec)
     assert result.status == "completed"
     assert result.outputs["counter"] == _Counter(n=2)
 
@@ -162,7 +162,7 @@ async def test_loop_back_to_entry_accepted():
     async def implement(ctx) -> str:
         return "implemented"
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["plan"] == "plan-v2"  # ran twice
     assert result.outputs["implement"] == "implemented"
@@ -189,7 +189,7 @@ async def test_end_is_frame_scoped():
     async def survivor(ctx) -> str:
         return "survivor-out"
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     # Frontier-scoped End: both siblings ran in the same frontier and both got recorded.
     assert result.outputs["quitter"] == "quitter-out"
     assert result.outputs["survivor"] == "survivor-out"
@@ -212,7 +212,7 @@ async def test_next_without_output_for_decision_node():
     async def leg_b(ctx) -> str:
         return "took-b"
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     # Decision node didn't record an output.
     assert "route" not in result.outputs
@@ -232,7 +232,7 @@ async def test_value_then_next():
     async def dst(ctx) -> str:
         return "arrived"
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["src"] == 42
     assert result.outputs["dst"] == "arrived"
 
@@ -252,7 +252,7 @@ async def test_value_then_end():
 
     wf.control("src", "never")
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["src"] == 99
     assert "never" not in result.outputs
 
@@ -275,7 +275,7 @@ async def test_actor_with_next():
     async def sink(ctx) -> str:
         return "sunk"
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["sink"] == "sunk"
 
@@ -299,7 +299,7 @@ async def test_unknown_route_label_raises():
         return "a"
 
     with pytest.raises(UnknownRouteError) as exc_info:
-        await GraphWorkflowRuntime().execute(wf.compile())
+        await WorkflowRuntime().execute(wf.compile())
     msg = str(exc_info.value)
     assert "nope" in msg
     assert "route" in msg  # task name
@@ -326,7 +326,7 @@ async def test_branch_node_requires_next():
         return "b"
 
     with pytest.raises(MissingRouteError) as exc_info:
-        await GraphWorkflowRuntime().execute(wf.compile())
+        await WorkflowRuntime().execute(wf.compile())
     msg = str(exc_info.value)
     assert "route" in msg
     # declared labels listed
@@ -359,7 +359,7 @@ async def test_join_waits_for_all_data_deps():
         # Multi-dep inputs come as dict[name → value].
         return ctx.inputs["left"] + ctx.inputs["right"]
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["collect"] == 110
 
 
@@ -384,7 +384,7 @@ async def test_loop_overwrites_results():
 
     wf.loop(body=["compute"], until="check", max_iters=10)
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["compute"] == 3
     assert counter[0] == 3
@@ -416,7 +416,7 @@ async def test_loop_exit_advances_frontier():
 
     wf.loop(body=["step"], until="gate", max_iters=10, on_exit="emit")
 
-    result = await GraphWorkflowRuntime().execute(wf.compile())
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["emit"] == "emitted"
     assert result.outputs["step"] == 2
@@ -449,7 +449,7 @@ async def test_loop_max_iters_guard():
     wf.loop(body=["step"], until="always_continue", max_iters=3)
 
     with pytest.warns(LoopMaxItersExceeded):
-        result = await GraphWorkflowRuntime().execute(wf.compile())
+        result = await WorkflowRuntime().execute(wf.compile())
 
     assert result.status == "completed"
     assert runs[0] == 3

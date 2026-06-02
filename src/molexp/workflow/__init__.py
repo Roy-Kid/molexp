@@ -16,7 +16,7 @@ equivalent styles share the compiler class:
 
 
        compiled = wf.compile()
-       result = await GraphWorkflowRuntime().execute(compiled)
+       result = await WorkflowRuntime().execute(compiled)
 
 2. **OOP** (subclass ``Task`` and ``.add()``)::
 
@@ -34,7 +34,7 @@ equivalent styles share the compiler class:
 
        compiled = WorkflowCompiler(name="pipeline").add(ExternalProcessor()).compile()
 
-Execution lives on :class:`GraphWorkflowRuntime`
+Execution lives on :class:`WorkflowRuntime`
 (``runtime.execute(compiled)`` / ``.start`` / ``.run_on``), not on the
 artifact. Bind a compiled workflow to an experiment via
 ``wf.compile(experiment=exp)`` or
@@ -44,7 +44,7 @@ code (CLI / server / cluster workers) can recover it via
 """
 
 from ._names import generate_name
-from ._pydantic_graph.runtime import GraphWorkflowRuntime, make_execution_id
+from ._pydantic_graph.runtime import WorkflowRuntime, make_execution_id
 from .binding import WorkflowBinding, WorkflowBindingRegistry, default_binding_registry
 from .cache import Caching
 from .cache_store import CacheStore, FileCacheStore
@@ -121,7 +121,6 @@ __all__ = [
     "GraphLoopIR",
     "GraphParallelIR",
     "GraphTaskIR",
-    "GraphWorkflowRuntime",
     "LoopMaxItersExceeded",
     "MissingRouteError",
     "OutEdges",
@@ -155,6 +154,7 @@ __all__ = [
     "WorkflowExecution",
     "WorkflowGraphIR",
     "WorkflowResult",
+    "WorkflowRuntime",
     "WorkflowSnapshotRef",
     "WorkflowVersion",
     "WorkflowVersionConflictError",

@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 from pydantic_graph.graph_builder import Graph
 
-from molexp.workflow import GraphWorkflowRuntime, TaskContext, WorkflowCompiler
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
 from molexp.workflow.types import CycleError, UnreachableTaskError, WorkflowError
 
 PG_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "_pydantic_graph"
@@ -211,6 +211,6 @@ def test_diamond_outputs_preserved() -> None:
     async def sink(ctx: TaskContext) -> int:
         return ctx.inputs["left"] + ctx.inputs["right"]
 
-    result = asyncio.run(GraphWorkflowRuntime().execute(wf.compile()))
+    result = asyncio.run(WorkflowRuntime().execute(wf.compile()))
     assert result.status == "completed"
     assert result.outputs == {"root": 1, "left": 11, "right": 21, "sink": 32}
