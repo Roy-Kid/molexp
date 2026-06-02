@@ -44,6 +44,7 @@ from .._typing import (
 )
 
 __all__ = [
+    "ArtifactAccessorLike",
     "AssetsViewLike",
     "JSONMapping",
     "JSONValue",
@@ -133,11 +134,30 @@ class AssetsViewLike(Protocol):
 
 
 @runtime_checkable
+class ArtifactAccessorLike(Protocol):
+    """Duck-typed shape of ``workspace.assets.ArtifactAccessor`` reached by tasks.
+
+    Only ``.save(...)`` is used by workflow code (e.g. the ``SweepMap``
+    primitive), so this protocol covers it without importing the workspace's
+    ``ArtifactAsset`` type into the workflow layer.
+    """
+
+    def save(
+        self,
+        name: str,
+        data: TaskOutput,
+        *,
+        tags: dict[str, str] | None = ...,
+        mime: str | None = ...,
+    ) -> TaskOutput: ...
+
+
+@runtime_checkable
 class RunContextLike(Protocol):
     """Duck-typed shape of ``workspace.run.RunContext`` used by the workflow runtime.
 
     Captures only the surface the workflow scheduler reaches into: the
-    run reference, the work directory, the active config, the asset view,
+    run reference, the work directory, the artifact accessor, the asset view,
     actor channel methods, and the failure back-channel (``_context``).
     Anything else on a real ``RunContext`` is out of scope for the
     workflow layer.
@@ -145,6 +165,7 @@ class RunContextLike(Protocol):
 
     work_dir: Path
     run: RunLike
+    artifact: ArtifactAccessorLike
     _context: _StatusContextLike
 
     async def receive(self, channel: str) -> TaskInput: ...

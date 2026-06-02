@@ -69,11 +69,10 @@ class SweepMap(Task[Any, Any, Any, "list[ArtifactAsset]"]):
     async def execute(self, ctx: TaskContext[Any, Any, Any]) -> list[ArtifactAsset]:
         """Run ``fn`` for every cell and persist each result as an artifact."""
         run_context = ctx.run_context
-        artifact = getattr(run_context, "artifact", None)
-        if artifact is None:
+        if run_context is None:
             raise RuntimeError(
-                "SweepMap requires ctx.run_context with an 'artifact' accessor; "
-                "execute the workflow with WorkflowRuntime().execute(..., run_context=ctx)."
+                "SweepMap requires a run_context; execute the workflow with "
+                "WorkflowRuntime().execute(..., run_context=ctx)."
             )
 
         assets: list[ArtifactAsset] = []
@@ -84,5 +83,5 @@ class SweepMap(Task[Any, Any, Any, "list[ArtifactAsset]"]):
             tags = {key: str(value) for key, value in cell.items()}
             tags["sweep_index"] = str(index)
             name = f"{self._name_prefix}-{index}.json"
-            assets.append(artifact.save(name, result, tags=tags, mime=self._mime))
+            assets.append(run_context.artifact.save(name, result, tags=tags, mime=self._mime))
         return assets
