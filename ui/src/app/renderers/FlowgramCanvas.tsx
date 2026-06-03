@@ -20,12 +20,13 @@ import {
 } from "@flowgram.ai/free-layout-editor";
 import "@flowgram.ai/free-layout-editor/index.css";
 import {
-  createContext,
   type CSSProperties,
+  createContext,
   type JSX,
   useContext,
   useEffect,
   useMemo,
+  useRef,
 } from "react";
 import type { FlowgramDocument, FlowgramNodeData } from "@/app/renderers/flowgram-document";
 
@@ -140,11 +141,20 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
  */
 const AutoLayoutOnMount = (): null => {
   const autoLayout = useAutoLayout();
+  // `useAutoLayout()` hands back a fresh bound fn every render, so the effect
+  // must NOT depend on it — otherwise every re-render (notably a node drag)
+  // re-fires auto-layout + fitView and the node snaps back / the view jumps.
+  // Capture the latest fn in a ref and run the layout exactly once on mount.
+  const autoLayoutRef = useRef(autoLayout);
+  autoLayoutRef.current = autoLayout;
+  const ranRef = useRef(false);
   useEffect(() => {
+    if (ranRef.current) return;
+    ranRef.current = true;
     let active = true;
     const run = async () => {
       try {
-        await autoLayout();
+        await autoLayoutRef.current();
       } catch (err) {
         console.error("[flowgram auto-layout]", err);
       }
@@ -160,7 +170,7 @@ const AutoLayoutOnMount = (): null => {
       cancelAnimationFrame(raf);
       clearTimeout(retry);
     };
-  }, [autoLayout]);
+  }, []);
   return null;
 };
 
@@ -171,6 +181,16 @@ export const FlowgramCanvas = ({
   onChange,
   className,
 }: FlowgramCanvasProps): JSX.Element => {
+  // Callbacks are reached through refs so they are NOT memo deps: a parent that
+  // passes inline handlers (e.g. onNodeClick) would otherwise rebuild
+  // `editorProps` on every render — and rebuilding it reloads `initialData` into
+  // flowgram, discarding any in-progress node drag. Keep editorProps stable per
+  // (document, editable).
+  const onNodeClickRef = useRef(onNodeClick);
+  onNodeClickRef.current = onNodeClick;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+
   const editorProps = useMemo<FreeLayoutProps>(() => {
     return {
       background: true,
@@ -185,7 +205,7 @@ export const FlowgramCanvas = ({
       materials: {
         renderDefaultNode: (props: WorkflowNodeProps) => (
           <WorkflowNodeRenderer node={props.node}>
-            <NodeCard onNodeClick={onNodeClick} />
+            <NodeCard onNodeClick={(id) => onNodeClickRef.current?.(id)} />
           </WorkflowNodeRenderer>
         ),
       },
@@ -195,7 +215,7 @@ export const FlowgramCanvas = ({
             nodeEngine: { enable: true },
             history: { enable: true },
             onContentChange(ctx) {
-              onChange?.(ctx.document.toJSON() as unknown as FlowgramDocument);
+              onChangeRef.current?.(ctx.document.toJSON() as unknown as FlowgramDocument);
             },
           }
         : {}),
@@ -203,7 +223,7 @@ export const FlowgramCanvas = ({
         ctx.document.fitView(false);
       },
     };
-  }, [document, onNodeClick, editable, onChange]);
+  }, [document, editable]);
 
   // Theme the flowgram line/arrow colours (CSS vars it reads) to the molexp
   // design tokens so edges match light/dark instead of flowgram's stock indigo.
