@@ -11,8 +11,8 @@
  * frontend needs to fetch the manifest and dynamic-import the entry.
  */
 export type UiPluginResponse = {
+    entryUrl: string;
     id: string;
     manifestUrl: string;
-    entryUrl: string;
 };
 

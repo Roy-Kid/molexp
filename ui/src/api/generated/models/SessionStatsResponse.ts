@@ -3,16 +3,16 @@
 /* tslint:disable */
 /* eslint-disable */
 export type SessionStatsResponse = {
-    inputTokens?: number;
-    outputTokens?: number;
     cacheReadTokens?: number;
     cacheWriteTokens?: number;
-    totalTokens?: number;
-    requests?: number;
-    toolCalls?: number;
-    events?: number;
-    startedAt?: (string | null);
     completedAt?: (string | null);
     durationSeconds?: (number | null);
+    events?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+    requests?: number;
+    startedAt?: (string | null);
+    toolCalls?: number;
+    totalTokens?: number;
 };
 

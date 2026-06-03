@@ -57,7 +57,7 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
   const [isDeleting, setIsDeleting] = useState(false);
   const [projectAssets, setProjectAssets] = useState<ApiAssetResponse[]>([]);
   const [createRunExperimentId, setCreateRunExperimentId] = useState<string | null>(null);
-  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const { setSelection } = useNavigationState(snapshot);
 
   const projectId = selection.objectId;
   const project = snapshot.projects.find((p) => p.id === projectId);
@@ -467,9 +467,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
   return (
     <>
       <EntityPage
-        breadcrumbs={breadcrumbs}
-        canNavigateUp={canNavigateUp}
-        onNavigateUp={navigateUp}
         icon={FolderKanban}
         title={project.name}
         status={project.status}

@@ -7,8 +7,8 @@ import type { RunFileNode } from './RunFileNode';
  * Per-run output file tree, enriched with catalog producer metadata.
  */
 export type RunFilesResponse = {
-    runId: string;
-    runDir: string;
     nodes?: Array<RunFileNode>;
+    runDir: string;
+    runId: string;
 };
 

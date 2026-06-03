@@ -58,7 +58,6 @@ import {
   SLASH_NAME_PATTERN,
 } from "@/app/state/api";
 import { onMcpConfigChanged } from "@/app/state/mcpEvents";
-import { useNavigationState } from "@/app/state/useNavigationState";
 import type { WorkspaceSnapshot } from "@/app/types";
 import {
   Accordion,
@@ -169,11 +168,7 @@ const renderTabContent = (
   }
 };
 
-export const AgentSettingsViewer = ({
-  snapshot,
-  onLaunchSession,
-}: AgentSettingsViewerProps): JSX.Element => {
-  const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+export const AgentSettingsViewer = ({ onLaunchSession }: AgentSettingsViewerProps): JSX.Element => {
   const tabs = AGENT_SETTINGS_TABS.map((def) => {
     const Icon = TAB_ICON[def.value];
     return {
@@ -188,9 +183,6 @@ export const AgentSettingsViewer = ({
   });
   return (
     <EntityPage
-      breadcrumbs={breadcrumbs}
-      canNavigateUp={canNavigateUp}
-      onNavigateUp={navigateUp}
       icon={Settings}
       title="Agent settings"
       subtitle="Agent core, model providers, tool sources"

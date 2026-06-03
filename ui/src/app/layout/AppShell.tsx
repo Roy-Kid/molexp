@@ -1,5 +1,8 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { Breadcrumb } from "@/app/entities/Breadcrumb";
+import { buildTrail } from "@/app/entities/breadcrumb";
+import { GlobalCommandPalette } from "@/app/entities/GlobalCommandPalette";
 import { ContextBar } from "@/app/layout/ContextBar";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
@@ -93,8 +96,14 @@ export const AppShell = ({
   const toggleDisabled = !inspectorSelection;
   const toggleLabel = inspectorVisible ? "Hide details" : "Show details";
 
+  const trail = useMemo(
+    () => buildTrail(selection, leftPanelView, snapshot),
+    [selection, leftPanelView, snapshot],
+  );
+
   return (
     <InspectedTaskContext.Provider value={inspectedTaskContext}>
+      <GlobalCommandPalette snapshot={snapshot} />
       <div className="flex h-screen flex-col bg-background text-foreground">
         <ContextBar
           searchQuery={searchQuery}
@@ -127,7 +136,8 @@ export const AppShell = ({
               <ResizablePanelGroup direction="horizontal" className="h-full">
                 <ResizablePanel defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}>
                   <div className="flex h-full flex-col">
-                    <div className="flex h-9 items-center justify-end border-b border-border/70 bg-muted/10 px-2">
+                    <div className="flex h-9 items-center justify-between gap-2 border-b border-border/70 bg-muted/10 px-3">
+                      <Breadcrumb items={trail} />
                       <TooltipProvider>
                         <Tooltip>
                           <TooltipTrigger asChild>

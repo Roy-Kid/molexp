@@ -144,7 +144,7 @@ export const ExperimentViewer = ({
 }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
   const [workflowPreview, setWorkflowPreview] = useState<WorkflowPreview | null>(null);
-  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const { setSelection } = useNavigationState(snapshot);
 
   // Find the experiment in snapshot
   const experimentId = selection.objectId;
@@ -410,9 +410,6 @@ export const ExperimentViewer = ({
 
   return (
     <EntityPage
-      breadcrumbs={breadcrumbs}
-      canNavigateUp={canNavigateUp}
-      onNavigateUp={navigateUp}
       icon={FlaskConical}
       title={experiment.name}
       status={experiment.status}

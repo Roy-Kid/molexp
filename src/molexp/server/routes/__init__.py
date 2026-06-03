@@ -20,6 +20,7 @@ from . import (
     run,
     targets,
     tensorboard,
+    workflow,
     workspace,
 )
 
@@ -47,6 +48,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(molq.router)
     api_router.include_router(targets.router)
     api_router.include_router(tensorboard.router)
+    api_router.include_router(workflow.router)
 
     return api_router
 
@@ -67,5 +69,6 @@ __all__ = [
     "run",
     "targets",
     "tensorboard",
+    "workflow",
     "workspace",
 ]

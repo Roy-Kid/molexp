@@ -9,6 +9,7 @@ from __future__ import annotations
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from molexp.workflow.types import WorkflowError
 from molexp.workspace.errors import (
     ExperimentExistsError as WorkspaceExperimentExistsError,
 )
@@ -60,6 +61,20 @@ def register_exception_handlers(app: FastAPI) -> None:
             content={
                 "error": {
                     "code": "VALIDATION_ERROR",
+                    "message": str(exc),
+                }
+            },
+        )
+
+    @app.exception_handler(WorkflowError)
+    async def workflow_error_handler(request: Request, exc: WorkflowError) -> JSONResponse:  # noqa: ARG001
+        """Map workflow-layer compile errors (cycles, unknown tasks, unreachable
+        nodes, …) raised by ``ir_to_spec`` onto a structured 4xx — never a 500."""
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": {
+                    "code": "WORKFLOW_INVALID",
                     "message": str(exc),
                 }
             },

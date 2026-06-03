@@ -4,10 +4,11 @@
 :class:`~Streamable` protocols respectively. Using them is **optional** —
 any object whose signature matches the protocol works equally well.
 
-After the rectification, ``Task`` and ``Actor`` are **plain abstract
-classes** — they no longer inherit ``pydantic_graph.BaseNode``. The
-molexp scheduler invokes ``execute(ctx)`` / ``run(ctx)`` directly via
-duck typing; pg sees only the wrapping ``WorkflowStep`` BaseNode.
+``Task`` and ``Actor`` are **plain abstract classes** — they do not
+inherit ``pydantic_graph.BaseNode``. Each task is lowered to a genuine
+pydantic-graph ``Step`` (one per task; see
+:mod:`molexp.workflow._pydantic_graph.compiler`); the Step body invokes
+``execute(ctx)`` / ``run(ctx)`` directly via duck typing.
 
 Simple (no generics)::
 
@@ -61,7 +62,8 @@ class Actor[StateT, DepsT, InputT, OutputT](ABC):
     # functions return their iterator directly on call (no ``await``);
     # marking the abstract method ``async def`` would let static
     # checkers conclude callers must ``await`` first, breaking the
-    # ``async for chunk in actor.run(ctx)`` dispatch in the scheduler.
+    # ``async for chunk in actor.run(ctx)`` dispatch in the Step body
+    # (node._invoke_body_with_ctx).
     @abstractmethod
     def run(self, ctx: ActorContext[StateT, DepsT, InputT]) -> AsyncIterator[OutputT]:
         """Run continuously, yielding outputs."""

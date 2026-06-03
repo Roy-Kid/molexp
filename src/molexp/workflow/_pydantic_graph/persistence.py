@@ -41,7 +41,7 @@ logger = get_logger(__name__)
 
 @dataclass
 class _StepRecord:
-    """One scheduler-frame snapshot persisted to ``workflow.json``."""
+    """One Step-frame snapshot persisted to ``workflow.json``."""
 
     snapshot_id: str
     index: int
@@ -135,17 +135,19 @@ class RunStorePersistence(BaseStatePersistence[WorkflowState, WorkflowState]):
         next_node: BaseNode[WorkflowState, UserDeps, WorkflowState],
     ) -> None:
         self._last_snapshot = NodeSnapshot(state=state, node=next_node)
-        if type(next_node).__name__ == "WorkflowStep":
-            level_index = getattr(next_node, "level_index", len(self._state.steps))
-            self._state.steps.append(
-                _StepRecord(
-                    snapshot_id=self._last_snapshot.id,
-                    index=level_index + 1,  # 1-indexed for human display
-                    status="pending",
-                    outputs={k: _safe_serialize(v) for k, v in state.results.items()},
-                )
+        # One per-task Step frame per snapshot. The runtime no longer injects
+        # this persistence backend into the graph runner (only the initial
+        # workflow.json write happens), so this path is exercised only if a
+        # caller wires it up explicitly; the index is the running frame count.
+        self._state.steps.append(
+            _StepRecord(
+                snapshot_id=self._last_snapshot.id,
+                index=len(self._state.steps) + 1,  # 1-indexed for human display
+                status="pending",
+                outputs={k: _safe_serialize(v) for k, v in state.results.items()},
             )
-            self._write_workflow()
+        )
+        self._write_workflow()
 
     async def snapshot_node_if_new(
         self,

@@ -16,7 +16,7 @@ from molexp.cli._common import deterministic_run_id, reap_zombie_run, rprint
 from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.profile import MolCfg, ProfileConfig, load_molcfg
 from molexp.profile.loader import find_default_config
-from molexp.workflow import Workflow
+from molexp.workflow import WorkflowRuntime, default_binding_registry
 from molexp.workspace.target import LocalTarget, RemoteTarget
 
 if TYPE_CHECKING:
@@ -178,7 +178,7 @@ def _dispatch_runs(
             rprint(f"[dim]--workspace override active: {ws.root}[/dim]")
         for project in ws.list_projects():
             for exp in project.list_experiments():
-                if Workflow.for_experiment(exp) is None:
+                if default_binding_registry.for_experiment(exp) is None:
                     continue
                 seeds = exp.get_seeds()
                 total = exp.n_replicas
@@ -274,11 +274,11 @@ def _make_local_inprocess_handler(profile_cfg: ProfileConfig) -> RunHandler:
     from molexp.workspace.run import RunContext
 
     def _handler(_script: Path, mol_run: Run, experiment: Experiment, _project: Project) -> None:
-        spec = Workflow.for_experiment(experiment)
+        spec = default_binding_registry.for_experiment(experiment)
         if spec is None:
             raise RuntimeError(f"Experiment {experiment.name!r} has no workflow attached.")
         with RunContext(mol_run, profile_config=profile_cfg) as ctx:
-            asyncio.run(spec.execute(run_context=cast("RunContextLike", ctx)))
+            asyncio.run(WorkflowRuntime().execute(spec, run_context=cast("RunContextLike", ctx)))
 
     return _handler
 

@@ -1,0 +1,41 @@
+{
+  "entries": [],
+  "links": [
+    {
+      "kind": "data",
+      "mapping": {},
+      "source": "inspect",
+      "status": "pending",
+      "target": "train"
+    }
+  ],
+  "loops": [],
+  "metadata": {
+    "custom": {},
+    "description": null,
+    "label": null,
+    "tags": []
+  },
+  "name": "qm9-gnn-baseline",
+  "parallels": [],
+  "task_configs": [
+    {
+      "config": {
+        "path": "qm9.h5"
+      },
+      "status": "pending",
+      "task_id": "inspect",
+      "task_type": "golden_inspect"
+    },
+    {
+      "config": {
+        "epochs": 50,
+        "lr": 0.001
+      },
+      "status": "pending",
+      "task_id": "train",
+      "task_type": "golden_train"
+    }
+  ],
+  "workflow_id": "<normalized>"
+}

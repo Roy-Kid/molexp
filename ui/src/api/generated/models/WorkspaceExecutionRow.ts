@@ -6,14 +6,14 @@
  * One execution attempt of a run, surfaced for the workspace runs table.
  */
 export type WorkspaceExecutionRow = {
-    executionId: string;
-    runId: string;
-    status: string;
-    startedAt: string;
-    finishedAt?: (string | null);
-    durationSeconds?: (number | null);
-    schedulerJobId?: (string | null);
     backend?: (string | null);
     backendMetadata?: Record<string, string>;
+    durationSeconds?: (number | null);
+    executionId: string;
+    finishedAt?: (string | null);
+    runId: string;
+    schedulerJobId?: (string | null);
+    startedAt: string;
+    status: string;
 };
 

@@ -60,7 +60,7 @@ opaque.
 - **persistence**: `RunStorePersistence` (a pg `BaseStatePersistence`
   subclass) writes a single `workflow.json` per execution attempt
   through workspace's atomic-write helper
-- the IR ↔ Python ↔ Mermaid compiler (`WorkflowCompiler`)
+- the IR ↔ Python ↔ Mermaid codec (`WorkflowCodec`)
 - declarative IR sugar (`wf.loop` / `wf.parallel` / `wf.branch`)
 - the `WorkflowStep` scheduler — the sole `pydantic_graph.BaseNode`
   subclass molexp exposes to pg, wrapping the entire frontier-advance

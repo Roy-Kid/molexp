@@ -3,11 +3,11 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RunSummary = {
-    id: string;
-    status: string;
     created: string;
     finished?: (string | null);
+    id: string;
     parameters?: Record<string, any>;
     results?: Record<string, any>;
+    status: string;
 };
 

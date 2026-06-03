@@ -6,10 +6,10 @@
  * A new run cloned from an existing one.
  */
 export type RunRerunResponse = {
-    sourceRunId: string;
+    experimentId: string;
     newRunId: string;
     projectId: string;
-    experimentId: string;
+    sourceRunId: string;
     status: string;
 };
 

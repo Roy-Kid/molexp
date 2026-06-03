@@ -11,11 +11,11 @@ from pydantic_graph import End as End
 
 from .compiler import WorkflowGraphCompiler
 from .persistence import RunStorePersistence
-from .runtime import GraphWorkflowRuntime
+from .runtime import WorkflowRuntime
 
 __all__ = [
     "End",
-    "GraphWorkflowRuntime",
     "RunStorePersistence",
     "WorkflowGraphCompiler",
+    "WorkflowRuntime",
 ]

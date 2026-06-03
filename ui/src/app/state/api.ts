@@ -3,7 +3,13 @@ import { ExecutionService } from "@/api/generated/services/ExecutionService";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
 import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
+import { WorkflowService } from "@/api/generated/services/WorkflowService";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
+import {
+  buildFlowgramDocument,
+  type FlowgramDocument,
+  parseTaskGraphIr,
+} from "@/app/renderers/flowgram-document";
 import type {
   AgentSessionSummary,
   ApiAgentSession,
@@ -21,14 +27,11 @@ import type {
   ProjectSummary,
   RunCreateRequest,
   RunSummary,
-  SemanticStatus,
-  WorkflowGraph,
-  WorkflowGraphEdge,
-  WorkflowNodeMetadata,
   WorkflowSummary,
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
+import type { TaskGraphJson } from "@/types/task_graph_ir";
 
 // Local types not yet in OpenAPI. The lineage fields (`assetId`,
 // `assetKind`, `producerRunId`, `producerTaskId`) are populated when
@@ -630,123 +633,19 @@ export const mapAssets = (assets: ApiAssetResponse[], projectId?: string): Asset
   }));
 };
 
-// Topological-layer layout constants for the workflow DAG built from a
-// serialized IR (matches the spacing used by the inline plan card).
-const WF_RANK_SEP = 120;
-const WF_NODE_SEP = 200;
-
-const WF_STATUS_VALUES: ReadonlySet<SemanticStatus> = new Set<SemanticStatus>([
-  "active",
-  "archived",
-  "draft",
-  "pending",
-  "running",
-  "succeeded",
-  "failed",
-  "cancelled",
-  "skipped",
-]);
-
-const toSemanticStatus = (value: unknown): SemanticStatus =>
-  typeof value === "string" && WF_STATUS_VALUES.has(value as SemanticStatus)
-    ? (value as SemanticStatus)
-    : "pending";
-
 /**
- * Build a renderable {@link WorkflowGraph} from an experiment's
- * `workflow_source` when it is a serialized IR (`{task_configs, links}` — see
- * `Workflow.to_dict()` / `schema/workflow.json`). Returns `undefined` when the
- * source is absent or is a Python script / path rather than a serialized IR, so
- * callers fall back to the raw string. Nodes are laid out by longest-path level
- * so the DAG flows top→bottom.
+ * Build a flowgram free-layout document from an experiment's `workflow_source`
+ * when it is a serialized IR (`{task_configs, links}` — see `Workflow.to_dict()`
+ * / `schema/workflow.json`). Returns `undefined` when the source is absent or is
+ * a Python script / path rather than a serialized IR, so callers fall back to
+ * the raw string.
  */
-export const buildWorkflowGraph = (source: string | null | undefined): WorkflowGraph | undefined => {
-  if (!source) return undefined;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(source);
-  } catch {
-    return undefined; // not a serialized IR (e.g. Python source or a path)
-  }
-  if (typeof parsed !== "object" || parsed === null) return undefined;
-  const ir = parsed as { task_configs?: unknown; links?: unknown };
-  const tasks = Array.isArray(ir.task_configs) ? ir.task_configs : null;
-  if (!tasks) return undefined;
-  const rawLinks = Array.isArray(ir.links) ? ir.links : [];
-
-  const ids: string[] = [];
-  const labelById = new Map<string, string>();
-  const statusById = new Map<string, SemanticStatus>();
-  const configById = new Map<string, Record<string, unknown>>();
-  for (const item of tasks) {
-    const task = item as {
-      task_id?: unknown;
-      task_type?: unknown;
-      status?: unknown;
-      config?: unknown;
-    };
-    if (typeof task.task_id !== "string") continue;
-    ids.push(task.task_id);
-    labelById.set(task.task_id, typeof task.task_type === "string" ? task.task_type : task.task_id);
-    statusById.set(task.task_id, toSemanticStatus(task.status));
-    if (task.config && typeof task.config === "object" && !Array.isArray(task.config)) {
-      configById.set(task.task_id, task.config as Record<string, unknown>);
-    }
-  }
-  const idSet = new Set(ids);
-
-  const adjacency = new Map<string, string[]>(ids.map((id) => [id, []]));
-  const indegree = new Map<string, number>(ids.map((id) => [id, 0]));
-  const edges: WorkflowGraphEdge[] = [];
-  rawLinks.forEach((item, index) => {
-    const link = item as { source?: unknown; target?: unknown };
-    if (typeof link.source !== "string" || typeof link.target !== "string") return;
-    if (!idSet.has(link.source) || !idSet.has(link.target)) return;
-    adjacency.get(link.source)?.push(link.target);
-    indegree.set(link.target, (indegree.get(link.target) ?? 0) + 1);
-    edges.push({
-      id: `${link.source}:${link.target}:${index}`,
-      source: link.source,
-      target: link.target,
-      label: "",
-    });
-  });
-
-  // Longest-path layering via Kahn's algorithm; cycles (shouldn't occur in a
-  // valid DAG) leave residual nodes at level 0.
-  const level = new Map<string, number>();
-  const pending = new Map(indegree);
-  const queue = ids.filter((id) => (pending.get(id) ?? 0) === 0);
-  for (const id of queue) level.set(id, 0);
-  while (queue.length) {
-    const id = queue.shift() as string;
-    const lv = level.get(id) ?? 0;
-    for (const next of adjacency.get(id) ?? []) {
-      level.set(next, Math.max(level.get(next) ?? 0, lv + 1));
-      pending.set(next, (pending.get(next) ?? 0) - 1);
-      if ((pending.get(next) ?? 0) === 0) queue.push(next);
-    }
-  }
-
-  const perLevel = new Map<number, number>();
-  const nodes: WorkflowNodeMetadata[] = ids.map((id) => {
-    const lv = level.get(id) ?? 0;
-    const col = perLevel.get(lv) ?? 0;
-    perLevel.set(lv, col + 1);
-    return {
-      nodeId: id,
-      // Show the task id (e.g. "typify_CAT") as the node label so nodes are
-      // distinguishable; the task_type goes to the description line.
-      label: id,
-      nodeType: "task",
-      status: statusById.get(id) ?? "pending",
-      description: labelById.get(id) ?? id,
-      position: { x: col * WF_NODE_SEP, y: lv * WF_RANK_SEP },
-      config: configById.get(id),
-    };
-  });
-
-  return { nodes, edges };
+export const buildWorkflowDocument = (
+  source: string | null | undefined,
+): FlowgramDocument | undefined => {
+  const ir = parseTaskGraphIr(source);
+  if (!ir) return undefined;
+  return buildFlowgramDocument(ir);
 };
 
 export const mapWorkflows = (
@@ -757,13 +656,13 @@ export const mapWorkflows = (
   return experiments.map((experiment) => {
     const raw = experimentById.get(experiment.id);
     const source = raw?.workflow ?? null;
-    const graph = buildWorkflowGraph(source);
+    const graph: TaskGraphJson | undefined = parseTaskGraphIr(source) ?? undefined;
     return {
       id: `workflow:${experiment.id}`,
       name: `${experiment.name} workflow`,
       status: "active",
       summary: graph
-        ? `${graph.nodes.length} tasks · ${graph.edges.length} dependencies`
+        ? `${graph.task_configs.length} tasks · ${graph.links.length} dependencies`
         : (source ?? "workflow"),
       updatedAt: experiment.updatedAt,
       projectId: experiment.projectId,
@@ -1474,5 +1373,28 @@ export const planApi = {
     const response = await fetch(`/api/agent/sessions/${sessionId}/system-prompt`);
     if (!response.ok) throw new Error(`Failed to fetch system prompt: ${response.statusText}`);
     return response.json();
+  },
+};
+
+// ── Workflow document write-back (flowgram canvas) ─────────────────────────
+
+export const workflowApi = {
+  /**
+   * Persist an edited workflow document through the generated WorkflowService
+   * (never a hand-rolled fetch). `document` is the backend wire IR
+   * ({task_configs, links, ...}); returns the server-normalized wire IR.
+   */
+  save: async (
+    projectId: string,
+    experimentId: string,
+    document: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => {
+    const response =
+      await WorkflowService.putWorkflowDocumentApiProjectsProjectIdExperimentsExperimentIdWorkflowPut(
+        projectId,
+        experimentId,
+        { document },
+      );
+    return response.document as Record<string, unknown>;
   },
 };

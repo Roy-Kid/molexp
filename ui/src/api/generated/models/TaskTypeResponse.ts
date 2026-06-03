@@ -7,12 +7,12 @@
  */
 export type TaskTypeResponse = {
     /**
-     * Registry slug, e.g. 'core.add'
-     */
-    slug: string;
-    /**
      * Human-readable summary
      */
     description?: string;
+    /**
+     * Registry slug, e.g. 'core.add'
+     */
+    slug: string;
 };
 

@@ -8,8 +8,8 @@ from molexp.server.dependencies import get_workspace
 from molexp.workflow import (
     Task,
     TaskContext,
-    Workflow,
-    WorkflowBuilder,
+    WorkflowCompiler,
+    default_binding_registry,
 )
 from molexp.workspace import Workspace
 
@@ -17,9 +17,9 @@ from molexp.workspace import Workspace
 @pytest.fixture(autouse=True)
 def _isolate_workflow_bindings():
     """Each test gets a fresh process-local workflow-binding registry."""
-    Workflow._reset_registry()
+    default_binding_registry.clear()
     yield
-    Workflow._reset_registry()
+    default_binding_registry.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -59,7 +59,7 @@ class _NoopTask(Task):
 
 # Module-level Workflow — explicitly named at module scope so
 # ``resolve_spec_entrypoint`` returns ``<this-file>:_NOOP_SPEC``.
-_NOOP_SPEC = WorkflowBuilder(name="noop").add(_NoopTask(), name="step").build()
+_NOOP_SPEC = WorkflowCompiler(name="noop").add(_NoopTask(), name="step").compile()
 
 
 @pytest.fixture
@@ -89,7 +89,7 @@ def experiment_with_entrypoint(project):
         workflow_source="train.py",
         params={"lr": 1e-4},
     )
-    _NOOP_SPEC.bind_to(exp)
+    default_binding_registry.bind(exp, _NOOP_SPEC)
     return exp
 
 

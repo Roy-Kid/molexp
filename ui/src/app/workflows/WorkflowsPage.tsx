@@ -22,7 +22,6 @@ export const WorkflowsPage = ({ snapshot }: WorkflowsPageProps): JSX.Element => 
   return (
     <div className="flex h-full flex-col">
       <EntityHeader
-        breadcrumbs={[{ label: "Workflows" }]}
         icon={WorkflowIcon}
         title="Workflows"
         subtitle="Workflow definitions across the workspace — open one to inspect its task graph."
@@ -41,8 +40,8 @@ export const WorkflowsPage = ({ snapshot }: WorkflowsPageProps): JSX.Element => 
               const experiment = snapshot.experiments.find(
                 (item) => item.id === workflow.experimentId,
               );
-              const nodeCount = workflow.graph?.nodes.length ?? 0;
-              const edgeCount = workflow.graph?.edges.length ?? 0;
+              const nodeCount = workflow.graph?.task_configs.length ?? 0;
+              const edgeCount = workflow.graph?.links.length ?? 0;
               return (
                 <Card
                   key={workflow.id}

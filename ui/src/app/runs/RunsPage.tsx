@@ -3,6 +3,7 @@ import type { JSX, ReactNode } from "react";
 import { Fragment, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { EntityHeader } from "@/app/components/entity";
+import { runPath } from "@/app/entities/paths";
 import type { WorkspaceSnapshot } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -181,9 +182,7 @@ export const RunsPage = ({ snapshot: _snapshot }: RunsPageProps): JSX.Element =>
 
   const navigateToRun = useCallback(
     (run: WorkspaceRunRow): void => {
-      navigate(
-        `/projects/${encodeURIComponent(run.projectId)}/experiments/${encodeURIComponent(run.experimentId)}/runs/${encodeURIComponent(run.id)}`,
-      );
+      navigate(runPath(run.projectId, run.experimentId, run.id));
     },
     [navigate],
   );

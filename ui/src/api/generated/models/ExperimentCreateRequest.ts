@@ -4,24 +4,24 @@
 /* eslint-disable */
 export type ExperimentCreateRequest = {
     /**
-     * Human-readable experiment name
+     * Compute target name new runs should default to (must exist)
      */
-    name: string;
-    /**
-     * Path to workflow file
-     */
-    workflow_source?: (string | null);
+    defaultTarget?: (string | null);
     /**
      * Experiment description
      */
     description?: string;
     /**
+     * Human-readable experiment name
+     */
+    name: string;
+    /**
      * Parameter space definition
      */
     parameter_space?: Record<string, any>;
     /**
-     * Compute target name new runs should default to (must exist)
+     * Path to workflow file
      */
-    defaultTarget?: (string | null);
+    workflow_source?: (string | null);
 };
 

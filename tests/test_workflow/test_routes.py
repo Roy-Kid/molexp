@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import pydantic_graph
 import pytest
 
-from molexp.workflow import Actor, End, Task, WorkflowBuilder
+from molexp.workflow import Actor, End, Task, WorkflowCompiler, WorkflowRuntime
 from molexp.workflow.types import Next
 
 # ── Sentinel imports ────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ async def test_unconditional_advances_frontier():
 
     No `depends_on`; pure control-edge driven execution. Both tasks must run.
     """
-    wf = WorkflowBuilder(name="unc-control")
+    wf = WorkflowCompiler(name="unc-control")
 
     @wf.task
     async def alpha(ctx) -> str:
@@ -58,7 +58,7 @@ async def test_unconditional_advances_frontier():
     wf.entry("alpha")
     wf.control("alpha", "beta")
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs == {"alpha": "alpha-out", "beta": "beta-out"}
 
@@ -69,7 +69,7 @@ async def test_unconditional_advances_frontier():
 @pytest.mark.asyncio
 async def test_branch_routes_selected_by_next_label():
     """`Next("ok")` selects the route labelled `"ok"`, ignoring others."""
-    wf = WorkflowBuilder(name="branch", entry="route")
+    wf = WorkflowCompiler(name="branch", entry="route")
 
     @wf.task(routes={"ok": "good", "fail": "bad"})
     async def route(ctx) -> Next:
@@ -83,7 +83,7 @@ async def test_branch_routes_selected_by_next_label():
     async def bad(ctx) -> str:
         return "bad-ran"
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs.get("good") == "good-ran"
     assert "bad" not in result.outputs
@@ -100,7 +100,7 @@ class _Counter:
 @pytest.mark.asyncio
 async def test_counter_loop_via_control_edge():
     """Counter that re-enters itself N times via control edge, then ends."""
-    wf = WorkflowBuilder(name="counter", entry="tick")
+    wf = WorkflowCompiler(name="counter", entry="tick")
 
     @wf.task(routes={"again": "tick", "done": "emit"})
     async def tick(ctx) -> tuple[_Counter, Next]:
@@ -112,7 +112,7 @@ async def test_counter_loop_via_control_edge():
     async def emit(ctx) -> int:
         return ctx.state.results["tick"].n
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["tick"] == _Counter(n=3)
     assert result.outputs["emit"] == 3
@@ -121,7 +121,7 @@ async def test_counter_loop_via_control_edge():
 @pytest.mark.asyncio
 async def test_self_loop_entry_accepted():
     """Entry task with self-loop control edge (counter --again--> counter, --done--> End) is legal."""
-    wf = WorkflowBuilder(name="self-loop-entry", entry="counter")
+    wf = WorkflowCompiler(name="self-loop-entry", entry="counter")
 
     @wf.task(routes={"again": "counter", "done": "_end"})
     async def counter(ctx) -> tuple[_Counter, Next | End]:
@@ -133,9 +133,9 @@ async def test_self_loop_entry_accepted():
 
     # `routes` references "_end" sentinel target. We accept End(None) return short-circuiting it.
     # Compile must succeed even with self-loop entry.
-    spec = wf.build()
+    spec = wf.compile()
     assert spec is not None  # compile didn't reject self-loop entry
-    result = await spec.execute()
+    result = await WorkflowRuntime().execute(spec)
     assert result.status == "completed"
     assert result.outputs["counter"] == _Counter(n=2)
 
@@ -143,7 +143,7 @@ async def test_self_loop_entry_accepted():
 @pytest.mark.asyncio
 async def test_loop_back_to_entry_accepted():
     """Entry node with control loop-back incoming edge (plan ↔ wait_approval) is legal."""
-    wf = WorkflowBuilder(name="rework-loop", entry="plan")
+    wf = WorkflowCompiler(name="rework-loop", entry="plan")
 
     @wf.task
     async def plan(ctx) -> str:
@@ -162,7 +162,7 @@ async def test_loop_back_to_entry_accepted():
     async def implement(ctx) -> str:
         return "implemented"
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["plan"] == "plan-v2"  # ran twice
     assert result.outputs["implement"] == "implemented"
@@ -174,7 +174,7 @@ async def test_loop_back_to_entry_accepted():
 @pytest.mark.asyncio
 async def test_end_is_frame_scoped():
     """`End(None)` is frame-scoped: same-frontier siblings still record their outputs."""
-    wf = WorkflowBuilder(name="frame-end", entry="seed")
+    wf = WorkflowCompiler(name="frame-end", entry="seed")
 
     @wf.task
     async def seed(ctx) -> int:
@@ -189,7 +189,7 @@ async def test_end_is_frame_scoped():
     async def survivor(ctx) -> str:
         return "survivor-out"
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     # Frontier-scoped End: both siblings ran in the same frontier and both got recorded.
     assert result.outputs["quitter"] == "quitter-out"
     assert result.outputs["survivor"] == "survivor-out"
@@ -198,7 +198,7 @@ async def test_end_is_frame_scoped():
 @pytest.mark.asyncio
 async def test_next_without_output_for_decision_node():
     """A decision-only node may return bare `Next(label)` — no output recorded."""
-    wf = WorkflowBuilder(name="decision-only", entry="route")
+    wf = WorkflowCompiler(name="decision-only", entry="route")
 
     @wf.task(routes={"a": "leg_a", "b": "leg_b"})
     async def route(ctx) -> Next:
@@ -212,7 +212,7 @@ async def test_next_without_output_for_decision_node():
     async def leg_b(ctx) -> str:
         return "took-b"
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     # Decision node didn't record an output.
     assert "route" not in result.outputs
@@ -222,7 +222,7 @@ async def test_next_without_output_for_decision_node():
 @pytest.mark.asyncio
 async def test_value_then_next():
     """Returning `(value, Next(label))` records the value AND dispatches by label."""
-    wf = WorkflowBuilder(name="value-and-next", entry="src")
+    wf = WorkflowCompiler(name="value-and-next", entry="src")
 
     @wf.task(routes={"go": "dst"})
     async def src(ctx) -> tuple[int, Next]:
@@ -232,7 +232,7 @@ async def test_value_then_next():
     async def dst(ctx) -> str:
         return "arrived"
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["src"] == 42
     assert result.outputs["dst"] == "arrived"
 
@@ -240,7 +240,7 @@ async def test_value_then_next():
 @pytest.mark.asyncio
 async def test_value_then_end():
     """Returning `(value, End(None))` records the value AND terminates the workflow."""
-    wf = WorkflowBuilder(name="value-and-end", entry="src")
+    wf = WorkflowCompiler(name="value-and-end", entry="src")
 
     @wf.task
     async def src(ctx) -> tuple[int, End]:
@@ -252,7 +252,7 @@ async def test_value_then_end():
 
     wf.control("src", "never")
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["src"] == 99
     assert "never" not in result.outputs
 
@@ -263,7 +263,7 @@ async def test_value_then_end():
 @pytest.mark.asyncio
 async def test_actor_with_next():
     """An actor's async generator may `yield Next/End` as its terminating value."""
-    wf = WorkflowBuilder(name="actor-next", entry="streamer")
+    wf = WorkflowCompiler(name="actor-next", entry="streamer")
 
     @wf.actor(routes={"emit": "sink"})
     async def streamer(ctx):
@@ -275,7 +275,7 @@ async def test_actor_with_next():
     async def sink(ctx) -> str:
         return "sunk"
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["sink"] == "sunk"
 
@@ -286,9 +286,9 @@ async def test_actor_with_next():
 @pytest.mark.asyncio
 async def test_unknown_route_label_raises():
     """`Next("nonexistent")` raises `UnknownRouteError` listing declared labels."""
-    from molexp.workflow import UnknownRouteError, WorkflowBuilder
+    from molexp.workflow import UnknownRouteError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="bad-label", entry="route")
+    wf = WorkflowCompiler(name="bad-label", entry="route")
 
     @wf.task(routes={"a": "leg_a"})
     async def route(ctx) -> Next:
@@ -299,7 +299,7 @@ async def test_unknown_route_label_raises():
         return "a"
 
     with pytest.raises(UnknownRouteError) as exc_info:
-        await wf.build().execute()
+        await WorkflowRuntime().execute(wf.compile())
     msg = str(exc_info.value)
     assert "nope" in msg
     assert "route" in msg  # task name
@@ -309,9 +309,9 @@ async def test_unknown_route_label_raises():
 @pytest.mark.asyncio
 async def test_branch_node_requires_next():
     """A branch-shaped node returning plain Output (no Next/End) raises `MissingRouteError`."""
-    from molexp.workflow import MissingRouteError, WorkflowBuilder
+    from molexp.workflow import MissingRouteError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="missing-route", entry="route")
+    wf = WorkflowCompiler(name="missing-route", entry="route")
 
     @wf.task(routes={"a": "leg_a", "b": "leg_b"})
     async def route(ctx) -> str:  # plain Output — illegal
@@ -326,7 +326,7 @@ async def test_branch_node_requires_next():
         return "b"
 
     with pytest.raises(MissingRouteError) as exc_info:
-        await wf.build().execute()
+        await WorkflowRuntime().execute(wf.compile())
     msg = str(exc_info.value)
     assert "route" in msg
     # declared labels listed
@@ -339,7 +339,7 @@ async def test_branch_node_requires_next():
 @pytest.mark.asyncio
 async def test_join_waits_for_all_data_deps():
     """A target with multi-`depends_on` waits in `pending_targets` until all data deps satisfy."""
-    wf = WorkflowBuilder(name="join", entry="seed")
+    wf = WorkflowCompiler(name="join", entry="seed")
 
     @wf.task
     async def seed(ctx) -> int:
@@ -359,7 +359,7 @@ async def test_join_waits_for_all_data_deps():
         # Multi-dep inputs come as dict[name → value].
         return ctx.inputs["left"] + ctx.inputs["right"]
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["collect"] == 110
 
 
@@ -369,7 +369,7 @@ async def test_join_waits_for_all_data_deps():
 @pytest.mark.asyncio
 async def test_loop_overwrites_results():
     """Loop body re-runs on each iteration; ``results.<body>`` overwrites."""
-    wf = WorkflowBuilder(name="loop-overwrite", entry="compute")
+    wf = WorkflowCompiler(name="loop-overwrite", entry="compute")
 
     counter = [0]
 
@@ -384,7 +384,7 @@ async def test_loop_overwrites_results():
 
     wf.loop(body=["compute"], until="check", max_iters=10)
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["compute"] == 3
     assert counter[0] == 3
@@ -393,7 +393,7 @@ async def test_loop_overwrites_results():
 @pytest.mark.asyncio
 async def test_loop_exit_advances_frontier():
     """``Next("exit")`` advances the frontier past the loop to the on_exit task."""
-    wf = WorkflowBuilder(name="loop-exit", entry="seed")
+    wf = WorkflowCompiler(name="loop-exit", entry="seed")
 
     @wf.task
     async def seed(ctx) -> int:
@@ -416,7 +416,7 @@ async def test_loop_exit_advances_frontier():
 
     wf.loop(body=["step"], until="gate", max_iters=10, on_exit="emit")
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert result.outputs["emit"] == "emitted"
     assert result.outputs["step"] == 2
@@ -431,9 +431,9 @@ async def test_loop_max_iters_guard():
     Python warning so callers can detect runaway loops without the
     workflow itself failing.
     """
-    from molexp.workflow import LoopMaxItersExceeded, WorkflowBuilder
+    from molexp.workflow import LoopMaxItersExceeded, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="loop-runaway", entry="step")
+    wf = WorkflowCompiler(name="loop-runaway", entry="step")
 
     runs = [0]
 
@@ -449,7 +449,7 @@ async def test_loop_max_iters_guard():
     wf.loop(body=["step"], until="always_continue", max_iters=3)
 
     with pytest.warns(LoopMaxItersExceeded):
-        result = await wf.build().execute()
+        result = await WorkflowRuntime().execute(wf.compile())
 
     assert result.status == "completed"
     assert runs[0] == 3
@@ -457,9 +457,9 @@ async def test_loop_max_iters_guard():
 
 def test_loop_until_must_be_registered():
     """``wf.loop(until=...)`` referencing an unregistered task fails compile."""
-    from molexp.workflow import UnknownTaskError, WorkflowBuilder
+    from molexp.workflow import UnknownTaskError, WorkflowCompiler
 
-    wf = WorkflowBuilder(name="loop-bad-until", entry="step")
+    wf = WorkflowCompiler(name="loop-bad-until", entry="step")
 
     @wf.task
     async def step(ctx) -> int:
@@ -468,7 +468,7 @@ def test_loop_until_must_be_registered():
     wf.loop(body=["step"], until="nonexistent", max_iters=10)
 
     with pytest.raises(UnknownTaskError) as exc_info:
-        wf.build()
+        wf.compile()
     assert "nonexistent" in str(exc_info.value)
 
 
@@ -478,7 +478,7 @@ def test_loop_max_iters_must_be_positive():
     Validated eagerly at ``wf.loop(...)`` call time, mirroring
     :meth:`Workflow.branch`'s shape-validation policy.
     """
-    wf = WorkflowBuilder(name="loop-zero-iters", entry="step")
+    wf = WorkflowCompiler(name="loop-zero-iters", entry="step")
 
     @wf.task
     async def step(ctx) -> int:

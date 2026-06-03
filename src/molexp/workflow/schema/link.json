@@ -38,13 +38,29 @@
                 "failed",
                 "cancelled"
             ]
+        },
+        "kind": {
+            "type": "string",
+            "description": "Typed edge kind for the free-layout canvas: data dependency, control edge, label-routed branch, loop, or parallel fan-out/join.",
+            "enum": [
+                "data",
+                "control",
+                "branch",
+                "loop",
+                "parallel"
+            ]
+        },
+        "condition": {
+            "type": "string",
+            "description": "Branch route label (present only when kind == 'branch')"
         }
     },
     "required": [
         "source",
         "target",
         "mapping",
-        "status"
+        "status",
+        "kind"
     ],
     "additionalProperties": false
 }

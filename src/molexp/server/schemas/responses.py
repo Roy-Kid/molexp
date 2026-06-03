@@ -33,6 +33,14 @@ def _str_or_none(value: object) -> str | None:
     return str(value)
 
 
+class WorkflowDocumentResponse(BaseModel):
+    """The persisted (normalized) workflow IR document for an experiment."""
+
+    project_id: str = Field(..., description="Owning project id")
+    experiment_id: str = Field(..., description="Owning experiment id")
+    document: dict[str, Any] = Field(..., description="Normalized workflow IR document")
+
+
 def _read_context_results(run: Run) -> dict[str, Any]:
     """Read the ``context.results`` block from run.json on disk.
 

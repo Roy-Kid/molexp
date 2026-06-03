@@ -94,22 +94,22 @@ export class RunsService {
         });
     }
     /**
-     * Get Run Logs
-     * Return stdout/stderr for the most recent execution of a run.
+     * Get Run Execution
+     * Return workflow execution state from workflow.json.
      * @param projectId
      * @param experimentId
      * @param runId
-     * @returns RunLogsResponse Successful Response
+     * @returns RunExecutionResponse Successful Response
      * @throws ApiError
      */
-    public static getRunLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLogsGet(
+    public static getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
         projectId: string,
         experimentId: string,
         runId: string,
-    ): CancelablePromise<RunLogsResponse> {
+    ): CancelablePromise<RunExecutionResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/logs',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/execution',
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,
@@ -144,6 +144,193 @@ export class RunsService {
                 'experiment_id': experimentId,
                 'run_id': runId,
                 'execution_id': executionId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Export Run
+     * Stream a zip archive of the run directory (artifacts, logs, metadata).
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static exportRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExportGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/export',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run File Text
+     * Return the raw text content of a file under the run directory.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param path Relative path under run_dir
+     * @returns RunFileTextResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunFileTextApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFileTextGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        path: string,
+    ): CancelablePromise<RunFileTextResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/file/text',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            query: {
+                'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Files
+     * Return the on-disk file tree for a run, enriched with catalog metadata.
+     *
+     * Files registered in the asset catalog (artifacts, logs, checkpoints,
+     * error traces) carry ``assetId``, ``assetKind``, and ``taskId`` so the
+     * UI can render lineage chips inline.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns RunFilesResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunFilesApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFilesGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<RunFilesResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/files',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Kill Run
+     * Cancel a run.
+     *
+     * Routes through :func:`molexp._run_cancel.try_cancel`, which signals
+     * molq via :class:`molq.Submitor` for cluster-submitted runs and
+     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
+     * path applies (run never submitted, terminal, or executor info
+     * missing) we fall back to flipping the metadata status so the UI
+     * still reflects user intent.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns RunActionResponse Successful Response
+     * @throws ApiError
+     */
+    public static killRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<RunActionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/kill',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Lammps Log
+     * Parse a LAMMPS log file and return thermo stages.
+     *
+     * Inlined parser — ``molpy.io`` does not export a multi-stage log
+     * reader, so the route owns this lightweight regex-based parse to
+     * avoid coupling the API surface to a transient molpy refactor.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param path Relative path of the log file under run_dir
+     * @returns LammpsLogResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        path: string,
+    ): CancelablePromise<LammpsLogResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/lammps-log',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            query: {
+                'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Logs
+     * Return stdout/stderr for the most recent execution of a run.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns RunLogsResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunLogsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLogsGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<RunLogsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/logs',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
             },
             errors: {
                 422: `Validation Error`,
@@ -192,132 +379,6 @@ export class RunsService {
         });
     }
     /**
-     * Get Run File Text
-     * Return the raw text content of a file under the run directory.
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @param path Relative path under run_dir
-     * @returns RunFileTextResponse Successful Response
-     * @throws ApiError
-     */
-    public static getRunFileTextApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFileTextGet(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-        path: string,
-    ): CancelablePromise<RunFileTextResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/file/text',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
-            query: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Get Run Lammps Log
-     * Parse a LAMMPS log file and return thermo stages.
-     *
-     * Inlined parser — ``molpy.io`` does not export a multi-stage log
-     * reader, so the route owns this lightweight regex-based parse to
-     * avoid coupling the API surface to a transient molpy refactor.
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @param path Relative path of the log file under run_dir
-     * @returns LammpsLogResponse Successful Response
-     * @throws ApiError
-     */
-    public static getRunLammpsLogApiProjectsProjectIdExperimentsExperimentIdRunsRunIdLammpsLogGet(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-        path: string,
-    ): CancelablePromise<LammpsLogResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/lammps-log',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
-            query: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Get Run Execution
-     * Return workflow execution state from workflow.json.
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @returns RunExecutionResponse Successful Response
-     * @throws ApiError
-     */
-    public static getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-    ): CancelablePromise<RunExecutionResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/execution',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Get Run Files
-     * Return the on-disk file tree for a run, enriched with catalog metadata.
-     *
-     * Files registered in the asset catalog (artifacts, logs, checkpoints,
-     * error traces) carry ``assetId``, ``assetKind``, and ``taskId`` so the
-     * UI can render lineage chips inline.
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @returns RunFilesResponse Successful Response
-     * @throws ApiError
-     */
-    public static getRunFilesApiProjectsProjectIdExperimentsExperimentIdRunsRunIdFilesGet(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-    ): CancelablePromise<RunFilesResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/files',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
      * Rerun Run
      * Clone an existing run's parameters into a fresh run within the same experiment.
      *
@@ -338,67 +399,6 @@ export class RunsService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/rerun',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Kill Run
-     * Cancel a run.
-     *
-     * Routes through :func:`molexp._run_cancel.try_cancel`, which signals
-     * molq via :class:`molq.Submitor` for cluster-submitted runs and
-     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
-     * path applies (run never submitted, terminal, or executor info
-     * missing) we fall back to flipping the metadata status so the UI
-     * still reflects user intent.
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @returns RunActionResponse Successful Response
-     * @throws ApiError
-     */
-    public static killRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-    ): CancelablePromise<RunActionResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/kill',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-                'run_id': runId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Export Run
-     * Stream a zip archive of the run directory (artifacts, logs, metadata).
-     * @param projectId
-     * @param experimentId
-     * @param runId
-     * @returns any Successful Response
-     * @throws ApiError
-     */
-    public static exportRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExportGet(
-        projectId: string,
-        experimentId: string,
-        runId: string,
-    ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/export',
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,

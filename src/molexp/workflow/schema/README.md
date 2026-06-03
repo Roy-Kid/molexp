@@ -66,18 +66,18 @@ The IR's canonical wire format is **JSON** — used by the FastAPI server and
 by the auto-generated TypeScript client. A YAML alternative is also
 available and is the format PlanMode-materialized experiment workspaces
 write to `ir/workflow.yaml`. Round-trip is provided by
-`molexp.workflow.WorkflowCompiler`:
+`molexp.workflow.WorkflowCodec`:
 
 | Method                                  | Direction                       |
 | --------------------------------------- | ------------------------------- |
-| `WorkflowCompiler.spec_to_ir(spec)`     | Workflow → JSON-shaped dict     |
-| `WorkflowCompiler.ir_to_spec(ir)`       | JSON-shaped dict → Workflow     |
-| `WorkflowCompiler.contract_to_dict(c)`  | WorkflowContract → dict         |
-| `WorkflowCompiler.dict_to_contract(d)`  | dict → WorkflowContract         |
-| `WorkflowCompiler.ir_to_yaml(ir)`       | dict → YAML text (`safe_dump`)  |
-| `WorkflowCompiler.yaml_to_ir(text)`     | YAML text → dict (`safe_load`)  |
-| `WorkflowCompiler.spec_to_yaml(spec)`   | Workflow → YAML text            |
-| `WorkflowCompiler.yaml_to_spec(text)`   | YAML text → Workflow            |
+| `WorkflowCodec.spec_to_ir(spec)`        | Workflow → JSON-shaped dict     |
+| `WorkflowCodec.ir_to_spec(ir)`          | JSON-shaped dict → Workflow     |
+| `WorkflowCodec.contract_to_dict(c)`     | WorkflowContract → dict         |
+| `WorkflowCodec.dict_to_contract(d)`     | dict → WorkflowContract         |
+| `WorkflowCodec.ir_to_yaml(ir)`          | dict → YAML text (`safe_dump`)  |
+| `WorkflowCodec.yaml_to_ir(text)`        | YAML text → dict (`safe_load`)  |
+| `WorkflowCodec.spec_to_yaml(spec)`      | Workflow → YAML text            |
+| `WorkflowCodec.yaml_to_spec(text)`      | YAML text → Workflow            |
 
 YAML loading uses `yaml.safe_load` only — unsafe tags
 (`!!python/object/...`) raise `yaml.YAMLError` rather than constructing

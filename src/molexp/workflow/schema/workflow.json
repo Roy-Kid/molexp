@@ -41,6 +41,75 @@
             },
             "default": []
         },
+        "entries": {
+            "type": "array",
+            "description": "Explicit workflow entry-point task ids (wf.entry)",
+            "items": {
+                "type": "string"
+            },
+            "default": []
+        },
+        "loops": {
+            "type": "array",
+            "description": "wf.loop declarations carried for lossless round-trip",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "body": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "until": {
+                        "type": "string"
+                    },
+                    "max_iters": {
+                        "type": "integer"
+                    },
+                    "on_exit": {
+                        "type": "string"
+                    }
+                },
+                "required": [
+                    "body",
+                    "until",
+                    "max_iters",
+                    "on_exit"
+                ],
+                "additionalProperties": false
+            },
+            "default": []
+        },
+        "parallels": {
+            "type": "array",
+            "description": "wf.parallel declarations carried for lossless round-trip",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "map_over": {
+                        "type": "string"
+                    },
+                    "body": {
+                        "type": "string"
+                    },
+                    "join": {
+                        "type": "string"
+                    },
+                    "max_concurrency": {
+                        "type": "integer"
+                    }
+                },
+                "required": [
+                    "map_over",
+                    "body",
+                    "join",
+                    "max_concurrency"
+                ],
+                "additionalProperties": false
+            },
+            "default": []
+        },
         "metadata": {
             "$ref": "workflow_metadata.json",
             "description": "Optional workflow metadata"

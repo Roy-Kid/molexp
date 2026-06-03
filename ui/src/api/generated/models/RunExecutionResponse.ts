@@ -7,9 +7,9 @@ import type { WorkflowStepInfo } from './WorkflowStepInfo';
  * Workflow execution state read from workflow.json.
  */
 export type RunExecutionResponse = {
+    end?: (Record<string, any> | null);
     execution_id?: (string | null);
     status?: string;
     steps?: Array<WorkflowStepInfo>;
-    end?: (Record<string, any> | null);
 };
 

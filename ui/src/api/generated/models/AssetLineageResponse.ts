@@ -11,8 +11,8 @@ import type { AssetLineageNode } from './AssetLineageNode';
  * transitive forward set. The starting asset is excluded from both.
  */
 export type AssetLineageResponse = {
-    asset_id: string;
     ancestors?: Array<AssetLineageNode>;
+    asset_id: string;
     descendants?: Array<AssetLineageNode>;
 };
 

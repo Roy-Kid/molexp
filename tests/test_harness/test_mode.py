@@ -22,7 +22,7 @@ Tests map to acceptance:
 ENGINE-WIRING ASSUMPTION (load-bearing for ac-009 / ac-010): the
 ``molexp.workflow`` runtime does NOT, today, engage content-addressed
 caching (``Caching`` is a standalone utility) or checkpoint-resume
-(``GraphWorkflowRuntime`` docstring states ``resume()`` is removed and
+(``WorkflowRuntime`` docstring states ``resume()`` is removed and
 per-frame snapshots are no longer injected into the graph runner). The only
 engine-native skip mechanism is ``Workflow.execute(seed_outputs=...)``.
 Therefore the cache/resume *observable behaviour* asserted here (counter

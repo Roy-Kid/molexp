@@ -28,10 +28,10 @@ from pathlib import Path
 WORKFLOW_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow"
 CLAUDE_MD = Path(__file__).resolve().parents[2] / "CLAUDE.md"
 
-# Existing classes in src/molexp/workflow/**. New classes matching the
-# forbidden suffixes or shapes are rejected; whitelisted classes carrying
-# those suffixes today are permitted (there should be ≤1 — WorkflowStep).
-WHITELIST_BASENODE_SUBCLASSES = {"WorkflowStep"}
+# New classes matching the forbidden scheduler/runner/frontier suffixes are
+# rejected. After pg-node-lowering there are no whitelisted exceptions — the
+# DAG rides genuine pydantic-graph primitives, not a molexp-owned scheduler.
+WHITELIST_BASENODE_SUBCLASSES: set[str] = set()
 
 
 def _iter_workflow_py_files() -> list[Path]:
@@ -117,24 +117,19 @@ def test_no_duplicate_end_sentinel():
 
 
 def test_claude_md_documents_boundary():
-    """The pg boundary rule is documented somewhere in CLAUDE.md.
+    """The pg boundary rule is documented in CLAUDE.md.
 
-    Post-rectification (2026-05-09) the dedicated "Workflow ↔
-    pydantic-graph boundary" section was folded into a unified
-    "Layer charters" section that documents all three layer
-    boundaries together. The architectural facts must still appear
-    verbatim:
+    After ``workflow-refactor-03-pg-node-lowering`` the architectural facts
+    are:
 
-    1. ``WorkflowStep`` is the only ``BaseNode`` exposed to pg;
+    1. the DAG is lowered to a genuine pg Graph with one ``Step`` per task
+       (no per-task ``BaseNode`` codegen);
     2. ``pydantic_graph`` imports are confined to
        ``workflow/_pydantic_graph/``;
     3. ``Task`` / ``Actor`` do not subclass ``pydantic_graph.BaseNode``.
     """
     assert CLAUDE_MD.exists(), "CLAUDE.md must exist at the repo root"
     text = CLAUDE_MD.read_text()
-    assert "WorkflowStep" in text, (
-        "CLAUDE.md must mention WorkflowStep (the sole BaseNode molexp exposes to pydantic_graph)."
-    )
     assert "_pydantic_graph" in text, (
         "CLAUDE.md must document the pydantic_graph confinement under workflow/_pydantic_graph/."
     )
@@ -142,11 +137,21 @@ def test_claude_md_documents_boundary():
         "CLAUDE.md must document the rule that Task / Actor do not "
         "subclass pydantic_graph.BaseNode."
     )
+    assert "Step" in text and "per task" in text, (
+        "CLAUDE.md must document the genuine pg-node lowering (one Step per task)."
+    )
 
 
-def test_workflowstep_is_only_basenode_subclass():
-    """AST scan: exactly one class anywhere under src/molexp/workflow/ inherits
-    from pydantic_graph.BaseNode (or its `BaseNode` alias) — namely WorkflowStep."""
+def test_no_basenode_subclasses_after_pg_lowering():
+    """AST scan: NO class anywhere under src/molexp/workflow/ inherits from
+    pydantic_graph.BaseNode.
+
+    After ``workflow-refactor-03-pg-node-lowering`` the workflow DAG is
+    lowered to a genuine ``pydantic_graph`` Graph with one ``Step`` per task
+    (built via ``GraphBuilder.step(fn)`` — Step functions, not BaseNode
+    subclasses). The old single self-looping ``WorkflowStep`` BaseNode is
+    deleted, and per-task pg BaseNode codegen never existed. Task / Actor
+    remain plain abstractions (see ``test_single_track_compile``)."""
     basenode_subclasses: list[str] = []
     for path in _iter_workflow_py_files():
         for cls in _classes_in(path):
@@ -165,13 +170,21 @@ def test_workflowstep_is_only_basenode_subclass():
                     basenode_subclasses.append(cls.name)
                     break
 
-    # Deduplicate (a class declaring BaseNode in multiple bases via union).
     unique = sorted(set(basenode_subclasses))
-    assert unique == ["WorkflowStep"], (
-        f"Exactly one BaseNode subclass expected (WorkflowStep); found: {unique}. "
-        "Per-task pg BaseNode codegen (`make_task_node_class`) must be gone, and "
-        "Task / Actor must not inherit BaseNode."
+    assert unique == [], (
+        f"No BaseNode subclass expected after pg-node-lowering; found: {unique}. "
+        "The DAG is lowered to GraphBuilder.step(fn) Steps, not BaseNode subclasses."
     )
+
+
+def test_compiler_uses_genuine_pg_primitives():
+    """ac-001 / ac-003 — the lowering compiler imports and uses the genuine
+    pydantic-graph building blocks (GraphBuilder + Join reducers + Decision)."""
+    compiler_src = (WORKFLOW_ROOT / "_pydantic_graph" / "compiler.py").read_text()
+    assert "GraphBuilder" in compiler_src
+    assert "gb.join(" in compiler_src or ".join(" in compiler_src
+    assert "gb.decision(" in compiler_src or ".decision(" in compiler_src
+    assert "reduce_" in compiler_src
 
 
 def test_compiler_does_not_construct_pg_graph():

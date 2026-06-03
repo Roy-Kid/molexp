@@ -1,0 +1,27 @@
+{
+  "links": [
+    {
+      "source": "inspect",
+      "target": "train"
+    }
+  ],
+  "metadata": {},
+  "name": "qm9-gnn-baseline",
+  "task_configs": [
+    {
+      "config": {
+        "path": "qm9.h5"
+      },
+      "task_id": "inspect",
+      "task_type": "golden_inspect"
+    },
+    {
+      "config": {
+        "epochs": 50,
+        "lr": 0.001
+      },
+      "task_id": "train",
+      "task_type": "golden_train"
+    }
+  ]
+}

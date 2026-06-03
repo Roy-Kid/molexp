@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 if TYPE_CHECKING:
-    from .spec import Workflow
+    from .compiled import CompiledWorkflow as Workflow
 
 __all__ = [
     "ArtifactDecl",

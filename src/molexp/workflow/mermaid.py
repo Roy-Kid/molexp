@@ -2,7 +2,7 @@
 
 One-way rendering of the full compiled-graph IR to a Mermaid ``flowchart``
 block, suitable for docs, PR review, and read-only UI surfaces. Unlike the
-DAG-only renderer in :mod:`.serializer` (which draws ``task_configs`` +
+DAG-only renderer in :mod:`.codec` (which draws ``task_configs`` +
 ``links``), this one understands the complete topology: entries, dependency
 edges, explicit control edges, label-routed branches, loops, and parallel
 fan-outs.

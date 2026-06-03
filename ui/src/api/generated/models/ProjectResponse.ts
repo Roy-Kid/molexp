@@ -3,13 +3,13 @@
 /* tslint:disable */
 /* eslint-disable */
 export type ProjectResponse = {
-    id: string;
-    name: string;
-    description?: string;
-    owner?: string;
-    tags?: Array<string>;
     config?: Record<string, any>;
     created: string;
+    description?: string;
     experimentCount?: (number | null);
+    id: string;
+    name: string;
+    owner?: string;
+    tags?: Array<string>;
 };
 

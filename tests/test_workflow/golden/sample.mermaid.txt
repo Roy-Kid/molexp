@@ -1,0 +1,4 @@
+flowchart LR
+  n_inspect["inspect<br/><i>golden_inspect</i>"]
+  n_train["train<br/><i>golden_train</i>"]
+  n_inspect --> n_train

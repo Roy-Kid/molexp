@@ -23,11 +23,11 @@ from molexp.workspace import Workspace
 
 # A WorkflowSource program that compiles to a real Workflow (public API).
 _VALID_SOURCE = """\
-from molexp.workflow import TaskContext, WorkflowBuilder
+from molexp.workflow import TaskContext, WorkflowCompiler
 
 
-def build_workflow() -> WorkflowBuilder:
-    wf = WorkflowBuilder(name="demo")
+def build_workflow() -> WorkflowCompiler:
+    wf = WorkflowCompiler(name="demo")
 
     @wf.task
     async def build_system(ctx: TaskContext) -> dict:
@@ -92,7 +92,7 @@ _WORKFLOW_SOURCE = {
     "source": _VALID_SOURCE,
     "module_name": "water_nemd",
     "bound_workflow_id": "bw-water",
-    "symbols": ["WorkflowBuilder", "TaskContext"],
+    "symbols": ["WorkflowCompiler", "TaskContext"],
 }
 
 

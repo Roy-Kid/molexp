@@ -1,3 +1,5 @@
+import { refFromSelection } from "@/app/entities/interop";
+import { RelatedPanel } from "@/app/entities/RelatedPanel";
 import {
   buildRendererKeyFromSelection,
   renderPlanByObjectType,
@@ -47,6 +49,7 @@ export const RightPanel = ({
           onRefresh={onRefresh}
         />
       ))}
+      <RelatedPanel entity={refFromSelection(selection)} snapshot={snapshot} />
     </div>
   );
 };

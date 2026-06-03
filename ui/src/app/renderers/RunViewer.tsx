@@ -86,7 +86,7 @@ const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skippe
 
 export const RunViewer = (props: RendererProps): JSX.Element => {
   const { selection, snapshot, onRefresh } = props;
-  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const { setSelection } = useNavigationState(snapshot);
   const { inspectTask } = useInspectedTask();
   const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -617,9 +617,6 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
   return (
     <>
       <EntityPage
-        breadcrumbs={breadcrumbs}
-        canNavigateUp={canNavigateUp}
-        onNavigateUp={navigateUp}
         icon={FileText}
         title={run.name}
         status={run.status}

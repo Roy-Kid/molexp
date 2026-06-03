@@ -6,8 +6,8 @@
  * Raw UTF-8 text content of a file under a run directory.
  */
 export type RunFileTextResponse = {
-    path: string;
     content: string;
+    path: string;
     size: number;
 };
 

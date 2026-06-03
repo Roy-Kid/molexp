@@ -1,4 +1,4 @@
-"""GraphWorkflowRuntime: pydantic-graph-backed workflow runtime.
+"""WorkflowRuntime: pydantic-graph-backed workflow runtime.
 
 The single concrete runtime; molexp does not abstract over runtime
 backends because there is only one.  Execution modes:
@@ -11,6 +11,12 @@ backends because there is only one.  Execution modes:
 expose ``iter_from_persistence``.  Per-frame snapshots are still written
 by :class:`RunStorePersistence` for observability, but they are no longer
 injected into the graph runner.
+
+Each ``CompiledWorkflow`` carries a genuine ``pydantic_graph`` ``Graph``
+(one Step per task; see :mod:`.compiler`). The runtime builds fresh state
++ deps per execution and drives ``compiled.graph.run(state=…, deps=…,
+inputs=None)``; final outputs are read from the shared, mutated
+``state.results``.
 """
 
 from __future__ import annotations
@@ -21,51 +27,90 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import anyio
 from mollog import get_logger
-from pydantic_graph.graph_builder import GraphBuilder
 
-from ..protocols import JSONMapping, RunContextLike, TaskOutput, UserDeps
+from ..protocols import JSONMapping, JSONValue, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
-from .compiler import CompiledWorkflow, WorkflowGraphCompiler
-from .node import WorkflowStep
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
-    from ..spec import Workflow
+    from pydantic_graph.graph_builder import Graph
+
+    from ..cache import Caching
+    from ..compiled import CompiledWorkflow, _ExperimentLike
+
+
+def _resolve_cache(
+    explicit: Caching | None,
+    instance_cache: Caching | None,
+    run_context: RunContextLike | None,
+) -> Caching | None:
+    """Pick the effective :class:`Caching` for one execution.
+
+    Resolution order (spec workflow-refactor-04 §Plumbing):
+
+    1. an explicit ``cache=`` kwarg passed to ``execute`` / ``start`` / …;
+    2. the runtime's flat ``self.cache`` instance attribute;
+    3. auto-derived from a workspace ``run_context`` that exposes a cache
+       store (``run_context.run.experiment.project.workspace.cache`` →
+       ``.as_cache_store()``), probed defensively via ``getattr`` so a
+       duck-typed / stub context never raises;
+    4. ``None`` (caching off — identical behaviour to before this spec).
+    """
+    if explicit is not None:
+        return explicit
+    if instance_cache is not None:
+        return instance_cache
+    return _auto_cache_from_run_context(run_context)
+
+
+def _auto_cache_from_run_context(run_context: RunContextLike | None) -> Caching | None:
+    """Best-effort: build a workspace-backed ``Caching`` from a run_context.
+
+    Returns ``None`` whenever the duck-typed surface does not expose a
+    workspace cache store — a plain stub run_context, a run_context with
+    no workspace ancestry, etc. Never raises.
+    """
+    if run_context is None:
+        return None
+    run = getattr(run_context, "run", None)
+    if run is None:
+        return None
+    experiment = getattr(run, "experiment", None)
+    project = getattr(experiment, "project", None)
+    workspace = getattr(project, "workspace", None)
+    cache_folder = getattr(workspace, "cache", None)
+    as_cache_store = getattr(cache_folder, "as_cache_store", None)
+    if not callable(as_cache_store):
+        return None
+    try:
+        store = as_cache_store()
+    except Exception:
+        return None
+    from ..cache import Caching
+
+    return Caching(store=store)
+
 
 logger = get_logger(__name__)
 
-_compiler = WorkflowGraphCompiler()
 
-# Single-track: ``WorkflowStep`` is the only pg BaseNode molexp exposes.
-# GraphBuilder auto-detects edges from WorkflowStep's return type hint
-# (``WorkflowStep | End[WorkflowState]``).
-_builder = GraphBuilder[WorkflowState, WorkflowDeps, None, WorkflowState](
-    name="workflow",
-    state_type=WorkflowState,
-    deps_type=WorkflowDeps,
-    output_type=WorkflowState,
-)
-_ws_edge = _builder.node(WorkflowStep)
-_builder.add(_ws_edge)
-_builder.add_edge(_builder.start_node, _ws_edge.sources[0])
-_GRAPH = _builder.build()
+async def _run_compiled(
+    graph: Graph[WorkflowState, WorkflowDeps, None, None],
+    state: WorkflowState,
+    deps: WorkflowDeps,
+) -> WorkflowState:
+    """Drive a compiled pg ``Graph`` to completion and return the final state.
 
-
-# Single source of truth for ``_GRAPH.run`` / ``_GRAPH.iter`` invocations.
-# pydantic-graph 1.x requires an explicit ``inputs=`` start node; forgetting
-# it bites every call site silently (the runtime raises
-# ``ValueError: Node None is not of type WorkflowStep`` mid-execution).
-# Route all callers through these helpers so adding a fourth call site can
-# never reintroduce that bug.
-
-
-def _run_graph(state: WorkflowState, deps: WorkflowDeps):  # noqa: ANN202 — thin pg pass-through; pydantic-graph's generic return type is a firewall implementation detail
-    return _GRAPH.run(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
-
-
-def _iter_graph(state: WorkflowState, deps: WorkflowDeps):  # noqa: ANN202 — thin pg pass-through; pydantic-graph's generic return type is a firewall implementation detail
-    return _GRAPH.iter(state=state, deps=deps, inputs=WorkflowStep(level_index=0))
+    The graph mutates *state* in place (molexp tasks read/write
+    ``state.results`` directly), so the returned object is the same *state*
+    instance carrying the final outputs. pydantic-graph 1.x requires an
+    explicit ``inputs=`` start token; the lowered entry Steps ignore it
+    (``None``) and read their upstreams from ``state.results``.
+    """
+    await graph.run(state=state, deps=deps, inputs=None)
+    return state
 
 
 def _resolve_run_dir(
@@ -146,25 +191,28 @@ def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
     return f"{base}-{len(existing) + 1}"
 
 
-class GraphWorkflowRuntime:
+class WorkflowRuntime:
     """Workflow runtime powered by pydantic-graph.
 
-    Caches compiled graphs by workflow_id so repeated executions of the
-    same spec skip recompilation.
+    Takes a pre-compiled :class:`~molexp.workflow.compiled.CompiledWorkflow`
+    (lowered once by :meth:`WorkflowCompiler.compile`) and executes its
+    ``.graph``; no recompilation happens here. This class owns the
+    execution facade — ``execute`` / ``start`` / ``iter`` / ``stream`` /
+    ``run_on`` — that used to live on the ``Workflow`` spec object.
+
+    ``self.cache`` is a flat, settable :class:`~molexp.workflow.cache.Caching`
+    instance attribute (default ``None`` — caching off). It is the lowest
+    priority cache source; an explicit ``cache=`` kwarg on any execution
+    method wins, and a workspace-backed cache is auto-derived from a
+    workspace ``run_context`` when neither is set (see :func:`_resolve_cache`).
     """
 
     def __init__(self) -> None:
-        self._compiled: dict[str, CompiledWorkflow] = {}
-
-    def _get_compiled(self, spec: Workflow) -> CompiledWorkflow:
-        wf_id = spec.workflow_id
-        if wf_id not in self._compiled:
-            self._compiled[wf_id] = _compiler.compile(spec)
-        return self._compiled[wf_id]
+        self.cache: Caching | None = None
 
     @staticmethod
     def _build_initial_state(
-        spec: Workflow,
+        compiled: CompiledWorkflow,
         seed_outputs: Mapping[str, TaskOutput] | None,
     ) -> WorkflowState:
         """Construct the initial :class:`WorkflowState`, optionally seeded.
@@ -174,46 +222,21 @@ class GraphWorkflowRuntime:
         * Every key is validated against the spec's registered task names
           so unknown names fail fast (the ``planmode-review-repair-loop``
           ``ac-006`` contract).
-        * Seeded names land in ``state.completed`` (so the data-dep
-          satisfaction check passes for tasks that depend on them) and
-          ``state.seeded`` (so the frontier filter skips invoking the
-          seeded task's body).
-        * The initial ``state.pending_targets`` is computed by forward-
-          walking the spec's ``depends_on`` graph from each seeded name
-          and collecting non-seeded children. This bypasses the spec's
-          ``entry_frontier`` so that workflows where the seeded set
-          covers the entry frontier still advance to downstream nodes.
+        * Seeded names land in ``state.results`` + ``state.completed`` (so
+          downstream tasks find their values) and ``state.seeded`` (so the
+          seeded task's own Step skips invoking the body while still
+          routing normally through the lowered graph).
         """
         if not seed_outputs:
             return WorkflowState()
-        registered = {t.name for t in spec._tasks}
+        registered = {t.name for t in compiled._tasks}
         unknown = sorted(set(seed_outputs) - registered)
         if unknown:
             raise ValueError(
-                f"Workflow.execute(seed_outputs=...): unknown task name(s) "
+                f"execute(seed_outputs=...): unknown task name(s) "
                 f"{unknown!r}; registered tasks: {sorted(registered)}"
             )
-
-        # Build a forward map: name → list of children (downstream tasks).
-        forward: dict[str, list[str]] = {}
-        for t in spec._tasks:
-            for dep in t.depends_on:
-                forward.setdefault(dep, []).append(t.name)
-
-        seeded_set = set(seed_outputs)
-        pending: list[str] = []
-        seen: set[str] = set()
-        for seed_name in seed_outputs:
-            for child in forward.get(seed_name, ()):
-                if child in seeded_set or child in seen:
-                    continue
-                seen.add(child)
-                pending.append(child)
-
-        state = WorkflowState.from_seed(seed_outputs)
-        if pending:
-            state = state.set_pending(pending)
-        return state
+        return WorkflowState.from_seed(seed_outputs)
 
     @staticmethod
     def _build_deps(
@@ -223,11 +246,20 @@ class GraphWorkflowRuntime:
         run_dir: Path | None,
         config: JSONMapping | None,
         deps: UserDeps,
+        cache: Caching | None = None,
     ) -> WorkflowDeps:
-        """Build WorkflowDeps from the duck-typed run_context payload.
+        """Build a fresh :class:`WorkflowDeps` for one execution.
 
-        When *run_context* is provided, its attached ``.config`` takes
-        precedence over the explicit *config* kwarg.
+        Topology fields (registration_by_name / parallel_decls /
+        loop_max_iters) are derived from the compiled artifact; one fresh
+        :class:`anyio.CapacityLimiter` is built per ``wf.parallel`` body,
+        sized to its ``max_concurrency``. When *run_context* is provided
+        its attached ``.config`` takes precedence over the *config* kwarg.
+
+        ``cache`` (the resolved effective :class:`Caching`, or ``None``) and
+        the compiled artifact's per-task ``snapshots`` are threaded onto the
+        deps so the per-task Step cache hook can derive a cache key and
+        get / put results.
         """
         if run_context is not None:
             ctx_config = getattr(run_context, "config", None)
@@ -237,20 +269,33 @@ class GraphWorkflowRuntime:
 
         run_for_deps = getattr(run_context, "run", None) if run_context is not None else None
 
-        return compiled.make_deps(
+        registration_by_name = {t.name: t for t in compiled._tasks}
+        parallel_decls = {par.body: par for par in compiled._parallels}
+        loop_max_iters = {loop.until: loop.max_iters for loop in compiled._loops}
+        parallel_limiters = {
+            par.body: anyio.CapacityLimiter(par.max_concurrency) for par in compiled._parallels
+        }
+
+        return WorkflowDeps(
             run=run_for_deps,
             run_context=run_context,
             config=effective_config,
             user_deps=deps,
             remote_executor=None,
             run_dir=run_dir,
+            registration_by_name=registration_by_name,
+            parallel_decls=parallel_decls,
+            loop_max_iters=loop_max_iters,
+            parallel_limiters=parallel_limiters,
+            cache=cache,
+            snapshots=compiled.snapshots,
         )
 
     # ── execute ──────────────────────────────────────────────────────────────
 
     async def execute(
         self,
-        spec: Workflow,
+        compiled: CompiledWorkflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
@@ -258,17 +303,19 @@ class GraphWorkflowRuntime:
         deps: UserDeps = None,
         execution_id: str | None = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
+        cache: Caching | None = None,
     ) -> WorkflowResult:
         """Run the workflow to completion and return a WorkflowResult.
 
         ``seed_outputs`` (optional) pre-populates the initial state with
         already-known task outputs; see :meth:`Workflow.execute` for the
-        full contract.
+        full contract. ``cache`` (optional) opts the run into content-
+        addressed task-result caching; see :func:`_resolve_cache` for the
+        precedence rules when it is omitted.
         """
-        compiled = self._get_compiled(spec)
 
         # Validate seed_outputs FAIL-FAST before any IO / scheduling work.
-        state = self._build_initial_state(spec, seed_outputs)
+        state = self._build_initial_state(compiled, seed_outputs)
 
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
@@ -292,9 +339,10 @@ class GraphWorkflowRuntime:
                 run_dir=resolved_run_dir,
                 config=config,
                 deps=deps,
+                cache=_resolve_cache(cache, self.cache, run_context),
             )
 
-            result_state: WorkflowState = await _run_graph(state, workflow_deps)
+            result_state: WorkflowState = await _run_compiled(compiled.graph, state, workflow_deps)
 
             # Propagate task-failure to the workspace's RunContext so it can
             # tag the final run.status as failed when the caller's
@@ -313,11 +361,11 @@ class GraphWorkflowRuntime:
             )
         except WorkflowError:
             # Programming errors in the workflow definition / task body
-            # (CycleError, UnknownRouteError, MissingRouteError,
-            # WorkflowDeadlockError, …) propagate to the caller.
+            # (CycleError, UnknownRouteError, MissingRouteError, …)
+            # propagate to the caller.
             raise
         except Exception as exc:
-            logger.exception(f"Workflow {spec.name!r} execution failed")
+            logger.exception(f"Workflow {compiled.name!r} execution failed")
             if run_context is not None:
                 _record_run_failure(run_context, str(exc))
             return WorkflowResult(
@@ -331,7 +379,7 @@ class GraphWorkflowRuntime:
 
     async def start(
         self,
-        spec: Workflow,
+        compiled: CompiledWorkflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
@@ -339,6 +387,7 @@ class GraphWorkflowRuntime:
         deps: UserDeps = None,
         execution_id: str | None = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
+        cache: Caching | None = None,
     ) -> WorkflowExecution:
         """Launch workflow as background asyncio task.
 
@@ -346,10 +395,9 @@ class GraphWorkflowRuntime:
         fail-fast validation applies before scheduling the background
         task.
         """
-        compiled = self._get_compiled(spec)
         # Fail-fast on bad seeds so the caller observes the ValueError
         # synchronously, not via an awaited handle.
-        seed_state = self._build_initial_state(spec, seed_outputs)
+        seed_state = self._build_initial_state(compiled, seed_outputs)
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
         execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
@@ -362,9 +410,11 @@ class GraphWorkflowRuntime:
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
-            workflow_id=spec.workflow_id,
+            workflow_id=compiled.workflow_id,
             run_id=run_id,
         )
+
+        resolved_cache = _resolve_cache(cache, self.cache, run_context)
 
         async def _bg() -> None:
             try:
@@ -374,8 +424,11 @@ class GraphWorkflowRuntime:
                     run_dir=resolved_run_dir,
                     config=config,
                     deps=deps,
+                    cache=resolved_cache,
                 )
-                result_state: WorkflowState = await _run_graph(seed_state, workflow_deps)
+                result_state: WorkflowState = await _run_compiled(
+                    compiled.graph, seed_state, workflow_deps
+                )
                 handle._result = WorkflowResult(
                     status="failed" if result_state.failed else "completed",
                     outputs=result_state.results,
@@ -389,7 +442,7 @@ class GraphWorkflowRuntime:
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )
-                logger.exception(f"Background workflow {spec.name!r} failed")
+                logger.exception(f"Background workflow {compiled.name!r} failed")
             finally:
                 handle._done_event.set()
 
@@ -400,20 +453,20 @@ class GraphWorkflowRuntime:
 
     def iter(
         self,
-        spec: Workflow,
+        compiled: CompiledWorkflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
+        cache: Caching | None = None,
     ) -> Any:  # noqa: ANN401
         """Return an async context manager for step-by-step iteration.
 
-        See :meth:`execute` for ``seed_outputs`` semantics.
+        See :meth:`execute` for ``seed_outputs`` / ``cache`` semantics.
         """
-        compiled = self._get_compiled(spec)
-        state = self._build_initial_state(spec, seed_outputs)
+        state = self._build_initial_state(compiled, seed_outputs)
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         workflow_deps = self._build_deps(
             compiled,
@@ -421,30 +474,71 @@ class GraphWorkflowRuntime:
             run_dir=resolved_run_dir,
             config=config,
             deps=deps,
+            cache=_resolve_cache(cache, self.cache, run_context),
         )
-        return _iter_graph(state, workflow_deps)
+        return compiled.graph.iter(state=state, deps=workflow_deps, inputs=None)
 
     # ── stream ───────────────────────────────────────────────────────────────
 
     def stream(
         self,
-        spec: Workflow,
+        compiled: CompiledWorkflow,
         *,
         run_context: RunContextLike | None = None,
         run_dir: str | Path | None = None,
         config: JSONMapping | None = None,
         deps: UserDeps = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
+        cache: Caching | None = None,
     ) -> Any:  # noqa: ANN401
         """Alias for iter() — streaming Actor support in a future phase."""
         return self.iter(
-            spec,
+            compiled,
             run_context=run_context,
             run_dir=run_dir,
             config=config,
             deps=deps,
             seed_outputs=seed_outputs,
+            cache=cache,
         )
+
+    # ── run_on ─────────────────────────────────────────────────────────────────
+
+    async def run_on(
+        self,
+        compiled: CompiledWorkflow,
+        experiment: _ExperimentLike,
+        *,
+        parameters: Mapping[str, JSONValue] | None = None,
+        deps: UserDeps = None,
+        profile_config: object | None = None,
+        config: JSONMapping | None = None,
+        cache: Caching | None = None,
+    ) -> WorkflowResult:
+        """Build a fresh Run on *experiment*, execute *compiled*, return the result.
+
+        Relocated from the old ``Workflow.run_on``. Does NOT bind the
+        workflow to the experiment; register it explicitly via a
+        :class:`~molexp.workflow.binding.WorkflowBindingRegistry` (or pass
+        ``experiment=`` to :meth:`WorkflowCompiler.compile`) if you need it
+        recoverable after process restart.
+        """
+        params_dict = dict(parameters) if parameters is not None else None
+        run = experiment.add_run(parameters=params_dict)  # type: ignore[attr-defined]
+        with run.start(profile_config=profile_config) as run_ctx:
+            result = await self.execute(
+                compiled, run_context=run_ctx, config=config, deps=deps, cache=cache
+            )
+        if result.status != "completed":
+            err = run.metadata.error
+            err_msg = (
+                f"workflow {compiled.name!r} ended with status {result.status!r}: "
+                f"{err.type}: {err.message}"
+                if err is not None
+                else f"workflow {compiled.name!r} ended with status {result.status!r}"
+            )
+            raise RuntimeError(err_msg)
+        return result
 
 
 class _GraphWorkflowExecution(WorkflowExecution):

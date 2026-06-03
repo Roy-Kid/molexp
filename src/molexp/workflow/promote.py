@@ -24,9 +24,9 @@ import inspect
 from collections.abc import Callable
 from pathlib import Path
 
-from .builder import WorkflowBuilder
+from .compiled import CompiledWorkflow
+from .compiler import WorkflowCompiler
 from .context import TaskContext
-from .spec import Workflow
 from .task import Task
 
 
@@ -59,19 +59,19 @@ class _EntryTask(Task):
                 await result
 
 
-def promote_callable(fn: Callable, name: str) -> Workflow:
-    """Promote a bare ``fn(RunContext)`` to a single-Task ``Workflow``.
+def promote_callable(fn: Callable, name: str) -> CompiledWorkflow:
+    """Promote a bare ``fn(RunContext)`` to a single-Task ``CompiledWorkflow``.
 
     Args:
         fn: Callable that accepts a ``RunContext`` (sync or async).
-        name: Workflow name; used for the spec's ``name`` field. The
+        name: Workflow name; used for the artifact's ``name`` field. The
             single task inside it gets the callable's ``__name__``.
 
     Returns:
-        A compiled :class:`Workflow` with one task wrapping *fn*.
+        A :class:`CompiledWorkflow` with one task wrapping *fn*.
     """
     fn_name = getattr(fn, "__name__", None) or "anonymous"
-    return WorkflowBuilder(name=name).add(_EntryTask(fn), name=fn_name).build()
+    return WorkflowCompiler(name=name).add(_EntryTask(fn), name=fn_name).compile()
 
 
 def resolve_callable_entrypoint(fn: Callable) -> str:
@@ -92,10 +92,10 @@ def resolve_callable_entrypoint(fn: Callable) -> str:
     return f"{file_path}:{qualname}"
 
 
-def resolve_spec_entrypoint(spec: Workflow) -> str:
+def resolve_spec_entrypoint(spec: CompiledWorkflow) -> str:
     """Return ``"<file>:<varname>"`` for *spec*.
 
-    A ``Workflow`` carries no source-level name; the worker re-imports it by
+    A ``CompiledWorkflow`` carries no source-level name; the worker re-imports it by
     looking up the variable that holds it. We find that module by
     asking the first registered task (which always lives in the same
     user module that assembled the spec) for its source, then scan

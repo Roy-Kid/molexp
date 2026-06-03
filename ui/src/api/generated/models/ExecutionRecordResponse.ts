@@ -11,9 +11,9 @@
  */
 export type ExecutionRecordResponse = {
     executionId: string;
-    startedAt: string;
     finishedAt?: (string | null);
-    status: string;
     schedulerJobId?: (string | null);
+    startedAt: string;
+    status: string;
 };
 

@@ -7,7 +7,7 @@
  */
 export type WorkflowStepInfo = {
     index: number;
-    status: string;
     outputs?: Record<string, any>;
+    status: string;
 };
 

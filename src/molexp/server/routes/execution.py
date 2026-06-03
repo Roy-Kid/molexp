@@ -9,7 +9,8 @@ from fastapi.responses import JSONResponse
 
 from molexp.workflow import (
     Caching,
-    Workflow,
+    default_binding_registry,
+    default_codec,
 )
 from molexp.workspace import (
     ExperimentNotFoundError as WorkspaceExperimentNotFoundError,
@@ -46,13 +47,16 @@ def create_execution(
     except WorkspaceExperimentNotFoundError:
         raise ExperimentNotFoundError(request.project_id, request.experiment_id) from None
 
-    if request.workflow_json is not None and Workflow.for_experiment(experiment) is None:
+    if (
+        request.workflow_json is not None
+        and default_binding_registry.for_experiment(experiment) is None
+    ):
         # The IR is the durable artifact — compile it here so the bound
-        # spec lives in the workflow-layer registry, and re-emit it as
-        # opaque JSON so the worker can pick it up without re-running
+        # spec lives in the workflow-layer binding registry, and re-emit it
+        # as opaque JSON so the worker can pick it up without re-running
         # the user script.
-        spec = Workflow.from_dict(request.workflow_json)
-        spec.bind_to(experiment)
+        spec = default_codec.ir_to_spec(request.workflow_json)
+        default_binding_registry.bind(experiment, spec)
 
     new_run = experiment.add_run(parameters=request.parameters)
     return RunResponse.from_model(new_run)

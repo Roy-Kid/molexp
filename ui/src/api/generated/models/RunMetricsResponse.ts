@@ -8,8 +8,8 @@ import type { MetricSeriesResponse } from './MetricSeriesResponse';
  */
 export type RunMetricsResponse = {
     nextLine?: number;
+    parseErrors?: number;
     records?: Array<Record<string, any>>;
     series?: Array<MetricSeriesResponse>;
-    parseErrors?: number;
 };
 

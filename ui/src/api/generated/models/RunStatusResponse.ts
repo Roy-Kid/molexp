@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type RunStatusResponse = {
+    finished?: (string | null);
     id: string;
     status: string;
-    finished?: (string | null);
 };
 

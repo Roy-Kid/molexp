@@ -6,8 +6,8 @@
  * Producer metadata for a catalog entry.
  */
 export type CatalogProducerInfo = {
+    executionId?: (string | null);
     runId?: (string | null);
     taskId?: (string | null);
-    executionId?: (string | null);
 };
 

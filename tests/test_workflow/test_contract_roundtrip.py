@@ -17,6 +17,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
+from molexp.workflow.codec import default_codec
 from molexp.workflow.contract import (
     ArtifactDecl,
     TaskInputSpec,
@@ -26,7 +27,6 @@ from molexp.workflow.contract import (
     ValidationCheckId,
     WorkflowContract,
 )
-from molexp.workflow.serializer import default_compiler
 
 
 def _sample_contract() -> WorkflowContract:
@@ -63,16 +63,16 @@ def _sample_contract() -> WorkflowContract:
 
 def test_contract_dict_roundtrip_is_field_equal() -> None:
     contract = _sample_contract()
-    dumped = default_compiler.contract_to_dict(contract)
-    rebuilt = default_compiler.dict_to_contract(dumped)
+    dumped = default_codec.contract_to_dict(contract)
+    rebuilt = default_codec.dict_to_contract(dumped)
     assert rebuilt == contract
 
 
 def test_dict_to_contract_rejects_unknown_top_level_key() -> None:
-    dumped = default_compiler.contract_to_dict(_sample_contract())
+    dumped = default_codec.contract_to_dict(_sample_contract())
     dumped["stray"] = 1
     with pytest.raises(ValidationError):
-        default_compiler.dict_to_contract(dumped)
+        default_codec.dict_to_contract(dumped)
 
 
 # ── ir_to_yaml ⇄ yaml_to_ir ────────────────────────────────────────────────
@@ -80,17 +80,17 @@ def test_dict_to_contract_rejects_unknown_top_level_key() -> None:
 
 def test_yaml_text_roundtrips_through_dict() -> None:
     contract = _sample_contract()
-    dumped = default_compiler.contract_to_dict(contract)
-    text = default_compiler.ir_to_yaml(dumped)
-    parsed = default_compiler.yaml_to_ir(text)
+    dumped = default_codec.contract_to_dict(contract)
+    text = default_codec.ir_to_yaml(dumped)
+    parsed = default_codec.yaml_to_ir(text)
     assert parsed == dumped
 
 
 def test_full_contract_yaml_chain_is_field_equal() -> None:
     """contract → dict → YAML text → dict → contract — field-equal."""
     contract = _sample_contract()
-    text = default_compiler.ir_to_yaml(default_compiler.contract_to_dict(contract))
-    rebuilt = default_compiler.dict_to_contract(default_compiler.yaml_to_ir(text))
+    text = default_codec.ir_to_yaml(default_codec.contract_to_dict(contract))
+    rebuilt = default_codec.dict_to_contract(default_codec.yaml_to_ir(text))
     assert rebuilt == contract
 
 
@@ -102,18 +102,18 @@ def test_yaml_to_ir_rejects_python_object_tag() -> None:
     that error rather than constructing an arbitrary object."""
     unsafe = "!!python/object/apply:os.system [echo hello]\n"
     with pytest.raises(yaml.YAMLError):
-        default_compiler.yaml_to_ir(unsafe)
+        default_codec.yaml_to_ir(unsafe)
 
 
 def test_yaml_to_ir_rejects_non_dict_root() -> None:
     """A list-rooted YAML doc isn't an IR shape; the loader rejects it."""
     with pytest.raises(ValueError):
-        default_compiler.yaml_to_ir("- a\n- b\n")
+        default_codec.yaml_to_ir("- a\n- b\n")
 
 
 def test_yaml_to_ir_rejects_scalar_root() -> None:
     with pytest.raises(ValueError):
-        default_compiler.yaml_to_ir("just-a-string\n")
+        default_codec.yaml_to_ir("just-a-string\n")
 
 
 # ── Back-compat: old workflow IR (no contract) round-trips intact ──────────
@@ -153,8 +153,8 @@ def test_old_workflow_ir_without_contract_round_trips_without_contract() -> None
             "custom": {},
         },
     }
-    spec = default_compiler.ir_to_spec(ir_in)
-    ir_out = default_compiler.spec_to_ir(spec)
+    spec = default_codec.ir_to_spec(ir_in)
+    ir_out = default_codec.spec_to_ir(spec)
     assert "workflow_contract" not in ir_out
 
 
@@ -165,7 +165,7 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
     """``spec_to_yaml`` ⇄ ``yaml_to_spec`` is byte-stable through the
     JSON IR (slugged-task workflows only, matching the existing
     JSON-IR convention)."""
-    from molexp.workflow.builder import WorkflowBuilder
+    from molexp.workflow.compiler import WorkflowCompiler
     from molexp.workflow.registry import default_registry
     from molexp.workflow.task import Task
 
@@ -177,11 +177,11 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
         default_registry.register("test.inert_yaml_rt", lambda _config: Inert())
 
     spec = (
-        WorkflowBuilder(name="rt")
+        WorkflowCompiler(name="rt")
         .add(Inert(), name="A", task_type="test.inert_yaml_rt")
         .add(Inert(), name="B", task_type="test.inert_yaml_rt", depends_on=["A"])
-        .build()
+        .compile()
     )
-    text = default_compiler.spec_to_yaml(spec)
-    spec2 = default_compiler.yaml_to_spec(text)
-    assert default_compiler.spec_to_ir(spec) == default_compiler.spec_to_ir(spec2)
+    text = default_codec.spec_to_yaml(spec)
+    spec2 = default_codec.yaml_to_spec(text)
+    assert default_codec.spec_to_ir(spec) == default_codec.spec_to_ir(spec2)

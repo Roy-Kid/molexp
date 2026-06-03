@@ -10,8 +10,8 @@
  */
 export type AssetLineageNode = {
     id: string;
-    name: string;
     kind: string;
+    name: string;
     scope_kind: string;
 };
 
