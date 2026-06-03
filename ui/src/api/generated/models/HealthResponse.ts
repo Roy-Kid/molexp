@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 export type HealthResponse = {
+    capabilities?: Record<string, boolean>;
     status: string;
     workspace_available: boolean;
-    capabilities?: Record<string, boolean>;
 };
 

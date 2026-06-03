@@ -11,16 +11,16 @@ import type { SessionStatsResponse } from './SessionStatsResponse';
  * is the lower-level runtime handle used to continue the active execution.
  */
 export type AgentTaskResponse = {
+    createdAt: string;
+    events?: Array<SessionEventResponse>;
+    goal: string;
+    planMode?: boolean;
+    sessionId: string;
+    skillId?: (string | null);
+    stats?: SessionStatsResponse;
+    status: string;
     taskId: string;
     title: string;
-    goal: string;
-    status: string;
-    createdAt: string;
     updatedAt?: (string | null);
-    sessionId: string;
-    events?: Array<SessionEventResponse>;
-    stats?: SessionStatsResponse;
-    planMode?: boolean;
-    skillId?: (string | null);
 };
 

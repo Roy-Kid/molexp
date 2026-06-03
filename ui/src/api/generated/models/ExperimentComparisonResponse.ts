@@ -8,9 +8,9 @@ import type { ComparisonRunRow } from './ComparisonRunRow';
  */
 export type ExperimentComparisonResponse = {
     experimentId: string;
-    projectId: string;
-    paramKeys?: Array<string>;
     metricKeys?: Array<string>;
+    paramKeys?: Array<string>;
+    projectId: string;
     runs?: Array<ComparisonRunRow>;
 };
 

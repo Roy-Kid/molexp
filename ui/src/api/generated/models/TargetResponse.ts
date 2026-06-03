@@ -6,16 +6,16 @@
  * Wire form for a :class:`ComputeTarget`.
  */
 export type TargetResponse = {
-    name: string;
-    scratchRoot: string;
-    scheduler: TargetResponse.scheduler;
-    host?: (string | null);
-    port?: (number | null);
-    identityFile?: (string | null);
-    sshOpts?: Array<string>;
-    isRemote: boolean;
     defaultResources?: Record<string, any>;
     defaultScheduling?: Record<string, any>;
+    host?: (string | null);
+    identityFile?: (string | null);
+    isRemote: boolean;
+    name: string;
+    port?: (number | null);
+    scheduler: TargetResponse.scheduler;
+    scratchRoot: string;
+    sshOpts?: Array<string>;
 };
 export namespace TargetResponse {
     export enum scheduler {

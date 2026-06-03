@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkspaceInfoResponse = {
-    root: string;
-    projectCount: number;
     assetCount: number;
+    projectCount: number;
+    root: string;
     warnings?: Array<string>;
 };
 

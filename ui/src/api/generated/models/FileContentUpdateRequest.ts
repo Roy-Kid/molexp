@@ -4,6 +4,10 @@
 /* eslint-disable */
 export type FileContentUpdateRequest = {
     /**
+     * New file content
+     */
+    content: string;
+    /**
      * Workspace folder ID or 'workspace'
      */
     folder_id: string;
@@ -11,9 +15,5 @@ export type FileContentUpdateRequest = {
      * Relative path within the folder
      */
     path: string;
-    /**
-     * New file content
-     */
-    content: string;
 };
 

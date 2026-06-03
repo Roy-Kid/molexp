@@ -11,6 +11,28 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class ExecutionService {
     /**
+     * Clear Cache
+     * @returns CacheClearResponse Successful Response
+     * @throws ApiError
+     */
+    public static clearCacheApiCacheDelete(): CancelablePromise<CacheClearResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/cache',
+        });
+    }
+    /**
+     * Get Cache Stats
+     * @returns CacheStatsResponse Successful Response
+     * @throws ApiError
+     */
+    public static getCacheStatsApiCacheStatsGet(): CancelablePromise<CacheStatsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/cache/stats',
+        });
+    }
+    /**
      * Create Execution
      * Create a new execution in a specific project/experiment.
      *
@@ -44,28 +66,6 @@ export class ExecutionService {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/plan',
-        });
-    }
-    /**
-     * Get Cache Stats
-     * @returns CacheStatsResponse Successful Response
-     * @throws ApiError
-     */
-    public static getCacheStatsApiCacheStatsGet(): CancelablePromise<CacheStatsResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/cache/stats',
-        });
-    }
-    /**
-     * Clear Cache
-     * @returns CacheClearResponse Successful Response
-     * @throws ApiError
-     */
-    public static clearCacheApiCacheDelete(): CancelablePromise<CacheClearResponse> {
-        return __request(OpenAPI, {
-            method: 'DELETE',
-            url: '/api/cache',
         });
     }
 }

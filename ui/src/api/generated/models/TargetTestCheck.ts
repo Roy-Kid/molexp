@@ -6,11 +6,11 @@
  * One step of the target connectivity probe.
  */
 export type TargetTestCheck = {
+    detail?: (string | null);
     /**
      * Human-readable check name
      */
     label: string;
     ok: boolean;
-    detail?: (string | null);
 };
 

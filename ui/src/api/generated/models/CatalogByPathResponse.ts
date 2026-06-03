@@ -9,12 +9,12 @@ import type { CatalogSibling } from './CatalogSibling';
  * Reverse-lookup: which run/experiment/project produced a file?
  */
 export type CatalogByPathResponse = {
-    matched: boolean;
-    workspaceRelPath: string;
     assetId?: (string | null);
     assetKind?: (string | null);
+    matched: boolean;
     producer?: (CatalogProducerInfo | null);
     scope?: (CatalogScopeInfo | null);
     siblings?: Array<CatalogSibling>;
+    workspaceRelPath: string;
 };
 

@@ -4,13 +4,13 @@
 /* eslint-disable */
 export type ProjectCreateRequest = {
     /**
-     * Human-readable project name
-     */
-    name: string;
-    /**
      * Project description
      */
     description?: string;
+    /**
+     * Human-readable project name
+     */
+    name: string;
     /**
      * Project owner
      */

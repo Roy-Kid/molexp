@@ -7,8 +7,8 @@ import type { TensorboardScalarPoint } from './TensorboardScalarPoint';
  * All scalar samples for a single tag inside one logdir.
  */
 export type TensorboardScalarSeries = {
-    tag: string;
     logdir: string;
     points?: Array<TensorboardScalarPoint>;
+    tag: string;
 };
 

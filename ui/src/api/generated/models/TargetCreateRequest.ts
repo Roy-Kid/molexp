@@ -7,29 +7,29 @@
  */
 export type TargetCreateRequest = {
     /**
-     * Unique target name within the workspace
-     */
-    name: string;
-    /**
-     * Absolute scratch root on the target's filesystem
-     */
-    scratchRoot: string;
-    /**
-     * Dispatch axis
-     */
-    scheduler?: TargetCreateRequest.scheduler;
-    /**
      * user@host for SSH; omit for local
      */
     host?: (string | null);
+    /**
+     * Path to SSH identity file
+     */
+    identityFile?: (string | null);
+    /**
+     * Unique target name within the workspace
+     */
+    name: string;
     /**
      * SSH port
      */
     port?: (number | null);
     /**
-     * Path to SSH identity file
+     * Dispatch axis
      */
-    identityFile?: (string | null);
+    scheduler?: TargetCreateRequest.scheduler;
+    /**
+     * Absolute scratch root on the target's filesystem
+     */
+    scratchRoot: string;
     /**
      * Extra ssh argv tokens
      */

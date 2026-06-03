@@ -55,29 +55,6 @@ export class ExperimentsService {
         });
     }
     /**
-     * Get Experiment
-     * @param projectId
-     * @param experimentId
-     * @returns ExperimentResponse Successful Response
-     * @throws ApiError
-     */
-    public static getExperimentApiProjectsProjectIdExperimentsExperimentIdGet(
-        projectId: string,
-        experimentId: string,
-    ): CancelablePromise<ExperimentResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{project_id}/experiments/{experiment_id}',
-            path: {
-                'project_id': projectId,
-                'experiment_id': experimentId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
      * Delete Experiment
      * @param projectId
      * @param experimentId
@@ -90,6 +67,29 @@ export class ExperimentsService {
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Experiment
+     * @param projectId
+     * @param experimentId
+     * @returns ExperimentResponse Successful Response
+     * @throws ApiError
+     */
+    public static getExperimentApiProjectsProjectIdExperimentsExperimentIdGet(
+        projectId: string,
+        experimentId: string,
+    ): CancelablePromise<ExperimentResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
             url: '/api/projects/{project_id}/experiments/{experiment_id}',
             path: {
                 'project_id': projectId,

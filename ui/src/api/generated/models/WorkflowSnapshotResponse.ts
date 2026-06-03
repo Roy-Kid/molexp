@@ -3,9 +3,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkflowSnapshotResponse = {
-    source: string;
-    gitCommit?: (string | null);
     codeHash?: (string | null);
     configHash?: (string | null);
+    gitCommit?: (string | null);
+    source: string;
 };
 

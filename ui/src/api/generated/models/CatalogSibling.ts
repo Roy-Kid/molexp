@@ -7,8 +7,8 @@
  */
 export type CatalogSibling = {
     assetId: string;
-    name: string;
     kind: string;
+    name: string;
     relPath: string;
 };
 

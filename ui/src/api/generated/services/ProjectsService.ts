@@ -42,26 +42,6 @@ export class ProjectsService {
         });
     }
     /**
-     * Get Project
-     * @param id
-     * @returns ProjectResponse Successful Response
-     * @throws ApiError
-     */
-    public static getProjectApiProjectsIdGet(
-        id: string,
-    ): CancelablePromise<ProjectResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{id}',
-            path: {
-                'id': id,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
      * Delete Project
      * @param id
      * @returns MessageResponse Successful Response
@@ -72,6 +52,26 @@ export class ProjectsService {
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
+            url: '/api/projects/{id}',
+            path: {
+                'id': id,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Project
+     * @param id
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static getProjectApiProjectsIdGet(
+        id: string,
+    ): CancelablePromise<ProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
             url: '/api/projects/{id}',
             path: {
                 'id': id,
@@ -108,29 +108,6 @@ export class ProjectsService {
         });
     }
     /**
-     * Get Project Asset
-     * @param id
-     * @param assetId
-     * @returns AssetResponse Successful Response
-     * @throws ApiError
-     */
-    public static getProjectAssetApiProjectsIdAssetsAssetIdGet(
-        id: string,
-        assetId: string,
-    ): CancelablePromise<AssetResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/projects/{id}/assets/{asset_id}',
-            path: {
-                'id': id,
-                'asset_id': assetId,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
      * Upload Project Asset
      * Upload a file into the project's ``DataAssetLibrary``.
      * @param id
@@ -150,6 +127,29 @@ export class ProjectsService {
             },
             formData: formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Project Asset
+     * @param id
+     * @param assetId
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static getProjectAssetApiProjectsIdAssetsAssetIdGet(
+        id: string,
+        assetId: string,
+    ): CancelablePromise<AssetResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{id}/assets/{asset_id}',
+            path: {
+                'id': id,
+                'asset_id': assetId,
+            },
             errors: {
                 422: `Validation Error`,
             },

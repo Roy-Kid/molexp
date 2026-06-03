@@ -20,48 +20,116 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class WorkspaceService {
     /**
-     * Get Workspace Info
-     * Get workspace information.
-     * @returns WorkspaceInfoResponse Successful Response
+     * Invalidate Workspace Cache
+     * Drop cached entries from the active workspace's mirror.
+     *
+     * ``scope="indices"`` is the "I added a run on the remote, refresh
+     * navigation" knob — it drops only entries whose basename identifies
+     * a navigation-index file, leaving log/blob bytes intact.
+     * @param requestBody
+     * @returns CacheControlResponse Successful Response
      * @throws ApiError
      */
-    public static getWorkspaceInfoApiWorkspaceInfoGet(): CancelablePromise<WorkspaceInfoResponse> {
+    public static invalidateWorkspaceCacheApiWorkspaceCacheInvalidatePost(
+        requestBody: CacheControlRequest,
+    ): CancelablePromise<CacheControlResponse> {
         return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/workspace/info',
+            method: 'POST',
+            url: '/api/workspace/cache/invalidate',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
-     * List Workspace Runs
-     * Cross-experiment list of runs, each with embedded execution attempts.
+     * Refresh Workspace Cache
+     * Invalidate, then walk the navigation indices again.
      *
-     * Returns rows ordered by ``created_at`` desc.  Plugins surface
-     * backend-specific columns (cluster, scheduler job id, etc.) via the
-     * ``backend`` / ``backendMetadata`` fields on each execution row.
-     * @param projectId
-     * @param experimentId
-     * @param backend Filter by executor backend
-     * @param status Filter by run status
-     * @param limit
-     * @returns WorkspaceRunsResponse Successful Response
+     * Saves the UI from issuing a follow-up call after a refresh button
+     * click.  Per-node failures during the walk surface as ``warnings`` —
+     * the response is still 200 so a single bad project does not blank
+     * the whole tree.
+     * @param requestBody
+     * @returns CacheControlResponse Successful Response
      * @throws ApiError
      */
-    public static listWorkspaceRunsApiWorkspaceRunsGet(
-        projectId?: (string | null),
-        experimentId?: (string | null),
-        backend?: (string | null),
-        status?: (string | null),
-        limit: number = 500,
-    ): CancelablePromise<WorkspaceRunsResponse> {
+    public static refreshWorkspaceCacheApiWorkspaceCacheRefreshPost(
+        requestBody: CacheControlRequest,
+    ): CancelablePromise<CacheControlResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspace/cache/refresh',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Create Directory
+     * Create a directory in the workspace.
+     * @param requestBody
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static createDirectoryApiWorkspaceDirectoriesPost(
+        requestBody: DirectoryCreateRequest,
+    ): CancelablePromise<Record<string, any>> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspace/directories',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Read Workspace File
+     * Read a text file from the workspace.
+     *
+     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * :class:`CachedRemoteFileSystem` mirror) take effect.
+     * @param path Workspace-relative path to read
+     * @returns FileContentResponse Successful Response
+     * @throws ApiError
+     */
+    public static readWorkspaceFileApiWorkspaceFileGet(
+        path: string = '',
+    ): CancelablePromise<FileContentResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/workspace/runs',
+            url: '/api/workspace/file',
             query: {
-                'projectId': projectId,
-                'experimentId': experimentId,
-                'backend': backend,
-                'status': status,
-                'limit': limit,
+                'path': path,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Read Workspace File Blob
+     * Read a binary file from the workspace.
+     *
+     * Routes through ``workspace._fs`` so remote workspaces (and the
+     * :class:`CachedRemoteFileSystem` mirror) take effect.
+     * @param path Workspace-relative path to read
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static readWorkspaceFileBlobApiWorkspaceFileBlobGet(
+        path: string = '',
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspace/file/blob',
+            query: {
+                'path': path,
             },
             errors: {
                 422: `Validation Error`,
@@ -120,51 +188,15 @@ export class WorkspaceService {
         });
     }
     /**
-     * Read Workspace File
-     * Read a text file from the workspace.
-     *
-     * Routes through ``workspace._fs`` so remote workspaces (and the
-     * :class:`CachedRemoteFileSystem` mirror) take effect.
-     * @param path Workspace-relative path to read
-     * @returns FileContentResponse Successful Response
+     * Get Workspace Info
+     * Get workspace information.
+     * @returns WorkspaceInfoResponse Successful Response
      * @throws ApiError
      */
-    public static readWorkspaceFileApiWorkspaceFileGet(
-        path: string = '',
-    ): CancelablePromise<FileContentResponse> {
+    public static getWorkspaceInfoApiWorkspaceInfoGet(): CancelablePromise<WorkspaceInfoResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/workspace/file',
-            query: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Read Workspace File Blob
-     * Read a binary file from the workspace.
-     *
-     * Routes through ``workspace._fs`` so remote workspaces (and the
-     * :class:`CachedRemoteFileSystem` mirror) take effect.
-     * @param path Workspace-relative path to read
-     * @returns any Successful Response
-     * @throws ApiError
-     */
-    public static readWorkspaceFileBlobApiWorkspaceFileBlobGet(
-        path: string = '',
-    ): CancelablePromise<any> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/workspace/file/blob',
-            query: {
-                'path': path,
-            },
-            errors: {
-                422: `Validation Error`,
-            },
+            url: '/api/workspace/info',
         });
     }
     /**
@@ -194,20 +226,37 @@ export class WorkspaceService {
         });
     }
     /**
-     * Create Directory
-     * Create a directory in the workspace.
-     * @param requestBody
-     * @returns any Successful Response
+     * List Workspace Runs
+     * Cross-experiment list of runs, each with embedded execution attempts.
+     *
+     * Returns rows ordered by ``created_at`` desc.  Plugins surface
+     * backend-specific columns (cluster, scheduler job id, etc.) via the
+     * ``backend`` / ``backendMetadata`` fields on each execution row.
+     * @param projectId
+     * @param experimentId
+     * @param backend Filter by executor backend
+     * @param status Filter by run status
+     * @param limit
+     * @returns WorkspaceRunsResponse Successful Response
      * @throws ApiError
      */
-    public static createDirectoryApiWorkspaceDirectoriesPost(
-        requestBody: DirectoryCreateRequest,
-    ): CancelablePromise<Record<string, any>> {
+    public static listWorkspaceRunsApiWorkspaceRunsGet(
+        projectId?: (string | null),
+        experimentId?: (string | null),
+        backend?: (string | null),
+        status?: (string | null),
+        limit: number = 500,
+    ): CancelablePromise<WorkspaceRunsResponse> {
         return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/workspace/directories',
-            body: requestBody,
-            mediaType: 'application/json',
+            method: 'GET',
+            url: '/api/workspace/runs',
+            query: {
+                'projectId': projectId,
+                'experimentId': experimentId,
+                'backend': backend,
+                'status': status,
+                'limit': limit,
+            },
             errors: {
                 422: `Validation Error`,
             },
@@ -283,55 +332,6 @@ export class WorkspaceService {
             path: {
                 'name': name,
             },
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Invalidate Workspace Cache
-     * Drop cached entries from the active workspace's mirror.
-     *
-     * ``scope="indices"`` is the "I added a run on the remote, refresh
-     * navigation" knob — it drops only entries whose basename identifies
-     * a navigation-index file, leaving log/blob bytes intact.
-     * @param requestBody
-     * @returns CacheControlResponse Successful Response
-     * @throws ApiError
-     */
-    public static invalidateWorkspaceCacheApiWorkspaceCacheInvalidatePost(
-        requestBody: CacheControlRequest,
-    ): CancelablePromise<CacheControlResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/workspace/cache/invalidate',
-            body: requestBody,
-            mediaType: 'application/json',
-            errors: {
-                422: `Validation Error`,
-            },
-        });
-    }
-    /**
-     * Refresh Workspace Cache
-     * Invalidate, then walk the navigation indices again.
-     *
-     * Saves the UI from issuing a follow-up call after a refresh button
-     * click.  Per-node failures during the walk surface as ``warnings`` —
-     * the response is still 200 so a single bad project does not blank
-     * the whole tree.
-     * @param requestBody
-     * @returns CacheControlResponse Successful Response
-     * @throws ApiError
-     */
-    public static refreshWorkspaceCacheApiWorkspaceCacheRefreshPost(
-        requestBody: CacheControlRequest,
-    ): CancelablePromise<CacheControlResponse> {
-        return __request(OpenAPI, {
-            method: 'POST',
-            url: '/api/workspace/cache/refresh',
-            body: requestBody,
-            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

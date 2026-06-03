@@ -4,8 +4,25 @@
 /* eslint-disable */
 import type { AgentTaskListResponse } from '../models/AgentTaskListResponse';
 import type { AgentTaskResponse } from '../models/AgentTaskResponse';
+import type { ApprovalDecidedEvent } from '../models/ApprovalDecidedEvent';
+import type { ApprovalRequestedEvent } from '../models/ApprovalRequestedEvent';
+import type { ArtifactWrittenEvent } from '../models/ArtifactWrittenEvent';
+import type { ClarificationRequiredEvent } from '../models/ClarificationRequiredEvent';
+import type { CompactionPerformedEvent } from '../models/CompactionPerformedEvent';
+import type { ErrorEvent } from '../models/ErrorEvent';
 import type { GoalCreateRequest } from '../models/GoalCreateRequest';
 import type { MessageResponse } from '../models/MessageResponse';
+import type { ModeCompletedEvent } from '../models/ModeCompletedEvent';
+import type { ModeStartedEvent } from '../models/ModeStartedEvent';
+import type { PlanEmittedEvent } from '../models/PlanEmittedEvent';
+import type { PreflightFailedEvent } from '../models/PreflightFailedEvent';
+import type { RepairProposedEvent } from '../models/RepairProposedEvent';
+import type { StageCompletedEvent } from '../models/StageCompletedEvent';
+import type { StageStartedEvent } from '../models/StageStartedEvent';
+import type { ThinkingDeltaEvent } from '../models/ThinkingDeltaEvent';
+import type { TokenDeltaEvent } from '../models/TokenDeltaEvent';
+import type { ToolCallCompletedEvent } from '../models/ToolCallCompletedEvent';
+import type { ToolCallStartedEvent } from '../models/ToolCallStartedEvent';
 import type { UserMessageCreateRequest } from '../models/UserMessageCreateRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -74,12 +91,12 @@ export class AgentTasksService {
      * Delegates to the existing session event stream until task events are
      * persisted independently.
      * @param taskId
-     * @returns any Successful Response
+     * @returns any Server-Sent Events stream; each `data:` frame is one AgentEvent (discriminated on `kind`), terminated by a `done` control frame.
      * @throws ApiError
      */
     public static streamAgentTaskEventsApiAgentTasksTaskIdEventsGet(
         taskId: string,
-    ): CancelablePromise<any> {
+    ): CancelablePromise<(ModeStartedEvent | StageStartedEvent | StageCompletedEvent | ArtifactWrittenEvent | ApprovalRequestedEvent | ApprovalDecidedEvent | PlanEmittedEvent | PreflightFailedEvent | RepairProposedEvent | ClarificationRequiredEvent | CompactionPerformedEvent | ModeCompletedEvent | ErrorEvent | ThinkingDeltaEvent | TokenDeltaEvent | ToolCallStartedEvent | ToolCallCompletedEvent)> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent-tasks/{task_id}/events',

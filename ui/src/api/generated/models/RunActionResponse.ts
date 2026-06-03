@@ -6,8 +6,8 @@
  * Result of an actionable mutation on a run.
  */
 export type RunActionResponse = {
+    message?: (string | null);
     runId: string;
     status: string;
-    message?: (string | null);
 };
 

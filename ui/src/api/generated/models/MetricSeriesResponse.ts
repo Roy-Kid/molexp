@@ -6,11 +6,11 @@
  * Summary for one metric series in a run-local metrics query.
  */
 export type MetricSeriesResponse = {
-    key: string;
-    type: string;
     count: number;
+    key: string;
     latestStep?: (number | null);
     latestTimestamp?: (string | null);
     latestValue?: null;
+    type: string;
 };
 

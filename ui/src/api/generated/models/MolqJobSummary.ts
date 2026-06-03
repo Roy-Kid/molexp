@@ -3,18 +3,18 @@
 /* tslint:disable */
 /* eslint-disable */
 export type MolqJobSummary = {
-    target: string;
-    jobId: string;
-    schedulerJobId?: (string | null);
     clusterName?: (string | null);
-    scheduler?: (string | null);
+    cwd?: (string | null);
+    durationSeconds?: (number | null);
+    exitCode?: (number | null);
+    finishedAt?: (string | null);
+    jobId: string;
     name?: (string | null);
+    scheduler?: (string | null);
+    schedulerJobId?: (string | null);
+    startedAt?: (string | null);
     state: string;
     submittedAt?: (string | null);
-    startedAt?: (string | null);
-    finishedAt?: (string | null);
-    exitCode?: (number | null);
-    durationSeconds?: (number | null);
-    cwd?: (string | null);
+    target: string;
 };
 

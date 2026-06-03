@@ -10,18 +10,6 @@ import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
 export class MolqService {
     /**
-     * List Targets
-     * List configured molq targets (one per profile in ``~/.molq/config.toml``).
-     * @returns MolqTargetListResponse Successful Response
-     * @throws ApiError
-     */
-    public static listTargetsApiPluginsMolqTargetsGet(): CancelablePromise<MolqTargetListResponse> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/plugins/molq/targets',
-        });
-    }
-    /**
      * List Jobs
      * List jobs across one or all targets, plus aggregate queue stats.
      * @param target Profile name to filter by.
@@ -104,6 +92,18 @@ export class MolqService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * List Targets
+     * List configured molq targets (one per profile in ``~/.molq/config.toml``).
+     * @returns MolqTargetListResponse Successful Response
+     * @throws ApiError
+     */
+    public static listTargetsApiPluginsMolqTargetsGet(): CancelablePromise<MolqTargetListResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/plugins/molq/targets',
         });
     }
 }

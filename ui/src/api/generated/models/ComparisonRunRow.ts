@@ -6,13 +6,13 @@
  * One run row in the experiment comparison matrix.
  */
 export type ComparisonRunRow = {
+    created: string;
+    durationSec?: (number | null);
+    error?: (Record<string, string> | null);
+    finished?: (string | null);
+    metrics?: Record<string, any>;
+    parameters?: Record<string, any>;
     runId: string;
     status: string;
-    parameters?: Record<string, any>;
-    metrics?: Record<string, any>;
-    durationSec?: (number | null);
-    created: string;
-    finished?: (string | null);
-    error?: (Record<string, string> | null);
 };
 

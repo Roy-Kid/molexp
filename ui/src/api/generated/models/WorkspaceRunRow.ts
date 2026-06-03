@@ -8,23 +8,23 @@ import type { WorkspaceExecutionRow } from './WorkspaceExecutionRow';
  * One run, with its execution history nested for tree expansion.
  */
 export type WorkspaceRunRow = {
-    id: string;
-    name: string;
-    projectId: string;
-    projectName: string;
-    experimentId: string;
-    experimentName: string;
-    status: string;
     backend?: (string | null);
     cluster?: (string | null);
-    scheduler?: (string | null);
-    target?: (string | null);
-    profile?: (string | null);
-    parameters?: Record<string, JSONValue>;
     createdAt: string;
-    finishedAt?: (string | null);
     executionCount?: number;
-    latestSchedulerJobId?: (string | null);
     executions?: Array<WorkspaceExecutionRow>;
+    experimentId: string;
+    experimentName: string;
+    finishedAt?: (string | null);
+    id: string;
+    latestSchedulerJobId?: (string | null);
+    name: string;
+    parameters?: Record<string, JSONValue>;
+    profile?: (string | null);
+    projectId: string;
+    projectName: string;
+    scheduler?: (string | null);
+    status: string;
+    target?: (string | null);
 };
 

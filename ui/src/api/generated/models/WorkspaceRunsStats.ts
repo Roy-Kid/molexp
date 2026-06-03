@@ -3,10 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 export type WorkspaceRunsStats = {
-    total?: number;
-    running?: number;
-    pending?: number;
     failed?: number;
+    pending?: number;
+    running?: number;
     succeeded?: number;
+    total?: number;
 };
 

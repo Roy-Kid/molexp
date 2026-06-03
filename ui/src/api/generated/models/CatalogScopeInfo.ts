@@ -6,9 +6,9 @@
  * Scope chain that owns this asset (project/experiment/run ids).
  */
 export type CatalogScopeInfo = {
+    experimentId?: (string | null);
     kind: string;
     projectId?: (string | null);
-    experimentId?: (string | null);
     runId?: (string | null);
 };
 
