@@ -52,6 +52,36 @@ def test_sweep_map_writes_one_asset_per_cell(tmp_path):
         assert "sweep_index" in a.tags
 
 
+def test_sweep_map_name_fn_controls_filename_and_extension(tmp_path):
+    space = GridSpace({"scheme": ["int8", "int4"]})  # 2 cells
+
+    # A binary payload saved under a caller-chosen name + extension — the case
+    # the default ``<prefix>-<i>.json`` naming cannot express.
+    def fn(cell):
+        return cell["scheme"].encode()
+
+    wf = WorkflowCompiler(name="sweepnamed")
+    wf.add(
+        SweepMap(
+            fn,
+            space,
+            name_fn=lambda cell, _i: f"trajectory_{cell['scheme']}.pt",
+            mime="application/octet-stream",
+        ),
+        name="sweep_cells",
+    )
+    spec = wf.compile()
+
+    result, artifacts = _execute(spec, tmp_path)
+
+    assert result.status == "completed"
+    # name_fn drives the full filename + extension (not the default "<prefix>-<i>.json")
+    assert {a.name for a in artifacts} == {"trajectory_int8.pt", "trajectory_int4.pt"}
+    assert all(a.mime == "application/octet-stream" for a in artifacts)
+    # cell params are still tagged so downstream reduces can key on them
+    assert {a.tags.get("scheme") for a in artifacts} == {"int8", "int4"}
+
+
 def test_sweep_map_empty_space_writes_nothing(tmp_path):
     space = GridSpace({"scheme": []})  # 0 cells
 

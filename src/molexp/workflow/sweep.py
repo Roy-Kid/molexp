@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 Cell = Mapping[str, Any]
 SweepFn = Callable[[Cell], Any]
+NameFn = Callable[[Cell, int], str]
 
 
 class SweepMap(Task[Any, Any, Any, "list[ArtifactAsset]"]):
@@ -49,8 +50,13 @@ class SweepMap(Task[Any, Any, Any, "list[ArtifactAsset]"]):
         space: Any iterable of parameter cells (mappings), such as a
             :class:`molexp.workspace.GridSpace`. An empty space writes nothing.
         name_prefix: Filename prefix for each per-cell artifact; the cell index
-            is appended (``"<name_prefix>-<i>.json"``).
+            is appended (``"<name_prefix>-<i>.json"``). Ignored when ``name_fn``
+            is given.
         mime: Optional MIME hint forwarded to :meth:`ArtifactAccessor.save`.
+        name_fn: Optional ``name_fn(cell, index) -> str`` that returns the full
+            per-cell filename, giving the caller control over naming and
+            extension (e.g. a binary ``trajectory_int8.pt``). When omitted the
+            default ``"<name_prefix>-<i>.json"`` is used.
     """
 
     def __init__(
@@ -60,11 +66,13 @@ class SweepMap(Task[Any, Any, Any, "list[ArtifactAsset]"]):
         *,
         name_prefix: str = "cell",
         mime: str | None = None,
+        name_fn: NameFn | None = None,
     ) -> None:
         self._fn = fn
         self._space = space
         self._name_prefix = name_prefix
         self._mime = mime
+        self._name_fn = name_fn
 
     async def execute(self, ctx: TaskContext[Any, Any, Any]) -> list[ArtifactAsset]:
         """Run ``fn`` for every cell and persist each result as an artifact."""
@@ -82,6 +90,10 @@ class SweepMap(Task[Any, Any, Any, "list[ArtifactAsset]"]):
                 result = await result
             tags = {key: str(value) for key, value in cell.items()}
             tags["sweep_index"] = str(index)
-            name = f"{self._name_prefix}-{index}.json"
+            name = (
+                self._name_fn(cell, index)
+                if self._name_fn is not None
+                else f"{self._name_prefix}-{index}.json"
+            )
             assets.append(run_context.artifact.save(name, result, tags=tags, mime=self._mime))
         return assets
