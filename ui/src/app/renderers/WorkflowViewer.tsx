@@ -21,8 +21,8 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
 
   const project = snapshot.projects.find((item) => item.id === workflow.projectId);
   const experiment = snapshot.experiments.find((item) => item.id === workflow.experimentId);
-  const nodeCount = workflow.graph?.nodes.length ?? 0;
-  const edgeCount = workflow.graph?.edges.length ?? 0;
+  const nodeCount = workflow.graph?.task_configs.length ?? 0;
+  const edgeCount = workflow.graph?.links.length ?? 0;
 
   return (
     <OverviewPage

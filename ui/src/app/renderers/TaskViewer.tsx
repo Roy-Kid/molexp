@@ -72,12 +72,14 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
     // From a run page, scope to the run's experiment; in a compiled preview
     // (no run) resolve the owning workflow by which graph contains the node.
     if (run) return snapshot.workflows.find((w) => w.experimentId === run.experimentId) ?? null;
-    return snapshot.workflows.find((w) => w.graph?.nodes.some((n) => n.nodeId === taskId)) ?? null;
+    return (
+      snapshot.workflows.find((w) => w.graph?.task_configs.some((n) => n.id === taskId)) ?? null
+    );
   }, [snapshot.workflows, run, taskId]);
-  const node = workflow?.graph?.nodes.find((n) => n.nodeId === taskId) ?? null;
-  const edges = workflow?.graph?.edges ?? [];
-  const upstream = edges.filter((e) => e.target === taskId).map((e) => e.source);
-  const downstream = edges.filter((e) => e.source === taskId).map((e) => e.target);
+  const node = workflow?.graph?.task_configs.find((n) => n.id === taskId) ?? null;
+  const links = workflow?.graph?.links ?? [];
+  const upstream = links.filter((e) => e.to === taskId).map((e) => e.from);
+  const downstream = links.filter((e) => e.from === taskId).map((e) => e.to);
   const products = useMemo(
     () => assets.filter((a) => taskProducerId(a) === taskId),
     [assets, taskId],
@@ -110,9 +112,9 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
         <h2 className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           Task
         </h2>
-        {node?.status && (
+        {node?.type && (
           <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
-            {node.status}
+            {node.type}
           </Badge>
         )}
       </div>
@@ -121,7 +123,7 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
         <Section title="Identity">
           <p className="truncate font-mono text-sm font-semibold text-foreground">{taskId}</p>
           <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
-            [{node?.label ?? "—"}]
+            [{node?.label ?? node?.type ?? "—"}]
           </p>
           {run && (
             <Button

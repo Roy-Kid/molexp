@@ -1,149 +1,35 @@
-import type { Edge, Node } from "@xyflow/react";
 import type { EdgeJson, TaskGraphJson, TaskNodeJson } from "@/types/task_graph_ir";
 
 /**
- * Converts TaskGraph JSON IR to React Flow elements with auto-layout.
- * Uses a simple layer-based layout algorithm (Top-Down).
+ * workflow-utils — pure graph algorithms over the canonical task-graph IR.
+ *
+ * Decoupled from any rendering library: callers pass plain `{id, type, data,
+ * position}` nodes and `{source, target}` edges (the minimal shape every graph
+ * surface can produce) rather than xyflow `Node`/`Edge`.
  */
-export const getLayoutedElements = (nodes: TaskNodeJson[], edges: EdgeJson[]) => {
-  // Convert TaskNodeJson to generic format for layout
-  const genericNodes = nodes.map((n) => ({ id: n.id, type: n.type }));
-  const genericEdges = edges.map((e) => ({ from: e.from, to: e.to }));
 
-  const layout = calculateLayout(genericNodes, genericEdges);
+/** Minimal node shape consumed by the graph utilities (no rendering deps). */
+export interface GraphNodeInput {
+  id: string;
+  type?: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+}
 
-  // Map back to React Flow elements
-  const flowNodes: Node[] = nodes.map((node) => {
-    const pos = layout[node.id] || { x: 0, y: 0 };
-
-    // Map type to React Flow type
-    let type = "process";
-    const lowerType = node.type.toLowerCase();
-    if (lowerType.includes("start") || lowerType.includes("load")) type = "start";
-    else if (lowerType.includes("end") || lowerType.includes("save")) type = "end";
-
-    return {
-      id: node.id,
-      type,
-      position: pos,
-      data: {
-        label: node.label || node.type,
-        ...node.params,
-      },
-    };
-  });
-
-  const flowEdges: Edge[] = edges.map((edge) => ({
-    id: `e_${edge.from}_${edge.to}`,
-    source: edge.from,
-    target: edge.to,
-    animated: true,
-    type: "smoothstep",
-  }));
-
-  return { nodes: flowNodes, edges: flowEdges };
-};
+/** Minimal edge shape consumed by the graph utilities (no rendering deps). */
+export interface GraphEdgeInput {
+  id: string;
+  source: string;
+  target: string;
+}
 
 /**
- * Auto-layouts existing React Flow nodes and edges.
- */
-export const autoLayoutNodes = (nodes: Node[], edges: Edge[]) => {
-  const genericNodes = nodes.map((n) => ({ id: n.id, type: n.type || "process" }));
-  const genericEdges = edges.map((e) => ({ from: e.source, to: e.target }));
-
-  const layout = calculateLayout(genericNodes, genericEdges);
-
-  const layoutedNodes = nodes.map((node) => ({
-    ...node,
-    position: layout[node.id] || node.position,
-  }));
-
-  return { nodes: layoutedNodes, edges };
-};
-
-// Shared layout logic
-const calculateLayout = (nodes: { id: string }[], edges: { from: string; to: string }[]) => {
-  const rankSep = 250; // Increased from 150
-  const nodeSep = 300; // Increased from 200
-
-  const adj: Record<string, string[]> = {};
-  const inDegree: Record<string, number> = {};
-
-  nodes.forEach((n) => {
-    adj[n.id] = [];
-    inDegree[n.id] = 0;
-  });
-
-  edges.forEach((e) => {
-    if (adj[e.from]) adj[e.from].push(e.to);
-    inDegree[e.to] = (inDegree[e.to] || 0) + 1;
-  });
-
-  const levels: Record<string, number> = {};
-  const queue: string[] = nodes.filter((n) => inDegree[n.id] === 0).map((n) => n.id);
-
-  queue.forEach((id) => {
-    levels[id] = 0;
-  });
-
-  const tempInDegree = { ...inDegree };
-  const processQueue = [...queue];
-
-  while (processQueue.length > 0) {
-    const u = processQueue.shift();
-    if (u === undefined) break;
-    if (adj[u]) {
-      adj[u].forEach((v) => {
-        levels[v] = Math.max(levels[v] || 0, (levels[u] || 0) + 1);
-        tempInDegree[v]--;
-        if (tempInDegree[v] === 0) {
-          processQueue.push(v);
-        }
-      });
-    }
-  }
-
-  // Handle disconnected/cycles
-  nodes.forEach((n) => {
-    if (levels[n.id] === undefined) levels[n.id] = 0;
-  });
-
-  const levelGroups: Record<number, string[]> = {};
-  let maxLevel = 0;
-  Object.entries(levels).forEach(([id, level]) => {
-    if (!levelGroups[level]) levelGroups[level] = [];
-    levelGroups[level].push(id);
-    maxLevel = Math.max(maxLevel, level);
-  });
-
-  const maxNodesInLevel = Math.max(...Object.values(levelGroups).map((g) => g.length));
-  const totalWidth = maxNodesInLevel * nodeSep;
-
-  const layout: Record<string, { x: number; y: number }> = {};
-
-  nodes.forEach((node) => {
-    const level = levels[node.id];
-    const indexInLevel = levelGroups[level].indexOf(node.id);
-    const nodesInThisLevel = levelGroups[level].length;
-
-    const levelWidth = nodesInThisLevel * nodeSep;
-    const xOffset = (totalWidth - levelWidth) / 2;
-
-    const x = xOffset + indexInLevel * nodeSep + 50;
-    const y = level * rankSep + 50;
-
-    layout[node.id] = { x, y };
-  });
-
-  return layout;
-};
-
-/**
- * Converts React Flow nodes and edges to TaskGraph JSON IR.
+ * Converts graph nodes and edges to the canonical TaskGraph JSON IR
+ * (`task_configs` + typed `links` + per-node `position`).
  */
 export const toTaskGraphJson = (
-  nodes: Node[],
-  edges: Edge[],
+  nodes: GraphNodeInput[],
+  edges: GraphEdgeInput[],
   name: string = "Workflow",
 ): TaskGraphJson => {
   const taskNodes: TaskNodeJson[] = nodes.map((node) => {
@@ -159,10 +45,11 @@ export const toTaskGraphJson = (
       type:
         node.type === "process"
           ? category
-            ? `${category}.${label}`
+            ? `${String(category)}.${String(label)}`
             : (label as string)
           : node.type || "process",
       label: label as string,
+      position: node.position,
       config: configRecord, // Static configuration for the node
       params: otherData, // Other runtime parameters (if any)
       metadata: {
@@ -183,8 +70,8 @@ export const toTaskGraphJson = (
 
   return {
     name,
-    nodes: taskNodes,
-    edges: taskEdges,
+    task_configs: taskNodes,
+    links: taskEdges,
     targets: targets.length > 0 ? targets : undefined,
     metadata: {
       createdAt: new Date().toISOString(),
@@ -196,7 +83,11 @@ export const toTaskGraphJson = (
  * Infers the minimal subgraph required to execute the given targets.
  * Returns a topologically sorted list of node IDs.
  */
-export const planExecution = (nodes: Node[], edges: Edge[], targets: string[]): string[] => {
+export const planExecution = (
+  nodes: GraphNodeInput[],
+  edges: GraphEdgeInput[],
+  targets: string[],
+): string[] => {
   // 1. Build dependency graph (reverse adjacency list)
   // node -> [dependencies]
   const deps: Record<string, string[]> = {};
@@ -255,8 +146,8 @@ export const planExecution = (nodes: Node[], edges: Edge[], targets: string[]): 
  * Returns a map of Node/Edge ID -> List of Target IDs that depend on it.
  */
 export const analyzePaths = (
-  nodes: Node[],
-  edges: Edge[],
+  nodes: GraphNodeInput[],
+  edges: GraphEdgeInput[],
   targets: string[],
 ): Record<string, string[]> => {
   // Build dependency graph

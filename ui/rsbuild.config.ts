@@ -18,6 +18,22 @@ export default defineConfig(({ command }) => {
       },
     },
     tools: {
+      // flowgram's free-layout-editor uses inversify DI, which relies on legacy
+      // (stage-2) decorators + emitted decorator metadata at runtime. Enable the
+      // SWC transforms so the canvas core's DI wiring resolves in the bundle.
+      swc: {
+        jsc: {
+          parser: {
+            syntax: 'typescript',
+            tsx: true,
+            decorators: true,
+          },
+          transform: {
+            legacyDecorator: true,
+            decoratorMetadata: true,
+          },
+        },
+      },
       rspack: {
         resolve: {
           // Workaround for the published @molcrafts/molvis-core@0.0.7 tarball:

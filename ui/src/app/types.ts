@@ -1,3 +1,5 @@
+import type { TaskGraphJson } from "@/types/task_graph_ir";
+
 export type LeftPanelView =
   | "workspace"
   | "projects"
@@ -165,7 +167,8 @@ export interface WorkflowSummary {
   updatedAt: string;
   projectId: string;
   experimentId: string;
-  graph?: WorkflowGraph;
+  /** The workflow's task-graph IR (the sole client IR type), when available. */
+  graph?: TaskGraphJson;
 }
 
 export interface AgentSessionSummary {
@@ -175,34 +178,6 @@ export interface AgentSessionSummary {
   status: SemanticStatus;
   createdAt: string;
   eventCount: number;
-}
-
-export interface WorkflowNodeMetadata {
-  nodeId: string;
-  label: string;
-  nodeType: "task" | "input" | "output";
-  status: SemanticStatus;
-  description: string;
-  position: WorkflowNodePosition;
-  /** Task config / inputs carried from the IR (`task_configs[].config`). */
-  config?: Record<string, unknown>;
-}
-
-export interface WorkflowGraph {
-  nodes: WorkflowNodeMetadata[];
-  edges: WorkflowGraphEdge[];
-}
-
-export interface WorkflowNodePosition {
-  x: number;
-  y: number;
-}
-
-export interface WorkflowGraphEdge {
-  id: string;
-  source: string;
-  target: string;
-  label: string;
 }
 
 export interface WorkspaceTreeNode {

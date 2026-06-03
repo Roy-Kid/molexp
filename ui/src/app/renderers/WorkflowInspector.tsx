@@ -1,22 +1,21 @@
 import { useMemo } from "react";
 import { buildMetadataFields, type MetadataField } from "@/app/renderers/metadata";
-import type { RendererProps, WorkflowNodeMetadata } from "@/app/types";
+import type { RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { TaskNodeJson } from "@/types/task_graph_ir";
 
-const buildNodeFields = (node: WorkflowNodeMetadata | null): MetadataField[] => {
+const buildNodeFields = (node: TaskNodeJson | null): MetadataField[] => {
   if (!node) {
     return [{ label: "Node", value: "No node metadata available" }];
   }
 
   return [
-    { label: "Node", value: node.label },
-    { label: "Node ID", value: node.nodeId },
-    { label: "Type", value: node.nodeType },
-    { label: "Status", value: node.status },
-    { label: "Description", value: node.description },
+    { label: "Node", value: node.label ?? node.id },
+    { label: "Node ID", value: node.id },
+    { label: "Type", value: node.type },
   ];
 };
 
@@ -37,7 +36,7 @@ export const WorkflowInspector = ({
       return [];
     }
     const node =
-      workflow.graph.nodes.find((item) => item.nodeId === inspectorTarget.nodeId) ?? null;
+      workflow.graph.task_configs.find((item) => item.id === inspectorTarget.nodeId) ?? null;
     return buildNodeFields(node);
   }, [inspectorTarget, workflow]);
 
