@@ -410,6 +410,15 @@ async def _invoke_body_with_ctx(
     """
     body = registration.fn_or_class
 
+    # Tag any asset saved during this task with its name as ``Producer.task_id``
+    # via the run_context's active-task slot (the slot is read by ArtifactAccessor
+    # on write). molexp task bodies run inline/blocking on the event-loop thread,
+    # so a single slot is effectively per-task here; the next task overwrites it
+    # before saving its own assets.
+    _rc = getattr(task_ctx, "run_context", None)
+    if _rc is not None and hasattr(_rc, "set_active_task"):
+        _rc.set_active_task(registration.name)
+
     # OOP Task subclass — invoke .execute(ctx).
     if isinstance(body, Task):
         return await body.execute(task_ctx)

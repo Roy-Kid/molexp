@@ -42,8 +42,30 @@ function ResizablePanelGroup({
   );
 }
 
-function ResizablePanel({ ...props }: React.ComponentProps<typeof ResizablePrimitive.Panel>) {
-  return <ResizablePrimitive.Panel data-slot="resizable-panel" {...props} />;
+// react-resizable-panels v4 reinterpreted bare numeric sizes as *pixels*; v3
+// (and every call site in this app) treats them as *percentages*. Without this
+// shim, `defaultSize={22}` becomes 22px instead of 22% — collapsing panels to a
+// sliver and capping their drag range at a few pixels. Coerce bare numbers back
+// to percentage strings so the call sites keep their v3 meaning; strings (which
+// already carry an explicit unit like "%", "px", "rem") pass through untouched.
+const asPercent = (size: number | string | undefined): number | string | undefined =>
+  typeof size === "number" ? `${size}%` : size;
+
+function ResizablePanel({
+  defaultSize,
+  minSize,
+  maxSize,
+  ...props
+}: React.ComponentProps<typeof ResizablePrimitive.Panel>) {
+  return (
+    <ResizablePrimitive.Panel
+      data-slot="resizable-panel"
+      defaultSize={asPercent(defaultSize)}
+      minSize={asPercent(minSize)}
+      maxSize={asPercent(maxSize)}
+      {...props}
+    />
+  );
 }
 
 function ResizableHandle({

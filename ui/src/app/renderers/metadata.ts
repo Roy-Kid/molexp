@@ -156,6 +156,15 @@ export const buildMetadataFields = (
         { label: "Kind", value: selection.fileKind },
       ];
     },
+    task: () => {
+      if (selection.objectType !== "task") {
+        return emptyFields("task", selection.objectId);
+      }
+      return [
+        { label: "Task", value: selection.taskId },
+        { label: "Run", value: selection.runId },
+      ];
+    },
   };
 
   const buildFields = lookupByType[selection.objectType];

@@ -12,7 +12,9 @@ import {
 } from "@/app/components/entity";
 import { listEntityTabs } from "@/app/registry";
 import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
+import { parseWorkflowIr, WorkflowGraph } from "@/app/renderers/WorkflowGraph";
 import { workspaceApi } from "@/app/state/api";
+import { useInspectedTask } from "@/app/state/inspectedTask";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, RendererProps } from "@/app/types";
@@ -85,6 +87,7 @@ const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skippe
 export const RunViewer = (props: RendererProps): JSX.Element => {
   const { selection, snapshot, onRefresh } = props;
   const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const { inspectTask } = useInspectedTask();
   const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
   const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
@@ -196,6 +199,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
 
   const parameterEntries = Object.entries(run.parameters ?? {});
   const resultEntries = Object.entries(run.results ?? {});
+  const workflowIr = parseWorkflowIr(run.workflowSource);
   const duration = formatDuration(run.startedAt, run.finishedAt);
   const attemptCount = run.executionHistory.length;
   const groupedAssets = groupAssetsByKind(runAssets);
@@ -377,7 +381,40 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
       )}
 
       <OverviewSection title="What ran">
-        {run.workflowSource ? (
+        {workflowIr ? (
+          <div className="max-w-4xl space-y-2">
+            <WorkflowGraph
+              ir={workflowIr}
+              height={460}
+              onNodeClick={(taskId) => inspectTask(taskId, run.id)}
+            />
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+              {workflowIr.name && <span className="font-mono">{workflowIr.name}</span>}
+              <span>
+                {workflowIr.task_configs.length} tasks · {workflowIr.links.length} dependencies
+              </span>
+              {run.configHash && (
+                <span className="font-mono">config: {run.configHash.slice(0, 12)}</span>
+              )}
+              {run.profile && <span>profile: {run.profile}</span>}
+              {workflow && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 underline-offset-2 hover:text-foreground hover:underline"
+                  onClick={() =>
+                    setSelection({
+                      objectType: "workflow",
+                      objectId: workflow.id,
+                      workflowId: workflow.id,
+                    })
+                  }
+                >
+                  Open workflow <ArrowRight className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        ) : run.workflowSource ? (
           <button
             type="button"
             className="flex w-full max-w-3xl items-start gap-3 rounded-md border border-border/70 bg-muted/30 p-3 text-left transition-colors hover:border-border hover:bg-muted/50"

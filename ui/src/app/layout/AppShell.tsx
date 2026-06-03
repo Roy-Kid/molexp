@@ -1,9 +1,10 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ContextBar } from "@/app/layout/ContextBar";
 import { CenterPanel } from "@/app/panels/CenterPanel";
 import { LeftPanel } from "@/app/panels/LeftPanel";
 import { RightPanel } from "@/app/panels/RightPanel";
+import { type InspectedTask, InspectedTaskContext } from "@/app/state/inspectedTask";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
@@ -45,103 +46,147 @@ export const AppShell = ({
 }: AppShellProps): JSX.Element => {
   const [searchQuery, setSearchQuery] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectedTask, setInspectedTask] = useState<InspectedTask | null>(null);
 
-  const inspectorVisible = inspectorOpen && Boolean(selection);
-  const toggleDisabled = !selection;
+  const inspectTask = useCallback((taskId: string, runId: string): void => {
+    // Pin the node to the right inspector and open the panel in-place — never
+    // navigate. This is what makes a node click expand the sidebar instead of
+    // jumping to a standalone task page.
+    setInspectedTask({ taskId, runId });
+    setInspectorOpen(true);
+  }, []);
+
+  const clearInspectedTask = useCallback((): void => {
+    setInspectedTask(null);
+  }, []);
+
+  const inspectedTaskContext = useMemo(
+    () => ({ inspectedTask, inspectTask, clearInspectedTask }),
+    [inspectedTask, inspectTask, clearInspectedTask],
+  );
+
+  // A pinned task only applies while we are still on the run it was opened
+  // from; navigating to any other object drops back to that object's own
+  // inspector. Checking validity at render time (rather than clearing via an
+  // effect) keeps the pin self-invalidating with no extra re-render.
+  const pinnedTaskActive =
+    inspectedTask !== null &&
+    ((selection?.objectType === "run" && selection.objectId === inspectedTask.runId) ||
+      // Preview (compiled, un-run) workflows are inspected from the workflow
+      // entity's Graph tab — there is no run to scope the pin to.
+      selection?.objectType === "workflow");
+
+  // The right inspector shows the pinned task when one is active, otherwise the
+  // page's own object. The synthetic `task` Selection is never routed to the
+  // URL — it only lets the renderer registry resolve the task inspector.
+  const inspectorSelection: Selection | null =
+    inspectedTask && pinnedTaskActive
+      ? {
+          objectType: "task",
+          taskId: inspectedTask.taskId,
+          runId: inspectedTask.runId,
+          objectId: inspectedTask.taskId,
+        }
+      : selection;
+
+  const inspectorVisible = inspectorOpen && Boolean(inspectorSelection);
+  const toggleDisabled = !inspectorSelection;
   const toggleLabel = inspectorVisible ? "Hide details" : "Show details";
 
   return (
-    <div className="flex h-screen flex-col bg-background text-foreground">
-      <ContextBar
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        onRefresh={onActiveRefresh}
-        isRefreshing={isRefreshing}
-      />
-      <main className="flex flex-1 flex-col overflow-hidden">
-        <ResizablePanelGroup direction="horizontal" className="flex-1">
-          <ResizablePanel
-            defaultSize={NAV_SIZE.default}
-            minSize={NAV_SIZE.min}
-            maxSize={NAV_SIZE.max}
-          >
-            <LeftPanel
-              view={leftPanelView}
-              selection={selection}
-              snapshot={snapshot}
-              searchQuery={searchQuery}
-              onViewChange={onLeftPanelViewChange}
-              onSelect={onSelectionChange}
-              onOpenWorkspace={onOpenWorkspace}
-              onCreateDirectory={onCreateDirectory}
-              onCreateFile={onCreateFile}
-              onRefresh={onWorkspaceRefresh}
-            />
-          </ResizablePanel>
-          <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={100 - NAV_SIZE.default}>
-            <ResizablePanelGroup direction="horizontal" className="h-full">
-              <ResizablePanel defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}>
-                <div className="flex h-full flex-col">
-                  <div className="flex h-9 items-center justify-end border-b border-border/70 bg-muted/10 px-2">
-                    <TooltipProvider>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => setInspectorOpen((current) => !current)}
-                            disabled={toggleDisabled}
-                            aria-label={toggleLabel}
-                          >
-                            {inspectorVisible ? (
-                              <PanelRightClose className="h-4 w-4" />
-                            ) : (
-                              <PanelRightOpen className="h-4 w-4" />
-                            )}
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left">{toggleLabel}</TooltipContent>
-                      </Tooltip>
-                    </TooltipProvider>
-                  </div>
-                  <div className="flex-1 overflow-hidden">
-                    <CenterPanel
-                      selection={selection}
-                      snapshot={snapshot}
-                      leftPanelView={leftPanelView}
-                      inspectorTarget={inspectorTarget}
-                      onInspectorTargetChange={onInspectorTargetChange}
-                      onRefresh={onWorkspaceRefresh}
-                    />
-                  </div>
-                </div>
-              </ResizablePanel>
-              {inspectorVisible && (
-                <>
-                  <ResizableHandle withHandle />
-                  <ResizablePanel
-                    defaultSize={INSPECTOR_SIZE.default}
-                    minSize={INSPECTOR_SIZE.min}
-                    maxSize={INSPECTOR_SIZE.max}
-                  >
-                    <div className="h-full overflow-hidden border-l border-border/70 bg-muted/10">
-                      <RightPanel
+    <InspectedTaskContext.Provider value={inspectedTaskContext}>
+      <div className="flex h-screen flex-col bg-background text-foreground">
+        <ContextBar
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onRefresh={onActiveRefresh}
+          isRefreshing={isRefreshing}
+        />
+        <main className="flex flex-1 flex-col overflow-hidden">
+          <ResizablePanelGroup direction="horizontal" className="flex-1">
+            <ResizablePanel
+              defaultSize={NAV_SIZE.default}
+              minSize={NAV_SIZE.min}
+              maxSize={NAV_SIZE.max}
+            >
+              <LeftPanel
+                view={leftPanelView}
+                selection={selection}
+                snapshot={snapshot}
+                searchQuery={searchQuery}
+                onViewChange={onLeftPanelViewChange}
+                onSelect={onSelectionChange}
+                onOpenWorkspace={onOpenWorkspace}
+                onCreateDirectory={onCreateDirectory}
+                onCreateFile={onCreateFile}
+                onRefresh={onWorkspaceRefresh}
+              />
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={100 - NAV_SIZE.default}>
+              <ResizablePanelGroup direction="horizontal" className="h-full">
+                <ResizablePanel defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}>
+                  <div className="flex h-full flex-col">
+                    <div className="flex h-9 items-center justify-end border-b border-border/70 bg-muted/10 px-2">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => setInspectorOpen((current) => !current)}
+                              disabled={toggleDisabled}
+                              aria-label={toggleLabel}
+                            >
+                              {inspectorVisible ? (
+                                <PanelRightClose className="h-4 w-4" />
+                              ) : (
+                                <PanelRightOpen className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="left">{toggleLabel}</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    <div className="flex-1 overflow-hidden">
+                      <CenterPanel
                         selection={selection}
                         snapshot={snapshot}
+                        leftPanelView={leftPanelView}
                         inspectorTarget={inspectorTarget}
                         onInspectorTargetChange={onInspectorTargetChange}
                         onRefresh={onWorkspaceRefresh}
                       />
                     </div>
-                  </ResizablePanel>
-                </>
-              )}
-            </ResizablePanelGroup>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </main>
-    </div>
+                  </div>
+                </ResizablePanel>
+                {inspectorVisible && (
+                  <>
+                    <ResizableHandle withHandle />
+                    <ResizablePanel
+                      defaultSize={INSPECTOR_SIZE.default}
+                      minSize={INSPECTOR_SIZE.min}
+                      maxSize={INSPECTOR_SIZE.max}
+                    >
+                      <div className="h-full overflow-hidden border-l border-border/70 bg-muted/10">
+                        <RightPanel
+                          selection={inspectorSelection}
+                          snapshot={snapshot}
+                          inspectorTarget={inspectorTarget}
+                          onInspectorTargetChange={onInspectorTargetChange}
+                          onRefresh={onWorkspaceRefresh}
+                        />
+                      </div>
+                    </ResizablePanel>
+                  </>
+                )}
+              </ResizablePanelGroup>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </main>
+      </div>
+    </InspectedTaskContext.Provider>
   );
 };

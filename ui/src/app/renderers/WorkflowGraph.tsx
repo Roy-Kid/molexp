@@ -18,6 +18,7 @@ import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
 // xyflow's stylesheet is imported once at the app entry (see index.tsx).
 import { type JSX, useMemo } from "react";
+import { layoutWithDagre } from "@/app/renderers/dagreLayout";
 
 interface TaskConfig {
   task_id: string;
@@ -37,6 +38,32 @@ export interface WorkflowIR {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Parse a serialized workflow IR string (an experiment's `workflow_source` /
+ * a run's `workflowSource`, produced by `Workflow.to_dict()`) into a
+ * {@link WorkflowIR}. Returns `null` when the string is absent, not JSON, or
+ * not a `{task_configs, links}` payload — so callers fall back to showing the
+ * raw text instead of a broken graph.
+ */
+export const parseWorkflowIr = (source: string | null | undefined): WorkflowIR | null => {
+  if (!source) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const ir = parsed as Partial<WorkflowIR>;
+  if (!Array.isArray(ir.task_configs) || !Array.isArray(ir.links)) return null;
+  return {
+    name: typeof ir.name === "string" ? ir.name : undefined,
+    task_configs: ir.task_configs,
+    links: ir.links,
+    metadata: ir.metadata,
+  };
+};
+
 interface PlanNodeData extends Record<string, unknown> {
   taskId: string;
   taskType: string;
@@ -45,7 +72,7 @@ interface PlanNodeData extends Record<string, unknown> {
 type PlanFlowNode = Node<PlanNodeData, "planNode">;
 
 const PlanNode = ({ data }: NodeProps<PlanFlowNode>): JSX.Element => (
-  <div className="rounded-md border border-violet-300 bg-card px-3 py-2 shadow-sm min-w-[140px] dark:border-violet-700">
+  <div className="rounded-md border border-violet-300 bg-card px-3 py-2 shadow-sm min-w-[140px] cursor-pointer transition-colors hover:border-violet-500 dark:border-violet-700">
     <Handle type="target" position={Position.Top} className="h-2 w-2 bg-violet-400" />
     <p className="text-xs font-semibold text-foreground truncate">{data.taskId}</p>
     <p className="font-mono text-[10px] text-muted-foreground truncate">[{data.taskType}]</p>
@@ -60,9 +87,16 @@ interface WorkflowGraphProps {
   /** Optional fixed height for the inline render area (default 280px). */
   height?: number;
   className?: string;
+  /** Called with the task id when a node is clicked. */
+  onNodeClick?: (taskId: string) => void;
 }
 
-export const WorkflowGraph = ({ ir, height = 280, className }: WorkflowGraphProps): JSX.Element => {
+export const WorkflowGraph = ({
+  ir,
+  height = 280,
+  className,
+  onNodeClick,
+}: WorkflowGraphProps): JSX.Element => {
   const { nodes, edges, invalidLinks } = useMemo(() => buildElements(ir), [ir]);
 
   if (nodes.length === 0) {
@@ -90,6 +124,7 @@ export const WorkflowGraph = ({ ir, height = 280, className }: WorkflowGraphProp
           minZoom={0.2}
           maxZoom={1.5}
           proOptions={{ hideAttribution: true }}
+          onNodeClick={onNodeClick ? (_event, node) => onNodeClick(node.id) : undefined}
         >
           <Background gap={16} size={1} />
           <Controls
@@ -134,15 +169,10 @@ export const buildElements = (ir: WorkflowIR): BuiltElements => {
     }
   }
 
-  const positions = layoutByLevel(
-    ir.task_configs.map((t) => t.task_id),
-    validLinks,
-  );
-
-  const nodes: PlanFlowNode[] = ir.task_configs.map((t) => ({
+  const rawNodes: PlanFlowNode[] = ir.task_configs.map((t) => ({
     id: t.task_id,
     type: "planNode",
-    position: positions[t.task_id] ?? { x: 0, y: 0 },
+    position: { x: 0, y: 0 },
     data: {
       taskId: t.task_id,
       taskType: t.task_type,
@@ -158,63 +188,8 @@ export const buildElements = (ir: WorkflowIR): BuiltElements => {
     markerEnd: { type: MarkerType.ArrowClosed, color: "#a78bfa" },
   }));
 
+  const nodes = layoutWithDagre(rawNodes, edges, { nodeWidth: 150, nodeHeight: 64 });
   return { nodes, edges, invalidLinks };
 };
 
-// Tight topological-level layout tuned for the inline plan card. Numbers
-// are smaller than the global :func:`getLayoutedElements` helper so the
-// graph stays legible at the card's compact size.
-const RANK_SEP = 110;
-const NODE_SEP = 170;
-
-const layoutByLevel = (ids: string[], links: Link[]): Record<string, { x: number; y: number }> => {
-  const adj: Record<string, string[]> = {};
-  const inDegree: Record<string, number> = {};
-  for (const id of ids) {
-    adj[id] = [];
-    inDegree[id] = 0;
-  }
-  for (const link of links) {
-    if (adj[link.source]) adj[link.source].push(link.target);
-    if (link.target in inDegree) inDegree[link.target] += 1;
-  }
-
-  const levels: Record<string, number> = {};
-  const remaining = { ...inDegree };
-  const queue: string[] = ids.filter((id) => remaining[id] === 0);
-  for (const id of queue) levels[id] = 0;
-  while (queue.length > 0) {
-    const u = queue.shift();
-    if (u === undefined) break;
-    for (const v of adj[u] ?? []) {
-      levels[v] = Math.max(levels[v] ?? 0, (levels[u] ?? 0) + 1);
-      remaining[v] -= 1;
-      if (remaining[v] === 0) queue.push(v);
-    }
-  }
-  for (const id of ids) {
-    if (levels[id] === undefined) levels[id] = 0;
-  }
-
-  const buckets: Record<number, string[]> = {};
-  for (const id of ids) {
-    const lvl = levels[id];
-    if (!buckets[lvl]) buckets[lvl] = [];
-    buckets[lvl].push(id);
-  }
-  const widest = Math.max(1, ...Object.values(buckets).map((b) => b.length));
-  const totalWidth = widest * NODE_SEP;
-
-  const positions: Record<string, { x: number; y: number }> = {};
-  for (const id of ids) {
-    const lvl = levels[id];
-    const idx = buckets[lvl].indexOf(id);
-    const rowWidth = buckets[lvl].length * NODE_SEP;
-    const xOffset = (totalWidth - rowWidth) / 2;
-    positions[id] = {
-      x: xOffset + idx * NODE_SEP + 30,
-      y: lvl * RANK_SEP + 20,
-    };
-  }
-  return positions;
-};
+// Layout is delegated to dagre (see :func:`layoutWithDagre`).
