@@ -107,6 +107,45 @@ def test_to_ir_captures_control_edges():
 
 
 @pytest.mark.unit
+def test_to_ir_emits_unified_typed_edge_set():
+    """``build_workflow_graph_ir`` projects the split collections into one
+    ``kind``-tagged edge set: depends_on→data, branch routes→branch(+condition)."""
+    ir = _branchy_builder().compile().to_graph_ir()
+    data_edges = {(e.source, e.target) for e in ir.edges if e.kind == "data"}
+    branch_edges = {(e.source, e.condition, e.target) for e in ir.edges if e.kind == "branch"}
+    assert ("fetch", "validate") in data_edges
+    assert ("validate", "ok", "publish") in branch_edges
+    assert ("validate", "fail", "rollback") in branch_edges
+    assert {e.kind for e in ir.edges} <= {"data", "control", "branch", "loop", "parallel"}
+
+
+@pytest.mark.unit
+def test_to_ir_carries_node_position_from_ir():
+    """A position set on the wire IR survives into the full graph IR's nodes
+    (and the WorkflowGraphIR node exposes it as a GraphNodePosition)."""
+    from molexp.workflow import CompiledWorkflow, GraphNodePosition
+
+    ir = {
+        "workflow_id": "workflow_00000000",
+        "name": "p",
+        "task_configs": [
+            {
+                "task_id": "k",
+                "task_type": "core.constant",
+                "config": {"value": 1},
+                "status": "pending",
+                "position": {"x": 12.5, "y": -3.0},
+            }
+        ],
+        "links": [],
+        "metadata": {"label": None, "description": None, "tags": [], "custom": {}},
+    }
+    graph_ir = CompiledWorkflow.from_ir(ir).to_graph_ir()
+    node = next(t for t in graph_ir.tasks if t.name == "k")
+    assert node.position == GraphNodePosition(x=12.5, y=-3.0)
+
+
+@pytest.mark.unit
 def test_to_ir_captures_loops_and_parallels():
     wf = WorkflowCompiler(name="lp")
 

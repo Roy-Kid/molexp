@@ -1,12 +1,15 @@
 {
+  "entries": [],
   "links": [
     {
+      "kind": "data",
       "mapping": {},
       "source": "inspect",
       "status": "pending",
       "target": "train"
     }
   ],
+  "loops": [],
   "metadata": {
     "custom": {},
     "description": null,
@@ -14,6 +17,7 @@
     "tags": []
   },
   "name": "qm9-gnn-baseline",
+  "parallels": [],
   "task_configs": [
     {
       "config": {

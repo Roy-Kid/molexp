@@ -24,7 +24,7 @@ through ``model_dump(mode="json")`` / ``model_validate`` unchanged.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -34,7 +34,10 @@ if TYPE_CHECKING:
     from .compiled import CompiledWorkflow as Workflow
 
 __all__ = [
+    "EdgeKind",
+    "GraphEdgeIR",
     "GraphLoopIR",
+    "GraphNodePosition",
     "GraphParallelIR",
     "GraphTaskIR",
     "WorkflowGraphIR",
@@ -42,6 +45,38 @@ __all__ = [
 ]
 
 _FROZEN = ConfigDict(frozen=True, extra="forbid")
+
+#: The five edge kinds a free-layout workflow edge can carry. ``data`` is a
+#: dependency edge (``depends_on``); ``control`` an unconditional control edge;
+#: ``branch`` a label-routed edge (carries ``condition``); ``loop`` / ``parallel``
+#: the synthesized edges of a ``wf.loop`` / ``wf.parallel`` declaration.
+EdgeKind = Literal["data", "control", "branch", "loop", "parallel"]
+
+
+class GraphNodePosition(BaseModel):
+    """Editor-canvas coordinate for a node (free-layout graph).
+
+    Pure UI metadata — it round-trips through the IR so an edited canvas can
+    persist node placement, but it never enters the
+    :class:`~molexp.workflow.snapshot.TaskSnapshot` content hash, so moving a
+    node never invalidates the content-addressed cache.
+    """
+
+    model_config = _FROZEN
+
+    x: float
+    y: float
+
+
+class GraphEdgeIR(BaseModel):
+    """One typed edge in a :class:`WorkflowGraphIR`'s unified edge set."""
+
+    model_config = _FROZEN
+
+    source: str
+    target: str
+    kind: EdgeKind
+    condition: str | None = None
 
 
 class GraphTaskIR(BaseModel):
@@ -54,6 +89,7 @@ class GraphTaskIR(BaseModel):
     depends_on: tuple[str, ...] = ()
     is_actor: bool = False
     config: dict[str, JSONValue] = Field(default_factory=dict)
+    position: GraphNodePosition | None = None
 
 
 class GraphLoopIR(BaseModel):
@@ -100,6 +136,10 @@ class WorkflowGraphIR(BaseModel):
     branch_edges: tuple[tuple[str, str, str], ...] = ()
     loops: tuple[GraphLoopIR, ...] = ()
     parallels: tuple[GraphParallelIR, ...] = ()
+    #: Unified, ``kind``-tagged edge set spanning all five control-flow
+    #: shapes — the surface a free-layout canvas renders. Derived from the
+    #: separate collections above by :func:`build_workflow_graph_ir`.
+    edges: tuple[GraphEdgeIR, ...] = ()
 
     def to_mermaid(self) -> str:
         """Render this IR as a Mermaid ``flowchart`` (see :mod:`.mermaid`)."""
@@ -121,6 +161,7 @@ def build_workflow_graph_ir(spec: Workflow) -> WorkflowGraphIR:
             depends_on=tuple(t.depends_on),
             is_actor=t.is_actor,
             config=dict(t.config) if t.config else {},
+            position=_position_of(t),
         )
         for t in spec._tasks
     )
@@ -150,4 +191,40 @@ def build_workflow_graph_ir(spec: Workflow) -> WorkflowGraphIR:
         branch_edges=tuple(spec._branch_edges),
         loops=loops,
         parallels=parallels,
+        edges=_build_edges(spec),
     )
+
+
+def _position_of(task: object) -> GraphNodePosition | None:
+    """Read a :class:`TaskRegistration`'s optional ``(x, y)`` position."""
+    pos = getattr(task, "position", None)
+    if pos is None:
+        return None
+    x, y = pos
+    return GraphNodePosition(x=x, y=y)
+
+
+def _build_edges(spec: Workflow) -> tuple[GraphEdgeIR, ...]:
+    """Project the spec's split edge collections into one ``kind``-tagged set.
+
+    ``depends_on`` → ``data``; ``_control_edges`` → ``control``;
+    ``_branch_edges`` → ``branch`` (carrying the route label as ``condition``);
+    each ``wf.loop`` → ``loop`` edges (back-edge + exit); each ``wf.parallel``
+    → ``parallel`` edges (fan-out + join).
+    """
+    edges: list[GraphEdgeIR] = []
+    for t in spec._tasks:
+        for dep in t.depends_on:
+            edges.append(GraphEdgeIR(source=dep, target=t.name, kind="data"))
+    for src, tgt in spec._control_edges:
+        edges.append(GraphEdgeIR(source=src, target=tgt, kind="control"))
+    for src, label, tgt in spec._branch_edges:
+        edges.append(GraphEdgeIR(source=src, target=tgt, kind="branch", condition=label))
+    for loop in spec._loops:
+        if loop.body:
+            edges.append(GraphEdgeIR(source=loop.until, target=loop.body[0], kind="loop"))
+        edges.append(GraphEdgeIR(source=loop.until, target=loop.on_exit, kind="loop"))
+    for p in spec._parallels:
+        edges.append(GraphEdgeIR(source=p.map_over, target=p.body, kind="parallel"))
+        edges.append(GraphEdgeIR(source=p.body, target=p.join, kind="parallel"))
+    return tuple(edges)

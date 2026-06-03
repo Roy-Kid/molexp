@@ -344,3 +344,74 @@ def test_codec_subclass_can_override_one_method():
     assert c.ir_to_mermaid(_sample_ir()) == "custom-mermaid\n"
     ir = _sample_ir()
     assert c.python_to_ir(c.ir_to_python(ir)) == ir
+
+
+# ── Strict typed-edge / position schema contract (flowgram-workflow-canvas-01) ──
+
+import jsonschema  # noqa: E402
+
+_SCHEMA_DIR = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "schema"
+
+
+def _load_schema(name: str) -> dict:
+    return json.loads((_SCHEMA_DIR / name).read_text())
+
+
+@pytest.mark.unit
+def test_link_schema_requires_kind() -> None:
+    """link.json marks ``kind`` required with a five-value enum; a link missing
+    ``kind`` fails validation (no default-to-data fallback at the schema layer),
+    and an out-of-enum kind also fails."""
+    link_schema = _load_schema("link.json")
+    validator = jsonschema.Draft7Validator(link_schema)
+
+    # source/target follow the schema's Name_hex8 id pattern so the test
+    # isolates the `kind` requirement rather than tripping the id pattern.
+    valid = {
+        "source": "Inspect_aa11bb22",
+        "target": "Train_cc33dd44",
+        "mapping": {},
+        "status": "pending",
+        "kind": "data",
+    }
+    validator.validate(valid)  # does not raise
+
+    missing_kind = {k: v for k, v in valid.items() if k != "kind"}
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(missing_kind)
+
+    bad_kind = {**valid, "kind": "bogus"}
+    with pytest.raises(jsonschema.ValidationError):
+        validator.validate(bad_kind)
+
+
+@pytest.mark.unit
+def test_schema_contract_shape() -> None:
+    """Static shape of the three contracts: kind required (enum-5) + optional
+    condition on links; optional position {x,y} on task_config; all strict."""
+    link = _load_schema("link.json")
+    task_config = _load_schema("task_config.json")
+    workflow = _load_schema("workflow.json")
+
+    assert "kind" in link["required"]
+    assert set(link["properties"]["kind"]["enum"]) == {
+        "data",
+        "control",
+        "branch",
+        "loop",
+        "parallel",
+    }
+    assert "condition" in link["properties"]
+    assert "condition" not in link["required"]
+    assert link["additionalProperties"] is False
+
+    pos = task_config["properties"]["position"]
+    assert set(pos["properties"]) == {"x", "y"}
+    assert "position" not in task_config["required"]
+    assert task_config["additionalProperties"] is False
+
+    # workflow gains optional control-flow arrays under strict additionalProperties.
+    for key in ("entries", "loops", "parallels"):
+        assert key in workflow["properties"]
+        assert key not in workflow["required"]
+    assert workflow["additionalProperties"] is False

@@ -38,7 +38,7 @@ from typing import TYPE_CHECKING
 import yaml
 
 from .._typing import JSONMapping, JSONValue
-from ._graph_decl import TaskRegistration
+from ._graph_decl import LoopDecl, ParallelDecl, TaskRegistration
 from ._helpers import _ir_object_list, _require_str
 from .contract import WorkflowContract
 from .protocols import Streamable
@@ -148,11 +148,25 @@ class WorkflowCodec:
         links_raw = _ir_object_list(ir.get("links"))
         task_configs_raw = _ir_object_list(ir.get("task_configs"))
 
+        # Split the typed edge set by ``kind``. A missing ``kind`` is read as
+        # ``data`` so hand-authored IR stays loadable; the JSON-Schema marks
+        # ``kind`` required, so the strict contract is enforced at validation.
         deps_by_target: dict[str, list[str]] = {}
+        control_edges: list[tuple[str, str]] = []
+        branch_edges: list[tuple[str, str, str]] = []
         for link in links_raw:
-            target = _require_str(link, "target")
             source = _require_str(link, "source")
-            deps_by_target.setdefault(target, []).append(source)
+            target = _require_str(link, "target")
+            kind_raw = link.get("kind")
+            kind = kind_raw if isinstance(kind_raw, str) else "data"
+            if kind == "control":
+                control_edges.append((source, target))
+            elif kind == "branch":
+                cond_raw = link.get("condition")
+                condition = cond_raw if isinstance(cond_raw, str) else ""
+                branch_edges.append((source, condition, target))
+            else:  # data (and any unrecognized kind) is a dependency edge
+                deps_by_target.setdefault(target, []).append(source)
 
         tasks: list[TaskRegistration] = []
         for tc in task_configs_raw:
@@ -170,6 +184,7 @@ class WorkflowCodec:
                     is_actor=isinstance(instance, Streamable),
                     task_type=slug,
                     config=config,
+                    position=_read_position(tc.get("position")),
                 )
             )
 
@@ -181,11 +196,45 @@ class WorkflowCodec:
                         f"Link references unknown task_id {endpoint!r}; known: {sorted(known)}"
                     )
 
+        entries_raw = ir.get("entries")
+        entries = (
+            tuple(s for s in entries_raw if isinstance(s, str))
+            if isinstance(entries_raw, list)
+            else ()
+        )
+        loops = tuple(
+            LoopDecl(
+                body=_str_tuple(loop.get("body")),
+                until=_require_str(loop, "until"),
+                max_iters=_require_int(loop, "max_iters"),
+                on_exit=_require_str(loop, "on_exit"),
+            )
+            for loop in _ir_object_list(ir.get("loops"))
+        )
+        parallels = tuple(
+            ParallelDecl(
+                map_over=_require_str(p, "map_over"),
+                body=_require_str(p, "body"),
+                join=_require_str(p, "join"),
+                max_concurrency=_require_int(p, "max_concurrency"),
+            )
+            for p in _ir_object_list(ir.get("parallels"))
+        )
+
         name_raw = ir.get("name")
         name = name_raw if isinstance(name_raw, str) else ""
         from .compiler import compile_registrations
 
-        return compile_registrations(name=name, version_label="0", tasks=tasks)
+        return compile_registrations(
+            name=name,
+            version_label="0",
+            tasks=tasks,
+            entries=entries,
+            control_edges=tuple(control_edges),
+            branch_edges=tuple(branch_edges),
+            loops=loops,
+            parallels=parallels,
+        )
 
     def spec_to_ir(self, spec: CompiledWorkflow) -> JSONMapping:
         """Serialize a :class:`Workflow` to the JSON IR shape (see ``schema/workflow.json``).
@@ -200,24 +249,48 @@ class WorkflowCodec:
                 f"task_type slug: {unslugged}. Use `WorkflowBuilder.add(..., task_type=...)` "
                 "or build the spec from IR via CompiledWorkflow.from_ir()."
             )
-        if spec._control_edges or spec._branch_edges or spec._entries:
-            raise ValueError(
-                "Cannot serialize workflow to IR: spec contains a control edge / "
-                "explicit entry (wf.control / wf.branch / wf.entry)."
-            )
-        task_configs: list[JSONValue] = [
-            {
+        task_configs: list[JSONValue] = []
+        for t in spec._tasks:
+            tc: dict[str, JSONValue] = {
                 "task_id": t.name,
                 "task_type": t.task_type,
                 "config": dict(t.config) if t.config else {},
                 "status": "pending",
             }
-            for t in spec._tasks
+            position = getattr(t, "position", None)
+            if position is not None:
+                x, y = position
+                tc["position"] = {"x": x, "y": y}
+            task_configs.append(tc)
+        # Typed edges: data deps + control + branch. Loops / parallels carry
+        # extra structure (max_iters, map_over, …) a flat link can't hold, so
+        # they ride the structured top-level arrays below — that is what makes
+        # ``ir_to_spec`` a lossless inverse.
+        links: list[JSONValue] = []
+        for t in spec._tasks:
+            for dep in t.depends_on:
+                links.append(_link(dep, t.name, "data"))
+        for src, tgt in spec._control_edges:
+            links.append(_link(src, tgt, "control"))
+        for src, label, tgt in spec._branch_edges:
+            links.append(_link(src, tgt, "branch", condition=label))
+        loops: list[JSONValue] = [
+            {
+                "body": list(loop.body),
+                "until": loop.until,
+                "max_iters": loop.max_iters,
+                "on_exit": loop.on_exit,
+            }
+            for loop in spec._loops
         ]
-        links: list[JSONValue] = [
-            {"source": dep, "target": t.name, "mapping": {}, "status": "pending"}
-            for t in spec._tasks
-            for dep in t.depends_on
+        parallels: list[JSONValue] = [
+            {
+                "map_over": p.map_over,
+                "body": p.body,
+                "join": p.join,
+                "max_concurrency": p.max_concurrency,
+            }
+            for p in spec._parallels
         ]
         metadata: dict[str, JSONValue] = {
             "label": None,
@@ -230,6 +303,9 @@ class WorkflowCodec:
             "name": spec.name,
             "task_configs": task_configs,
             "links": links,
+            "entries": list(spec._entries),
+            "loops": loops,
+            "parallels": parallels,
             "metadata": metadata,
         }
 
@@ -372,6 +448,46 @@ def _safe_literal_repr(value: JSONValue, level: int = 0) -> str:
         f"ir_to_python: value of type {type(value).__name__!r} is not "
         "literal-safe; the IR must be JSON-compatible scalars / lists / dicts."
     )
+
+
+def _link(source: str, target: str, kind: str, *, condition: str | None = None) -> JSONValue:
+    """Build one typed wire-IR link object."""
+    link: dict[str, JSONValue] = {
+        "source": source,
+        "target": target,
+        "mapping": {},
+        "status": "pending",
+        "kind": kind,
+    }
+    if condition is not None:
+        link["condition"] = condition
+    return link
+
+
+def _str_tuple(raw: JSONValue | None) -> tuple[str, ...]:
+    """Narrow an IR field expected to hold a list of strings into a tuple."""
+    if not isinstance(raw, list):
+        return ()
+    return tuple(str(item) for item in raw)
+
+
+def _require_int(obj: dict[str, JSONValue], key: str) -> int:
+    """Read an integer-valued IR field, rejecting missing / non-numeric values."""
+    value = obj.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"IR field {key!r} must be a number; got {value!r}.")
+    return int(value)
+
+
+def _read_position(raw: JSONValue | None) -> tuple[float, float] | None:
+    """Decode a ``{"x": .., "y": ..}`` IR position object into an ``(x, y)`` tuple."""
+    if not isinstance(raw, dict):
+        return None
+    x = raw.get("x")
+    y = raw.get("y")
+    if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+        return (float(x), float(y))
+    return None
 
 
 def _mermaid_id(raw: JSONValue) -> str:

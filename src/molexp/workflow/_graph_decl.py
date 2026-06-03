@@ -112,6 +112,7 @@ class TaskRegistration:
         "fn_or_class",
         "is_actor",
         "name",
+        "position",
         "remote",
         "task_type",
     )
@@ -126,6 +127,7 @@ class TaskRegistration:
         task_type: str | None = None,
         config: JSONMapping | None = None,
         dependent_params: DependentParamsFn | None = None,
+        position: tuple[float, float] | None = None,
     ) -> None:
         self.name = name
         self.fn_or_class = fn_or_class
@@ -135,3 +137,8 @@ class TaskRegistration:
         self.task_type = task_type
         self.config = dict(config) if config else None
         self.dependent_params = dependent_params
+        # Editor-canvas coordinate metadata (free-layout graph). Pure UI
+        # metadata: it round-trips through the IR but never enters the
+        # ``TaskSnapshot`` content hash (snapshot reads ``fn_or_class`` +
+        # ``config`` only), so moving a node never invalidates the cache.
+        self.position = position

@@ -56,6 +56,23 @@
             "type": "object",
             "description": "Optional execution policy (deprecated)",
             "additionalProperties": true
+        },
+        "position": {
+            "type": "object",
+            "description": "Optional free-layout editor coordinate; pure UI metadata, never part of the task content hash.",
+            "properties": {
+                "x": {
+                    "type": "number"
+                },
+                "y": {
+                    "type": "number"
+                }
+            },
+            "required": [
+                "x",
+                "y"
+            ],
+            "additionalProperties": false
         }
     },
     "required": [
