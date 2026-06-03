@@ -43,7 +43,7 @@ const formatExecutorLabel = (key: string): string => {
 
 export const MolqRunViewer = (props: RendererProps): JSX.Element => {
   const { selection, snapshot, onRefresh } = props;
-  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const { setSelection } = useNavigationState(snapshot);
   const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
   const [logsError, setLogsError] = useState<string | null>(null);
   const runTabContributions = listEntityTabs("run");
@@ -164,9 +164,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
   return (
     <div className="flex h-full flex-col bg-background">
       <EntityHeader
-        breadcrumbs={breadcrumbs}
-        canNavigateUp={canNavigateUp}
-        onNavigateUp={navigateUp}
         icon={ServerCog}
         title={run.name}
         status={run.status}

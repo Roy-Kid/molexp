@@ -363,7 +363,7 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
   const [asset, setAsset] = useState<ApiAssetResponse | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [lineage, setLineage] = useState<AssetLineageResponse | null>(null);
-  const { setSelection, breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+  const { setSelection } = useNavigationState(snapshot);
 
   const assetId = selection.objectId;
 
@@ -440,9 +440,6 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
 
   return (
     <EntityPage
-      breadcrumbs={breadcrumbs}
-      canNavigateUp={canNavigateUp}
-      onNavigateUp={navigateUp}
       icon={meta.icon}
       title={asset.name}
       status={assetSummary?.status}

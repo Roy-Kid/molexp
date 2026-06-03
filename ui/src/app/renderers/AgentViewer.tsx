@@ -23,12 +23,7 @@ import {
   commandsApi,
 } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
-import type {
-  ApiAgentSession,
-  ApiSessionEvent,
-  RendererProps,
-  WorkspaceSnapshot,
-} from "@/app/types";
+import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -872,20 +867,10 @@ const LiveIndicator = (): JSX.Element => (
   </span>
 );
 
-const SessionHeader = ({
-  session,
-  snapshot,
-}: {
-  session: ApiAgentSession;
-  snapshot: WorkspaceSnapshot;
-}): JSX.Element => {
-  const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => {
   const isRunning = session.status === "running";
   return (
     <EntityHeader
-      breadcrumbs={breadcrumbs}
-      canNavigateUp={canNavigateUp}
-      onNavigateUp={navigateUp}
       icon={Bot}
       title={session.goal}
       status={session.status}
@@ -894,19 +879,9 @@ const SessionHeader = ({
   );
 };
 
-const NewSessionHeader = ({
-  snapshot,
-  onOpenSettings,
-}: {
-  snapshot: WorkspaceSnapshot;
-  onOpenSettings: () => void;
-}): JSX.Element => {
-  const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
+const NewSessionHeader = ({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element => {
   return (
     <EntityHeader
-      breadcrumbs={breadcrumbs}
-      canNavigateUp={canNavigateUp}
-      onNavigateUp={navigateUp}
       icon={Sparkles}
       title="New agent task"
       subtitle="Set the task goal"
@@ -1131,7 +1106,7 @@ const AgentSessionViewer = ({
     const recent = snapshot.agentSessions.slice(0, 5);
     return (
       <div className="flex h-full flex-col bg-background">
-        <NewSessionHeader snapshot={snapshot} onOpenSettings={openSettings} />
+        <NewSessionHeader onOpenSettings={openSettings} />
         <div className="flex flex-1 flex-col overflow-auto">
           <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
             {notReady && health && (
@@ -1213,7 +1188,7 @@ const AgentSessionViewer = ({
 
   return (
     <div className="flex h-full flex-col bg-background">
-      <SessionHeader session={session} snapshot={snapshot} />
+      <SessionHeader session={session} />
 
       <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
         <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 pb-6 pt-4 md:px-8">

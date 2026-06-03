@@ -99,7 +99,6 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
 export const WorkflowViewer = (props: RendererProps): JSX.Element => {
   const { selection, snapshot } = props;
   const workflow = snapshot.workflows.find((w) => w.id === selection.objectId);
-  const { breadcrumbs, canNavigateUp, navigateUp } = useNavigationState(snapshot);
   const [activeTab, setActiveTab] = useState("graph");
 
   if (!workflow) {
@@ -108,9 +107,6 @@ export const WorkflowViewer = (props: RendererProps): JSX.Element => {
 
   return (
     <EntityPage
-      breadcrumbs={breadcrumbs}
-      canNavigateUp={canNavigateUp}
-      onNavigateUp={navigateUp}
       icon={Workflow}
       title={workflow.name}
       status={workflow.status}

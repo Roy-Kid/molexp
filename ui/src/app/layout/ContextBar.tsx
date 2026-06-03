@@ -30,11 +30,16 @@ export const ContextBar = ({
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
-              className="h-8 pl-9"
-              placeholder="Search projects, experiments, runs, assets"
+              className="h-8 pl-9 pr-16"
+              placeholder="Filter current list"
               value={searchQuery}
               onChange={(event) => onSearchChange(event.target.value)}
             />
+            {/* The box only filters the visible list. Cross-workspace jump is
+                ⌘K (GlobalCommandPalette), hinted here so the scopes are clear. */}
+            <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+              ⌘K
+            </kbd>
           </div>
           <TooltipProvider>
             <Tooltip>

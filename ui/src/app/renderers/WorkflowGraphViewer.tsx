@@ -1,9 +1,12 @@
 /**
- * WorkflowGraphViewer — the workflow "Graph" tab, rendered on the read-only
- * flowgram free-layout canvas. Resolves the workflow's task-graph IR either from
- * the in-memory snapshot (`workflow.graph`) or by fetching the selected
- * workspace file, lowers it via {@link buildFlowgramDocument}, and draws it.
+ * WorkflowGraphViewer — the workflow "Graph" tab. Renders the workflow entity's
+ * task-graph IR (from the snapshot, or the just-saved draft) on the editable
+ * flowgram free-layout canvas, and saves edits back via {@link workflowApi}.
  * Clicking a node opens the right-panel TaskViewer via `inspectedTask`.
+ *
+ * Raw workspace-file `workflow.json` previews are a different source + format
+ * and are handled by {@link WorkflowFileViewer}; this viewer only ever receives
+ * ``workflow`` entity selections (it is mounted solely by WorkflowViewer).
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -21,147 +24,40 @@ import { useInspectedTask } from "@/app/state/inspectedTask";
 import type { RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { TaskGraphJson } from "@/types/task_graph_ir";
-
-interface FileWorkflowData {
-  id: string;
-  name?: string;
-  graph: TaskGraphJson | null;
-}
-
-const asRecord = (value: unknown): Record<string, unknown> | null => {
-  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return null;
-};
-
-const graphFromPayload = (value: Record<string, unknown>): TaskGraphJson | null => {
-  if (!Array.isArray(value.task_configs) || !Array.isArray(value.links)) {
-    return null;
-  }
-  return normalizeTaskGraph(value);
-};
-
-const extractWorkflowFromFile = async (filePath: string): Promise<FileWorkflowData | null> => {
-  try {
-    const response = await fetch(`/api/workspace/files?path=${encodeURIComponent(filePath)}`);
-    if (!response.ok) {
-      return null;
-    }
-
-    const data = (await response.json()) as unknown;
-    const root = asRecord(data);
-    if (!root) {
-      return null;
-    }
-
-    const context = asRecord(root.context);
-    const contextWorkflow = asRecord(context?.workflow);
-    if (contextWorkflow) {
-      return {
-        id:
-          typeof contextWorkflow.workflow_id === "string"
-            ? contextWorkflow.workflow_id
-            : typeof contextWorkflow.id === "string"
-              ? contextWorkflow.id
-              : filePath,
-        name: typeof contextWorkflow.name === "string" ? contextWorkflow.name : undefined,
-        graph: graphFromPayload(contextWorkflow),
-      };
-    }
-
-    return {
-      id: typeof root.workflow_id === "string" ? root.workflow_id : filePath,
-      name: typeof root.name === "string" ? root.name : undefined,
-      graph: graphFromPayload(root),
-    };
-  } catch (error) {
-    console.error("Failed to extract workflow:", error);
-    return null;
-  }
-};
 
 export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const { inspectTask } = useInspectedTask();
-  const snapshotWorkflow =
-    snapshot.workflows.find((item) => item.id === selection.objectId) ?? null;
-  const [fileWorkflow, setFileWorkflow] = useState<FileWorkflowData | null>(null);
-  const [isLoadingFile, setIsLoadingFile] = useState(false);
+  const workflow = snapshot.workflows.find((item) => item.id === selection.objectId) ?? null;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (selection.objectType !== "workspace-file") {
-      setFileWorkflow(null);
-      setIsLoadingFile(false);
-      return;
-    }
-
-    setIsLoadingFile(true);
-    extractWorkflowFromFile(selection.objectId)
-      .then((extracted) => {
-        if (!cancelled) {
-          setFileWorkflow(extracted);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingFile(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selection.objectId, selection.objectType]);
-
-  const workflowName = snapshotWorkflow?.name ?? fileWorkflow?.name;
-
-  // A workflow that lives on an experiment (snapshot) is editable + savable;
-  // file-derived workflows have no experiment context, so they stay read-only.
-  const editable = Boolean(snapshotWorkflow);
   const [savedGraph, setSavedGraph] = useState<TaskGraphJson | null>(null);
   const [draft, setDraft] = useState<FlowgramDocument | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Reset edit state whenever the selected workflow changes.
+  // Reset edit state whenever the selected workflow changes. objectId is a
+  // trigger, not a read — biome's exhaustive-deps can't see that and would
+  // strip it, which would leave stale edits when switching workflows.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: objectId is a reset trigger
   useEffect(() => {
     setSavedGraph(null);
     setDraft(null);
   }, [selection.objectId]);
 
-  const graph = useMemo<TaskGraphJson | null>(() => {
-    if (savedGraph) {
-      return savedGraph;
-    }
-    if (snapshotWorkflow?.graph) {
-      return snapshotWorkflow.graph;
-    }
-    if (fileWorkflow?.graph) {
-      return fileWorkflow.graph;
-    }
-    return null;
-  }, [fileWorkflow, snapshotWorkflow, savedGraph]);
-
+  // Prefer the freshly-saved graph, else the snapshot's IR.
+  const graph = savedGraph ?? workflow?.graph ?? null;
   const document = useMemo<FlowgramDocument | null>(
     () => (graph ? buildFlowgramDocument(graph) : null),
     [graph],
   );
 
   const handleSave = async (): Promise<void> => {
-    if (!snapshotWorkflow || !draft) return;
+    if (!workflow || !draft) return;
     setSaving(true);
     try {
       const wire = taskGraphToWireDocument(
-        flowgramDocToTaskGraphJson(draft, workflowName ?? "Workflow"),
+        flowgramDocToTaskGraphJson(draft, workflow.name ?? "Workflow"),
       );
-      const persisted = await workflowApi.save(
-        snapshotWorkflow.projectId,
-        snapshotWorkflow.experimentId,
-        wire,
-      );
+      const persisted = await workflowApi.save(workflow.projectId, workflow.experimentId, wire);
       // Reload from the server-normalized document so the canvas reflects
       // exactly what was persisted.
       setSavedGraph(normalizeTaskGraph(persisted));
@@ -171,42 +67,27 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
     }
   };
 
-  if (isLoadingFile) {
-    return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Workflow Graph</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Skeleton className="h-[400px] w-full" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (!snapshotWorkflow && !fileWorkflow) {
+  if (!workflow) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>Workflow Graph</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-sm text-muted-foreground">No workflow data found in this file.</p>
+          <p className="text-sm text-muted-foreground">No workflow data found.</p>
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card className="h-full flex flex-col">
+    <Card className="flex h-full flex-col">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg">Workflow Graph</CardTitle>
           <div className="flex items-center gap-2">
-            {workflowName && <Badge variant="outline">{workflowName}</Badge>}
-            {editable && (
-              <FlowgramCanvasToolbar onSave={handleSave} saving={saving} dirty={draft !== null} />
-            )}
+            {workflow.name && <Badge variant="outline">{workflow.name}</Badge>}
+            <FlowgramCanvasToolbar onSave={handleSave} saving={saving} dirty={draft !== null} />
           </div>
         </div>
       </CardHeader>
@@ -219,7 +100,7 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
           ) : (
             <FlowgramCanvas
               document={document}
-              editable={editable}
+              editable
               onChange={setDraft}
               onNodeClick={(taskId) => inspectTask(taskId, "")}
             />

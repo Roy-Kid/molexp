@@ -22,7 +22,6 @@ export const WorkflowsPage = ({ snapshot }: WorkflowsPageProps): JSX.Element => 
   return (
     <div className="flex h-full flex-col">
       <EntityHeader
-        breadcrumbs={[{ label: "Workflows" }]}
         icon={WorkflowIcon}
         title="Workflows"
         subtitle="Workflow definitions across the workspace — open one to inspect its task graph."
