@@ -1,7 +1,7 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Breadcrumb } from "@/app/entities/Breadcrumb";
-import { buildTrail } from "@/app/entities/breadcrumb";
+import { buildTrail } from "@/app/entities/breadcrumbTrail";
 import { GlobalCommandPalette } from "@/app/entities/GlobalCommandPalette";
 import { ContextBar } from "@/app/layout/ContextBar";
 import { CenterPanel } from "@/app/panels/CenterPanel";
