@@ -24,7 +24,7 @@ class Context(BaseModel):
     tasks: dict[str, str] = Field(default_factory=dict)
     results: dict[str, TaskOutput] = Field(default_factory=dict)
     # ``status`` / ``errors`` shape matches the workflow layer's
-    # ``_StatusContextLike`` Protocol so ``RunContext`` structurally
+    # workflow ``RunContextLike`` protocol so ``RunContext`` structurally
     # satisfies ``RunContextLike``: status is ``{stage: state}`` and
     # errors is ``{stage: {field: value}}`` — both stage names map to
     # plain string state, not arbitrary JSON.

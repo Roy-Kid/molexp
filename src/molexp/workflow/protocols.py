@@ -44,7 +44,6 @@ from .._typing import (
 )
 
 __all__ = [
-    "ArtifactAccessorLike",
     "AssetsViewLike",
     "JSONMapping",
     "JSONValue",
@@ -60,6 +59,11 @@ __all__ = [
 ]
 
 if TYPE_CHECKING:
+    # ``ArtifactAccessor`` types ``RunContextLike.artifact`` precisely; the
+    # workflow→workspace import is layering-legal and TYPE_CHECKING-only, so it
+    # adds no runtime cost and ``runtime_checkable`` still matches by attribute.
+    from molexp.workspace.assets.accessors import ArtifactAccessor
+
     # Imported under TYPE_CHECKING only — ``task.py`` imports back into this
     # module for ``TaskInput`` / ``TaskOutput``, so a runtime import would
     # create a cycle. The PEP 695 ``type`` alias below is evaluated lazily,
@@ -80,24 +84,12 @@ class RunLike(Protocol):
     Defining the contract here as a Protocol — instead of importing the
     workspace ``Run`` class — is what lets the workflow layer remain
     independent of the workspace layer (CLAUDE.md § *Workflow ↔ pydantic-graph
-    boundary*).
+    boundary*). Members are read-only properties so the concrete ``Run`` (whose
+    ``id`` is a property) structurally satisfies the protocol.
     """
 
-    id: str
-
-
-@runtime_checkable
-class _StatusContextLike(Protocol):
-    """Inner status-bearing context — workspace's ``Context`` dataclass.
-
-    Declared with ``dict`` (rather than ``MutableMapping``) so the
-    structural match with workspace's pydantic-modelled ``Context``
-    holds without invariance hiccups; the workflow runtime mutates these
-    fields directly so ``dict`` is the operationally-correct shape.
-    """
-
-    status: dict[str, str]
-    errors: dict[str, dict[str, str]]
+    @property
+    def id(self) -> str: ...
 
 
 @runtime_checkable
@@ -134,39 +126,25 @@ class AssetsViewLike(Protocol):
 
 
 @runtime_checkable
-class ArtifactAccessorLike(Protocol):
-    """Duck-typed shape of ``workspace.assets.ArtifactAccessor`` reached by tasks.
-
-    Only ``.save(...)`` is used by workflow code (e.g. the ``SweepMap``
-    primitive), so this protocol covers it without importing the workspace's
-    ``ArtifactAsset`` type into the workflow layer.
-    """
-
-    def save(
-        self,
-        name: str,
-        data: TaskOutput,
-        *,
-        tags: dict[str, str] | None = ...,
-        mime: str | None = ...,
-    ) -> TaskOutput: ...
-
-
-@runtime_checkable
 class RunContextLike(Protocol):
     """Duck-typed shape of ``workspace.run.RunContext`` used by the workflow runtime.
 
     Captures only the surface the workflow scheduler reaches into: the
-    run reference, the work directory, the artifact accessor, the asset view,
-    actor channel methods, and the failure back-channel (``_context``).
-    Anything else on a real ``RunContext`` is out of scope for the
-    workflow layer.
+    run reference, the work directory, the artifact accessor, and the actor
+    channel methods. Members are read-only properties so the concrete
+    ``RunContext`` (whose ``work_dir`` / ``run`` are properties) structurally
+    satisfies the protocol. Anything else on a real ``RunContext`` is out of
+    scope for the workflow layer.
     """
 
-    work_dir: Path
-    run: RunLike
-    artifact: ArtifactAccessorLike
-    _context: _StatusContextLike
+    @property
+    def work_dir(self) -> Path: ...
+
+    @property
+    def run(self) -> RunLike: ...
+
+    @property
+    def artifact(self) -> ArtifactAccessor: ...
 
     async def receive(self, channel: str) -> TaskInput: ...
 
