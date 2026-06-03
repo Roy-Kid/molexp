@@ -21,6 +21,8 @@ export interface GraphEdgeInput {
   id: string;
   source: string;
   target: string;
+  /** Typed edge kind; defaults to "dependency" when absent. */
+  kind?: string;
 }
 
 /**
@@ -63,7 +65,7 @@ export const toTaskGraphJson = (
   const taskEdges: EdgeJson[] = edges.map((edge) => ({
     from: edge.source,
     to: edge.target,
-    kind: "dependency",
+    kind: edge.kind ?? "dependency",
   }));
 
   const targets = nodes.filter((n) => n.data.isOutput).map((n) => n.id);

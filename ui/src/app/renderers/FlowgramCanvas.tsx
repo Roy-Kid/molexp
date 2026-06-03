@@ -25,6 +25,10 @@ export interface FlowgramCanvasProps {
   document: FlowgramDocument;
   /** Called with a task id when its node is clicked. */
   onNodeClick?: (taskId: string) => void;
+  /** When true the canvas is editable (drag / connect / add / remove). */
+  editable?: boolean;
+  /** Fires on every edit with the current document (editable mode only). */
+  onChange?: (document: FlowgramDocument) => void;
   className?: string;
 }
 
@@ -54,16 +58,18 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
 export const FlowgramCanvas = ({
   document,
   onNodeClick,
+  editable = false,
+  onChange,
   className,
 }: FlowgramCanvasProps): JSX.Element => {
   const editorProps = useMemo<FreeLayoutProps>(() => {
     return {
       background: true,
-      readonly: true,
+      readonly: !editable,
       initialData: document,
       nodeRegistries: [],
-      // Generic read-only nodes: flowgram auto-assigns a default input + output
-      // port (see free-layout-core) so links connect without a custom registry.
+      // Generic nodes: flowgram auto-assigns a default input + output port
+      // (see free-layout-core) so links connect without a custom registry.
       getNodeDefaultRegistry(type) {
         return { type, meta: {} };
       },
@@ -74,11 +80,21 @@ export const FlowgramCanvas = ({
           </WorkflowNodeRenderer>
         ),
       },
+      // Editing engines are only needed in editable mode.
+      ...(editable
+        ? {
+            nodeEngine: { enable: true },
+            history: { enable: true },
+            onContentChange(ctx) {
+              onChange?.(ctx.document.toJSON() as unknown as FlowgramDocument);
+            },
+          }
+        : {}),
       onAllLayersRendered(ctx) {
         ctx.document.fitView(false);
       },
     };
-  }, [document, onNodeClick]);
+  }, [document, onNodeClick, editable, onChange]);
 
   return (
     <div className={`relative h-full w-full ${className ?? ""}`}>

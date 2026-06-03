@@ -19,6 +19,7 @@
  *   - cyclic IR never throws — residual nodes still receive a position.
  */
 
+import { toTaskGraphJson } from "@/lib/workflow-utils";
 import type { TaskGraphJson, TaskNodeJson } from "@/types/task_graph_ir";
 
 export interface FlowgramNodeData extends Record<string, unknown> {
@@ -41,6 +42,8 @@ export interface FlowgramNode {
 export interface FlowgramEdge {
   sourceNodeID: string;
   targetNodeID: string;
+  /** Typed edge kind (data / control / branch / loop / parallel). */
+  kind?: string;
 }
 
 export interface FlowgramDocument {
@@ -223,8 +226,61 @@ export const buildFlowgramDocument = (ir: TaskGraphJson): FlowgramDocument => {
   const edges: FlowgramEdge[] = [];
   for (const link of links) {
     if (!byId.has(link.from) || !byId.has(link.to)) continue; // drop invalid links
-    edges.push({ sourceNodeID: link.from, targetNodeID: link.to });
+    edges.push({ sourceNodeID: link.from, targetNodeID: link.to, kind: link.kind ?? "data" });
   }
 
   return { nodes, edges };
 };
+
+/**
+ * Reverse of {@link buildFlowgramDocument}: lower an (edited) flowgram document
+ * back to the canonical {@link TaskGraphJson}. Delegates the node/edge → IR
+ * construction to the shared {@link toTaskGraphJson} helper so there is exactly
+ * one place that builds task_configs / links (no duplicate IR construction).
+ */
+export const flowgramDocToTaskGraphJson = (
+  doc: FlowgramDocument,
+  name = "Workflow",
+): TaskGraphJson =>
+  toTaskGraphJson(
+    doc.nodes.map((node) => ({
+      id: node.id,
+      type: node.type,
+      position: node.meta.position,
+      data: { config: node.data.config, label: node.data.taskType },
+    })),
+    doc.edges.map((edge) => ({
+      id: `${edge.sourceNodeID}->${edge.targetNodeID}`,
+      source: edge.sourceNodeID,
+      target: edge.targetNodeID,
+      kind: edge.kind,
+    })),
+    name,
+  );
+
+/**
+ * Convert a canonical {@link TaskGraphJson} (client field names: id / type /
+ * from / to) into the backend wire-IR document the workflow write-back endpoint
+ * (`PUT …/workflow`) validates through `WorkflowCodec.ir_to_spec`
+ * (task_id / task_type / source / target / kind).
+ */
+export const taskGraphToWireDocument = (ir: TaskGraphJson): Record<string, unknown> => ({
+  task_configs: ir.task_configs.map((task) => ({
+    task_id: task.id,
+    task_type: task.type,
+    config: task.config ?? {},
+    status: "pending",
+    ...(task.position ? { position: task.position } : {}),
+  })),
+  links: ir.links.map((link) => ({
+    source: link.from,
+    target: link.to,
+    kind: link.kind ?? "data",
+    mapping: {},
+    status: "pending",
+  })),
+  entries: [],
+  loops: [],
+  parallels: [],
+  metadata: { label: ir.name ?? null, description: null, tags: [], custom: {} },
+});

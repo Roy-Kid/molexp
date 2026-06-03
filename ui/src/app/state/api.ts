@@ -3,6 +3,7 @@ import { ExecutionService } from "@/api/generated/services/ExecutionService";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
 import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
+import { WorkflowService } from "@/api/generated/services/WorkflowService";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
 import {
   buildFlowgramDocument,
@@ -1372,5 +1373,28 @@ export const planApi = {
     const response = await fetch(`/api/agent/sessions/${sessionId}/system-prompt`);
     if (!response.ok) throw new Error(`Failed to fetch system prompt: ${response.statusText}`);
     return response.json();
+  },
+};
+
+// ── Workflow document write-back (flowgram canvas) ─────────────────────────
+
+export const workflowApi = {
+  /**
+   * Persist an edited workflow document through the generated WorkflowService
+   * (never a hand-rolled fetch). `document` is the backend wire IR
+   * ({task_configs, links, ...}); returns the server-normalized wire IR.
+   */
+  save: async (
+    projectId: string,
+    experimentId: string,
+    document: Record<string, unknown>,
+  ): Promise<Record<string, unknown>> => {
+    const response =
+      await WorkflowService.putWorkflowDocumentApiProjectsProjectIdExperimentsExperimentIdWorkflowPut(
+        projectId,
+        experimentId,
+        { document },
+      );
+    return response.document as Record<string, unknown>;
   },
 };
