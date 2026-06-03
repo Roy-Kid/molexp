@@ -24,6 +24,8 @@ export interface TaskNodeJson {
   position?: TaskNodePosition;
   /** Static node configuration / inputs carried from the IR. */
   config?: Record<string, unknown>;
+  /** Execution status (`pending` / `running` / `completed` / `failed` / `skipped`). */
+  status?: string;
   /** Runtime parameters (if any). */
   params?: Record<string, unknown>;
   /** Free-form per-node metadata. */

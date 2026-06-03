@@ -30,6 +30,16 @@ export interface FlowgramNodeData extends Record<string, unknown> {
   taskId: string;
   taskType: string;
   config?: Record<string, unknown>;
+  /** Graph role, derived from degree: source = `input`, sink = `output`, else `task`. */
+  role: "input" | "output" | "task";
+  /** Execution status carried from the IR (`pending` by default). */
+  status: string;
+  /**
+   * True when this node is the body of a parallel fan-out (the target of a
+   * `kind="parallel"` edge) — i.e. a UML expansion region run once per element
+   * of its `map_over` collection. Drives the stacked "×N" multiplicity glyph.
+   */
+  parallel: boolean;
 }
 
 export interface FlowgramNode {
@@ -119,6 +129,7 @@ export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson 
       label: typeof item.label === "string" ? item.label : undefined,
       position,
       config: isRecord(item.config) ? item.config : undefined,
+      status: typeof item.status === "string" ? item.status : undefined,
     });
   }
 
@@ -206,6 +217,29 @@ export const buildFlowgramDocument = (ir: TaskGraphJson): FlowgramDocument => {
 
   const fallback = fallbackLayout(ids, links);
 
+  // Graph role from degree: a node with no inbound (valid) link is a source
+  // `input`, one with no outbound link is a sink `output`, everything else is a
+  // `task`. Drives the node shape/colour in the canvas.
+  const indeg = new Map<string, number>(ids.map((id) => [id, 0]));
+  const outdeg = new Map<string, number>(ids.map((id) => [id, 0]));
+  for (const link of links) {
+    if (!byId.has(link.from) || !byId.has(link.to)) continue;
+    outdeg.set(link.from, (outdeg.get(link.from) ?? 0) + 1);
+    indeg.set(link.to, (indeg.get(link.to) ?? 0) + 1);
+  }
+  const roleOf = (id: string): "input" | "output" | "task" => {
+    if ((indeg.get(id) ?? 0) === 0) return "input";
+    if ((outdeg.get(id) ?? 0) === 0) return "output";
+    return "task";
+  };
+
+  // A node is a parallel fan-out body iff a `kind="parallel"` edge points at it
+  // (the map_over → body edge). It renders as a UML expansion region (×N).
+  const parallelBodies = new Set<string>();
+  for (const link of links) {
+    if (link.kind === "parallel" && byId.has(link.to)) parallelBodies.add(link.to);
+  }
+
   const nodes: FlowgramNode[] = ids.map((id) => {
     const task = byId.get(id) as TaskNodeJson;
     const position = task.position ?? fallback.get(id) ?? { x: 0, y: 0 };
@@ -219,6 +253,9 @@ export const buildFlowgramDocument = (ir: TaskGraphJson): FlowgramDocument => {
         taskId: id,
         taskType: task.type ?? id,
         config: task.config,
+        role: roleOf(id),
+        status: task.status ?? "pending",
+        parallel: parallelBodies.has(id),
       },
     };
   });
