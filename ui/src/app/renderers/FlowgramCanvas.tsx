@@ -13,12 +13,13 @@ import {
   EditorRenderer,
   FreeLayoutEditorProvider,
   type FreeLayoutProps,
+  useAutoLayout,
   useNodeRender,
   type WorkflowNodeProps,
   WorkflowNodeRenderer,
 } from "@flowgram.ai/free-layout-editor";
 import "@flowgram.ai/free-layout-editor/index.css";
-import { type JSX, useMemo } from "react";
+import { type JSX, useEffect, useMemo } from "react";
 import type { FlowgramDocument, FlowgramNodeData } from "@/app/renderers/flowgram-document";
 
 export interface FlowgramCanvasProps {
@@ -53,6 +54,40 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
       </span>
     </button>
   );
+};
+
+/**
+ * Triggers flowgram's dagre layered auto-layout once the canvas has mounted and
+ * measured its node rects, replacing the IR's coarse fallback grid
+ * (flowgram-document.ts). Must live INSIDE FreeLayoutEditorProvider so
+ * `useAutoLayout` can resolve the layout service the free-layout preset
+ * registers. Runs a frame after mount, then once more shortly after in case the
+ * first pass beat the node-size ResizeObserver.
+ */
+const AutoLayoutOnMount = (): null => {
+  const autoLayout = useAutoLayout();
+  useEffect(() => {
+    let active = true;
+    const run = async () => {
+      try {
+        await autoLayout();
+      } catch (err) {
+        console.error("[flowgram auto-layout]", err);
+      }
+    };
+    const raf = requestAnimationFrame(() => {
+      if (active) void run();
+    });
+    const retry = setTimeout(() => {
+      if (active) void run();
+    }, 250);
+    return () => {
+      active = false;
+      cancelAnimationFrame(raf);
+      clearTimeout(retry);
+    };
+  }, [autoLayout]);
+  return null;
 };
 
 export const FlowgramCanvas = ({
@@ -100,6 +135,7 @@ export const FlowgramCanvas = ({
     <div className={`relative h-full w-full ${className ?? ""}`}>
       <FreeLayoutEditorProvider {...editorProps}>
         <EditorRenderer />
+        <AutoLayoutOnMount />
       </FreeLayoutEditorProvider>
     </div>
   );
