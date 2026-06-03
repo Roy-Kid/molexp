@@ -86,6 +86,18 @@ const buildSelectionFromLocation = (
 ): Selection | null => {
   const objectView = parseObjectView(searchParams.get("tab"));
 
+  const taskMatch = pathname.match(
+    /^\/projects\/([^/]+)\/experiments\/([^/]+)\/runs\/([^/]+)\/tasks\/([^/]+)$/,
+  );
+  if (taskMatch) {
+    return {
+      objectType: "task",
+      taskId: decodeURIComponent(taskMatch[4]),
+      runId: decodeURIComponent(taskMatch[3]),
+      objectId: decodeURIComponent(taskMatch[4]),
+    };
+  }
+
   const projectRunMatch = pathname.match(
     /^\/projects\/([^/]+)\/experiments\/([^/]+)\/runs\/([^/]+)$/,
   );
@@ -178,6 +190,13 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
       }
       const params = new URLSearchParams({ tab: selection.objectView });
       return `${path}?${params.toString()}`;
+    }
+    case "task": {
+      const run = snapshot.runs.find((item) => item.id === selection.runId);
+      if (!run) {
+        return "/projects";
+      }
+      return `/projects/${encodeURIComponent(run.projectId)}/experiments/${encodeURIComponent(run.experimentId)}/runs/${encodeURIComponent(run.id)}/tasks/${encodeURIComponent(selection.taskId)}`;
     }
     case "workflow":
       return `/workflows/${encodeURIComponent(selection.workflowId)}`;
@@ -283,6 +302,36 @@ const buildBreadcrumbs = (
         { label: run?.name ?? selection.objectId },
       ];
     }
+    case "task": {
+      const run = snapshot.runs.find((item) => item.id === selection.runId);
+      const experiment = run
+        ? snapshot.experiments.find((item) => item.id === run.experimentId)
+        : null;
+      const project = run ? snapshot.projects.find((item) => item.id === run.projectId) : null;
+      return [
+        { label: "Projects", to: "/projects" },
+        ...(project
+          ? [{ label: project.name, to: `/projects/${encodeURIComponent(project.id)}` }]
+          : []),
+        ...(project && experiment
+          ? [
+              {
+                label: experiment.name,
+                to: `/projects/${encodeURIComponent(project.id)}/experiments/${encodeURIComponent(experiment.id)}`,
+              },
+            ]
+          : []),
+        ...(project && experiment && run
+          ? [
+              {
+                label: run.name ?? run.id,
+                to: `/projects/${encodeURIComponent(run.projectId)}/experiments/${encodeURIComponent(run.experimentId)}/runs/${encodeURIComponent(run.id)}`,
+              },
+            ]
+          : []),
+        { label: selection.taskId },
+      ];
+    }
     case "workflow": {
       const workflow = snapshot.workflows.find((item) => item.id === selection.workflowId);
       return [
@@ -384,6 +433,13 @@ const buildContextMeta = (
         title: run?.name ?? selection.objectId,
         subtitle: run?.summary || "Run overview",
         statusLabel: run?.status,
+      };
+    }
+    case "task": {
+      const run = snapshot.runs.find((item) => item.id === selection.runId);
+      return {
+        title: selection.taskId,
+        subtitle: run ? `Task in run ${run.name ?? run.id}` : "Workflow task",
       };
     }
     case "workflow": {

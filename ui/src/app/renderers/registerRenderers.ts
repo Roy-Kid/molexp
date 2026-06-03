@@ -7,6 +7,7 @@ import { ImageViewer } from "@/app/renderers/ImageViewer";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
 import { ProjectViewer } from "@/app/renderers/ProjectViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
+import { TaskViewer } from "@/app/renderers/TaskViewer";
 import { TextEditor } from "@/app/renderers/TextEditor";
 import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
 import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
@@ -217,5 +218,29 @@ export const registerDefaultRenderers = (): void => {
     title: "Agent Task Inspector",
     panelSlot: "right",
     Component: AgentSessionInspector,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "task",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Task Overview",
+    panelSlot: "center",
+    Component: TaskViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "task",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Task Inspector",
+    panelSlot: "right",
+    Component: TaskViewer,
   });
 };

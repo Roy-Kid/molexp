@@ -1,5 +1,7 @@
 import type { Edge, Node, NodeProps, NodeTypes } from "@xyflow/react";
 import { Background, Controls, Handle, MarkerType, Position, ReactFlow } from "@xyflow/react";
+import type { LucideIcon } from "lucide-react";
+import { Box, LogIn, LogOut } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 // xyflow's stylesheet is imported once at the app entry (see index.tsx).
 import type {
@@ -8,6 +10,9 @@ import type {
   WorkflowGraph,
   WorkflowNodeMetadata,
 } from "@/app/types";
+import { ElkEdge } from "@/app/renderers/ElkEdge";
+import { layoutWithElk } from "@/app/renderers/elkLayout";
+import { useInspectedTask } from "@/app/state/inspectedTask";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -67,52 +72,155 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
   return null;
 };
 
-const getStatusColor = (status: SemanticStatus): string => {
-  switch (status) {
-    case "succeeded":
-      return "border-blue-500 text-blue-700";
-    case "failed":
-      return "border-red-500 text-red-700";
-    case "running":
-      return "border-green-500 text-green-700";
-    case "skipped":
-    case "cancelled":
-      return "border-yellow-500 text-yellow-700";
-    default:
-      return "border-border text-foreground";
-  }
+interface StatusStyle {
+  /** Tailwind border-color utility. */
+  border: string;
+  /** Tailwind text-color utility. */
+  text: string;
+  /** Tailwind background tint (theme-safe alpha so it reads in light + dark). */
+  bg: string;
+  /** Tailwind background utility for the solid status dot. */
+  dot: string;
+  /** Raw hex for the SVG edge stroke / arrow marker. */
+  edge: string;
+}
+
+const SUCCEEDED_STYLE: StatusStyle = {
+  border: "border-blue-500",
+  text: "text-blue-700",
+  bg: "bg-blue-500/10",
+  dot: "bg-blue-500",
+  edge: "#3b82f6",
+};
+const RUNNING_STYLE: StatusStyle = {
+  border: "border-green-500",
+  text: "text-green-700",
+  bg: "bg-green-500/10",
+  dot: "bg-green-500",
+  edge: "#22c55e",
+};
+const FAILED_STYLE: StatusStyle = {
+  border: "border-red-500",
+  text: "text-red-700",
+  bg: "bg-red-500/10",
+  dot: "bg-red-500",
+  edge: "#ef4444",
+};
+const HELD_STYLE: StatusStyle = {
+  border: "border-yellow-500",
+  text: "text-yellow-700",
+  bg: "bg-yellow-500/10",
+  dot: "bg-yellow-500",
+  edge: "#eab308",
+};
+const REVIEW_STYLE: StatusStyle = {
+  border: "border-amber-500",
+  text: "text-amber-700",
+  bg: "bg-amber-500/10",
+  dot: "bg-amber-500",
+  edge: "#f59e0b",
+};
+const IDLE_STYLE: StatusStyle = {
+  border: "border-slate-300",
+  text: "text-slate-500",
+  bg: "bg-transparent",
+  dot: "bg-slate-400",
+  edge: "#94a3b8",
 };
 
-const getEdgeColor = (status: SemanticStatus): string => {
-  switch (status) {
-    case "succeeded":
-      return "#3b82f6";
-    case "failed":
-      return "#ef4444";
-    case "running":
-      return "#22c55e";
-    case "skipped":
-    case "cancelled":
-      return "#eab308";
-    default:
-      return "#94a3b8";
-  }
+const STATUS_STYLES: Record<SemanticStatus, StatusStyle> = {
+  succeeded: SUCCEEDED_STYLE,
+  approved: SUCCEEDED_STYLE,
+  active: RUNNING_STYLE,
+  running: RUNNING_STYLE,
+  failed: FAILED_STYLE,
+  rejected: FAILED_STYLE,
+  expired: FAILED_STYLE,
+  skipped: HELD_STYLE,
+  cancelled: HELD_STYLE,
+  waiting_for_review: REVIEW_STYLE,
+  pending: IDLE_STYLE,
+  draft: IDLE_STYLE,
+  archived: IDLE_STYLE,
+};
+
+const statusStyle = (status: SemanticStatus): StatusStyle => STATUS_STYLES[status] ?? IDLE_STYLE;
+const getEdgeColor = (status: SemanticStatus): string => statusStyle(status).edge;
+const isActiveStatus = (status: SemanticStatus): boolean =>
+  status === "running" || status === "active";
+
+/** UML-ish silhouette per node kind: data input/output = parallelogram,
+ * task/process = rectangle. Clip-path keeps the bounding box rectangular so the
+ * top/bottom handles (and ELK's edge endpoints) still land on the borders. */
+const PARALLELOGRAM = "polygon(16px 0%, 100% 0%, calc(100% - 16px) 100%, 0% 100%)";
+const NODE_TYPE_META: Record<
+  WorkflowNodeData["nodeType"],
+  { icon: LucideIcon; shapeClass: string; clip?: string }
+> = {
+  input: { icon: LogIn, shapeClass: "rounded-none", clip: PARALLELOGRAM },
+  output: { icon: LogOut, shapeClass: "rounded-none", clip: PARALLELOGRAM },
+  task: { icon: Box, shapeClass: "rounded-md" },
 };
 
 const WorkflowNode = ({ data }: NodeProps<WorkflowFlowNode>): JSX.Element => {
-  const colorClass = getStatusColor(data.status);
+  const style = statusStyle(data.status);
+  const { icon: Icon, shapeClass, clip } = NODE_TYPE_META[data.nodeType];
+  const running = isActiveStatus(data.status);
 
   return (
     <div
-      className={`rounded-md border-2 bg-background px-3 py-2 shadow-sm min-w-[150px] ${colorClass}`}
+      // Fixed footprint MUST match elkLayout's ELK_NODE_WIDTH/HEIGHT so ELK's
+      // routed edge endpoints land exactly on these borders.
+      style={clip ? { clipPath: clip } : undefined}
+      className={`relative flex h-[88px] w-[200px] flex-col justify-center border-2 bg-background px-3 py-2 shadow-sm ${shapeClass} ${style.border} ${style.text} ${style.bg}`}
     >
-      <Handle type="target" position={Position.Top} className="h-3 w-3 bg-muted-foreground" />
-      <p className="text-xs font-semibold uppercase tracking-wide opacity-70">{data.nodeType}</p>
-      <p className="text-sm font-bold">{data.label}</p>
-      <p className="text-xs opacity-70 capitalize">{data.status}</p>
-      <Handle type="source" position={Position.Bottom} className="h-3 w-3 bg-muted-foreground" />
+      {/* Inputs are graph roots, outputs are leaves — only render the handle each can actually use. */}
+      {data.nodeType !== "input" && (
+        <Handle type="target" position={Position.Top} className="h-3 w-3 bg-muted-foreground" />
+      )}
+      <div className="flex items-center gap-2">
+        <Icon className="h-3.5 w-3.5 shrink-0 opacity-70" />
+        <div className="min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-wide opacity-60">
+            {data.description || data.nodeType}
+          </p>
+          <p className="truncate text-sm font-bold">{data.label}</p>
+        </div>
+      </div>
+      <div className="mt-1 flex items-center gap-1.5">
+        <span
+          className={`h-2 w-2 rounded-full ${style.dot} ${running ? "animate-pulse" : ""}`}
+          aria-hidden
+        />
+        <span className="text-xs capitalize opacity-70">{data.status}</span>
+      </div>
+      {data.nodeType !== "output" && (
+        <Handle type="source" position={Position.Bottom} className="h-3 w-3 bg-muted-foreground" />
+      )}
     </div>
   );
+};
+
+const BLOCKED_STATUSES: ReadonlySet<SemanticStatus> = new Set([
+  "failed",
+  "cancelled",
+  "skipped",
+  "rejected",
+  "expired",
+]);
+const DONE_STATUSES: ReadonlySet<SemanticStatus> = new Set(["succeeded", "approved"]);
+
+/**
+ * Snapshot edges (`WorkflowGraphEdge`) carry no status of their own, so colour and
+ * animation are derived from the two nodes the edge connects — upstream failure
+ * poisons the edge, data flowing into an active node animates it, and a finished
+ * source lights the edge as succeeded.
+ */
+const deriveEdgeStatus = (source: SemanticStatus, target: SemanticStatus): SemanticStatus => {
+  if (BLOCKED_STATUSES.has(source)) return source;
+  if (isActiveStatus(target) || isActiveStatus(source)) return "running";
+  if (DONE_STATUSES.has(source)) return "succeeded";
+  return "pending";
 };
 
 const normalizeGraph = (graph: WorkflowGraph): DisplayWorkflowGraph => {
@@ -497,6 +605,7 @@ const getDemoGraph = (workflowId: string): DisplayWorkflowGraph => {
 };
 
 export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
+  const { inspectTask } = useInspectedTask();
   const snapshotWorkflow =
     snapshot.workflows.find((item) => item.id === selection.objectId) ?? null;
   const [fileWorkflow, setFileWorkflow] = useState<FileWorkflowData | null>(null);
@@ -566,25 +675,78 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
     if (!graph) {
       return [];
     }
-    return graph.edges.map((edge) => ({
-      id: edge.id,
-      source: edge.source,
-      target: edge.target,
-      type: "smoothstep",
-      animated: edge.animated || edge.status === "running",
-      style: {
-        stroke: getEdgeColor(edge.status),
-        strokeWidth: 2,
-      },
-      label: edge.label,
-      markerEnd: {
-        type: MarkerType.ArrowClosed,
-        color: getEdgeColor(edge.status),
-      },
-    }));
+    const statusByNode = new Map(graph.nodes.map((node) => [node.nodeId, node.status]));
+    return graph.edges.map((edge) => {
+      // Demo graphs ship explicit edge statuses; snapshot edges default to "pending"
+      // and are coloured by deriving from the nodes they connect.
+      const status =
+        edge.status === "pending"
+          ? deriveEdgeStatus(
+              statusByNode.get(edge.source) ?? "pending",
+              statusByNode.get(edge.target) ?? "pending",
+            )
+          : edge.status;
+      const animated = edge.animated || status === "running";
+      const color = getEdgeColor(status);
+      return {
+        id: edge.id,
+        source: edge.source,
+        target: edge.target,
+        type: "smoothstep",
+        animated,
+        style: {
+          stroke: color,
+          strokeWidth: animated ? 2.5 : 2,
+        },
+        label: edge.label,
+        labelStyle: { fill: color, fontWeight: 600, fontSize: 11 },
+        markerEnd: {
+          type: MarkerType.ArrowClosed,
+          color,
+          width: 18,
+          height: 18,
+        },
+      };
+    });
   }, [graph]);
 
+  // ELK layout is async; compute it off the styled nodes/edges and keep the
+  // positioned nodes + bend-point-carrying edges in state.
+  const [elkNodes, setElkNodes] = useState<WorkflowFlowNode[]>([]);
+  const [elkEdges, setElkEdges] = useState<Edge[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (nodes.length === 0) {
+      setElkNodes([]);
+      setElkEdges([]);
+      return;
+    }
+    layoutWithElk(nodes, edges)
+      .then(({ nodes: positioned, edgePoints }) => {
+        if (cancelled) return;
+        setElkNodes(positioned);
+        setElkEdges(
+          edges.map((e) => ({
+            ...e,
+            type: "elk",
+            data: { ...(e.data ?? {}), points: edgePoints[e.id] },
+          })),
+        );
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setElkNodes(nodes);
+          setElkEdges(edges);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nodes, edges]);
+
   const nodeTypes = useMemo<NodeTypes>(() => ({ workflowNode: WorkflowNode }), []);
+  const edgeTypes = useMemo(() => ({ elk: ElkEdge }), []);
 
   if (isLoadingFile) {
     return (
@@ -622,16 +784,25 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
       </CardHeader>
       <CardContent className="flex-1 p-0">
         <div className="h-full w-full">
-          <ReactFlow
-            nodes={nodes}
-            edges={edges}
-            nodeTypes={nodeTypes}
-            fitView
-            attributionPosition="bottom-right"
-          >
-            <Background />
-            <Controls />
-          </ReactFlow>
+          {elkNodes.length === 0 ? (
+            <div className="flex h-full items-center justify-center">
+              <Skeleton className="h-[80%] w-[90%]" />
+            </div>
+          ) : (
+            <ReactFlow
+              key={`${workflowId}-${elkNodes.length}`}
+              nodes={elkNodes}
+              edges={elkEdges}
+              nodeTypes={nodeTypes}
+              edgeTypes={edgeTypes}
+              fitView
+              attributionPosition="bottom-right"
+              onNodeClick={(_event, node) => inspectTask(node.id, "")}
+            >
+              <Background />
+              <Controls />
+            </ReactFlow>
+          )}
         </div>
       </CardContent>
     </Card>

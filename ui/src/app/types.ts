@@ -14,7 +14,8 @@ export type SemanticObjectType =
   | "asset"
   | "workflow"
   | "workspace-file"
-  | "agent";
+  | "agent"
+  | "task";
 
 export type BaseObjectType = "project" | "experiment" | "run" | "asset";
 
@@ -183,6 +184,8 @@ export interface WorkflowNodeMetadata {
   status: SemanticStatus;
   description: string;
   position: WorkflowNodePosition;
+  /** Task config / inputs carried from the IR (`task_configs[].config`). */
+  config?: Record<string, unknown>;
 }
 
 export interface WorkflowGraph {
@@ -262,11 +265,19 @@ export interface AgentSelection {
   objectId: string; // task_id, or "new" for the goal-input state
 }
 
+export interface TaskSelection {
+  objectType: "task";
+  taskId: string; // workflow-graph node id
+  runId: string; // owning run — used to resolve the task's produced assets
+  objectId: string; // === taskId, for RendererProps compatibility
+}
+
 export type Selection =
   | ObjectSelection
   | WorkflowSelection
   | WorkspaceFileSelection
-  | AgentSelection;
+  | AgentSelection
+  | TaskSelection;
 
 export type InspectorTarget =
   | {

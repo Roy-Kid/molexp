@@ -5,6 +5,7 @@ import {
 } from "@/app/registry";
 import { RunsPage } from "@/app/runs/RunsPage";
 import { SettingsPage } from "@/app/settings/SettingsPage";
+import { WorkflowsPage } from "@/app/workflows/WorkflowsPage";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 
 const EmptySelectionPlaceholder = (): JSX.Element => (
@@ -40,6 +41,9 @@ export const CenterPanel = ({
   if (!selection) {
     if (leftPanelView === "runs") {
       return <RunsPage snapshot={snapshot} />;
+    }
+    if (leftPanelView === "workflow") {
+      return <WorkflowsPage snapshot={snapshot} />;
     }
     if (leftPanelView === "settings") {
       return <SettingsPage />;
