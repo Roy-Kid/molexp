@@ -13,6 +13,7 @@ Using dependency injection instead of global variables improves:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -274,6 +275,49 @@ async def reset_agent_runtime() -> None:
 
 
 _workspace_descriptor_override: str | None = None
+
+
+# ============================================================================
+# Served-workspace set (the workspaces `molexp serve` was pointed at)
+# ============================================================================
+#
+# The active workspace (overrides above) is whichever one is *currently* being
+# read; the served set is every workspace the server was started with, so the
+# UI can list them and switch (via ``POST /api/workspace/open``) between them.
+# Exactly one served workspace is the unchanged single-workspace case.
+
+
+@dataclass(frozen=True)
+class ServedWorkspace:
+    """One workspace `molexp serve` is hosting.
+
+    Attributes:
+        key: Stable slug, unique within this server process — the switch handle.
+        label: Human-facing description (a path, or ``user@host:/path``).
+        is_remote: True for an SSH-backed remote workspace.
+        path: Absolute local root, or ``None`` when remote.
+        target_name: Registered :class:`WorkspaceTarget` name, or ``None`` when local.
+    """
+
+    key: str
+    label: str
+    is_remote: bool
+    path: str | None = None
+    target_name: str | None = None
+
+
+_served_workspaces: list[ServedWorkspace] = []
+
+
+def set_served_workspaces(workspaces: list[ServedWorkspace]) -> None:
+    """Record the workspaces this server is hosting (called once by ``serve``)."""
+    global _served_workspaces
+    _served_workspaces = list(workspaces)
+
+
+def get_served_workspaces() -> list[ServedWorkspace]:
+    """Return the served workspace set (empty until ``serve`` populates it)."""
+    return list(_served_workspaces)
 
 
 def set_workspace_path_override(path: Path | None) -> None:
