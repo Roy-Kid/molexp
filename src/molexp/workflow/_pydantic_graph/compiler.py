@@ -33,6 +33,7 @@ express trigger / ordering. The compiler is the **sole** sanctioned
 
 from __future__ import annotations
 
+import asyncio
 import graphlib
 import warnings
 from collections import defaultdict
@@ -102,6 +103,12 @@ def _cache_is_active(deps: WorkflowDeps, name: str) -> bool:
     if registration is None:
         return False
     return not getattr(registration, "is_actor", False)
+
+
+# Poll interval for the per-Step dependency barrier (see `_make_step_fn`). Only
+# Steps prematurely finalized by a join-reducer ever spin here; ready Steps skip
+# the wait entirely, so this stays cheap.
+_DEP_BARRIER_POLL_S = 0.02
 
 
 class WorkflowGraphCompiler:
@@ -175,7 +182,7 @@ class WorkflowGraphCompiler:
             if t.name in parallel_decls:
                 continue
             steps[t.name] = gb.step(
-                self._make_step_fn(t.name, out_edges[t.name]),
+                self._make_step_fn(t.name, out_edges[t.name], indegree.get(t.name, 0) > 1),
                 node_id=t.name,
             )
 
@@ -254,6 +261,7 @@ class WorkflowGraphCompiler:
     def _make_step_fn(
         name: str,
         edge_set: OutEdges,
+        is_join: bool = False,
     ) -> StepFunction[WorkflowState, WorkflowDeps, object, object]:
         """Build the ``async`` Step body for task *name*.
 
@@ -276,14 +284,35 @@ class WorkflowGraphCompiler:
                 # Body already produced its value (seed_outputs); skip
                 # running it but still route as if it returned that value.
                 raw: object = state.results.get(name)
-            elif _cache_is_active(deps, name):
-                # Opt-in content-addressed caching (batch Task only): on a
-                # hit the body is skipped + cached artifacts re-registered;
-                # on a miss the body runs and the result + artifact manifest
-                # are stored. Routing below is identical to a plain return.
-                raw = await run_task_body_cached(name, deps, state)
             else:
-                raw = await run_task_body(name, deps, state)
+                # ── Dependency barrier (fork/join finalization race) ──────
+                # pydantic-graph finalizes any active join-reducer whenever the
+                # task queue momentarily drains. For an indegree>1 Step whose
+                # inputs coalesce through such a Join, that can fire this Step
+                # before *all* of its declared dependencies have recorded a
+                # result — e.g. a fast/seeded dependency racing a slow one that
+                # sits behind a ``wf.parallel`` fork. Collecting inputs then
+                # would yield a ``None`` upstream. Wait until every dependency
+                # is present; in a data DAG each one is guaranteed to arrive,
+                # and awaiting here yields the loop so they can.
+                #
+                # Gated on ``is_join`` (indegree>1): only coalescing-Join Steps
+                # are subject to this race. A single-incoming Step (incl. branch
+                # / loop targets that may be (re-)entered by control flow without
+                # their data dep present) must NOT block here, or a loop/branch
+                # deadlocks.
+                registration = deps.registration_by_name.get(name)
+                if is_join and registration is not None:
+                    while any(dep not in state.results for dep in registration.depends_on):
+                        await asyncio.sleep(_DEP_BARRIER_POLL_S)
+                if _cache_is_active(deps, name):
+                    # Opt-in content-addressed caching (batch Task only): on a
+                    # hit the body is skipped + cached artifacts re-registered;
+                    # on a miss the body runs and the result + artifact manifest
+                    # are stored. Routing below is identical to a plain return.
+                    raw = await run_task_body_cached(name, deps, state)
+                else:
+                    raw = await run_task_body(name, deps, state)
 
             recorded_value, dispatch = _classify_return(raw, edge_set, task_name=name)
             if recorded_value is not NO_OUTPUT:
@@ -401,7 +430,9 @@ class WorkflowGraphCompiler:
             node_id=f"{body}__collect",
         )
         body_wrapper = gb.step(self._make_parallel_body_fn(body), node_id=body)
-        collector = gb.step(self._make_parallel_collector_fn(body), node_id=f"{body}__collector")
+        collector = gb.step(
+            self._make_parallel_collector_fn(body, par.map_over), node_id=f"{body}__collector"
+        )
 
         # map_over → (enumerate) → map fan-out → body_wrapper
         gb.add(
@@ -447,12 +478,21 @@ class WorkflowGraphCompiler:
     @staticmethod
     def _make_parallel_collector_fn(
         body: str,
+        map_over: str,
     ) -> StepFunction[WorkflowState, WorkflowDeps, dict[int, object], None]:
         """Collect the merged ``{idx: out}`` dict into an ordered list.
 
         Raises :class:`ParallelExecutionError` if any element captured a
         failure; otherwise records ``state.results[body]`` as the
         index-ordered list and the fan-out width in ``state.parallel_runs``.
+
+        Only publishes once the **whole** fan-out is collected. The collect
+        ``Join`` is a pydantic-graph reducer, which is finalized whenever the
+        task queue momentarily drains — and with ``max_concurrency=1`` the queue
+        drains between each serially-run body. An early finalization therefore
+        carries only a partial ``{idx: out}`` map; publishing it would let the
+        downstream join task run against a truncated list. Ignore partial
+        finalizations; a later one (with the full set) publishes the result.
         """
 
         async def _collect(
@@ -462,6 +502,9 @@ class WorkflowGraphCompiler:
             failures = {i: f.exc for i, f in merged.items() if isinstance(f, _Failure)}
             if failures:
                 raise ParallelExecutionError(body=body, failures=failures)
+            expected = len(ctx.state.results.get(map_over) or ())
+            if expected and len(merged) < expected:
+                return  # partial finalization — wait for the full fan-out
             ordered = [merged[i] for i in sorted(merged)]
             ctx.state.results[body] = ordered
             ctx.state.completed.add(body)
