@@ -263,6 +263,48 @@ class RunContext:
         """Set the active task id so future accessor writes set ``Producer.task_id``."""
         self._active_task_id = task_id
 
+    # ── Working directories ─────────────────────────────────────────────
+
+    def folder(self, subpath: str | Path) -> Path:
+        """Create and return a working directory under this execution.
+
+        The returned path is ``<run>/executions/<execution_id>/<subpath>``,
+        materialized for the caller. Use it for task scratch / intermediate
+        files so every execution's working files live under its own
+        ``project → experiment → run → execution`` slot instead of a
+        hand-rolled global directory: the workspace owns the path layout and
+        the directory creation, so callers never assemble paths or ``mkdir``
+        themselves.
+
+        Args:
+            subpath: Path **relative** to the execution directory, e.g.
+                ``"scratch/CAT"`` or ``"output"``. May be nested.
+
+        Returns:
+            The created directory as an absolute :class:`~pathlib.Path`.
+
+        Raises:
+            RuntimeError: if no execution is active — call this inside
+                ``with run.start() as ctx:`` (or ``with run as ctx:``).
+            ValueError: if *subpath* is absolute or escapes the execution slot.
+        """
+        if self._execution_id is None:
+            raise RuntimeError(
+                "RunContext.folder() requires an active execution; call it inside "
+                "`with run.start() as ctx:`."
+            )
+        rel = Path(subpath)
+        if rel.is_absolute():
+            raise ValueError(f"RunContext.folder: subpath must be relative, got {subpath!r}")
+        exec_dir = (self.work_dir / "executions" / self._execution_id).resolve()
+        target = (exec_dir / rel).resolve()
+        if not target.is_relative_to(exec_dir):
+            raise ValueError(
+                f"RunContext.folder: subpath {subpath!r} escapes the execution directory"
+            )
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     def __enter__(self) -> RunContext:

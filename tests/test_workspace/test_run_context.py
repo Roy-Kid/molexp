@@ -228,3 +228,38 @@ class TestAsyncRunContext:
             async with run.start():
                 raise ValueError("boom")
         assert run.status == RunStatus.FAILED
+
+
+class TestRunContextFolder:
+    def test_folder_creates_under_execution(self, run):
+        with run.start() as ctx:
+            d = ctx.folder("scratch/CAT")
+            assert d.is_dir()
+            # …/runs/<run>/executions/<exec>/scratch/CAT
+            assert d.parent.name == "scratch"
+            assert d.parent.parent.parent.name == "executions"
+            assert d.relative_to(ctx.work_dir).parts[0] == "executions"
+
+    def test_folder_is_idempotent(self, run):
+        with run.start() as ctx:
+            assert ctx.folder("scratch/CAT") == ctx.folder("scratch/CAT")
+
+    def test_folder_nested_and_distinct(self, run):
+        with run.start() as ctx:
+            a = ctx.folder("scratch/CAT")
+            b = ctx.folder("output")
+            assert a != b
+            assert a.is_dir() and b.is_dir()
+
+    def test_folder_rejects_absolute(self, run):
+        with run.start() as ctx, pytest.raises(ValueError, match="relative"):
+            ctx.folder("/etc")
+
+    def test_folder_rejects_escape(self, run):
+        with run.start() as ctx, pytest.raises(ValueError, match="escapes"):
+            ctx.folder("../../escape")
+
+    def test_folder_requires_active_execution(self, run):
+        ctx = run.start()  # constructed but not entered → no execution yet
+        with pytest.raises(RuntimeError, match="active execution"):
+            ctx.folder("scratch")
