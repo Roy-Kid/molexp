@@ -448,3 +448,43 @@ class StorageError(MolExpError):
             status_code=500,
             details=details,
         )
+
+
+# ============================================================================
+# Workspace-routing Errors (404 / 405 / 502)
+# ============================================================================
+
+
+class UnknownWorkspaceError(NotFoundError):
+    """The ``{ws}`` path segment does not name a served workspace."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__("Workspace", key)
+        self.code = "UNKNOWN_WORKSPACE"
+
+
+class RemoteWorkspaceReadOnlyError(MolExpError):
+    """A mutating request targeted a remote workspace (read-only in v1)."""
+
+    def __init__(self, key: str) -> None:
+        super().__init__(
+            message=(
+                f"Workspace '{key}' is remote and read-only; "
+                "writes (run launch / workflow write-back) are not supported."
+            ),
+            code="REMOTE_WORKSPACE_READ_ONLY",
+            status_code=405,
+            details={"workspace": key},
+        )
+
+
+class RemoteWorkspaceUnreachableError(MolExpError):
+    """The transport to a remote workspace failed (connection / auth)."""
+
+    def __init__(self, key: str, reason: str | None = None) -> None:
+        super().__init__(
+            message=f"Remote workspace '{key}' is unreachable" + (f": {reason}" if reason else ""),
+            code="REMOTE_WORKSPACE_UNREACHABLE",
+            status_code=502,
+            details={"workspace": key, **({"reason": reason} if reason else {})},
+        )

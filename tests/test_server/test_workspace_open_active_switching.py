@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from molexp.server.app import create_app
 from molexp.server.dependencies import (
-    get_workspace,
+    get_active_workspace,
     get_workspace_target_registry,
     register_workspace_subscriber,
     reset_workspace_cache,
@@ -134,7 +134,7 @@ def test_cache_rekeyed_on_switch(
         json={"kind": "local", "path": str(local_root), "create_if_missing": True},
     )
     # Make sure cache contains the local entry
-    _ = get_workspace()
+    _ = get_active_workspace()
     assert any(k[0] == "local" for k in deps._workspace_cache)
 
     # Switch to remote — cache should be cleared (so no stale local entry left)

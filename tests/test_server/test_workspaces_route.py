@@ -36,9 +36,16 @@ def test_lists_local_and_remote_in_order(client):
     assert r.status_code == 200
     body = r.json()
     assert [w["key"] for w in body] == ["local-a", "hpc-runs"]
-    assert body[0] == {"key": "local-a", "label": "/tmp/a", "isRemote": False, "path": "/tmp/a"}
+    assert body[0] == {
+        "key": "local-a",
+        "label": "/tmp/a",
+        "isRemote": False,
+        "path": "/tmp/a",
+        "unreachable": False,
+    }
     assert body[1]["isRemote"] is True
     assert body[1]["path"] is None  # remote has no local path
+    assert body[1]["unreachable"] is True  # unregistered target → unreachable
 
 
 def test_set_get_round_trip():
