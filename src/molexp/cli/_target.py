@@ -26,13 +26,16 @@ from molexp.workspace.target import (
     target_to_filesystem,
 )
 
-#: Shared ``-t/--target`` option. Defaults to the current directory.
+#: Shared ``--workspace/-ws`` option (``-t/--target`` kept as a hidden,
+#: back-compatible alias). Defaults to the current directory.
 TargetOption = Annotated[
     str,
     typer.Option(
-        "-t",
+        "--workspace",
+        "-ws",
         "--target",
-        help="Workspace target: path, user@host:path, or @target-name (default: cwd).",
+        "-t",
+        help="Workspace: a path, user@host:path, or @target-name (default: cwd).",
     ),
 ]
 
