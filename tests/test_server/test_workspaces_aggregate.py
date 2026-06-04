@@ -85,6 +85,10 @@ def test_namespaced_routes_resolve_distinct_workspaces(client: TestClient, tmp_p
     assert flat.status_code == 200
     assert flat.json()[0]["created"] == ra.json()[0]["created"]
 
+    # the served list marks which workspace the flat routes / tree address
+    listing = {w["key"]: w["active"] for w in client.get("/api/workspaces").json()}
+    assert listing == {"local-a": True, "local-b": False}
+
 
 def test_unknown_workspace_is_404(client: TestClient, tmp_path: Path):
     a = _local_ws_with_project(tmp_path / "a", "matrix")

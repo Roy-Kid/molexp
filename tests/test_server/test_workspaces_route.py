@@ -41,6 +41,7 @@ def test_lists_local_and_remote_in_order(client):
         "label": "/tmp/a",
         "isRemote": False,
         "path": "/tmp/a",
+        "active": False,
         "unreachable": False,
     }
     assert body[1]["isRemote"] is True

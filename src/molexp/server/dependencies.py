@@ -414,6 +414,26 @@ def _served_by_key(key: str) -> ServedWorkspace | None:
     return None
 
 
+def active_served_key() -> str | None:
+    """The key of the served workspace that is currently active, if any.
+
+    Matches the active ``(kind, identifier)`` against the served set so the UI
+    can mark which workspace its flat routes / deep tree currently address.
+    """
+    kind, identifier = _active_workspace_key()
+    for sw in _served_workspaces:
+        if sw.is_remote and kind == "remote" and (sw.target_name or sw.key) == identifier:
+            return sw.key
+        if (
+            not sw.is_remote
+            and kind == "local"
+            and sw.path is not None
+            and str(Path(sw.path).resolve()) == identifier
+        ):
+            return sw.key
+    return None
+
+
 def assert_served_workspace(key: str) -> None:
     """Raise :class:`UnknownWorkspaceError` (404) unless ``key`` is served."""
     if _served_by_key(key) is None:
