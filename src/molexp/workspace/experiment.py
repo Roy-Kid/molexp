@@ -25,6 +25,7 @@ the same slug already exists, it is loaded and returned).
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
@@ -54,6 +55,29 @@ from .utils import generate_id
 
 # Default replica seeds — deterministic, well-separated
 _DEFAULT_SEEDS = [42, 123, 456, 789, 1234]
+
+# Standalone home for a compiled workflow IR document, written alongside
+# ``experiment.json``. Kept separate (and free of the ``schema_version``
+# envelope) so external tooling — notably the molexp VSCode preview — can read
+# and diff the raw IR directly without parsing it out of the metadata file.
+WORKFLOW_DOC_FILENAME = "workflow.json"
+
+
+def _parse_ir_document(source: str | None) -> dict | None:
+    """Return the parsed IR object if *source* is a JSON document, else ``None``.
+
+    ``workflow_source`` is free-form: it may carry a compiled workflow IR (a
+    JSON object), a path / Python-source string (e.g. ``"train.py"``), or be
+    empty. Only the JSON-object form is externalized to ``workflow.json``;
+    everything else stays embedded in ``experiment.json``.
+    """
+    if not source:
+        return None
+    try:
+        doc = json.loads(source)
+    except (ValueError, TypeError):
+        return None
+    return doc if isinstance(doc, dict) else None
 
 
 class Experiment(Folder):
@@ -150,10 +174,21 @@ class Experiment(Folder):
 
     @classmethod
     def from_disk(cls, child_dir: PathArg, parent: Folder) -> Experiment:
-        """Load ``experiment.json`` and rebuild entity state. See Folder.from_disk hook docs."""
+        """Load ``experiment.json`` and rebuild entity state. See Folder.from_disk hook docs.
+
+        When a standalone ``workflow.json`` is present it is the canonical home
+        for the compiled IR; its contents are rehydrated into the in-memory
+        ``workflow_source`` field so every downstream reader is unaffected by the
+        externalized on-disk layout.
+        """
         meta = _load_metadata(
             ExperimentMetadata, parent._fs.join(child_dir, "experiment.json"), fs=parent._fs
         )
+        doc_path = parent._fs.join(child_dir, WORKFLOW_DOC_FILENAME)
+        if parent._fs.is_file(doc_path):
+            with parent._fs.open(doc_path) as fh:
+                ir = json.load(fh)
+            meta = meta.model_copy(update={"workflow_source": json.dumps(ir, sort_keys=True)})
         folder_meta = FolderMetadata(
             id=meta.id,
             name=meta.name,
@@ -266,17 +301,46 @@ class Experiment(Folder):
         """Create filesystem structure and persist metadata (non-recursive)."""
         d = self.experiment_dir
         self._fs.mkdir(d, parents=True, exist_ok=True)
-        _save_metadata(self._entity_metadata, self._fs.join(d, "experiment.json"), fs=self._fs)
+        disk_meta = self._persist_workflow_doc()
+        _save_metadata(disk_meta, self._fs.join(d, "experiment.json"), fs=self._fs)
         self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
+        disk_meta = self._persist_workflow_doc()
         _save_metadata(
-            self._entity_metadata,
+            disk_meta,
             self._fs.join(self.experiment_dir, "experiment.json"),
             fs=self._fs,
         )
         self._catalog_upsert()
+
+    @property
+    def _workflow_doc_path(self) -> str:
+        """Path of the standalone :data:`WORKFLOW_DOC_FILENAME` IR file."""
+        return self._fs.join(self.experiment_dir, WORKFLOW_DOC_FILENAME)
+
+    def _persist_workflow_doc(self) -> ExperimentMetadata:
+        """Externalize an IR ``workflow_source`` and return the metadata for disk.
+
+        When the source is a compiled workflow IR, it is written to a standalone
+        ``workflow.json`` (clean, pretty-printed — the molexp VSCode preview
+        reads it directly) and stripped from the returned metadata so the IR has
+        a single on-disk home. Non-IR sources (a Python path / source) stay
+        embedded and any stale ``workflow.json`` is removed.
+
+        The in-memory ``self._entity_metadata`` is left untouched so live readers
+        (server responses, run snapshots) keep seeing the full source until the
+        next reload, where :meth:`from_disk` rehydrates it from the file.
+        """
+        ir = _parse_ir_document(self._entity_metadata.workflow_source)
+        doc_path = self._workflow_doc_path
+        if ir is not None:
+            self._fs.atomic_write_json(doc_path, ir)
+            return self._entity_metadata.model_copy(update={"workflow_source": None})
+        if self._fs.is_file(doc_path):
+            self._fs.remove(doc_path)
+        return self._entity_metadata
 
     def _catalog_upsert(self) -> None:
         ws = self.project.workspace

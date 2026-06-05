@@ -119,6 +119,35 @@ class TestExperiment:
         assert exp.metadata.parameter_space == {"lr": 1e-4}
         assert exp.metadata.git_commit == "abc"
 
+    def test_ir_workflow_source_externalized_to_workflow_json(self, project):
+        """A compiled-IR ``workflow_source`` lands as a standalone ``workflow.json``.
+
+        The IR is the contract the molexp VSCode preview reads directly, so it
+        must be a clean, pretty-printed file (no ``schema_version`` envelope) and
+        must have a single on-disk home — stripped from the embedded
+        ``experiment.json`` field, rehydrated from the file on reload.
+        """
+        ir = {"workflow_id": "wf", "name": "demo", "task_configs": [], "links": []}
+        exp = project.add_experiment("ir-exp", workflow_source=json.dumps(ir))
+
+        doc = Path(exp.experiment_dir) / "workflow.json"
+        assert doc.is_file()
+        # Clean IR — directly previewable, no version-envelope pollution.
+        assert json.loads(doc.read_text()) == ir
+        # Single home: the embedded field is cleared in experiment.json.
+        raw = json.loads((Path(exp.experiment_dir) / "experiment.json").read_text())
+        assert raw["workflow_source"] is None
+        # File is canonical: reload rehydrates the in-memory field from it.
+        reloaded = project.get_experiment("ir-exp")
+        assert json.loads(reloaded.metadata.workflow_source) == ir
+
+    def test_non_ir_workflow_source_stays_embedded(self, project):
+        """A non-JSON ``workflow_source`` (a Python path) is never externalized."""
+        exp = project.add_experiment("py-exp", workflow_source="train.py")
+        assert not (Path(exp.experiment_dir) / "workflow.json").exists()
+        raw = json.loads((Path(exp.experiment_dir) / "experiment.json").read_text())
+        assert raw["workflow_source"] == "train.py"
+
     def test_parent_references(self, experiment):
         assert experiment.project is not None
         assert experiment.workspace is experiment.project.workspace
