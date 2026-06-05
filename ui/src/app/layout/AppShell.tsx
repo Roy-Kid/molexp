@@ -11,7 +11,15 @@ import { type InspectedTask, InspectedTaskContext } from "@/app/state/inspectedT
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 interface AppShellProps {
   leftPanelView: LeftPanelView;
@@ -49,7 +57,9 @@ export const AppShell = ({
 }: AppShellProps): JSX.Element => {
   const [searchQuery, setSearchQuery] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [inspectedTask, setInspectedTask] = useState<InspectedTask | null>(null);
+  const isMobile = useIsMobile();
 
   const inspectTask = useCallback((taskId: string, runId: string): void => {
     // Pin the node to the right inspector and open the panel in-place — never
@@ -101,6 +111,84 @@ export const AppShell = ({
     [selection, leftPanelView, snapshot],
   );
 
+  // On mobile the nav drawer is dismissed once a selection is made so the
+  // freshly-selected object is visible in the full-width center pane.
+  const handleNavSelect = useCallback(
+    (next: Selection): void => {
+      onSelectionChange(next);
+      setMobileNavOpen(false);
+    },
+    [onSelectionChange],
+  );
+
+  const navContent = (
+    <LeftPanel
+      view={leftPanelView}
+      selection={selection}
+      snapshot={snapshot}
+      searchQuery={searchQuery}
+      onViewChange={onLeftPanelViewChange}
+      onSelect={isMobile ? handleNavSelect : onSelectionChange}
+      onOpenWorkspace={onOpenWorkspace}
+      onCreateDirectory={onCreateDirectory}
+      onCreateFile={onCreateFile}
+      onRefresh={onWorkspaceRefresh}
+    />
+  );
+
+  const inspectorToggle = (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7"
+            onClick={() => setInspectorOpen((current) => !current)}
+            disabled={toggleDisabled}
+            aria-label={toggleLabel}
+          >
+            {inspectorVisible ? (
+              <PanelRightClose className="h-4 w-4" />
+            ) : (
+              <PanelRightOpen className="h-4 w-4" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left">{toggleLabel}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+
+  const centerContent = (
+    <div className="flex h-full flex-col">
+      <div className="flex h-9 items-center justify-between gap-2 border-b border-border/70 bg-muted/10 px-3">
+        <Breadcrumb items={trail} />
+        {inspectorToggle}
+      </div>
+      <div className="flex-1 overflow-hidden">
+        <CenterPanel
+          selection={selection}
+          snapshot={snapshot}
+          leftPanelView={leftPanelView}
+          inspectorTarget={inspectorTarget}
+          onInspectorTargetChange={onInspectorTargetChange}
+          onRefresh={onWorkspaceRefresh}
+        />
+      </div>
+    </div>
+  );
+
+  const inspectorContent = (
+    <RightPanel
+      selection={inspectorSelection}
+      snapshot={snapshot}
+      inspectorTarget={inspectorTarget}
+      onInspectorTargetChange={onInspectorTargetChange}
+      onRefresh={onWorkspaceRefresh}
+    />
+  );
+
   return (
     <InspectedTaskContext.Provider value={inspectedTaskContext}>
       <GlobalCommandPalette snapshot={snapshot} />
@@ -110,91 +198,69 @@ export const AppShell = ({
           onSearchChange={setSearchQuery}
           onRefresh={onActiveRefresh}
           isRefreshing={isRefreshing}
+          onMenuClick={isMobile ? () => setMobileNavOpen(true) : undefined}
         />
         <main className="flex flex-1 flex-col overflow-hidden">
-          <ResizablePanelGroup direction="horizontal" className="flex-1">
-            <ResizablePanel
-              defaultSize={NAV_SIZE.default}
-              minSize={NAV_SIZE.min}
-              maxSize={NAV_SIZE.max}
-            >
-              <LeftPanel
-                view={leftPanelView}
-                selection={selection}
-                snapshot={snapshot}
-                searchQuery={searchQuery}
-                onViewChange={onLeftPanelViewChange}
-                onSelect={onSelectionChange}
-                onOpenWorkspace={onOpenWorkspace}
-                onCreateDirectory={onCreateDirectory}
-                onCreateFile={onCreateFile}
-                onRefresh={onWorkspaceRefresh}
-              />
-            </ResizablePanel>
-            <ResizableHandle withHandle />
-            <ResizablePanel defaultSize={100 - NAV_SIZE.default}>
-              <ResizablePanelGroup direction="horizontal" className="h-full">
-                <ResizablePanel defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}>
-                  <div className="flex h-full flex-col">
-                    <div className="flex h-9 items-center justify-between gap-2 border-b border-border/70 bg-muted/10 px-3">
-                      <Breadcrumb items={trail} />
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => setInspectorOpen((current) => !current)}
-                              disabled={toggleDisabled}
-                              aria-label={toggleLabel}
-                            >
-                              {inspectorVisible ? (
-                                <PanelRightClose className="h-4 w-4" />
-                              ) : (
-                                <PanelRightOpen className="h-4 w-4" />
-                              )}
-                            </Button>
-                          </TooltipTrigger>
-                          <TooltipContent side="left">{toggleLabel}</TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <div className="flex-1 overflow-hidden">
-                      <CenterPanel
-                        selection={selection}
-                        snapshot={snapshot}
-                        leftPanelView={leftPanelView}
-                        inspectorTarget={inspectorTarget}
-                        onInspectorTargetChange={onInspectorTargetChange}
-                        onRefresh={onWorkspaceRefresh}
-                      />
-                    </div>
-                  </div>
-                </ResizablePanel>
-                {inspectorVisible && (
-                  <>
-                    <ResizableHandle withHandle />
-                    <ResizablePanel
-                      defaultSize={INSPECTOR_SIZE.default}
-                      minSize={INSPECTOR_SIZE.min}
-                      maxSize={INSPECTOR_SIZE.max}
-                    >
-                      <div className="h-full overflow-hidden border-l border-border/70 bg-muted/10">
-                        <RightPanel
-                          selection={inspectorSelection}
-                          snapshot={snapshot}
-                          inspectorTarget={inspectorTarget}
-                          onInspectorTargetChange={onInspectorTargetChange}
-                          onRefresh={onWorkspaceRefresh}
-                        />
-                      </div>
-                    </ResizablePanel>
-                  </>
-                )}
-              </ResizablePanelGroup>
-            </ResizablePanel>
-          </ResizablePanelGroup>
+          {isMobile ? (
+            // Small screens: a single full-width center pane. The nav and the
+            // inspector each move into an edge drawer so neither is squeezed to
+            // an unusable width by the fixed-percentage desktop split.
+            <>
+              <div className="flex-1 overflow-hidden">{centerContent}</div>
+              <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+                <SheetContent side="left" className="w-[85vw] max-w-sm p-0">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Navigation</SheetTitle>
+                    <SheetDescription>Workspace tree and views</SheetDescription>
+                  </SheetHeader>
+                  <div className="h-full overflow-hidden">{navContent}</div>
+                </SheetContent>
+              </Sheet>
+              <Sheet open={inspectorVisible} onOpenChange={setInspectorOpen}>
+                <SheetContent side="right" className="w-[85vw] max-w-md p-0">
+                  <SheetHeader className="sr-only">
+                    <SheetTitle>Inspector</SheetTitle>
+                    <SheetDescription>Details for the selected object</SheetDescription>
+                  </SheetHeader>
+                  <div className="h-full overflow-hidden bg-muted/10">{inspectorContent}</div>
+                </SheetContent>
+              </Sheet>
+            </>
+          ) : (
+            <ResizablePanelGroup direction="horizontal" className="flex-1">
+              <ResizablePanel
+                defaultSize={NAV_SIZE.default}
+                minSize={NAV_SIZE.min}
+                maxSize={NAV_SIZE.max}
+              >
+                {navContent}
+              </ResizablePanel>
+              <ResizableHandle withHandle />
+              <ResizablePanel defaultSize={100 - NAV_SIZE.default}>
+                <ResizablePanelGroup direction="horizontal" className="h-full">
+                  <ResizablePanel
+                    defaultSize={inspectorVisible ? 100 - INSPECTOR_SIZE.default : 100}
+                  >
+                    {centerContent}
+                  </ResizablePanel>
+                  {inspectorVisible && (
+                    <>
+                      <ResizableHandle withHandle />
+                      <ResizablePanel
+                        defaultSize={INSPECTOR_SIZE.default}
+                        minSize={INSPECTOR_SIZE.min}
+                        maxSize={INSPECTOR_SIZE.max}
+                      >
+                        <div className="h-full overflow-hidden border-l border-border/70 bg-muted/10">
+                          {inspectorContent}
+                        </div>
+                      </ResizablePanel>
+                    </>
+                  )}
+                </ResizablePanelGroup>
+              </ResizablePanel>
+            </ResizablePanelGroup>
+          )}
         </main>
       </div>
     </InspectedTaskContext.Provider>

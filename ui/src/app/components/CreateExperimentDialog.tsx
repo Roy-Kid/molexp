@@ -118,8 +118,8 @@ export function CreateExperimentDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="exp-name" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="exp-name" className="text-left sm:text-right">
                 Name
               </Label>
               <Input
@@ -130,8 +130,8 @@ export function CreateExperimentDialog({
                 required
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="exp-workflow" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="exp-workflow" className="text-left sm:text-right">
                 Workflow File
               </Label>
               <Input
@@ -143,8 +143,8 @@ export function CreateExperimentDialog({
                 required
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="exp-params" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="exp-params" className="text-left sm:text-right">
                 Parameters (JSON)
               </Label>
               <Textarea
@@ -155,8 +155,8 @@ export function CreateExperimentDialog({
                 rows={4}
               />
             </div>
-            <div className="grid grid-cols-4 items-start gap-4">
-              <Label htmlFor="exp-target" className="pt-2 text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
+              <Label htmlFor="exp-target" className="pt-2 text-left sm:text-right">
                 Default target
               </Label>
               <div className="col-span-3 space-y-1.5">

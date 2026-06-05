@@ -70,8 +70,21 @@ export const FlowgramCanvas = ({
       nodeRegistries: [],
       // Generic nodes: flowgram auto-assigns a default input + output port
       // (see free-layout-core) so links connect without a custom registry.
+      // Pin the input port to the top edge and the output port to the bottom
+      // edge so dependency edges flow vertically — the workflow reads top→bottom,
+      // matching the layered fallbackLayout (deeper levels get larger y).
+      // Without this, flowgram defaults to input=left / output=right, which
+      // routes the connectors horizontally across a vertically-stacked graph.
       getNodeDefaultRegistry(type) {
-        return { type, meta: {} };
+        return {
+          type,
+          meta: {
+            defaultPorts: [
+              { type: "input", location: "top" },
+              { type: "output", location: "bottom" },
+            ],
+          },
+        };
       },
       materials: {
         renderDefaultNode: (props: WorkflowNodeProps) => (

@@ -122,8 +122,8 @@ export function CreateRunDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="run-workflow" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="run-workflow" className="text-left sm:text-right">
                 Workflow
               </Label>
               <Input
@@ -133,8 +133,8 @@ export function CreateRunDialog({
                 className="col-span-3 bg-muted"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="run-params" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="run-params" className="text-left sm:text-right">
                 Parameters (JSON)
               </Label>
               <Textarea
@@ -145,8 +145,8 @@ export function CreateRunDialog({
                 rows={6}
               />
             </div>
-            <div className="grid grid-cols-4 items-start gap-4">
-              <Label htmlFor="run-target" className="pt-2 text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
+              <Label htmlFor="run-target" className="pt-2 text-left sm:text-right">
                 Target
               </Label>
               <div className="col-span-3 space-y-1.5">
