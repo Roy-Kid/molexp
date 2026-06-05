@@ -46,11 +46,12 @@ const buildRows = (
 const RowGroup = ({
   title,
   rows,
-  runCount,
+  runIds,
 }: {
   title: string;
   rows: CompareRow[];
-  runCount: number;
+  /** Ordered run ids, aligned with each row's `values` — used for stable keys. */
+  runIds: string[];
 }): JSX.Element | null => {
   if (rows.length === 0) return null;
   const variedCount = rows.filter((r) => r.varies).length;
@@ -58,7 +59,7 @@ const RowGroup = ({
     <>
       <tr>
         <td
-          colSpan={runCount + 1}
+          colSpan={runIds.length + 1}
           className="border-b border-border/60 bg-muted/40 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground"
         >
           {title}
@@ -89,7 +90,7 @@ const RowGroup = ({
           </th>
           {row.values.map((value, idx) => (
             <td
-              key={`${row.key}:${runs[idx]?.id ?? idx}`}
+              key={`${row.key}:${runIds[idx] ?? idx}`}
               className={cn(
                 "border-r border-border/40 px-3 py-1.5 align-top font-mono text-xs last:border-r-0",
                 row.varies ? "text-foreground" : "text-muted-foreground",
@@ -112,7 +113,7 @@ const RowGroup = ({
  * and results across runs, with the rows that actually differ pulled to the
  * eye. Real data straight from the run summaries — no mocks, no run pickers.
  */
-export const ExperimentCompare = ({ runs }: ExperimentCompareProps): JSX.Element => {
+export const ExperimentCompare = ({ runs, onOpenRun }: ExperimentCompareProps): JSX.Element => {
   const ordered = useMemo(
     () =>
       [...runs].sort((a, b) => {
@@ -185,8 +186,8 @@ export const ExperimentCompare = ({ runs }: ExperimentCompareProps): JSX.Element
           </tr>
         </thead>
         <tbody>
-          <RowGroup title="Parameters" rows={paramRows} runCount={ordered.length} />
-          <RowGroup title="Results" rows={resultRows} runCount={ordered.length} />
+          <RowGroup title="Parameters" rows={paramRows} runIds={ordered.map((r) => r.id)} />
+          <RowGroup title="Results" rows={resultRows} runIds={ordered.map((r) => r.id)} />
         </tbody>
       </table>
       <div className="flex items-center gap-2 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">

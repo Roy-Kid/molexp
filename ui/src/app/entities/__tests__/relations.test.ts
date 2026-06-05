@@ -104,6 +104,7 @@ const snapshot: WorkspaceSnapshot = {
   ],
   workspaceRoot: null,
   consoleEntries: [],
+  workspaces: [],
 };
 
 const groupRefs = (relations: ReturnType<typeof resolveRelations>, relation: string): string[] =>
