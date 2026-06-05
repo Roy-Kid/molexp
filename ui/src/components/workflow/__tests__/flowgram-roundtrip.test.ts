@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@rstest/core";
-import type { TaskGraphJson } from "@/types/task_graph_ir";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import {
   buildFlowgramDocument,
   flowgramDocToTaskGraphJson,

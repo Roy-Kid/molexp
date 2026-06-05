@@ -10,13 +10,13 @@
  */
 
 import { type JSX, useMemo } from "react";
-import { FlowgramCanvas } from "@/app/renderers/FlowgramCanvas";
+import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import {
   buildFlowgramDocument,
   normalizeTaskGraph,
   parseTaskGraphIr,
-} from "@/app/renderers/flowgram-document";
-import type { TaskGraphJson } from "@/types/task_graph_ir";
+} from "@/components/workflow/flowgram-document";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 // Back-compat alias: the inline preview historically spoke of a "WorkflowIR".
 // It is now the canonical {@link TaskGraphJson}.

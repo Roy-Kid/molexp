@@ -11,7 +11,7 @@ import { entityPath, SECTION_PATH } from "@/app/entities/paths";
 import type { BreadcrumbItem, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
 
 const SECTION_ROOT: Record<LeftPanelView, BreadcrumbItem> = {
-  projects: { label: "Projects", to: SECTION_PATH.projects },
+  projects: { label: "Experiments", to: SECTION_PATH.projects },
   workspace: { label: "Workspace", to: SECTION_PATH.workspace },
   runs: { label: "Runs", to: SECTION_PATH.runs },
   workflow: { label: "Workflows", to: SECTION_PATH.workflows },

@@ -28,7 +28,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import type { FlowgramDocument, FlowgramNodeData } from "@/app/renderers/flowgram-document";
+import type { FlowgramDocument, FlowgramNodeData } from "@/components/workflow/flowgram-document";
 
 /**
  * Node display data keyed by task id. flowgram drops arbitrary node `data` for

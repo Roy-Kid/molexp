@@ -19,8 +19,8 @@
  *   - cyclic IR never throws — residual nodes still receive a position.
  */
 
-import { toTaskGraphJson } from "@/lib/workflow-utils";
-import type { TaskGraphJson, TaskNodeJson } from "@/types/task_graph_ir";
+import { toTaskGraphJson } from "@/components/workflow/graph-utils";
+import type { TaskGraphJson, TaskNodeJson } from "@/components/workflow/task-graph-ir";
 
 export interface FlowgramNodeData extends Record<string, unknown> {
   /** Display title (the task id). */

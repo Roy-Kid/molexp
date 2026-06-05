@@ -1,4 +1,4 @@
-import type { EdgeJson, TaskGraphJson, TaskNodeJson } from "@/types/task_graph_ir";
+import type { EdgeJson, TaskGraphJson, TaskNodeJson } from "@/components/workflow/task-graph-ir";
 
 /**
  * workflow-utils — pure graph algorithms over the canonical task-graph IR.

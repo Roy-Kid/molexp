@@ -10,21 +10,21 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { FlowgramCanvas } from "@/app/renderers/FlowgramCanvas";
-import { FlowgramCanvasToolbar } from "@/app/renderers/FlowgramCanvasToolbar";
+import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
+import { FlowgramCanvasToolbar } from "@/components/workflow/flowgram-canvas-toolbar";
 import {
   buildFlowgramDocument,
   type FlowgramDocument,
   flowgramDocToTaskGraphJson,
   normalizeTaskGraph,
   taskGraphToWireDocument,
-} from "@/app/renderers/flowgram-document";
+} from "@/components/workflow/flowgram-document";
 import { workflowApi } from "@/app/state/api";
 import { useInspectedTask } from "@/app/state/inspectedTask";
 import type { RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import type { TaskGraphJson } from "@/types/task_graph_ir";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const { inspectTask } = useInspectedTask();
