@@ -2,7 +2,7 @@
 
 One file: ``<workspace_root>/catalog/index.json``.  Sections:
 
-    workspaces  projects  experiments  runs  executions  assets  consumes
+    workspaces  projects  experiments  runs  executions  assets
 
 All sections are derived from filesystem state.  ``rebuild()`` wipes
 and rewalks.  Mutations use load → edit → atomic-rename with a
@@ -35,7 +35,6 @@ _EMPTY_CATALOG: dict[str, Any] = {
     "runs": {},
     "executions": {},
     "assets": {},
-    "consumes": [],
 }
 
 
@@ -248,9 +247,6 @@ class AssetCatalog:
             data["executions"] = {
                 xid: x for xid, x in data["executions"].items() if x.get("run_id") not in run_ids
             }
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
-            ]
             self._save(data)
 
     def remove_experiment(self, experiment_id: str) -> None:
@@ -266,9 +262,6 @@ class AssetCatalog:
             data["executions"] = {
                 xid: x for xid, x in data["executions"].items() if x.get("run_id") not in run_ids
             }
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
-            ]
             self._save(data)
 
     def remove_run(self, run_id: str) -> None:
@@ -279,9 +272,6 @@ class AssetCatalog:
             data["executions"] = {
                 xid: x for xid, x in data["executions"].items() if x.get("run_id") != run_id
             }
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
-            ]
             self._save(data)
 
     def remove_execution(self, execution_id: str) -> None:
@@ -289,9 +279,6 @@ class AssetCatalog:
         with self._lock:
             data = self._load()
             data["executions"].pop(execution_id, None)
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") != execution_id
-            ]
             self._save(data)
 
     # ── Scope queries ────────────────────────────────────────────────────
@@ -330,20 +317,6 @@ class AssetCatalog:
             if limit is not None and len(out) >= limit:
                 break
         return out
-
-    # ── Lineage ──────────────────────────────────────────────────────────
-
-    def record_consumes(self, execution_id: str, task_id: str, asset_id: str) -> None:
-        with self._lock:
-            data = self._load()
-            edge = {
-                "execution_id": execution_id,
-                "task_id": task_id,
-                "asset_id": asset_id,
-            }
-            if edge not in data["consumes"]:
-                data["consumes"].append(edge)
-            self._save(data)
 
     # ── Rebuild ──────────────────────────────────────────────────────────
 
