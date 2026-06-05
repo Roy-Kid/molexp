@@ -3,6 +3,7 @@ import {
   Ban,
   Blocks,
   Bot,
+  CloudOff,
   Copy,
   ExternalLink,
   FilePlus,
@@ -12,15 +13,17 @@ import {
   FolderOpen,
   FolderPlus,
   FolderTree,
+  HardDrive,
   PlayCircle,
   Plus,
   RefreshCw,
+  Server,
   Settings,
   Sparkles,
   Terminal,
   Workflow,
 } from "lucide-react";
-import type { ComponentType, SVGProps } from "react";
+import type { ComponentType, ReactNode, SVGProps } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
@@ -40,9 +43,11 @@ import type {
   FileKind,
   LeftPanelView,
   ObjectView,
+  ProjectSummary,
   RunSummary,
   Selection,
   SemanticStatus,
+  ServedWorkspaceSummary,
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
@@ -72,17 +77,19 @@ interface ViewOption {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
+// Order matters: the primary research flow is Experiments → Runs → Workflows →
+// Workspaces, with the secondary inventories (Assets, Agent Tasks) trailing.
 const viewOptions: ViewOption[] = [
-  { id: "projects", label: "Projects", icon: Blocks },
-  { id: "workspace", label: "Workspace", icon: FolderTree },
+  { id: "projects", label: "Experiments", icon: Blocks },
   { id: "runs", label: "Runs", icon: PlayCircle },
-  { id: "asset", label: "Asset", icon: Archive },
   { id: "workflow", label: "Workflow", icon: Workflow },
+  { id: "workspace", label: "Workspace", icon: FolderTree },
+  { id: "asset", label: "Asset", icon: Archive },
   { id: "agent", label: "Agent Tasks", icon: Bot },
 ];
 
 const listHeaderByView: Record<LeftPanelView, string> = {
-  projects: "Projects",
+  projects: "Experiments",
   workspace: "Workspace",
   runs: "Runs",
   asset: "Assets",
@@ -197,14 +204,23 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
   },
 ];
 
+// A compact uppercase entity-type tag (PROJ / EXP / RUN) shown on every nav
+// node so the level is legible without relying on icon shape alone.
+const TypeTag = ({ kind }: { kind: "proj" | "exp" | "run" }): JSX.Element => (
+  <span className="rounded bg-muted px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
+    {kind}
+  </span>
+);
+
 const buildProjectNodes = (
   snapshot: WorkspaceSnapshot,
   actions: ProjectTreeActions,
   searchQuery: string,
+  projectsOverride?: ProjectSummary[],
 ): TreeNode[] => {
   const lowerQuery = searchQuery.toLowerCase().trim();
 
-  const hierarchy = snapshot.projects.map((project) => ({
+  const hierarchy = (projectsOverride ?? snapshot.projects).map((project) => ({
     ...project,
     experiments: snapshot.experiments
       .filter((experiment) => experiment.projectId === project.id)
@@ -238,6 +254,7 @@ const buildProjectNodes = (
     label: project.name,
     icon: Blocks,
     iconClassName: "text-blue-500",
+    right: <TypeTag kind="proj" />,
     meta: `${project.experiments.length} exp`,
     onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
     actions: [
@@ -273,7 +290,12 @@ const buildProjectNodes = (
       label: experiment.name,
       icon: FlaskConical,
       iconClassName: "text-purple-500",
-      right: <StatusBadge status={experiment.status} size="sm" />,
+      right: (
+        <span className="flex items-center gap-1">
+          <TypeTag kind="exp" />
+          <StatusBadge status={experiment.status} size="sm" />
+        </span>
+      ),
       meta: `${experiment.runs.length} runs`,
       onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
       actions: [
@@ -320,13 +342,94 @@ const buildProjectNodes = (
         label: run.name || run.id,
         icon: PlayCircle,
         iconClassName: runIconClass(run.status),
-        right: <StatusBadge status={run.status} size="sm" />,
+        right: (
+          <span className="flex items-center gap-1">
+            <TypeTag kind="run" />
+            <StatusBadge status={run.status} size="sm" />
+          </span>
+        ),
         meta: run.profile ?? run.id.substring(0, 8),
         onSelect: () => actions.onOpenRunView(run),
         actions: buildRunActions(run, actions),
       })),
     })),
   }));
+};
+
+// A small chip describing a served workspace's kind/state in the nav header.
+const workspaceBadge = (ws: ServedWorkspaceSummary): ReactNode => {
+  const tone = ws.unreachable
+    ? "bg-red-500/10 text-red-600"
+    : ws.isRemote
+      ? "bg-amber-500/10 text-amber-600"
+      : "bg-muted text-muted-foreground";
+  const text = ws.unreachable ? "unreachable" : ws.isRemote ? "remote" : "local";
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>{text}</span>;
+};
+
+// Shallow project leaves for a NON-active workspace — clicking one activates
+// that workspace so its full tree loads on the next poll. Kept id-prefixed by
+// workspace key so expansion/keys never collide with the active group, whose
+// project ids are the real (unprefixed) ones.
+const buildShallowProjectNodes = (
+  projects: ProjectSummary[],
+  searchQuery: string,
+  workspaceKey: string,
+  onActivate: () => void,
+): TreeNode[] => {
+  const lowerQuery = searchQuery.toLowerCase().trim();
+  return projects
+    .filter((project) => !lowerQuery || project.name.toLowerCase().includes(lowerQuery))
+    .map((project) => ({
+      id: `${workspaceKey}/${project.id}`,
+      label: project.name,
+      icon: Blocks,
+      iconClassName: "text-blue-500/50",
+      right: <TypeTag kind="proj" />,
+      meta: "switch to view",
+      onSelect: onActivate,
+    }));
+};
+
+// Multi-workspace nav: one collapsible header per served workspace (label +
+// local/remote/unreachable badge). The ACTIVE workspace shows its full
+// interactive project tree (experiments/runs); the others list project names
+// that activate the workspace on click. Single-workspace callers use
+// buildProjectNodes directly (unchanged flat list).
+const buildWorkspaceGroupedNodes = (
+  snapshot: WorkspaceSnapshot,
+  actions: ProjectTreeActions,
+  searchQuery: string,
+  onActivateWorkspace: (ws: ServedWorkspaceSummary) => void,
+): TreeNode[] => {
+  return snapshot.workspaces.map((ws) => {
+    const wsProjects = snapshot.projects.filter((project) => project.workspaceKey === ws.key);
+    const header: TreeNode = {
+      id: `ws:${ws.key}`,
+      label: ws.label,
+      icon: ws.unreachable ? CloudOff : ws.isRemote ? Server : HardDrive,
+      iconClassName: ws.unreachable
+        ? "text-red-500"
+        : ws.active
+          ? "text-blue-500"
+          : "text-muted-foreground",
+      right: workspaceBadge(ws),
+      emptyChildLabel: ws.unreachable ? "Unreachable" : "No projects",
+    };
+    if (ws.unreachable) {
+      return { ...header, children: [] };
+    }
+    if (ws.active) {
+      return { ...header, children: buildProjectNodes(snapshot, actions, searchQuery, wsProjects) };
+    }
+    return {
+      ...header,
+      onSelect: () => onActivateWorkspace(ws),
+      children: buildShallowProjectNodes(wsProjects, searchQuery, ws.key, () =>
+        onActivateWorkspace(ws),
+      ),
+    };
+  });
 };
 
 interface WorkspaceSemantic {
@@ -865,7 +968,24 @@ export const LeftPanel = ({
     onRefresh,
   };
 
-  const projectNodes = buildProjectNodes(snapshot, projectTreeActions, searchQuery);
+  const handleActivateWorkspace = (ws: ServedWorkspaceSummary): void => {
+    void workspaceApi
+      .activateServedWorkspace(ws)
+      .then(() => onRefresh())
+      .catch((err) => console.warn(`Failed to switch to workspace ${ws.key}:`, err));
+  };
+
+  // >1 served workspace → group projects under per-workspace headers; otherwise
+  // today's flat project list (single-workspace behaviour unchanged).
+  const projectNodes =
+    snapshot.workspaces.length > 1
+      ? buildWorkspaceGroupedNodes(
+          snapshot,
+          projectTreeActions,
+          searchQuery,
+          handleActivateWorkspace,
+        )
+      : buildProjectNodes(snapshot, projectTreeActions, searchQuery);
   const workspaceNodes = buildWorkspaceNodes(snapshot, workspaceTreeActions);
   const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);

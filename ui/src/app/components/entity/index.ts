@@ -1,3 +1,12 @@
+export type { DonutSegment, MiniBarDatum, StatTone } from "./Dashboard";
+export {
+  DashboardCard,
+  DashboardGrid,
+  MiniBars,
+  StatCard,
+  StatGrid,
+  StatusDonut,
+} from "./Dashboard";
 export type { DataTableColumn, DataTableProps, DataTableRowAction } from "./DataTable";
 export { DataTable } from "./DataTable";
 export type { EmptyStateDensity, EmptyStateProps } from "./EmptyState";

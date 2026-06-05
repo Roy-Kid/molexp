@@ -2,7 +2,6 @@ import {
   Archive,
   Ban,
   ChevronRight,
-  Code2,
   Copy,
   ExternalLink,
   FileQuestion,
@@ -15,34 +14,30 @@ import { useEffect, useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
 import {
+  DashboardCard,
+  DashboardGrid,
   DataTable,
   EMPTY_COPY,
   EmptyState,
   EntityMetric,
   EntityPage,
-  KeyValueGrid,
-  OverviewHighlight,
-  OverviewHighlightGrid,
-  OverviewPage,
-  OverviewSection,
+  StatCard,
+  StatGrid,
   StatusBadge,
+  StatusDonut,
 } from "@/app/components/entity";
-import { SnapshotDiffPanel } from "@/app/renderers/SnapshotViewer";
+import {
+  countRunStatuses,
+  formatDuration,
+  formatScalar,
+  statusDonutSegments,
+  successRate,
+} from "@/app/renderers/dashboardData";
+import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ObjectView, RendererProps, RunSummary } from "@/app/types";
 import { Button } from "@/components/ui/button";
-
-const formatScalar = (value: unknown): string => {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return String(value);
-  }
-};
 
 const formatResultPreview = (results: Record<string, unknown>): string => {
   const entries = Object.entries(results);
@@ -51,26 +46,11 @@ const formatResultPreview = (results: Record<string, unknown>): string => {
     const [k, v] = entries[0];
     return `${k} = ${formatScalar(v)}`;
   }
-  // Up to 2 keys inline; rest collapsed.
   const head = entries
     .slice(0, 2)
     .map(([k, v]) => `${k}=${formatScalar(v)}`)
     .join(", ");
   return entries.length > 2 ? `${head}, +${entries.length - 2}` : head;
-};
-
-const formatDuration = (startIso: string | null, endIso: string | null): string | null => {
-  if (!startIso || !endIso) return null;
-  const start = Date.parse(startIso);
-  const end = Date.parse(endIso);
-  if (Number.isNaN(start) || Number.isNaN(end)) return null;
-  const ms = Math.max(0, end - start);
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = Math.round(seconds - minutes * 60);
-  return `${minutes}m${remainder}s`;
 };
 
 interface WorkflowPreview {
@@ -85,16 +65,17 @@ const asRecord = (value: unknown): Record<string, unknown> | null => {
 };
 
 const extractTaskNames = (root: Record<string, unknown>): string[] => {
-  // Prefer graph.nodes[].label, then tasks[].id (workflow.json schema).
   const graph = asRecord(root.graph);
   if (graph && Array.isArray(graph.nodes)) {
     return graph.nodes
       .map((node) => {
         const rec = asRecord(node);
         if (!rec) return null;
-        const label =
-          typeof rec.label === "string" ? rec.label : typeof rec.id === "string" ? rec.id : null;
-        return label;
+        return typeof rec.label === "string"
+          ? rec.label
+          : typeof rec.id === "string"
+            ? rec.id
+            : null;
       })
       .filter((v): v is string => Boolean(v));
   }
@@ -111,8 +92,6 @@ const extractTaskNames = (root: Record<string, unknown>): string[] => {
 };
 
 const fetchWorkflowPreview = async (path: string): Promise<WorkflowPreview | null> => {
-  // Code references like "module.py:function" aren't readable as workflow
-  // graphs — bail rather than emitting a 404 in the console.
   if (
     !path ||
     path.includes(":") ||
@@ -146,14 +125,10 @@ export const ExperimentViewer = ({
   const [workflowPreview, setWorkflowPreview] = useState<WorkflowPreview | null>(null);
   const { setSelection } = useNavigationState(snapshot);
 
-  // Find the experiment in snapshot
   const experimentId = selection.objectId;
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
   const projectId = experiment?.projectId || "";
 
-  // Lazy preview of the workflow graph: parse the workflow file (yaml/json)
-  // when one is bound. Function references like "module.py:fn" can't be
-  // parsed as graphs and are skipped (we still show the source path + jump).
   const workflowPath = experiment?.workflowFile || experiment?.workflowSource || null;
   useEffect(() => {
     let cancelled = false;
@@ -169,19 +144,39 @@ export const ExperimentViewer = ({
     };
   }, [workflowPath]);
 
-  // Filter runs for this experiment
   const runs = useMemo(
     () => snapshot.runs.filter((r) => r.experimentId === experimentId),
     [snapshot.runs, experimentId],
   );
 
-  const stats = useMemo(() => {
-    return {
-      total: runs.length,
-      succeeded: runs.filter((r) => r.status === "succeeded").length,
-      failed: runs.filter((r) => r.status === "failed").length,
-      running: runs.filter((r) => r.status === "running").length,
-    };
+  const counts = useMemo(() => countRunStatuses(runs), [runs]);
+  const donut = useMemo(() => statusDonutSegments(counts), [counts]);
+  const rate = successRate(counts);
+
+  const recentRuns = useMemo(() => {
+    return [...runs]
+      .sort((a, b) => {
+        const aT = Date.parse(a.finishedAt ?? a.startedAt ?? a.updatedAt ?? "") || 0;
+        const bT = Date.parse(b.finishedAt ?? b.startedAt ?? b.updatedAt ?? "") || 0;
+        return bT - aT;
+      })
+      .slice(0, 6);
+  }, [runs]);
+
+  // Union of parameter keys across all runs — stable first-seen order. Declared
+  // before any early return so the hook order is unconditional.
+  const parameterKeys = useMemo(() => {
+    const seen = new Set<string>();
+    const order: string[] = [];
+    for (const run of runs) {
+      for (const key of Object.keys(run.parameters ?? {})) {
+        if (!seen.has(key)) {
+          seen.add(key);
+          order.push(key);
+        }
+      }
+    }
+    return order;
   }, [runs]);
 
   const handleDelete = async () => {
@@ -202,18 +197,11 @@ export const ExperimentViewer = ({
   };
 
   const navigateToRun = (runId: string) => {
-    setSelection({
-      objectType: "run",
-      objectId: runId,
-    });
+    setSelection({ objectType: "run", objectId: runId });
   };
 
   const navigateToRunView = (run: RunSummary, objectView?: ObjectView) => {
-    setSelection({
-      objectType: "run",
-      objectId: run.id,
-      objectView,
-    });
+    setSelection({ objectType: "run", objectId: run.id, objectView });
   };
 
   const handleCancelRun = async (run: RunSummary) => {
@@ -253,33 +241,15 @@ export const ExperimentViewer = ({
   }
 
   const project = snapshot.projects.find((item) => item.id === projectId);
-  // mapWorkflows synthesizes one WorkflowSummary per experiment with
-  // id=`workflow:<experimentId>`. Match by experimentId so the lookup
-  // is robust regardless of the workflowFile string.
   const workflow = snapshot.workflows.find((item) => item.experimentId === experiment.id);
-
-  // Union of parameter keys across all runs in this experiment so each
-  // parameter dimension gets its own column. Stable order = first-seen.
-  const parameterKeys = useMemo(() => {
-    const seen = new Set<string>();
-    const order: string[] = [];
-    for (const run of runs) {
-      for (const key of Object.keys(run.parameters ?? {})) {
-        if (!seen.has(key)) {
-          seen.add(key);
-          order.push(key);
-        }
-      }
-    }
-    return order;
-  }, [runs]);
+  const parameterAxes = Object.entries(experiment.parameterSpace ?? {});
 
   const parameterColumns: DataTableColumn<RunSummary>[] = parameterKeys.map((key) => ({
     key: `param:${key}`,
     header: key,
     width: "w-[110px]",
     cell: (run) => {
-      const value = (run.parameters ?? {})[key];
+      const value = run.parameters?.[key];
       return (
         <span className="font-mono text-xs text-foreground">
           {value === undefined ? (
@@ -408,6 +378,215 @@ export const ExperimentViewer = ({
     },
   ];
 
+  const overviewContent = (
+    <DashboardGrid>
+      {/* KPI band */}
+      <div className="lg:col-span-12">
+        <StatGrid>
+          <StatCard label="Runs" value={counts.total} muted={counts.total === 0} />
+          <StatCard
+            label="Succeeded"
+            value={counts.succeeded}
+            tone="success"
+            muted={counts.succeeded === 0}
+          />
+          <StatCard label="Failed" value={counts.failed} tone="error" muted={counts.failed === 0} />
+          <StatCard
+            label="Running"
+            value={counts.running}
+            tone="running"
+            muted={counts.running === 0}
+          />
+          <StatCard
+            label="Success rate"
+            value={rate === null ? "—" : `${rate.toFixed(0)}%`}
+            hint={
+              rate === null
+                ? "no terminal runs"
+                : `${counts.succeeded}/${counts.succeeded + counts.failed + counts.cancelled} terminal`
+            }
+            tone={
+              rate === null ? "neutral" : rate >= 80 ? "success" : rate >= 50 ? "warning" : "error"
+            }
+            muted={rate === null}
+          />
+        </StatGrid>
+      </div>
+
+      {/* Status mix donut */}
+      <DashboardCard title="Status mix" className="lg:col-span-5">
+        {counts.total === 0 ? (
+          <p className="text-xs italic text-muted-foreground">No runs launched yet.</p>
+        ) : (
+          <StatusDonut segments={donut} centerLabel="runs" />
+        )}
+      </DashboardCard>
+
+      {/* Recent runs */}
+      <DashboardCard
+        title="Recent runs"
+        className="lg:col-span-7"
+        bodyClassName="p-0"
+        action={
+          counts.total > 0 ? (
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {Math.min(recentRuns.length, counts.total)} of {counts.total}
+            </span>
+          ) : undefined
+        }
+      >
+        {recentRuns.length === 0 ? (
+          <p className="p-3 text-xs italic text-muted-foreground">No runs yet.</p>
+        ) : (
+          <ul className="divide-y divide-border/50">
+            {recentRuns.map((run) => {
+              const duration = formatDuration(run.startedAt, run.finishedAt);
+              const when = run.finishedAt ?? run.startedAt ?? run.updatedAt;
+              return (
+                <li key={run.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigateToRunView(run)}
+                    className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40"
+                  >
+                    <StatusBadge status={run.status} size="sm" />
+                    <span className="min-w-0 truncate font-medium text-foreground">
+                      {run.name || run.id.substring(0, 8)}
+                    </span>
+                    <span className="font-mono text-muted-foreground">{duration ?? "—"}</span>
+                    <span className="hidden text-muted-foreground sm:inline">
+                      {when ? new Date(when).toLocaleString() : "—"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </DashboardCard>
+
+      {/* Parameter space */}
+      <DashboardCard title="Parameter space" className="lg:col-span-6">
+        {parameterAxes.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">No parameter axes declared.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {parameterAxes.map(([key, value]) => (
+              <span
+                key={key}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs"
+                title={formatScalar(value)}
+              >
+                <span className="font-medium text-foreground">{key}</span>
+                <span className="max-w-[160px] truncate font-mono text-[11px] text-muted-foreground">
+                  {formatScalar(value)}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+      </DashboardCard>
+
+      {/* Workflow */}
+      <DashboardCard
+        title="Workflow"
+        className="lg:col-span-6"
+        action={
+          workflow && (experiment.workflowSource || experiment.workflowFile) ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
+              onClick={() =>
+                setSelection({
+                  objectType: "workflow",
+                  objectId: workflow.id,
+                  workflowId: workflow.id,
+                })
+              }
+            >
+              Open <ChevronRight className="h-3 w-3" />
+            </Button>
+          ) : undefined
+        }
+      >
+        {workflow && (experiment.workflowSource || experiment.workflowFile) ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <WorkflowIcon className="h-4 w-4 flex-none text-sky-500" />
+              <span className="min-w-0 break-all font-mono text-xs text-foreground">
+                {experiment.workflowSource || experiment.workflowFile}
+              </span>
+            </div>
+            {workflowPreview ? (
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                  {workflowPreview.taskNames.length} tasks
+                  {workflowPreview.edgeCount > 0 ? ` · ${workflowPreview.edgeCount} edges` : ""}
+                </span>
+                {workflowPreview.taskNames.slice(0, 8).map((name) => (
+                  <span
+                    key={name}
+                    className="rounded-sm border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground"
+                  >
+                    {name}
+                  </span>
+                ))}
+                {workflowPreview.taskNames.length > 8 && (
+                  <span className="text-[11px] text-muted-foreground">
+                    +{workflowPreview.taskNames.length - 8}
+                  </span>
+                )}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">Open to inspect the task graph.</p>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs italic text-muted-foreground">No workflow file recorded.</p>
+        )}
+      </DashboardCard>
+
+      {/* Details */}
+      <DashboardCard title="Details" className="lg:col-span-12">
+        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="min-w-0">
+            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Project</dt>
+            <dd className="mt-0.5">
+              <button
+                type="button"
+                onClick={() => setSelection({ objectType: "project", objectId: projectId })}
+                className="truncate text-sm text-foreground hover:text-primary hover:underline"
+              >
+                {project?.name || projectId}
+              </button>
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Experiment ID
+            </dt>
+            <dd className="mt-0.5 truncate font-mono text-sm text-foreground">{experiment.id}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              Workflow file
+            </dt>
+            <dd className="mt-0.5 truncate font-mono text-sm text-foreground">
+              {experiment.workflowFile || "—"}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Updated</dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {new Date(experiment.updatedAt).toLocaleString()}
+            </dd>
+          </div>
+        </dl>
+      </DashboardCard>
+    </DashboardGrid>
+  );
+
   return (
     <EntityPage
       icon={FlaskConical}
@@ -437,16 +616,21 @@ export const ExperimentViewer = ({
       }
       metrics={
         <>
-          <EntityMetric label="Runs" value={stats.total} />
-          <EntityMetric label="Succeeded" value={stats.succeeded} />
-          <EntityMetric label="Failed" value={stats.failed} />
-          <EntityMetric label="Running" value={stats.running} />
+          <EntityMetric label="Runs" value={counts.total} />
+          <EntityMetric label="OK" value={counts.succeeded} />
+          <EntityMetric label="Failed" value={counts.failed} />
+          <EntityMetric label="Running" value={counts.running} />
         </>
       }
       tabs={[
         {
+          value: "overview",
+          label: "Overview",
+          content: overviewContent,
+        },
+        {
           value: "runs",
-          label: "Runs",
+          label: `Runs${counts.total ? ` (${counts.total})` : ""}`,
           content: (
             <DataTable
               columns={runColumns}
@@ -464,145 +648,9 @@ export const ExperimentViewer = ({
           ),
         },
         {
-          value: "overview",
-          label: "Overview",
-          content: (
-            <OverviewPage
-              aside={
-                <>
-                  <OverviewSection title="Run Summary">
-                    <OverviewHighlightGrid>
-                      <OverviewHighlight label="Total" value={stats.total} detail="runs" />
-                      <OverviewHighlight label="Succeeded" value={stats.succeeded} />
-                      <OverviewHighlight label="Failed" value={stats.failed} />
-                      <OverviewHighlight label="Running" value={stats.running} />
-                    </OverviewHighlightGrid>
-                  </OverviewSection>
-
-                  <OverviewSection title="Relationships">
-                    <div className="flex flex-wrap gap-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 px-2 text-xs"
-                        onClick={() => setSelection({ objectType: "project", objectId: projectId })}
-                      >
-                        Project: {project?.name || projectId}
-                      </Button>
-                      {workflow && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          onClick={() =>
-                            setSelection({
-                              objectType: "workflow",
-                              objectId: workflow.id,
-                              workflowId: workflow.id,
-                            })
-                          }
-                        >
-                          Workflow: {workflow.name}
-                        </Button>
-                      )}
-                    </div>
-                  </OverviewSection>
-                </>
-              }
-            >
-              <OverviewSection title="Summary">
-                <p className="max-w-3xl text-sm leading-6 text-foreground">
-                  {experiment.summary || (
-                    <span className="text-muted-foreground">No summary provided.</span>
-                  )}
-                </p>
-              </OverviewSection>
-
-              {Object.keys(experiment.parameterSpace ?? {}).length > 0 && (
-                <OverviewSection
-                  title="Parameter sweep"
-                  description="Declared parameter axes for this experiment."
-                >
-                  <KeyValueGrid
-                    items={Object.entries(experiment.parameterSpace).map(([key, value]) => ({
-                      label: key,
-                      value: <span className="font-mono text-xs">{formatScalar(value)}</span>,
-                    }))}
-                  />
-                </OverviewSection>
-              )}
-
-              <OverviewSection title="Workflow">
-                {workflow && (experiment.workflowSource || experiment.workflowFile) ? (
-                  <button
-                    type="button"
-                    className="group flex w-full max-w-3xl items-start gap-3 rounded-md border border-border/70 bg-muted/30 p-3 text-left transition-colors hover:border-border hover:bg-muted/50 focus:outline-none focus:ring-2 focus:ring-ring"
-                    onClick={() =>
-                      setSelection({
-                        objectType: "workflow",
-                        objectId: workflow.id,
-                        workflowId: workflow.id,
-                      })
-                    }
-                  >
-                    <WorkflowIcon className="mt-0.5 h-4 w-4 flex-none text-muted-foreground" />
-                    <div className="min-w-0 flex-1 space-y-2">
-                      <div className="break-all font-mono text-xs text-foreground">
-                        {experiment.workflowSource || experiment.workflowFile}
-                      </div>
-                      {workflowPreview ? (
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                            {workflowPreview.taskNames.length} tasks
-                            {workflowPreview.edgeCount > 0
-                              ? ` · ${workflowPreview.edgeCount} edges`
-                              : ""}
-                          </span>
-                          {workflowPreview.taskNames.slice(0, 6).map((name) => (
-                            <span
-                              key={name}
-                              className="rounded-sm border border-border/70 bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-                            >
-                              {name}
-                            </span>
-                          ))}
-                          {workflowPreview.taskNames.length > 6 && (
-                            <span className="text-[11px] text-muted-foreground">
-                              +{workflowPreview.taskNames.length - 6} more
-                            </span>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                          <Code2 className="h-3 w-3" />
-                          <span>Click to open in the workflow viewer</span>
-                        </div>
-                      )}
-                    </div>
-                    <ChevronRight className="mt-0.5 h-4 w-4 flex-none text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-                  </button>
-                ) : (
-                  <p className="text-sm italic text-muted-foreground">No workflow file recorded.</p>
-                )}
-              </OverviewSection>
-
-              <OverviewSection title="Metadata">
-                <KeyValueGrid
-                  items={[
-                    { label: "Experiment ID", value: experiment.id },
-                    { label: "Project ID", value: projectId },
-                    { label: "Workflow File", value: experiment.workflowFile || "-" },
-                    { label: "Updated", value: new Date(experiment.updatedAt).toLocaleString() },
-                  ]}
-                />
-              </OverviewSection>
-            </OverviewPage>
-          ),
-        },
-        {
-          value: "diff",
-          label: "Diff",
-          content: <SnapshotDiffPanel experimentRunIds={runs.map((r) => r.id)} />,
+          value: "compare",
+          label: "Compare",
+          content: <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />,
         },
       ]}
     />
