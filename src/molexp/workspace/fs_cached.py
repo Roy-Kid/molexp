@@ -10,10 +10,12 @@ trips for the configured TTL.  Mutations (write/rename/remove)
 invalidate the affected entry before delegating.
 
 Index files are not special-cased — they are just paths.  The eager
-prefetch helper :func:`prefetch_workspace_indices` walks the standard
-``workspace.json`` → ``projects.json`` → ``experiments.json`` →
-``runs.json`` chain through :meth:`read_text`, so the navigation tree is
-populated as a side-effect of caching.
+prefetch helper :func:`prefetch_workspace_indices` walks the workspace by
+``listdir`` plus the per-entity ``workspace.json`` / ``project.json`` /
+``experiment.json`` / ``run.json`` metadata files through
+:meth:`read_text`, so the navigation tree is populated as a side-effect
+of caching.  The entity ``*.json`` is the sole truth source; there is no
+separate plural container-index chain.
 
 Layer rule: lives in the workspace layer next to ``fs_local.py`` and
 ``fs_remote.py``; reaches only into sibling FS modules and the
@@ -58,13 +60,11 @@ INDEX_FILE_NAMES: frozenset[str] = frozenset(
 )
 """Files whose basename identifies them as a navigation-index artefact.
 
-In molexp's workspace layout these singular names serve two roles
-distinguished by location: at a parent's path they are the
-children-index (auto-derived from ``cls.__name__`` snake_case, see
-:meth:`Folder._index_filename`); at a child's path they are that
-child's own metadata.  Both roles count as navigation index for the
-``scope="indices"`` invalidation path, so log/asset bytes are spared
-when the user clicks refresh.
+In molexp's workspace layout these singular names are an entity's own
+metadata (``<child>/run.json`` etc.); the entity ``*.json`` is the sole
+truth source for the navigation tree.  Their basenames double as the
+``scope="indices"`` invalidation set, so a refresh drops cached
+navigation metadata while sparing log/asset bytes.
 """
 
 _SIDECAR_FILENAME = "_index.json"
@@ -531,29 +531,29 @@ class _PrefetchState:
 
 
 def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
-    """Walk the workspace's children-index files through ``workspace._fs``.
+    """Walk the workspace's entity metadata through ``workspace._fs``.
 
     Reads (in order):
 
     1. ``<root>/workspace.json`` — workspace metadata.
-    2. ``<root>/project.json`` — children-index of projects (auto-derived
-       singular filename, see :meth:`Folder._index_filename`).
-    3. For each project: that project's own ``project.json`` plus its
-       ``experiment.json`` children-index.
-    4. For each experiment: same dance with ``experiment.json`` /
-       ``run.json``.
+    2. For each project under ``<root>/projects/``: that project's own
+       ``project.json`` metadata.
+    3. For each experiment under ``<project>/experiments/``: its
+       ``experiment.json`` metadata.
+    4. For each run under ``<experiment>/runs/``: its ``run.json``
+       metadata.
 
-    Every read flows through ``workspace._fs.read_text`` — if the FS is
-    a :class:`CachedRemoteFileSystem`, the entries are cached as a side
+    Child names come from a ``listdir`` of each container directory; the
+    sibling children-index file (``project.json`` / ``experiment.json`` /
+    ``run.json`` at the *parent* path) is read once to warm the cache but
+    is no longer the source of truth — the entity ``*.json`` is.  Every
+    read flows through ``workspace._fs.read_text``; if the FS is a
+    :class:`CachedRemoteFileSystem`, the entries are cached as a side
     effect, so subsequent navigation clicks hit zero SSH.
 
     Missing or unreadable nodes degrade to :class:`PrefetchWarning`
     entries; the walk continues so a single bad project does not blank
-    the whole tree.  The workspace `project.json` index, the per-project
-    `experiment.json` index, and the per-experiment `run.json` index are
-    only written when the parent triggers a rebuild — fresh hierarchies
-    therefore rely on the ``listdir`` fallback rather than emitting
-    spurious warnings.
+    the whole tree.
 
     Returns:
         A flat list of warnings in walk order.  Empty list on a clean
@@ -570,7 +570,6 @@ def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
         index_path=fs.join(root, "project.json"),
         per_child_metadata="project.json",
         state=state,
-        warn_on_missing_index=False,
     )
     for project_name in project_names:
         project_dir = fs.join(projects_dir, project_name)
@@ -581,7 +580,6 @@ def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
             index_path=fs.join(project_dir, "experiment.json"),
             per_child_metadata="experiment.json",
             state=state,
-            warn_on_missing_index=False,
         )
         for experiment_name in experiment_names:
             experiment_dir = fs.join(experiments_dir, experiment_name)
@@ -592,7 +590,6 @@ def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
                 index_path=fs.join(experiment_dir, "run.json"),
                 per_child_metadata="run.json",
                 state=state,
-                warn_on_missing_index=False,
             )
     return state.warnings
 
@@ -622,40 +619,30 @@ def _read_container_children(
     index_path: str,
     per_child_metadata: str,
     state: _PrefetchState,
-    warn_on_missing_index: bool = True,
 ) -> list[str]:
-    """Try the children-index file first; fall back to ``listdir``.
+    """Warm the children-index, then list the container directly.
 
-    Returns the names of subdirectories (slugs) whose metadata read
-    succeeded.  Per-child failure is recorded as a warning and the child
-    is omitted from the returned list.
+    The sibling children-index file at *index_path* is read once to warm
+    the cache (navigation reads it back), but the authoritative child
+    names come from a ``listdir`` of *container_dir* plus a per-child
+    metadata probe — the entity ``*.json`` is the sole truth source, the
+    run subdir name (``run-<id>``) differs from any index key, and the
+    index is rebuilt lazily so a fresh hierarchy may lack it.
 
-    ``warn_on_missing_index=False`` swallows a missing index file
-    silently — useful when the index is rebuilt lazily by the workspace
-    (a fresh hierarchy would otherwise emit a spurious warning).  Any
-    *non*-FileNotFoundError transport error still surfaces as a warning.
+    A *missing* index is silent (the directory scan covers it); any
+    non-``FileNotFoundError`` transport error on the index read still
+    surfaces as a warning.  Returns the names of subdirectories whose
+    metadata read succeeded; per-child failures are recorded as warnings
+    and omitted.
     """
-    raw = _safe_read(fs, index_path, state, warn_on_missing=warn_on_missing_index)
-    names: list[str] = []
-    if raw is not None:
-        try:
-            data = json.loads(raw)
-            items = data.get("items", []) if isinstance(data, dict) else []
-        except json.JSONDecodeError as exc:
-            state.warnings.append(PrefetchWarning(path=index_path, reason=f"invalid JSON: {exc}"))
-            items = []
-        for item in items:
-            if isinstance(item, dict) and "path" in item:
-                names.append(str(item["path"]))
-    if not names:
-        # Fallback: scan the container directory directly.
-        try:
-            names = fs.listdir(container_dir)
-        except FileNotFoundError:
-            return []
-        except Exception as exc:
-            state.warnings.append(PrefetchWarning(path=container_dir, reason=str(exc)))
-            return []
+    _safe_read(fs, index_path, state, warn_on_missing=False)
+    try:
+        names = fs.listdir(container_dir)
+    except FileNotFoundError:
+        return []
+    except Exception as exc:
+        state.warnings.append(PrefetchWarning(path=container_dir, reason=str(exc)))
+        return []
     healthy: list[str] = []
     for name in names:
         meta_path = fs.join(container_dir, name, per_child_metadata)

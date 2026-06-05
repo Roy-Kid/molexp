@@ -35,6 +35,13 @@ DELETED_SYMBOLS = [
     "resumed_step",
     "checkpoint_step",
     "last_step",
+    # workspace-slim-02: the bare-pathlib container-index mechanism — the
+    # entity *.json is the sole truth source, the catalog the derived index.
+    "_rebuild_container_index",
+    "_refresh_runs_index",
+    "_refresh_executions_index",
+    "_refresh_experiments_index",
+    "_refresh_projects_index",
 ]
 
 DELETED_FILES = [

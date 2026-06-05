@@ -19,7 +19,6 @@ from molexp.path import Path
 from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import (
     _load_metadata,
-    _rebuild_container_index,
     _save_metadata,
 )
 from .cache import CacheFolder
@@ -219,9 +218,9 @@ class Workspace(Folder):
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self._catalog_upsert()
 
-    def _catalog_upsert(self) -> None:
+    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
         meta = self._entity_metadata
-        self.catalog.upsert_workspace(
+        catalog.upsert_workspace(
             {
                 "workspace_id": meta.id,
                 "root_path": self.resolve(),
@@ -292,7 +291,6 @@ class Workspace(Folder):
             self._projects_cache.pop(slug, None)
         self.remove_folder(name, cls=Project)
         self.catalog.remove_project(slug)
-        self._refresh_projects_index()
 
     def list_projects(self) -> list[Project]:
         """List all projects in this workspace via the typed CRUD view."""
@@ -303,12 +301,3 @@ class Workspace(Folder):
         if kind is not None and kind != WORKSPACE_PROJECT_KIND:
             return []
         return list(self.list_projects())
-
-    def _refresh_projects_index(self) -> None:
-        root_str = self.resolve()
-        _rebuild_container_index(
-            container_dir=self._fs.join(root_str, "projects"),
-            index_filename="projects.json",
-            metadata_filename="project.json",
-            fields=["id", "name", "description", "created_at"],
-        )

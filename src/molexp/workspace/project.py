@@ -16,12 +16,12 @@ from typing import TYPE_CHECKING, Any, cast
 from molexp.path import Path
 
 if TYPE_CHECKING:
+    from .catalog import AssetCatalog
     from .workspace import Workspace
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary, ImportAction
 from .base import (
     _load_metadata,
-    _rebuild_container_index,
     _reconstruct,
     _save_metadata,
 )
@@ -211,9 +211,9 @@ class Project(Folder):
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self._catalog_upsert()
 
-    def _catalog_upsert(self) -> None:
+    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
         meta = self._entity_metadata
-        self.workspace.catalog.upsert_project(
+        catalog.upsert_project(
             {
                 "project_id": meta.id,
                 "workspace_id": self.workspace.id,
@@ -280,7 +280,6 @@ class Project(Folder):
         self._experiments_cache.pop(slug, None)
         self.remove_folder(name, cls=Experiment)
         self.workspace.catalog.remove_experiment(slug)
-        self._refresh_experiments_index()
 
     def list_experiments(self) -> list[Experiment]:
         """List all experiments in this project via the typed CRUD view."""
@@ -291,11 +290,3 @@ class Project(Folder):
         if kind is not None and kind != WORKSPACE_EXPERIMENT_KIND:
             return []
         return list(self.list_experiments())
-
-    def _refresh_experiments_index(self) -> None:
-        _rebuild_container_index(
-            container_dir=self._fs.join(self.project_dir, "experiments"),
-            index_filename="experiments.json",
-            metadata_filename="experiment.json",
-            fields=["id", "name", "description", "tags", "n_replicas", "created_at"],
-        )

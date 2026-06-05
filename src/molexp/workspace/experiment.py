@@ -29,6 +29,7 @@ import json
 from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from .catalog import AssetCatalog
     from .project import Project
     from .workspace import Workspace
 
@@ -38,7 +39,6 @@ from molexp.path import Path
 from .assets import AssetScope, AssetsView, DataAssetLibrary
 from .base import (
     _load_metadata,
-    _rebuild_container_index,
     _reconstruct,
     _save_metadata,
 )
@@ -342,10 +342,9 @@ class Experiment(Folder):
             self._fs.remove(doc_path)
         return self._entity_metadata
 
-    def _catalog_upsert(self) -> None:
-        ws = self.project.workspace
+    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
         meta = self._entity_metadata
-        ws.catalog.upsert_experiment(
+        catalog.upsert_experiment(
             {
                 "experiment_id": meta.id,
                 "project_id": self.project.id,
@@ -410,7 +409,6 @@ class Experiment(Folder):
     def remove_run(self, run_id: str) -> None:
         self.remove_folder(run_id, cls=Run)
         self.project.workspace.catalog.remove_run(run_id)
-        self._refresh_runs_index()
 
     # ── Internal helpers ────────────────────────────────────────────────
 
@@ -433,11 +431,3 @@ class Experiment(Folder):
         if kind is not None and kind != WORKSPACE_RUN_KIND:
             return []
         return list(self.list_runs())
-
-    def _refresh_runs_index(self) -> None:
-        _rebuild_container_index(
-            container_dir=self._fs.join(self.experiment_dir, "runs"),
-            index_filename="runs.json",
-            metadata_filename="run.json",
-            fields=["id", "status", "parameters", "profile", "created_at", "finished_at"],
-        )

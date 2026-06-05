@@ -16,8 +16,6 @@ from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
 
-from molexp._typing import JSONValue
-
 if TYPE_CHECKING:
     from .fs import FileSystem
 
@@ -137,71 +135,6 @@ def _reconstruct[T](
     for key, value in attrs.items():
         setattr(obj, key, value)
     return obj
-
-
-def _rebuild_container_index(
-    container_dir: str | Path,
-    index_filename: str,
-    metadata_filename: str,
-    fields: list[str],
-) -> None:
-    """Rebuild a container directory's index file by scanning child entries.
-
-    Each container level (``projects/``, ``experiments/``, ``runs/``,
-    ``executions/``) ships a sibling ``<container>.json`` index of the
-    form ``{ "updated_at": ..., "items": [...] }``.  The filesystem scan
-    is the source of truth; the index is a cache that local tools can
-    consume without loading the global catalog.
-
-    Args:
-        container_dir: Directory holding child subdirectories
-            (e.g. ``<exp_dir>/runs/``).
-        index_filename: Output filename written next to *container_dir*
-            with a matching basename (e.g. ``runs.json``).
-        metadata_filename: Per-child metadata file to load
-            (e.g. ``run.json``).
-        fields: Top-level field names to copy from each child's metadata
-            JSON into its index entry.  ``id`` and ``name`` are always
-            included if present; the relative ``path`` is added
-            automatically.
-
-    Notes:
-        Silently skips child dirs whose metadata file is missing or
-        unreadable — the catalog remains the authoritative cross-cutting
-        index.
-    """
-    from datetime import datetime
-
-    cdir = Path(container_dir)
-    items: list[dict[str, JSONValue]] = []
-    if cdir.exists():
-        for child_dir in sorted(cdir.iterdir(), key=lambda p: p.name):
-            if not child_dir.is_dir():
-                continue
-            mfile = child_dir / metadata_filename
-            if not mfile.exists():
-                continue
-            try:
-                with open(mfile) as fh:  # noqa: PTH123
-                    data = json.load(fh)
-            except (OSError, json.JSONDecodeError):
-                continue
-            entry: dict[str, JSONValue] = {"path": child_dir.name}
-            for f in fields:
-                if f in data:
-                    entry[f] = data[f]
-            items.append(entry)
-
-    from .schema_version import write_versioned_json
-
-    index_path = cdir.parent / index_filename
-    write_versioned_json(
-        index_path,
-        {
-            "updated_at": datetime.now().isoformat(),
-            "items": items,
-        },
-    )
 
 
 def _list_children[T](

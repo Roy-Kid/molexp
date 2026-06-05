@@ -64,7 +64,6 @@ from .assets import (  # noqa: E402
 from .assets.manifest import MANIFEST_FILENAME  # noqa: E402, F401
 from .base import (  # noqa: E402
     _load_metadata,
-    _rebuild_container_index,
     _reconstruct,
     _save_metadata,
 )
@@ -266,7 +265,6 @@ class RunContext:
                 status=RunStatus.RUNNING.value,
             )
         )
-        self._refresh_executions_index()
         self._append_run_log(f"execution started  exec_id={self._execution_id}")
 
         self._save_context()
@@ -305,8 +303,6 @@ class RunContext:
             status=final.value,
             error=error_info,
         )
-        self._refresh_executions_index()
-        self.run.experiment._refresh_runs_index()
         self._append_run_log(
             f"execution finished exec_id={self._execution_id}  status={final.value}"
         )
@@ -566,21 +562,6 @@ class RunContext:
         current = ExecutionMetadata(**read_versioned_json(target))
         merged = current.model_copy(update=updates)
         write_versioned_json(target, merged.model_dump(mode="json"))
-
-    def _refresh_executions_index(self) -> None:
-        _rebuild_container_index(
-            container_dir=self.work_dir / "executions",
-            index_filename="executions.json",
-            metadata_filename="execution.json",
-            fields=[
-                "execution_id",
-                "run_id",
-                "status",
-                "started_at",
-                "finished_at",
-                "scheduler_job_id",
-            ],
-        )
 
     def _next_execution_id(self) -> str:
         """Return the execution_id for this attempt.
@@ -854,8 +835,7 @@ class Run(Folder):
         _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
         self._catalog_upsert()
 
-    def _catalog_upsert(self) -> None:
-        ws = self.experiment.project.workspace
+    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
         record = {
             "run_id": self.metadata.id,
             "experiment_id": self.experiment.id,
@@ -873,10 +853,10 @@ class Run(Folder):
                 dict(self.metadata.workflow_snapshot) if self.metadata.workflow_snapshot else None
             ),
         }
-        ws.catalog.upsert_run(record)
+        catalog.upsert_run(record)
         # Upsert every execution record in history
         for rec in self.metadata.execution_history:
-            ws.catalog.upsert_execution(
+            catalog.upsert_execution(
                 {
                     "execution_id": rec.execution_id,
                     "run_id": self.metadata.id,
@@ -975,19 +955,6 @@ class Run(Folder):
             history.pop(matched_idx)
             self._update_metadata(execution_history=history)
         self.experiment.project.workspace.catalog.remove_execution(execution_id)
-        _rebuild_container_index(
-            container_dir=Path(self.run_dir / "executions"),
-            index_filename="executions.json",
-            metadata_filename="execution.json",
-            fields=[
-                "execution_id",
-                "run_id",
-                "status",
-                "started_at",
-                "finished_at",
-                "scheduler_job_id",
-            ],
-        )
 
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 
