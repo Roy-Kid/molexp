@@ -62,18 +62,17 @@ def _maybe_dump_config(task: _SnapshotableTask) -> dict[str, JSONValue]:
 
 
 def _normalize_ast(source: str) -> str:
-    """Normalize Python source via AST dump, stripping comments, whitespace and decorators.
+    """Normalize Python source via AST dump, stripping comments and whitespace.
 
-    Two functions that differ only in comments, blank lines, formatting, or
-    decorators (e.g. @jit, @cache) will produce the same normalized output.
-    Only the function body matters for semantic identity.
+    Two functions that differ only in comments, blank lines, or formatting
+    produce the same normalized output. Decorators ARE part of semantic
+    identity: a decorator can change behaviour (``@retry(n)``, ``@lru_cache``,
+    a units/validation wrapper), so it must change the code hash — otherwise
+    the content-addressed cache silently returns a stale/wrong result. The AST
+    dump already ignores a decorator's own whitespace/comment formatting, so
+    keeping decorators costs no spurious invalidation.
     """
     tree = ast.parse(textwrap.dedent(source))
-    # Strip decorator_list from all function/async-function definitions
-    # so that adding/removing decorators does not change the code hash.
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            node.decorator_list = []
     return ast.dump(tree, annotate_fields=True, include_attributes=False)
 
 
