@@ -4,12 +4,35 @@
  * flowgram free-layout canvas, and saves edits back via {@link workflowApi}.
  * Clicking a node opens the right-panel TaskViewer via `inspectedTask`.
  *
+ * Editing safety: a failed save surfaces a dismissible error and keeps the draft
+ * so the user can retry; ⌘S/Ctrl+S saves; navigating away (in-app or full
+ * unload) with unsaved edits prompts to confirm; Discard reverts to the last
+ * saved graph.
+ *
  * Raw workspace-file `workflow.json` previews are a different source + format
  * and are handled by {@link WorkflowFileViewer}; this viewer only ever receives
  * ``workflow`` entity selections (it is mounted solely by WorkflowViewer).
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useBlocker } from "react-router-dom";
+import { workflowApi } from "@/app/state/api";
+import { useInspectedTask } from "@/app/state/inspectedTask";
+import type { RendererProps } from "@/app/types";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import { FlowgramCanvasToolbar } from "@/components/workflow/flowgram-canvas-toolbar";
 import {
@@ -19,11 +42,6 @@ import {
   normalizeTaskGraph,
   taskGraphToWireDocument,
 } from "@/components/workflow/flowgram-document";
-import { workflowApi } from "@/app/state/api";
-import { useInspectedTask } from "@/app/state/inspectedTask";
-import type { RendererProps } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
@@ -33,6 +51,12 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
   const [savedGraph, setSavedGraph] = useState<TaskGraphJson | null>(null);
   const [draft, setDraft] = useState<FlowgramDocument | null>(null);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Bumped on save/discard to force the canvas to re-initialize from the
+  // authoritative document (flowgram only reads `initialData` on mount).
+  const [revision, setRevision] = useState(0);
+
+  const dirty = draft !== null;
 
   // Reset edit state whenever the selected workflow changes. objectId is a
   // trigger, not a read — biome's exhaustive-deps can't see that and would
@@ -41,6 +65,7 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
   useEffect(() => {
     setSavedGraph(null);
     setDraft(null);
+    setError(null);
   }, [selection.objectId]);
 
   // Prefer the freshly-saved graph, else the snapshot's IR.
@@ -50,22 +75,75 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
     [graph],
   );
 
-  const handleSave = async (): Promise<void> => {
+  const handleSave = useCallback(async (): Promise<void> => {
     if (!workflow || !draft) return;
     setSaving(true);
+    setError(null);
     try {
       const wire = taskGraphToWireDocument(
         flowgramDocToTaskGraphJson(draft, workflow.name ?? "Workflow"),
       );
       const persisted = await workflowApi.save(workflow.projectId, workflow.experimentId, wire);
       // Reload from the server-normalized document so the canvas reflects
-      // exactly what was persisted.
+      // exactly what was persisted, and remount it to drop the stale draft.
       setSavedGraph(normalizeTaskGraph(persisted));
       setDraft(null);
+      setRevision((r) => r + 1);
+    } catch (err) {
+      // Keep `draft` so the user can fix and retry — never silently lose edits.
+      setError(
+        err instanceof Error
+          ? `Couldn't save workflow: ${err.message}`
+          : "Couldn't save workflow. Check your connection and try again.",
+      );
     } finally {
       setSaving(false);
     }
-  };
+  }, [workflow, draft]);
+
+  const handleDiscard = useCallback((): void => {
+    setDraft(null);
+    setError(null);
+    setRevision((r) => r + 1);
+  }, []);
+
+  // ⌘S / Ctrl+S saves when there are unsaved edits.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+        if (!dirty || saving) return;
+        event.preventDefault();
+        void handleSave();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [dirty, saving, handleSave]);
+
+  // Warn before a full-page unload (refresh / close / external nav) while dirty.
+  useEffect(() => {
+    if (!dirty) return;
+    const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  // Intercept in-app navigation (e.g. selecting another workflow) while dirty so
+  // edits aren't silently dropped. Requires the data router (see index.tsx).
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+
+  // If the edits get saved/discarded while a block is pending, let nav through.
+  useEffect(() => {
+    if (blocker.state === "blocked" && !dirty) {
+      blocker.reset?.();
+    }
+  }, [blocker, dirty]);
 
   if (!workflow) {
     return (
@@ -80,25 +158,52 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
     );
   }
 
+  const isEmpty = !document || document.nodes.length === 0;
+
   return (
     <Card className="flex h-full flex-col">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg">Workflow Graph</CardTitle>
-          <div className="flex items-center gap-2">
-            {workflow.name && <Badge variant="outline">{workflow.name}</Badge>}
-            <FlowgramCanvasToolbar onSave={handleSave} saving={saving} dirty={draft !== null} />
-          </div>
+        <div className="flex items-center justify-end gap-2">
+          {workflow.name && <Badge variant="outline">{workflow.name}</Badge>}
+          <FlowgramCanvasToolbar
+            onSave={handleSave}
+            onDiscard={handleDiscard}
+            saving={saving}
+            dirty={dirty}
+          />
         </div>
       </CardHeader>
+
+      {error && (
+        <div
+          role="alert"
+          className="mx-6 mb-2 flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+            className="-mr-1 shrink-0 rounded-sm p-0.5 text-destructive/80 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
       <CardContent className="flex-1 p-0">
         <div className="h-full w-full">
-          {!document || document.nodes.length === 0 ? (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">No tasks to display.</p>
+          {isEmpty ? (
+            <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+              <p className="text-sm font-medium text-foreground">No tasks in this workflow yet</p>
+              <p className="max-w-sm text-xs text-muted-foreground">
+                Its graph is empty or hasn't been compiled. Open the Source tab to view or edit the
+                workflow definition.
+              </p>
             </div>
           ) : (
             <FlowgramCanvas
+              key={`${workflow.id}:${revision}`}
               document={document}
               editable
               onChange={setDraft}
@@ -107,6 +212,31 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
           )}
         </div>
       </CardContent>
+
+      <AlertDialog
+        open={blocker.state === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) blocker.reset?.();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave with unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your edits to this workflow graph haven't been saved. Leaving now discards them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => blocker.reset?.()}>Stay</AlertDialogCancel>
+            <AlertDialogAction
+              className={buttonVariants({ variant: "destructive" })}
+              onClick={() => blocker.proceed?.()}
+            >
+              Leave
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 };
