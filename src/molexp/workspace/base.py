@@ -10,7 +10,6 @@ import contextlib
 import json
 import os
 import tempfile
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
@@ -135,37 +134,3 @@ def _reconstruct[T](
     for key, value in attrs.items():
         setattr(obj, key, value)
     return obj
-
-
-def _list_children[T](
-    children_dir: Path,
-    metadata_filename: str,
-    metadata_cls: type[BaseModel],
-    child_cls: type[T],
-    attrs_factory: Callable[[BaseModel], dict[str, object]],
-) -> list[T]:
-    """List child nodes by scanning a directory for metadata files.
-
-    Args:
-        children_dir: Directory containing child subdirectories.
-        metadata_filename: Name of the metadata JSON file (e.g. "project.json").
-        metadata_cls: Pydantic model class for deserialization.
-        child_cls: Class of the child to reconstruct.
-        attrs_factory: Callable(metadata) -> dict of attrs to pass to _reconstruct.
-
-    Returns:
-        List of reconstructed child instances.
-    """
-    if not children_dir.exists():
-        return []
-
-    children: list[T] = []
-    for child_dir in children_dir.iterdir():
-        if child_dir.is_dir():
-            metadata_file = child_dir / metadata_filename
-            if metadata_file.exists():
-                metadata = _load_metadata(metadata_cls, metadata_file)
-                attrs = attrs_factory(metadata)
-                child = _reconstruct(child_cls, attrs)
-                children.append(child)
-    return children

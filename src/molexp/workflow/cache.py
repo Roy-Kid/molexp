@@ -138,18 +138,6 @@ class Caching:
     def store(self) -> CacheStore:
         return self._store
 
-    def initialize(self) -> None:
-        """Pre-create the backing store's directory.
-
-        Optional — most stores create their directory lazily on first
-        write. Kept for backward compatibility with callers that called
-        ``cache.initialize()`` after construction.
-        """
-        # File / workspace stores both lazily mkdir on write; trigger
-        # one no-op write-cycle by listing keys (which touches the
-        # directory iff it exists already).
-        list(self._store.keys())
-
     @property
     def stats(self) -> dict[str, JSONValue]:
         """Cache statistics: entry_count, total_size_bytes, max_entries."""
