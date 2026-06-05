@@ -5,8 +5,10 @@
  * Every workflow surface (the run "what ran" preview, the workflow Graph tab,
  * the workspace `workflow.json` viewer) renders through this one component.
  * Nodes are drawn with molexp's own shadcn/ui + Tailwind chrome (NO FlowGram
- * form-materials / Semi Design / Ant Design). The canvas is strictly read-only;
- * editing / connecting / writing back is spec 04.
+ * form-materials / Semi Design / Ant Design). The canvas is read-only by
+ * default; pass `editable` to enable drag / connect / add / remove with
+ * undo-redo history, and `onChange` to receive the edited document for
+ * write-back (see WorkflowGraphViewer).
  */
 
 import {
@@ -14,11 +16,14 @@ import {
   FreeLayoutEditorProvider,
   type FreeLayoutProps,
   useAutoLayout,
+  useClientContext,
   useNodeRender,
+  usePlaygroundTools,
   type WorkflowNodeProps,
   WorkflowNodeRenderer,
 } from "@flowgram.ai/free-layout-editor";
 import "@flowgram.ai/free-layout-editor/index.css";
+import { Maximize2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
 import {
   type CSSProperties,
   createContext,
@@ -28,7 +33,11 @@ import {
   useMemo,
   useRef,
 } from "react";
+import { Button } from "@/components/ui/button";
 import type { FlowgramDocument, FlowgramNodeData } from "@/components/workflow/flowgram-document";
+
+const prefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 /**
  * Node display data keyed by task id. flowgram drops arbitrary node `data` for
@@ -70,7 +79,7 @@ const ROLE_GLYPH: Partial<Record<"input" | "output" | "task", string>> = {
 // workflow template is all `pending`).
 const STATUS_DOT: Record<string, string> = {
   pending: "bg-slate-300 dark:bg-slate-600",
-  running: "bg-blue-500 animate-pulse",
+  running: "bg-blue-500 animate-pulse motion-reduce:animate-none",
   completed: "bg-emerald-500",
   success: "bg-emerald-500",
   failed: "bg-red-500",
@@ -174,6 +183,79 @@ const AutoLayoutOnMount = (): null => {
   return null;
 };
 
+/**
+ * Canvas controls overlay — zoom out / level / zoom in / fit, plus undo-redo in
+ * editable mode. Rendered INSIDE the provider so it can reach the playground
+ * tools and history service. Motion respects `prefers-reduced-motion`.
+ */
+const FlowgramCanvasControls = ({ editable }: { editable: boolean }): JSX.Element => {
+  const tools = usePlaygroundTools();
+  const ctx = useClientContext();
+  const easing = !prefersReducedMotion();
+  const zoomPct = Math.round((tools.zoom ?? 1) * 100);
+
+  return (
+    <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-md border border-border bg-card p-1 shadow-sm">
+      {editable && (
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Undo"
+            onClick={() => ctx.history.undo()}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Redo"
+            onClick={() => ctx.history.redo()}
+          >
+            <Redo2 className="h-3.5 w-3.5" />
+          </Button>
+          <span aria-hidden="true" className="mx-0.5 h-4 w-px bg-border" />
+        </>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Zoom out"
+        onClick={() => tools.zoomout(easing)}
+      >
+        <Minus className="h-3.5 w-3.5" />
+      </Button>
+      <span
+        aria-live="polite"
+        className="min-w-[3.5ch] text-center text-[11px] tabular-nums text-muted-foreground"
+      >
+        {zoomPct}%
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Zoom in"
+        onClick={() => tools.zoomin(easing)}
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Fit to view"
+        onClick={() => tools.fitView(easing)}
+      >
+        <Maximize2 className="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  );
+};
+
 export const FlowgramCanvas = ({
   document,
   onNodeClick,
@@ -247,6 +329,7 @@ export const FlowgramCanvas = ({
         <FreeLayoutEditorProvider {...editorProps}>
           <EditorRenderer />
           <AutoLayoutOnMount />
+          <FlowgramCanvasControls editable={editable} />
         </FreeLayoutEditorProvider>
       </div>
     </NodeDataContext.Provider>
