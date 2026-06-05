@@ -68,7 +68,7 @@ molexp is a workflow-and-agent platform for research experiment management — P
      workflow ─→ workspace
 ```
 
-`agent` and `workflow` are **siblings** above workspace; `harness` sits one layer above them, composing all three. Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of the server's OpenAPI. Cross-layer primitives (`molexp.path`, `molexp.profile`, `molexp.entry`, …) sit above workspace and may be cited from any layer. `molexp.config` is the process-global in-code config — a live `molcfg.Config` instance defined in `molexp/__init__.py` (LLM keys etc., registered in code, never from env); `molexp.profile` is the separate file-based, per-run profile config (`ProfileConfig` / `MolCfg` / `load_molcfg`).
+Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of the server's OpenAPI. Cross-layer primitives (`molexp.path`, `molexp.profile`, `molexp.entry`, …) sit above workspace and may be cited from any layer. `molexp.config` is the process-global in-code config — a live `molcfg.Config` instance defined in `molexp/__init__.py` (LLM keys etc., registered in code, never from env); `molexp.profile` is the separate file-based, per-run profile config (`ProfileConfig` / `MolCfg` / `load_molcfg`).
 
 ### Layer charters
 
@@ -76,6 +76,12 @@ molexp is a workflow-and-agent platform for research experiment management — P
 - Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (`CatalogFolder` hosting the global `AssetCatalog`).
 - MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `server` / `cli` / `sweep`). Allowed `molexp.*` imports are only `_typing` / `profile` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
 - `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
+
+*Identity & persistence law (workspace).*
+- **Three orthogonal id layers, no fourth.** Uniqueness → `generate_id()` (UUID[:8]) / asset UUIDs. Reproducibility & dedup → content hashes: `config_hash` is a run's *one* config identity, `compute_content_hash()` (`"sha256:…"`) addresses artifacts. Location → `AssetScope(kind+ids)` + `execution_id` (`exec-{run_id}[-N]`). A run carries exactly one identity — never add a second parallel run-fingerprint type alongside `config_hash`.
+- **Run vs Execution.** `Run` = reproducible logical unit (params + workflow); `Execution` = one physical attempt at it (retry / resubmit), N-per-run. Per-attempt state lives under `executions/<exec_id>/` and is self-describing (it duplicates the run's `execution_history` summary on purpose); cross-attempt state stays at run level.
+- **One source of truth.** Entity `*.json` is authoritative. `catalog/index.json` and every other index are *derived* — rebuilt by scanning `*.json`, never the only copy, never consulted as truth. Don't add per-container index files that re-encode what the catalog already holds.
+- **No speculative code in `src/`.** A subsystem with zero production callers does not ship. "Future" capability with no live call-path belongs in docs or a branch, not the tree.
 
 **`molexp.workflow`** — middle; graph execution engine.
 - Owns: `WorkflowBuilder` (decorator + OOP, mutable) → `.build()` → `Workflow` (frozen, content-hashed). `Task` / `Actor` convenience bases (do **not** subclass `pydantic_graph.BaseNode`); user-facing protocols are `Runnable` / `Streamable`. `TaskContext` / `ActorContext`, `TaskTypeRegistry`, `WorkflowCompiler`, `TaskSnapshot` (AST-normalized hash), `Caching` (LRU), `WorkflowSnapshotRef`, `WorkflowResult` / `WorkflowExecution`, `End` (re-exported from `pydantic_graph.End`), `promote_callable()`. Private `_pydantic_graph/` is the **sole** sanctioned `import pydantic_graph` site in the repo.
