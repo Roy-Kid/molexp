@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from molexp.workspace import Workspace
-from molexp.workspace.checkpoint import CheckpointState
 
 
 @pytest.fixture
@@ -31,27 +30,3 @@ def experiment(project):
 @pytest.fixture
 def run(experiment):
     return experiment.add_run(parameters={"lr": 1e-4})
-
-
-@pytest.fixture
-def checkpoint_state():
-    from datetime import datetime
-
-    return CheckpointState(
-        ckpt_id="ckpt_test123",
-        run_id="run-1",
-        experiment_id="exp-1",
-        project_id="proj-1",
-        timestamp=datetime.now(),
-        context={"results": {"acc": 0.9}},
-    )
-
-
-class MockRun:
-    def __init__(self, status: str = "pending"):
-        self.status = status
-
-
-@pytest.fixture
-def mock_run():
-    return MockRun

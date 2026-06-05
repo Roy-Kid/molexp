@@ -103,3 +103,12 @@ class TestRunMetadata:
         m2 = m.model_copy(update={"status": "running"})
         assert m.status == "pending"
         assert m2.status == "running"
+
+    def test_legacy_last_step_key_ignored(self):
+        # Old run.json files written before the walltime-chunking removal
+        # carry a top-level "last_step" key. RunMetadata must keep pydantic's
+        # default extra="ignore" so such legacy data loads without error and
+        # exposes no last_step attribute.
+        m = RunMetadata.model_validate({"id": "run-1", "last_step": 7})
+        assert m.id == "run-1"
+        assert not hasattr(m, "last_step")

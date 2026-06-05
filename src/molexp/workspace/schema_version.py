@@ -21,7 +21,6 @@ def write_versioned_json(
 ) -> None:
     """Atomically write *payload* with a ``schema_version`` envelope."""
     versioned = {"schema_version": MOLEXP_SCHEMA_VERSION, **payload}
-    versioned["schema_version"] = MOLEXP_SCHEMA_VERSION
     if fs is not None:
         fs.atomic_write_json(str(path), versioned)
     else:

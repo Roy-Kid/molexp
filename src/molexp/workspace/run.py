@@ -7,12 +7,8 @@ checkpoints, and asset access during execution.
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import json
 import os
 import platform
-import sys
 import time
 import traceback
 from datetime import datetime
@@ -21,11 +17,10 @@ from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, Protocol, cast
 
 from mollog import get_logger
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 from molexp._typing import (
     ChannelMessage,
-    HashablePayload,
     JSONValue,
     TaskOutput,
 )
@@ -90,60 +85,6 @@ from .utils import generate_asset_id, generate_id  # noqa: E402
 logger = get_logger(__name__)
 
 
-_FINGERPRINT_HASH_HEX_LEN = 16
-
-
-class RunFingerprint(BaseModel):
-    """Content-addressed identifier for a :class:`Run`.
-
-    Computed from the four inputs that fully determine a run's
-    behavior: the compiled workflow spec id, the parameters, the
-    upstream inputs, and the environment. Two runs with identical
-    fingerprints are reproductions of the same experiment by
-    definition; a fingerprint mismatch is grounds to invalidate any
-    cached result.
-
-    The existing UUID :attr:`Run.id` continues to identify a row in
-    the workspace. The fingerprint is exposed alongside via
-    :attr:`Run.fingerprint`.
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workflow_spec_id: str
-    parameters_hash: str
-    inputs_hash: str
-    environment_hash: str
-
-    @property
-    def fingerprint_id(self) -> str:
-        canonical = json.dumps(
-            {
-                "workflow_spec_id": self.workflow_spec_id,
-                "parameters_hash": self.parameters_hash,
-                "inputs_hash": self.inputs_hash,
-                "environment_hash": self.environment_hash,
-            },
-            sort_keys=True,
-        )
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:_FINGERPRINT_HASH_HEX_LEN]
-
-
-def _hash_payload(payload: HashablePayload) -> str:
-    canonical = json.dumps(payload, sort_keys=True, default=str)
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:_FINGERPRINT_HASH_HEX_LEN]
-
-
-def _environment_signature() -> str:
-    """Deterministic, dependency-free hash of the active runtime environment."""
-    return _hash_payload(
-        {
-            "python": sys.version.split()[0],
-            "platform": platform.platform(terse=True),
-        }
-    )
-
-
 class RunStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
@@ -201,16 +142,8 @@ class RunContext:
         # the worker will use.
         self._explicit_execution_id: str | None = execution_id
         self._execution_id: str | None = None
-        # Actor message-passing infrastructure — channel name → asyncio.Queue.
-        # Queues hold user-domain messages (typed ``ChannelMessage`` because
-        # the workspace doesn't constrain the wire format).
-        self._channels: dict[str, asyncio.Queue[ChannelMessage]] = {}
         # Active task id (set via set_active_task) used for Producer.task_id
         self._active_task_id: str | None = None
-        # Walltime chunking — set by ``suspend()`` so ``__exit__`` keeps the
-        # run resumable instead of marking it SUCCEEDED.
-        self._suspended: bool = False
-        self._suspended_at_step: int | None = None
 
         # Asset plumbing
         self._scope = AssetScope(
@@ -343,18 +276,7 @@ class RunContext:
         now = datetime.now()
         labels = self._labels_without_ownership()
         error_info: ErrorInfo | None = None
-        if exc_type is None and self._suspended:
-            # Walltime chunking — keep the run resume-eligible (PENDING) so
-            # the next ``with run.start()`` picks up at ``last_step``. The
-            # current attempt is still recorded as a finished execution
-            # entry so the execution_history reflects every chunk.
-            final = RunStatus.PENDING
-            self.run._update_metadata(
-                status=final,
-                labels=labels,
-                execution_history=self._close_execution_record("suspended", now),
-            )
-        elif exc_type is None:
+        if exc_type is None:
             workflow_status = self._context.status.get("run")
             final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
             self.run._update_metadata(
@@ -457,46 +379,6 @@ class RunContext:
     def get_result(self, key: str) -> TaskOutput:
         return self._context.results.get(key)
 
-    # ── Walltime chunking ──────────────────────────────────────────────
-
-    @property
-    def resumed_step(self) -> int:
-        """Step number to resume iteration from.
-
-        Reads ``RunMetadata.last_step`` recorded by previous executions of
-        this run (chunks); ``0`` for a fresh run.  Used together with
-        :meth:`checkpoint_step` and :meth:`suspend` to drive walltime
-        chunking under a single ``run.json``.
-        """
-        return self.run.metadata.last_step or 0
-
-    def checkpoint_step(self, step: int, *, data: dict[str, JSONValue] | None = None) -> None:
-        """Record the latest completed step on the run metadata.
-
-        ``step`` is the *next* step to start at — i.e. after completing
-        steps 0..N-1, callers pass ``N``.  Optional ``data`` is forwarded
-        into the run's checkpoint JSON for diagnostic snapshotting; it
-        does not influence resumption.
-        """
-        self.run._update_metadata(last_step=int(step))
-        # Persist results/context so set_result data isn't lost on suspend
-        self._save_context()
-        if data is not None:
-            self.checkpoint(name=f"step_{step}", data=data)
-
-    def suspend(self, *, at_step: int | None = None) -> None:
-        """Mark the run for resumption rather than completion.
-
-        Subsequent ``__exit__`` (without an exception) leaves the run in
-        :class:`RunStatus.PENDING` instead of :class:`RunStatus.SUCCEEDED`.
-        The caller is expected to ``return`` after this call so the
-        ``with`` block exits normally.
-        """
-        self._suspended = True
-        if at_step is not None:
-            self._suspended_at_step = int(at_step)
-            self.run._update_metadata(last_step=int(at_step))
-
     def bind_workflow_version(self, spec: _WorkflowLike) -> None:
         """Pin this run to a versioned :class:`~molexp.workflow.Workflow`.
 
@@ -562,15 +444,13 @@ class RunContext:
     # ── Actor message passing ───────────────────────────────────────────
 
     async def receive(self, channel: str) -> ChannelMessage:
-        if channel not in self._channels:
-            raise KeyError(f"Channel '{channel}' not found")
-        return await self._channels[channel].get()
+        # Channel registration was never wired (no production caller registered
+        # a queue). The signature is kept so RunContext still structurally
+        # satisfies ``workflow.RunContextLike``; calling it is a hard error.
+        raise NotImplementedError("RunContext channel messaging is not implemented")
 
     async def emit(self, channel: str, message: ChannelMessage) -> None:
-        if channel not in self._channels:
-            logger.warning(f"emit() to non-existent channel {channel!r} — dropped")
-            return
-        await self._channels[channel].put(message)
+        raise NotImplementedError("RunContext channel messaging is not implemented")
 
     # ── Constructor helpers ─────────────────────────────────────────────
 
@@ -630,9 +510,6 @@ class RunContext:
         run = _reconstruct(Run, {"experiment": experiment, "metadata": meta})
         profile_cfg = ProfileConfig(run.metadata.config, name=run.metadata.profile)
         return cls(run, profile_config=profile_cfg)
-
-    def _register_channel(self, name: str, queue: asyncio.Queue[ChannelMessage]) -> None:
-        self._channels[name] = queue
 
     # ── Internal ────────────────────────────────────────────────────────
 
@@ -923,29 +800,6 @@ class Run(Folder):
     @property
     def parameters(self) -> dict[str, JSONValue]:
         return self._entity_metadata.parameters
-
-    @property
-    def fingerprint(self) -> RunFingerprint:
-        """Content-addressed :class:`RunFingerprint` for this run.
-
-        Independent of the UUID :attr:`id`; two runs with identical
-        ``(workflow_spec_id, parameters, inputs_hash, environment_hash)``
-        share the same fingerprint id.
-        """
-        snapshot = self.metadata.workflow_snapshot
-        # ``workflow_snapshot`` is an opaque JSON dict (see RunMetadata);
-        # we only sip a single field for fingerprint composition.
-        workflow_spec_id = ""
-        if isinstance(snapshot, dict):
-            value = snapshot.get("workflow_id")
-            if isinstance(value, str):
-                workflow_spec_id = value
-        return RunFingerprint(
-            workflow_spec_id=workflow_spec_id,
-            parameters_hash=_hash_payload(self.metadata.parameters),
-            inputs_hash=_hash_payload({}),  # populated when input-asset model lands
-            environment_hash=_environment_signature(),
-        )
 
     @property
     def status(self) -> str:

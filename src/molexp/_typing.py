@@ -33,7 +33,7 @@ type TaskInput = Any
 type UserDeps = Any
 #: Message payload on the actor channel bus — opaque to the workspace.
 type ChannelMessage = Any
-#: Hashable, JSON-shaped payload used for fingerprints / canonical hashing.
+#: Hashable, JSON-shaped payload used for canonical hashing.
 type HashablePayload = Any
 
 # ── JSON-shaped recursive type ─────────────────────────────────────────────

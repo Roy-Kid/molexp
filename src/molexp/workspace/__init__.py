@@ -35,9 +35,7 @@ from .assets import (
     DataAsset,
     DataAssetLibrary,
     ErrorTraceAsset,
-    ExecutionStateAsset,
     LogAsset,
-    OutputAsset,
     Producer,
 )
 from .base import atomic_write_json, atomic_write_text
@@ -122,7 +120,6 @@ __all__ = [
     "ErrorInfo",
     "ErrorTraceAsset",
     "ExecutionRecord",
-    "ExecutionStateAsset",
     "Experiment",
     # Workspace error hierarchy
     "ExperimentExistsError",
@@ -136,7 +133,6 @@ __all__ = [
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
     "LogAsset",
-    "OutputAsset",
     # Parameters
     "ParamSpace",
     "Params",
