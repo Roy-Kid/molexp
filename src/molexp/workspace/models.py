@@ -7,6 +7,7 @@ The server, CLI, and Python API all derive from these models.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -14,6 +15,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from molexp._typing import JSONValue
 
 # ── Shared value objects ────────────────────────────────────────────────────
+
+
+class RunStatus(StrEnum):
+    """Lifecycle state of a run.
+
+    Lives here (the workspace schema source of truth) rather than in
+    ``run.py`` so the run-lifecycle collaborators can import it without a
+    circular ``run.py`` dependency. Re-exported from ``run.py`` for
+    backward compatibility (``from molexp.workspace.run import RunStatus``).
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ErrorInfo(BaseModel, frozen=True):

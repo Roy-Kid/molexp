@@ -7,16 +7,11 @@ checkpoints, and asset access during execution.
 
 from __future__ import annotations
 
-import os
-import platform
 import time
-import traceback
 from datetime import datetime
-from enum import StrEnum
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, Protocol, cast
 
-from mollog import get_logger
 from pydantic import BaseModel
 
 from molexp._typing import (
@@ -51,17 +46,11 @@ if TYPE_CHECKING:
 from molexp.profile import ProfileConfig  # noqa: E402
 
 from .assets import (  # noqa: E402
-    ArtifactAccessor,
     AssetCatalog,
-    AssetManifest,
     AssetScope,
-    CheckpointAccessor,
-    ErrorTraceAsset,
     ImportAction,
-    LogAccessor,
     Producer,
 )
-from .assets.manifest import MANIFEST_FILENAME  # noqa: E402, F401
 from .base import (  # noqa: E402
     _load_metadata,
     _reconstruct,
@@ -71,25 +60,21 @@ from .context import Context  # noqa: E402
 from .errors import RunExistsError, RunNotFoundError  # noqa: E402
 from .folder import WORKSPACE_RUN_KIND, Folder  # noqa: E402
 from .fs import PathArg  # noqa: E402
-from .metrics import MetricsWriter  # noqa: E402
 from .models import (  # noqa: E402
-    ErrorInfo,
-    ExecutionMetadata,
-    ExecutionRecord,
     FolderMetadata,
     RunMetadata,
+    RunStatus,
 )
-from .utils import generate_asset_id, generate_id  # noqa: E402
+from .run_assets import RunAssets  # noqa: E402
+from .run_context import ContextStore  # noqa: E402
+from .run_execution import ExecutionStore  # noqa: E402
+from .run_lifecycle import RunLifecycle  # noqa: E402
+from .utils import generate_id  # noqa: E402
 
-logger = get_logger(__name__)
-
-
-class RunStatus(StrEnum):
-    PENDING = "pending"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+# Re-exported for backward compatibility — the canonical definition now
+# lives in ``.models`` so the run-lifecycle collaborators can import it
+# without a circular ``run.py`` dependency.
+__all__ = ["Run", "RunContext", "RunStatus"]
 
 
 # ── RunContext ──────────────────────────────────────────────────────────────
@@ -128,12 +113,6 @@ class RunContext:
             profile_config if profile_config is not None else ProfileConfig({}, name=None)
         )
         self._entered = False
-        self._context: Context = Context(
-            run_id=run.id,
-            experiment_id=run.experiment.id,
-            project_id=run.experiment.project.id,
-            work_dir=self.work_dir,
-        )
         self._start_time: datetime | None = None
         # ``execution_id`` is normally derived inside ``__enter__``; an
         # explicit override is used by molq submission to pre-allocate
@@ -144,42 +123,24 @@ class RunContext:
         # Active task id (set via set_active_task) used for Producer.task_id
         self._active_task_id: str | None = None
 
-        # Asset plumbing
-        self._scope = AssetScope(
+        # ── Layered collaborators (workspace-slim-03) ───────────────────
+        # The facade keeps the transient lifecycle state above; each
+        # collaborator owns one cohesive responsibility. ``RunLifecycle``
+        # orchestrates the others on enter/exit via a back-reference.
+        scope = AssetScope(
             kind="run",
-            ids=(
-                run.experiment.project.id,
-                run.experiment.id,
-                run.id,
-            ),
+            ids=(run.experiment.project.id, run.experiment.id, run.id),
         )
-        self._manifest = AssetManifest(self.work_dir)
-        workspace_root = run.experiment.project.workspace.root
-        self._catalog: AssetCatalog = AssetCatalog(workspace_root)
+        self._ctx_store = ContextStore(run, self.work_dir)
+        self._executions = ExecutionStore(run, self.work_dir)
+        self._assets = RunAssets(run, self.work_dir, scope, self._producer, self._get_execution_id)
+        self._lifecycle = RunLifecycle(self)
 
-        self.artifact = ArtifactAccessor(
-            self.work_dir,
-            self._scope,
-            self._manifest,
-            self._catalog,
-            self._producer,
-        )
-        self.log = LogAccessor(
-            self.work_dir,
-            self._scope,
-            self._manifest,
-            self._catalog,
-            self._producer,
-            self._get_execution_id,
-        )
-        self.checkpoint = CheckpointAccessor(
-            self.work_dir,
-            self._scope,
-            self._manifest,
-            self._catalog,
-            self._producer,
-        )
-        self.metrics = MetricsWriter(self.work_dir)
+        # Re-expose the typed accessor handles on the facade (public surface).
+        self.artifact = self._assets.artifact
+        self.log = self._assets.log
+        self.checkpoint = self._assets.checkpoint
+        self.metrics = self._assets.metrics
 
     def _producer(self) -> Producer:
         return Producer(
@@ -200,115 +161,24 @@ class RunContext:
     def folder(self, subpath: str | Path) -> Path:
         """Create and return a working directory under this execution.
 
-        The returned path is ``<run>/executions/<execution_id>/<subpath>``,
-        materialized for the caller. Use it for task scratch / intermediate
-        files so every execution's working files live under its own
-        ``project → experiment → run → execution`` slot instead of a
-        hand-rolled global directory: the workspace owns the path layout and
-        the directory creation, so callers never assemble paths or ``mkdir``
-        themselves.
-
-        Args:
-            subpath: Path **relative** to the execution directory, e.g.
-                ``"scratch/CAT"`` or ``"output"``. May be nested.
-
-        Returns:
-            The created directory as an absolute :class:`~pathlib.Path`.
+        Delegates to :class:`RunAssets`; see its ``folder`` for the full
+        contract (``<run>/executions/<execution_id>/<subpath>``, created
+        for the caller).
 
         Raises:
-            RuntimeError: if no execution is active — call this inside
-                ``with run.start() as ctx:`` (or ``with run as ctx:``).
-            ValueError: if *subpath* is absolute or escapes the execution slot.
+            RuntimeError: if no execution is active.
+            ValueError: if *subpath* is absolute or escapes the slot.
         """
-        if self._execution_id is None:
-            raise RuntimeError(
-                "RunContext.folder() requires an active execution; call it inside "
-                "`with run.start() as ctx:`."
-            )
-        rel = Path(subpath)
-        if rel.is_absolute():
-            raise ValueError(f"RunContext.folder: subpath must be relative, got {subpath!r}")
-        exec_dir = (self.work_dir / "executions" / self._execution_id).resolve()
-        target = (exec_dir / rel).resolve()
-        if not target.is_relative_to(exec_dir):
-            raise ValueError(
-                f"RunContext.folder: subpath {subpath!r} escapes the execution directory"
-            )
-        target.mkdir(parents=True, exist_ok=True)
-        return target
+        return self._assets.folder(subpath)
 
     # ── Lifecycle ───────────────────────────────────────────────────────
 
     def __enter__(self) -> RunContext:
-        self.work_dir.mkdir(parents=True, exist_ok=True)
-        self._load_existing_results()
-        self._apply_profile_metadata()
-        self._claim_ownership()
-        self.run._set_status(RunStatus.RUNNING)
-        self._start_time = datetime.now()
-        self._entered = True
-
-        # Determine which execution attempt this is and record it.
-        self._execution_id = self._explicit_execution_id or self._next_execution_id()
-        new_record = ExecutionRecord(
-            execution_id=self._execution_id,
-            started_at=self._start_time,
-        )
-        self.run._update_metadata(
-            execution_history=[*self.run.metadata.execution_history, new_record]
-        )
-        self._write_execution_metadata(
-            ExecutionMetadata(
-                execution_id=self._execution_id,
-                run_id=self.run.id,
-                started_at=self._start_time,
-                status=RunStatus.RUNNING.value,
-            )
-        )
-        self._append_run_log(f"execution started  exec_id={self._execution_id}")
-
-        self._save_context()
+        self._lifecycle.enter()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):  # noqa: ANN001, ANN204
-        now = datetime.now()
-        labels = self._labels_without_ownership()
-        error_info: ErrorInfo | None = None
-        if exc_type is None:
-            workflow_status = self._context.status.get("run")
-            final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
-            self.run._update_metadata(
-                status=final,
-                finished_at=now,
-                labels=labels,
-                execution_history=self._close_execution_record(final.value, now),
-            )
-        else:
-            final = RunStatus.FAILED
-            error_info = ErrorInfo(
-                type=exc_type.__name__,
-                message=str(exc_val),
-                timestamp=now,
-            )
-            self.run._update_metadata(
-                status=final,
-                finished_at=now,
-                labels=labels,
-                error=error_info,
-                execution_history=self._close_execution_record(final.value, now),
-            )
-            self._save_error_details(exc_type, exc_val, exc_tb)
-        self._update_execution_metadata(
-            finished_at=now,
-            status=final.value,
-            error=error_info,
-        )
-        self._append_run_log(
-            f"execution finished exec_id={self._execution_id}  status={final.value}"
-        )
-        self._save_context()
-        self._entered = False
-        return False
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
+        return self._lifecycle.exit(exc_type, exc_val, exc_tb)
 
     # ── Async-context-manager protocol ──────────────────────────────────
     #
@@ -342,38 +212,14 @@ class RunContext:
         *,
         fallback: str | Path | None = None,
     ) -> Path:
-        """Resolve a data directory path.
-
-        Searches the asset hierarchy first. If no asset is found and
-        *fallback* is given, creates ``workspace_root / fallback`` and
-        returns it.  All return values are :class:`~pathlib.Path`.
-
-        Args:
-            asset_name: Name of the asset to look up.
-            fallback: Relative path under workspace root to create when the
-                asset is not found.
-
-        Returns:
-            Resolved data directory path.
-
-        Raises:
-            FileNotFoundError: If no asset found and no fallback specified.
-        """
-        asset = self.find_asset(asset_name)
-        if asset is not None:
-            return Path(asset.path)
-        if fallback is not None:
-            fallback = Path(fallback)
-            data_dir = Path(self.run.experiment.project.workspace.root) / fallback
-            data_dir.mkdir(parents=True, exist_ok=True)
-            return data_dir
-        raise FileNotFoundError(f"Asset {asset_name!r} not found and no fallback specified.")
+        """Resolve a data directory path (delegates to :class:`RunAssets`)."""
+        return self._assets.get_data_dir(asset_name, fallback=fallback)
 
     def set_result(self, key: str, value: TaskOutput) -> None:
-        self._context.results[key] = value
+        self._ctx_store.set_result(key, value)
 
     def get_result(self, key: str) -> TaskOutput:
-        return self._context.results.get(key)
+        return self._ctx_store.get_result(key)
 
     def bind_workflow_version(self, spec: _WorkflowLike) -> None:
         """Pin this run to a versioned :class:`~molexp.workflow.Workflow`.
@@ -397,15 +243,10 @@ class RunContext:
             workflow_id=spec.workflow_id,
             workflow_version=spec.version,
         )
-        self._save_context()
+        self._ctx_store.save()
 
     def set_workflow(self, workflow: BaseModel | dict) -> None:
-        if isinstance(workflow, BaseModel):
-            self._context.workflow = workflow.model_dump()
-        elif isinstance(workflow, dict):
-            self._context.workflow = workflow
-        else:
-            raise TypeError("workflow must be a Pydantic BaseModel or dict")
+        self._ctx_store.set_workflow(workflow)
 
     # ── Asset access ────────────────────────────────────────────────────
 
@@ -417,25 +258,13 @@ class RunContext:
         meta: dict | None = None,
     ):
         """Import a ``DataAsset`` into this run's experiment scope."""
-        return self.run.experiment.data_assets.import_asset(
-            name=name, src=src, action=action, meta=meta or {}
-        )
+        return self._assets.register_asset(name, src, action, meta)
 
     def get_asset(self, name: str, scope: str = "project"):  # noqa: ANN201
-        if scope == "experiment":
-            return self.run.experiment.data_assets.get(name)
-        if scope == "project":
-            return self.run.experiment.project.data_assets.get(name)
-        if scope == "workspace":
-            return self.run.experiment.project.workspace.data_assets.get(name)
-        raise ValueError(f"Unknown scope: {scope!r}")
+        return self._assets.get_asset(name, scope)
 
     def find_asset(self, name: str):  # noqa: ANN201
-        for scope in ("experiment", "project", "workspace"):
-            asset = self.get_asset(name, scope=scope)
-            if asset is not None:
-                return asset
-        return None
+        return self._assets.find_asset(name)
 
     # ── Actor message passing ───────────────────────────────────────────
 
@@ -511,147 +340,21 @@ class RunContext:
 
     @property
     def context(self) -> Context:
-        return self._context
+        return self._ctx_store.context
 
-    def _load_existing_results(self) -> None:
-        from .schema_version import read_versioned_json
+    @property
+    def _context(self) -> Context:
+        """Historical private alias for the run :class:`Context`.
 
-        run_json = self.work_dir / "run.json"
-        if not run_json.exists() or run_json.stat().st_size == 0:
-            return
-        data = read_versioned_json(run_json)
-        for key, value in data.get("context", {}).get("results", {}).items():
-            if key not in self._context.results:
-                self._context.results[key] = value
-
-    def _save_context(self) -> None:
-        from .schema_version import write_versioned_json
-
-        write_versioned_json(
-            self.work_dir / "run.json",
-            {
-                **self.run.metadata.model_dump(mode="json"),
-                "context": self._context.model_dump(mode="json"),
-            },
-        )
-
-    def _execution_metadata_path(self) -> Path:
-        assert self._execution_id is not None
-        return self.work_dir / "executions" / self._execution_id / "execution.json"
-
-    def _write_execution_metadata(self, meta: ExecutionMetadata) -> None:
-        from .schema_version import write_versioned_json
-
-        target = self._execution_metadata_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        write_versioned_json(target, meta.model_dump(mode="json"))
-
-    def _update_execution_metadata(self, **updates: object) -> None:
-        """Merge *updates* into the on-disk execution.json (read-modify-write).
-
-        Values flow through pydantic's per-field validators on
-        :class:`ExecutionMetadata`; the parameter type is the structural
-        top-type ``object`` because the values are forwarded as-is
-        without inspection.
+        The workflow runtime records task-failure by reaching into
+        ``run_context._context.status`` (see
+        ``workflow._pydantic_graph.runtime._record_run_failure``) so an
+        exception-free ``with ctx:`` exit still surfaces a failed
+        run-status. The ``Context`` now lives in :class:`ContextStore`;
+        this read-only alias keeps that cross-layer contract intact —
+        ``status`` is mutated in place, never reassigned.
         """
-        from .schema_version import read_versioned_json, write_versioned_json
-
-        target = self._execution_metadata_path()
-        if not target.exists():
-            return
-        current = ExecutionMetadata(**read_versioned_json(target))
-        merged = current.model_copy(update=updates)
-        write_versioned_json(target, merged.model_dump(mode="json"))
-
-    def _next_execution_id(self) -> str:
-        """Return the execution_id for this attempt.
-
-        Mirrors the logic in the workflow runtime so that the directory
-        created by RunStorePersistence and the execution_history entry
-        share the same identifier.
-        """
-        run_id = self.run.id
-        base = f"exec-{run_id}"
-        exec_root = self.work_dir / "executions"
-        if not exec_root.exists():
-            return base
-        existing = [p for p in exec_root.iterdir() if p.name.startswith(base)]
-        if not existing:
-            return base
-        return f"{base}-{len(existing) + 1}"
-
-    def _close_execution_record(self, status: str, finished_at: datetime) -> list[ExecutionRecord]:
-        """Return execution_history with the current record closed."""
-        history = list(self.run.metadata.execution_history)
-        for i, entry in enumerate(history):
-            if entry.execution_id == self._execution_id:
-                history[i] = entry.model_copy(update={"finished_at": finished_at, "status": status})
-                return history
-        return history
-
-    def _append_run_log(self, message: str) -> None:
-        """Append a single timestamped line to the ``run`` LogAsset."""
-        ts = datetime.now().isoformat(timespec="seconds")
-        self.log("run").append(f"{ts}  {message}")
-
-    def _apply_profile_metadata(self) -> None:
-        """Persist the active profile name / data / hash into RunMetadata."""
-        cfg = self._profile_config
-        self.run._update_metadata(
-            profile=cfg.name,
-            config=cfg.to_dict(),
-            config_hash=cfg.content_hash() if len(cfg) > 0 or cfg.name else None,
-            labels=dict(self.run.metadata.labels),
-        )
-
-    def _claim_ownership(self) -> None:
-        """Stamp the run with the current process identity.
-
-        Stored in ``labels`` as ``pid`` / ``host`` / ``heartbeat``.  A later
-        ``molexp run`` invocation can consult these to tell a live run from a
-        zombie left behind by a crashed process.
-        """
-        labels = dict(self.run.metadata.labels)
-        labels["pid"] = str(os.getpid())
-        labels["host"] = platform.node()
-        labels["heartbeat"] = datetime.now().isoformat()
-        self.run._update_metadata(labels=labels)
-
-    def _labels_without_ownership(self) -> dict[str, str]:
-        """Return labels with the ownership stamp removed."""
-        labels = dict(self.run.metadata.labels)
-        for key in ("pid", "host", "heartbeat"):
-            labels.pop(key, None)
-        return labels
-
-    def _save_error_details(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
-        """Persist an ``ErrorTraceAsset`` for the current execution."""
-        tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
-        exec_id = self._execution_id or "unbound"
-        rel_path = Path("executions") / exec_id / "error.txt"
-        target = self.work_dir / rel_path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            f"Error: {datetime.now().isoformat()}\n"
-            f"Type: {exc_type.__name__}\n"
-            f"Message: {exc_val}\n\n" + "".join(tb_lines)
-        )
-
-        now = datetime.now()
-        asset = ErrorTraceAsset(
-            asset_id=generate_asset_id(),
-            name=f"error_{exec_id}",
-            scope=self._scope,
-            path=rel_path,
-            created_at=now,
-            updated_at=now,
-            producer=self._producer(),
-            exception_type=exc_type.__name__,
-            message=str(exc_val),
-            execution_id=exec_id,
-        )
-        self._manifest.register(asset)
-        self._catalog.register(asset)
+        return self._ctx_store.context
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
