@@ -140,23 +140,18 @@ def _get_run_id(run_context: RunContextLike | None) -> str | None:
 
 
 def _record_run_failure(run_context: RunContextLike | None, error: str | None) -> None:
-    """Mark task-failure on a duck-typed run_context's ``_context.status`` dict.
+    """Mark task-failure on a duck-typed run_context via its typed
+    :meth:`RunContextLike.mark_failed`.
 
-    The workspace's :class:`molexp.workspace.run.RunContext` reads
-    ``self._context.status.get("run")`` from ``__exit__`` to decide whether
-    the run finished as ``succeeded`` or ``failed``. The runtime writes to
-    that dict here so the CLI's exception-free ``with ctx:`` exit still
-    surfaces task-body failures as a failed run-status.
+    A task body can fail without the exception propagating out of ``execute()``
+    (e.g. a ``wf.parallel`` element capturing its error). The workspace's
+    ``RunContext`` resolves an exception-free ``with ctx:`` exit to a failed
+    run-status by consulting what ``mark_failed`` records, so the CLI surfaces
+    the failure even though no exception reached it.
     """
-    inner = getattr(run_context, "_context", None)
-    if inner is None:
-        return
-    status = getattr(inner, "status", None)
-    if status is None or not hasattr(status, "__setitem__"):
-        return
-    status["run"] = "failed"
-    if error and hasattr(inner, "errors") and isinstance(inner.errors, dict):
-        inner.errors.setdefault("run", {"message": error})
+    mark_failed = getattr(run_context, "mark_failed", None)
+    if callable(mark_failed):
+        mark_failed(error)
 
 
 def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:

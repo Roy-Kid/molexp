@@ -145,6 +145,8 @@ class RunContextLike(Protocol):
     @property
     def artifact(self) -> ArtifactAccessor: ...
 
+    def mark_failed(self, error: str | None = None) -> None: ...
+
 
 @runtime_checkable
 class Runnable(Protocol):

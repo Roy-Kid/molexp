@@ -332,24 +332,25 @@ class RunContext:
         profile_cfg = ProfileConfig(run.metadata.config, name=run.metadata.profile)
         return cls(run, profile_config=profile_cfg)
 
+    def mark_failed(self, error: str | None = None) -> None:
+        """Record a run failure so an exception-free ``with ctx:`` exit still
+        resolves the run-status to ``FAILED``.
+
+        The workflow runtime calls this (through the ``RunContextLike``
+        protocol) when a task body fails but the failure does not propagate as
+        an exception out of ``execute()`` — e.g. a ``wf.parallel`` element
+        captured its error. The lifecycle's ``exit`` consults
+        ``context.status["run"]`` to pick ``SUCCEEDED`` vs ``FAILED``.
+        """
+        context = self._ctx_store.context
+        context.status["run"] = RunStatus.FAILED
+        if error:
+            context.errors.setdefault("run", {"message": error})
+
     # ── Internal ────────────────────────────────────────────────────────
 
     @property
     def context(self) -> Context:
-        return self._ctx_store.context
-
-    @property
-    def _context(self) -> Context:
-        """Historical private alias for the run :class:`Context`.
-
-        The workflow runtime records task-failure by reaching into
-        ``run_context._context.status`` (see
-        ``workflow._pydantic_graph.runtime._record_run_failure``) so an
-        exception-free ``with ctx:`` exit still surfaces a failed
-        run-status. The ``Context`` now lives in :class:`ContextStore`;
-        this read-only alias keeps that cross-layer contract intact —
-        ``status`` is mutated in place, never reassigned.
-        """
         return self._ctx_store.context
 
 
