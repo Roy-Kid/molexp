@@ -61,8 +61,8 @@ class ExecutionStore:
 
         Delegates to :func:`molexp.workspace.utils.derive_execution_id` — the
         single source of execution-id derivation shared with the workflow
-        runtime — so the directory created by RunStorePersistence and the
-        execution_history entry share the same identifier.
+        runtime — so the executions/<id>/ directory written at workflow start
+        and the execution_history entry share the same identifier.
         """
         return derive_execution_id(self._run.id, self._work_dir / "executions")
 

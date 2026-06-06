@@ -36,7 +36,7 @@ def atomic_write_json(path: Path, data: object) -> None:
     JSON; ``json.dumps`` raises at write time if not.
 
     Public surface — re-exported through ``molexp.workspace`` so the
-    workflow layer's ``RunStorePersistence`` and the agent layer's
+    workflow layer's ``write_initial_workflow_json`` and the agent layer's
     :class:`Agent` / :class:`AgentSession` folder subclasses can write
     through workspace's atomicity guarantee without reaching into a
     private helper.

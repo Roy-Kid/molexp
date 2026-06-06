@@ -10,12 +10,10 @@ pg-agnostic.
 from pydantic_graph import End as End
 
 from .compiler import WorkflowGraphCompiler
-from .persistence import RunStorePersistence
 from .runtime import WorkflowRuntime
 
 __all__ = [
     "End",
-    "RunStorePersistence",
     "WorkflowGraphCompiler",
     "WorkflowRuntime",
 ]

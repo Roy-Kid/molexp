@@ -8,9 +8,10 @@ backends because there is only one.  Execution modes:
 - ``iter()`` / ``stream()`` — async step-by-step iteration.
 
 ``resume()`` is removed — the new ``GraphBuilder``-based API does not
-expose ``iter_from_persistence``.  Per-frame snapshots are still written
-by :class:`RunStorePersistence` for observability, but they are no longer
-injected into the graph runner.
+expose ``iter_from_persistence``.  No per-frame snapshots are written; only
+an initial ``workflow.json`` is emitted via
+:func:`.persistence.write_initial_workflow_json` for observability. Resume is
+caller-driven via ``WorkflowResult.outputs`` + ``execute(seed_outputs=…)``.
 
 Each ``CompiledWorkflow`` carries a genuine ``pydantic_graph`` ``Graph``
 (one Step per task; see :mod:`.compiler`). The runtime builds fresh state
@@ -314,15 +315,15 @@ class WorkflowRuntime:
 
         execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
 
-        # Observability — write the initial workflow.json snapshot under
-        # ``<run_dir>/executions/<execution_id>/``.  The per-frame snapshot
-        # updates are no longer injected into the graph runner (see module
-        # docstring), but the initial write happens in ``__init__`` so the
-        # execution-id directory always exists post-execution for tooling.
+        # Observability — write the initial workflow.json under
+        # ``<run_dir>/executions/<execution_id>/`` so the execution-id directory
+        # always exists post-execution for tooling. The graph runner persists no
+        # per-frame snapshots (resume is caller-driven via seed_outputs); this
+        # one-shot write is all that happens.
         if resolved_run_dir is not None:
-            from .persistence import RunStorePersistence
+            from .persistence import write_initial_workflow_json
 
-            RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
+            write_initial_workflow_json(resolved_run_dir, execution_id)
 
         try:
             workflow_deps = self._build_deps(
@@ -400,9 +401,9 @@ class WorkflowRuntime:
 
         # Observability — see ``execute()`` for the rationale.
         if resolved_run_dir is not None:
-            from .persistence import RunStorePersistence
+            from .persistence import write_initial_workflow_json
 
-            RunStorePersistence(run_dir=resolved_run_dir, execution_id=execution_id)
+            write_initial_workflow_json(resolved_run_dir, execution_id)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,

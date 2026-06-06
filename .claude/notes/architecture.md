@@ -77,7 +77,7 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
 - `molexp.workflow.task` — `Task` / `Actor` plain `abc.ABC` base classes.
 - `molexp.workflow.types` — `WorkflowResult`, `WorkflowExecution`, `End` re-export, edge sum types, error hierarchy (incl. `WorkflowDeadlockError`), IR-internal `Next`.
 - `molexp.workflow.version` — `WorkflowVersion` / `TaskTopologyEntry` / `WorkflowVersionConflictError`.
-- `molexp.workflow._pydantic_graph` (private subpackage; sole `import pydantic_graph` site): `compiler.py` (`WorkflowGraphCompiler` — lowers one `Step` per task, no `WorkflowStep`), `node.py` (`run_task_body` + context build), `persistence.py` (`RunStorePersistence`), `runtime.py` (`WorkflowRuntime`, `make_execution_id`), `state.py` (`WorkflowState`, `WorkflowDeps`).
+- `molexp.workflow._pydantic_graph` (private subpackage; sole `import pydantic_graph` site): `compiler.py` (`WorkflowGraphCompiler` — lowers one `Step` per task, no `WorkflowStep`), `node.py` (`run_task_body` + context build), `persistence.py` (`write_initial_workflow_json` — initial workflow.json only; no snapshot/restore), `runtime.py` (`WorkflowRuntime`, `make_execution_id`), `state.py` (`WorkflowState`, `WorkflowDeps`).
 - `molexp.workflow.schema` — JSON-Schema Draft-07 wire-format docs (`workflow.json`, `task_config.json`, `link.json`, `task_io.json`, `workflow_contract.json` + `README.md`).
 
 **Layer 3 — `src/molexp/agent/` (pydantic-ai facade + LLM-only modes; sibling of workflow, below harness)**
@@ -263,7 +263,7 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 **Layer 2 — workflow**
 - `molexp.workflow` exports (per `__all__`): `WorkflowCompiler`, `CompiledWorkflow`, `WorkflowResult`, `WorkflowExecution`, `End`, `Task`, `Actor`, `TaskContext`, `ActorContext`, `Runnable`, `Streamable`, `TaskTypeRegistry`, `default_registry`, `WorkflowBinding`, `WorkflowBindingRegistry`, `default_binding_registry`, `WorkflowCodec`, `default_codec`, `WorkflowRuntime`, `Caching`, `CacheStore`, `FileCacheStore`, `TaskSnapshot`, `WorkflowSnapshotRef`, `make_execution_id`, `promote_callable`, `resolve_callable_entrypoint`, `resolve_spec_entrypoint`, `generate_name`, the IR types (`WorkflowGraphIR`, `GraphTaskIR`, `GraphEdgeIR`, `GraphLoopIR`, `GraphParallelIR`, `GraphNodePosition`, `EdgeKind`, `build_workflow_graph_ir`), `render_workflow_mermaid`, `SweepMap`, the contract types (`WorkflowContract`, `TaskIO`, `TaskInputSpec`, `TaskOutputSpec`, `ArtifactDecl`, `ValidationCheck`, `ValidationCheckId`, `ValidationIssue`, `ValidationReport`, `Severity`, `default_validation_checks`, `validate_workflow_contract`), edge sum types (`UnconditionalEdges`, `BranchEdges`, `OutEdges`), versioning (`WorkflowVersion`, `TaskTopologyEntry`, `WorkflowVersionConflictError`), the error hierarchy (incl. `WorkflowDeadlockError`).
 - `Next` deliberately NOT in `__all__` (IR-internal).
-- `molexp.workflow._pydantic_graph` (private): `WorkflowGraphCompiler`, `RunStorePersistence`, `WorkflowRuntime`, `WorkflowState`, `WorkflowDeps`.
+- `molexp.workflow._pydantic_graph` (private): `WorkflowGraphCompiler`, `WorkflowRuntime`, `WorkflowState`, `WorkflowDeps`, `write_initial_workflow_json`.
 
 **Layer 3 — agent**
 - `molexp.agent`: minimal — `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession` (re-export of `harness.session.Session`), and the three review primitives `ReviewDecision`, `ReviewPolicy`, `cli_ask`. No factories.
