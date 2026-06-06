@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from .models import ErrorInfo, ExecutionMetadata, ExecutionRecord, RunStatus
 
 if TYPE_CHECKING:
-    from .run import RunContext
+    from .runcontext import RunContext
 
 
 class RunLifecycle:
