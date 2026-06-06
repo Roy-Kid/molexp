@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from datetime import datetime
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, cast
 
 from pydantic import BaseModel
 
@@ -19,56 +19,55 @@ from molexp._typing import (
     TaskOutput,
 )
 from molexp.path import Path as MolexpPath  # workspace-abstraction path (Folder.path() return)
+from molexp.profile import ProfileConfig
 
-if TYPE_CHECKING:
-    from .workspace import Workspace
-
-
-class _WorkflowLike(Protocol):
-    """Duck-typed shape of ``molexp.workflow.Workflow``.
-
-    Defined here (rather than imported) because the workspace layer must
-    not depend on the workflow layer (CLAUDE.md § *Workspace core-dependency
-    boundary*). The workflow layer's real ``Workflow`` structurally
-    satisfies this Protocol.
-    """
-
-    workflow_id: str
-    version: str
-
-    def register(self, workspace: Workspace) -> None: ...
-
-
-if TYPE_CHECKING:
-    from .experiment import Experiment
-
-from molexp.profile import ProfileConfig  # noqa: E402
-
-from .assets import (  # noqa: E402
+from .assets import (
     AssetCatalog,
     AssetScope,
     ImportAction,
     Producer,
 )
-from .base import (  # noqa: E402
+from .base import (
     _load_metadata,
     _reconstruct,
     _save_metadata,
 )
-from .context import Context  # noqa: E402
-from .errors import RunExistsError, RunNotFoundError  # noqa: E402
-from .folder import WORKSPACE_RUN_KIND, Folder  # noqa: E402
-from .fs import PathArg  # noqa: E402
-from .models import (  # noqa: E402
+from .context import Context
+from .errors import RunExistsError, RunNotFoundError
+from .folder import WORKSPACE_RUN_KIND, Folder
+from .fs import PathArg
+from .models import (
     FolderMetadata,
     RunMetadata,
     RunStatus,
 )
-from .run_assets import RunAssets  # noqa: E402
-from .run_context import ContextStore  # noqa: E402
-from .run_execution import ExecutionStore  # noqa: E402
-from .run_lifecycle import RunLifecycle  # noqa: E402
-from .utils import generate_id  # noqa: E402
+from .run_assets import RunAssets
+from .run_context import ContextStore
+from .run_execution import ExecutionStore
+from .run_lifecycle import RunLifecycle
+from .utils import generate_id
+
+if TYPE_CHECKING:
+    from typing import Protocol
+
+    from .experiment import Experiment
+    from .workspace import Workspace
+
+    class _WorkflowLike(Protocol):
+        """Duck-typed shape of ``molexp.workflow.Workflow``.
+
+        Declared here (rather than imported) because the workspace layer must
+        not depend on the workflow layer (CLAUDE.md § *Workspace core-dependency
+        boundary*). The workflow layer's real ``Workflow`` structurally
+        satisfies this Protocol. Annotation-only, so it lives under
+        ``TYPE_CHECKING`` and the runtime imports above stay E402-free.
+        """
+
+        workflow_id: str
+        version: str
+
+        def register(self, workspace: Workspace) -> None: ...
+
 
 # Re-exported for backward compatibility — the canonical definition now
 # lives in ``.models`` so the run-lifecycle collaborators can import it
