@@ -173,22 +173,14 @@ def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
     this helper is rejected by ``test_submit_molq_plugins_do_not_reach_into_pydantic_graph``.
     """
     from molexp.workflow._names import generate_name
+    from molexp.workspace.utils import derive_execution_id
 
     if run_id is None:
         return f"exec-{generate_name()}"
-
-    base = f"exec-{run_id}"
     if run_dir is None:
-        return base
+        return f"exec-{run_id}"
 
-    exec_root = Path(run_dir) / "executions"
-    if not exec_root.exists():
-        return base
-
-    existing = [p for p in exec_root.iterdir() if p.name.startswith(base)]
-    if not existing:
-        return base
-    return f"{base}-{len(existing) + 1}"
+    return derive_execution_id(run_id, Path(run_dir) / "executions")
 
 
 class WorkflowRuntime:

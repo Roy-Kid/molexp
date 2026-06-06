@@ -40,6 +40,7 @@ from molexp.harness.schemas import ArtifactRef, ModeResult
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+from molexp.workspace.utils import derive_execution_id
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -110,7 +111,7 @@ class Mode(ABC):
         return ModeResult(
             mode_name=self.name,
             run_id=run.id,
-            execution_id=f"exec-{run.id}",
+            execution_id=derive_execution_id(run.id, run.run_dir / "executions"),
             stage_artifacts=stage_artifacts,
             final_artifact=stage_artifacts[-1] if stage_artifacts else None,
         )

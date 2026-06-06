@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .models import ExecutionMetadata, ExecutionRecord
+from .utils import derive_execution_id
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -58,18 +59,12 @@ class ExecutionStore:
     def next_execution_id(self) -> str:
         """Return the execution_id for this attempt.
 
-        Mirrors the logic in the workflow runtime so that the directory
-        created by RunStorePersistence and the execution_history entry
-        share the same identifier.
+        Delegates to :func:`molexp.workspace.utils.derive_execution_id` — the
+        single source of execution-id derivation shared with the workflow
+        runtime — so the directory created by RunStorePersistence and the
+        execution_history entry share the same identifier.
         """
-        base = f"exec-{self._run.id}"
-        exec_root = self._work_dir / "executions"
-        if not exec_root.exists():
-            return base
-        existing = [p for p in exec_root.iterdir() if p.name.startswith(base)]
-        if not existing:
-            return base
-        return f"{base}-{len(existing) + 1}"
+        return derive_execution_id(self._run.id, self._work_dir / "executions")
 
     def close_record(
         self, execution_id: str, status: str, finished_at: datetime
