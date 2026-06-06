@@ -19,6 +19,7 @@ from molexp.cli._app import app
 from molexp.cli.init_cmd import init as _init_cmd
 
 # ── Verbs — self-register on `app` via @app.command when imported ─────────────
+from molexp.cli.workspace import catalog as _catalog
 from molexp.cli.workspace import explore as _explore
 from molexp.cli.workspace import lifecycle as _lifecycle
 from molexp.cli.workspace import monitor as _monitor
