@@ -180,10 +180,12 @@ class RunContext:
         try:
             return self._lifecycle.exit(exc_type, exc_val, exc_tb)
         finally:
-            # Flush deferred log metadata (line_count / updated_at) once, after
-            # the lifecycle has appended its final run-log line. Per-append
-            # writes are deferred to avoid O(lines x assets) manifest churn.
+            # Flush deferred metadata once, after the lifecycle has appended its
+            # final run-log line. Per-op writes are deferred to avoid
+            # O(lines x assets) manifest churn (logs) and O(records) index
+            # rewrites per metric (metrics).
             self._assets.log.flush_all()
+            self._assets.metrics.flush()
 
     # ── Async-context-manager protocol ──────────────────────────────────
     #

@@ -291,6 +291,7 @@ class MetricsWriter:
     def __init__(self, run_dir: Path) -> None:
         self._run_dir = Path(run_dir)
         self._lock = threading.Lock()
+        self._index_dirty = False
 
     def scalar(
         self,
@@ -393,26 +394,20 @@ class MetricsWriter:
             with _metrics_path(self._run_dir).open("a", encoding="utf-8") as fh:
                 fh.write(line)
                 fh.write("\n")
-            self._update_index(payload)
+            # The derived ``index.json`` is rebuilt once on :meth:`flush`
+            # (run-context exit), not rewritten per record — ``metrics.jsonl``
+            # is the source of truth and ``read_run_metrics`` reads it directly.
+            self._index_dirty = True
 
         return payload
 
-    def _update_index(self, record: MetricRecord) -> None:
-        path = _index_path(self._run_dir)
-        if path.exists():
-            try:
-                with path.open(encoding="utf-8") as fh:
-                    index = json.load(fh)
-            except (json.JSONDecodeError, OSError):
-                rebuild_metrics_index(self._run_dir)
+    def flush(self) -> None:
+        """Rebuild the derived ``metrics/index.json`` from the JSONL once."""
+        with self._lock:
+            if not self._index_dirty:
                 return
-        else:
             rebuild_metrics_index(self._run_dir)
-            return
-
-        _update_index_with_record(index, record)
-        index["series_count"] = len(index.get("series", {}))
-        _atomic_write_json(path, index)
+            self._index_dirty = False
 
 
 def _format_wall_time(wall_time: str | datetime | None) -> str:
