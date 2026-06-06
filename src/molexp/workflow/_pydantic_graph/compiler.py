@@ -70,8 +70,8 @@ from .node import (
     _Failure,
     _Trigger,
     run_task_body,
-    run_task_body_cached,
 )
+from .node_cache import run_task_body_cached
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:

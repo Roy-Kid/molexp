@@ -27,19 +27,14 @@ Module surface:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
-from mollog import get_logger
 from pydantic_graph import End
 
 from ..context import TaskContext
 from ..protocols import (
-    AssetsViewLike,
-    JSONMapping,
-    JSONValue,
-    RunContextLike,
     Runnable,
     Streamable,
     TaskInput,
@@ -54,12 +49,11 @@ from ..types import (
     OutEdges,
     UnknownTaskError,
 )
+from .node_params import _resolve_dependent_params
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
     from .._graph_decl import TaskRegistration
-
-logger = get_logger(__name__)
 
 
 # ── Dispatch sum type — "what to do after this task" ────────────────────────
@@ -186,157 +180,6 @@ def _classify_return(
 
 
 # ── Body dispatcher (called by every per-task Step) ─────────────────────────
-
-
-def _is_json_safe(value: object) -> bool:
-    """Return True iff *value* round-trips through ``json.dumps`` cleanly."""
-    import json
-
-    try:
-        json.dumps(value)
-    except (TypeError, ValueError):
-        return False
-    return True
-
-
-def _cache_inputs(inputs: TaskInput) -> dict[str, JSONValue]:
-    """Wrap the collected upstream inputs as the cache ``inputs`` mapping."""
-    return {"inputs": inputs}
-
-
-def _artifact_manifest(deps: WorkflowDeps, name: str) -> list[dict[str, JSONValue]]:
-    """Build the JSON artifact manifest for task *name* in the current run.
-
-    Queries the current run's catalog view for artifacts whose producer
-    task is *name* and snapshots each as a JSON dict
-    ``{name, kind, content_hash, asset_id}``. Returns ``[]`` when no
-    workspace asset view is reachable.
-    """
-    run_context = deps.run_context
-    if run_context is None:
-        return []
-    # The scope-filtered asset view lives on the Run (``run_context.run``);
-    # fall back to a direct ``.assets`` on the context for duck-typed stubs.
-    run = getattr(run_context, "run", None)
-    assets_view = getattr(run, "assets", None) or getattr(run_context, "assets", None)
-    query = getattr(assets_view, "query", None)
-    if not callable(query):
-        return []
-    try:
-        found = query(producer_task=name, kind="artifact")
-    except Exception:
-        return []
-    manifest: list[dict[str, JSONValue]] = []
-    for asset in found or []:
-        content_hash = getattr(asset, "content_hash", None)
-        if not content_hash:
-            continue
-        manifest.append(
-            {
-                "name": getattr(asset, "name", None),
-                "kind": getattr(asset, "kind", "artifact"),
-                "content_hash": content_hash,
-                "asset_id": getattr(asset, "asset_id", None),
-            }
-        )
-    return manifest
-
-
-def _reregister_artifacts(deps: WorkflowDeps, name: str, manifest: list[dict]) -> None:
-    """Re-register cached artifacts into the current run by content-hash.
-
-    Idempotent catalog upsert keyed on ``(kind, content_hash)`` pointing at
-    bytes already present in the content-addressed store — no recompute, no
-    byte recopy. Entries whose bytes are absent (fresh workspace) are
-    skipped gracefully. Reached purely through duck-typed ``run_context``
-    surface so the workflow layer keeps its decoupling from a concrete
-    workspace import.
-    """
-    run_context = deps.run_context
-    if run_context is None or not manifest:
-        return
-    run = getattr(run_context, "run", None)
-    scope = getattr(run, "scope", None)
-    # Reach the workspace catalog through the run's ancestry (duck-typed).
-    experiment = getattr(run, "experiment", None)
-    project = getattr(experiment, "project", None)
-    workspace = getattr(project, "workspace", None)
-    catalog = getattr(workspace, "catalog", None)
-    reregister = getattr(catalog, "reregister_artifact", None)
-    if scope is None or not callable(reregister):
-        return
-    for entry in manifest:
-        content_hash = entry.get("content_hash")
-        if not content_hash:
-            continue
-        try:
-            reregister(
-                name=entry.get("name"),
-                content_hash=content_hash,
-                target_scope=scope,
-                producer_task=name,
-            )
-        except Exception:
-            logger.debug(f"cache: re-register of artifact {entry.get('name')!r} skipped")
-
-
-async def run_task_body_cached(
-    name: str,
-    deps: WorkflowDeps,
-    state: WorkflowState,
-) -> TaskOutput:
-    """Run task *name*'s body with content-addressed result caching.
-
-    Gating (caller pre-checks ``deps.cache is not None``, non-actor task,
-    ``name in deps.snapshots``):
-
-    * collect the upstream inputs once and wrap them JSON-safely as the
-      cache ``inputs`` payload;
-    * ``cache.get`` → on HIT, re-register the cached artifact manifest into
-      the current run and return the recorded ``result`` WITHOUT running the
-      body (the per-task body counter must not increment);
-    * on MISS, run the body, assemble the produced-artifact manifest, and
-      ``cache.put({"result": raw, "artifacts": manifest})``. Non-JSON-safe
-      inputs / results degrade gracefully — the body still runs and the put
-      is skipped.
-
-    The returned raw value is routed by the caller through the SAME
-    ``_classify_return`` path as a plain return, so branch / End semantics
-    hold identically on hits and misses.
-    """
-    registration = deps.registration_by_name.get(name)
-    if registration is None:
-        raise UnknownTaskError(f"run_task_body_cached: unknown task {name!r}")
-
-    cache = deps.cache
-    snapshot = deps.snapshots.get(name)
-    assert cache is not None and snapshot is not None  # caller-gated
-
-    inputs = _collect_upstream_outputs(registration, state)
-    cacheable = _is_json_safe(inputs)
-    cache_inputs = _cache_inputs(inputs)
-
-    if cacheable:
-        try:
-            payload = cache.get(snapshot, cache_inputs)
-        except Exception:
-            payload = None
-        if payload is not None:
-            artifacts = payload.get("artifacts", [])
-            if isinstance(artifacts, list):
-                _reregister_artifacts(deps, name, [a for a in artifacts if isinstance(a, dict)])
-            return payload.get("result")
-
-    raw = await run_task_body(name, deps, state)
-
-    if cacheable and _is_json_safe(raw):
-        manifest = _artifact_manifest(deps, name)
-        result_payload = cast("dict[str, JSONValue]", {"result": raw, "artifacts": manifest})
-        try:
-            cache.put(snapshot, cache_inputs, result_payload)
-        except Exception:
-            logger.debug(f"cache: put for task {name!r} skipped (non-serializable)")
-    return raw
 
 
 async def run_task_body(
@@ -487,105 +330,6 @@ def _collect_upstream_outputs(registration: TaskRegistration, state: WorkflowSta
     return {dep: state.results.get(dep) for dep in deps}
 
 
-class _UpstreamView:
-    """Per-upstream view passed to ``dependent_params(prev)``.
-
-    Exposes ``.output`` (the upstream task's return value, as recorded in
-    :attr:`WorkflowState.results`) and ``.assets`` (an
-    :class:`~molexp.workspace.assets.AssetsView` filtered to the upstream
-    task's producer entries when a workspace ``RunContext`` is attached;
-    ``None`` otherwise).
-    """
-
-    __slots__ = ("assets", "output")
-
-    def __init__(self, output: TaskOutput, assets: _UpstreamAssetsView | None) -> None:
-        self.output = output
-        self.assets = assets
-
-
-def _resolve_dependent_params(
-    *,
-    registration: TaskRegistration,
-    state: WorkflowState,
-    run_context: RunContextLike | None,
-    base_config: JSONMapping | None,
-) -> JSONMapping | None:
-    """If the task declares ``dependent_params=fn``, resolve and overlay onto config.
-
-    ``fn`` receives ``dict[str, _UpstreamView]`` keyed by upstream task name.
-    Its return mapping is overlayed onto a fresh
-    :class:`~molexp.profile.ProfileConfig` and the result replaces the task's
-    base config. The base config is returned unchanged when no
-    ``dependent_params`` is declared.
-    """
-    fn = getattr(registration, "dependent_params", None)
-    if fn is None:
-        return base_config
-
-    from molexp.profile import ProfileConfig
-
-    prev: dict[str, _UpstreamView] = {}
-    for dep in registration.depends_on:
-        upstream_assets = None
-        if run_context is not None:
-            assets_view = getattr(run_context, "assets", None)
-            if assets_view is not None and hasattr(assets_view, "query"):
-                upstream_assets = _UpstreamAssetsView(assets_view, producer_task=dep)
-        prev[dep] = _UpstreamView(
-            output=state.results.get(dep),
-            assets=upstream_assets,
-        )
-
-    overlay = fn(prev)
-    if overlay is None:
-        return base_config
-    if not isinstance(overlay, Mapping):
-        raise TypeError(
-            f"dependent_params for task {registration.name!r} must return a Mapping; "
-            f"got {type(overlay).__name__}"
-        )
-    merged: dict[str, TaskInput] = dict(base_config) if base_config is not None else {}
-    merged.update(overlay)
-    return ProfileConfig(merged, name=getattr(base_config, "name", None))
-
-
-class _UpstreamAssetsView:
-    """Lazy ``query()`` proxy that pre-binds ``producer_task=<dep>``.
-
-    Avoids importing :class:`AssetsView` at module top to keep the
-    workspace dependency optional for non-workspace runs.
-    """
-
-    __slots__ = ("_inner", "_producer_task")
-
-    def __init__(self, assets_view: AssetsViewLike, producer_task: str) -> None:
-        self._inner = assets_view
-        self._producer_task = producer_task
-
-    def query(
-        self,
-        *,
-        kind: str | type | None = None,
-        producer_run: str | None = None,
-        producer_task: str | None = None,
-        tag: tuple[str, str] | None = None,
-        limit: int | None = None,
-        recursive: bool = False,
-    ) -> TaskOutput:
-        return self._inner.query(
-            kind=kind,
-            producer_run=producer_run,
-            producer_task=producer_task or self._producer_task,
-            tag=tag,
-            limit=limit,
-            recursive=recursive,
-        )
-
-    def list(self) -> TaskOutput:
-        return self.query()
-
-
 __all__ = [
     "END_TARGET",
     "NO_OUTPUT",
@@ -599,5 +343,4 @@ __all__ = [
     "_Trigger",
     "_classify_return",
     "run_task_body",
-    "run_task_body_cached",
 ]
