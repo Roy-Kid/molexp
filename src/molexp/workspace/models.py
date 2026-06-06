@@ -223,7 +223,7 @@ class ExecutionRecord(BaseModel, frozen=True):
     scheduler_job_id: str | None = None
 
 
-class ExecutionMetadata(BaseModel):
+class ExecutionMetadata(BaseModel, frozen=True):
     """Per-attempt metadata persisted to ``executions/<exec_id>/execution.json``.
 
     Mirrors the matching :class:`ExecutionRecord` entry in
@@ -243,7 +243,7 @@ class ExecutionMetadata(BaseModel):
     error: ErrorInfo | None = None
 
 
-class RunMetadata(BaseModel):
+class RunMetadata(BaseModel, frozen=True):
     """Single execution instance metadata.
 
     ``profile`` is the activated molcfg profile name (normalized,
