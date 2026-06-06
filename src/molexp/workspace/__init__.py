@@ -40,7 +40,6 @@ from .assets import (
 )
 from .base import atomic_write_json, atomic_write_text
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
-from .catalog import WORKSPACE_CATALOG_KIND
 from .context import Context
 from .errors import (
     ExperimentExistsError,
@@ -97,7 +96,6 @@ from .workspace import Workspace
 __all__ = [
     # Folder kind taxonomy (unify-folder-abstraction-02)
     "WORKSPACE_CACHE_KIND",
-    "WORKSPACE_CATALOG_KIND",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",

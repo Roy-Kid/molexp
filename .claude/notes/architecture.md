@@ -30,7 +30,7 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
 - `molexp.workspace` (`__init__.py`) — package root re-exporting the public storage surface.
 - `molexp.workspace.assets` (subpackage: `__init__.py`, `_adapter.py`, `accessors.py`, `artifact.py`, `base.py`, `checkpoint.py`, `data.py`, `error.py`, `execution.py`, `lineage.py`, `log.py`, `manifest.py`, `output.py`, `view.py`) — typed Asset hierarchy + per-scope manifest + `DataAssetLibrary`.
 - `molexp.workspace.cache` (subpackage: `__init__.py`, `folder.py`) — `CacheFolder` singleton (`ws.cache`); exposes `as_cache_store()` adapter for the workflow layer's `CacheStore` Protocol.
-- `molexp.workspace.catalog` (subpackage: `__init__.py`, `folder.py`, `index.py`) — `CatalogFolder` singleton (`ws.catalog`) hosting `AssetCatalog`.
+- `molexp.workspace.catalog` (subpackage: `__init__.py`, `index.py`) — `AssetCatalog` (SQLite-backed) reached via the `ws.catalog` property.
 - `molexp.workspace.base` — atomic-JSON / atomic-text I/O (`atomic_write_json` / `atomic_write_text`) + container-index helpers.
 - `molexp.workspace.checkpoint` — `CheckpointState` model + file IO.
 - `molexp.workspace.context` — `Context` data model.
@@ -257,7 +257,7 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 - `molexp.workspace.fs_remote`: `RemoteFileSystem`.
 - `molexp.workspace.fs_cached`: `CachingFileSystem`, `prefetch_workspace_indices`.
 - `molexp.workspace.assets`: `ASSET_ADAPTER`, `AnyAsset`, `parse_asset`, accessors, `ImportAction`, the `lineage` submodule.
-- `molexp.workspace.catalog`: `AssetCatalog`, `CatalogFolder`, `RebuildReport`, catalog constants.
+- `molexp.workspace.catalog`: `AssetCatalog`, `RebuildReport`, catalog constants.
 - `molexp.workspace.cache`: `CacheFolder`, `WORKSPACE_CACHE_KIND`.
 
 **Layer 2 — workflow**
@@ -366,7 +366,7 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 ### Layer roles
 
 - `molexp.path` / `molexp._typing` / `molexp._logger` / `molexp.entry` / `molexp.monitor` / `molexp.tree_monitor` / `molexp._run_cancel` / `molexp.config` / `molexp.profile` / `molexp.git` — **Layer 0 (cross-layer primitives)**. Citable from any layer. They MUST NOT import any of `molexp.workspace`, `molexp.workflow`, `molexp.agent`, `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli` at module load (`molexp.entry` and `molexp.monitor` lazy-import workspace types inside functions or under `TYPE_CHECKING`).
-- `molexp.workspace` — **Layer 1 (workspace)**, bottom of the dependency DAG. Pure storage primitive. Owns the `Folder` base, the `FileSystem` Protocol + three implementations (local / remote / cached-mirror), assets, hierarchy, atomic JSON, singleton `CacheFolder` / `CatalogFolder`. **MUST NOT import** `molexp.workflow`, `molexp.agent`, `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli`, `pydantic_ai`, or `pydantic_graph`.
+- `molexp.workspace` — **Layer 1 (workspace)**, bottom of the dependency DAG. Pure storage primitive. Owns the `Folder` base, the `FileSystem` Protocol + three implementations (local / remote / cached-mirror), assets, hierarchy, atomic JSON, the singleton `CacheFolder` (`ws.cache`), and the `AssetCatalog` (`ws.catalog`). **MUST NOT import** `molexp.workflow`, `molexp.agent`, `molexp.harness`, `molexp.plugins`, `molexp.server`, `molexp.cli`, `pydantic_ai`, or `pydantic_graph`.
 - `molexp.workflow` — **Layer 2 (workflow)**. Graph engine. Uses `molexp.workspace` only (for `Run`, `RunContext`, `atomic_write_json`, the `CacheFolder.as_cache_store()` adapter). **MUST NOT import** `molexp.agent`, `molexp.harness`, or `pydantic_ai`. May import `pydantic_graph` only under `workflow/_pydantic_graph/`.
 - `molexp.workflow._pydantic_graph` — **Layer 2 / private**. Sole `import pydantic_graph` site in the repo.
 - `molexp.workflow.schema` — **Layer 2 / wire-format**. JSON-Schema documents consumed by the agent layer's IR emitters and the server's IR round-trip.

@@ -73,7 +73,7 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 ### Layer charters
 
 **`molexp.workspace`** — bottom; pure storage.
-- Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (`CatalogFolder` hosting the global `AssetCatalog`).
+- Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (returns the global `AssetCatalog` directly).
 - MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `server` / `cli` / `sweep`). Allowed `molexp.*` imports are only `_typing` / `profile` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
 - `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
 
@@ -109,7 +109,7 @@ workspace_root/
 ├── workspace.json                # workspace metadata
 ├── project.json                  # children index (auto-derived: cls.__name__ + ".json")
 ├── cache/<key>.json              # singleton CacheFolder — ws.cache
-├── catalog/index.json            # singleton CatalogFolder — ws.catalog
+├── catalog/index.sqlite          # ws.catalog (AssetCatalog, SQLite-backed)
 ├── agent.json / plan.json        # agent-layer mounts (if any)
 ├── agents/<agent_id>/            # Agent Folder; sessions under agent_sessions/
 └── projects/<project_id>/
