@@ -177,7 +177,13 @@ class RunContext:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
-        return self._lifecycle.exit(exc_type, exc_val, exc_tb)
+        try:
+            return self._lifecycle.exit(exc_type, exc_val, exc_tb)
+        finally:
+            # Flush deferred log metadata (line_count / updated_at) once, after
+            # the lifecycle has appended its final run-log line. Per-append
+            # writes are deferred to avoid O(lines x assets) manifest churn.
+            self._assets.log.flush_all()
 
     # ── Async-context-manager protocol ──────────────────────────────────
     #
