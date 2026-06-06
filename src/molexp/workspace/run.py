@@ -556,19 +556,20 @@ class Run(Folder):
                 dict(self.metadata.workflow_snapshot) if self.metadata.workflow_snapshot else None
             ),
         }
-        catalog.upsert_run(record)
-        # Upsert every execution record in history
-        for rec in self.metadata.execution_history:
-            catalog.upsert_execution(
-                {
-                    "execution_id": rec.execution_id,
-                    "run_id": self.metadata.id,
-                    "status": rec.status,
-                    "started_at": rec.started_at.isoformat(),
-                    "finished_at": (rec.finished_at.isoformat() if rec.finished_at else None),
-                    "scheduler_job_id": rec.scheduler_job_id,
-                }
-            )
+        # Batch the run row + its executions into one transaction (was N+1
+        # whole-file rewrites under the legacy backend).
+        execution_records = [
+            {
+                "execution_id": rec.execution_id,
+                "run_id": self.metadata.id,
+                "status": rec.status,
+                "started_at": rec.started_at.isoformat(),
+                "finished_at": (rec.finished_at.isoformat() if rec.finished_at else None),
+                "scheduler_job_id": rec.scheduler_job_id,
+            }
+            for rec in self.metadata.execution_history
+        ]
+        catalog.upsert_run_with_executions(record, execution_records)
 
     # ── Execution ───────────────────────────────────────────────────────
 

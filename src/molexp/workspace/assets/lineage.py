@@ -68,12 +68,12 @@ def descendants(workspace: Workspace, asset_id: str) -> set[str]:
         Set of downstream ``asset_id``s. Empty when no asset records
         *asset_id* in its inputs.
     """
-    catalog_data = workspace.catalog._load()
     children_of: dict[str, list[str]] = {}
-    for aid, entry in catalog_data["assets"].items():
-        producer = entry.get("producer") or {}
-        for inp in producer.get("inputs") or ():
-            children_of.setdefault(inp, []).append(aid)
+    for asset in workspace.catalog.query_assets():
+        if asset.producer is None:
+            continue
+        for inp in asset.producer.inputs:
+            children_of.setdefault(inp, []).append(asset.asset_id)
 
     visited: set[str] = set()
     frontier: list[str] = [asset_id]

@@ -10,7 +10,6 @@ unchanged.
 
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
 
@@ -63,7 +62,7 @@ def test_catalog_index_lands_at_root_catalog_index(workspace: Workspace) -> None
         }
     )
     assert catalog.path.exists()
-    assert catalog.path.name == "index.json"
+    assert catalog.path.name == "index.sqlite"
     assert catalog.path.parent.name == "catalog"
     assert not Path(workspace.root / ".catalog").exists()
 
@@ -88,10 +87,9 @@ def test_register_and_query_round_trip(workspace: Workspace) -> None:
 
 def test_rebuild_uses_new_path(workspace: Workspace) -> None:
     catalog = workspace.catalog
-    catalog.rebuild()
-    payload = json.loads(Path(workspace.root / "catalog" / "index.json").read_text())
-    assert isinstance(payload, dict)
-    assert "workspaces" in payload
+    report = catalog.rebuild()
+    assert report.errors == []
+    assert Path(workspace.root / "catalog" / "index.sqlite").exists()
 
 
 # ── AssetCatalog is re-exported from the assets package via a single owner ────
@@ -108,7 +106,7 @@ def test_workspace_catalog_property_uses_new_location(workspace: Workspace) -> N
     """``workspace.catalog`` returns an ``AssetCatalog`` rooted at ``<root>/catalog``."""
     cat = workspace.catalog
     assert cat.dir == workspace.root / "catalog"
-    assert cat.path == workspace.root / "catalog" / "index.json"
+    assert cat.path == workspace.root / "catalog" / "index.sqlite"
 
 
 # ── workspace-slim-02: _catalog_upsert convergence onto a Folder skeleton ─────
@@ -156,6 +154,11 @@ class _RecordingCatalog:
 
     def upsert_execution(self, record: dict) -> None:
         self._capture("execution", record)
+
+    def upsert_run_with_executions(self, run_record: dict, execution_records: list[dict]) -> None:
+        self._capture("run", run_record)
+        for rec in execution_records:
+            self._capture("execution", rec)
 
     # Removals are irrelevant to the create-path snapshot.
     def remove_project(self, *_a: object) -> None: ...
