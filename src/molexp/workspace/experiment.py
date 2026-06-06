@@ -117,6 +117,8 @@ class Experiment(Folder):
         default_target: str | None = None,
         _entity_metadata: ExperimentMetadata | None = None,
     ) -> None:
+        from .fs_local import LocalFileSystem
+
         resolved_parent = parent if parent is not None else project
         if resolved_parent is None:
             raise ValueError("Experiment: parent (or project) is required")
@@ -143,12 +145,7 @@ class Experiment(Folder):
         self._name = meta.id
         self._kind = kind
         self._root_path = None
-        self._fs = (
-            getattr(resolved_parent, "_fs", None)
-            or __import__(
-                "molexp.workspace.fs_local", fromlist=["LocalFileSystem"]
-            ).LocalFileSystem()
-        )
+        self._fs = getattr(resolved_parent, "_fs", None) or LocalFileSystem()
         self._metadata = FolderMetadata(
             id=meta.id,
             name=meta.name,

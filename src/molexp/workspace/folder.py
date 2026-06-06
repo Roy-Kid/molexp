@@ -78,15 +78,6 @@ def _validate_name_to_id(name: str) -> str:
     return derived
 
 
-def _slugify_name_to_id(name: str) -> str:
-    if not isinstance(name, str) or not name:
-        raise ValueError("folder name must be a non-empty string")
-    derived = slugify(name)
-    if not derived or not _KIND_PATTERN.fullmatch(derived):
-        raise ValueError(f"folder name {name!r} produced invalid id {derived!r}")
-    return derived
-
-
 class Folder:
     """Base class for every workspace-managed directory.
 
@@ -580,11 +571,20 @@ class Folder:
         *,
         new_name: str | None = None,
     ) -> None:
+        # move_to uses OS-level ``shutil.move`` (local paths only). On a
+        # remote-backed folder that would silently operate on the wrong (local)
+        # path, so refuse it with a clear error instead.
+        if not isinstance(self._fs, LocalFileSystem) or not isinstance(
+            new_parent._fs, LocalFileSystem
+        ):
+            raise NotImplementedError(
+                "move_to is only supported for local-filesystem folders "
+                "(it uses OS-level shutil.move); remote-backed folders cannot be moved."
+            )
         target_id = self._name if new_name is None else _validate_name_to_id(new_name)
         target_dir = Path(new_parent._fs.join(new_parent.path(), target_id))
         if new_parent._fs.exists(target_dir):
             raise FolderMoveCollisionError(str(self.resolve()), str(target_dir))
-        # move_to uses OS-level move (shutil.move) — only works local→local
         src = self.resolve()
         dst = target_dir
         shutil.move(str(src), str(dst))
