@@ -379,26 +379,15 @@ class Experiment(Folder):
         """
         resolved_id = id if id is not None else generate_id()
         resolved_target = target if target is not None else self._entity_metadata.default_target
-        cached = self._children_cache.get(resolved_id)
-        if isinstance(cached, Run):
-            return cached
-        child_dir = Run.child_dir(self, resolved_id)
-        if self._fs.is_dir(child_dir):
-            existing = Run.from_disk(child_dir, self)
-            self._children_cache[resolved_id] = existing
-            return existing
-        r = Run(
-            parent=self,
-            name=resolved_id,
+        child = self._construct_child(
+            Run,
+            resolved_id,
             id=resolved_id,
             parameters=parameters,
             workflow_snapshot=workflow_snapshot,
             target=resolved_target,
         )
-        r.materialize()
-        self._children_cache[resolved_id] = r
-        self._upsert_index_row(r)
-        return r
+        return cast(Run, self.add_folder(child))
 
     def get_run(self, run_id: str) -> Run:
         return self.get_folder(run_id, cls=Run)

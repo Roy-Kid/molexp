@@ -13,6 +13,7 @@ children from disk or create + materialize new ones.
 from __future__ import annotations
 
 from pathlib import Path as _LocalPath
+from typing import cast
 
 from molexp.path import Path
 
@@ -117,7 +118,6 @@ class Workspace(Folder):
         self._entity_metadata: WorkspaceMetadata = entity_meta
         self._data_assets: DataAssetLibrary | None = None
         self._catalog: AssetCatalog | None = None
-        self._projects_cache: dict[str, Project] = {}
         self._cache_folder: CacheFolder | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
@@ -254,28 +254,12 @@ class Workspace(Folder):
     def add_project(self, name: str) -> Project:
         """Mount a project under this workspace (idempotent on slug)."""
         self._ensure_materialized()
-        slug = slugify(name)
-        cached = self._children_cache.get(slug)
-        if isinstance(cached, Project):
-            return cached
-        child_dir = Project.child_dir(self, slug)
-        if self._fs.is_dir(child_dir):
-            existing = Project.from_disk(child_dir, self)
-            self._children_cache[slug] = existing
-            self._projects_cache[existing.id] = existing
-            return existing
-        proj = Project(parent=self, name=name, fs=self._fs)
-        proj.materialize()
-        self._children_cache[slug] = proj
-        self._projects_cache[proj.id] = proj
-        self._upsert_index_row(proj)
-        return proj
+        child = self._construct_child(Project, name, fs=self._fs)
+        return cast(Project, self.add_folder(child))
 
     def get_project(self, name: str) -> Project:
         """Strict getter — raise :class:`ProjectNotFoundError` if absent."""
-        proj = self.get_folder(name, cls=Project)
-        self._projects_cache[proj.id] = proj
-        return proj
+        return self.get_folder(name, cls=Project)
 
     def has_project(self, name: str) -> bool:
         return self.has_folder(name, cls=Project)
@@ -287,8 +271,6 @@ class Workspace(Folder):
     def remove_project(self, name: str) -> None:
         """Delete project directory + cascade-drop catalog rows + drop indices."""
         slug = slugify(name)
-        if slug in self._projects_cache:
-            self._projects_cache.pop(slug, None)
         self.remove_folder(name, cls=Project)
         self.catalog.remove_project(slug)
 

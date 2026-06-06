@@ -91,8 +91,7 @@ class TestProject:
         from molexp.workspace import ProjectNotFoundError
 
         workspace.remove_project(project.id)
-        # clear cache after delete (otherwise in-memory stays)
-        workspace._projects_cache.pop(project.id, None)
+        # remove_folder evicts the single _children_cache; no manual clear needed.
         with pytest.raises(ProjectNotFoundError):
             workspace.get_project(project.id)
 

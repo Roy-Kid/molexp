@@ -312,11 +312,31 @@ class Folder:
 
     # ── Generic five-verb CRUD ───────────────────────────────────────────
 
+    def _construct_child(self, cls: type[F], name: str, **kwargs: object) -> F:
+        """Build a typed child folder parented at ``self`` (not yet on disk).
+
+        The single construction hook the typed ``add_*`` sugar
+        (:meth:`Workspace.add_project`, :meth:`Project.add_experiment`,
+        :meth:`Experiment.add_run`) uses before handing the child to
+        :meth:`add_folder`. Entity constructors require a parent, so the child
+        is built self-parented; :meth:`add_folder` accepts a self-parented
+        child and performs the idempotent mount (cache / on-disk hit / create).
+        """
+        # Heterogeneous entity constructors (Run/Experiment/Project) all accept
+        # ``parent`` + ``name`` plus their own typed kwargs; the dynamic forward
+        # is sound at the call sites but not statically checkable here.
+        return cls(parent=self, name=name, **kwargs)  # ty: ignore[invalid-argument-type]
+
     def add_folder(self, child: Folder) -> Folder:
-        if child._parent is not None or child._root_path is not None:
+        # Accept an unmounted child, or one already parented at ``self`` (the
+        # typed ``add_*`` sugar builds self-parented children via
+        # ``_construct_child``). Reject a child mounted elsewhere or a root.
+        if child._root_path is not None or (
+            child._parent is not None and child._parent is not self
+        ):
             raise ValueError(
                 f"folder {child._name!r} (kind={child._kind!r}) is already mounted; "
-                "add_folder() accepts only unmounted folders"
+                "add_folder() accepts only unmounted or self-parented folders"
             )
         target_cls = type(child)
         slug = child._name

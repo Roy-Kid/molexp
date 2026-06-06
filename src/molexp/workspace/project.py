@@ -95,7 +95,6 @@ class Project(Folder):
 
         self._entity_metadata: ProjectMetadata = meta
         self._data_assets: DataAssetLibrary | None = None
-        self._experiments_cache: dict[str, Experiment] = {}
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
@@ -123,7 +122,6 @@ class Project(Folder):
         attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
             "_entity_metadata": meta,
             "_data_assets": None,
-            "_experiments_cache": {},
         }
         return _reconstruct(cls, attrs)
 
@@ -248,36 +246,19 @@ class Project(Folder):
         factory semantics so ``add_experiment("counter")`` twice returns
         the same instance.
         """
-        slug = slugify(name)
         explicit_id = kwargs.pop("id", None)
-        resolved_id = explicit_id if explicit_id is not None else slug
-        cached = self._experiments_cache.get(resolved_id)
-        if cached is not None:
-            return cached
-        child_dir = Experiment.child_dir(self, resolved_id)
-        if self._fs.is_dir(child_dir):
-            existing = Experiment.from_disk(child_dir, self)
-            self._experiments_cache[existing.id] = existing
-            self._children_cache[existing.id] = existing
-            return existing
-        exp = Experiment(parent=self, name=name, id=resolved_id, **kwargs)
-        exp.materialize()
-        self._experiments_cache[exp.id] = exp
-        self._children_cache[exp.id] = exp
-        self._upsert_index_row(exp)
-        return exp
+        resolved_id = explicit_id if explicit_id is not None else slugify(name)
+        child = self._construct_child(Experiment, name, id=resolved_id, **kwargs)
+        return cast(Experiment, self.add_folder(child))
 
     def get_experiment(self, name: str) -> Experiment:
-        exp = self.get_folder(name, cls=Experiment)
-        self._experiments_cache[exp.id] = exp
-        return exp
+        return self.get_folder(name, cls=Experiment)
 
     def has_experiment(self, name: str) -> bool:
         return self.has_folder(name, cls=Experiment)
 
     def remove_experiment(self, name: str) -> None:
         slug = slugify(name)
-        self._experiments_cache.pop(slug, None)
         self.remove_folder(name, cls=Experiment)
         self.workspace.catalog.remove_experiment(slug)
 
