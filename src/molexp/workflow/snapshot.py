@@ -14,11 +14,13 @@ Usage:
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
 import inspect
 import json
 import textwrap
 from datetime import UTC, datetime
+from types import CodeType
 
 from mollog import get_logger
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,6 +28,25 @@ from pydantic import BaseModel, ConfigDict, Field
 from .._typing import JSONValue
 
 logger = get_logger(__name__)
+
+
+@functools.lru_cache(maxsize=4096)
+def _normalized_source_hash(code: CodeType) -> str | None:
+    """Memoized AST-normalized source hash for a code object.
+
+    The hash depends only on the body's source, and a code object is a stable
+    identity for it, so the (expensive) ``inspect.getsource`` + AST parse +
+    normalize + sha256 runs once per code object rather than once per
+    ``TaskSnapshot.from_task_body`` call (``codec.ir_to_spec`` re-snapshots
+    every task on every IR deserialization). Returns ``None`` when source is
+    unavailable so the caller can fall back to a bytecode/identity hash.
+    """
+    try:
+        source = inspect.getsource(code)
+        normalized = _normalize_ast(source)
+    except (OSError, TypeError, SyntaxError):
+        return None
+    return hashlib.sha256(normalized.encode()).hexdigest()[:32]
 
 
 def _normalize_ast(source: str) -> str:
@@ -105,18 +126,24 @@ class TaskSnapshot(BaseModel):
     def _hash_callable(fn: object, identity: str, task_id: str) -> str:
         """AST-normalized code hash of *fn* with bytecode/identity fallbacks."""
         if callable(fn):
+            code_obj = getattr(fn, "__code__", None) or getattr(
+                getattr(fn, "__func__", None), "__code__", None
+            )
+            if code_obj is not None:
+                # Memoized AST-normalized source hash, keyed by code object.
+                source_hash = _normalized_source_hash(code_obj)
+                if source_hash is not None:
+                    return source_hash
+                bytecode_data = code_obj.co_code + repr(code_obj.co_consts).encode()
+                return hashlib.sha256(bytecode_data).hexdigest()[:32]
+            # Callable without a code object (e.g. a class / callable instance):
+            # hash its source directly (rare, not on the re-snapshot hot path).
             try:
                 source = inspect.getsource(fn)
                 normalized = _normalize_ast(source)
                 return hashlib.sha256(normalized.encode()).hexdigest()[:32]
             except (OSError, TypeError, SyntaxError):
                 pass
-            code_obj = getattr(fn, "__code__", None) or getattr(
-                getattr(fn, "__func__", None), "__code__", None
-            )
-            if code_obj is not None:
-                bytecode_data = code_obj.co_code + repr(code_obj.co_consts).encode()
-                return hashlib.sha256(bytecode_data).hexdigest()[:32]
         logger.warning(
             f"Cannot compute reliable code hash for task {task_id} ({identity}). "
             "Falling back to identity."

@@ -262,9 +262,12 @@ class WorkflowRuntime:
 
         run_for_deps = getattr(run_context, "run", None) if run_context is not None else None
 
-        registration_by_name = {t.name: t for t in compiled._tasks}
-        parallel_decls = {par.body: par for par in compiled._parallels}
-        loop_max_iters = {loop.until: loop.max_iters for loop in compiled._loops}
+        # Static topology maps are derived once and cached on the (frozen)
+        # compiled artifact — reused across every execution. Only the capacity
+        # limiters must be fresh per run (live anyio objects).
+        registration_by_name = compiled.registration_by_name
+        parallel_decls = compiled.parallel_decls_by_body
+        loop_max_iters = compiled.loop_max_iters
         parallel_limiters = {
             par.body: anyio.CapacityLimiter(par.max_concurrency) for par in compiled._parallels
         }

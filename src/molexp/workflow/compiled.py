@@ -24,6 +24,7 @@ here; binding lives in :class:`WorkflowBindingRegistry`, not on a global.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from functools import cached_property
 from typing import TYPE_CHECKING, Protocol
 
 from ._graph_decl import (
@@ -90,6 +91,24 @@ class CompiledWorkflow:
         self._loops = loops
         self._parallels = parallels
         self._reducer = reducer
+
+    # ── Derived topology maps (built once; the artifact is frozen) ─────────
+
+    @cached_property
+    def registration_by_name(self) -> Mapping[str, TaskRegistration]:
+        """``task_name → TaskRegistration`` — derived once and reused across
+        every execution (the runtime's per-run deps read it)."""
+        return {t.name: t for t in self._tasks}
+
+    @cached_property
+    def parallel_decls_by_body(self) -> Mapping[str, ParallelDecl]:
+        """``body_task_name → ParallelDecl`` — derived once, reused per run."""
+        return {par.body: par for par in self._parallels}
+
+    @cached_property
+    def loop_max_iters(self) -> Mapping[str, int]:
+        """``until_task_name → max_iters`` — derived once, reused per run."""
+        return {loop.until: loop.max_iters for loop in self._loops}
 
     # ── Boundary introspection ────────────────────────────────────────────
 
