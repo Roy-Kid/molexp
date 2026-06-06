@@ -47,6 +47,7 @@ from .folder import (
     WORKSPACE_EXPERIMENT_KIND,
     WORKSPACE_RUN_KIND,
     Folder,
+    _validate_target_registered,
 )
 from .fs import PathArg
 from .models import ExperimentMetadata, FolderMetadata
@@ -376,6 +377,7 @@ class Experiment(Folder):
         """
         resolved_id = id if id is not None else generate_id()
         resolved_target = target if target is not None else self._entity_metadata.default_target
+        _validate_target_registered(self.workspace, resolved_target)
         child = self._construct_child(
             Run,
             resolved_id,

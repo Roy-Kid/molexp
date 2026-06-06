@@ -78,6 +78,27 @@ def _validate_name_to_id(name: str) -> str:
     return derived
 
 
+def _validate_target_registered(workspace: object, target: str | None) -> None:
+    """Reject a *target* that is not in the workspace's compute-target registry.
+
+    No-op when *target* is ``None`` or the registry is empty (a registry-less
+    workspace keeps accepting free-form target strings — back-compat). Once a
+    workspace registers any target, references must name a registered one
+    (models.py: ``RunMetadata.target`` is "validated against
+    WorkspaceMetadata.targets at write time").
+    """
+    if target is None:
+        return
+    metadata = getattr(workspace, "metadata", None)
+    registered = getattr(metadata, "targets", ()) or ()
+    if registered and not any(getattr(t, "name", None) == target for t in registered):
+        names = sorted(getattr(t, "name", "?") for t in registered)
+        raise ValueError(
+            f"unknown compute target {target!r}: not in the workspace target "
+            f"registry {names}; register it first (e.g. `molexp target add`)."
+        )
+
+
 class Folder:
     """Base class for every workspace-managed directory.
 

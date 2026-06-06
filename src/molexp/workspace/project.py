@@ -34,6 +34,7 @@ from .folder import (
     WORKSPACE_EXPERIMENT_KIND,
     WORKSPACE_PROJECT_KIND,
     Folder,
+    _validate_target_registered,
 )
 from .fs import PathArg
 from .models import FolderMetadata, ProjectMetadata
@@ -248,6 +249,7 @@ class Project(Folder):
         """
         explicit_id = kwargs.pop("id", None)
         resolved_id = explicit_id if explicit_id is not None else slugify(name)
+        _validate_target_registered(self.workspace, kwargs.get("default_target"))
         child = self._construct_child(Experiment, name, id=resolved_id, **kwargs)
         return cast(Experiment, self.add_folder(child))
 
