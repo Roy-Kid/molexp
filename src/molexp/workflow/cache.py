@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections import OrderedDict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -133,6 +134,34 @@ class Caching:
             )
         self._store: CacheStore = store if store is not None else FileCacheStore(Path(store_dir))  # type: ignore[arg-type]
         self._max_entries = max_entries
+        # In-process LRU index: cache_key → None, ordered oldest-first. Built
+        # lazily from the store on first use (one O(E) glob+stat) and then
+        # maintained incrementally so eviction is O(1) amortised — no
+        # per-put directory glob or per-key stat. ``None`` = not yet loaded.
+        self._lru: OrderedDict[str, None] | None = None
+
+    def _ensure_lru(self) -> OrderedDict[str, None]:
+        """Lazily materialise the LRU index from the backing store.
+
+        Done once per :class:`Caching` instance: the store may already hold
+        entries from a previous process, ordered by on-disk access time.
+        """
+        if self._lru is None:
+            keys = list(self._store.keys())
+            keys.sort(key=self._store.access_time)  # oldest first → LRU front
+            self._lru = OrderedDict((k, None) for k in keys)
+        return self._lru
+
+    def _mark_used(self, cache_key: str) -> None:
+        """Record *cache_key* as most-recently-used (insert or move to end)."""
+        lru = self._ensure_lru()
+        lru[cache_key] = None
+        lru.move_to_end(cache_key)
+
+    def _drop(self, cache_key: str) -> None:
+        """Forget *cache_key* from the LRU index (no store interaction)."""
+        if self._lru is not None:
+            self._lru.pop(cache_key, None)
 
     @property
     def store(self) -> CacheStore:
@@ -164,6 +193,7 @@ class Caching:
         except Exception:
             logger.warning(f"Corrupted cache entry {cache_key}, removing")
             self._store.remove(cache_key)
+            self._drop(cache_key)
             return None
 
         if entry.version != CACHE_FORMAT_VERSION:
@@ -172,9 +202,11 @@ class Caching:
                 f"entry={entry.version}, current={CACHE_FORMAT_VERSION}"
             )
             self._store.remove(cache_key)
+            self._drop(cache_key)
             return None
 
         self._store.touch(cache_key)
+        self._mark_used(cache_key)
         return entry.result
 
     def put(
@@ -198,27 +230,33 @@ class Caching:
         )
         self._store.write(cache_key, entry.model_dump_json(indent=2))
         if self._max_entries > 0:
+            self._mark_used(cache_key)
             self._evict_if_needed()
 
     def invalidate(self, snapshot: TaskSnapshot, inputs: dict[str, JSONValue]) -> bool:
         """Remove a single cache entry. Returns True if the entry existed."""
         cache_key = self._compute_cache_key(snapshot.key, self._compute_input_hash(inputs))
-        return self._store.remove(cache_key)
+        existed = self._store.remove(cache_key)
+        self._drop(cache_key)
+        return existed
 
     def clear(self) -> int:
         """Remove all cache entries. Returns count removed."""
-        return self._store.clear()
+        removed = self._store.clear()
+        self._lru = OrderedDict()
+        return removed
 
     def _evict_if_needed(self) -> None:
-        keys = list(self._store.keys())
-        if len(keys) <= self._max_entries:
-            return
-        # Order by access time, oldest first.
-        keys.sort(key=self._store.access_time)
-        to_remove = len(keys) - self._max_entries
-        for key in keys[:to_remove]:
-            self._store.remove(key)
-            logger.debug(f"Evicted cache entry: {key}")
+        """Evict least-recently-used entries until within ``max_entries``.
+
+        O(1) amortised per eviction: pop the oldest key off the in-process
+        ``OrderedDict`` and drop its file. No directory glob, no per-key stat.
+        """
+        lru = self._ensure_lru()
+        while len(lru) > self._max_entries:
+            old_key, _ = lru.popitem(last=False)  # oldest = LRU front
+            self._store.remove(old_key)
+            logger.debug(f"Evicted cache entry: {old_key}")
 
     @staticmethod
     def _compute_cache_key(snapshot_key: str, input_hash: str) -> str:
