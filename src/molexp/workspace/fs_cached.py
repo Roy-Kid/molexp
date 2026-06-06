@@ -30,7 +30,7 @@ import logging
 import os
 import shutil
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
@@ -138,6 +138,12 @@ class CachedRemoteFileSystem:
         self._index: dict[str, _Entry] = {}
         self._dir_index: dict[str, _DirEntry] = {}
         self._sidecar = self._mirror_root / _SIDECAR_FILENAME
+        # Sidecar write batching: while ``_defer_persist`` is set (inside
+        # ``batched()``), per-op writes only mark ``_sidecar_dirty`` and the
+        # full serialization happens once on batch exit — turning a bulk walk
+        # (e.g. ``prefetch_workspace_indices``) from O(records²) into O(records).
+        self._defer_persist = False
+        self._sidecar_dirty = False
         self._load_sidecar()
 
     # ── Test-only introspection ─────────────────────────────────────────
@@ -505,6 +511,37 @@ class CachedRemoteFileSystem:
                 continue
 
     def _persist_sidecar(self) -> None:
+        """Persist now, or defer to batch exit if inside ``batched()``."""
+        if self._defer_persist:
+            self._sidecar_dirty = True
+            return
+        self._write_sidecar()
+
+    @contextlib.contextmanager
+    def batched(self) -> Iterator[None]:
+        """Defer sidecar writes for the duration of a bulk operation.
+
+        Per-op cache records/invalidations only mark the sidecar dirty; the
+        full serialization runs once on exit. Use around bulk walks (e.g.
+        :func:`prefetch_workspace_indices`) to avoid O(records²) rewrites.
+        Re-entrant: nested ``batched()`` flush only at the outermost exit.
+        """
+        if self._defer_persist:
+            yield  # already batching — inner block is a no-op wrapper
+            return
+        self._defer_persist = True
+        try:
+            yield
+        finally:
+            self._defer_persist = False
+            self.flush()
+
+    def flush(self) -> None:
+        """Write the sidecar if it has pending (deferred) changes."""
+        if self._sidecar_dirty:
+            self._write_sidecar()
+
+    def _write_sidecar(self) -> None:
         payload = {
             "version": _SIDECAR_VERSION,
             "ttl_seconds": self._ttl_seconds,
@@ -519,6 +556,7 @@ class CachedRemoteFileSystem:
         try:
             tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
             os.replace(tmp, self._sidecar)  # noqa: PTH105
+            self._sidecar_dirty = False
         except OSError as exc:
             logger.warning("cache sidecar write failed at %s: %s", self._sidecar, exc)
             with contextlib.suppress(OSError):
@@ -562,35 +600,44 @@ def prefetch_workspace_indices(workspace: Workspace) -> list[PrefetchWarning]:
     state = _PrefetchState()
     fs = workspace._fs
     root = str(workspace.root)
-    _safe_read(fs, fs.join(root, "workspace.json"), state)
-    projects_dir = fs.join(root, "projects")
-    project_names = _read_container_children(
-        fs,
-        container_dir=projects_dir,
-        index_path=fs.join(root, "project.json"),
-        per_child_metadata="project.json",
-        state=state,
+    # Batch the cache sidecar across the whole walk: one write at the end
+    # instead of one per entity read/listdir (O(records) not O(records^2)).
+    # ``batched`` is an optional duck-typed method (CachedRemoteFileSystem only).
+    batch = (
+        fs.batched()  # ty: ignore[call-non-callable]
+        if hasattr(fs, "batched")
+        else contextlib.nullcontext()
     )
-    for project_name in project_names:
-        project_dir = fs.join(projects_dir, project_name)
-        experiments_dir = fs.join(project_dir, "experiments")
-        experiment_names = _read_container_children(
+    with batch:
+        _safe_read(fs, fs.join(root, "workspace.json"), state)
+        projects_dir = fs.join(root, "projects")
+        project_names = _read_container_children(
             fs,
-            container_dir=experiments_dir,
-            index_path=fs.join(project_dir, "experiment.json"),
-            per_child_metadata="experiment.json",
+            container_dir=projects_dir,
+            index_path=fs.join(root, "project.json"),
+            per_child_metadata="project.json",
             state=state,
         )
-        for experiment_name in experiment_names:
-            experiment_dir = fs.join(experiments_dir, experiment_name)
-            runs_dir = fs.join(experiment_dir, "runs")
-            _read_container_children(
+        for project_name in project_names:
+            project_dir = fs.join(projects_dir, project_name)
+            experiments_dir = fs.join(project_dir, "experiments")
+            experiment_names = _read_container_children(
                 fs,
-                container_dir=runs_dir,
-                index_path=fs.join(experiment_dir, "run.json"),
-                per_child_metadata="run.json",
+                container_dir=experiments_dir,
+                index_path=fs.join(project_dir, "experiment.json"),
+                per_child_metadata="experiment.json",
                 state=state,
             )
+            for experiment_name in experiment_names:
+                experiment_dir = fs.join(experiments_dir, experiment_name)
+                runs_dir = fs.join(experiment_dir, "runs")
+                _read_container_children(
+                    fs,
+                    container_dir=runs_dir,
+                    index_path=fs.join(experiment_dir, "run.json"),
+                    per_child_metadata="run.json",
+                    state=state,
+                )
     return state.warnings
 
 
