@@ -360,9 +360,13 @@ class WorkflowRuntime:
             logger.exception(f"Workflow {compiled.name!r} execution failed")
             if run_context is not None:
                 _record_run_failure(run_context, str(exc))
+            # ``state`` is mutated in place by the graph runner, so it still
+            # holds every task result recorded before the raise. Preserve them
+            # so the caller can resume via ``seed_outputs=`` instead of
+            # recomputing completed (often expensive) tasks.
             return WorkflowResult(
                 status="failed",
-                outputs={},
+                outputs=dict(state.results),
                 run_id=run_id,
                 execution_id=execution_id,
             )
@@ -428,9 +432,12 @@ class WorkflowRuntime:
                     execution_id=execution_id,
                 )
             except Exception:
+                # ``seed_state`` is mutated in place by the graph runner — it
+                # carries the results of every task that completed before the
+                # raise. Preserve them for ``seed_outputs=`` resume.
                 handle._result = WorkflowResult(
                     status="failed",
-                    outputs={},
+                    outputs=dict(seed_state.results),
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )
