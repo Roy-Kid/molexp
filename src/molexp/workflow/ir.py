@@ -4,7 +4,7 @@ This is the workflow layer's *own* IR: a frozen, JSON-serializable snapshot
 of everything a compiled :class:`~molexp.workflow.spec.Workflow` holds — its
 tasks and dependencies plus the complete control-flow topology (entries,
 control edges, branch routes, loops, parallel fan-outs). It is produced by
-:meth:`Workflow.to_ir` after :meth:`WorkflowBuilder.build`.
+:meth:`CompiledWorkflow.to_ir` after :meth:`WorkflowCompiler.compile`.
 
 It is deliberately distinct from two neighbours:
 

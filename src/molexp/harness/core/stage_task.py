@@ -2,7 +2,7 @@
 
 The harness pipeline runs on the ``molexp.workflow`` engine (see
 :class:`molexp.harness.mode.Mode`): each :class:`Stage` is wrapped in a
-``StageTask`` and registered on a ``WorkflowBuilder``. The engine schedules the
+``StageTask`` and registered on a ``WorkflowCompiler``. The engine schedules the
 tasks by topology and threads the live :class:`HarnessRunContext` through every
 task as ``ctx.run_context``.
 

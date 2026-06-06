@@ -9,12 +9,12 @@ No source scanning, no magic attribute discovery — explicit registration.
 Example (user script)::
 
     import molexp as me
-    from molexp.workflow import WorkflowBuilder
+    from molexp.workflow import WorkflowCompiler
 
     ws = me.Workspace("./lab")
     project = ws.add_project("my-project")
     exp = project.add_experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
-    train_spec = WorkflowBuilder(name="train").add(...).build()
+    train_spec = WorkflowCompiler(name="train").add(...).compile()
     train_spec.bind_to(exp)
     me.entry(ws)
 

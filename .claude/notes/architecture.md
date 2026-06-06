@@ -51,14 +51,14 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
 - `molexp.workspace.target` — `Target` value-type sum (`LocalTarget` / `RemoteTarget`), `parse_target` / `resolve_target` / `target_to_transport` / `target_to_filesystem`, `Session` / `SessionManager`, `TargetNotFound` / `TargetNeedsResolution`.
 - `molexp.workspace.targets` — compute-target registry helpers backed by `WorkspaceMetadata.targets`.
 - `molexp.workspace.utils` — `slugify`, `compute_content_hash`, helpers.
-- `molexp.workspace.workspace` — `Workspace(Folder)` + `set_cli_root_override`; materializes its own root in `__init__`.
+- `molexp.workspace.workspace` — `Workspace(Folder)` + `set_cli_root_override`; `__init__` load-or-create reads metadata only, writes its root lazily via `materialize()`.
 
 **Layer 2 — `src/molexp/workflow/` (middle — graph engine)**
 - `molexp.workflow` (`__init__.py`) — re-exports the public OOP API.
 - `molexp.workflow._graph_decl` — internal task-registration declarations.
 - `molexp.workflow._helpers` — `_callable_name` / `_stable_workflow_id` / `_to_snake_case` private helpers.
 - `molexp.workflow._names` — `generate_name`.
-- `molexp.workflow.builder` — `WorkflowBuilder` (mutable; decorator + OOP).
+- `molexp.workflow.binding` — `WorkflowBinding` / `WorkflowBindingRegistry` / `default_binding_registry` (task-type binding registry).
 - `molexp.workflow.cache` — `Caching` LRU + `CacheEntry` + `CACHE_FORMAT_VERSION`.
 - `molexp.workflow.cache_store` — `CacheStore` Protocol + `FileCacheStore`.
 - `molexp.workflow.context` — `TaskContext` + `ActorContext`.
@@ -66,14 +66,18 @@ molexp now ships **five Python layers under `src/molexp/`** plus the application
 - `molexp.workflow.promote` — `promote_callable` / `resolve_callable_entrypoint` / `resolve_spec_entrypoint`.
 - `molexp.workflow.protocols` — `Runnable` / `Streamable` Protocols + structural aliases.
 - `molexp.workflow.registry` — `TaskTypeRegistry` + `default_registry`.
-- `molexp.workflow.serializer` — `WorkflowCompiler` + `default_compiler`.
+- `molexp.workflow.compiler` — `WorkflowCompiler` (mutable; decorator + OOP) → `.compile()` → `CompiledWorkflow`.
+- `molexp.workflow.compiled` — `CompiledWorkflow` (frozen, content-hashed graph artifact) + `.subgraph()`.
+- `molexp.workflow.codec` — `WorkflowCodec` / `default_codec` (workflow ⇄ wire-format serialization).
+- `molexp.workflow.ir` — `WorkflowGraphIR` + `GraphTaskIR` / `GraphEdgeIR` / `GraphLoopIR` / `GraphParallelIR` / `GraphNodePosition` / `EdgeKind` + `build_workflow_graph_ir`.
+- `molexp.workflow.mermaid` — `render_workflow_mermaid`.
+- `molexp.workflow.sweep` — `SweepMap`.
 - `molexp.workflow.snapshot` — `TaskSnapshot` (AST-normalized identity).
 - `molexp.workflow.snapshot_ref` — `WorkflowSnapshotRef`.
-- `molexp.workflow.spec` — `Workflow` (frozen, content-hashed) + `_bindings_registry`.
 - `molexp.workflow.task` — `Task` / `Actor` plain `abc.ABC` base classes.
-- `molexp.workflow.types` — `WorkflowResult`, `WorkflowExecution`, `End` re-export, edge sum types, error hierarchy, IR-internal `Next`.
+- `molexp.workflow.types` — `WorkflowResult`, `WorkflowExecution`, `End` re-export, edge sum types, error hierarchy (incl. `WorkflowDeadlockError`), IR-internal `Next`.
 - `molexp.workflow.version` — `WorkflowVersion` / `TaskTopologyEntry` / `WorkflowVersionConflictError`.
-- `molexp.workflow._pydantic_graph` (private subpackage; sole `import pydantic_graph` site): `compiler.py` (`WorkflowGraphCompiler`), `node.py` (`WorkflowStep`), `persistence.py` (`RunStorePersistence`), `runtime.py` (`GraphWorkflowRuntime`, `make_execution_id`), `state.py` (`WorkflowState`, `WorkflowDeps`, `CompiledWorkflow`).
+- `molexp.workflow._pydantic_graph` (private subpackage; sole `import pydantic_graph` site): `compiler.py` (`WorkflowGraphCompiler` — lowers one `Step` per task, no `WorkflowStep`), `node.py` (`run_task_body` + context build), `persistence.py` (`RunStorePersistence`), `runtime.py` (`WorkflowRuntime`, `make_execution_id`), `state.py` (`WorkflowState`, `WorkflowDeps`).
 - `molexp.workflow.schema` — JSON-Schema Draft-07 wire-format docs (`workflow.json`, `task_config.json`, `link.json`, `task_io.json`, `workflow_contract.json` + `README.md`).
 
 **Layer 3 — `src/molexp/agent/` (pydantic-ai facade + LLM-only modes; sibling of workflow, below harness)**
@@ -257,9 +261,9 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 - `molexp.workspace.cache`: `CacheFolder`, `WORKSPACE_CACHE_KIND`.
 
 **Layer 2 — workflow**
-- `molexp.workflow` exports (per `__all__`): `Workflow`, `WorkflowBuilder`, `WorkflowCompiler`, `default_compiler`, `WorkflowResult`, `WorkflowExecution`, `End`, `Task`, `Actor`, `TaskContext`, `ActorContext`, `Runnable`, `Streamable`, `TaskTypeRegistry`, `default_registry`, `Caching`, `CacheStore`, `FileCacheStore`, `TaskSnapshot`, `WorkflowSnapshotRef`, `make_execution_id`, `promote_callable`, `resolve_callable_entrypoint`, `resolve_spec_entrypoint`, `generate_name`, the contract types (`WorkflowContract`, `TaskIO`, `TaskInputSpec`, `TaskOutputSpec`, `ArtifactDecl`, `ValidationCheck`, `ValidationCheckId`, `ValidationIssue`, `ValidationReport`, `Severity`, `default_validation_checks`, `validate_workflow_contract`), edge sum types (`UnconditionalEdges`, `BranchEdges`, `OutEdges`), versioning (`WorkflowVersion`, `TaskTopologyEntry`, `WorkflowVersionConflictError`), the error hierarchy.
+- `molexp.workflow` exports (per `__all__`): `WorkflowCompiler`, `CompiledWorkflow`, `WorkflowResult`, `WorkflowExecution`, `End`, `Task`, `Actor`, `TaskContext`, `ActorContext`, `Runnable`, `Streamable`, `TaskTypeRegistry`, `default_registry`, `WorkflowBinding`, `WorkflowBindingRegistry`, `default_binding_registry`, `WorkflowCodec`, `default_codec`, `WorkflowRuntime`, `Caching`, `CacheStore`, `FileCacheStore`, `TaskSnapshot`, `WorkflowSnapshotRef`, `make_execution_id`, `promote_callable`, `resolve_callable_entrypoint`, `resolve_spec_entrypoint`, `generate_name`, the IR types (`WorkflowGraphIR`, `GraphTaskIR`, `GraphEdgeIR`, `GraphLoopIR`, `GraphParallelIR`, `GraphNodePosition`, `EdgeKind`, `build_workflow_graph_ir`), `render_workflow_mermaid`, `SweepMap`, the contract types (`WorkflowContract`, `TaskIO`, `TaskInputSpec`, `TaskOutputSpec`, `ArtifactDecl`, `ValidationCheck`, `ValidationCheckId`, `ValidationIssue`, `ValidationReport`, `Severity`, `default_validation_checks`, `validate_workflow_contract`), edge sum types (`UnconditionalEdges`, `BranchEdges`, `OutEdges`), versioning (`WorkflowVersion`, `TaskTopologyEntry`, `WorkflowVersionConflictError`), the error hierarchy (incl. `WorkflowDeadlockError`).
 - `Next` deliberately NOT in `__all__` (IR-internal).
-- `molexp.workflow._pydantic_graph` (private): `End`, `WorkflowGraphCompiler`, `RunStorePersistence`, `GraphWorkflowRuntime`.
+- `molexp.workflow._pydantic_graph` (private): `WorkflowGraphCompiler`, `RunStorePersistence`, `WorkflowRuntime`, `WorkflowState`, `WorkflowDeps`.
 
 **Layer 3 — agent**
 - `molexp.agent`: minimal — `AgentRunner`, `AgentMode`, `AgentRunResult`, `AgentSession` (re-export of `harness.session.Session`), and the three review primitives `ReviewDecision`, `ReviewPolicy`, `cli_ask`. No factories.
@@ -316,12 +320,12 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 
 **Layer 1 — workspace**
 - naming: `PascalCase` types, `snake_case` functions; `*Metadata` pydantic models for on-disk shapes; `*Asset` for typed asset variants; `*ExistsError` / `*NotFoundError` for typed exceptions; `Folder` subclasses live alongside their entity module.
-- construction: pure-data types are `pydantic.BaseModel(frozen=True)`; runtime entities are `Folder` subclasses with explicit `__init__`; child factories are idempotent and lazy — no I/O in `__init__` except `Workspace`, which materializes its own root.
+- construction: pure-data types are `pydantic.BaseModel(frozen=True)`; runtime entities are `Folder` subclasses with explicit `__init__`; child factories are idempotent and lazy — no disk *writes* in `__init__` (incl. `Workspace`, whose `__init__` only load-or-create *reads* metadata; the root mkdir/write happens lazily in `materialize()` via `_ensure_materialized()`).
 - error handling: typed exceptions in `errors.py` carry the entity id; atomic JSON via temp-file + `os.replace` inside `LocalFileSystem.atomic_write_json`; folder-kind validation; idempotent `add_*` returns cached on collision.
 - import discipline: **every I/O routes through `self._fs`** (a `FileSystem` Protocol) — never raw `pathlib.Path.read_text`. Stock impls: `LocalFileSystem` / `RemoteFileSystem` / **`CachingFileSystem`** (new mirror decorator).
 
 **Layer 2 — workflow**
-- naming: builder/spec separation (`WorkflowBuilder` → `Workflow` after `.build()`); `*_to_*` method names on `WorkflowCompiler`; error class names `<Verb>Error`; edge sum types `<Noun>Edges`.
+- naming: compiler/compiled separation (`WorkflowCompiler` → `CompiledWorkflow` after `.compile()`); `*_to_*` method names on `WorkflowCompiler`; error class names `<Verb>Error`; edge sum types `<Noun>Edges`.
 - construction: value types are `BaseModel(frozen=True)`; `WorkflowExecution` is a plain class because it holds live asyncio state; `Task` / `Actor` are plain `abc.ABC` (NOT pg `BaseNode`); `_pydantic_graph/` is the sole subtree allowed to use `@dataclass`.
 - error handling: `WorkflowError` hierarchy raised at compile time; `ParallelExecutionError` aggregates per-element failures; `LoopMaxItersExceeded` is a non-fatal `Warning`; cache `read` corruption is logged + entry deleted.
 - import discipline: `pydantic_graph` imported only under `_pydantic_graph/`; `Next(label)` deliberately not in `__all__`.
@@ -385,6 +389,6 @@ Per its docstring this is a **top-level package**, sibling of `workspace` / `wor
 - **`agent.modes.plan` codegen residue** — the prior blueprint's 7-stage pipeline (`SynthesizeIntent` → … → `EmitPlan`) collapses to **5 stages, 2 LLM ops**: `synthesize_intent` → `clarify_intent` → `research_and_plan` → `preflight_plan_graph` → `emit_approved_plan` (the new `plan/stages/` subpackage). A `thread_state.py` helper now carries inter-stage state.
 - **`agent.modes` interactive entry** — the prior blueprint listed only five modes; `InteractiveMode` (CLI default, emergent, composes the declarative five) is the new sixth.
 - The earlier `agent-pydanticai-rectification` deletions remain confirmed absent (`agent/_pydanticai/{harness,provider}.py`, `agent/{sessions,context,memory,recovery,skills,tools}/`, `agent/mcp/{source,tool_store,probe}.py`, `_legacy_types.py`, `observability/`, `orchestration/`, `sandbox.py`, `service.py`, `model*.py`, `planning/`, `coding_protocol.py`) — **unchanged since the 2026-05-20 prior blueprint**.
-- **workspace / workflow / sweep** — unchanged since 2026-05-20: `workspace.subsystem.SubsystemStore` remains absent; `workflow.compiler` remains renamed to `workflow.serializer`; the `cli/` reorganization around `cli/workspace/` holds; `src/molexp/sweep/` remains removed. The one workspace addition is `workspace.fs_cached`.
+- **workspace / workflow / sweep** — `workspace.subsystem.SubsystemStore` remains absent; the build+compile authoring lives in `workflow.compiler` (`WorkflowCompiler` → `CompiledWorkflow`), with wire-format serialization in `workflow.codec` (`WorkflowCodec`) — there is no `workflow.builder` / `workflow.spec` / `workflow.serializer` module; the `cli/` reorganization around `cli/workspace/` holds; the standalone `src/molexp/sweep/` package remains removed (sweep lives at `workflow.sweep`). The one workspace addition is `workspace.fs_cached`.
 
 <!-- mol:map:managed end -->
