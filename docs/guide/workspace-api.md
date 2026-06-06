@@ -178,8 +178,6 @@ The second group deals with files, through typed accessors. `ctx.artifact.save(n
 
 The third group deals with asset lookup across the unified catalog. `ctx.find_asset(name)` searches in run → experiment → project → workspace order and returns a typed `Asset` subclass. `ctx.get_data_dir(asset_name, fallback=...)` first tries that hierarchical lookup; if nothing is found and a fallback path is provided, it creates that directory under the workspace root and returns it. For typed queries against the catalog use `ws.catalog.query_assets(kind=..., producer_run=..., scope=...)`.
 
-For actor-style workflows, `RunContext` also exposes `emit()` and `receive()` over registered channels. Those methods are not part of ordinary task execution, but they are public because the actor runtime uses the same context object.
-
 Finally, `RunContext.open(run_dir)` reconstructs a full workspace, project, experiment, and run chain from an existing run directory. This is what worker-style entry points use when they only know the run path on disk.
 
 ## Assets Are Unified, Typed, and Scoped

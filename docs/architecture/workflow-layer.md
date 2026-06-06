@@ -47,9 +47,8 @@ opaque.
 `molexp.workflow` owns:
 
 - workflow declaration (`Workflow` builder, `Workflow` compiled)
-- task / actor abstractions (`Task`, `Actor`, `TaskContext`,
-  `ActorContext`, plus the structural `Runnable` / `Streamable`
-  protocols)
+- task / actor abstractions (`Task`, `Actor`, the single `TaskContext`,
+  plus the structural `Runnable` / `Streamable` protocols)
 - task-type registry (`TaskTypeRegistry`) for IR-driven round-trip
 - snapshotting and content-addressed identity (`TaskSnapshot`,
   `WorkflowVersion`)

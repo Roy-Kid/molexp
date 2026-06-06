@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Protocol, cast
 from pydantic import BaseModel
 
 from molexp._typing import (
-    ChannelMessage,
     JSONValue,
     TaskOutput,
 )
@@ -265,17 +264,6 @@ class RunContext:
 
     def find_asset(self, name: str):  # noqa: ANN201
         return self._assets.find_asset(name)
-
-    # ── Actor message passing ───────────────────────────────────────────
-
-    async def receive(self, channel: str) -> ChannelMessage:
-        # Channel registration was never wired (no production caller registered
-        # a queue). The signature is kept so RunContext still structurally
-        # satisfies ``workflow.RunContextLike``; calling it is a hard error.
-        raise NotImplementedError("RunContext channel messaging is not implemented")
-
-    async def emit(self, channel: str, message: ChannelMessage) -> None:
-        raise NotImplementedError("RunContext channel messaging is not implemented")
 
     # ── Constructor helpers ─────────────────────────────────────────────
 

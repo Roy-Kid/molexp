@@ -130,11 +130,10 @@ class RunContextLike(Protocol):
     """Duck-typed shape of ``workspace.run.RunContext`` used by the workflow runtime.
 
     Captures only the surface the workflow scheduler reaches into: the
-    run reference, the work directory, the artifact accessor, and the actor
-    channel methods. Members are read-only properties so the concrete
-    ``RunContext`` (whose ``work_dir`` / ``run`` are properties) structurally
-    satisfies the protocol. Anything else on a real ``RunContext`` is out of
-    scope for the workflow layer.
+    run reference, the work directory, and the artifact accessor. Members are
+    read-only properties so the concrete ``RunContext`` (whose ``work_dir`` /
+    ``run`` are properties) structurally satisfies the protocol. Anything else
+    on a real ``RunContext`` is out of scope for the workflow layer.
     """
 
     @property
@@ -145,10 +144,6 @@ class RunContextLike(Protocol):
 
     @property
     def artifact(self) -> ArtifactAccessor: ...
-
-    async def receive(self, channel: str) -> TaskInput: ...
-
-    async def emit(self, channel: str, message: TaskOutput) -> None: ...
 
 
 @runtime_checkable
@@ -175,15 +170,16 @@ class Runnable(Protocol):
 class Streamable(Protocol):
     """Protocol for streaming actor nodes.
 
-    Any object with ``async run(ctx) -> AsyncIterator`` qualifies.
+    Any object with ``async run(ctx) -> AsyncIterator`` qualifies. The engine
+    drives the generator to exhaustion and records the last yielded value as
+    the task's output; streaming bodies are never cached.
 
     Example::
 
         class MyStreamer:
             async def run(self, ctx):
-                while True:
-                    msg = await ctx.receive()
-                    yield transform(msg)
+                for item in ctx.inputs:
+                    yield transform(item)
     """
 
     # Async-generator functions return their iterator on call (no

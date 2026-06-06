@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING, cast
 from mollog import get_logger
 from pydantic_graph import End
 
-from ..context import ActorContext
+from ..context import TaskContext
 from ..protocols import (
     AssetsViewLike,
     JSONMapping,
@@ -376,7 +376,7 @@ async def run_task_body(
                 base_config=deps.config,
             )
 
-        task_ctx: ActorContext[WorkflowState, UserDeps, TaskInput] = ActorContext(
+        task_ctx: TaskContext[WorkflowState, UserDeps, TaskInput] = TaskContext(
             state=state,
             deps=deps.user_deps,
             inputs=inputs,
@@ -407,7 +407,7 @@ async def run_task_body(
 
 async def _invoke_body_with_ctx(
     registration: TaskRegistration,
-    task_ctx: ActorContext[TaskOutput, UserDeps, TaskInput],
+    task_ctx: TaskContext[TaskOutput, UserDeps, TaskInput],
 ) -> TaskOutput:
     """Dispatch a registered task's body against a *pre-built* TaskContext.
 

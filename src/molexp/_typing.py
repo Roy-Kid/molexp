@@ -31,8 +31,6 @@ type TaskOutput = Any
 type TaskInput = Any
 #: Application-level deps the caller forwards through ``Workflow.execute(deps=…)``.
 type UserDeps = Any
-#: Message payload on the actor channel bus — opaque to the workspace.
-type ChannelMessage = Any
 #: Hashable, JSON-shaped payload used for canonical hashing.
 type HashablePayload = Any
 

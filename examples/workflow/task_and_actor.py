@@ -8,10 +8,10 @@ Demonstrates:
 2. OOP style — subclass ``Task`` and add via ``Workflow.add``.
 3. Protocol form — any object with ``async def execute(self, ctx)``.
 
-``Actor`` (streaming) is discussed in the guide but is only useful under a
-runtime that interleaves coroutines through a ``RunContext``; see the
-"Runtime Boundaries" section of the guide for what is and is not wired up
-today.
+``Actor`` (streaming) defines ``run()`` as an async generator; the engine
+drives it to exhaustion and records the last yielded value as the output.
+There is no inter-task message channel (the never-wired ``receive``/``send``
+surface was removed); see the "Runtime Boundaries" section of the guide.
 
 Run directly::
 

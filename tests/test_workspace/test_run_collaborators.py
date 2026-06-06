@@ -49,8 +49,6 @@ _PUBLIC_SURFACE = [
     "get_asset",
     "find_asset",
     "get_data_dir",
-    "receive",
-    "emit",
     "__enter__",
     "__exit__",
     "__aenter__",

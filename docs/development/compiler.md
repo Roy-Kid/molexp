@@ -31,7 +31,7 @@ Two compilation boundaries:
 src/molexp/workflow/
 ├── spec.py                # Workflow, WorkflowDSL, WorkflowBuilder, parallel_map, join
 ├── task.py                # Task / Actor convenience base classes
-├── context.py             # TaskContext / ActorContext
+├── context.py             # TaskContext (single context for batch + streaming)
 ├── protocols.py           # Runnable / Streamable
 ├── runtime.py             # WorkflowRuntime ABC, create_default_runtime()
 ├── cache.py               # Caching (LRU by snapshot + input hash)

@@ -1,6 +1,5 @@
 """Tests for RunContext lifecycle and typed asset accessors."""
 
-import asyncio
 from pathlib import Path
 
 import pytest
@@ -8,19 +7,6 @@ import pytest
 from molexp.workspace import Workspace
 from molexp.workspace.assets import ArtifactAsset, CheckpointAsset
 from molexp.workspace.run import RunStatus
-
-
-class TestRunContextChannelStub:
-    """Actor channels are half-wired (no registration path); emit/receive
-    keep their RunContextLike-protocol signature but raise NotImplementedError."""
-
-    def test_emit_raises_not_implemented(self, run):
-        with run.start() as ctx, pytest.raises(NotImplementedError):
-            asyncio.run(ctx.emit("output", "x"))
-
-    def test_receive_raises_not_implemented(self, run):
-        with run.start() as ctx, pytest.raises(NotImplementedError):
-            asyncio.run(ctx.receive("input"))
 
 
 class TestRunContextLifecycle:

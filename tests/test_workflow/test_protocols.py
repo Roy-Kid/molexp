@@ -1,6 +1,6 @@
 """Tests for workflow protocols — Runnable / Streamable."""
 
-from molexp.workflow import Actor, ActorContext, Runnable, Streamable, Task, TaskContext
+from molexp.workflow import Actor, Runnable, Streamable, Task, TaskContext
 
 
 class TestRunnableProtocol:
@@ -43,7 +43,7 @@ class TestRunnableProtocol:
 class TestStreamableProtocol:
     def test_actor_subclass_satisfies(self):
         class MyActor(Actor):
-            async def run(self, ctx: ActorContext):
+            async def run(self, ctx: TaskContext):
                 yield 1
 
         assert isinstance(MyActor(), Streamable)

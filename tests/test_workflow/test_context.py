@@ -9,7 +9,7 @@ plumbing (``artifact``, ``log``, ``find_asset``, ``checkpoint``,
 
 from __future__ import annotations
 
-from molexp.workflow.context import ActorContext, TaskContext
+from molexp.workflow.context import TaskContext
 
 
 class TestSlimmedTaskContext:
@@ -73,11 +73,12 @@ class TestNoProfileConfigInContextModule:
         assert "ProfileConfig" not in src or "# " in src.split("ProfileConfig")[0][-2:]
 
 
-class TestActorContext:
-    def test_actor_context_inherits_slim_task_context(self):
-        ctx = ActorContext(state={"x": 1}, deps=None, inputs=None)
-        assert ctx.state == {"x": 1}
-        assert ctx.config == {}
-        # Same five-attribute contract.
-        for name in ("artifact", "log", "find_asset", "checkpoint", "set_result", "get_result"):
-            assert not hasattr(ctx, name)
+class TestActorContextRemoved:
+    def test_actor_context_no_longer_exported(self):
+        """ActorContext was collapsed into TaskContext — the never-implemented
+        receive/send channel primitives it carried were removed (P1-2)."""
+        import molexp.workflow as wf
+        import molexp.workflow.context as context_mod
+
+        assert not hasattr(context_mod, "ActorContext")
+        assert "ActorContext" not in getattr(wf, "__all__", ())

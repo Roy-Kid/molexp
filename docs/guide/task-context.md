@@ -50,21 +50,18 @@ These helpers are intentionally soft when no run is attached. In pure in-memory 
 
 Assets written this way carry a `Producer` record automatically. If the runtime has called `ctx.set_active_task(task_id)` before your task ran, the task_id is attached as well, so queries like `catalog.query_assets(producer_task="train")` work without the task having to tag its own outputs. See the [Unified Asset Model](assets.md) guide for the complete picture of scopes, catalog, and per-kind subclasses.
 
-## ActorContext
+## Streaming tasks (Actor)
 
-`ActorContext` extends `TaskContext` for streaming tasks. It adds `receive()` and `send()` so an actor can consume messages from the default input channel and emit messages to the default output channel:
+Streaming `Actor` bodies receive the **same** `TaskContext` as batch tasks — there is no separate context type. An actor's `run()` is an async generator; the engine drives it to exhaustion and records the last yielded value as the task's output:
 
 ```python
 class Monitor(Actor):
-    async def run(self, ctx: ActorContext):
-        while True:
-            message = await ctx.receive()
-            processed = transform(message)
-            await ctx.send(processed)
-            yield processed
+    async def run(self, ctx: TaskContext):
+        for item in ctx.inputs:
+            yield transform(item)
 ```
 
-Those methods require a connected `RunContext`. Without one, they raise `NotImplementedError`, which is why actor-style execution only makes sense when the runtime has a real execution context to route through.
+There is no inter-task message-passing channel: an earlier `receive()` / `send()` surface was never wired (every path raised `NotImplementedError`) and has been removed. An actor consumes `ctx.inputs` and yields outputs; it does not exchange messages mid-run with peer tasks.
 
 ## Typing and Ergonomics
 

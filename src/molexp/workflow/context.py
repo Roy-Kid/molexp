@@ -1,16 +1,17 @@
-"""Execution contexts for workflow tasks and actors.
+"""Execution context for workflow tasks and streaming actors.
 
-``TaskContext`` is the **single object** every user-defined task receives.
-It carries five attributes — ``state``, ``deps``, ``inputs``, ``config``,
-``run_context`` — and nothing else. Workspace plumbing (artifacts, logs,
-checkpoints, named results) is no longer the workflow layer's concern;
-callers attach those capabilities through the opaque duck-typed
-``run_context`` payload and reach into them directly when needed.
+``TaskContext`` is the **single object** every user-defined task (batch
+``Task`` or streaming ``Actor``) receives. It carries five attributes —
+``state``, ``deps``, ``inputs``, ``config``, ``run_context`` — and nothing
+else. Workspace plumbing (artifacts, logs, checkpoints, named results) is no
+longer the workflow layer's concern; callers attach those capabilities through
+the opaque duck-typed ``run_context`` payload and reach into them directly when
+needed.
 """
 
 from __future__ import annotations
 
-from .protocols import JSONMapping, RunContextLike, TaskOutput
+from .protocols import JSONMapping, RunContextLike
 
 
 class TaskContext[StateT, DepsT, InputT]:
@@ -65,31 +66,3 @@ class TaskContext[StateT, DepsT, InputT]:
     def config(self) -> JSONMapping:
         """Read-only mapping of user-supplied configuration."""
         return self._config
-
-
-class ActorContext[StateT, DepsT, InputT](TaskContext[StateT, DepsT, InputT]):
-    """Extended context for streaming ``Actor`` tasks.
-
-    Adds async message-passing primitives on top of ``TaskContext``.
-    """
-
-    async def receive(self) -> InputT:
-        """Wait for the next message from upstream.
-
-        Requires the ``run_context`` payload to expose a ``receive(name)``
-        coroutine; otherwise raises :class:`NotImplementedError`.
-        """
-        if self._run_ctx is not None and hasattr(self._run_ctx, "receive"):
-            return await self._run_ctx.receive("input")
-        raise NotImplementedError("receive() requires a run_context with .receive(name)")
-
-    async def send(self, output: TaskOutput) -> None:
-        """Send a message to downstream actors.
-
-        Requires the ``run_context`` payload to expose an ``emit(name, value)``
-        coroutine; otherwise raises :class:`NotImplementedError`.
-        """
-        if self._run_ctx is not None and hasattr(self._run_ctx, "emit"):
-            await self._run_ctx.emit("output", output)
-            return
-        raise NotImplementedError("send() requires a run_context with .emit(name, value)")

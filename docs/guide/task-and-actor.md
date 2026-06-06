@@ -97,57 +97,44 @@ Plain `Task` (no generics) defaults to `Any` everywhere.
 
 ```python
 # Functional DSL
-from molexp.workflow import workflow, ActorContext
+from molexp.workflow import workflow, TaskContext
 
 wf = workflow(name="stream")
 
 @wf.actor
-async def monitor(ctx: ActorContext):
-    while True:
-        msg = await ctx.receive()
-        yield {"seen": msg}
+async def monitor(ctx: TaskContext):
+    for item in ctx.inputs:
+        yield {"seen": item}
 ```
 
 ```python
 # Subclass Actor
-from molexp.workflow import Actor, ActorContext
+from molexp.workflow import Actor, TaskContext
 
 class Monitor(Actor):
-    async def run(self, ctx: ActorContext):
-        while True:
-            msg = await ctx.receive()
-            yield {"seen": msg}
+    async def run(self, ctx: TaskContext):
+        for item in ctx.inputs:
+            yield {"seen": item}
 ```
 
-Any object with `async def run(self, ctx)` returning an async iterator satisfies the `Streamable` protocol and can be added via `WorkflowBuilder.add(obj)` — no molexp import required.
+Any object with `async def run(self, ctx)` returning an async iterator satisfies the `Streamable` protocol and can be added via `WorkflowCompiler.add(obj)` — no molexp import required.
 
-### ActorContext
+### Context and output
 
-`ActorContext` extends `TaskContext` (so `ctx.state`, `ctx.deps`, `ctx.inputs`, `ctx.config`, and workspace helpers are all still there) and adds two primitives:
-
-```python
-await ctx.receive()       # wait for the next message on the default "input" channel
-await ctx.send(output)    # emit to the default "output" channel
-```
-
-These route through `RunContext.receive("input")` / `RunContext.emit("output", output)`. Without a connected `RunContext` they raise `NotImplementedError` — actors only make sense under a `Run`.
+A streaming body receives the same `TaskContext` as a batch task (`ctx.state`, `ctx.deps`, `ctx.inputs`, `ctx.config`, `ctx.run_context`). The engine drives the async generator to exhaustion and records **the last yielded value** as the task's output; downstream tasks read that value from the shared results like any other. Streaming bodies are never cached (they are marked `is_actor` at compile time).
 
 ### Runtime Boundaries
 
 Supported today:
 
-- Structural detection of streaming tasks via `Streamable`.
-- `ctx.receive()` / `ctx.send()` plumbing when a `RunContext` is attached.
-- Interleaving actor coroutines through the normal pydantic-graph scheduler.
+- Structural detection of streaming tasks via `Streamable` (sets `is_actor`, which disables result caching for that task).
+- Driving the async generator to completion and recording the last yielded value as the output.
 
-Not implemented (open an issue if you need it — these are runtime extensions, not doc gaps):
+Not implemented:
 
-- Automatic channel lifecycle (you register channels on `RunContext._channels` yourself).
-- Backpressure / buffered-channel sizing / drop strategies beyond `asyncio.Queue` defaults.
-- Replay or resume for an actor mid-stream.
-- Hot reconfiguration of an actor's config while it runs.
+- Inter-task message-passing channels (`receive` / `send` / `emit`). An earlier, never-wired channel surface was removed — every path raised `NotImplementedError`. If you need streaming *between* concurrently-running tasks, open an issue; today an actor consumes `ctx.inputs` and yields outputs, it does not exchange messages mid-run with peers.
 
-Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.ActorContext`, `molexp.workflow.protocols.Streamable`, `molexp.workspace.run.RunContext.receive` / `emit`.
+Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.TaskContext`, `molexp.workflow.protocols.Streamable`, and the drain loop in `molexp.workflow._pydantic_graph.node`.
 
 ## Task Name Resolution
 

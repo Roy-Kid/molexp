@@ -34,7 +34,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 
-from .context import ActorContext, TaskContext
+from .context import TaskContext
 
 
 class Task[StateT, DepsT, InputT, OutputT](ABC):
@@ -65,6 +65,6 @@ class Actor[StateT, DepsT, InputT, OutputT](ABC):
     # ``async for chunk in actor.run(ctx)`` dispatch in the Step body
     # (node._invoke_body_with_ctx).
     @abstractmethod
-    def run(self, ctx: ActorContext[StateT, DepsT, InputT]) -> AsyncIterator[OutputT]:
+    def run(self, ctx: TaskContext[StateT, DepsT, InputT]) -> AsyncIterator[OutputT]:
         """Run continuously, yielding outputs."""
         ...

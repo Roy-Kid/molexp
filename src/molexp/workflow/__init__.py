@@ -51,7 +51,7 @@ from .cache_store import CacheStore, FileCacheStore
 from .codec import WorkflowCodec, default_codec
 from .compiled import CompiledWorkflow
 from .compiler import WorkflowCompiler
-from .context import ActorContext, TaskContext
+from .context import TaskContext
 from .contract import (
     ArtifactDecl,
     Severity,
@@ -111,7 +111,6 @@ from .version import (
 
 __all__ = [
     "Actor",
-    "ActorContext",
     "ArtifactDecl",
     "BranchEdges",
     "CacheStore",
