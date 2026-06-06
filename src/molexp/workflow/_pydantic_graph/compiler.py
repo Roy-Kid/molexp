@@ -57,6 +57,7 @@ from ..types import (
     UnknownRouteError,
     UnknownTaskError,
     UnreachableTaskError,
+    WorkflowDeadlockError,
 )
 from .node import (
     END_TARGET,
@@ -109,6 +110,17 @@ def _cache_is_active(deps: WorkflowDeps, name: str) -> bool:
 # Steps prematurely finalized by a join-reducer ever spin here; ready Steps skip
 # the wait entirely, so this stays cheap.
 _DEP_BARRIER_POLL_S = 0.02
+
+# Frontier-exhaustion threshold for the dependency barrier. A barrier declares a
+# deadlock only after this many *consecutive* poll cycles in which no task body
+# was executing (``state.running == 0``) AND no result was recorded
+# (``state.progress`` unchanged), while a dependency is still missing — i.e. the
+# whole graph has quiesced with the dep unsatisfiable. This is NOT a wall-clock
+# timeout: a genuinely slow upstream keeps ``running > 0`` and resets the count,
+# so it never trips. The window debounces transient quiescence between two
+# adjacent steps; at the poll interval above it bounds a real deadlock to a
+# fraction of a second.
+_DEADLOCK_QUIESCENT_POLLS = 25
 
 
 class WorkflowGraphCompiler:
@@ -303,8 +315,30 @@ class WorkflowGraphCompiler:
                 # deadlocks.
                 registration = deps.registration_by_name.get(name)
                 if is_join and registration is not None:
+                    quiescent = 0
                     while any(dep not in state.results for dep in registration.depends_on):
+                        before = state.progress
                         await asyncio.sleep(_DEP_BARRIER_POLL_S)
+                        # Frontier-exhaustion check: if no body is in flight and
+                        # nothing recorded this cycle, the missing deps cannot
+                        # arrive. Require a sustained window to debounce the gap
+                        # between two adjacent steps (a step scheduled but not yet
+                        # started bumps ``running`` on its next event-loop turn).
+                        if state.running == 0 and state.progress == before:
+                            quiescent += 1
+                            if quiescent >= _DEADLOCK_QUIESCENT_POLLS:
+                                missing = [
+                                    dep
+                                    for dep in registration.depends_on
+                                    if dep not in state.results
+                                ]
+                                raise WorkflowDeadlockError(
+                                    f"task {name!r} blocked on dependencies that will "
+                                    f"never be satisfied: {missing} (frontier exhausted "
+                                    f"— no task is running to produce them)"
+                                )
+                        else:
+                            quiescent = 0
                 if _cache_is_active(deps, name):
                     # Opt-in content-addressed caching (batch Task only): on a
                     # hit the body is skipped + cached artifacts re-registered;
@@ -509,6 +543,9 @@ class WorkflowGraphCompiler:
             ctx.state.results[body] = ordered
             ctx.state.completed.add(body)
             ctx.state.parallel_runs[body] = len(ordered)
+            # Publishing a parallel body's result is forward progress for any
+            # downstream join's deadlock guard (it bypasses ``record``).
+            ctx.state.progress += 1
 
         return _collect
 

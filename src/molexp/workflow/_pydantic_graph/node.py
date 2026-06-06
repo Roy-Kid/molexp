@@ -358,43 +358,51 @@ async def run_task_body(
     if registration is None:
         raise UnknownTaskError(f"run_task_body: unknown task {name!r}")
 
-    if element is not NO_OUTPUT:
-        inputs: TaskInput = element
-        effective_config = deps.config
-    else:
-        inputs = _collect_upstream_outputs(registration, state)
-        effective_config = _resolve_dependent_params(
-            registration=registration,
-            state=state,
-            run_context=deps.run_context,
-            base_config=deps.config,
-        )
-
-    task_ctx: ActorContext[WorkflowState, UserDeps, TaskInput] = ActorContext(
-        state=state,
-        deps=deps.user_deps,
-        inputs=inputs,
-        config=effective_config,
-        run_context=deps.run_context,
-    )
-
-    # Tag artifacts produced by this body with ``producer.task_id == name``
-    # so the cache hook (and asset queries) can find them by producer task.
-    set_active_task = getattr(deps.run_context, "set_active_task", None)
-    if callable(set_active_task):
-        set_active_task(name)
-
-    remote = getattr(registration, "remote", None)
-    if remote is not None and element is NO_OUTPUT:
-        remote_executor = getattr(deps, "remote_executor", None)
-        if remote_executor is not None:
-            return await remote_executor.execute_remote(
-                entry=registration,
-                inputs=task_ctx.inputs,
-                run_dir=getattr(deps, "run_dir", None),
+    # Mark this body in flight for the whole duration it executes. The
+    # dependency barrier in :mod:`.compiler` reads ``state.running`` as a
+    # frontier-liveness signal: while any body is running it cannot declare
+    # a deadlock, so a slow upstream is never mistaken for an absent one.
+    state.running += 1
+    try:
+        if element is not NO_OUTPUT:
+            inputs: TaskInput = element
+            effective_config = deps.config
+        else:
+            inputs = _collect_upstream_outputs(registration, state)
+            effective_config = _resolve_dependent_params(
+                registration=registration,
+                state=state,
+                run_context=deps.run_context,
+                base_config=deps.config,
             )
 
-    return await _invoke_body_with_ctx(registration, task_ctx)
+        task_ctx: ActorContext[WorkflowState, UserDeps, TaskInput] = ActorContext(
+            state=state,
+            deps=deps.user_deps,
+            inputs=inputs,
+            config=effective_config,
+            run_context=deps.run_context,
+        )
+
+        # Tag artifacts produced by this body with ``producer.task_id == name``
+        # so the cache hook (and asset queries) can find them by producer task.
+        set_active_task = getattr(deps.run_context, "set_active_task", None)
+        if callable(set_active_task):
+            set_active_task(name)
+
+        remote = getattr(registration, "remote", None)
+        if remote is not None and element is NO_OUTPUT:
+            remote_executor = getattr(deps, "remote_executor", None)
+            if remote_executor is not None:
+                return await remote_executor.execute_remote(
+                    entry=registration,
+                    inputs=task_ctx.inputs,
+                    run_dir=getattr(deps, "run_dir", None),
+                )
+
+        return await _invoke_body_with_ctx(registration, task_ctx)
+    finally:
+        state.running -= 1
 
 
 async def _invoke_body_with_ctx(
