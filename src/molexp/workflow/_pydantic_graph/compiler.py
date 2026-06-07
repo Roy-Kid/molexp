@@ -34,6 +34,7 @@ express trigger / ordering. The compiler is the **sole** sanctioned
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import graphlib
 import warnings
 from collections import defaultdict
@@ -107,20 +108,23 @@ def _cache_is_active(deps: WorkflowDeps, name: str) -> bool:
     return not getattr(registration, "is_actor", False)
 
 
-# Poll interval for the per-Step dependency barrier (see `_make_step_fn`). Only
-# Steps prematurely finalized by a join-reducer ever spin here; ready Steps skip
-# the wait entirely, so this stays cheap.
+# Timeout fallback for the per-Step dependency barrier (see `_make_step_fn`).
+# The barrier ``await``s an ``asyncio.Event`` that is set the instant a result
+# lands or a body finishes, so it normally wakes immediately (no busy-poll
+# latency). This timeout only bounds how often it re-checks the frontier when no
+# signal arrives — i.e. how fast a real deadlock is detected. Only Steps
+# prematurely finalized by a join-reducer ever wait here.
 _DEP_BARRIER_POLL_S = 0.02
 
 # Frontier-exhaustion threshold for the dependency barrier. A barrier declares a
-# deadlock only after this many *consecutive* poll cycles in which no task body
+# deadlock only after this many *consecutive* wake cycles in which no task body
 # was executing (``state.running == 0``) AND no result was recorded
 # (``state.progress`` unchanged), while a dependency is still missing — i.e. the
 # whole graph has quiesced with the dep unsatisfiable. This is NOT a wall-clock
 # timeout: a genuinely slow upstream keeps ``running > 0`` and resets the count,
 # so it never trips. The window debounces transient quiescence between two
-# adjacent steps; at the poll interval above it bounds a real deadlock to a
-# fraction of a second.
+# adjacent steps; at the timeout above it bounds a real deadlock to a fraction
+# of a second.
 _DEADLOCK_QUIESCENT_POLLS = 25
 
 
@@ -314,10 +318,21 @@ class WorkflowGraphCompiler:
                 # deadlocks.
                 registration = deps.registration_by_name.get(name)
                 if is_join and registration is not None:
+                    event = state.ensure_progress_event()
                     quiescent = 0
-                    while any(dep not in state.results for dep in registration.depends_on):
+                    while True:
+                        # Clear before checking so a ``signal_progress`` racing
+                        # between the check and the wait is not lost (it re-sets
+                        # the event and the next wait returns immediately).
+                        event.clear()
+                        if all(dep in state.results for dep in registration.depends_on):
+                            break
                         before = state.progress
-                        await asyncio.sleep(_DEP_BARRIER_POLL_S)
+                        # Wake the instant a result lands or a body finishes
+                        # (event), with a timeout fallback that drives the
+                        # frontier-exhaustion check below.
+                        with contextlib.suppress(TimeoutError):
+                            await asyncio.wait_for(event.wait(), timeout=_DEP_BARRIER_POLL_S)
                         # Frontier-exhaustion check: if no body is in flight and
                         # nothing recorded this cycle, the missing deps cannot
                         # arrive. Require a sustained window to debounce the gap
@@ -545,6 +560,7 @@ class WorkflowGraphCompiler:
             # Publishing a parallel body's result is forward progress for any
             # downstream join's deadlock guard (it bypasses ``record``).
             ctx.state.progress += 1
+            ctx.state.signal_progress()
 
         return _collect
 

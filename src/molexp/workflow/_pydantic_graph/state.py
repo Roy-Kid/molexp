@@ -10,6 +10,7 @@ data containers threaded through the per-task ``Step`` nodes built in
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -63,6 +64,10 @@ class WorkflowState:
     * ``progress`` — monotonic counter bumped on every ``record`` and on
       every parallel-collector publish; lets the barrier distinguish a
       quiescent (no progress) window from one where results are landing.
+    * ``_progress_event`` — lazily-created :class:`asyncio.Event` the
+      dependency barrier waits on. :meth:`signal_progress` sets it whenever a
+      result lands or a body finishes, so a blocked barrier wakes *immediately*
+      (no busy-poll latency) instead of only on its timeout fallback.
     """
 
     results: dict[str, TaskOutput] = field(default_factory=dict)
@@ -74,6 +79,23 @@ class WorkflowState:
     seeded: set[str] = field(default_factory=set)
     running: int = 0
     progress: int = 0
+    _progress_event: asyncio.Event | None = field(default=None, compare=False, repr=False)
+
+    def ensure_progress_event(self) -> asyncio.Event:
+        """Lazily create (in the running loop) and return the barrier event."""
+        if self._progress_event is None:
+            self._progress_event = asyncio.Event()
+        return self._progress_event
+
+    def signal_progress(self) -> None:
+        """Wake any barrier waiter — a result landed or a task body finished.
+
+        No-op until a barrier has created the event via
+        :meth:`ensure_progress_event`; if no task is waiting, there is nothing
+        to wake.
+        """
+        if self._progress_event is not None:
+            self._progress_event.set()
 
     @classmethod
     def from_seed(cls, seed: Mapping[str, TaskOutput]) -> WorkflowState:
@@ -97,6 +119,7 @@ class WorkflowState:
         self.results[step_name] = output
         self.completed.add(step_name)
         self.progress += 1
+        self.signal_progress()
 
 
 @dataclass

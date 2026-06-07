@@ -246,6 +246,9 @@ async def run_task_body(
         return await _invoke_body_with_ctx(registration, task_ctx)
     finally:
         state.running -= 1
+        # Wake any barrier waiter so it re-evaluates the frontier the instant a
+        # body finishes (the last one finishing is how a deadlock is detected).
+        state.signal_progress()
 
 
 async def _invoke_body_with_ctx(
