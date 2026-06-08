@@ -572,6 +572,55 @@ class TestSharedSelectionRules:
         assert "skipped" in _plain(result.output)
 
     @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
+    def test_live_running_run_is_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
+    ) -> None:
+        import os
+        import platform
+        from datetime import datetime
+
+        workspace_root = tmp_path / "workspace"
+        script = tmp_path / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, workspace_root)
+
+        # A run that is genuinely in flight: status=running owned by THIS live
+        # process, so the zombie-reaper leaves it running. Neither verb may
+        # launch a second execution alongside it.
+        ws = me.Workspace(workspace_root)
+        exp = ws.add_project("demo").add_experiment("train")
+        run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
+        run = exp.add_run(parameters=run_params, id=_replica_run_id(run_params))
+        run._update_metadata(
+            status="running",
+            profile=None,
+            labels={
+                "pid": str(os.getpid()),
+                "host": platform.node(),
+                "heartbeat": datetime.now().isoformat(),
+            },
+        )
+
+        recorder = _patch_execute(monkeypatch)
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(script),
+                "--local",
+                verb,
+                "--config",
+                str(molcfg),
+                "-t",
+                str(workspace_root),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert recorder.calls == []
+        assert "still running" in _plain(result.output)
+
+    @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
     def test_profile_mismatch_run_is_skipped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
     ) -> None:

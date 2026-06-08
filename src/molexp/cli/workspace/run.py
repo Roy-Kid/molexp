@@ -246,6 +246,10 @@ def _dispatch_runs(
                             f"  [yellow]![/yellow] {exp.id}  run={mol_run.id} (stale 'running' run reaped -> failed)"
                         )
                     if continue_verb is not None:
+                        # resume / rerun: retry an EXISTING non-succeeded run.
+                        # Skip the ones with nothing to retry (missing /
+                        # succeeded), a live in-flight run, or a profile that
+                        # does not match this invocation.
                         if mol_run is None:
                             rprint(
                                 f"  [dim]- {exp.id}  run={run_id} (no existing run, skipped)[/dim]"
@@ -256,15 +260,24 @@ def _dispatch_runs(
                                 f"  [dim]- {exp.id}  run={mol_run.id} (already succeeded, skipped)[/dim]"
                             )
                             continue
+                        if mol_run.status == "running":
+                            rprint(
+                                f"  [dim]- {exp.id}  run={mol_run.id} (still running, skipped)[/dim]"
+                            )
+                            continue
                         if mol_run.metadata.profile != profile_cfg.name:
                             rprint(
                                 f"  [dim]- {exp.id}  run={mol_run.id} (profile mismatch, skipped)[/dim]"
                             )
                             continue
                     elif mol_run is not None:
-                        if mol_run.status in ("succeeded", "running"):
+                        # plain run: run only what has not run yet (pending).
+                        # Leave succeeded / running / failed / cancelled alone —
+                        # retrying a failure is an explicit --resume / --rerun.
+                        if mol_run.status != "pending":
                             rprint(
-                                f"  [dim]- {exp.id}  run={mol_run.id} ({mol_run.status}, skipped)[/dim]"
+                                f"  [dim]- {exp.id}  run={mol_run.id} ({mol_run.status}, skipped — "
+                                "use --resume or --rerun to retry)[/dim]"
                             )
                             continue
                     else:
