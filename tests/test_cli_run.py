@@ -48,6 +48,36 @@ def _write_script(
     )
 
 
+def _write_rootless_script(
+    path,
+    body="ctx.set_result('epochs', ctx.config.get('epochs', 'default'))",
+):
+    """Variant of :func:`_write_script` that omits the workspace root.
+
+    The script constructs ``Workspace(name=...)`` with NO root argument, so
+    the framework must infer the root (CLI override > script dir > cwd).
+    """
+    path.write_text(
+        "\n".join(
+            [
+                "import molexp as me",
+                "from molexp.workflow import default_binding_registry, promote_callable",
+                "",
+                "ws = me.Workspace(name='electrolyte')",
+                "project = ws.add_project('demo')",
+                "exp = project.add_experiment('train')",
+                "",
+                "def train(ctx: me.RunContext) -> None:",
+                f"    {body}",
+                "",
+                "default_binding_registry.bind(exp, promote_callable(train, name='train'))",
+                "me.entry(ws)",
+                "",
+            ]
+        )
+    )
+
+
 def _write_molcfg(path):
     path.write_text(
         "defaults:\n"
@@ -322,6 +352,95 @@ class TestRunCommand:
         )
         assert result.exit_code == 1
         assert "no config file" in result.output.lower()
+
+
+class TestRootInferencePrecedence:
+    """ac-006 / ac-007 / ac-008 — end-to-end root resolution precedence."""
+
+    def test_no_flag_materializes_under_script_dir(self, tmp_path):
+        # ac-006: no workspace flag -> root inferred to the SCRIPT's directory,
+        # not cwd. Put the script in a dir distinct from any cwd default.
+        script_dir = tmp_path / "scripts"
+        script_dir.mkdir()
+        script = script_dir / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_rootless_script(script)
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(script),
+                "--local",
+                "--config",
+                str(molcfg),
+                "--profile",
+                "dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        # Workspace materializes under the script's own directory.
+        assert (script_dir / "workspace.json").exists()
+        assert (script_dir / "projects").exists()
+
+    def test_explicit_flag_overrides_script_dir(self, tmp_path):
+        # ac-007: explicit -ws <override_dir> wins over the script directory.
+        script_dir = tmp_path / "scripts"
+        script_dir.mkdir()
+        override_dir = tmp_path / "override"
+        override_dir.mkdir()
+        script = script_dir / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_rootless_script(script)
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(script),
+                "--local",
+                "--config",
+                str(molcfg),
+                "--profile",
+                "dry-run",
+                "-ws",
+                str(override_dir),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert (override_dir / "workspace.json").exists()
+        # Script dir must NOT have been materialized.
+        assert not (script_dir / "workspace.json").exists()
+
+    def test_explicit_root_in_script_not_rewritten(self, tmp_path):
+        # ac-008: a script hardcoding Workspace(<explicit_root>, name=...) run
+        # with no flag stays at <explicit_root>, never silently rewritten.
+        script_dir = tmp_path / "scripts"
+        script_dir.mkdir()
+        explicit_root = tmp_path / "explicit"
+        script = script_dir / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, explicit_root)
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(script),
+                "--local",
+                "--config",
+                str(molcfg),
+                "--profile",
+                "dry-run",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert (explicit_root / "workspace.json").exists()
+        # Neither the script dir got materialized as a workspace.
+        assert not (script_dir / "workspace.json").exists()
 
     def test_run_help_shows_backends(self):
         result = runner.invoke(app, ["run", "--help"], env={"COLUMNS": "200"})

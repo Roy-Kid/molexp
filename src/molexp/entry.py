@@ -54,6 +54,35 @@ def entry(workspace: Workspace) -> None:
     _registry.append(workspace)
 
 
+def infer_workspace_root(script: Path) -> Path:
+    """Infer the workspace root from an entry-script path.
+
+    Pure path arithmetic — the root is the directory containing *script*.
+    Used by ``molexp run`` so a script may write ``Workspace(name=...)`` with
+    no explicit root and have it resolve to the script's own directory.
+
+    Args:
+        script: Path to the entry script (the argument to ``molexp run``).
+
+    Returns:
+        The resolved parent directory of *script*.
+
+    Raises:
+        ValueError: If *script* is falsy or has no resolvable parent. The
+            caller (not this helper) owns any cwd fallback — this fails fast
+            rather than silently defaulting.
+    """
+    # A usable script path has a filename component; an empty path (``Path("")``
+    # → ``.``) or a bare directory marker does not.
+    if not script or not Path(script).name:
+        raise ValueError(f"infer_workspace_root: {script!r} is not a usable script path")
+    resolved = Path(script).resolve()
+    parent = resolved.parent
+    if parent == resolved:  # a filesystem root has no distinct parent
+        raise ValueError(f"infer_workspace_root: {script!r} has no resolvable parent directory")
+    return parent
+
+
 def load_workspaces(script: Path) -> list[Workspace]:
     """Import a user script and return all registered workspaces.
 

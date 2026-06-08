@@ -1,0 +1,33 @@
+{
+  "workflow_id": "006f4482ed5701b7",
+  "name": "train",
+  "task_configs": [
+    {
+      "task_id": "train",
+      "task_type": null,
+      "config": {},
+      "status": "completed",
+      "started_at": "2026-06-08T14:36:50.334935",
+      "finished_at": "2026-06-08T14:36:50.335652"
+    }
+  ],
+  "links": [],
+  "entries": [],
+  "loops": [],
+  "parallels": [],
+  "metadata": {
+    "label": null,
+    "description": null,
+    "tags": [],
+    "custom": {}
+  },
+  "schema_version": 1,
+  "execution_id": "exec-878327bdc04aef0b",
+  "workflow_name": "train",
+  "status": "completed",
+  "started_at": "2026-06-08T14:36:50.334299",
+  "finished_at": "2026-06-08T14:36:50.336117",
+  "outputs": {
+    "train": null
+  }
+}

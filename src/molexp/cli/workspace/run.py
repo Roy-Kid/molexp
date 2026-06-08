@@ -149,17 +149,28 @@ def _dispatch_runs(
     profile_cfg: ProfileConfig,
     continue_verb: str | None,
     workspace: Path | None,
+    explicit_workspace: bool,
     run_handler: RunHandler | None,
     mode_label: str,
     suppress_ok: bool = False,
     dry_run: bool = False,
     show_progress: bool = False,
 ) -> tuple[int, list[Run]]:
-    from molexp.entry import load_workspaces
+    from molexp.entry import infer_workspace_root, load_workspaces
     from molexp.workspace.workspace import set_cli_root_override
 
-    override_path = Path(workspace).resolve() if workspace is not None else None
-    set_cli_root_override(override_path)
+    # Root precedence: an explicit -ws flag is a STRONG override (wins over a
+    # script-hardcoded root); otherwise infer the entry-script directory as a
+    # WEAK override (only fills a rootless Workspace), falling back to cwd.
+    if explicit_workspace and workspace is not None:
+        override_path = Path(workspace).resolve()
+        set_cli_root_override(override_path, explicit=True)
+    else:
+        try:
+            override_path = infer_workspace_root(script)
+        except ValueError:
+            override_path = Path.cwd().resolve()
+        set_cli_root_override(override_path, explicit=False)
     try:
         workspaces = load_workspaces(script)
     except Exception as exc:
@@ -565,6 +576,9 @@ def run(
     target_spec: TargetOption = ".",
 ) -> None:
     """Execute the workflow(s) defined by *script*."""
+    # An explicit -ws/--workspace flag (anything other than the "." cwd default)
+    # is a strong root override; absence means infer the script's directory.
+    explicit_ws = target_spec != "."
     target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         rprint("[red]Error:[/red] 'run' on remote targets is not yet supported.")
@@ -626,6 +640,7 @@ def run(
             profile_cfg=profile_cfg,
             continue_verb=continue_verb,
             workspace=target.path,
+            explicit_workspace=explicit_ws,
             run_handler=None,
             mode_label=mode_label,
             dry_run=True,
@@ -647,6 +662,7 @@ def run(
             profile_cfg=profile_cfg,
             continue_verb=continue_verb,
             workspace=target.path,
+            explicit_workspace=explicit_ws,
             run_handler=_make_local_inprocess_handler(profile_cfg, verb=continue_verb),
             mode_label=mode_label,
             show_progress=True,
@@ -683,6 +699,7 @@ def run(
         profile_cfg=profile_cfg,
         continue_verb=continue_verb,
         workspace=target.path,
+        explicit_workspace=explicit_ws,
         run_handler=handler,
         mode_label=mode_label,
         suppress_ok=True,

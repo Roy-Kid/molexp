@@ -36,23 +36,33 @@ from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
 
-# CLI-level root override: set by ``molexp run -w PATH`` before executing the
-# user script, so every ``me.Workspace(...)`` in that script resolves to the
-# overridden path instead of its hardcoded argument. ``None`` means no
-# override — ``Workspace(root)`` uses the caller-supplied root as-is.
-_cli_root_override: _LocalPath | None = None
+# CLI-level root override: set by ``molexp run`` before executing the user
+# script so a script's ``me.Workspace(...)`` resolves against the CLI instead
+# of (or, when rootless, in place of) its hardcoded argument. Stored as
+# ``(path, explicit)`` or ``None``:
+#   * ``explicit=True``  — an explicit ``-ws/--workspace`` flag: STRONG, wins
+#     even over a root the script passed (the original CLI-flag behavior).
+#   * ``explicit=False`` — an inferred root (the entry-script directory, set
+#     when no flag is given): WEAK, only fills in when the script omits its
+#     root, so a script that passes an explicit root keeps it.
+# ``None`` means no override — ``Workspace(root)`` uses the caller's root as-is.
+_cli_root_override: tuple[_LocalPath, bool] | None = None
 
 
-def set_cli_root_override(path: _LocalPath | str | None) -> None:
+def set_cli_root_override(path: _LocalPath | str | None, *, explicit: bool = True) -> None:
     """Set (or clear) the CLI-level workspace root override.
 
-    When set, :class:`Workspace` constructors use this path instead of the
-    ``root`` argument they were called with. Intended solely for ``molexp
-    run -w PATH`` to make the CLI flag authoritative over script-hardcoded
-    workspace roots.
+    Args:
+        path: The override root, or ``None`` to clear it.
+        explicit: ``True`` (default) for an explicit ``-ws`` flag — wins over a
+            root the script hardcodes. ``False`` for an inferred root (entry
+            script directory) — used only when the script omits its root.
+
+    Intended solely for ``molexp run`` to make the CLI flag authoritative, or
+    to fill in a rootless ``Workspace(name=...)`` with the script's directory.
     """
     global _cli_root_override
-    _cli_root_override = _LocalPath(path).resolve() if path is not None else None
+    _cli_root_override = (_LocalPath(path).resolve(), explicit) if path is not None else None
 
 
 class Workspace(Folder):
@@ -75,14 +85,24 @@ class Workspace(Folder):
     _not_found_error_cls = ProjectNotFoundError
 
     def __init__(
-        self, root: PathArg, name: str | None = None, *, fs: FileSystem | None = None
+        self, root: PathArg | None = None, name: str | None = None, *, fs: FileSystem | None = None
     ) -> None:
         self._fs = fs or LocalFileSystem()
 
-        # CLI --workspace wins over script-hardcoded roots (local only).
-        if _cli_root_override is not None and isinstance(self._fs, LocalFileSystem):
-            resolved_raw = str(_cli_root_override)
-        elif isinstance(self._fs, LocalFileSystem):
+        # Root precedence (local only). An explicit ``-ws`` override is STRONG
+        # and wins over a script-passed root; an inferred override is WEAK and
+        # only fills in when ``root`` is omitted. With no override, the passed
+        # root is used as-is; with neither root nor override we fail fast.
+        local = isinstance(self._fs, LocalFileSystem)
+        override = _cli_root_override if local else None
+        if override is not None and (root is None or override[1]):
+            resolved_raw = str(override[0])
+        elif root is None:
+            raise ValueError(
+                "Workspace root not given and no CLI override set — "
+                "pass a root or run the script via `molexp run`"
+            )
+        elif local:
             resolved_raw = self._fs.resolve(str(root))
         else:
             resolved_raw = str(root)  # Remote: use path as-is (tilde handled by remote shell)

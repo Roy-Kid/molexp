@@ -1,0 +1,15 @@
+{
+  "created_at": "2026-06-08T14:36:50.329671",
+  "default_target": null,
+  "description": "",
+  "git_commit": null,
+  "id": "train",
+  "n_replicas": 1,
+  "name": "train",
+  "parameter_space": {},
+  "schema_version": 1,
+  "seeds": null,
+  "tags": [],
+  "workflow_source": null,
+  "workflow_type": null
+}

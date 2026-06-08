@@ -1,0 +1,13 @@
+{
+  "cache_key": "04fdab3316b8ae862e4021b5406fdc6a7463e3e37defbe4e1fa9c21efba58897",
+  "created_at": "2026-06-08T12:36:50.335310Z",
+  "input_hash": "29db2ea4b63656e5586f2835df384d8c4dfeb56ef0e7f20fffd70d16a7d40668",
+  "result": {
+    "artifacts": [],
+    "result": null
+  },
+  "snapshot_key": "443dd606fca7617fee6356ee31ce1b82:44136fa355b3678a1146ad16f7e8649e",
+  "task_id": "train",
+  "task_type": "molexp.workflow.promote._EntryTask",
+  "version": 1
+}
