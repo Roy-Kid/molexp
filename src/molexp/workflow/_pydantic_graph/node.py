@@ -45,6 +45,7 @@ from ..task import Actor, Task
 from ..types import (
     BranchEdges,
     MissingRouteError,
+    MissingUpstreamResultError,
     Next,
     OutEdges,
     UnknownTaskError,
@@ -328,6 +329,16 @@ def _collect_upstream_outputs(registration: TaskRegistration, state: WorkflowSta
     deps = list(registration.depends_on)
     if not deps:
         return None
+    # Fail fast on a declared dependency that never ran instead of silently
+    # coalescing to ``None`` (the old ``dict.get`` behavior, which delivered
+    # ``None`` to a parallel-join consumer). A dep is satisfied if it recorded a
+    # result OR completed without one (a branch/routing task returns ``Next``
+    # and lands in ``completed`` but not ``results`` — its value is legitimately
+    # ``None``). The barrier guarantees presence on the happy path, so a dep in
+    # neither set is a genuine never-ran error, not a silent ``None``.
+    missing = [dep for dep in deps if dep not in state.results and dep not in state.completed]
+    if missing:
+        raise MissingUpstreamResultError(registration.name, missing, sorted(state.results))
     if len(deps) == 1:
         return state.results.get(deps[0])
     return {dep: state.results.get(dep) for dep in deps}

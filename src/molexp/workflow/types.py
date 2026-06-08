@@ -171,6 +171,27 @@ class CommandError(WorkflowError):
         )
 
 
+class MissingUpstreamResultError(WorkflowError):
+    """A consumer's declared dependency has no recorded result.
+
+    Raised by ``_collect_upstream_outputs`` when a multi-dependency consumer
+    asks for a declared dependency name that never landed in
+    ``WorkflowState.results`` — turning the old silent ``dict.get`` ``None``
+    coalescing into a loud, named failure (the dependency barrier guarantees
+    presence on the happy path, so this is a contract assertion). The message
+    names the consumer task, the missing dependency, and the recorded names.
+    """
+
+    def __init__(self, consumer: str, missing: list[str], recorded: list[str]) -> None:
+        self.consumer = consumer
+        self.missing = missing
+        self.recorded = recorded
+        super().__init__(
+            f"task {consumer!r} expected upstream result(s) {missing} but none were "
+            f"recorded; recorded results: {recorded}"
+        )
+
+
 # ── Workflow-level warnings (non-fatal) ─────────────────────────────────────
 
 
