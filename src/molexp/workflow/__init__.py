@@ -50,6 +50,7 @@ from .binding import WorkflowBinding, WorkflowBindingRegistry, default_binding_r
 from .cache import Caching
 from .cache_store import CacheStore, FileCacheStore
 from .codec import WorkflowCodec, default_codec
+from .command_task import CommandTask
 from .compiled import CompiledWorkflow
 from .compiler import WorkflowCompiler
 from .context import TaskContext
@@ -87,6 +88,7 @@ from .sweep import SweepMap
 from .task import Actor, Task
 from .types import (
     BranchEdges,
+    CommandError,
     CycleError,
     EdgeShapeError,
     End,
@@ -116,6 +118,8 @@ __all__ = [
     "BranchEdges",
     "CacheStore",
     "Caching",
+    "CommandError",
+    "CommandTask",
     "CompiledWorkflow",
     "CycleError",
     "EdgeKind",

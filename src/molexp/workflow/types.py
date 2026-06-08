@@ -152,6 +152,25 @@ class ParallelExecutionError(WorkflowError):
         )
 
 
+class CommandError(WorkflowError):
+    """An external command run by a :class:`~molexp.workflow.CommandTask` exited non-zero.
+
+    Carries the command's ``returncode``, ``stdout``, and ``stderr`` for caller
+    introspection; the message surfaces ``stderr`` (falling back to ``stdout``
+    when ``stderr`` is empty). Under ``wf.parallel`` it is captured per element
+    like any other :class:`WorkflowError`.
+    """
+
+    def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        detail = (stderr or stdout or "").strip()
+        super().__init__(
+            f"command exited with returncode {returncode}" + (f": {detail}" if detail else "")
+        )
+
+
 # ── Workflow-level warnings (non-fatal) ─────────────────────────────────────
 
 
