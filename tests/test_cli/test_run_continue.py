@@ -49,7 +49,7 @@ def _plain(s: str) -> str:
 def _write_script(
     path: Path,
     workspace_root: Path,
-    body: str = "ctx.set_result('epochs', ctx.config.get('epochs', 'default'))",
+    body: str = "return config.get('epochs', 'default')",
 ) -> None:
     path.write_text(
         "\n".join(
@@ -61,7 +61,7 @@ def _write_script(
                 "project = ws.add_project('demo')",
                 "exp = project.add_experiment('train')",
                 "",
-                "def train(ctx: me.RunContext) -> None:",
+                "def train(inputs, config):",
                 f"    {body}",
                 "",
                 "default_binding_registry.bind(exp, promote_callable(train, name='train'))",
@@ -88,11 +88,11 @@ def _write_molcfg(path: Path) -> None:
 
 _FAIL_ONCE_BODY = (
     "import pathlib\n"
-    "    marker = pathlib.Path(ctx.run.run_dir) / 'fail_once'\n"
+    "    marker = pathlib.Path(inputs['workdir']) / 'fail_once'\n"
     "    if not marker.exists():\n"
     "        marker.touch()\n"
     "        raise RuntimeError('boom')\n"
-    "    ctx.set_result('epochs', ctx.config['epochs'])"
+    "    return config['epochs']"
 )
 
 

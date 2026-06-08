@@ -8,7 +8,7 @@ belongs (the output is a ``Workflow``).
 
 Public surface:
 
-- :func:`promote_callable` — wrap a ``fn(RunContext)`` into a
+- :func:`promote_callable` — wrap a ``fn(inputs, config)`` into a
   single-Task ``Workflow``.
 - :func:`resolve_callable_entrypoint` — return ``"<file>:<qualname>"``
   for a module-level callable so the cluster worker can re-import it.
@@ -31,39 +31,35 @@ from .task import Task
 
 
 class _EntryTask(Task):
-    """Wraps a bare ``fn(RunContext) -> None`` into a workflow Task.
+    """Wraps a bare ``fn(inputs, config) -> object`` into a workflow Task.
 
-    Module-private; users get to it through :func:`promote_callable`.
+    Module-private; users get to it through :func:`promote_callable`. The
+    pure-task-context contract delivers data via ``ctx.inputs`` / ``ctx.config``
+    (no ``run_context``); the promoted callable receives those two arguments.
     """
 
     def __init__(self, fn: Callable) -> None:
         self._fn = fn
 
-    async def execute(self, ctx: TaskContext) -> None:
-        run_ctx = ctx.run_context
-        if run_ctx is None:
-            fn_name = getattr(self._fn, "__name__", None) or "anonymous"
-            raise RuntimeError(
-                f"{fn_name}() requires a RunContext, but the workflow "
-                "was executed without a workspace run."
-            )
+    async def execute(self, ctx: TaskContext) -> object:
         if asyncio.iscoroutinefunction(self._fn):
-            await self._fn(run_ctx)
-        else:
-            # Run sync bodies in a worker thread so blocking I/O (e.g.
-            # ``time.sleep``) does not stall sibling replicas in the
-            # same event loop. Preserve the original semantics where a
-            # sync callable that returns an awaitable is still awaited.
-            result = await asyncio.to_thread(self._fn, run_ctx)
-            if asyncio.iscoroutine(result) or inspect.isawaitable(result):
-                await result
+            return await self._fn(ctx.inputs, ctx.config)
+        # Run sync bodies in a worker thread so blocking I/O (e.g.
+        # ``time.sleep``) does not stall sibling replicas in the
+        # same event loop. Preserve the original semantics where a
+        # sync callable that returns an awaitable is still awaited.
+        result = await asyncio.to_thread(self._fn, ctx.inputs, ctx.config)
+        if asyncio.iscoroutine(result) or inspect.isawaitable(result):
+            return await result
+        return result
 
 
 def promote_callable(fn: Callable, name: str) -> CompiledWorkflow:
-    """Promote a bare ``fn(RunContext)`` to a single-Task ``CompiledWorkflow``.
+    """Promote a bare ``fn(inputs, config)`` to a single-Task ``CompiledWorkflow``.
 
     Args:
-        fn: Callable that accepts a ``RunContext`` (sync or async).
+        fn: Callable that accepts ``(inputs, config)`` (sync or async), matching
+            the pure-task-context contract.
         name: Workflow name; used for the artifact's ``name`` field. The
             single task inside it gets the callable's ``__name__``.
 

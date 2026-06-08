@@ -10,17 +10,21 @@ pydantic-graph ``Step`` (one per task; see
 :mod:`molexp.workflow._pydantic_graph.compiler`); the Step body invokes
 ``execute(ctx)`` / ``run(ctx)`` directly via duck typing.
 
+A task is a pure ``execute(inputs, config) -> output`` function: it reads only
+``ctx.inputs`` and ``ctx.config`` (see :class:`~molexp.workflow.TaskContext`).
+
 Simple (no generics)::
 
     class Square(Task):
         async def execute(self, ctx: TaskContext) -> int:
             return ctx.inputs**2
 
-Typed (full generics)::
+Typed (state/input/output generics)::
 
-    class Fetch(Task[PipeState, PipeDeps, None, DataFrame]):
-        async def execute(self, ctx: TaskContext[PipeState, PipeDeps, None]) -> DataFrame:
-            return ctx.deps.storage.read(self.source)
+    class Fetch(Task[WorkflowState, str, DataFrame]):
+        async def execute(self, ctx: TaskContext[WorkflowState, str]) -> DataFrame:
+            # source path arrives as an input, not via ambient deps.
+            return read_frame(ctx.inputs)
 
 Third-party (no molexp import)::
 
@@ -37,7 +41,7 @@ from collections.abc import AsyncIterator
 from .context import TaskContext
 
 
-class Task[StateT, DepsT, InputT, OutputT](ABC):
+class Task[StateT, InputT, OutputT](ABC):
     """Batch task base class.
 
     Subclass and implement :meth:`execute`. Generic parameters are
@@ -45,12 +49,12 @@ class Task[StateT, DepsT, InputT, OutputT](ABC):
     """
 
     @abstractmethod
-    async def execute(self, ctx: TaskContext[StateT, DepsT, InputT]) -> OutputT:
+    async def execute(self, ctx: TaskContext[StateT, InputT]) -> OutputT:
         """Run this task and return the output."""
         ...
 
 
-class Actor[StateT, DepsT, InputT, OutputT](ABC):
+class Actor[StateT, InputT, OutputT](ABC):
     """Streaming actor base class.
 
     Subclass and implement :meth:`run` as an async generator yielding
@@ -65,6 +69,6 @@ class Actor[StateT, DepsT, InputT, OutputT](ABC):
     # ``async for chunk in actor.run(ctx)`` dispatch in the Step body
     # (node._invoke_body_with_ctx).
     @abstractmethod
-    def run(self, ctx: TaskContext[StateT, DepsT, InputT]) -> AsyncIterator[OutputT]:
+    def run(self, ctx: TaskContext[StateT, InputT]) -> AsyncIterator[OutputT]:
         """Run continuously, yielding outputs."""
         ...

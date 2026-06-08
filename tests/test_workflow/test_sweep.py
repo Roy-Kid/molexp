@@ -1,7 +1,9 @@
 """Tests for the SweepMap workflow primitive.
 
-SweepMap maps a callable over each cell of a ParamSpace and persists one
-ArtifactAsset per cell, tagged with that cell's parameters.
+Under the pure-task-context contract SweepMap maps a callable over each cell of a
+ParamSpace and RETURNS one record per cell (``{name, tags, result, mime}``); the
+engine's materialization layer persists the returned list. Tests assert on the
+returned records (``result.outputs[...]``), not on per-cell artifact.save calls.
 """
 
 import asyncio
@@ -30,7 +32,7 @@ def _execute(spec, tmp_path):
     return result, artifacts
 
 
-def test_sweep_map_writes_one_asset_per_cell(tmp_path):
+def test_sweep_map_returns_one_record_per_cell(tmp_path):
     space = GridSpace({"scheme": ["int8", "int4"], "dataset": ["qm9"]})  # 2 cells
 
     def fn(cell):
@@ -40,16 +42,17 @@ def test_sweep_map_writes_one_asset_per_cell(tmp_path):
     wf.add(SweepMap(fn, space), name="sweep_cells")
     spec = wf.compile()
 
-    result, artifacts = _execute(spec, tmp_path)
+    result, _artifacts = _execute(spec, tmp_path)
 
     assert result.status == "completed"
-    assert len(artifacts) == 2
-    schemes = {a.tags.get("scheme") for a in artifacts}
+    records = result.outputs["sweep_cells"]
+    assert len(records) == 2
+    schemes = {r["tags"].get("scheme") for r in records}
     assert schemes == {"int8", "int4"}
-    # every asset is tagged with its cell's params (stringified)
-    for a in artifacts:
-        assert a.tags.get("dataset") == "qm9"
-        assert "sweep_index" in a.tags
+    # every record is tagged with its cell's params (stringified)
+    for r in records:
+        assert r["tags"].get("dataset") == "qm9"
+        assert "sweep_index" in r["tags"]
 
 
 def test_sweep_map_name_fn_controls_filename_and_extension(tmp_path):
@@ -72,27 +75,28 @@ def test_sweep_map_name_fn_controls_filename_and_extension(tmp_path):
     )
     spec = wf.compile()
 
-    result, artifacts = _execute(spec, tmp_path)
+    result, _artifacts = _execute(spec, tmp_path)
 
     assert result.status == "completed"
-    # name_fn drives the full filename + extension (not the default "<prefix>-<i>.json")
-    assert {a.name for a in artifacts} == {"trajectory_int8.pt", "trajectory_int4.pt"}
-    assert all(a.mime == "application/octet-stream" for a in artifacts)
+    records = result.outputs["sweep_cells"]
+    # name_fn drives the full record name + extension (not the default "<prefix>-<i>.json")
+    assert {r["name"] for r in records} == {"trajectory_int8.pt", "trajectory_int4.pt"}
+    assert all(r["mime"] == "application/octet-stream" for r in records)
     # cell params are still tagged so downstream reduces can key on them
-    assert {a.tags.get("scheme") for a in artifacts} == {"int8", "int4"}
+    assert {r["tags"].get("scheme") for r in records} == {"int8", "int4"}
 
 
-def test_sweep_map_empty_space_writes_nothing(tmp_path):
+def test_sweep_map_empty_space_returns_no_records(tmp_path):
     space = GridSpace({"scheme": []})  # 0 cells
 
     wf = WorkflowCompiler(name="sweep0")
     wf.add(SweepMap(lambda _cell: {"x": 1}, space), name="sweep_cells")
     spec = wf.compile()
 
-    result, artifacts = _execute(spec, tmp_path)
+    result, _artifacts = _execute(spec, tmp_path)
 
     assert result.status == "completed"
-    assert len(artifacts) == 0
+    assert result.outputs["sweep_cells"] == []
 
 
 def test_sweep_map_propagates_callable_error(tmp_path):

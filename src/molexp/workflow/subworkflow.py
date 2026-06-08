@@ -15,17 +15,19 @@ end-to-end through the engine.
 run_context-forwarding contract
 -------------------------------
 ``SubWorkflow.execute`` runs the inner spec via
-``WorkflowRuntime().execute(inner, run_context=ctx.run_context)`` — it forwards
-the *outer* ``run_context`` object **by identity**. Inner tasks therefore observe
-the very same workspace / run the outer execution received. The node never
-constructs a :class:`TaskContext`; the engine builds every inner context.
+a ``sub_runner`` closure that the engine injects as ``ctx.inputs`` (see
+``_pydantic_graph.node._make_sub_runner``). ``SubWorkflow`` is a pure
+``{inputs, config}`` task — it never touches a ``run_context``. The injected
+closure runs the inner spec through the engine bound, via the engine's PRIVATE
+run-context channel, to the same workspace / run the outer execution received.
+The node never constructs a :class:`TaskContext`; the engine builds every inner
+context.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ._pydantic_graph.runtime import WorkflowRuntime
 from .compiled import CompiledWorkflow
 from .task import Task
 
@@ -39,9 +41,10 @@ class SubWorkflow(Task):
 
     Construct from an already-compiled :class:`CompiledWorkflow` or from a
     :class:`WorkflowCompiler` (which is compiled eagerly at construction). Each
-    :meth:`execute` call triggers one fresh inner execution through
-    :class:`WorkflowRuntime`, forwarding the outer ``run_context`` so inner-task
-    workspace helpers keep working.
+    :meth:`execute` call triggers one fresh inner execution through the
+    engine-injected ``sub_runner`` capability, bound (via the engine's private
+    channel) to the same workspace / run, so inner-task workspace helpers keep
+    working.
 
     Args:
         inner: The inner workflow to embed — a :class:`CompiledWorkflow`, or a
@@ -53,6 +56,9 @@ class SubWorkflow(Task):
 
     The inner reference is owned by this instance and never mutated.
     """
+
+    # Engine contract: inject a ``sub_runner`` closure as ``ctx.inputs``.
+    __wf_capability__ = "sub_runner"
 
     def __init__(
         self, inner: CompiledWorkflow | WorkflowCompiler, *, output: str | None = None
@@ -94,24 +100,28 @@ class SubWorkflow(Task):
     async def execute(self, ctx: TaskContext) -> object:
         """Run the inner workflow through the engine and return its terminal output.
 
-        Forwards ``ctx.run_context`` (by identity) and ``ctx.config`` to the
-        inner execution. On a non-``"completed"`` inner status, raises a
-        :class:`RuntimeError` so the failure propagates (under ``wf.parallel``
-        the engine's existing ``ParallelExecutionError`` aggregation wraps it).
+        Uses the engine-injected ``sub_runner`` capability (``ctx.inputs``) to run
+        the inner spec with ``ctx.config``. On a non-``"completed"`` inner status,
+        raises a :class:`RuntimeError` so the failure propagates (under
+        ``wf.parallel`` the engine's ``ParallelExecutionError`` aggregation wraps
+        it).
 
         Args:
-            ctx: The outer :class:`TaskContext` supplied by the engine.
+            ctx: The outer :class:`TaskContext`; ``ctx.inputs`` is the injected
+                ``sub_runner`` closure.
 
         Returns:
             The output of the configured inner task (``output=``) or the inner
             spec's single dependency-leaf output.
         """
         output_name = self._resolve_output_name()
-        result = await WorkflowRuntime().execute(
-            self._inner,
-            run_context=ctx.run_context,
-            config=ctx.config,
-        )
+        sub_runner = ctx.inputs
+        if not callable(sub_runner):
+            raise RuntimeError(
+                "SubWorkflow requires the engine-injected 'sub_runner' capability; "
+                "it must be executed through WorkflowRuntime, not called directly."
+            )
+        result = await sub_runner(self._inner, ctx.config)
         if result.status != "completed":
             raise RuntimeError(
                 f"SubWorkflow inner workflow {self._inner.name!r} ended with "

@@ -1,68 +1,84 @@
 """Execution context for workflow tasks and streaming actors.
 
 ``TaskContext`` is the **single object** every user-defined task (batch
-``Task`` or streaming ``Actor``) receives. It carries five attributes —
-``state``, ``deps``, ``inputs``, ``config``, ``run_context`` — and nothing
-else. Workspace plumbing (artifacts, logs, checkpoints, named results) is no
-longer the workflow layer's concern; callers attach those capabilities through
-the opaque duck-typed ``run_context`` payload and reach into them directly when
-needed.
+``Task`` or streaming ``Actor``) receives. After the pure-task-context collapse
+it carries:
+
+* ``inputs`` — the runtime data flowing in along the graph's edges (upstream
+  task outputs; for a root task, whatever the engine injects: the run's sweep
+  params and a content-addressed working-directory ``Path``);
+* ``config`` — the build-time static configuration declared at ``add()`` time
+  (part of the node's content identity);
+* ``state`` — **read-only** shared workflow state (``results`` etc.).
+
+There is **no** ``run_context`` and **no** ``deps``: a task cannot climb up from
+its context to the Run, the workspace, or injected services. Engine capabilities
+that used to be reached through ``run_context`` — a content-addressed workdir,
+artifact persistence, running a sub-workflow — are delivered *as inputs* by the
+engine, or handled by the engine's materialization layer after the body returns.
+
+``state`` is retained **deliberately and minimally** (decision #2): fully
+removing it would break loop/branch accumulation and routed-value access, which
+read prior/routed outputs from ``state.results``. Delivering those via ``inputs``
+needs engine-level loop-back/routed input wiring, deferred to its own spec
+(``pure-task-context-*-state-elimination``). Until then ``state`` stays as a
+read-only escape hatch for those patterns.
+
+The context is frozen: it is a plain class (NOT a pydantic model — ``inputs``
+carries arbitrary live task outputs such as numpy arrays or PyO3 objects that a
+pydantic model would try to validate/copy; per CLAUDE.md live-value containers
+are plain classes). Attribute assignment raises.
 """
 
 from __future__ import annotations
 
-from .protocols import JSONMapping, RunContextLike
+from .protocols import JSONMapping
 
 
-class TaskContext[StateT, DepsT, InputT]:
-    """Context passed to every ``Task.execute()``.
+class TaskContext[StateT, InputT]:
+    """Frozen context passed to every ``Task.execute()`` / ``Actor.run()``.
 
     Attributes:
-        state: Shared mutable workflow state visible to all tasks.
-        deps: Injected dependencies (any user object).
-        inputs: Typed output from the upstream task (``None`` for root tasks).
-        config: JSON-shaped mapping exposed to the task body (defaults to ``{}``).
-        run_context: Duck-typed run context (``RunContextLike``) supplied by
-            the caller of ``Workflow.execute(run_context=...)``. Tasks
-            that need workspace capabilities reach for them through this
-            object; the workflow layer holds it via the structural Protocol.
+        inputs: Runtime data flowing in along the edges — upstream task outputs
+            (``None`` for a root task with nothing injected), or the engine's
+            injected inputs for a root task (sweep params + a workdir ``Path``).
+        config: Read-only build-time configuration mapping (defaults to ``{}``).
+        state: Read-only shared workflow state (retained minimally for loop /
+            branch data-flow; see module docstring).
     """
+
+    _inputs: InputT
+    _config: JSONMapping
+    _state: StateT | None
+    __slots__ = ("_config", "_inputs", "_state")
 
     def __init__(
         self,
-        state: StateT,
-        deps: DepsT,
         inputs: InputT,
         config: JSONMapping | None = None,
-        run_context: RunContextLike | None = None,
+        state: StateT | None = None,
     ) -> None:
-        self._state = state
-        self._deps = deps
-        self._inputs = inputs
-        self._config: JSONMapping = config if config is not None else {}
-        self._run_ctx = run_context
-
-    @property
-    def state(self) -> StateT:
-        """Shared mutable workflow state visible to all tasks."""
-        return self._state
-
-    @property
-    def deps(self) -> DepsT:
-        """Injected dependencies (any user object)."""
-        return self._deps
+        object.__setattr__(self, "_inputs", inputs)
+        object.__setattr__(self, "_config", config if config is not None else {})
+        object.__setattr__(self, "_state", state)
 
     @property
     def inputs(self) -> InputT:
-        """Typed output from the upstream task (``None`` for root tasks)."""
+        """Runtime data flowing in along the edges."""
         return self._inputs
 
     @property
-    def run_context(self) -> RunContextLike | None:
-        """Duck-typed run-context payload supplied by the caller (or ``None``)."""
-        return self._run_ctx
+    def config(self) -> JSONMapping:
+        """Read-only mapping of build-time configuration."""
+        return self._config
 
     @property
-    def config(self) -> JSONMapping:
-        """Read-only mapping of user-supplied configuration."""
-        return self._config
+    def state(self) -> StateT | None:
+        """Read-only shared workflow state (loop / branch data-flow)."""
+        return self._state
+
+    def __setattr__(self, name: str, value: object) -> None:
+        raise AttributeError(f"TaskContext is frozen; cannot set {name!r}")
+
+    def __repr__(self) -> str:
+        return f"TaskContext(inputs={self._inputs!r}, config={self._config!r})"

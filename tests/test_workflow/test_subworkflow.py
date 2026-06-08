@@ -6,8 +6,9 @@ Contract:
 * ``SubWorkflow(inner).execute(ctx)`` runs the inner spec end-to-end through the
   engine and returns the inner terminal output (default: the single dependency
   leaf; or ``output=`` when set).
-* It forwards the outer ``run_context`` by identity — no hand-built
-  ``TaskContext`` clone (the source contains no ``TaskContext(`` call).
+* It runs the inner via the engine-injected ``sub_runner`` capability (no
+  ``run_context`` on the task ctx) — no hand-built ``TaskContext`` clone (the
+  source contains no ``TaskContext(`` call).
 * It slots into ``builder.parallel(body="sub", ...)`` as the per-element body
   with no per-element node growth.
 """
@@ -173,19 +174,24 @@ def test_subworkflow_ambiguous_leaf_raises() -> None:
         node._resolve_output_name()
 
 
-# ── ac-003: run_context forwarded by identity ────────────────────────────────
+# ── ac-003: inner runs via the injected sub_runner (no run_context on ctx) ────
 
 
 @pytest.mark.asyncio
-async def test_subworkflow_forwards_run_context_by_identity() -> None:
-    """ac-003 — inner task observes the SAME run_context object the outer received."""
-    captured: list[object] = []
+async def test_subworkflow_runs_inner_via_injected_sub_runner() -> None:
+    """Pure contract — the inner task does NOT see run_context on its ctx; the
+    engine injects a ``sub_runner`` capability that runs the inner bound (via the
+    private channel) to the outer run, so the inner completes and its output
+    flows out of the SubWorkflow node."""
+    ran: list[bool] = []
 
     inner = WorkflowCompiler(name="inner-rc")
 
     @inner.task
     async def observe(ctx: TaskContext) -> str:
-        captured.append(ctx.run_context)
+        # run_context is no longer exposed on the public task context.
+        assert not hasattr(ctx, "run_context")
+        ran.append(True)
         return "ok"
 
     outer = WorkflowCompiler(name="outer-rc").add(SubWorkflow(inner), name="sub").compile()
@@ -193,8 +199,8 @@ async def test_subworkflow_forwards_run_context_by_identity() -> None:
     sentinel = object()
     result = await WorkflowRuntime().execute(outer, run_context=sentinel)
     assert result.status == "completed"
-    assert len(captured) == 1
-    assert captured[0] is sentinel
+    assert ran == [True]
+    assert result.outputs["sub"] == "ok"
 
 
 # ── ac-004: SubWorkflow as a parallel body ───────────────────────────────────

@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic_graph import End
 
@@ -39,7 +39,6 @@ from ..protocols import (
     Streamable,
     TaskInput,
     TaskOutput,
-    UserDeps,
 )
 from ..task import Actor, Task
 from ..types import (
@@ -54,6 +53,8 @@ from .node_params import _resolve_dependent_params
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
+    from ..compiled import CompiledWorkflow
+    from ..protocols import JSONMapping
     from .._graph_decl import TaskRegistration
 
 
@@ -208,9 +209,20 @@ async def run_task_body(
     # a deadlock, so a slow upstream is never mistaken for an absent one.
     state.running += 1
     try:
+        body = registration.fn_or_class
         if element is not NO_OUTPUT:
             inputs: TaskInput = element
             effective_config = deps.config
+        elif name in state.root_inputs:
+            # Engine-injected root inputs (sweep params + content-addressed
+            # workdir Path). The body still runs; only its inputs are pre-set.
+            inputs = state.root_inputs[name]
+            effective_config = _resolve_dependent_params(
+                registration=registration,
+                state=state,
+                run_context=deps.run_context,
+                base_config=deps.config,
+            )
         else:
             inputs = _collect_upstream_outputs(registration, state)
             effective_config = _resolve_dependent_params(
@@ -220,12 +232,18 @@ async def run_task_body(
                 base_config=deps.config,
             )
 
-        task_ctx: TaskContext[WorkflowState, UserDeps, TaskInput] = TaskContext(
-            state=state,
-            deps=deps.user_deps,
+        # Capabilities-as-inputs: an engine-internal task may declare
+        # ``__wf_capability__``; the engine injects the named capability as
+        # ``ctx.inputs`` so the task stays on the pure {inputs, config} contract
+        # (no ``run_context``). ``sub_runner`` runs an inner workflow bound to
+        # this run via the PRIVATE ``deps.run_context`` channel.
+        if getattr(body, "__wf_capability__", None) == "sub_runner":
+            inputs = _make_sub_runner(deps)
+
+        task_ctx: TaskContext[Any, TaskInput] = TaskContext(
             inputs=inputs,
             config=effective_config,
-            run_context=deps.run_context,
+            state=state,
         )
 
         # Tag artifacts produced by this body with ``producer.task_id == name``
@@ -254,25 +272,17 @@ async def run_task_body(
 
 async def _invoke_body_with_ctx(
     registration: TaskRegistration,
-    task_ctx: TaskContext[TaskOutput, UserDeps, TaskInput],
+    task_ctx: TaskContext[Any, TaskInput],
 ) -> TaskOutput:
     """Dispatch a registered task's body against a *pre-built* TaskContext.
 
     ``registration.fn_or_class`` is the user-supplied object (Task / Actor
     instance, third-party Runnable / Streamable, or plain callable). No
     per-task pg ``BaseNode`` codegen, no patched ``Task.run`` — this
-    function IS the body dispatcher.
+    function IS the body dispatcher. The producer-task tag is set once by the
+    caller (:func:`run_task_body`) via the private ``deps.run_context``.
     """
     body = registration.fn_or_class
-
-    # Tag any asset saved during this task with its name as ``Producer.task_id``
-    # via the run_context's active-task slot (the slot is read by ArtifactAccessor
-    # on write). molexp task bodies run inline/blocking on the event-loop thread,
-    # so a single slot is effectively per-task here; the next task overwrites it
-    # before saving its own assets.
-    _rc = getattr(task_ctx, "run_context", None)
-    if _rc is not None and hasattr(_rc, "set_active_task"):
-        _rc.set_active_task(registration.name)
 
     # OOP Task subclass — invoke .execute(ctx).
     if isinstance(body, Task):
@@ -318,6 +328,27 @@ async def _invoke_body_with_ctx(
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
+
+def _make_sub_runner(deps: WorkflowDeps):  # noqa: ANN202
+    """Build the ``sub_runner`` capability for a :class:`SubWorkflow` body.
+
+    Returns an ``async (inner_spec, config=None) -> WorkflowResult`` closure that
+    runs *inner_spec* through the engine bound to this run via the PRIVATE
+    ``deps.run_context`` channel — so the SubWorkflow body never touches a
+    run-context itself (pure {inputs, config} contract).
+    """
+
+    async def _sub_runner(inner: CompiledWorkflow, config: JSONMapping | None = None):  # noqa: ANN202
+        from .runtime import WorkflowRuntime
+
+        return await WorkflowRuntime().execute(
+            inner,
+            run_context=deps.run_context,
+            config=config if config is not None else deps.config,
+        )
+
+    return _sub_runner
 
 
 def _collect_upstream_outputs(registration: TaskRegistration, state: WorkflowState) -> TaskInput:

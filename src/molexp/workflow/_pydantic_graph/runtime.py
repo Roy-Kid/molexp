@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any, cast
 import anyio
 from mollog import get_logger
 
+from ..materialization_store import FileMaterializationStore, MaterializationStore
 from ..protocols import JSONMapping, JSONValue, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
 from .state import WorkflowDeps, WorkflowState
@@ -284,6 +285,29 @@ class WorkflowRuntime:
             par.body: anyio.CapacityLimiter(par.max_concurrency) for par in compiled._parallels
         }
 
+        # Engine materialization layer: content-addressed workdir derivation +
+        # task return-value persistence. Rooted at a WORKSPACE-shared
+        # ``.materialize`` dir (run-independent) so a content-addressed workdir is
+        # identical across runs — that is what makes cross-run reuse a byproduct
+        # of content addressing and keeps root-task cache keys stable. Falls back
+        # to the run dir only when the workspace root is unreachable (duck-typed
+        # stub run_context); active only for a workspace run.
+        materialization: MaterializationStore | None = None
+        if run_context is not None:
+            ws = getattr(
+                getattr(getattr(run_for_deps, "experiment", None), "project", None),
+                "workspace",
+                None,
+            )
+            ws_root = getattr(ws, "root", None)
+            mat_root = (
+                Path(ws_root) / ".materialize"
+                if ws_root is not None
+                else (Path(run_dir) / ".materialize" if run_dir is not None else None)
+            )
+            if mat_root is not None:
+                materialization = FileMaterializationStore(mat_root)
+
         return WorkflowDeps(
             run=run_for_deps,
             run_context=run_context,
@@ -298,7 +322,40 @@ class WorkflowRuntime:
             parallel_limiters=parallel_limiters,
             cache=cache,
             snapshots=compiled.snapshots,
+            materialization=materialization,
         )
+
+    @staticmethod
+    def _populate_root_inputs(
+        compiled: CompiledWorkflow,
+        state: WorkflowState,
+        deps: WorkflowDeps,
+        run_context: RunContextLike | None,
+    ) -> None:
+        """Inject root-task inputs for a workspace run (capabilities-as-inputs).
+
+        For each ROOT task (no upstream deps, not a ``wf.parallel`` body, not
+        seeded) the engine pre-sets ``ctx.inputs = {"params": <run params>,
+        "workdir": <content-addressed Path>}``. The workdir is a bare
+        ``pathlib.Path`` (NEVER a navigable handle), derived from the node's
+        content identity (``snapshot.key``) via the materialization layer. Opt-in:
+        no-op without a ``run_context`` so non-workspace runs are unaffected.
+        """
+        if run_context is None:
+            return
+        params = getattr(run_context, "params", None) or {}
+        body_names = {par.body for par in compiled._parallels}
+        snapshots = compiled.snapshots
+        for reg in compiled._tasks:
+            name = reg.name
+            if reg.depends_on or name in body_names or name in state.seeded:
+                continue
+            workdir = None
+            if deps.materialization is not None:
+                snap = snapshots.get(name)
+                content_id = snap.key if snap is not None else name
+                workdir = deps.materialization.workdir_for(content_id)
+            state.root_inputs[name] = {"params": dict(params), "workdir": workdir}
 
     # ── execute ──────────────────────────────────────────────────────────────
 
@@ -355,6 +412,8 @@ class WorkflowRuntime:
                 deps=deps,
                 cache=_resolve_cache(cache, self.cache, run_context),
             )
+
+            self._populate_root_inputs(compiled, state, workflow_deps, run_context)
 
             result_state: WorkflowState = await _run_compiled(compiled.graph, state, workflow_deps)
 

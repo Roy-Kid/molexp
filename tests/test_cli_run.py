@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
 
 from typer.testing import CliRunner
 
@@ -25,7 +23,7 @@ def _plain(s: str) -> str:
 def _write_script(
     path,
     workspace_root,
-    body="ctx.set_result('epochs', ctx.config.get('epochs', 'default'))",
+    body="return config.get('epochs', 'default')",
 ):
     path.write_text(
         "\n".join(
@@ -37,7 +35,7 @@ def _write_script(
                 "project = ws.add_project('demo')",
                 "exp = project.add_experiment('train')",
                 "",
-                "def train(ctx: me.RunContext) -> None:",
+                "def train(inputs, config):",
                 f"    {body}",
                 "",
                 "default_binding_registry.bind(exp, promote_callable(train, name='train'))",
@@ -50,7 +48,7 @@ def _write_script(
 
 def _write_rootless_script(
     path,
-    body="ctx.set_result('epochs', ctx.config.get('epochs', 'default'))",
+    body="return config.get('epochs', 'default')",
 ):
     """Variant of :func:`_write_script` that omits the workspace root.
 
@@ -67,7 +65,7 @@ def _write_rootless_script(
                 "project = ws.add_project('demo')",
                 "exp = project.add_experiment('train')",
                 "",
-                "def train(ctx: me.RunContext) -> None:",
+                "def train(inputs, config):",
                 f"    {body}",
                 "",
                 "default_binding_registry.bind(exp, promote_callable(train, name='train'))",
@@ -171,8 +169,13 @@ class TestRunCommand:
         # run succeeded (profile is orthogonal to status)
         assert run.status == "succeeded"
 
-        run_json = json.loads(Path(run.run_dir / "run.json").read_text())
-        assert run_json["context"]["results"]["epochs"] == 1
+        # Pure contract: the promoted fn RETURNS its result; the engine persists
+        # it as the task's workflow output (no RunContext.set_result).
+        from molexp.workflow import read_node_outputs
+
+        exec_id = run.metadata.execution_history[-1].execution_id
+        outputs = read_node_outputs(run.run_dir, exec_id)
+        assert outputs["train"] == 1
 
     def test_resume_replays_non_succeeded_runs_of_same_profile(self, tmp_path):
         workspace_root = tmp_path / "workspace"
@@ -183,12 +186,12 @@ class TestRunCommand:
             script,
             workspace_root,
             body=(
-                "import pathlib, os\n"
-                "    marker = pathlib.Path(ctx.run.run_dir) / 'fail_once'\n"
+                "import pathlib\n"
+                "    marker = pathlib.Path(inputs['workdir']) / 'fail_once'\n"
                 "    if not marker.exists():\n"
                 "        marker.touch()\n"
                 "        raise RuntimeError('boom')\n"
-                "    ctx.set_result('epochs', ctx.config['epochs'])"
+                "    return config['epochs']"
             ),
         )
 
@@ -239,7 +242,7 @@ class TestRunCommand:
         script = tmp_path / "train.py"
         molcfg = tmp_path / "molcfg.yaml"
         _write_molcfg(molcfg)
-        _write_script(script, workspace_root, body="ctx.set_result('mode', 'wet')")
+        _write_script(script, workspace_root, body="return 'wet'")
 
         # First run succeeds
         result = runner.invoke(

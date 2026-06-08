@@ -162,6 +162,16 @@ async def run_task_body_cached(
 
     raw = await run_task_body(name, deps, state)
 
+    # Engine materialization: persist the task's return value as a content-hashed
+    # artifact (fail-soft) — the live caller of the materialization layer. Runs
+    # before the cache put so the artifact manifest captures it too.
+    materialization = getattr(deps, "materialization", None)
+    if materialization is not None:
+        try:
+            materialization.persist_result(name, raw, run_context=deps.run_context)
+        except Exception:
+            logger.debug(f"materialize: persist for task {name!r} skipped")
+
     if cacheable and _is_json_safe(raw):
         manifest = _artifact_manifest(deps, name)
         result_payload = cast("dict[str, JSONValue]", {"result": raw, "artifacts": manifest})

@@ -102,8 +102,9 @@ async def test_artifact_reregistered_on_hit_without_recompute(workspace: Workspa
 
     @wf.task
     async def produce(ctx: TaskContext) -> str:
+        # Pure contract: the task RETURNS its product; the engine's
+        # materialization layer persists it as a content-hashed artifact.
         _bump("produce")
-        ctx.run_context.artifact.save("out.txt", b"payload-bytes")
         return "produced"
 
     compiled = wf.compile()
@@ -221,7 +222,8 @@ async def test_cache_entry_result_shape(workspace: Workspace) -> None:
 
     @wf.task
     async def produce(ctx: TaskContext) -> dict:
-        ctx.run_context.artifact.save("o.txt", b"x")
+        # Engine materializes the return value as the task's artifact, so the
+        # cache manifest is populated without an explicit artifact.save.
         return {"value": 7}
 
     compiled = wf.compile()
