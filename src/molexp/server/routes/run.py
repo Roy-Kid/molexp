@@ -508,6 +508,24 @@ def _resumable_execution_id(run) -> str | None:  # noqa: ANN001
     return None
 
 
+def _require_retryable(run, run_id: str) -> None:  # noqa: ANN001
+    """409 unless *run* is in a retryable state (``failed`` / ``cancelled``).
+
+    resume / rerun own exactly the finished-but-not-succeeded runs. ``pending``
+    is started via the normal run/create flow, ``succeeded`` is done, and a live
+    ``running`` run must not get a second concurrent execution — keeping the
+    three verbs orthogonal.
+    """
+    if run.status not in ("failed", "cancelled"):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"run {run_id!r} is {run.status!r}; resume/rerun apply only to "
+                "failed or cancelled runs"
+            ),
+        )
+
+
 def _dispatch_continuation(workspace, run, execution_id: str) -> None:  # noqa: ANN001
     """Re-dispatch *run* on *execution_id* through its inherited target (if any).
 
@@ -541,12 +559,12 @@ def resume_run(
     run_id: str,
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunContinueResponse:
-    """Resume a run in place: reopen its last non-succeeded execution.
+    """Resume a failed/cancelled run: reopen its last non-succeeded execution.
 
     The reopened execution is re-dispatched on the same ``execution_id``; the
-    worker seeds already-completed nodes from disk and recomputes the rest. A
-    pending run (no execution yet) runs its first execution fresh — not a
-    fallback. A failed run is always reopened+seeded, never silently re-run.
+    worker seeds already-completed nodes from disk and recomputes the rest.
+    409 unless the run is failed/cancelled (pending/succeeded/running are not
+    resume's job).
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -554,6 +572,7 @@ def resume_run(
     run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
+    _require_retryable(run, run_id)
 
     execution_id = _resumable_execution_id(run) or make_execution_id(run.id, Path(run.run_dir))
     _dispatch_continuation(workspace, run, execution_id)
@@ -573,10 +592,11 @@ def rerun_run(
     run_id: str,
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunContinueResponse:
-    """Rerun a run from scratch in a new execution on the same run (no clone).
+    """Rerun a failed/cancelled run from scratch in a new execution (no clone).
 
     A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
-    through molq; no parameters are cloned and no new Run is created.
+    through molq; no parameters are cloned and no new Run is created. 409 unless
+    the run is failed/cancelled (pending/succeeded/running are not rerun's job).
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -584,6 +604,7 @@ def rerun_run(
     run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
+    _require_retryable(run, run_id)
 
     execution_id = make_execution_id(run.id, Path(run.run_dir))
     _dispatch_continuation(workspace, run, execution_id)

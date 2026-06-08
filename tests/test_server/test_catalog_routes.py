@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 class TestCatalogByPath:
     def test_unmatched_path_under_projects_returns_derived_scope(self, client, project, experiment):
@@ -83,6 +85,9 @@ class TestRunFilesAndActions:
         assert artifact_nodes, "expected at least one artifact node"
 
     def test_run_rerun_starts_new_execution_on_same_run(self, client, project, experiment, run):
+        # rerun only acts on failed/cancelled runs — drive a failure first.
+        with pytest.raises(RuntimeError, match="boom"), run.start():
+            raise RuntimeError("boom")
         before = len(experiment.list_runs())
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201

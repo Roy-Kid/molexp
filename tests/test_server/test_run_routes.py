@@ -164,7 +164,10 @@ class TestRunSubmissionWiring:
     ):
         """ac-002: rerun appends a new execution on the SAME run; no clone."""
         src_run = experiment_with_entrypoint.add_run(parameters={"lr": 1e-4}, target=local_target)
-        captured_submits.clear()  # ignore implicit submit on source-run creation
+        # rerun only acts on failed/cancelled runs — drive a failure first.
+        with pytest.raises(RuntimeError, match="boom"), src_run.start():
+            raise RuntimeError("boom")
+        captured_submits.clear()  # ignore the source-run submit + fail drive
         runs_before = len(experiment_with_entrypoint.list_runs())
 
         resp = client.post(
@@ -188,6 +191,8 @@ class TestRunSubmissionWiring:
     def test_rerun_without_target_does_not_submit(
         self, client, project, experiment, run, captured_submits
     ):
+        with pytest.raises(RuntimeError, match="boom"), run.start():
+            raise RuntimeError("boom")
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201
         body = resp.json()
@@ -221,18 +226,14 @@ class TestRunSubmissionWiring:
         # No new execution appended by resume (it reopened the existing one).
         assert len(run.metadata.execution_history) == history_len
 
-    def test_resume_on_pending_run_runs_first_execution_fresh(
-        self, client, project, experiment, run
-    ):
-        """A pending run (empty history) resumes by running its FIRST execution
-        fresh — same run, freshly-derived execution id, no error."""
-        assert run.metadata.execution_history == []
+    def test_resume_on_pending_run_returns_409(self, client, project, experiment, run):
+        """A pending run is plain run's job, not resume's — resume 409s on it
+        (orthogonal verbs); it is not started fresh by resume."""
+        assert run.status == "pending"
 
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/resume")
-        assert resp.status_code == 201, resp.text
-        data = resp.json()
-        assert data["runId"] == run.id
-        assert data["executionId"].startswith(f"exec-{run.id}")
+        assert resp.status_code == 409, resp.text
+        assert "failed or cancelled" in resp.json()["detail"].lower()
 
     def test_targeted_resume_dispatches_on_reopened_execution_id(
         self,
@@ -282,6 +283,10 @@ class TestRunSubmissionWiring:
         ``_dispatch_to_molq``'s entrypoint guard fires.
         """
         src_run = experiment.add_run(parameters={"lr": 1e-4}, target=local_target)
+        # Must be retryable (failed) to pass the status gate and reach the
+        # entrypoint check.
+        with pytest.raises(RuntimeError, match="boom"), src_run.start():
+            raise RuntimeError("boom")
         captured_submits.clear()
 
         resp = client.post(f"{self._prefix(project, experiment)}/{src_run.id}/rerun")

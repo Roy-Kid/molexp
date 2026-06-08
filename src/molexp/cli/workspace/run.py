@@ -246,23 +246,20 @@ def _dispatch_runs(
                             f"  [yellow]![/yellow] {exp.id}  run={mol_run.id} (stale 'running' run reaped -> failed)"
                         )
                     if continue_verb is not None:
-                        # resume / rerun: retry an EXISTING non-succeeded run.
-                        # Skip the ones with nothing to retry (missing /
-                        # succeeded), a live in-flight run, or a profile that
-                        # does not match this invocation.
+                        # resume / rerun own exactly the finished-but-not-
+                        # succeeded runs (failed / cancelled). pending is plain
+                        # run's job, succeeded is done, and a live running run
+                        # must never get a second execution — all skipped, which
+                        # keeps the three verbs orthogonal.
                         if mol_run is None:
                             rprint(
                                 f"  [dim]- {exp.id}  run={run_id} (no existing run, skipped)[/dim]"
                             )
                             continue
-                        if mol_run.status == "succeeded":
+                        if mol_run.status not in ("failed", "cancelled"):
                             rprint(
-                                f"  [dim]- {exp.id}  run={mol_run.id} (already succeeded, skipped)[/dim]"
-                            )
-                            continue
-                        if mol_run.status == "running":
-                            rprint(
-                                f"  [dim]- {exp.id}  run={mol_run.id} (still running, skipped)[/dim]"
+                                f"  [dim]- {exp.id}  run={mol_run.id} ({mol_run.status}, skipped — "
+                                f"{continue_verb} only retries failed/cancelled runs)[/dim]"
                             )
                             continue
                         if mol_run.metadata.profile != profile_cfg.name:

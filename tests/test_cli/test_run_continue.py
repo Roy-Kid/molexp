@@ -432,12 +432,13 @@ class TestMutualExclusivity:
         assert recorder.calls == []
 
 
-# ── --resume on a pending run (no execution) runs its first execution fresh ─────
+# ── --resume / --rerun skip a pending run (that is plain run's job) ─────────────
 
 
-class TestResumePendingRunRunsFresh:
-    def test_resume_on_run_with_empty_history_runs_fresh(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+class TestResumeSkipsPendingRun:
+    @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
+    def test_pending_run_is_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, verb: str
     ) -> None:
         workspace_root = tmp_path / "workspace"
         script = tmp_path / "train.py"
@@ -445,14 +446,15 @@ class TestResumePendingRunRunsFresh:
         _write_molcfg(molcfg)
         _write_script(script, workspace_root)
 
-        # A pending run created but never executed: resume selects it (status
-        # != succeeded) and, with no execution to reopen, runs its FIRST
-        # execution fresh — not an error, not a fallback.
+        # A pending run created but never executed. resume/rerun own only
+        # failed/cancelled runs — pending is plain run's job, so it is skipped
+        # (not run, not errored). Orthogonal verbs.
         ws = me.Workspace(workspace_root)
         exp = ws.add_project("demo").add_experiment("train")
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
         run = exp.add_run(parameters=run_params, id=_replica_run_id(run_params))
         run._update_metadata(profile=None, execution_history=[])
+        assert run.status == "pending"
 
         recorder = _patch_execute(monkeypatch)
 
@@ -462,7 +464,7 @@ class TestResumePendingRunRunsFresh:
                 "run",
                 str(script),
                 "--local",
-                "--resume",
+                verb,
                 "--config",
                 str(molcfg),
                 "-t",
@@ -470,9 +472,9 @@ class TestResumePendingRunRunsFresh:
             ],
         )
         assert result.exit_code == 0, result.output
-        # Ran fresh: no execution_id to reopen, no seed.
-        assert recorder.call["execution_id"] is None
-        assert not recorder.call["seed_outputs"]
+        # Skipped, not executed.
+        assert recorder.calls == []
+        assert "skipped" in _plain(result.output)
 
 
 # ── ac-006: --resume reopens even when no node completed (empty seed) ───────────
@@ -618,7 +620,8 @@ class TestSharedSelectionRules:
         )
         assert result.exit_code == 0, result.output
         assert recorder.calls == []
-        assert "still running" in _plain(result.output)
+        out = _plain(result.output)
+        assert "running" in out and "skipped" in out
 
     @pytest.mark.parametrize("verb", ["--resume", "--rerun"])
     def test_profile_mismatch_run_is_skipped(
