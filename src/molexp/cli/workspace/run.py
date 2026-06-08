@@ -352,16 +352,17 @@ def _make_local_inprocess_handler(
         execution_id: str | None = None
         seed_outputs = None
         if verb == "resume":
+            # Reopen the last failed/interrupted execution and seed its
+            # completed nodes. A pending run (no execution yet) has nothing to
+            # reopen — its first execution runs fresh (execution_id stays None).
+            # That is not a fallback: there is no prior attempt to fall back
+            # from. (A failed run is always reopened+seeded, never silently
+            # re-run from scratch.)
             execution_id = _last_resumable_execution_id(mol_run)
-            if execution_id is None:
-                rprint(
-                    f"[red]Error:[/red] run {mol_run.id} has no resumable execution; "
-                    "use [bold]--rerun[/bold] for a fresh attempt."
-                )
-                raise typer.Exit(1)
-            # Empty mapping (crashed before any node finished) → reopen and
-            # recompute all nodes within the same execution; not a fallback.
-            seed_outputs = read_node_outputs(mol_run.run_dir, execution_id) or None
+            if execution_id is not None:
+                # Empty mapping (crashed before any node finished) → reopen and
+                # recompute all nodes within the same execution; not a fallback.
+                seed_outputs = read_node_outputs(mol_run.run_dir, execution_id) or None
         with RunContext(mol_run, profile_config=profile_cfg, execution_id=execution_id) as ctx:
             asyncio.run(
                 WorkflowRuntime().execute(

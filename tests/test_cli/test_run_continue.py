@@ -432,11 +432,11 @@ class TestMutualExclusivity:
         assert recorder.calls == []
 
 
-# ── ac-005: --resume with no resumable execution aborts (no silent fallback) ────
+# ── --resume on a pending run (no execution) runs its first execution fresh ─────
 
 
-class TestResumeWithoutResumableExecution:
-    def test_resume_on_run_with_empty_history_aborts(
+class TestResumePendingRunRunsFresh:
+    def test_resume_on_run_with_empty_history_runs_fresh(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         workspace_root = tmp_path / "workspace"
@@ -445,13 +445,14 @@ class TestResumeWithoutResumableExecution:
         _write_molcfg(molcfg)
         _write_script(script, workspace_root)
 
-        # A non-succeeded run that was created but never executed: it is selected
-        # by resume (status != succeeded) but has no resumable execution.
+        # A pending run created but never executed: resume selects it (status
+        # != succeeded) and, with no execution to reopen, runs its FIRST
+        # execution fresh — not an error, not a fallback.
         ws = me.Workspace(workspace_root)
         exp = ws.add_project("demo").add_experiment("train")
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
         run = exp.add_run(parameters=run_params, id=_replica_run_id(run_params))
-        run._update_metadata(status="failed", profile=None, execution_history=[])
+        run._update_metadata(profile=None, execution_history=[])
 
         recorder = _patch_execute(monkeypatch)
 
@@ -468,9 +469,10 @@ class TestResumeWithoutResumableExecution:
                 str(workspace_root),
             ],
         )
-        assert result.exit_code != 0, result.output
-        assert "--rerun" in _plain(result.output)
-        assert recorder.calls == []
+        assert result.exit_code == 0, result.output
+        # Ran fresh: no execution_id to reopen, no seed.
+        assert recorder.call["execution_id"] is None
+        assert not recorder.call["seed_outputs"]
 
 
 # ── ac-006: --resume reopens even when no node completed (empty seed) ───────────

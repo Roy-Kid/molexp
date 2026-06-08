@@ -544,9 +544,9 @@ def resume_run(
     """Resume a run in place: reopen its last non-succeeded execution.
 
     The reopened execution is re-dispatched on the same ``execution_id``; the
-    worker seeds already-completed nodes from disk and recomputes the rest.
-    409 when the run has no resumable execution (use ``rerun`` instead) — no
-    silent fallback to a fresh attempt.
+    worker seeds already-completed nodes from disk and recomputes the rest. A
+    pending run (no execution yet) runs its first execution fresh — not a
+    fallback. A failed run is always reopened+seeded, never silently re-run.
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -555,12 +555,7 @@ def resume_run(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    execution_id = _resumable_execution_id(run)
-    if execution_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail=f"run {run_id!r} has no resumable execution; use rerun for a fresh attempt",
-        )
+    execution_id = _resumable_execution_id(run) or make_execution_id(run.id, Path(run.run_dir))
     _dispatch_continuation(workspace, run, execution_id)
     return RunContinueResponse(
         runId=run.id,

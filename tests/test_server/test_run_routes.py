@@ -221,15 +221,18 @@ class TestRunSubmissionWiring:
         # No new execution appended by resume (it reopened the existing one).
         assert len(run.metadata.execution_history) == history_len
 
-    def test_resume_without_resumable_execution_returns_409(self, client, project, experiment, run):
-        """ac-004: resume on a fresh run (empty history) → 409 mentioning rerun."""
+    def test_resume_on_pending_run_runs_first_execution_fresh(
+        self, client, project, experiment, run
+    ):
+        """A pending run (empty history) resumes by running its FIRST execution
+        fresh — same run, freshly-derived execution id, no error."""
         assert run.metadata.execution_history == []
 
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/resume")
-        assert resp.status_code == 409, resp.text
-        assert "rerun" in resp.json()["detail"].lower()
-        # No execution was created as a side effect.
-        assert run.metadata.execution_history == []
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["runId"] == run.id
+        assert data["executionId"].startswith(f"exec-{run.id}")
 
     def test_targeted_resume_dispatches_on_reopened_execution_id(
         self,
