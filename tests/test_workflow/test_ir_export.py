@@ -190,6 +190,43 @@ def test_to_ir_captures_loops_and_parallels():
     )
 
 
+def test_to_graph_ir_emits_parallel_fanout_edges():
+    """ac-001/002: to_graph_ir tags both map_over→body and body→join edges
+    kind="parallel"; to_ir's data-DAG wire format omits them (by-design)."""
+    wf = WorkflowCompiler(name="par")
+
+    @wf.task
+    async def items(ctx):
+        return [1, 2]
+
+    @wf.task
+    async def process(ctx):
+        return 3
+
+    @wf.task(depends_on=["items"])
+    async def gather(ctx):
+        return 4
+
+    wf.parallel(map_over="items", body="process", join="gather")
+    compiled = wf.compile()
+
+    parallel_pairs = {
+        (e.source, e.target) for e in compiled.to_graph_ir().edges if e.kind == "parallel"
+    }
+    assert ("items", "process") in parallel_pairs
+    assert ("process", "gather") in parallel_pairs
+
+    # The data-DAG wire format (to_ir) deliberately omits the parallel fan-out
+    # representation: it never tags an edge "parallel", and the map_over→body
+    # edge is absent. (The body→join wiring rides a plain data dep, so it may
+    # appear as a "data" link — what to_ir lacks is the *parallel* topology,
+    # not every pairing.)
+    links = compiled.to_ir(strict=False).get("links", [])
+    assert all(link.get("kind") != "parallel" for link in links if isinstance(link, dict))
+    data_pairs = {(link["source"], link["target"]) for link in links if isinstance(link, dict)}
+    assert ("items", "process") not in data_pairs
+
+
 @pytest.mark.unit
 def test_to_ir_carries_config_for_oop_tasks():
     from molexp.workflow import Task

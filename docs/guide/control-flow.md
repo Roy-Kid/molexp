@@ -90,6 +90,12 @@ The decorators set per-task metadata (`_parallel_map_config`, `_join_config`) th
 
 Explicit IR-level control-flow tasks (`IfTask`, `ForTask`, etc.) are **not part of the current API** and are not planned in the short term — the DAG shape + decorators cover the cases we've actually needed.
 
+## Exporting the graph (UI / observability)
+
+To export this control-flow topology — including the parallel fan-out edges —
+for a UI canvas or observability tool, use `CompiledWorkflow.to_graph_ir()`, not
+`to_ir()`. See [ir-export.md](ir-export.md) for which export to use when.
+
 ## Runnable Example
 
 `examples/workflow/control_flow.py` runs a diamond, a conditional branch driven by `ctx.config`, and a `parallel_map` + `join` fan-out.
