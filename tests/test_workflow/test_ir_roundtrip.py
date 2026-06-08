@@ -149,7 +149,7 @@ class TestRoundtrip:
         class _Unregistered(Task):
             """A task whose type was never registered → no resolvable slug."""
 
-            async def execute(self, ctx: object) -> int:  # noqa: ARG002
+            async def execute(self, ctx: object) -> int:
                 return 1
 
         wf = WorkflowCompiler(name="unslugged")
