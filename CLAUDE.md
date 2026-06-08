@@ -79,13 +79,15 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 
 *Identity & persistence law (workspace).*
 - **Three orthogonal id layers, no fourth.** Uniqueness → `generate_id()` (UUID[:8]) / asset UUIDs. Reproducibility & dedup → content hashes: `config_hash` is a run's *one* config identity, `compute_content_hash()` (`"sha256:…"`) addresses artifacts. Location → `AssetScope(kind+ids)` + `execution_id` (`exec-{run_id}[-N]`). A run carries exactly one identity — never add a second parallel run-fingerprint type alongside `config_hash`.
-- **Run vs Execution.** `Run` = reproducible logical unit (params + workflow); `Execution` = one physical attempt at it (retry / resubmit), N-per-run. Per-attempt state lives under `executions/<exec_id>/` and is self-describing (it duplicates the run's `execution_history` summary on purpose); cross-attempt state stays at run level.
+- **Run vs Execution.** `Run` = reproducible logical unit (params + workflow); `Execution` = one physical attempt, identified `exec-{run_id}[-N]`, N-per-run. Per-attempt state lives under `executions/<exec_id>/` and is self-describing (it duplicates the run's `execution_history` summary on purpose); cross-attempt state stays at run level. An Execution persists completed-task outputs at **workflow-node granularity**, so it can be resumed in place (next bullet).
+- **Two ways to (re-)execute a Run, both on the same `run_id`; there is NO new-Run operation.** (1) **resume** — reopen the *existing* `exec_id`: seed the already-completed task outputs from that execution's persisted node-level state, recompute only the unfinished/failed nodes and their downstream. Same `exec_id`; its `ExecutionRecord` flips back to `running` and `finished_at` clears. (2) **rerun** — open a *new* `exec-{run_id}-N`: fresh `ExecutionRecord`, clean attempt from the top of the graph (content-addressed cache may opportunistically hit, but seeding is not the semantic). Cloning params into a fresh `run_id` is NOT a molexp operation. Only two verbs exist — `resume` / `rerun` — and they stay distinct everywhere (CLI flag, server route, code).
 - **One source of truth.** Entity `*.json` is authoritative. `catalog/index.json` and every other index are *derived* — rebuilt by scanning `*.json`, never the only copy, never consulted as truth. Don't add per-container index files that re-encode what the catalog already holds.
 - **No speculative code in `src/`.** A subsystem with zero production callers does not ship. "Future" capability with no live call-path belongs in docs or a branch, not the tree.
 
 **`molexp.workflow`** — middle; graph execution engine.
 - Owns: `WorkflowCompiler` (decorator + OOP, mutable) → `.compile()` → `CompiledWorkflow` (frozen, content-hashed). `Task` / `Actor` convenience bases (do **not** subclass `pydantic_graph.BaseNode`); user-facing protocols are `Runnable` / `Streamable`. `TaskContext` (the single context for batch + streaming bodies), `TaskTypeRegistry`, `WorkflowCompiler`, `TaskSnapshot` (AST-normalized hash), `Caching` (LRU), `WorkflowSnapshotRef`, `WorkflowResult` / `WorkflowExecution`, `End` (re-exported from `pydantic_graph.End`), `promote_callable()`. Private `_pydantic_graph/` is the **sole** sanctioned `import pydantic_graph` site in the repo.
 - Uses workspace: `Workflow.execute(run=…)` takes a `workspace.Run`; `Caching` is backed by `ws.cache.as_cache_store()`; run-state JSON writes go through `workspace.atomic_write_json`.
+- **resume is task-granular, caller-driven, no per-frame snapshot.** A failed run preserves completed outputs in `WorkflowResult.outputs`; the caller (CLI/server) re-seeds them via `runtime.execute(..., seed_outputs=…)`, sourced from the *existing* execution's persisted node-level state. Seeded nodes are recorded in `WorkflowState.seeded` and skip their body (`from_seed`); unknown seed names fail-fast. `rerun` simply calls `execute` with no seed (new `exec_id`). The engine writes one terminal state file, never per-frame checkpoints.
 - MUST NOT: import `agent` / `plugins` / `server` / `cli` / `sweep`. MUST NOT import `pydantic_graph` outside `_pydantic_graph/`. No second `End` sentinel, no per-task `BaseNode` codegen, no `Next` in `__all__`.
 
 **`molexp.agent`** — sibling of workflow above workspace; pydantic-ai facade + LLM-only modes.
@@ -122,11 +124,10 @@ workspace_root/
             ├── run.json          # status, params, execution_history
             ├── assets.json       # run-scoped asset manifest
             ├── artifacts/        # final products
-            ├── .ckpt/            # resume checkpoints
             ├── cache/            # per-run user-domain cache
             └── executions/<exec_id>/
                 ├── execution.json
-                ├── workflow.json # workflow-layer state (opaque to workspace)
+                ├── workflow.json # workflow-layer state + completed node outputs (resume seed source; opaque to workspace)
                 ├── stdout.log / stderr.log / error.txt
                 ├── logs/<name>.log
                 └── jobs/<uuid>/  # molq scheduler manifests

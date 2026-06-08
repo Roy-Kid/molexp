@@ -20,6 +20,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import cast
 
 from molexp._typing import JSONValue
 
@@ -318,13 +319,16 @@ class MetricsWriter:
         tags: dict[str, JSONValue] | None = None,
     ) -> MetricRecord:
         return self.log(
-            {
-                "t": "histogram",
-                "k": key,
-                "s": step,
-                "w": _format_wall_time(wall_time),
-                "v": {"bins": bins, "counts": counts},
-            },
+            cast(
+                "MetricRecord",
+                {
+                    "t": "histogram",
+                    "k": key,
+                    "s": step,
+                    "w": _format_wall_time(wall_time),
+                    "v": {"bins": bins, "counts": counts},
+                },
+            ),
             tags=tags,
         )
 

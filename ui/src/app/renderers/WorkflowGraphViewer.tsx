@@ -159,18 +159,32 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
   }
 
   const isEmpty = !document || document.nodes.length === 0;
+  const experiment = workflow
+    ? snapshot.experiments.find((item) => item.id === workflow.experimentId)
+    : null;
+  const taskCount = graph?.task_configs.length ?? 0;
+  const linkCount = graph?.links.length ?? 0;
+  const parallelCount = graph?.links.filter((link) => link.kind === "parallel").length ?? 0;
 
   return (
     <Card className="flex h-full flex-col">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-end gap-2">
-          {workflow.name && <Badge variant="outline">{workflow.name}</Badge>}
-          <FlowgramCanvasToolbar
-            onSave={handleSave}
-            onDiscard={handleDiscard}
-            saving={saving}
-            dirty={dirty}
-          />
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Badge variant="outline">{taskCount} tasks</Badge>
+            <Badge variant="outline">{linkCount} links</Badge>
+            <Badge variant="outline">{parallelCount} parallel</Badge>
+            {experiment && <Badge variant="outline">{experiment.name}</Badge>}
+          </div>
+          <div className="flex items-center gap-2">
+            {workflow.name && <Badge variant="outline">{workflow.name}</Badge>}
+            <FlowgramCanvasToolbar
+              onSave={handleSave}
+              onDiscard={handleDiscard}
+              saving={saving}
+              dirty={dirty}
+            />
+          </div>
         </div>
       </CardHeader>
 

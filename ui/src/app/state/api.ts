@@ -5,11 +5,6 @@ import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
 import { WorkflowService } from "@/api/generated/services/WorkflowService";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
-import {
-  buildFlowgramDocument,
-  type FlowgramDocument,
-  parseTaskGraphIr,
-} from "@/components/workflow/flowgram-document";
 import type {
   AgentSessionSummary,
   ApiAgentSession,
@@ -32,6 +27,11 @@ import type {
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
+import {
+  buildFlowgramDocument,
+  type FlowgramDocument,
+  parseTaskGraphIr,
+} from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 // Local types not yet in OpenAPI. The lineage fields (`assetId`,
@@ -237,11 +237,17 @@ export const workspaceApi = {
       executionId,
     );
   },
-  getRunExecution: async (projectId: string, experimentId: string, runId: string) => {
+  getRunExecution: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    executionId?: string | null,
+  ) => {
     return RunsService.getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
       projectId,
       experimentId,
       runId,
+      executionId,
     );
   },
   getRunLammpsLog: async (projectId: string, experimentId: string, runId: string, path: string) => {
@@ -467,17 +473,30 @@ export const workspaceApi = {
     ) as unknown as Promise<RunActionResponse>;
   },
 
-  /** Clone an existing run's parameters into a fresh run. */
+  /** Resume a run in place: reopen its last non-succeeded execution, seeding completed nodes. */
+  resumeRun: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<RunContinueResponse> => {
+    return RunsService.resumeRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdResumePost(
+      projectId,
+      experimentId,
+      runId,
+    ) as unknown as Promise<RunContinueResponse>;
+  },
+
+  /** Rerun a run from scratch in a new execution on the same run (no clone). */
   rerunRun: async (
     projectId: string,
     experimentId: string,
     runId: string,
-  ): Promise<RunRerunResponse> => {
+  ): Promise<RunContinueResponse> => {
     return RunsService.rerunRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdRerunPost(
       projectId,
       experimentId,
       runId,
-    ) as unknown as Promise<RunRerunResponse>;
+    ) as unknown as Promise<RunContinueResponse>;
   },
 
   /** Stream URL for a run export zip — used directly via <a href>. */
@@ -560,9 +579,9 @@ export interface RunActionResponse {
   message: string | null;
 }
 
-export interface RunRerunResponse {
-  sourceRunId: string;
-  newRunId: string;
+export interface RunContinueResponse {
+  runId: string;
+  executionId: string;
   projectId: string;
   experimentId: string;
   status: string;
@@ -604,7 +623,7 @@ export const mapExperiments = (
     id: experiment.id,
     name: experiment.name,
     status: "active",
-    summary: experiment.description || experiment.workflow || "No workflow",
+    summary: experiment.description || "",
     workflowFile: experiment.workflow ?? "",
     updatedAt: experiment.created,
     projectId,

@@ -16,7 +16,6 @@ import { listEntityTabs } from "@/app/registry";
 import { formatDuration, formatScalar, statusTone } from "@/app/renderers/dashboardData";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunViewer } from "@/app/renderers/RunViewer";
-import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
 import { workspaceApi } from "@/app/state/api";
 import { useInspectedTask } from "@/app/state/inspectedTask";
 import { useNavigationState } from "@/app/state/useNavigationState";
@@ -239,7 +238,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               { value: "logs", label: "Logs" },
               ...runTabContributions.map((tab) => ({ value: tab.value, label: tab.label })),
               { value: "scheduler", label: "Scheduler" },
-              { value: "snapshot", label: "Snapshot" },
             ]}
           />
 
@@ -454,9 +452,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
             </div>
           </EntityTabContent>
 
-          <EntityTabContent value="snapshot">
-            <RunSnapshotPanel run={run} />
-          </EntityTabContent>
         </EntityTabs>
       </div>
       {confirmDialog}

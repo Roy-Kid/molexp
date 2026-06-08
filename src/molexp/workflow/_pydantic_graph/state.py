@@ -157,6 +157,7 @@ class WorkflowDeps:
     # It is reached only by molq-aware tasks and is opaque to the runtime.
     remote_executor: UserDeps = None
     run_dir: Path | None = None
+    execution_id: str | None = None
     registration_by_name: Mapping[str, TaskRegistration] = field(default_factory=dict)
     parallel_decls: Mapping[str, ParallelDecl] = field(default_factory=dict)
     loop_max_iters: Mapping[str, int] = field(default_factory=dict)

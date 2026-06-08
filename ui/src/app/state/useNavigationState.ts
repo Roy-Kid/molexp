@@ -66,8 +66,7 @@ const parseObjectView = (raw: string | null): ObjectView | undefined => {
     raw === "overview" ||
     raw === "logs" ||
     raw === "metrics" ||
-    raw === "scheduler" ||
-    raw === "snapshot"
+    raw === "scheduler"
   ) {
     return raw;
   }

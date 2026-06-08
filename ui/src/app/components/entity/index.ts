@@ -24,3 +24,10 @@ export {
 } from "./OverviewPage";
 export type { StatusBadgeProps, StatusBadgeSize, StatusTone } from "./StatusBadge";
 export { StatusBadge } from "./StatusBadge";
+export {
+  StatusIcon,
+  type StatusIconTone,
+  type StatusKey,
+  statusIconMeta,
+  statusKey,
+} from "./StatusIcon";

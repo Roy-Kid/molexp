@@ -82,15 +82,16 @@ class TestRunFilesAndActions:
         artifact_nodes = [n for n in all_nodes if n.get("assetKind") == "artifact"]
         assert artifact_nodes, "expected at least one artifact node"
 
-    def test_run_rerun_creates_new_run_with_same_params(self, client, project, experiment, run):
+    def test_run_rerun_starts_new_execution_on_same_run(self, client, project, experiment, run):
+        before = len(experiment.list_runs())
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201
         data = resp.json()
-        assert data["sourceRunId"] == run.id
-        assert data["newRunId"] != run.id
-        new_run = experiment.get_run(data["newRunId"])
-        assert new_run is not None
-        assert new_run.parameters == run.parameters
+        # Same run — no clone, no new Run.
+        assert data["runId"] == run.id
+        assert "newRunId" not in data
+        assert data["executionId"].startswith(f"exec-{run.id}")
+        assert len(experiment.list_runs()) == before
 
     def test_run_kill_marks_cancelled(self, client, project, experiment, run):
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")

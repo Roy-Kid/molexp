@@ -73,6 +73,7 @@ from .node import (
     run_task_body,
 )
 from .node_cache import run_task_body_cached
+from .persistence import mark_task_status
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
@@ -353,20 +354,49 @@ class WorkflowGraphCompiler:
                                 )
                         else:
                             quiescent = 0
-                if _cache_is_active(deps, name):
-                    # Opt-in content-addressed caching (batch Task only): on a
-                    # hit the body is skipped + cached artifacts re-registered;
-                    # on a miss the body runs and the result + artifact manifest
-                    # are stored. Routing below is identical to a plain return.
-                    raw = await run_task_body_cached(name, deps, state)
-                else:
-                    raw = await run_task_body(name, deps, state)
+                mark_task_status(deps.run_dir, deps.execution_id, name, "running")
+                try:
+                    if _cache_is_active(deps, name):
+                        # Opt-in content-addressed caching (batch Task only): on a
+                        # hit the body is skipped + cached artifacts re-registered;
+                        # on a miss the body runs and the result + artifact manifest
+                        # are stored. Routing below is identical to a plain return.
+                        raw = await run_task_body_cached(name, deps, state)
+                    else:
+                        raw = await run_task_body(name, deps, state)
+                except Exception as exc:
+                    mark_task_status(
+                        deps.run_dir,
+                        deps.execution_id,
+                        name,
+                        "failed",
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                    raise
 
-            recorded_value, dispatch = _classify_return(raw, edge_set, task_name=name)
+            try:
+                recorded_value, dispatch = _classify_return(raw, edge_set, task_name=name)
+            except Exception as exc:
+                mark_task_status(
+                    deps.run_dir,
+                    deps.execution_id,
+                    name,
+                    "failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
+                raise
             if recorded_value is not NO_OUTPUT:
                 state.record(name, recorded_value)
+                mark_task_status(
+                    deps.run_dir,
+                    deps.execution_id,
+                    name,
+                    "completed",
+                    output=recorded_value,
+                )
             else:
                 state.completed.add(name)
+                mark_task_status(deps.run_dir, deps.execution_id, name, "completed")
 
             # wf.loop max_iters guard — increment the until-task's counter
             # whenever it would route "continue"; once at the cap, emit
@@ -511,6 +541,7 @@ class WorkflowGraphCompiler:
         ) -> dict[int, object]:
             idx, elem = ctx.inputs
             limiter = ctx.deps.parallel_limiters.get(body)
+            mark_task_status(ctx.deps.run_dir, ctx.deps.execution_id, body, "running")
             try:
                 if limiter is not None:
                     async with limiter:
@@ -518,6 +549,13 @@ class WorkflowGraphCompiler:
                 else:
                     out = await run_task_body(body, ctx.deps, ctx.state, element=elem)
             except Exception as exc:  # capture per-element, aggregate in collector
+                mark_task_status(
+                    ctx.deps.run_dir,
+                    ctx.deps.execution_id,
+                    body,
+                    "failed",
+                    error=f"{type(exc).__name__}: {exc}",
+                )
                 return {idx: _Failure(exc)}
             return {idx: out}
 
@@ -549,6 +587,13 @@ class WorkflowGraphCompiler:
             merged: dict[int, object] = ctx.inputs or {}
             failures = {i: f.exc for i, f in merged.items() if isinstance(f, _Failure)}
             if failures:
+                mark_task_status(
+                    ctx.deps.run_dir,
+                    ctx.deps.execution_id,
+                    body,
+                    "failed",
+                    error=f"{len(failures)} parallel element failure(s)",
+                )
                 raise ParallelExecutionError(body=body, failures=failures)
             expected = len(ctx.state.results.get(map_over) or ())
             if expected and len(merged) < expected:
@@ -561,6 +606,13 @@ class WorkflowGraphCompiler:
             # downstream join's deadlock guard (it bypasses ``record``).
             ctx.state.progress += 1
             ctx.state.signal_progress()
+            mark_task_status(
+                ctx.deps.run_dir,
+                ctx.deps.execution_id,
+                body,
+                "completed",
+                output=ordered,
+            )
 
         return _collect
 

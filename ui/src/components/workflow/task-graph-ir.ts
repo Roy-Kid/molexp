@@ -39,6 +39,8 @@ export interface EdgeJson {
   to: string;
   /** Link semantics — e.g. `data` / `control` / `dependency`. */
   kind?: string;
+  /** Execution status (`pending` / `running` / `completed` / `failed`). */
+  status?: string;
 }
 
 export interface TaskGraphJson {

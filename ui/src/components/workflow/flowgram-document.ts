@@ -54,6 +54,9 @@ export interface FlowgramEdge {
   targetNodeID: string;
   /** Typed edge kind (data / control / branch / loop / parallel). */
   kind?: string;
+  /** Runtime edge status carried from workflow.json. */
+  status?: string;
+  data?: { status?: string; kind?: string };
 }
 
 export interface FlowgramDocument {
@@ -145,7 +148,12 @@ export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson 
     const to =
       typeof item.to === "string" ? item.to : typeof item.target === "string" ? item.target : null;
     if (!from || !to) continue;
-    links.push({ from, to, kind: typeof item.kind === "string" ? item.kind : undefined });
+    links.push({
+      from,
+      to,
+      kind: typeof item.kind === "string" ? item.kind : undefined,
+      status: typeof item.status === "string" ? item.status : undefined,
+    });
   }
 
   return {
@@ -263,7 +271,13 @@ export const buildFlowgramDocument = (ir: TaskGraphJson): FlowgramDocument => {
   const edges: FlowgramEdge[] = [];
   for (const link of links) {
     if (!byId.has(link.from) || !byId.has(link.to)) continue; // drop invalid links
-    edges.push({ sourceNodeID: link.from, targetNodeID: link.to, kind: link.kind ?? "data" });
+    edges.push({
+      sourceNodeID: link.from,
+      targetNodeID: link.to,
+      kind: link.kind ?? "data",
+      status: link.status ?? "pending",
+      data: { kind: link.kind ?? "data", status: link.status ?? "pending" },
+    });
   }
 
   return { nodes, edges };
@@ -291,6 +305,7 @@ export const flowgramDocToTaskGraphJson = (
       source: edge.sourceNodeID,
       target: edge.targetNodeID,
       kind: edge.kind,
+      status: edge.status,
     })),
     name,
   );
@@ -314,7 +329,7 @@ export const taskGraphToWireDocument = (ir: TaskGraphJson): Record<string, unkno
     target: link.to,
     kind: link.kind ?? "data",
     mapping: {},
-    status: "pending",
+    status: link.status ?? "pending",
   })),
   entries: [],
   loops: [],

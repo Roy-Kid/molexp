@@ -14,6 +14,7 @@ instead of an O(A) whole-file rewrite. See :mod:`._sqlite` for the rationale.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from collections.abc import Iterator
@@ -56,7 +57,7 @@ class RebuildReport:
 class AssetCatalog:
     """Workspace-wide derived index, backed by SQLite."""
 
-    def __init__(self, workspace_root: Path) -> None:
+    def __init__(self, workspace_root: str | os.PathLike[str]) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.dir = self.workspace_root / CATALOG_DIRNAME
         self.path = self.dir / CATALOG_DB_FILENAME

@@ -24,15 +24,8 @@ import {
 } from "@flowgram.ai/free-layout-editor";
 import "@flowgram.ai/free-layout-editor/index.css";
 import { Maximize2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
-import {
-  type CSSProperties,
-  createContext,
-  type JSX,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-} from "react";
+import { createContext, type JSX, useContext, useEffect, useMemo, useRef } from "react";
+import { StatusIcon, type StatusKey, statusKey } from "@/app/components/entity";
 import { Button } from "@/components/ui/button";
 import type { FlowgramDocument, FlowgramNodeData } from "@/components/workflow/flowgram-document";
 
@@ -57,16 +50,15 @@ export interface FlowgramCanvasProps {
   className?: string;
 }
 
-// UML activity-diagram glyph per graph role.
+// SHAPE encodes the graph ROLE (UML activity-diagram glyph) — only the silhouette
+// (border-radius + border treatment), never the colour:
 //   input  → initial node (solid "start" pill — UML's filled disc, labelled)
 //   output → activity final (double-ring "bullseye" pill)
 //   task   → action (rounded rectangle)
-const ROLE_STYLES: Record<"input" | "output" | "task", string> = {
-  input:
-    "rounded-full border-2 border-emerald-500 bg-emerald-100 text-emerald-950 dark:bg-emerald-900/50 dark:text-emerald-50",
-  output:
-    "rounded-full border-[3px] border-double border-slate-600 bg-slate-100 text-slate-900 dark:border-slate-300 dark:bg-slate-800 dark:text-slate-50",
-  task: "rounded-md border-2 border-violet-300 bg-card text-foreground dark:border-violet-700",
+const ROLE_SHAPE: Record<"input" | "output" | "task", string> = {
+  input: "rounded-full border-2",
+  output: "rounded-full border-[3px] border-double",
+  task: "rounded-md border-2",
 };
 
 // Leading UML glyph for terminal roles (initial ●, final ◉).
@@ -75,16 +67,16 @@ const ROLE_GLYPH: Partial<Record<"input" | "output" | "task", string>> = {
   output: "◉",
 };
 
-// Corner-dot colour by execution status (varies once a run executes; the
-// workflow template is all `pending`).
-const STATUS_DOT: Record<string, string> = {
-  pending: "bg-slate-300 dark:bg-slate-600",
-  running: "bg-blue-500 animate-pulse motion-reduce:animate-none",
-  completed: "bg-emerald-500",
-  success: "bg-emerald-500",
-  failed: "bg-red-500",
-  error: "bg-red-500",
-  skipped: "bg-slate-300 ring-1 ring-slate-400",
+// COLOUR encodes execution STATUS — border + soft fill (+ a steady glow ring for
+// running). Drawn on top of the role shape so type and state read independently.
+// (The workflow template is all `pending`; colours diverge once a run executes.)
+const STATUS_VISUAL: Record<StatusKey, string> = {
+  running:
+    "border-info bg-info-soft text-foreground ring-4 ring-info/25 shadow-[0_0_12px_-2px_hsl(var(--info)/0.55)]",
+  success: "border-success bg-success-soft text-foreground",
+  failed: "border-destructive bg-destructive/12 text-foreground",
+  skipped: "border-muted-foreground/40 border-dashed bg-muted/30 text-muted-foreground",
+  pending: "border-border bg-muted/40 text-foreground",
 };
 
 /**
@@ -104,20 +96,18 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
   const role = data.role ?? "task";
   const status = data.status ?? "pending";
   const parallel = data.parallel ?? false;
-  const dot = STATUS_DOT[status] ?? STATUS_DOT.pending;
+  const visual = STATUS_VISUAL[statusKey(status)];
   // Fake stacked cards behind the node = UML expansion-region multiplicity.
-  const stack = parallel
-    ? "shadow-[5px_5px_0_-2px] shadow-violet-300 dark:shadow-violet-800"
-    : "shadow-sm";
+  const stack = parallel ? "shadow-[5px_5px_0_-2px] shadow-violet-300 dark:shadow-violet-800" : "";
   return (
     <button
       type="button"
       title={`${taskId} · ${role}${parallel ? " · parallel ×N" : ""} · ${status}`}
-      className={`relative flex min-w-[150px] max-w-[260px] cursor-pointer flex-col px-3 py-2 text-left transition-[filter] hover:brightness-95 ${ROLE_STYLES[role]} ${stack}`}
+      className={`relative flex min-w-[150px] max-w-[260px] cursor-pointer flex-col px-3 py-2 text-left transition-[filter] hover:brightness-95 ${ROLE_SHAPE[role]} ${visual} ${stack}`}
       onClick={() => onNodeClick?.(taskId)}
     >
-      <span className={`absolute right-1.5 top-1.5 h-2 w-2 rounded-full ${dot}`} aria-hidden />
-      <span className="flex items-center gap-1 truncate pr-3 text-xs font-semibold">
+      <StatusIcon status={status} className="absolute right-1.5 top-1.5 h-3.5 w-3.5" />
+      <span className="flex items-center gap-1 truncate pr-4 text-xs font-semibold">
         {ROLE_GLYPH[role] && (
           <span className="shrink-0 text-[10px] leading-none" aria-hidden>
             {ROLE_GLYPH[role]}
@@ -274,11 +264,46 @@ export const FlowgramCanvas = ({
   onChangeRef.current = onChange;
 
   const editorProps = useMemo<FreeLayoutProps>(() => {
+    // Resolve each edge's status so its colour/animation tracks the run. An edge
+    // feeds its target, so it takes the target node's status unless the link
+    // itself carries a more specific one. `running` target → flowing animation.
+    const nodeStatusById = new Map(document.nodes.map((n) => [n.id, n.data.status ?? "pending"]));
+    const edgeStatusByKey = new Map<string, StatusKey>();
+    for (const edge of document.edges) {
+      const explicit = edge.data?.status ?? edge.status;
+      const raw =
+        explicit && explicit !== "pending" ? explicit : nodeStatusById.get(edge.targetNodeID);
+      edgeStatusByKey.set(`${edge.sourceNodeID}->${edge.targetNodeID}`, statusKey(raw));
+    }
+    const lineStatus = (line: {
+      from?: { id?: string };
+      to?: { id?: string };
+      info?: { from?: string; to?: string };
+    }): StatusKey => {
+      const from = line.from?.id ?? line.info?.from;
+      const to = line.to?.id ?? line.info?.to;
+      return edgeStatusByKey.get(`${from}->${to}`) ?? "pending";
+    };
+
     return {
       background: true,
       readonly: !editable,
       initialData: document,
       nodeRegistries: [],
+      // Arrow colour follows status (default grey, blue while flowing, red on
+      // error); `setLineClassName` adds the per-status class the stylesheet uses
+      // to recolour the gradient stops (success green, skipped grey).
+      lineColor: {
+        hidden: "transparent",
+        default: "hsl(var(--muted-foreground))",
+        drawing: "hsl(var(--primary))",
+        hovered: "hsl(var(--primary))",
+        selected: "hsl(var(--primary))",
+        error: "hsl(var(--destructive))",
+        flowing: "hsl(var(--info))",
+      },
+      isFlowingLine: (_ctx, line) => lineStatus(line) === "running",
+      setLineClassName: (_ctx, line) => `molexp-edge-${lineStatus(line)}`,
       // Generic nodes: flowgram auto-assigns a default input + output port
       // (see free-layout-core) so links connect without a custom registry.
       getNodeDefaultRegistry(type) {
@@ -307,15 +332,6 @@ export const FlowgramCanvas = ({
     };
   }, [document, editable]);
 
-  // Theme the flowgram line/arrow colours (CSS vars it reads) to the molexp
-  // design tokens so edges match light/dark instead of flowgram's stock indigo.
-  const lineColorVars = {
-    "--g-workflow-line-color-default": "hsl(var(--muted-foreground))",
-    "--g-workflow-line-color-flowing": "hsl(var(--primary))",
-    "--g-workflow-line-color-hover": "hsl(var(--primary))",
-    "--g-workflow-line-color-selected": "hsl(var(--primary))",
-  } as CSSProperties;
-
   // Per-node display data keyed by id — buildFlowgramDocument already computed
   // role/status/parallel on each node, so just index it for NodeCard lookup.
   const nodeDataById = useMemo(
@@ -325,7 +341,7 @@ export const FlowgramCanvas = ({
 
   return (
     <NodeDataContext.Provider value={nodeDataById}>
-      <div className={`relative h-full w-full ${className ?? ""}`} style={lineColorVars}>
+      <div className={`relative h-full w-full ${className ?? ""}`}>
         <FreeLayoutEditorProvider {...editorProps}>
           <EditorRenderer />
           <AutoLayoutOnMount />

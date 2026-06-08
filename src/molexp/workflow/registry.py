@@ -163,7 +163,7 @@ class _Constant(Task):
     def __init__(self, value: TaskOutput = 0) -> None:
         self.value = value
 
-    async def execute(self, _ctx: TaskContext) -> TaskOutput:
+    async def execute(self, ctx: TaskContext) -> TaskOutput:  # noqa: ARG002
         return self.value
 
 

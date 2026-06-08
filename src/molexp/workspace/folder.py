@@ -380,7 +380,7 @@ class Folder:
                 loaded = cls.from_disk(child_dir, self)
                 if isinstance(loaded, cls):
                     self._children_cache[loaded._name] = loaded
-                    return cast(F, loaded)
+                    return loaded
         raise cls._not_found_error_cls(name)
 
     def has_folder(self, name: str, *, cls: type[Folder]) -> bool:
@@ -439,7 +439,7 @@ class Folder:
         for slug in raw:
             cached = self._children_cache.get(str(slug))
             if isinstance(cached, cls):
-                out.append(cast(F, cached))
+                out.append(cached)
                 continue
             child_dir = cls.child_dir(self, str(slug))
             if not self._fs.is_dir(child_dir):
@@ -450,7 +450,7 @@ class Folder:
                 continue
             if isinstance(loaded, cls):
                 self._children_cache[loaded._name] = loaded
-                out.append(cast(F, loaded))
+                out.append(loaded)
         return out
 
     def sync_folders(self, *, cls: type[Folder]) -> None:
@@ -525,10 +525,11 @@ class Folder:
             return
         if not isinstance(raw, dict):
             return
-        if slug not in raw:
+        rows = cast("dict[str, JSONValue]", raw)
+        if slug not in rows:
             return
-        raw.pop(slug)
-        self._fs.atomic_write_json(fpath, raw)
+        rows.pop(slug)
+        self._fs.atomic_write_json(fpath, rows)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._metadata.model_dump(mode="json"))

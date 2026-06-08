@@ -1,17 +1,9 @@
-import { Ban, Copy, FileQuestion, FileText, Terminal } from "lucide-react";
+import { Ban, Copy, FileQuestion, PlayCircle, Terminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import {
-  DashboardCard,
-  DashboardGrid,
-  EmptyState,
-  EntityPage,
-  StatCard,
-  StatGrid,
-} from "@/app/components/entity";
+import { DashboardCard, DashboardGrid, EmptyState, EntityPage } from "@/app/components/entity";
 import { listEntityTabs } from "@/app/registry";
-import { formatDuration, formatScalar, statusTone } from "@/app/renderers/dashboardData";
+import { formatDuration, formatScalar } from "@/app/renderers/dashboardData";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
-import { RunSnapshotPanel } from "@/app/renderers/SnapshotViewer";
 import { workspaceApi } from "@/app/state/api";
 import { useInspectedTask } from "@/app/state/inspectedTask";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
@@ -19,35 +11,6 @@ import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, RendererProps } from "@/app/types";
 import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-
-const ASSET_KIND_ORDER = [
-  "log",
-  "execution_state",
-  "artifact",
-  "data",
-  "checkpoint",
-  "error_trace",
-  "output",
-];
-
-const groupAssetsByKind = (assets: ApiAssetResponse[]): Map<string, ApiAssetResponse[]> => {
-  const buckets = new Map<string, ApiAssetResponse[]>();
-  for (const asset of assets) {
-    const list = buckets.get(asset.kind) ?? [];
-    list.push(asset);
-    buckets.set(asset.kind, list);
-  }
-  return new Map(
-    [...buckets.entries()].sort(([a], [b]) => {
-      const ai = ASSET_KIND_ORDER.indexOf(a);
-      const bi = ASSET_KIND_ORDER.indexOf(b);
-      if (ai === -1 && bi === -1) return a.localeCompare(b);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    }),
-  );
-};
 
 const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skipped"]);
 
@@ -166,7 +129,6 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
   const resultEntries = Object.entries(run.results ?? {});
   const duration = formatDuration(run.startedAt, run.finishedAt);
   const attemptCount = run.executionHistory.length;
-  const groupedAssets = groupAssetsByKind(runAssets);
   const backend = run.executorInfo.backend || "local";
 
   const handleCopyRunId = (): void => {
@@ -199,23 +161,95 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     }
   };
 
-  // ── Overview: a compact dashboard. Numbers, I/O, errors — no execution
-  // detail (that lives on its own tab now). ────────────────────────────────
   const overviewContent = (
     <DashboardGrid>
-      <div className="lg:col-span-12">
-        <StatGrid>
-          <StatCard label="Status" value={run.status} tone={statusTone(run.status)} />
-          <StatCard label="Duration" value={duration ?? "—"} muted={!duration} />
-          <StatCard
-            label="Attempts"
-            value={attemptCount || 1}
-            hint={attemptCount > 1 ? `${attemptCount} executions` : "single attempt"}
-          />
-          <StatCard label="Assets" value={runAssets.length} muted={runAssets.length === 0} />
-          <StatCard label="Backend" value={backend} />
-        </StatGrid>
-      </div>
+      <DashboardCard title="Run details" className="lg:col-span-8">
+        <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Run ID
+            </dt>
+            <dd className="mt-0.5 truncate font-mono text-xs text-foreground">{run.id}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Project
+            </dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {project?.name ?? run.projectId}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Experiment
+            </dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {experiment?.name ?? run.experimentId}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Updated
+            </dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {new Date(run.updatedAt).toLocaleString()}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Started
+            </dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {run.startedAt ? new Date(run.startedAt).toLocaleString() : "—"}
+            </dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Finished
+            </dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {run.finishedAt ? new Date(run.finishedAt).toLocaleString() : "—"}
+            </dd>
+          </div>
+          {run.summary && (
+            <div className="min-w-0 md:col-span-2">
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Summary
+              </dt>
+              <dd className="mt-0.5 text-sm leading-6 text-foreground">{run.summary}</dd>
+            </div>
+          )}
+        </dl>
+      </DashboardCard>
+
+      <DashboardCard title="Run stats" className="lg:col-span-4">
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <div>
+            <dt className="text-muted-foreground">Duration</dt>
+            <dd className="font-semibold tabular-nums text-foreground">{duration ?? "—"}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Attempts</dt>
+            <dd className="font-semibold tabular-nums text-foreground">{attemptCount || 1}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Backend</dt>
+            <dd className="truncate font-semibold text-foreground">{backend}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Assets</dt>
+            <dd className="font-semibold tabular-nums text-foreground">{runAssets.length}</dd>
+          </div>
+        </dl>
+      </DashboardCard>
+
+      {run.errorMessage && (
+        <DashboardCard title="Error" className="border-destructive/30 lg:col-span-12">
+          <pre className="whitespace-pre-wrap break-words font-mono text-xs text-destructive">
+            {run.errorMessage}
+          </pre>
+        </DashboardCard>
+      )}
 
       <DashboardCard title="Parameters" className="lg:col-span-6">
         {parameterEntries.length === 0 ? (
@@ -239,15 +273,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
         )}
       </DashboardCard>
 
-      <DashboardCard
-        title="Results"
-        className="lg:col-span-6"
-        action={
-          resultEntries.length > 0 ? (
-            <span className="text-[11px] tabular-nums text-success">{resultEntries.length}</span>
-          ) : undefined
-        }
-      >
+      <DashboardCard title="Results" className="lg:col-span-6">
         {resultEntries.length === 0 ? (
           <p className="text-xs italic text-muted-foreground">
             {run.status === "succeeded"
@@ -271,103 +297,6 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
             ))}
           </dl>
         )}
-      </DashboardCard>
-
-      {run.errorMessage && (
-        <DashboardCard title="Error" className="border-destructive/30 lg:col-span-12">
-          <pre className="whitespace-pre-wrap break-words font-mono text-xs text-destructive">
-            {run.errorMessage}
-          </pre>
-        </DashboardCard>
-      )}
-
-      <DashboardCard
-        title="Generated assets"
-        className="lg:col-span-7"
-        bodyClassName={runAssets.length === 0 ? "p-3" : "p-0"}
-        action={
-          runAssets.length > 0 ? (
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {runAssets.length}
-            </span>
-          ) : undefined
-        }
-      >
-        {runAssets.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground">No assets registered for this run.</p>
-        ) : (
-          <div className="divide-y divide-border/50">
-            {[...groupedAssets.entries()].map(([kind, assets]) => (
-              <div key={kind}>
-                <div className="flex items-center justify-between bg-muted/30 px-3 py-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  <span>{kind}</span>
-                  <span>{assets.length}</span>
-                </div>
-                <ul className="divide-y divide-border/40">
-                  {assets.map((asset) => (
-                    <li key={asset.id}>
-                      <button
-                        type="button"
-                        className="flex w-full items-center justify-between gap-3 px-3 py-1.5 text-left text-xs transition-colors hover:bg-muted/40"
-                        onClick={() => setSelection({ objectType: "asset", objectId: asset.id })}
-                      >
-                        <span className="truncate font-medium text-foreground" title={asset.name}>
-                          {asset.name}
-                        </span>
-                        <span
-                          className="truncate font-mono text-[11px] text-muted-foreground"
-                          title={asset.path}
-                        >
-                          {asset.path}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </div>
-        )}
-      </DashboardCard>
-
-      <DashboardCard title="Lineage" className="lg:col-span-5">
-        <div className="flex flex-col gap-1.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 justify-start px-2 text-xs"
-            onClick={() => setSelection({ objectType: "project", objectId: run.projectId })}
-          >
-            Project · {project?.name || run.projectId}
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 justify-start px-2 text-xs"
-            onClick={() => setSelection({ objectType: "experiment", objectId: run.experimentId })}
-          >
-            Experiment · {experiment?.name || run.experimentId}
-          </Button>
-          {workflow && (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-7 justify-start px-2 text-xs"
-              onClick={() =>
-                setSelection({
-                  objectType: "workflow",
-                  objectId: workflow.id,
-                  workflowId: workflow.id,
-                })
-              }
-            >
-              Workflow · {workflow.name}
-            </Button>
-          )}
-          <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground" title={run.id}>
-            run id: {run.id}
-          </div>
-        </div>
       </DashboardCard>
     </DashboardGrid>
   );
@@ -477,13 +406,12 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
           ) : null,
       };
     }),
-    { value: "snapshot", label: "Snapshot", content: <RunSnapshotPanel run={run} /> },
   ];
 
   return (
     <>
       <EntityPage
-        icon={FileText}
+        icon={PlayCircle}
         title={run.name}
         status={run.status}
         subtitle={run.summary || undefined}

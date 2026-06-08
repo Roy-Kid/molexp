@@ -24,8 +24,10 @@ export interface TreeNodeAction {
 export interface TreeNode {
   id: string;
   label: string;
+  labelClassName?: string;
   icon?: ComponentType<{ className?: string }>;
   iconClassName?: string;
+  leadingAccessory?: ReactNode;
   right?: ReactNode;
   meta?: ReactNode;
   children?: TreeNode[];
@@ -93,7 +95,10 @@ const TreeRow = ({
           className={`h-3.5 w-3.5 flex-none ${node.iconClassName ?? "text-muted-foreground"}`}
         />
       )}
-      <span className="min-w-0 flex-1 truncate">{node.label}</span>
+      {node.leadingAccessory && <span className="flex-none">{node.leadingAccessory}</span>}
+      <span className={`min-w-0 flex-1 truncate ${node.labelClassName ?? ""}`}>
+        {node.label}
+      </span>
       {node.right && <span className="flex-none">{node.right}</span>}
       {node.meta !== undefined && node.meta !== null && (
         <span className="flex-none font-mono text-[10px] text-muted-foreground">{node.meta}</span>

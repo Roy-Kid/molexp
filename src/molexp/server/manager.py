@@ -14,9 +14,9 @@ from collections.abc import Iterator
 from pathlib import Path
 
 try:
-    import psutil  # ty: ignore[unresolved-import]  — optional dev dependency
+    import psutil  # optional dev dependency
 except ImportError:
-    psutil = None
+    psutil = None  # ty: ignore[invalid-assignment]
 
 
 class ServerManager:

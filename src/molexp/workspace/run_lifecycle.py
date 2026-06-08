@@ -40,15 +40,36 @@ class RunLifecycle:
         ctx._start_time = datetime.now()
         ctx._entered = True
 
-        # Determine which execution attempt this is and record it.
-        ctx._execution_id = ctx._explicit_execution_id or ctx._executions.next_execution_id()
-        new_record = ExecutionRecord(
-            execution_id=ctx._execution_id,
-            started_at=ctx._start_time,
+        # Determine which execution attempt this is and record it. When the
+        # caller pre-allocated an execution_id that matches an existing record,
+        # *reopen* that record in place (resume) — flip it back to running and
+        # clear finished_at — instead of appending a new one. Any other case
+        # (no id, or an id matching no record) appends a fresh record (rerun /
+        # first attempt).
+        explicit = ctx._explicit_execution_id
+        history = ctx.run.metadata.execution_history
+        reopened = (
+            next((r for r in history if r.execution_id == explicit), None)
+            if explicit is not None
+            else None
         )
-        ctx.run._update_metadata(
-            execution_history=[*ctx.run.metadata.execution_history, new_record]
-        )
+        if reopened is not None:
+            ctx._execution_id = reopened.execution_id
+            running = reopened.model_copy(
+                update={"status": RunStatus.RUNNING.value, "finished_at": None}
+            )
+            ctx.run._update_metadata(
+                execution_history=[
+                    running if r.execution_id == reopened.execution_id else r for r in history
+                ]
+            )
+        else:
+            ctx._execution_id = explicit or ctx._executions.next_execution_id()
+            new_record = ExecutionRecord(
+                execution_id=ctx._execution_id,
+                started_at=ctx._start_time,
+            )
+            ctx.run._update_metadata(execution_history=[*history, new_record])
         ctx._executions.write_metadata(
             ExecutionMetadata(
                 execution_id=ctx._execution_id,

@@ -1,16 +1,16 @@
+import * as Popover from "@radix-ui/react-popover";
 import {
-  Archive,
   Ban,
-  ChevronRight,
   Copy,
   ExternalLink,
   FileQuestion,
   FlaskConical,
+  SlidersHorizontal,
   Terminal,
   Trash2,
   Workflow as WorkflowIcon,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
 import {
@@ -19,25 +19,25 @@ import {
   DataTable,
   EMPTY_COPY,
   EmptyState,
-  EntityMetric,
   EntityPage,
-  StatCard,
-  StatGrid,
-  StatusBadge,
-  StatusDonut,
+  StatusIcon,
 } from "@/app/components/entity";
-import {
-  countRunStatuses,
-  formatDuration,
-  formatScalar,
-  statusDonutSegments,
-  successRate,
-} from "@/app/renderers/dashboardData";
+import { countRunStatuses, formatDuration, formatScalar } from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
+import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
+import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
+import { STATUS_GROUPS } from "@/app/runs/statusGroups";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ObjectView, RendererProps, RunSummary } from "@/app/types";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
 
 const formatResultPreview = (results: Record<string, unknown>): string => {
   const entries = Object.entries(results);
@@ -53,96 +53,92 @@ const formatResultPreview = (results: Record<string, unknown>): string => {
   return entries.length > 2 ? `${head}, +${entries.length - 2}` : head;
 };
 
-interface WorkflowPreview {
-  taskNames: string[];
-  edgeCount: number;
-}
-
-const asRecord = (value: unknown): Record<string, unknown> | null => {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
+const StatusDistributionBar = ({
+  counts,
+}: {
+  counts: ReturnType<typeof countRunStatuses>;
+}): JSX.Element => {
+  if (counts.total === 0) return <div className="h-1.5 rounded-full bg-muted" />;
+  return (
+    <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+      {STATUS_GROUPS.map((group) => {
+        const value = counts[group.id];
+        if (value === 0) return null;
+        return (
+          <div
+            key={group.id}
+            title={`${group.label}: ${value}`}
+            style={{ width: `${(value / counts.total) * 100}%`, backgroundColor: group.color }}
+          />
+        );
+      })}
+    </div>
+  );
 };
 
-const extractTaskNames = (root: Record<string, unknown>): string[] => {
-  const graph = asRecord(root.graph);
-  if (graph && Array.isArray(graph.nodes)) {
-    return graph.nodes
-      .map((node) => {
-        const rec = asRecord(node);
-        if (!rec) return null;
-        return typeof rec.label === "string"
-          ? rec.label
-          : typeof rec.id === "string"
-            ? rec.id
-            : null;
-      })
-      .filter((v): v is string => Boolean(v));
-  }
-  const tasks = Array.isArray(root.tasks) ? root.tasks : null;
-  if (tasks) {
-    return tasks
-      .map((task) => {
-        const rec = asRecord(task);
-        return typeof rec?.id === "string" ? rec.id : null;
-      })
-      .filter((v): v is string => Boolean(v));
-  }
-  return [];
-};
-
-const fetchWorkflowPreview = async (path: string): Promise<WorkflowPreview | null> => {
-  if (
-    !path ||
-    path.includes(":") ||
-    (!path.endsWith(".json") && !path.endsWith(".yaml") && !path.endsWith(".yml"))
-  ) {
-    return null;
-  }
-  try {
-    const response = await fetch(`/api/workspace/files?path=${encodeURIComponent(path)}`);
-    if (!response.ok) return null;
-    const data = (await response.json()) as unknown;
-    const root = asRecord(data);
-    if (!root) return null;
-    const inner = asRecord(asRecord(root.context)?.workflow) ?? root;
-    const taskNames = extractTaskNames(inner);
-    const graph = asRecord(inner.graph);
-    const edges = graph && Array.isArray(graph.edges) ? graph.edges.length : 0;
-    if (taskNames.length === 0 && edges === 0) return null;
-    return { taskNames, edgeCount: edges };
-  } catch {
-    return null;
-  }
+const ParametersCell = ({ run, keys }: { run: RunSummary; keys: string[] }): JSX.Element => {
+  const entries = keys
+    .map((key) => [key, run.parameters?.[key]] as const)
+    .filter(([, value]) => value !== undefined);
+  if (entries.length === 0) return <span className="text-xs text-muted-foreground">-</span>;
+  const visible = entries.slice(0, 3);
+  return (
+    <div className="flex max-w-[320px] flex-wrap items-center gap-1">
+      {visible.map(([key, value]) => (
+        <span
+          key={key}
+          className="inline-flex max-w-[120px] items-center gap-1 rounded border border-border/60 bg-muted/30 px-1.5 py-0.5 text-[11px]"
+          title={`${key}=${formatScalar(value)}`}
+        >
+          <span className="truncate text-muted-foreground">{key}</span>
+          <span className="truncate font-mono text-foreground">{formatScalar(value)}</span>
+        </span>
+      ))}
+      {entries.length > visible.length && (
+        <Popover.Root>
+          <Popover.Trigger asChild>
+            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-[11px]">
+              +{entries.length - visible.length}
+            </Button>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              side="bottom"
+              align="start"
+              className="z-50 max-h-80 w-72 overflow-auto rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md"
+            >
+              <dl className="space-y-2">
+                {entries.map(([key, value]) => (
+                  <div key={key} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2 text-xs">
+                    <dt className="truncate text-muted-foreground">{key}</dt>
+                    <dd className="truncate font-mono text-foreground" title={formatScalar(value)}>
+                      {formatScalar(value)}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
+    </div>
+  );
 };
 
 export const ExperimentViewer = ({
   selection,
   snapshot,
+  inspectorTarget,
+  onInspectorTargetChange,
   onRefresh,
 }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
-  const [workflowPreview, setWorkflowPreview] = useState<WorkflowPreview | null>(null);
+  const [activeTab, setActiveTab] = useState("overview");
   const { setSelection } = useNavigationState(snapshot);
 
   const experimentId = selection.objectId;
   const experiment = snapshot.experiments.find((e) => e.id === experimentId);
   const projectId = experiment?.projectId || "";
-
-  const workflowPath = experiment?.workflowFile || experiment?.workflowSource || null;
-  useEffect(() => {
-    let cancelled = false;
-    if (!workflowPath) {
-      setWorkflowPreview(null);
-      return;
-    }
-    fetchWorkflowPreview(workflowPath).then((preview) => {
-      if (!cancelled) setWorkflowPreview(preview);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [workflowPath]);
 
   const runs = useMemo(
     () => snapshot.runs.filter((r) => r.experimentId === experimentId),
@@ -150,18 +146,6 @@ export const ExperimentViewer = ({
   );
 
   const counts = useMemo(() => countRunStatuses(runs), [runs]);
-  const donut = useMemo(() => statusDonutSegments(counts), [counts]);
-  const rate = successRate(counts);
-
-  const recentRuns = useMemo(() => {
-    return [...runs]
-      .sort((a, b) => {
-        const aT = Date.parse(a.finishedAt ?? a.startedAt ?? a.updatedAt ?? "") || 0;
-        const bT = Date.parse(b.finishedAt ?? b.startedAt ?? b.updatedAt ?? "") || 0;
-        return bT - aT;
-      })
-      .slice(0, 6);
-  }, [runs]);
 
   // Union of parameter keys across all runs — stable first-seen order. Declared
   // before any early return so the hook order is unconditional.
@@ -240,44 +224,41 @@ export const ExperimentViewer = ({
     );
   }
 
-  const project = snapshot.projects.find((item) => item.id === projectId);
   const workflow = snapshot.workflows.find((item) => item.experimentId === experiment.id);
-  const parameterAxes = Object.entries(experiment.parameterSpace ?? {});
-
-  const parameterColumns: DataTableColumn<RunSummary>[] = parameterKeys.map((key) => ({
-    key: `param:${key}`,
-    header: key,
-    width: "w-[110px]",
-    cell: (run) => {
-      const value = run.parameters?.[key];
-      return (
-        <span className="font-mono text-xs text-foreground">
-          {value === undefined ? (
-            <span className="text-muted-foreground">—</span>
-          ) : (
-            formatScalar(value)
-          )}
-        </span>
-      );
-    },
-  }));
+  const project = snapshot.projects.find((item) => item.id === projectId);
+  const workflowGraph = workflow?.graph ?? parseWorkflowIr(experiment.workflowSource);
+  const workbench = buildExperimentWorkbenchData(
+    experiment,
+    runs,
+    workflowGraph ? { graph: workflowGraph } : workflow,
+  );
 
   const runColumns: DataTableColumn<RunSummary>[] = [
     {
       key: "id",
       header: "Run",
-      width: "w-[110px]",
+      width: "w-[180px]",
       cell: (run) => (
-        <span className="font-mono text-xs text-muted-foreground">{run.id.substring(0, 8)}</span>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-medium text-foreground">{run.name || run.id}</div>
+          <div className="truncate font-mono text-[11px] text-muted-foreground">
+            {run.id.substring(0, 12)}
+          </div>
+        </div>
       ),
     },
     {
       key: "status",
-      header: "Status",
-      width: "w-[120px]",
-      cell: (run) => <StatusBadge status={run.status} />,
+      header: "State",
+      width: "w-[70px]",
+      cell: (run) => <StatusIcon status={run.status} />,
     },
-    ...parameterColumns,
+    {
+      key: "parameters",
+      header: "Parameters",
+      width: "w-[360px]",
+      cell: (run) => <ParametersCell run={run} keys={parameterKeys} />,
+    },
     {
       key: "result",
       header: "Result",
@@ -353,12 +334,6 @@ export const ExperimentViewer = ({
       onSelect: () => navigateToRunView(run, "logs"),
     },
     {
-      id: "snapshot",
-      label: "View snapshot",
-      icon: Archive,
-      onSelect: () => navigateToRunView(run, "snapshot"),
-    },
-    {
       id: "copy-id",
       label: "Copy run ID",
       icon: Copy,
@@ -380,211 +355,135 @@ export const ExperimentViewer = ({
 
   const overviewContent = (
     <DashboardGrid>
-      {/* KPI band */}
-      <div className="lg:col-span-12">
-        <StatGrid>
-          <StatCard label="Runs" value={counts.total} muted={counts.total === 0} />
-          <StatCard
-            label="Succeeded"
-            value={counts.succeeded}
-            tone="success"
-            muted={counts.succeeded === 0}
-          />
-          <StatCard label="Failed" value={counts.failed} tone="error" muted={counts.failed === 0} />
-          <StatCard
-            label="Running"
-            value={counts.running}
-            tone="running"
-            muted={counts.running === 0}
-          />
-          <StatCard
-            label="Success rate"
-            value={rate === null ? "—" : `${rate.toFixed(0)}%`}
-            hint={
-              rate === null
-                ? "no terminal runs"
-                : `${counts.succeeded}/${counts.succeeded + counts.failed + counts.cancelled} terminal`
-            }
-            tone={
-              rate === null ? "neutral" : rate >= 80 ? "success" : rate >= 50 ? "warning" : "error"
-            }
-            muted={rate === null}
-          />
-        </StatGrid>
-      </div>
-
-      {/* Status mix donut */}
-      <DashboardCard title="Status mix" className="lg:col-span-5">
-        {counts.total === 0 ? (
-          <p className="text-xs italic text-muted-foreground">No runs launched yet.</p>
-        ) : (
-          <StatusDonut segments={donut} centerLabel="runs" />
-        )}
-      </DashboardCard>
-
-      {/* Recent runs */}
-      <DashboardCard
-        title="Recent runs"
-        className="lg:col-span-7"
-        bodyClassName="p-0"
-        action={
-          counts.total > 0 ? (
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {Math.min(recentRuns.length, counts.total)} of {counts.total}
-            </span>
-          ) : undefined
-        }
-      >
-        {recentRuns.length === 0 ? (
-          <p className="p-3 text-xs italic text-muted-foreground">No runs yet.</p>
-        ) : (
-          <ul className="divide-y divide-border/50">
-            {recentRuns.map((run) => {
-              const duration = formatDuration(run.startedAt, run.finishedAt);
-              const when = run.finishedAt ?? run.startedAt ?? run.updatedAt;
-              return (
-                <li key={run.id}>
-                  <button
-                    type="button"
-                    onClick={() => navigateToRunView(run)}
-                    className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40"
-                  >
-                    <StatusBadge status={run.status} size="sm" />
-                    <span className="min-w-0 truncate font-medium text-foreground">
-                      {run.name || run.id.substring(0, 8)}
-                    </span>
-                    <span className="font-mono text-muted-foreground">{duration ?? "—"}</span>
-                    <span className="hidden text-muted-foreground sm:inline">
-                      {when ? new Date(when).toLocaleString() : "—"}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </DashboardCard>
-
-      {/* Parameter space */}
-      <DashboardCard title="Parameter space" className="lg:col-span-6">
-        {parameterAxes.length === 0 ? (
-          <p className="text-xs italic text-muted-foreground">No parameter axes declared.</p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {parameterAxes.map(([key, value]) => (
-              <span
-                key={key}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-muted/30 px-2 py-1 text-xs"
-                title={formatScalar(value)}
-              >
-                <span className="font-medium text-foreground">{key}</span>
-                <span className="max-w-[160px] truncate font-mono text-[11px] text-muted-foreground">
-                  {formatScalar(value)}
-                </span>
-              </span>
-            ))}
-          </div>
-        )}
-      </DashboardCard>
-
-      {/* Workflow */}
-      <DashboardCard
-        title="Workflow"
-        className="lg:col-span-6"
-        action={
-          workflow && (experiment.workflowSource || experiment.workflowFile) ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 gap-1 px-1.5 text-[11px] text-muted-foreground"
-              onClick={() =>
-                setSelection({
-                  objectType: "workflow",
-                  objectId: workflow.id,
-                  workflowId: workflow.id,
-                })
-              }
-            >
-              Open <ChevronRight className="h-3 w-3" />
-            </Button>
-          ) : undefined
-        }
-      >
-        {workflow && (experiment.workflowSource || experiment.workflowFile) ? (
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <WorkflowIcon className="h-4 w-4 flex-none text-sky-500" />
-              <span className="min-w-0 break-all font-mono text-xs text-foreground">
-                {experiment.workflowSource || experiment.workflowFile}
-              </span>
-            </div>
-            {workflowPreview ? (
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {workflowPreview.taskNames.length} tasks
-                  {workflowPreview.edgeCount > 0 ? ` · ${workflowPreview.edgeCount} edges` : ""}
-                </span>
-                {workflowPreview.taskNames.slice(0, 8).map((name) => (
-                  <span
-                    key={name}
-                    className="rounded-sm border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[11px] text-foreground"
-                  >
-                    {name}
-                  </span>
-                ))}
-                {workflowPreview.taskNames.length > 8 && (
-                  <span className="text-[11px] text-muted-foreground">
-                    +{workflowPreview.taskNames.length - 8}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">Open to inspect the task graph.</p>
-            )}
-          </div>
-        ) : (
-          <p className="text-xs italic text-muted-foreground">No workflow file recorded.</p>
-        )}
-      </DashboardCard>
-
-      {/* Details */}
-      <DashboardCard title="Details" className="lg:col-span-12">
-        <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+      <DashboardCard title="Experiment details" className="lg:col-span-8">
+        <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
           <div className="min-w-0">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Project</dt>
-            <dd className="mt-0.5">
-              <button
-                type="button"
-                onClick={() => setSelection({ objectType: "project", objectId: projectId })}
-                className="truncate text-sm text-foreground hover:text-primary hover:underline"
-              >
-                {project?.name || projectId}
-              </button>
-            </dd>
-          </div>
-          <div className="min-w-0">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Experiment ID
             </dt>
-            <dd className="mt-0.5 truncate font-mono text-sm text-foreground">{experiment.id}</dd>
+            <dd className="mt-0.5 truncate font-mono text-xs text-foreground">{experiment.id}</dd>
           </div>
           <div className="min-w-0">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">
-              Workflow file
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Project
             </dt>
-            <dd className="mt-0.5 truncate font-mono text-sm text-foreground">
-              {experiment.workflowFile || "—"}
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {project?.name ?? projectId}
             </dd>
           </div>
           <div className="min-w-0">
-            <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Updated</dt>
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Updated
+            </dt>
             <dd className="mt-0.5 truncate text-sm text-foreground">
               {new Date(experiment.updatedAt).toLocaleString()}
             </dd>
           </div>
         </dl>
       </DashboardCard>
+
+      <DashboardCard title="Summary" className="lg:col-span-4" bodyClassName="space-y-3">
+        <div className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-2">
+          <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Total runs
+          </span>
+          <span className="text-2xl font-semibold tabular-nums text-foreground">
+            {counts.total}
+          </span>
+        </div>
+        <StatusDistributionBar counts={counts} />
+        <dl className="space-y-1.5 text-xs">
+          {STATUS_GROUPS.map((group) => (
+            <div key={group.id} className="flex items-center justify-between gap-3">
+              <dt className="inline-flex min-w-0 items-center gap-2 text-muted-foreground">
+                <span
+                  className="h-1.5 w-1.5 flex-none rounded-full"
+                  style={{ backgroundColor: group.color }}
+                />
+                <span className="truncate">{group.label}</span>
+              </dt>
+              <dd className="font-semibold tabular-nums text-foreground">{counts[group.id]}</dd>
+            </div>
+          ))}
+        </dl>
+      </DashboardCard>
+
+      <DashboardCard title="Workflow" className="lg:col-span-6" bodyClassName="space-y-3">
+        {workflowGraph ? (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <WorkflowIcon className="h-3.5 w-3.5 text-sky-500" />
+                {workbench.workflowSummary.taskCount} tasks
+              </span>
+              <span>{workbench.workflowSummary.linkCount} links</span>
+              <span>{workbench.workflowSummary.parallelGroupCount} parallel groups</span>
+            </div>
+            <WorkflowGraph ir={workflowGraph} height={230} />
+          </>
+        ) : (
+          <p className="text-xs italic text-muted-foreground">No workflow graph recorded.</p>
+        )}
+      </DashboardCard>
+
+      <DashboardCard title="Parameter space" className="lg:col-span-6" bodyClassName="space-y-3">
+        {workbench.parameterAxes.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">No parameter axes declared.</p>
+        ) : (
+          <Accordion type="multiple" className="rounded-md border border-border/60">
+            {workbench.parameterAxes.map((axis) => (
+              <AccordionItem key={axis.key} value={axis.key} className="border-border/60 px-2">
+                <AccordionTrigger className="py-2 text-xs hover:no-underline">
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <SlidersHorizontal className="h-3.5 w-3.5 flex-none text-muted-foreground" />
+                    <span className="truncate font-medium text-foreground">{axis.key}</span>
+                  </span>
+                  <span className="ml-auto flex-none pr-2 tabular-nums text-muted-foreground">
+                    {axis.count}
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="pb-2">
+                  <div className="max-h-44 overflow-auto rounded-sm bg-muted/20 p-2">
+                    <div className="flex flex-wrap gap-1">
+                      {axis.values.map((value) => (
+                        <span
+                          key={`${axis.key}:${value}`}
+                          className="max-w-[180px] truncate rounded border border-border/60 bg-background px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground"
+                          title={value}
+                        >
+                          {value}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        )}
+      </DashboardCard>
     </DashboardGrid>
+  );
+
+  const workflowSelection = workflow
+    ? { objectType: "workflow" as const, objectId: workflow.id, workflowId: workflow.id }
+    : null;
+  const workflowTabContent = workflowSelection ? (
+    <WorkflowGraphViewer
+      selection={workflowSelection}
+      snapshot={snapshot}
+      inspectorTarget={inspectorTarget}
+      onInspectorTargetChange={onInspectorTargetChange}
+      onRefresh={onRefresh}
+    />
+  ) : (
+    <div className="flex h-full items-center justify-center">
+      <EmptyState
+        icon={<WorkflowIcon className="h-6 w-6" />}
+        title="No workflow graph"
+        description="This experiment has no linked workflow document in the snapshot."
+      />
+    </div>
   );
 
   return (
@@ -592,7 +491,6 @@ export const ExperimentViewer = ({
       icon={FlaskConical}
       title={experiment.name}
       status={experiment.status}
-      subtitle={experiment.summary || undefined}
       actions={
         <>
           <CreateRunDialog
@@ -614,19 +512,13 @@ export const ExperimentViewer = ({
           </Button>
         </>
       }
-      metrics={
-        <>
-          <EntityMetric label="Runs" value={counts.total} />
-          <EntityMetric label="OK" value={counts.succeeded} />
-          <EntityMetric label="Failed" value={counts.failed} />
-          <EntityMetric label="Running" value={counts.running} />
-        </>
-      }
+      activeTab={activeTab}
+      onActiveTabChange={setActiveTab}
       tabs={[
         {
           value: "overview",
           label: "Overview",
-          content: overviewContent,
+          content: activeTab === "overview" ? overviewContent : null,
         },
         {
           value: "runs",
@@ -648,9 +540,17 @@ export const ExperimentViewer = ({
           ),
         },
         {
+          value: "workflow",
+          label: "Workflow",
+          content: activeTab === "workflow" ? workflowTabContent : null,
+        },
+        {
           value: "compare",
           label: "Compare",
-          content: <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />,
+          content:
+            activeTab === "compare" ? (
+              <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />
+            ) : null,
         },
       ]}
     />

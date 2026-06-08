@@ -29,7 +29,9 @@ def test_lists_local_and_remote_in_order(client):
     set_served_workspaces(
         [
             ServedWorkspace(key="local-a", label="/tmp/a", is_remote=False, path="/tmp/a"),
-            ServedWorkspace(key="hpc-runs", label="me@hpc:/runs", is_remote=True, target_name="hpc-runs"),
+            ServedWorkspace(
+                key="hpc-runs", label="me@hpc:/runs", is_remote=True, target_name="hpc-runs"
+            ),
         ]
     )
     r = client.get("/api/workspaces")

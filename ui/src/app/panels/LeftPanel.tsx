@@ -118,15 +118,26 @@ const detectFileKind = (path: string | undefined): FileKind => {
   return fileKindByExtension[extension] ?? "unknown";
 };
 
-const runIconClass = (status: SemanticStatus): string => {
+const statusTextClass = (status: SemanticStatus): string => {
   switch (status) {
+    case "active":
+    case "approved":
     case "succeeded":
-      return "text-emerald-500";
+      return "font-medium text-success";
     case "failed":
-      return "text-rose-500";
+    case "rejected":
+      return "font-medium text-destructive";
     case "running":
-      return "text-blue-500";
-    default:
+      return "font-medium text-info";
+    case "draft":
+    case "expired":
+    case "waiting_for_review":
+      return "font-medium text-warning";
+    case "archived":
+    case "cancelled":
+    case "skipped":
+      return "text-muted-foreground";
+    case "pending":
       return "text-muted-foreground";
   }
 };
@@ -179,12 +190,6 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
     onSelect: () => actions.onOpenRunView(run, "logs"),
   },
   {
-    id: "snapshot",
-    label: "View snapshot",
-    icon: Archive,
-    onSelect: () => actions.onOpenRunView(run, "snapshot"),
-  },
-  {
     id: "copy-id",
     label: "Copy run ID",
     icon: Copy,
@@ -204,12 +209,8 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
   },
 ];
 
-// A compact uppercase entity-type tag (PROJ / EXP / RUN) shown on every nav
-// node so the level is legible without relying on icon shape alone.
-const TypeTag = ({ kind }: { kind: "proj" | "exp" | "run" }): JSX.Element => (
-  <span className="rounded bg-muted px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">
-    {kind}
-  </span>
+const CompactCount = ({ children }: { children: ReactNode }): JSX.Element => (
+  <span className="font-mono text-[10px] text-muted-foreground">{children}</span>
 );
 
 const buildProjectNodes = (
@@ -252,10 +253,10 @@ const buildProjectNodes = (
   return filtered.map((project) => ({
     id: project.id,
     label: project.name,
+    labelClassName: statusTextClass(project.status),
     icon: Blocks,
     iconClassName: "text-blue-500",
-    right: <TypeTag kind="proj" />,
-    meta: `${project.experiments.length} exp`,
+    right: <CompactCount>{project.experiments.length} exp</CompactCount>,
     onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
     actions: [
       {
@@ -288,15 +289,10 @@ const buildProjectNodes = (
     children: project.experiments.map((experiment) => ({
       id: experiment.id,
       label: experiment.name,
+      labelClassName: statusTextClass(experiment.status),
       icon: FlaskConical,
       iconClassName: "text-purple-500",
-      right: (
-        <span className="flex items-center gap-1">
-          <TypeTag kind="exp" />
-          <StatusBadge status={experiment.status} size="sm" />
-        </span>
-      ),
-      meta: `${experiment.runs.length} runs`,
+      right: <CompactCount>{experiment.runs.length} runs</CompactCount>,
       onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
       actions: [
         {
@@ -340,15 +336,9 @@ const buildProjectNodes = (
       children: experiment.runs.map((run) => ({
         id: run.id,
         label: run.name || run.id,
+        labelClassName: statusTextClass(run.status),
         icon: PlayCircle,
-        iconClassName: runIconClass(run.status),
-        right: (
-          <span className="flex items-center gap-1">
-            <TypeTag kind="run" />
-            <StatusBadge status={run.status} size="sm" />
-          </span>
-        ),
-        meta: run.profile ?? run.id.substring(0, 8),
+        iconClassName: "text-emerald-500",
         onSelect: () => actions.onOpenRunView(run),
         actions: buildRunActions(run, actions),
       })),
@@ -383,10 +373,10 @@ const buildShallowProjectNodes = (
     .map((project) => ({
       id: `${workspaceKey}/${project.id}`,
       label: project.name,
+      labelClassName: statusTextClass(project.status),
       icon: Blocks,
       iconClassName: "text-blue-500/50",
-      right: <TypeTag kind="proj" />,
-      meta: "switch to view",
+      right: <CompactCount>switch</CompactCount>,
       onSelect: onActivate,
     }));
 };
@@ -468,7 +458,7 @@ const detectWorkspaceSemantic = (
 
   const run = snapshot.runs.find((r) => path.endsWith(`runs/${r.id}`));
   if (run) {
-    return { type: "run", id: run.id, icon: PlayCircle, iconClass: runIconClass(run.status) };
+    return { type: "run", id: run.id, icon: PlayCircle, iconClass: "text-emerald-500" };
   }
 
   const parts = path.split("/");

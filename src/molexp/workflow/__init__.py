@@ -44,6 +44,7 @@ code (CLI / server / cluster workers) can recover it via
 """
 
 from ._names import generate_name
+from ._pydantic_graph.persistence import read_node_outputs
 from ._pydantic_graph.runtime import WorkflowRuntime, make_execution_id
 from .binding import WorkflowBinding, WorkflowBindingRegistry, default_binding_registry
 from .cache import Caching
@@ -173,6 +174,7 @@ __all__ = [
     "generate_name",
     "make_execution_id",
     "promote_callable",
+    "read_node_outputs",
     "render_workflow_mermaid",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",

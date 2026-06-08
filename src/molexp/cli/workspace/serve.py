@@ -51,7 +51,9 @@ def _resolve_served(spec: str, used_keys: set[str]):
 
     if isinstance(target, RemoteTarget):
         host_str = f"{target.user}@{target.host}" if target.user else target.host
-        key = _unique_key(_slug(f"{target.host}-{PurePosixPath(target.path).name or 'ws'}"), used_keys)
+        key = _unique_key(
+            _slug(f"{target.host}-{PurePosixPath(target.path).name or 'ws'}"), used_keys
+        )
         registry = get_workspace_target_registry()
         if not registry.has(key):
             registry.add(WorkspaceTarget(name=key, host=host_str, root_path=target.path))
@@ -108,7 +110,7 @@ def serve(
     if primary.is_remote:
         set_active_workspace_descriptor(primary.target_name)
     else:
-        os.chdir(primary.path)  # type: ignore[arg-type]  (path is set for local)
+        os.chdir(primary.path)  # ty: ignore[invalid-argument-type]  (path is set for local)
     set_served_workspaces(served)
 
     if len(served) == 1:

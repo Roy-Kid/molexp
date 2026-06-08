@@ -97,14 +97,16 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
         raise
 
 
-def _save_metadata(metadata: BaseModel, path: str, *, fs: FileSystem | None = None) -> None:
+def _save_metadata(metadata: BaseModel, path: str | Path, *, fs: FileSystem | None = None) -> None:
     """Write a Pydantic metadata model to a JSON file atomically."""
     from .schema_version import write_versioned_json
 
     write_versioned_json(path, metadata.model_dump(mode="json"), fs=fs)
 
 
-def _load_metadata[T](metadata_cls: type[T], path: str, *, fs: FileSystem | None = None) -> T:
+def _load_metadata[T](
+    metadata_cls: type[T], path: str | Path, *, fs: FileSystem | None = None
+) -> T:
     """Read a JSON file into a Pydantic metadata model."""
     from .schema_version import read_versioned_json
 

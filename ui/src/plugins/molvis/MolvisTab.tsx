@@ -4,6 +4,13 @@ import { EmptyState, OverviewSection } from "@/app/components/entity";
 import type { LammpsLogResponse, LammpsThermoStage } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { MolvisLineChart } from "@/lib/charts";
 import type { DiscoveredFile } from "@/plugins/types";
 import { TrajectoryViewer } from "./TrajectoryViewer";
@@ -35,6 +42,41 @@ const formatBytes = (size?: number | null): string => {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   return `${(value / 1024 / 1024).toFixed(1)} MB`;
 };
+
+interface FilePickerProps {
+  files: DiscoveredFile[];
+  active: string | null;
+  onSelect: (relPath: string) => void;
+  /** Label rendered for each option (defaults to the file's rel path). */
+  display?: (file: DiscoveredFile) => string;
+  placeholder?: string;
+}
+
+/**
+ * Dropdown file selector shared by the log and trajectory sections. Replaces the
+ * earlier flat row of pill buttons, which overflowed once a run produced more
+ * than a handful of output files.
+ */
+const FilePicker = ({
+  files,
+  active,
+  onSelect,
+  display = (file) => file.relPath,
+  placeholder = "Select a file…",
+}: FilePickerProps): JSX.Element => (
+  <Select value={active ?? undefined} onValueChange={onSelect}>
+    <SelectTrigger size="sm" className="h-7 w-auto min-w-[200px] max-w-full font-mono text-xs">
+      <SelectValue placeholder={placeholder} />
+    </SelectTrigger>
+    <SelectContent>
+      {files.map((file) => (
+        <SelectItem key={file.relPath} value={file.relPath} className="font-mono text-xs">
+          {display(file)}
+        </SelectItem>
+      ))}
+    </SelectContent>
+  </Select>
+);
 
 interface ThermoChartProps {
   stage: LammpsThermoStage;
@@ -225,23 +267,13 @@ const TrajectoryPanel = ({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-1 text-xs">
-        {files.map((file) => (
-          <button
-            key={file.relPath}
-            type="button"
-            onClick={() => onSelect(file.relPath)}
-            className={`rounded px-2 py-0.5 transition-colors ${
-              active === file.relPath
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            }`}
-            title={`${file.relPath} (${formatBytes(file.size)})`}
-          >
-            {file.name}
-          </button>
-        ))}
-      </div>
+      <FilePicker
+        files={files}
+        active={active}
+        onSelect={onSelect}
+        display={(file) => `${file.name} (${formatBytes(file.size)})`}
+        placeholder="Select a trajectory…"
+      />
       {activeFile ? (
         <TrajectoryViewer
           projectId={projectId}
@@ -313,21 +345,13 @@ export const MolvisTab = ({
 
         {logFiles.length > 0 && (
           <OverviewSection title="Thermo (parsed by molpy)">
-            <div className="mb-3 flex flex-wrap items-center gap-1 text-xs">
-              {logFiles.map((file) => (
-                <button
-                  key={file.relPath}
-                  type="button"
-                  onClick={() => setActiveLog(file.relPath)}
-                  className={`rounded px-2 py-0.5 transition-colors ${
-                    activeLog === file.relPath
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-                  }`}
-                >
-                  {file.relPath}
-                </button>
-              ))}
+            <div className="mb-3">
+              <FilePicker
+                files={logFiles}
+                active={activeLog}
+                onSelect={setActiveLog}
+                placeholder="Select a log…"
+              />
             </div>
             {activeLogFile ? (
               <LogPreview

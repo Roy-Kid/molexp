@@ -42,7 +42,7 @@ import tty
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Literal
 
 from molexp._typing import JSONValue
@@ -158,7 +158,7 @@ def _elapsed(started: str | None, finished: str | None) -> str | None:
         return None
 
 
-def _read_run_json(run_dir: Path) -> dict[str, JSONValue]:
+def _read_run_json(run_dir: Path | PurePath) -> dict[str, JSONValue]:
     p = Path(run_dir) / "run.json"
     if not p.exists():
         return {}
@@ -892,7 +892,7 @@ def _detail_execution(node: TreeNode) -> list[RenderableType]:
             kv.add_row(fname, str(candidate))
     logs_dir = exec_dir / "logs"
     if logs_dir.is_dir():
-        named = sorted(p.name for p in logs_dir.glob("*.log"))
+        named = sorted(p.name for p in Path(logs_dir).glob("*.log"))
         if named:
             kv.add_row("logs/", ", ".join(named))
     return [kv]

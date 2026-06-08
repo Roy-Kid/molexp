@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import TYPE_CHECKING, Any
 
 from molexp.plugins.submit_molq.metadata import normalize_executor_info
@@ -47,9 +47,9 @@ def _elapsed(created_at: str | None, finished_at: str | None = None) -> str | No
         return None
 
 
-def _read_run_json(run_dir: Path) -> dict[str, Any]:
+def _read_run_json(run_dir: Path | PurePath) -> dict[str, Any]:
     """Load run.json without constructing a Run object."""
-    p = run_dir / "run.json"
+    p = Path(run_dir) / "run.json"
     if not p.exists():
         return {}
     try:
@@ -115,7 +115,7 @@ class RunMonitor:
         # ``name`` is the experiment name (the human-meaningful label); when
         # an experiment has multiple replicas we append ``#<replica>`` from
         # run.parameters so rows stay distinguishable.
-        run_entries: list[tuple[str, str | None, Path]] = []
+        run_entries: list[tuple[str, str | None, Path | PurePath]] = []
         for r in runs:
             exp_name = r.experiment.name
             replica = r.metadata.parameters.get("replica")

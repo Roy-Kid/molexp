@@ -26,7 +26,7 @@ import asyncio
 import contextlib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import anyio
 from mollog import get_logger
@@ -139,6 +139,22 @@ def _get_run_id(run_context: RunContextLike | None) -> str | None:
     return getattr(run, "id", getattr(run, "run_id", None))
 
 
+def _get_active_execution_id(run_context: RunContextLike | None) -> str | None:
+    """Extract the active RunContext execution id when one is already open."""
+    if run_context is None:
+        return None
+    getter = getattr(run_context, "_get_execution_id", None)
+    if callable(getter):
+        value = getter()
+        if isinstance(value, str) and value:
+            return value
+    value = getattr(run_context, "execution_id", None)
+    if isinstance(value, str) and value:
+        return value
+    value = getattr(run_context, "_execution_id", None)
+    return value if isinstance(value, str) and value else None
+
+
 def _record_run_failure(run_context: RunContextLike | None, error: str | None) -> None:
     """Mark task-failure on a duck-typed run_context via its typed
     :meth:`RunContextLike.mark_failed`.
@@ -232,6 +248,7 @@ class WorkflowRuntime:
         *,
         run_context: RunContextLike | None,
         run_dir: Path | None,
+        execution_id: str | None,
         config: JSONMapping | None,
         deps: UserDeps,
         cache: Caching | None = None,
@@ -274,6 +291,7 @@ class WorkflowRuntime:
             user_deps=deps,
             remote_executor=None,
             run_dir=run_dir,
+            execution_id=execution_id,
             registration_by_name=registration_by_name,
             parallel_decls=parallel_decls,
             loop_max_iters=loop_max_iters,
@@ -311,7 +329,11 @@ class WorkflowRuntime:
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
 
-        execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
+        execution_id = (
+            execution_id
+            or _get_active_execution_id(run_context)
+            or make_execution_id(run_id, resolved_run_dir)
+        )
 
         # Observability — write the initial workflow.json under
         # ``<run_dir>/executions/<execution_id>/`` so the execution-id directory
@@ -321,13 +343,14 @@ class WorkflowRuntime:
         if resolved_run_dir is not None:
             from .persistence import write_initial_workflow_json
 
-            write_initial_workflow_json(resolved_run_dir, execution_id)
+            write_initial_workflow_json(resolved_run_dir, execution_id, compiled=compiled)
 
         try:
             workflow_deps = self._build_deps(
                 compiled,
                 run_context=run_context,
                 run_dir=resolved_run_dir,
+                execution_id=execution_id,
                 config=config,
                 deps=deps,
                 cache=_resolve_cache(cache, self.cache, run_context),
@@ -343,6 +366,16 @@ class WorkflowRuntime:
             # not consult — and run.status defaults to ``succeeded``.
             if result_state.failed and run_context is not None:
                 _record_run_failure(run_context, result_state.error)
+            if resolved_run_dir is not None:
+                from .persistence import mark_workflow_finished
+
+                mark_workflow_finished(
+                    resolved_run_dir,
+                    execution_id,
+                    status="failed" if result_state.failed else "completed",
+                    outputs=result_state.results,
+                    error=result_state.error,
+                )
 
             return WorkflowResult(
                 status="failed" if result_state.failed else "completed",
@@ -350,15 +383,35 @@ class WorkflowRuntime:
                 run_id=run_id,
                 execution_id=execution_id,
             )
-        except WorkflowError:
+        except WorkflowError as exc:
             # Programming errors in the workflow definition / task body
             # (CycleError, UnknownRouteError, MissingRouteError, …)
             # propagate to the caller.
+            if resolved_run_dir is not None:
+                from .persistence import mark_workflow_finished
+
+                mark_workflow_finished(
+                    resolved_run_dir,
+                    execution_id,
+                    status="failed",
+                    outputs=dict(state.results),
+                    error=str(exc),
+                )
             raise
         except Exception as exc:
             logger.exception(f"Workflow {compiled.name!r} execution failed")
             if run_context is not None:
                 _record_run_failure(run_context, str(exc))
+            if resolved_run_dir is not None:
+                from .persistence import mark_workflow_finished
+
+                mark_workflow_finished(
+                    resolved_run_dir,
+                    execution_id,
+                    status="failed",
+                    outputs=dict(state.results),
+                    error=str(exc),
+                )
             # ``state`` is mutated in place by the graph runner, so it still
             # holds every task result recorded before the raise. Preserve them
             # so the caller can resume via ``seed_outputs=`` instead of
@@ -395,13 +448,17 @@ class WorkflowRuntime:
         seed_state = self._build_initial_state(compiled, seed_outputs)
         resolved_run_dir = _resolve_run_dir(run_context, run_dir)
         run_id = _get_run_id(run_context)
-        execution_id = execution_id or make_execution_id(run_id, resolved_run_dir)
+        execution_id = (
+            execution_id
+            or _get_active_execution_id(run_context)
+            or make_execution_id(run_id, resolved_run_dir)
+        )
 
         # Observability — see ``execute()`` for the rationale.
         if resolved_run_dir is not None:
             from .persistence import write_initial_workflow_json
 
-            write_initial_workflow_json(resolved_run_dir, execution_id)
+            write_initial_workflow_json(resolved_run_dir, execution_id, compiled=compiled)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
@@ -417,6 +474,7 @@ class WorkflowRuntime:
                     compiled,
                     run_context=run_context,
                     run_dir=resolved_run_dir,
+                    execution_id=execution_id,
                     config=config,
                     deps=deps,
                     cache=resolved_cache,
@@ -430,7 +488,17 @@ class WorkflowRuntime:
                     run_id=run_id,
                     execution_id=execution_id,
                 )
-            except Exception:
+                if resolved_run_dir is not None:
+                    from .persistence import mark_workflow_finished
+
+                    mark_workflow_finished(
+                        resolved_run_dir,
+                        execution_id,
+                        status="failed" if result_state.failed else "completed",
+                        outputs=result_state.results,
+                        error=result_state.error,
+                    )
+            except Exception as exc:
                 # ``seed_state`` is mutated in place by the graph runner — it
                 # carries the results of every task that completed before the
                 # raise. Preserve them for ``seed_outputs=`` resume.
@@ -440,6 +508,16 @@ class WorkflowRuntime:
                     run_id=handle.run_id,
                     execution_id=execution_id,
                 )
+                if resolved_run_dir is not None:
+                    from .persistence import mark_workflow_finished
+
+                    mark_workflow_finished(
+                        resolved_run_dir,
+                        execution_id,
+                        status="failed",
+                        outputs=dict(seed_state.results),
+                        error=str(exc),
+                    )
                 logger.exception(f"Background workflow {compiled.name!r} failed")
             finally:
                 handle._done_event.set()
@@ -470,6 +548,7 @@ class WorkflowRuntime:
             compiled,
             run_context=run_context,
             run_dir=resolved_run_dir,
+            execution_id=None,
             config=config,
             deps=deps,
             cache=_resolve_cache(cache, self.cache, run_context),
@@ -522,7 +601,7 @@ class WorkflowRuntime:
         recoverable after process restart.
         """
         params_dict = dict(parameters) if parameters is not None else None
-        run = experiment.add_run(parameters=params_dict)  # type: ignore[attr-defined]
+        run = cast("Any", experiment).add_run(parameters=params_dict)
         with run.start(profile_config=profile_config) as run_ctx:
             result = await self.execute(
                 compiled, run_context=run_ctx, config=config, deps=deps, cache=cache

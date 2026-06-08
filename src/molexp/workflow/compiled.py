@@ -141,11 +141,17 @@ class CompiledWorkflow:
 
     # ── Representation codec (folded from spec 01) ─────────────────────────
 
-    def to_ir(self) -> dict[str, JSONValue]:
-        """Serialize to the JSON IR (data-DAG wire format). Delegates to ``default_codec``."""
+    def to_ir(self, *, strict: bool = True) -> dict[str, JSONValue]:
+        """Serialize to the JSON IR (data-DAG wire format). Delegates to ``default_codec``.
+
+        ``strict`` (default ``True``) requires a ``task_type`` slug on every
+        task so the IR round-trips via :meth:`from_ir`. Pass ``strict=False``
+        for observability-only serialization that tolerates slug-less tasks
+        (``task_type: None``).
+        """
         from .codec import default_codec
 
-        return dict(default_codec.spec_to_ir(self))
+        return dict(default_codec.spec_to_ir(self, strict=strict))
 
     def to_python(self) -> str:
         """Render as a runnable Python script (via the IR)."""

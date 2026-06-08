@@ -236,14 +236,20 @@ class WorkflowCodec:
             parallels=parallels,
         )
 
-    def spec_to_ir(self, spec: CompiledWorkflow) -> JSONMapping:
+    def spec_to_ir(self, spec: CompiledWorkflow, *, strict: bool = True) -> JSONMapping:
         """Serialize a :class:`Workflow` to the JSON IR shape (see ``schema/workflow.json``).
 
         This is the authoritative :class:`Workflow` → IR body;
         :meth:`Workflow.to_dict` delegates here.
+
+        ``strict`` (default ``True``) requires every task to carry a
+        ``task_type`` slug so the IR round-trips back through
+        :meth:`ir_to_spec`. Pass ``strict=False`` for non-round-tripping
+        observability use (e.g. the live ``workflow.json`` graph): slug-less
+        tasks then serialize with ``task_type: None`` instead of raising.
         """
         unslugged = [t.name for t in spec._tasks if t.task_type is None]
-        if unslugged:
+        if unslugged and strict:
             raise ValueError(
                 "Cannot serialize workflow to IR: the following tasks have no "
                 f"task_type slug: {unslugged}. Use `WorkflowCompiler.add(..., task_type=...)` "

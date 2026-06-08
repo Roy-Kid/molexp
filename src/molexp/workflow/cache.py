@@ -132,7 +132,11 @@ class Caching:
             raise ValueError(
                 "Caching does not accept both `store` and `store_dir`. Pass exactly one."
             )
-        self._store: CacheStore = store if store is not None else FileCacheStore(Path(store_dir))  # type: ignore[arg-type]
+        if store is not None:
+            self._store: CacheStore = store
+        else:
+            assert store_dir is not None  # guarded by the checks above
+            self._store = FileCacheStore(Path(store_dir))
         self._max_entries = max_entries
         # In-process LRU index: cache_key → None, ordered oldest-first. Built
         # lazily from the store on first use (one O(E) glob+stat) and then

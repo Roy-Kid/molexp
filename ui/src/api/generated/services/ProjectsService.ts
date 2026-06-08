@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { AssetResponse } from '../models/AssetResponse';
 import type { Body_upload_project_asset_api_projects__id__assets_upload_post } from '../models/Body_upload_project_asset_api_projects__id__assets_upload_post';
+import type { Body_upload_project_asset_api_workspaces__ws__projects__id__assets_upload_post } from '../models/Body_upload_project_asset_api_workspaces__ws__projects__id__assets_upload_post';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { ProjectCreateRequest } from '../models/ProjectCreateRequest';
 import type { ProjectResponse } from '../models/ProjectResponse';
@@ -172,6 +173,205 @@ export class ProjectsService {
             path: {
                 'id': id,
                 'asset_id': assetId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Projects
+     * @param ws
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static listProjectsApiWorkspacesWsProjectsGet(
+        ws: string,
+    ): CancelablePromise<Array<ProjectResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects',
+            path: {
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Create Project
+     * @param ws
+     * @param requestBody
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static createProjectApiWorkspacesWsProjectsPost(
+        ws: string,
+        requestBody: ProjectCreateRequest,
+    ): CancelablePromise<ProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects',
+            path: {
+                'ws': ws,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Project
+     * @param id
+     * @param ws
+     * @returns MessageResponse Successful Response
+     * @throws ApiError
+     */
+    public static deleteProjectApiWorkspacesWsProjectsIdDelete(
+        id: string,
+        ws: string,
+    ): CancelablePromise<MessageResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/workspaces/{ws}/projects/{id}',
+            path: {
+                'id': id,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Project
+     * @param id
+     * @param ws
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static getProjectApiWorkspacesWsProjectsIdGet(
+        id: string,
+        ws: string,
+    ): CancelablePromise<ProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{id}',
+            path: {
+                'id': id,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Project Assets
+     * List every asset (any kind) in the project scope via the catalog.
+     * @param id
+     * @param ws
+     * @param limit
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static listProjectAssetsApiWorkspacesWsProjectsIdAssetsGet(
+        id: string,
+        ws: string,
+        limit: number = 100,
+    ): CancelablePromise<Array<AssetResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{id}/assets',
+            path: {
+                'id': id,
+                'ws': ws,
+            },
+            query: {
+                'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Upload Project Asset
+     * Upload a file into the project's ``DataAssetLibrary``.
+     * @param id
+     * @param ws
+     * @param formData
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static uploadProjectAssetApiWorkspacesWsProjectsIdAssetsUploadPost(
+        id: string,
+        ws: string,
+        formData: Body_upload_project_asset_api_workspaces__ws__projects__id__assets_upload_post,
+    ): CancelablePromise<AssetResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{id}/assets/upload',
+            path: {
+                'id': id,
+                'ws': ws,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Project Asset
+     * @param id
+     * @param assetId
+     * @param ws
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static getProjectAssetApiWorkspacesWsProjectsIdAssetsAssetIdGet(
+        id: string,
+        assetId: string,
+        ws: string,
+    ): CancelablePromise<AssetResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{id}/assets/{asset_id}',
+            path: {
+                'id': id,
+                'asset_id': assetId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Download Project Asset
+     * @param id
+     * @param assetId
+     * @param ws
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static downloadProjectAssetApiWorkspacesWsProjectsIdAssetsAssetIdDownloadGet(
+        id: string,
+        assetId: string,
+        ws: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{id}/assets/{asset_id}/download',
+            path: {
+                'id': id,
+                'asset_id': assetId,
+                'ws': ws,
             },
             errors: {
                 422: `Validation Error`,

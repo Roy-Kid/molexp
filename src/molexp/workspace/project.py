@@ -17,6 +17,7 @@ from molexp.path import Path
 
 if TYPE_CHECKING:
     from .catalog import AssetCatalog
+    from .fs import FileSystem
     from .workspace import Workspace
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary, ImportAction
@@ -62,7 +63,7 @@ class Project(Folder):
         kind: str = WORKSPACE_PROJECT_KIND,
         id: str | None = None,
         workspace: Workspace | None = None,
-        fs: FileSystem | None = None,  # noqa: F821
+        fs: FileSystem | None = None,
         _entity_metadata: ProjectMetadata | None = None,
     ) -> None:
         from .fs_local import LocalFileSystem

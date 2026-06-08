@@ -162,3 +162,44 @@
     @apply bg-background text-foreground;
   }
 }
+
+/*
+ * Workflow-canvas edges (flowgram free-layout). Shape carries node type; colour
+ * carries STATUS. flowgram strokes every line + arrowhead with an SVG
+ * `<linearGradient>` whose two `<stop>`s both use the line's resolved colour, so
+ * recolouring the stops recolours the path AND its arrow. `setLineClassName`
+ * (flowgram-canvas.tsx) tags each line `molexp-edge-<status>`.
+ */
+.molexp-edge-success stop {
+  stop-color: hsl(var(--success)) !important;
+}
+.molexp-edge-failed stop {
+  stop-color: hsl(var(--destructive)) !important;
+}
+.molexp-edge-pending stop {
+  stop-color: hsl(var(--muted-foreground)) !important;
+}
+.molexp-edge-skipped stop {
+  stop-color: hsl(var(--muted-foreground) / 0.5) !important;
+}
+.molexp-edge-running stop {
+  stop-color: hsl(var(--info)) !important;
+}
+
+/*
+ * Running edge: turn flowgram's marching-ants `.flowing-line` into a single
+ * glowing light spot that streams from the upstream node into the downstream
+ * one — a short bright dash chased by a long gap, with a soft blue halo.
+ */
+.molexp-edge-running .flowing-line {
+  stroke-dasharray: 5 26 !important;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 4px hsl(var(--info)));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .molexp-edge-running .flowing-line {
+    animation: none !important;
+    stroke-dasharray: none !important;
+  }
+}
