@@ -3,7 +3,7 @@
 These verify that:
 - ``CompiledWorkflow.from_ir(d)`` produces a runnable spec.
 - ``Workflow.to_ir()`` is the inverse for IR-built specs.
-- Python-built specs marked with ``task_type=`` slugs round-trip too.
+- Python-built specs round-trip too (slugs resolved from the registry).
 - The recomputed ``workflow_id`` (topology hash) is preserved.
 """
 
@@ -127,13 +127,12 @@ class TestRoundtrip:
         from molexp.workflow.registry import _Add, _Constant
 
         wf = WorkflowCompiler(name="py_built")
-        wf.add(_Constant(value=4), name="four", task_type="core.constant", config={"value": 4})
-        wf.add(_Constant(value=6), name="six", task_type="core.constant", config={"value": 6})
+        wf.add(_Constant(value=4), name="four", config={"value": 4})
+        wf.add(_Constant(value=6), name="six", config={"value": 6})
         wf.add(
             _Add(),
             name="sum",
             depends_on=["four", "six"],
-            task_type="core.add",
             config={},
         )
         spec = wf.compile()
@@ -145,10 +144,16 @@ class TestRoundtrip:
         assert sources_for_sum == ["four", "six"]
 
     def test_to_dict_rejects_unslugged_tasks(self) -> None:
-        from molexp.workflow.registry import _Constant
+        from molexp.workflow import Task
+
+        class _Unregistered(Task):
+            """A task whose type was never registered → no resolvable slug."""
+
+            async def execute(self, ctx: object) -> int:  # noqa: ARG002
+                return 1
 
         wf = WorkflowCompiler(name="unslugged")
-        wf.add(_Constant(value=1), name="lonely")  # no task_type passed
+        wf.add(_Unregistered(), name="lonely")  # type not in the registry
         spec = wf.compile()
         with pytest.raises(ValueError, match="task_type slug"):
             spec.to_ir()
@@ -192,7 +197,6 @@ class TestTypedEdgeRoundtrip:
             _Constant(value=value),
             name=name,
             depends_on=deps,
-            task_type="core.constant",
             config={"value": value},
             **kw,
         )

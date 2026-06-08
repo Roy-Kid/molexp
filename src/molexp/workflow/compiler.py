@@ -62,6 +62,16 @@ def compile_registrations(
     version reuses each snapshot's ``code_hash`` so the two code-hashers
     collapse to one.
     """
+    # Resolve each task's serialization slug from the type registry. The slug
+    # lives with the task *type* (registered via ``@default_registry.register``),
+    # not at the ``add()`` call site. Tasks that already carry a slug — the
+    # deserialize path (``ir_to_spec`` sets it from the incoming JSON) — keep it.
+    from .registry import default_registry
+
+    for t in tasks:
+        if t.task_type is None:
+            t.task_type = default_registry.slug_for(t.fn_or_class)
+
     workflow_id = _stable_workflow_id(name, tasks)
     topology = WorkflowTopology(
         name=name,
@@ -243,7 +253,6 @@ class WorkflowCompiler:
         depends_on: list[str] | None = None,
         name: str | None = None,
         remote: UserDeps = None,
-        task_type: str | None = None,
         config: JSONMapping | None = None,
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
@@ -251,9 +260,13 @@ class WorkflowCompiler:
     ) -> WorkflowCompiler:
         """Register a Task / Actor instance (or any Runnable/Streamable).
 
-        Pass ``task_type`` and ``config`` when the task came from a registry
-        factory and you want :meth:`CompiledWorkflow.to_ir` to produce
-        serializable IR. Returns ``self`` to support chaining.
+        The serialization slug is **not** an argument here: it is a property of
+        the task *type*, declared once via
+        :meth:`TaskTypeRegistry.register` / ``@default_registry.register("slug")``
+        and resolved automatically at :meth:`compile` time. Pass ``config`` when
+        the task came from a registry factory and you want
+        :meth:`CompiledWorkflow.to_ir` to reconstruct it. Returns ``self`` to
+        support chaining.
         """
         if routes is not None and next_ is not None:
             raise TypeError("WorkflowCompiler.add: routes= and next_= are mutually exclusive.")
@@ -271,7 +284,6 @@ class WorkflowCompiler:
                 depends_on=depends_on or [],
                 is_actor=isinstance(task, Streamable),
                 remote=remote,
-                task_type=task_type,
                 config=config,
                 dependent_params=dependent_params,
             )

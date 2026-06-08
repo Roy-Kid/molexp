@@ -19,13 +19,12 @@ from molexp.workflow.registry import _Constant
 
 def _valid_ir() -> dict:
     wf = WorkflowCompiler(name="wf")
-    wf.add(_Constant(value=1), name="a", task_type="core.constant", config={"value": 1})
-    wf.add(_Constant(value=2), name="b", task_type="core.constant", config={"value": 2})
+    wf.add(_Constant(value=1), name="a", config={"value": 1})
+    wf.add(_Constant(value=2), name="b", config={"value": 2})
     wf.add(
         _Constant(value=3),
         name="c",
         depends_on=["a", "b"],
-        task_type="core.constant",
         config={"value": 3},
     )
     return dict(default_codec.spec_to_ir(wf.compile()))

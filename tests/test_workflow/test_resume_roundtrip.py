@@ -47,8 +47,8 @@ async def test_resume_roundtrip_seeds_and_reopens(tmp_path) -> None:
     # ── Attempt 1: good completes, boom raises ──────────────────────────────
     wf1 = (
         WorkflowCompiler(name="attempt-1")
-        .add(Good(), name="good", task_type="test.good")
-        .add(Boom(), name="boom", task_type="test.boom", depends_on=["good"])
+        .add(Good(), name="good")
+        .add(Boom(), name="boom", depends_on=["good"])
     )
 
     with run.start() as ctx:
@@ -66,8 +66,8 @@ async def test_resume_roundtrip_seeds_and_reopens(tmp_path) -> None:
     # ── Attempt 2: reopen + reseed, boom now succeeds ───────────────────────
     wf2 = (
         WorkflowCompiler(name="attempt-2")
-        .add(Good(), name="good", task_type="test.good")
-        .add(BoomFixed(), name="boom", task_type="test.boom", depends_on=["good"])
+        .add(Good(), name="good")
+        .add(BoomFixed(), name="boom", depends_on=["good"])
     )
 
     with run.start(execution_id=exec1) as ctx:

@@ -252,8 +252,10 @@ class WorkflowCodec:
         if unslugged and strict:
             raise ValueError(
                 "Cannot serialize workflow to IR: the following tasks have no "
-                f"task_type slug: {unslugged}. Use `WorkflowCompiler.add(..., task_type=...)` "
-                "or build the spec from IR via CompiledWorkflow.from_ir()."
+                f"task_type slug: {unslugged}. Register the task type via "
+                "`@default_registry.register('<namespace>.<name>')` on the task "
+                "class (the slug is then resolved automatically), or build the "
+                "spec from IR via CompiledWorkflow.from_ir()."
             )
         task_configs: list[JSONValue] = []
         for t in spec._tasks:

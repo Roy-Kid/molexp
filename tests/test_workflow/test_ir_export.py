@@ -230,16 +230,20 @@ def test_to_graph_ir_emits_parallel_fanout_edges():
 @pytest.mark.unit
 def test_to_ir_carries_config_for_oop_tasks():
     from molexp.workflow import Task
+    from molexp.workflow.registry import default_registry
 
     class Adder(Task):
         async def execute(self, ctx):
             return 1
 
+    # Slug lives with the type, declared once; resolved at compile time.
+    default_registry.register("test.adder", Adder)
+
     wf = WorkflowCompiler(name="oop")
-    wf.add(Adder(), name="adder", task_type="core.add", config={"value": 10})
+    wf.add(Adder(), name="adder", config={"value": 10})
     ir = wf.compile().to_graph_ir()
     adder = next(t for t in ir.tasks if t.name == "adder")
-    assert adder.task_type == "core.add"
+    assert adder.task_type == "test.adder"
     assert adder.config == {"value": 10}
 
 
@@ -346,7 +350,7 @@ def test_to_mermaid_renders_loop_and_parallel_edges():
 @pytest.mark.unit
 def test_to_mermaid_sanitizes_unsafe_task_names():
     wf = WorkflowCompiler(name="x")
-    wf.add(_Noop(), name="step-one.v2", task_type="t", config={})
+    wf.add(_Noop(), name="step-one.v2", config={})
     out = wf.compile().to_graph_mermaid()
     assert "n_step_one_v2" in out
     # Original name preserved inside the display label.
