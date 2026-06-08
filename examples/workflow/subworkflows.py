@@ -1,10 +1,13 @@
-"""Compose an outer workflow out of a reusable inner ``Workflow``.
+"""Compose an outer workflow out of a reusable inner workflow via ``SubWorkflow``.
 
 Matches ``docs/guide/subworkflows.md``.
 
-There is no dedicated ``SubWorkflow`` type. You wrap the inner spec in a
-``Task`` and let the outer workflow treat it as one opaque node. The
-inner spec retains its own ``workflow_id``, topology, and validation.
+``SubWorkflow`` is the sanctioned composition node: it wraps an inner
+``CompiledWorkflow`` (or a ``WorkflowCompiler``, compiled on construction) and,
+when executed, runs that inner spec end-to-end through the engine — forwarding
+the outer ``run_context`` by identity. From the outer graph's perspective it is
+a single registered task, so it also slots into ``builder.parallel(body=...)``
+as the per-element fan-out body with no per-element node growth.
 
 Run directly::
 
@@ -15,12 +18,18 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, Workflow, WorkflowBuilder
+from molexp.workflow import (
+    SubWorkflow,
+    Task,
+    TaskContext,
+    WorkflowCompiler,
+    WorkflowRuntime,
+)
 
 
-def build_preprocess() -> Workflow:
+def build_preprocess() -> WorkflowCompiler:
     """The inner pipeline — could live in its own module."""
-    wf = WorkflowBuilder(name="preprocess")
+    wf = WorkflowCompiler(name="preprocess")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[float]:
@@ -31,22 +40,7 @@ def build_preprocess() -> Workflow:
         top = max(ctx.inputs)
         return [x / top for x in ctx.inputs]
 
-    return wf.build()
-
-
-class Preprocess(Task):
-    """Wraps an inner spec so an outer builder can add it as one node."""
-
-    def __init__(self, spec: Workflow) -> None:
-        self._spec = spec
-
-    async def execute(self, ctx: TaskContext) -> list[float]:
-        # Forward the outer ``run_context`` (when present) so inner-task
-        # workspace helpers continue to work; otherwise the inner spec
-        # runs with no workspace attached, just like the outer when you
-        # call ``spec.execute()`` from a notebook.
-        result = await self._spec.execute(run_context=ctx.run_context)
-        return result.outputs["normalize"]
+    return wf
 
 
 class Train(Task):
@@ -54,21 +48,53 @@ class Train(Task):
         return sum(ctx.inputs) / len(ctx.inputs)
 
 
-async def main() -> None:
-    inner = build_preprocess()
-
+async def run_chained() -> None:
+    """SubWorkflow as one node of an outer chain: preprocess → train."""
     outer = (
-        WorkflowBuilder(name="train")
-        .add(Preprocess(inner), name="preprocess")
+        WorkflowCompiler(name="train")
+        .add(SubWorkflow(build_preprocess()), name="preprocess")
         .add(Train(), depends_on=["preprocess"])
-        .build()
+        .compile()
     )
 
-    result = await outer.execute()
-    print(f"inner workflow_id: {inner.workflow_id}")
-    print(f"outer workflow_id: {outer.workflow_id}")
-    print(f"status:            {result.status}")
-    print(f"outputs:           {result.outputs}")
+    result = await WorkflowRuntime().execute(outer)
+    print("── chained ──")
+    print(f"status:  {result.status}")
+    print(f"outputs: {result.outputs}")
+
+
+async def run_parallel_body() -> None:
+    """SubWorkflow as the per-element body of ``builder.parallel``.
+
+    The fan-out runs the full inner chain once per element; ``join`` receives
+    one inner output per element in iteration order. The compiled task set stays
+    exactly {enumerate, preprocess, collect} — no per-element node growth.
+    """
+    wf = WorkflowCompiler(name="fanout", entry="enumerate")
+
+    @wf.task
+    async def enumerate(ctx: TaskContext) -> list[int]:
+        return [0, 1, 2]
+
+    wf.add(SubWorkflow(build_preprocess()), name="preprocess")
+
+    @wf.task
+    async def collect(ctx: TaskContext) -> list[list[float]]:
+        return list(ctx.inputs)
+
+    wf.parallel(map_over="enumerate", body="preprocess", join="collect", max_concurrency=2)
+
+    compiled = wf.compile()
+    result = await WorkflowRuntime().execute(compiled)
+    print("── parallel body ──")
+    print(f"task set: {sorted(t.name for t in compiled._tasks)}")
+    print(f"status:   {result.status}")
+    print(f"collect:  {result.outputs['collect']}")
+
+
+async def main() -> None:
+    await run_chained()
+    await run_parallel_body()
 
 
 if __name__ == "__main__":

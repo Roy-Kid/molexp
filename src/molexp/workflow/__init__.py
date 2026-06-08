@@ -84,6 +84,7 @@ from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .snapshot import TaskSnapshot
 from .snapshot_ref import WorkflowSnapshotRef
+from .subworkflow import SubWorkflow
 from .sweep import SweepMap
 from .task import Actor, Task
 from .types import (
@@ -141,6 +142,7 @@ __all__ = [
     "Runnable",
     "Severity",
     "Streamable",
+    "SubWorkflow",
     "SweepMap",
     "Task",
     "TaskContext",
