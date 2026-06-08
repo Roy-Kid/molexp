@@ -4,8 +4,34 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
+
+if TYPE_CHECKING:
+    from .._typing import JSONValue
+
+
+def derive_run_id(params: Mapping[str, JSONValue], *, length: int = 16) -> str:
+    """Derive a deterministic, content-addressed run id from a parameter dict.
+
+    The id is a sha256 over the canonicalized parameters — keys sorted, each
+    rendered ``k=repr(v)`` — so it is a pure function of the params and
+    independent of dict insertion order. Identical params always map to the
+    same id, which makes run materialization idempotent (see
+    :meth:`Experiment.add_runs`). This is the single canonicalization shared by
+    the workspace layer and ``cli._common.deterministic_run_id``.
+
+    Args:
+        params: The run's parameter mapping (JSON-serializable values).
+        length: Number of leading hex characters to keep (default 16).
+
+    Returns:
+        A ``length``-character lowercase hex string.
+    """
+    raw = "|".join(f"{k}={v!r}" for k, v in sorted(params.items()))
+    return hashlib.sha256(raw.encode()).hexdigest()[:length]
 
 
 def generate_id() -> str:

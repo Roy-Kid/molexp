@@ -5,7 +5,6 @@ Everything in this module is internal — command modules import from it.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import platform
 from datetime import datetime
@@ -51,9 +50,14 @@ def deterministic_run_id(params: dict[str, JSONValue]) -> str:
     idempotent across repeated ``molexp run`` invocations.  The caller
     decides which fields to include (for profile-aware IDs, mix in
     the profile name / config hash).
+
+    Delegates to :func:`molexp.workspace.utils.derive_run_id` — the single
+    canonicalization shared with ``Experiment.add_runs`` — keeping this name
+    and its 16-char output stable for existing CLI callers.
     """
-    raw = "|".join(f"{k}={v!r}" for k, v in sorted(params.items()))
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    from molexp.workspace.utils import derive_run_id
+
+    return derive_run_id(params)
 
 
 def pid_alive(pid: int) -> bool:

@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from .catalog import AssetCatalog
+    from .param import ParamSpace
     from .project import Project
     from .workspace import Workspace
 
@@ -387,6 +388,45 @@ class Experiment(Folder):
             target=resolved_target,
         )
         return cast(Run, self.add_folder(child))
+
+    def add_runs(
+        self,
+        space: ParamSpace,
+        *,
+        target: str | None = None,
+        workflow_snapshot: dict[str, JSONValue] | None = None,
+    ) -> list[Run]:
+        """Materialize a ``ParamSpace`` into one content-addressed sibling Run per cell.
+
+        Expands *space* (``GridSpace`` / ``UniformSpace`` / any ``ParamSpace``)
+        and mounts one Run per parameter cell, deriving each run's id from its
+        parameters via :func:`~molexp.workspace.utils.derive_run_id`. Because
+        the id is content-addressed and ``add_run`` is idempotent on id,
+        re-materializing the same space is a no-op: identical cells return the
+        existing Runs with no duplicates and no ``RunExistsError``.
+
+        Args:
+            space: The parameter space to expand (one Run per cell).
+            target: Optional compute target applied to every materialized Run.
+            workflow_snapshot: Optional workflow snapshot applied to every Run.
+
+        Returns:
+            One :class:`Run` per cell, in the space's iteration order.
+        """
+        from .utils import derive_run_id
+
+        runs: list[Run] = []
+        for cell in space:
+            params = dict(cell)
+            runs.append(
+                self.add_run(
+                    parameters=params,
+                    id=derive_run_id(params),
+                    target=target,
+                    workflow_snapshot=workflow_snapshot,
+                )
+            )
+        return runs
 
     def get_run(self, run_id: str) -> Run:
         return self.get_folder(run_id, cls=Run)
