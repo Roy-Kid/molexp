@@ -1,7 +1,7 @@
 """Headline benchmark for perf-hardening-02 (ac-008).
 
 Measures the edge-walk SQL statement count and wall-clock for a single
-``SQLiteProvenanceStore.trace_backward`` over a deep synthetic lineage.
+``SQLiteArtifactLineageStore.trace_backward`` over a deep synthetic lineage.
 
 The store's BFS used to emit one SQL statement per visited node (O(N));
 the recursive-CTE rewrite collapses the edge walk to a single statement
@@ -25,14 +25,14 @@ from itertools import pairwise
 from pathlib import Path
 
 from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
 N_EDGES = 500
 """Depth of the synthetic chain — 500 edges, 501 artifact nodes."""
 
 
 def _build_chain(
-    store: SQLiteProvenanceStore, artifact_store: FileArtifactStore, n_edges: int
+    store: SQLiteArtifactLineageStore, artifact_store: FileArtifactStore, n_edges: int
 ) -> str:
     """Build a linear lineage of ``n_edges`` edges and return the leaf id.
 
@@ -53,7 +53,7 @@ def _build_chain(
     return node_ids[-1]
 
 
-def _measure(store: SQLiteProvenanceStore, leaf: str) -> tuple[int, float, int]:
+def _measure(store: SQLiteArtifactLineageStore, leaf: str) -> tuple[int, float, int]:
     """Return (edge_walk_statement_count, wall_clock_seconds, n_results).
 
     The trace callback is installed AFTER the graph is built so only the
@@ -76,7 +76,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         artifact_store = FileArtifactStore(root=root / "artifacts")
-        store = SQLiteProvenanceStore(path=root / "events.sqlite", artifact_store=artifact_store)
+        store = SQLiteArtifactLineageStore(
+            path=root / "events.sqlite", artifact_store=artifact_store
+        )
 
         leaf = _build_chain(store, artifact_store, N_EDGES)
         stmt_count, elapsed, n_results = _measure(store, leaf)
