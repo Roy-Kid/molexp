@@ -118,10 +118,9 @@ def test_execution_result_is_frozen() -> None:
 
 
 def test_execution_result_reexported_from_harness() -> None:
-    from molexp.harness.schemas.execution_result import ExecutionResult as Canonical
-
     import molexp.harness as h
     from molexp.harness.schemas import ExecutionResult as FromSchemas
+    from molexp.harness.schemas.execution_result import ExecutionResult as Canonical
 
     assert h.ExecutionResult is Canonical
     assert FromSchemas is Canonical

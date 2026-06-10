@@ -91,10 +91,9 @@ def test_test_source_forbids_extra_fields() -> None:
 
 
 def test_test_source_reexported_from_harness() -> None:
-    from molexp.harness.schemas.test_source import TestSource as Canonical
-
     import molexp.harness as h
     from molexp.harness.schemas import TestSource as FromSchemas
+    from molexp.harness.schemas.test_source import TestSource as Canonical
 
     assert h.TestSource is Canonical
     assert FromSchemas is Canonical
