@@ -88,9 +88,9 @@ The workspace contains:
 - `validation_report.yaml`
 
 Generated experiment code is Python-native and uses
-`molexp.workflow.WorkflowBuilder`. The generated workflow module exposes
-`create_workflow`, which returns the `molexp.workflow.Workflow` object
-that RunMode will load.
+`molexp.workflow.WorkflowCompiler`. The generated workflow module exposes
+`create_workflow`, which returns the compiled
+`molexp.workflow.CompiledWorkflow` object that RunMode will load.
 
 ## Validation
 

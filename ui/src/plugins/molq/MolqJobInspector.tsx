@@ -117,9 +117,9 @@ export const MolqJobInspector = ({ job }: MolqJobInspectorProps): JSX.Element =>
                   .slice()
                   .reverse()
                   .slice(0, 8)
-                  .map((t, idx) => (
+                  .map((t) => (
                     <li
-                      key={`${t.timestamp}-${idx}`}
+                      key={`${t.timestamp}-${t.fromState ?? "start"}-${t.toState}`}
                       className="flex justify-between gap-2 border-b border-border/30 py-1 text-[11px]"
                     >
                       <span className="font-mono text-muted-foreground">

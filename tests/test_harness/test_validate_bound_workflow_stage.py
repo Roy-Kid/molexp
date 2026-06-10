@@ -68,18 +68,18 @@ def ctx(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     return HarnessRunContext(
         run_id="run-vbw",
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
     )
 
 
@@ -164,12 +164,12 @@ def test_uses_ctx_capability_registry_when_set(tmp_path: Path) -> None:
     from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     # Empty registry → cap.x is unknown
     registry = InMemoryCapabilityRegistry()
     ctx = HarnessRunContext(
@@ -177,7 +177,7 @@ def test_uses_ctx_capability_registry_when_set(tmp_path: Path) -> None:
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
         capability_registry=registry,
     )
     _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())

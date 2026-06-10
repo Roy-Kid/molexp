@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@rstest/core";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
-import { buildFlowgramDocument } from "../flowgram-document";
+import { buildFlowgramDocument, parseTaskGraphIr } from "../flowgram-document";
 
 const linear: TaskGraphJson = {
   task_configs: [
@@ -103,5 +103,61 @@ describe("buildFlowgramDocument", () => {
     }
     // cyclic edges still produced (both endpoints are known)
     expect(doc.edges).toHaveLength(2);
+  });
+});
+
+describe("parseTaskGraphIr — full-graph IR + subworkflow", () => {
+  // The shape `to_graph_ir()` emits and `entry.py` persists as workflow_source:
+  // `{tasks: [{name, task_type, depends_on, subworkflow}], edges: [{source,target,kind}]}`.
+  const graphIr = JSON.stringify({
+    name: "outer",
+    tasks: [
+      { name: "items", task_type: "lister", depends_on: [], subworkflow: null },
+      {
+        name: "sub",
+        task_type: "molexp.SubWorkflow",
+        depends_on: [],
+        subworkflow: {
+          name: "inner",
+          tasks: [
+            { name: "load", task_type: "loader", depends_on: [] },
+            { name: "scale", task_type: "scaler", depends_on: ["load"] },
+          ],
+          edges: [{ source: "load", target: "scale", kind: "data" }],
+        },
+      },
+      { name: "collect", task_type: "collector", depends_on: [] },
+    ],
+    edges: [
+      { source: "items", target: "sub", kind: "parallel" },
+      { source: "sub", target: "collect", kind: "parallel" },
+    ],
+  });
+
+  it("accepts the graph-IR shape (tasks/edges), not just wire (task_configs/links)", () => {
+    const ir = parseTaskGraphIr(graphIr);
+    expect(ir).not.toBeNull();
+    expect(ir?.task_configs.map((t) => t.id).sort()).toEqual(["collect", "items", "sub"]);
+    expect(ir?.links).toHaveLength(2);
+  });
+
+  it("carries a SubWorkflow node's inner graph through recursive normalization", () => {
+    const ir = parseTaskGraphIr(graphIr) as TaskGraphJson;
+    const sub = ir.task_configs.find((t) => t.id === "sub");
+    expect(sub?.subworkflow).toBeDefined();
+    expect(sub?.subworkflow?.name).toBe("inner");
+    expect(sub?.subworkflow?.task_configs.map((t) => t.id).sort()).toEqual(["load", "scale"]);
+    // Plain nodes carry no inner graph.
+    expect(ir.task_configs.find((t) => t.id === "items")?.subworkflow).toBeUndefined();
+  });
+
+  it("buildFlowgramDocument exposes subworkflow + parallel flag on the node data", () => {
+    const ir = parseTaskGraphIr(graphIr) as TaskGraphJson;
+    const doc = buildFlowgramDocument(ir);
+    const sub = doc.nodes.find((n) => n.id === "sub");
+    expect(sub?.data.parallel).toBe(true); // target of a kind="parallel" edge
+    expect(sub?.data.subworkflow?.name).toBe("inner");
+    const items = doc.nodes.find((n) => n.id === "items");
+    expect(items?.data.subworkflow).toBeUndefined();
   });
 });

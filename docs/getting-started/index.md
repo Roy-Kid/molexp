@@ -10,4 +10,4 @@ Then read [Your First Workflow](first-workflow.md) to understand what a workflow
 
 ## When to Leave This Section
 
-Once you can read a script that calls `wf.build()`, binds the result to an experiment, and registers the workspace with `me.entry(ws)`, you are ready to leave onboarding. At that point the [Concepts](../concept/index.md) section will help firm up the model, and the [Guide](../guide/index.md) section will be the better place for detailed topics.
+Once you can read a script that calls `wf.compile()` and declares the result on an experiment with `ws.project(...).experiment(...).run(compiled, params=...)` — the fluent chain `molexp run` discovers — you are ready to leave onboarding. At that point the [Concepts](../concept/index.md) section will help firm up the model, and the [Guide](../guide/index.md) section will be the better place for detailed topics.

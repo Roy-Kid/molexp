@@ -1,10 +1,12 @@
-"""pydantic-graph backed workflow runtime — internal implementation.
+"""Workflow engine internals — lowering, structural scheduler, persistence.
 
 This subpackage is the sole permitted ``import pydantic_graph`` site
-under ``src/molexp/workflow/``. The public ``molexp.workflow`` surface
-re-exports the small handful of names it needs (currently just
-``End``) through this module so the rest of the workflow layer stays
-pg-agnostic.
+under ``src/molexp/workflow/`` — the surviving pg surface is the ``End``
+sentinel re-export (``molexp.workflow.End is pydantic_graph.End``).
+Execution itself is molexp-owned: the compiler lowers the topology to an
+:class:`~.plan.ExecutionPlan` and :mod:`.engine` runs it with
+values-on-edges semantics (inputs delivered from upstream outputs,
+structural deadlock detection, no timing constants).
 """
 
 from pydantic_graph import End as End

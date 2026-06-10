@@ -20,10 +20,10 @@ import type { WorkflowSnapshotResponse } from "@/api/generated/models/WorkflowSn
 import { KeyValueGrid } from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary } from "@/app/types";
+import { Badge } from "@/components/ui/badge";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import { WorkflowGraph } from "@/components/workflow/workflow-graph";
-import { Badge } from "@/components/ui/badge";
 
 // Local shape used by the diff viewer only. The backend no longer exposes a
 // per-task snapshot schema; the diff fixture is kept for the experiment-level

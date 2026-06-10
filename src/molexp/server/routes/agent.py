@@ -41,7 +41,10 @@ if TYPE_CHECKING:
         UserMessageCreateRequest,
     )
 
-router = APIRouter(prefix="/api/agent", tags=["agent"])
+# NOTE: no ``/api`` here — the router is mounted under the global ``/api``
+# prefix by ``create_app`` (a hardcoded ``/api/agent`` used to produce live
+# ``/api/api/agent/*`` paths).
+router = APIRouter(prefix="/agent", tags=["agent"])
 
 # Copied from routes/molq.py:27 (the canonical SSE idiom) — not imported, so the
 # agent stream stays decoupled from the molq job dashboard.
@@ -74,10 +77,12 @@ async def agent_disabled(path: str) -> None:  # noqa: ARG001
 # ── Runner construction (a test seam) ───────────────────────────────────────
 #
 # ``create_session`` builds one :class:`AgentRunner` per session. Production
-# resolves the model from in-code ``molexp.config`` (``agent_model``); tests
-# install a factory that injects a fake/scripted ``Router`` so no real LLM is
-# constructed. Server must not import ``molexp.cli`` (layer inversion), so the
-# model is read from ``molexp.config`` directly rather than the CLI config.
+# resolves the model from in-code ``molexp.config`` (``agent.model``, bridged
+# from ``~/.molexp/config.json`` at server startup); tests install a factory
+# that injects a fake/scripted ``Router`` so no real LLM is constructed.
+# Server must not import ``molexp.cli`` (layer inversion), so the model is
+# read from ``molexp.config`` / the shared operator-config loader rather than
+# the CLI module.
 
 RunnerFactory = Callable[["Workspace"], "AgentRunner"]
 
@@ -97,10 +102,19 @@ def reset_runner_factory() -> None:
 
 
 def _configured_model() -> str | None:
-    """Return the ``agent_model`` registered in in-code ``molexp.config``."""
+    """Return the agent model registered in in-code ``molexp.config``.
+
+    The canonical key is ``"agent.model"`` (same spelling as the CLI's
+    ``molexp config set agent.model <id>``; the server startup bridge —
+    :func:`molexp.server.operator_config.bridge_operator_config` — populates
+    it from ``~/.molexp/config.json``). The legacy flat ``"agent_model"``
+    key is still honoured for in-code users.
+    """
     import molexp
 
-    model = molexp.config.get("agent_model")
+    from ..operator_config import AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY
+
+    model = molexp.config.get(AGENT_MODEL_KEY) or molexp.config.get(LEGACY_AGENT_MODEL_KEY)
     return model if isinstance(model, str) and model else None
 
 
@@ -124,8 +138,9 @@ def _build_runner(workspace: Workspace) -> AgentRunner:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=(
-                "No agent model is configured. Register one in molexp.config "
-                "(agent_model) before creating an agent session."
+                "No agent model is configured. Run `molexp config set "
+                "agent.model <id>` or register molexp.config['agent.model'] "
+                "in code before creating an agent session."
             ),
         )
 
@@ -216,7 +231,7 @@ async def stream_events(session_id: str, *, workspace: Workspace) -> StreamingRe
     Fails fast with 404 (before any stream byte) when the session is not
     registered. Otherwise frames each event as ``data: {json}\\n\\n`` in
     replay-then-tail order, closes with a terminal ``done`` frame after the
-    turn's ``mode_completed``, and emits exactly one ``error`` frame (then a
+    turn's ``loop_completed``, and emits exactly one ``error`` frame (then a
     clean close) when the turn ended in failure.
     """
     runtime = get_agent_runtime().get(_workspace_root(workspace), session_id)

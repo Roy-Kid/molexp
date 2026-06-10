@@ -26,6 +26,7 @@ import {
 import type { ComponentType, ReactNode, SVGProps } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { ApiError } from "@/api/generated";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
@@ -58,6 +59,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+const errorDetail = (error: unknown): string => {
+  if (error instanceof ApiError) {
+    const detail = (error.body as { detail?: unknown } | null)?.detail;
+    if (typeof detail === "string" && detail) return detail;
+    return error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+};
+
 interface LeftPanelProps {
   view: LeftPanelView;
   selection: Selection | null;
@@ -65,7 +75,7 @@ interface LeftPanelProps {
   searchQuery?: string;
   onViewChange: (view: LeftPanelView) => void;
   onSelect: (selection: Selection) => void;
-  onOpenWorkspace: (path: string) => void;
+  onOpenWorkspace: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
   onCreateDirectory: (path: string) => void;
   onCreateFile: (path: string) => void;
   onRefresh: () => void;
@@ -804,7 +814,25 @@ export const LeftPanel = ({
       confirmLabel: "Open",
     });
     if (!path) return;
-    onOpenWorkspace(path);
+    try {
+      await onOpenWorkspace(path);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        const create = await confirm({
+          title: "Create workspace?",
+          description: `${path} does not exist.`,
+          confirmLabel: "Create",
+        });
+        if (!create) return;
+        try {
+          await onOpenWorkspace(path, { createIfMissing: true });
+        } catch (retryError) {
+          await alert({ title: "Open failed", description: errorDetail(retryError) });
+        }
+        return;
+      }
+      await alert({ title: "Open failed", description: errorDetail(error) });
+    }
   };
   const handleCreateFile = async (): Promise<void> => {
     const path = await prompt({

@@ -2,7 +2,7 @@
 
 A heartbeat coroutine ticking every ~5 ms runs under ``asyncio.gather``
 alongside a multi-stage pipeline run backed by REAL stores
-(``FileArtifactStore`` + ``SQLiteEventLog`` + ``SQLiteProvenanceStore`` on
+(``FileArtifactStore`` + ``SQLiteEventLog`` + ``SQLiteArtifactLineageStore`` on
 ``tmp_path``). The max observed inter-tick gap must stay < 50 ms, proving
 the loop is not blocked by persistence writes.
 
@@ -46,19 +46,19 @@ async def test_heartbeat_not_starved_during_multi_stage_run(tmp_path: Path) -> N
     from molexp.harness.core.stage_runner import StageRunner
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
-    provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifacts)
 
     ctx = HarnessRunContext(
         run_id="run-perf",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
     )
 
     class ChainStage(Stage):

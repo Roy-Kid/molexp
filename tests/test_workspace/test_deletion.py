@@ -20,7 +20,7 @@ def _build(tmp_path):
     ws.materialize()
     p = ws.add_project("proj-a")
     e = p.add_experiment("exp-x", workflow_source="s.py", params={})
-    r = e.add_run(parameters={"seed": 1})
+    r = e.add_run(params={"seed": 1})
 
     # Seed two execution dirs + history entries
     hist = []

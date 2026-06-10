@@ -16,8 +16,8 @@ from molexp.agent.events import (
     ArtifactWrittenEvent,
     CompactionPerformedEvent,
     ErrorEvent,
-    ModeCompletedEvent,
-    ModeStartedEvent,
+    LoopCompletedEvent,
+    LoopStartedEvent,
     PlanEmittedEvent,
     PreflightFailedEvent,
     RepairProposedEvent,
@@ -30,7 +30,7 @@ from molexp.agent.events import (
 )
 
 ALL_EVENT_CLASSES = (
-    ModeStartedEvent,
+    LoopStartedEvent,
     StageStartedEvent,
     StageCompletedEvent,
     ArtifactWrittenEvent,
@@ -40,7 +40,7 @@ ALL_EVENT_CLASSES = (
     PreflightFailedEvent,
     RepairProposedEvent,
     CompactionPerformedEvent,
-    ModeCompletedEvent,
+    LoopCompletedEvent,
     ErrorEvent,
     ThinkingDeltaEvent,
     TokenDeltaEvent,
@@ -49,7 +49,7 @@ ALL_EVENT_CLASSES = (
 )
 
 EXPECTED_KINDS = {
-    "mode_started",
+    "loop_started",
     "stage_started",
     "stage_completed",
     "artifact_written",
@@ -59,7 +59,7 @@ EXPECTED_KINDS = {
     "preflight_failed",
     "repair_proposed",
     "compaction_performed",
-    "mode_completed",
+    "loop_completed",
     "error",
     "thinking_delta",
     "token_delta",
@@ -75,7 +75,7 @@ def test_union_covers_all_sixteen_kinds() -> None:
 
 
 def test_each_event_carries_a_timestamp() -> None:
-    ev = ModeStartedEvent(mode_name="chat", user_input="hi")
+    ev = LoopStartedEvent(loop_name="chat", user_input="hi")
     assert isinstance(ev.timestamp, datetime)
     assert ev.timestamp.tzinfo is not None
 
@@ -89,7 +89,7 @@ def test_events_are_frozen() -> None:
 def test_discriminated_union_round_trips_through_json() -> None:
     adapter: TypeAdapter[AgentEvent] = TypeAdapter(AgentEvent)
     samples: list[AgentEvent] = [
-        ModeStartedEvent(mode_name="chat", user_input="hi"),
+        LoopStartedEvent(loop_name="chat", user_input="hi"),
         StageStartedEvent(stage_name="draft"),
         StageCompletedEvent(stage_name="draft"),
         ArtifactWrittenEvent(path="out.txt", description="result"),
@@ -99,7 +99,7 @@ def test_discriminated_union_round_trips_through_json() -> None:
         PreflightFailedEvent(failed_checks=("acyclic", "io")),
         RepairProposedEvent(failed_invariant="dag", rationale="fix"),
         CompactionPerformedEvent(summary="...", tokens_before=100, entries_summarized=4),
-        ModeCompletedEvent(text="done"),
+        LoopCompletedEvent(text="done"),
         ErrorEvent(message="boom", error_type="ValueError"),
         ThinkingDeltaEvent(text="reasoning"),
         TokenDeltaEvent(text="hel"),
@@ -121,9 +121,9 @@ def test_discriminator_selects_concrete_class() -> None:
     assert loaded.message == "x"
 
 
-def test_mode_completed_carries_optional_result_payload() -> None:
-    ev = ModeCompletedEvent(text="done", result={"mode_state": {"k": 1}})
-    assert ev.result == {"mode_state": {"k": 1}}
+def test_loop_completed_carries_optional_result_payload() -> None:
+    ev = LoopCompletedEvent(text="done", result={"loop_state": {"k": 1}})
+    assert ev.result == {"loop_state": {"k": 1}}
 
 
 # ── AsyncIteratorEventSink (queue-backed bridge, ac-006..011) ──────────────

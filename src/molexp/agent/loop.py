@@ -11,7 +11,7 @@ Pipeline-style orchestration (Plan / Author / Run / Review) moved to
 A loop is a plain async coroutine: ``async def run(*, runtime, sink,
 user_input) -> None``. Events flow through the injected
 :class:`~molexp.agent.events.AsyncIteratorEventSink`; the terminal
-:class:`~molexp.agent.events.ModeCompletedEvent` carries the JSON dump
+:class:`~molexp.agent.events.LoopCompletedEvent` carries the JSON dump
 of the run's :class:`AgentRunResult` so the runner can rebuild it.
 """
 
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 class AgentRunResult(BaseModel):
     """Outcome of one ``AgentRunner.run(...)`` call.
 
-    Loops populate ``mode_state`` with loop-specific structured output;
+    Loops populate ``loop_state`` with loop-specific structured output;
     ChatLoop + InteractiveLoop leave it ``None``.
 
     ``usage`` is the aggregate token / request count for the run;
@@ -49,7 +49,7 @@ class AgentRunResult(BaseModel):
 
     text: str
     messages: tuple[Message, ...] = ()
-    mode_state: dict[str, Any] | None = None
+    loop_state: dict[str, Any] | None = None
     usage: Usage = Field(default_factory=Usage)
     usage_breakdown: UsageBreakdown = Field(default_factory=UsageBreakdown)
     events: tuple[AgentEvent, ...] = ()
@@ -84,7 +84,7 @@ class AgentLoop(ABC):
         """Drive the loop, emitting orchestration events through ``sink``.
 
         The loop MUST emit a terminal
-        :class:`~molexp.agent.events.ModeCompletedEvent` whose
+        :class:`~molexp.agent.events.LoopCompletedEvent` whose
         ``result`` carries the JSON dump of the run's
         :class:`AgentRunResult` so the runner can rebuild it.
         """

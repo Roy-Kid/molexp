@@ -2,9 +2,9 @@
 
 Deterministic, network-free: a ``StubAgentGateway`` returns canned valid
 outputs per planning agent, so ``PlanMode`` runs its full 9-stage sequence on
-a tmp ``workspace.Run`` and we assert the ``ModeResult`` + provenance. The
-live DeepSeek run is exercised by ``examples/harness/plan_mode_live.py`` (not
-collected here — it needs a paid key).
+a tmp ``workspace.Run`` and we assert the ``ModeResult`` + provenance. Live
+mode is the ``API_KEY`` flip in ``examples/harness/experiment_pipeline.py``
+(offline-canned by default, smoke-gated).
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from molexp.harness import Mode, PlanMode
 from molexp.harness.gateways.stub import StubAgentGateway
 from molexp.harness.schemas import ModeResult, WorkflowSource
 from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 from molexp.workspace import Workspace
 
 # A WorkflowSource program that compiles to a real Workflow (public API).
@@ -99,7 +99,7 @@ _WORKFLOW_SOURCE = {
 def _make_run(tmp_path: Path):
     ws = Workspace(tmp_path / "lab", name="plan-lab")
     ws.materialize()
-    return ws.add_project("demo").add_experiment("nemd").add_run(parameters={})
+    return ws.add_project("demo").add_experiment("nemd").add_run(params={})
 
 
 def _fixture_gateway(run) -> StubAgentGateway:
@@ -183,7 +183,9 @@ def test_workflow_source_lineage_reaches_user_plan(tmp_path: Path) -> None:
     src_ref = next(a for a in result.stage_artifacts if a.kind == "workflow_source")
     user_plan_ref = next(a for a in result.stage_artifacts if a.kind == "user_plan")
 
-    provenance = SQLiteProvenanceStore(path=run.run_dir / "harness.sqlite", artifact_store=store)
+    provenance = SQLiteArtifactLineageStore(
+        path=run.run_dir / "harness.sqlite", artifact_store=store
+    )
     ancestors = {ref.id for ref in provenance.trace_backward(src_ref.id)}
     assert user_plan_ref.id in ancestors
 
@@ -191,11 +193,11 @@ def test_workflow_source_lineage_reaches_user_plan(tmp_path: Path) -> None:
 # ───────────────────────────────────────── ac-007 / ac-008: live-example guards
 
 
-def test_live_example_imports_without_network_or_key(monkeypatch: Any) -> None:
+def test_flagship_example_imports_without_network_or_key(monkeypatch: Any) -> None:
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    import examples.harness.plan_mode_live as live
+    import examples.harness.experiment_pipeline as pipeline
 
-    assert callable(live._run)  # importing it ran nothing (guarded under __main__)
+    assert callable(pipeline.main)  # importing it ran nothing (guarded under __main__)
     assert os.environ.get("DEEPSEEK_API_KEY") is None
 
 

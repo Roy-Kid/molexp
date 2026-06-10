@@ -163,7 +163,7 @@ class TestRunSubmissionWiring:
         captured_submits,
     ):
         """ac-002: rerun appends a new execution on the SAME run; no clone."""
-        src_run = experiment_with_entrypoint.add_run(parameters={"lr": 1e-4}, target=local_target)
+        src_run = experiment_with_entrypoint.add_run(params={"lr": 1e-4}, target=local_target)
         # rerun only acts on failed/cancelled runs — drive a failure first.
         with pytest.raises(RuntimeError, match="boom"), src_run.start():
             raise RuntimeError("boom")
@@ -244,7 +244,7 @@ class TestRunSubmissionWiring:
         captured_submits,
     ):
         """ac-005: targeted resume hits the molq seam with the reopened exec id."""
-        src_run = experiment_with_entrypoint.add_run(parameters={"lr": 1e-4}, target=local_target)
+        src_run = experiment_with_entrypoint.add_run(params={"lr": 1e-4}, target=local_target)
         with pytest.raises(RuntimeError, match="boom"), src_run.start():
             raise RuntimeError("boom")
         captured_submits.clear()
@@ -263,7 +263,7 @@ class TestRunSubmissionWiring:
         self, client, project, experiment_with_entrypoint, captured_submits
     ):
         """ac-005: an inherited target not registered on the workspace → 422."""
-        src_run = experiment_with_entrypoint.add_run(parameters={"lr": 1e-4}, target="ghost")
+        src_run = experiment_with_entrypoint.add_run(params={"lr": 1e-4}, target="ghost")
         with pytest.raises(RuntimeError, match="boom"), src_run.start():
             raise RuntimeError("boom")
         captured_submits.clear()
@@ -282,7 +282,7 @@ class TestRunSubmissionWiring:
         ``experiment`` (not ``experiment_with_entrypoint``) binds no spec, so
         ``_dispatch_to_molq``'s entrypoint guard fires.
         """
-        src_run = experiment.add_run(parameters={"lr": 1e-4}, target=local_target)
+        src_run = experiment.add_run(params={"lr": 1e-4}, target=local_target)
         # Must be retryable (failed) to pass the status gate and reach the
         # entrypoint check.
         with pytest.raises(RuntimeError, match="boom"), src_run.start():
@@ -372,3 +372,31 @@ class TestRunContinuationSchemaAndOpenAPI:
         body = resp.json()
         assert body["message"] == "no molq job id"
         assert body["status"] == "cancelled"
+
+    def test_cancel_is_canonical_route(self, client, project, experiment, run, monkeypatch):
+        """``POST .../cancel`` is the documented verb; same handler as /kill."""
+        seen: list = []
+
+        def fake_try_cancel(r):
+            seen.append(r.id)
+            r.cancel()
+            return
+
+        monkeypatch.setattr("molexp.server.routes.run.try_cancel", fake_try_cancel)
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/cancel")
+        assert resp.status_code == 200
+        assert seen == [run.id]
+        assert resp.json()["message"] == "Run cancelled"
+        assert resp.json()["status"] == "cancelled"
+
+    def test_openapi_marks_kill_deprecated_and_cancel_canonical(self, client):
+        spec = client.get("/api/openapi.json").json()
+        paths = spec["paths"]
+        cancel_paths = [p for p in paths if p.endswith("/{run_id}/cancel")]
+        kill_paths = [p for p in paths if p.endswith("/{run_id}/kill")]
+        assert cancel_paths, "cancel path missing from OpenAPI"
+        assert kill_paths, "kill alias path missing from OpenAPI"
+        for p in cancel_paths:
+            assert not paths[p]["post"].get("deprecated", False)
+        for p in kill_paths:
+            assert paths[p]["post"].get("deprecated") is True

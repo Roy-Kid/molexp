@@ -23,19 +23,19 @@ def ctx(tmp_path: Path):
     from molexp.harness.gateways.stub import StubAgentGateway
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
-    provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifacts)
     gateway = StubAgentGateway(artifact_store=artifacts)
     return HarnessRunContext(
         run_id="run-gen-report",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
         agent_gateway=gateway,
     )
 
@@ -119,7 +119,7 @@ def test_generate_experiment_report_wires_provenance(ctx, user_plan_ref, stub) -
     report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
     assert report_ref.kind == "experiment_report"
     assert user_plan_ref.id in report_ref.parent_ids
-    ancestors = ctx.provenance_store.trace_backward(report_ref.id)
+    ancestors = ctx.lineage_store.trace_backward(report_ref.id)
     assert user_plan_ref.id in {r.id for r in ancestors}
 
 

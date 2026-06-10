@@ -20,6 +20,16 @@ def info(target_spec: TargetOption = ".") -> None:
 
     target, _transport, fs = resolve_workspace_target(target_spec)
 
+    # Fail loudly when the path holds no workspace — a default-constructed
+    # Workspace would otherwise print a healthy-looking empty workspace.
+    marker = fs.join(str(target.path), "workspace.json")
+    if not fs.exists(marker):
+        rprint(
+            f"[red]Error:[/red] No workspace found at {target.path} — "
+            f"run [bold]molexp init {target.path}[/bold] to create one"
+        )
+        raise typer.Exit(1)
+
     try:
         ws = Workspace(str(target), fs=fs)
     except Exception as exc:

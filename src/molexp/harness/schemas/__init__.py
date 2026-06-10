@@ -28,10 +28,13 @@ from molexp.harness.schemas.bound_workflow import (
 from molexp.harness.schemas.capability import ToolCapability
 from molexp.harness.schemas.command import CommandResult, CommandSpec
 from molexp.harness.schemas.event import EventType, HarnessEvent
+from molexp.harness.schemas.execution_result import ExecutionResult
 from molexp.harness.schemas.experiment_report import ExperimentReport
+from molexp.harness.schemas.final_report import FinalReport
 from molexp.harness.schemas.mode_result import ModeResult
 from molexp.harness.schemas.parameter import ParameterSource, ParameterValue
 from molexp.harness.schemas.policy import ApprovalPolicy, PathPolicy, ToolPolicy
+from molexp.harness.schemas.test_source import TestSource
 from molexp.harness.schemas.test_spec import TestKind, TestResult, TestSpec, TestStatus
 from molexp.harness.schemas.user_plan import UserPlan
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
@@ -61,8 +64,10 @@ __all__ = [
     "DependencyEdge",
     "EventType",
     "ExecutionEnvironment",
+    "ExecutionResult",
     "ExpectedOutput",
     "ExperimentReport",
+    "FinalReport",
     "HarnessEvent",
     "ModeResult",
     "ParameterSource",
@@ -72,6 +77,7 @@ __all__ = [
     "TaskIR",
     "TestKind",
     "TestResult",
+    "TestSource",
     "TestSpec",
     "TestStatus",
     "ToolCapability",

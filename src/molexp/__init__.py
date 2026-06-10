@@ -4,6 +4,12 @@ Core packages:
     - ``molexp.workspace``: File-system-backed experiment management
     - ``molexp.workflow``: DAG-based workflow definition and execution
     - ``molexp.plugins``: Optional capabilities (remote HPC, AI agent, ...)
+
+Workflow-layer conveniences are re-exported lazily at the top level —
+``molexp.WorkflowCompiler``, ``molexp.TaskContext`` and
+``molexp.WorkflowRuntime`` resolve on first attribute access (loading
+``molexp.workflow``, and thus ``pydantic_graph``, only at that point;
+plain ``import molexp`` stays light).
 """
 
 __version__ = "0.3.0"
@@ -41,26 +47,35 @@ __all__ = [
     "Project",
     "Run",
     "RunContext",
+    "TaskContext",
     "UniformSpace",
+    "WorkflowCompiler",
+    "WorkflowRuntime",
     "Workspace",
     "config",
     "entry",
     "get_logger",
 ]
 
+#: Workflow-layer attributes re-exported lazily at the top level. Resolving
+#: any of them imports ``molexp.workflow`` (and transitively pydantic_graph)
+#: on first access only — ``import molexp`` must stay light
+#: (tests/test_workspace/test_import_guard.py enforces this).
+_LAZY_WORKFLOW_ATTRS = ("WorkflowCompiler", "TaskContext", "WorkflowRuntime")
+
 
 # Lazy imports — heavy sub-packages are only loaded on first access.
+# NOTE: must use importlib, not ``from molexp import …`` — the latter re-enters
+# this ``__getattr__`` via ``_handle_fromlist`` and recurses infinitely for
+# ``from molexp import workflow``-style user imports.
 def __getattr__(name: str):  # noqa: ANN202
-    if name == "workspace":
-        from molexp import workspace as _ws
+    if name in ("workspace", "workflow", "plugins"):
+        import importlib
 
-        return _ws
-    if name == "workflow":
-        from molexp import workflow as _wf
+        return importlib.import_module(f"molexp.{name}")
+    if name in _LAZY_WORKFLOW_ATTRS:
+        import importlib
 
-        return _wf
-    if name == "plugins":
-        from molexp import plugins as _pl
-
-        return _pl
+        workflow = importlib.import_module("molexp.workflow")
+        return getattr(workflow, name)
     raise AttributeError(f"module 'molexp' has no attribute {name!r}")

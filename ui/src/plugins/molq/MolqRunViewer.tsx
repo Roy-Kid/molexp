@@ -451,7 +451,6 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               </section>
             </div>
           </EntityTabContent>
-
         </EntityTabs>
       </div>
       {confirmDialog}

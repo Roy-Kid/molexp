@@ -9,7 +9,8 @@ Two continuation verbs replace the single run-level ``--resume``:
 
 These tests target the not-yet-written production surface:
   - the ``--rerun`` CLI flag on ``molexp run``
-  - ``molexp.cli.workspace.run._last_resumable_execution_id``
+  - ``molexp.workflow._pydantic_graph.persistence.last_resumable_execution_id``
+    (formerly ``molexp.cli.workspace.run._last_resumable_execution_id``)
   - the resume-seeding / rerun-fresh wiring of the local run handler
 
 All tests are deterministic and isolated (``tmp_path`` per test).
@@ -184,7 +185,7 @@ def _seed_failed_execution(
     seed = exp.get_seeds()[0]
     run_params = {**exp.params, "seed": seed, "replica": 0}
     run_id = _replica_run_id(run_params)
-    run = exp.add_run(parameters=run_params, id=run_id)
+    run = exp.add_run(params=run_params, id=run_id)
 
     exec_id = "exec-seedfail"
     rec = ExecutionRecord(
@@ -207,15 +208,15 @@ def _seed_failed_execution(
     return exec_id
 
 
-# ── ac-001: _last_resumable_execution_id helper ────────────────────────────────
+# ── ac-001: last_resumable_execution_id helper ────────────────────────────────
 
 
 class TestLastResumableExecutionId:
     def test_returns_last_non_succeeded_record(self, tmp_path: Path) -> None:
-        from molexp.cli.workspace.run import _last_resumable_execution_id
+        from molexp.workflow._pydantic_graph.persistence import last_resumable_execution_id
 
         ws = me.Workspace(tmp_path / "ws")
-        run = ws.add_project("demo").add_experiment("train").add_run(parameters={"seed": 0})
+        run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
         run._update_metadata(
             execution_history=[
                 ExecutionRecord(
@@ -229,13 +230,13 @@ class TestLastResumableExecutionId:
                 ),
             ]
         )
-        assert _last_resumable_execution_id(run) == "exec-3"
+        assert last_resumable_execution_id(run) == "exec-3"
 
     def test_skips_trailing_succeeded_to_find_earlier_failure(self, tmp_path: Path) -> None:
-        from molexp.cli.workspace.run import _last_resumable_execution_id
+        from molexp.workflow._pydantic_graph.persistence import last_resumable_execution_id
 
         ws = me.Workspace(tmp_path / "ws")
-        run = ws.add_project("demo").add_experiment("train").add_run(parameters={"seed": 0})
+        run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
         run._update_metadata(
             execution_history=[
                 ExecutionRecord(
@@ -247,15 +248,15 @@ class TestLastResumableExecutionId:
             ]
         )
         # Most recent non-succeeded is exec-2.
-        assert _last_resumable_execution_id(run) == "exec-2"
+        assert last_resumable_execution_id(run) == "exec-2"
 
     def test_returns_none_for_empty_history(self, tmp_path: Path) -> None:
-        from molexp.cli.workspace.run import _last_resumable_execution_id
+        from molexp.workflow._pydantic_graph.persistence import last_resumable_execution_id
 
         ws = me.Workspace(tmp_path / "ws")
-        run = ws.add_project("demo").add_experiment("train").add_run(parameters={"seed": 0})
+        run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
         assert run.metadata.execution_history == []
-        assert _last_resumable_execution_id(run) is None
+        assert last_resumable_execution_id(run) is None
 
 
 # ── ac-002: --resume reopens prior execution and seeds completed outputs ────────
@@ -452,7 +453,7 @@ class TestResumeSkipsPendingRun:
         ws = me.Workspace(workspace_root)
         exp = ws.add_project("demo").add_experiment("train")
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
-        run = exp.add_run(parameters=run_params, id=_replica_run_id(run_params))
+        run = exp.add_run(params=run_params, id=_replica_run_id(run_params))
         run._update_metadata(profile=None, execution_history=[])
         assert run.status == "pending"
 
@@ -593,7 +594,7 @@ class TestSharedSelectionRules:
         ws = me.Workspace(workspace_root)
         exp = ws.add_project("demo").add_experiment("train")
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
-        run = exp.add_run(parameters=run_params, id=_replica_run_id(run_params))
+        run = exp.add_run(params=run_params, id=_replica_run_id(run_params))
         run._update_metadata(
             status="running",
             profile=None,
@@ -639,9 +640,7 @@ class TestSharedSelectionRules:
         # Bind to the slot the smoke-profile dispatch will select, but stamp the
         # run with a different profile so the mismatch guard skips it.
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
-        run = exp.add_run(
-            parameters=run_params, id=_replica_run_id(run_params, profile_name="smoke")
-        )
+        run = exp.add_run(params=run_params, id=_replica_run_id(run_params, profile_name="smoke"))
         run._update_metadata(
             status="failed",
             profile="dry_run",

@@ -40,6 +40,11 @@ export interface FlowgramNodeData extends Record<string, unknown> {
    * of its `map_over` collection. Drives the stacked "×N" multiplicity glyph.
    */
   parallel: boolean;
+  /**
+   * When this node is a `SubWorkflow`, the inner workflow's canonical graph —
+   * drives the badge glyph and the read-only drill-down. Absent otherwise.
+   */
+  subworkflow?: TaskGraphJson;
 }
 
 export interface FlowgramNode {
@@ -90,19 +95,32 @@ export const parseTaskGraphIr = (source: string | null | undefined): TaskGraphJs
     return null;
   }
   if (!isRecord(parsed)) return null;
-  if (!Array.isArray(parsed.task_configs) || !Array.isArray(parsed.links)) return null;
+  // Accept BOTH IR shapes: the wire IR (`{task_configs, links}`) and the
+  // full-graph IR (`{tasks, edges}`, what `to_graph_ir()` emits and `entry.py`
+  // persists as `workflow_source`). The latter is what carries `subworkflow`.
+  const hasNodes = Array.isArray(parsed.task_configs) || Array.isArray(parsed.tasks);
+  const hasEdges = Array.isArray(parsed.links) || Array.isArray(parsed.edges);
+  if (!hasNodes || !hasEdges) return null;
   return normalizeTaskGraph(parsed);
 };
 
 /**
- * Normalize a raw `{task_configs, links}` object (backend or client field
- * names) into a {@link TaskGraphJson}. Tolerant: it accepts both `id`/`task_id`
- * and `type`/`task_type` for nodes and both `from`/`to` and `source`/`target`
- * for links.
+ * Normalize a raw workflow-IR object into a {@link TaskGraphJson}. Tolerant of
+ * both IR shapes and both field-name conventions:
+ *   - nodes: `task_configs` (wire) or `tasks` (graph IR); id from
+ *     `id` / `task_id` / `name`; type from `type` / `task_type`;
+ *   - links: `links` (wire) or `edges` (graph IR); endpoints from
+ *     `from`/`to` or `source`/`target`.
+ * A node's `subworkflow` (the inner graph IR of a `SubWorkflow` node) is
+ * recursively normalized so the canvas can drill into it.
  */
 export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson => {
-  const rawTasks = Array.isArray(raw.task_configs) ? raw.task_configs : [];
-  const rawLinks = Array.isArray(raw.links) ? raw.links : [];
+  const rawTasks = Array.isArray(raw.task_configs)
+    ? raw.task_configs
+    : Array.isArray(raw.tasks)
+      ? raw.tasks
+      : [];
+  const rawLinks = Array.isArray(raw.links) ? raw.links : Array.isArray(raw.edges) ? raw.edges : [];
 
   const task_configs: TaskNodeJson[] = [];
   for (const item of rawTasks) {
@@ -112,7 +130,9 @@ export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson 
         ? item.id
         : typeof item.task_id === "string"
           ? item.task_id
-          : null;
+          : typeof item.name === "string"
+            ? item.name
+            : null;
     if (!id) continue;
     const type =
       typeof item.type === "string"
@@ -126,6 +146,11 @@ export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson 
       typeof item.position.y === "number"
         ? { x: item.position.x, y: item.position.y }
         : undefined;
+    // A SubWorkflow node carries its inner graph IR; normalize it recursively so
+    // the canvas can render a read-only drill-down.
+    const subworkflow = isRecord(item.subworkflow)
+      ? normalizeTaskGraph(item.subworkflow)
+      : undefined;
     task_configs.push({
       id,
       type,
@@ -133,6 +158,7 @@ export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson 
       position,
       config: isRecord(item.config) ? item.config : undefined,
       status: typeof item.status === "string" ? item.status : undefined,
+      subworkflow,
     });
   }
 
@@ -264,6 +290,7 @@ export const buildFlowgramDocument = (ir: TaskGraphJson): FlowgramDocument => {
         role: roleOf(id),
         status: task.status ?? "pending",
         parallel: parallelBodies.has(id),
+        subworkflow: task.subworkflow,
       },
     };
   });

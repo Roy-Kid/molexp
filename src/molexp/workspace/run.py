@@ -7,9 +7,13 @@ checkpoints, and asset access during execution.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, cast
+
+from mollog import get_logger
 
 from molexp._typing import (
     JSONValue,
@@ -45,7 +49,16 @@ if TYPE_CHECKING:
 # without a circular ``run.py`` dependency.
 from .runcontext import RunContext
 
-__all__ = ["Run", "RunContext", "RunStatus"]
+_logger = get_logger(__name__)
+
+__all__ = ["RETRYABLE_STATUSES", "Run", "RunContext", "RunStatus"]
+
+#: The run statuses ``resume`` / ``rerun`` apply to — the single source of
+#: truth for the retryable domain (consumed by both the CLI and the server
+#: routes). The three verbs stay orthogonal: ``pending`` is plain run's job,
+#: ``succeeded`` is done, and a live ``running`` run must never get a second
+#: concurrent execution.
+RETRYABLE_STATUSES: frozenset[str] = frozenset({RunStatus.FAILED.value, RunStatus.CANCELLED.value})
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -62,7 +75,7 @@ class Run(Folder):
 
     Example::
 
-        run = experiment.add_run(parameters={"lr": 0.001})
+        run = experiment.add_run(params={"lr": 0.001})
         with run.start() as ctx:
             result = my_workflow(ctx)
             ctx.set_result("output", result)
@@ -181,6 +194,11 @@ class Run(Folder):
         return self.metadata.status
 
     @property
+    def is_retryable(self) -> bool:
+        """Whether ``resume`` / ``rerun`` apply (status in :data:`RETRYABLE_STATUSES`)."""
+        return self.status in RETRYABLE_STATUSES
+
+    @property
     def run_dir(self) -> MolexpPath:
         return MolexpPath(self._fs.join(self.experiment.experiment_dir, "runs", f"run-{self.id}"))
 
@@ -200,10 +218,25 @@ class Run(Folder):
         return AssetsView(self.experiment.project.workspace.catalog, self.scope)
 
     def get_result(self, key: str) -> TaskOutput:
-        """Read a result value persisted by ``RunContext.set_result``.
+        """Read a result value for *key*.
 
-        Returns ``None`` when the run has not been executed yet, when the
-        key is absent, or when ``run.json`` does not exist on disk.
+        Resolution order:
+
+        1. Driver-side results persisted by ``RunContext.set_result`` into
+           ``run.json`` (``context.results``) — always win when the key is
+           present, even with a ``None`` value.
+        2. Fallback: the completed workflow node named *key* in the run's
+           most recent execution's persisted node outputs
+           (``executions/<exec_id>/workflow.json``). This keeps results of
+           CLI-executed runs (``molexp run``), which never call
+           ``set_result``, readable through the same accessor.
+
+        Returns ``None`` when neither source has the key, when the run has
+        not been executed yet, or when ``run.json`` does not exist on disk.
+        A node output flagged ``outputs_lossy`` (the original value was not
+        JSON-serializable, so only a truncated observability rendering was
+        persisted) is never returned as a real result — a warning explains
+        why and ``None`` is returned.
         """
         from .schema_version import read_versioned_json
 
@@ -214,7 +247,43 @@ class Run(Folder):
             data = read_versioned_json(run_json)
         except (OSError, ValueError):
             return None
-        return data.get("context", {}).get("results", {}).get(key)
+        results = data.get("context", {}).get("results", {})
+        if isinstance(results, dict) and key in results:
+            return results[key]
+        return self._latest_execution_node_output(data, key)
+
+    def _latest_execution_node_output(self, run_data: dict[str, JSONValue], key: str) -> TaskOutput:
+        """Fallback for :meth:`get_result` — read *key* from the latest execution.
+
+        *run_data* is the already-parsed ``run.json`` payload; its
+        ``execution_history`` (newest last) names the most recent attempt.
+        Read-only: nothing is written back to ``run.json``.
+        """
+        history = run_data.get("execution_history")
+        if not isinstance(history, list) or not history:
+            return None
+        latest = history[-1]
+        if not isinstance(latest, dict):
+            return None
+        execution_id = latest.get("execution_id")
+        if not isinstance(execution_id, str) or not execution_id:
+            return None
+        from .execution_results import read_completed_node_outputs
+
+        record = read_completed_node_outputs(Path(str(self.run_dir)), execution_id).get(key)
+        if record is None:
+            return None
+        if record.lossy:
+            _logger.warning(
+                f"run {self.id}: node output {key!r} from execution {execution_id!r} "
+                f"is not returned by get_result — the original value was not "
+                f"JSON-serializable, so only a lossy (truncated) observability "
+                f"rendering was persisted. Make the task return a JSON-safe value, "
+                f"or persist it explicitly with ctx.set_result({key!r}, ...) from a "
+                f"driver-side run."
+            )
+            return None
+        return record.value
 
     # ── Persistence ─────────────────────────────────────────────────────
 
@@ -353,8 +422,38 @@ class Run(Folder):
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 
     def _set_status(self, status: RunStatus) -> None:
-        self.metadata = self.metadata.model_copy(update={"status": status.value})
-        self.save()
+        self._update_metadata(status=status.value)
+
+    @contextlib.contextmanager
+    def _metadata_lock(self) -> Iterator[None]:
+        """Advisory inter-process lock guarding ``run.json`` read-modify-write.
+
+        Uses a ``run.json.lock`` sidecar next to ``run.json``. Degrades to
+        a no-op when the run directory is not a lockable local path (remote
+        filesystems, non-POSIX platforms) — see
+        :func:`molexp.workspace._file_lock.file_lock`.
+        """
+        from ._file_lock import file_lock
+
+        with file_lock(Path(str(self.run_dir)) / "run.json.lock"):
+            yield
+
+    def _reload_metadata_from_disk(self) -> None:
+        """Refresh in-memory metadata from ``run.json`` when it exists.
+
+        Called under :meth:`_metadata_lock` before applying a partial
+        update, so concurrent writers (server, CLI, detached workers)
+        layering updates onto *distinct* fields don't drop each other's
+        writes. Missing or unreadable files keep the in-memory copy
+        (first write before ``materialize()``, remote filesystems).
+        """
+        path = self._fs.join(self.run_dir, "run.json")
+        try:
+            if not self._fs.exists(path):
+                return
+            self._entity_metadata = _load_metadata(RunMetadata, path, fs=self._fs)
+        except Exception:
+            _logger.debug(f"run {self.id}: could not reload run.json; keeping in-memory copy")
 
     def _update_metadata(self, **updates: object) -> None:
         """Forward partial-field updates into ``RunMetadata.model_copy``.
@@ -363,6 +462,13 @@ class Run(Folder):
         type is the true Python top-type ``object`` (not ``Any`` — the
         function does not interact with the values, it only forwards
         them, and pydantic owns the per-field type contract).
+
+        The read-modify-write cycle (reload from disk → apply updates →
+        atomic save) runs under :meth:`_metadata_lock` so concurrent
+        processes updating different fields cannot drop each other's
+        writes (lost-update protection).
         """
-        self.metadata = self.metadata.model_copy(update=updates)
-        self.save()
+        with self._metadata_lock():
+            self._reload_metadata_from_disk()
+            self.metadata = self.metadata.model_copy(update=updates)
+            self.save()

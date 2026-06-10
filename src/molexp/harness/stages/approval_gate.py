@@ -1,16 +1,21 @@
-"""``ApprovalGate`` — pipeline gate on a list of resolved ApprovalDecisions.
+"""``ApprovalGate`` — pipeline gate that resolves approvals at run time.
 
-Takes pre-resolved ``(ApprovalRequest, ApprovalDecision)`` pairs. The actual
-*getting* of decisions (interactive UX or auto-approver) is the
-orchestrator's responsibility — Phase 9 ships only the gate logic.
+Takes the :class:`ApprovalRequest`\\ s to gate on plus an ``approve``
+callback (the *approver*) that turns each request into an
+:class:`ApprovalDecision` **when the gate runs** — so ``decided_at`` is the
+real decision moment, not pipeline-declaration time. The default approver
+auto-grants every request (the harness pipeline is non-interactive by
+design); an interactive or policy-driven approver plugs in through the same
+callback without changing the gate.
 
-Every decision — granted or rejected — is recorded onto the event log
-via :func:`record_approval_decision` **before** the gate decides whether
-to pass or fail, so an audit consumer can always answer "who decided
-what?" even when the stage aborts. If any decision is ``granted=False``
-the stage then raises :class:`StageExecutionError` listing the rejected
-intents. If every decision is ``granted=True`` the stage persists a
-summary artifact (kind ``analysis_result``) and returns its ref.
+Audit contract: for every request the gate records ``approval_requested``
+first, then obtains the decision, then records ``approval_granted`` /
+``approval_rejected`` — all **before** deciding whether to pass or fail, so
+an audit consumer can always answer "who was asked, who decided what?" even
+when the stage aborts. If any decision is ``granted=False`` the stage then
+raises :class:`StageExecutionError` listing the rejected intents. If every
+decision is granted the stage persists a summary artifact (kind
+``analysis_result``) and returns its ref.
 
 ``subject_artifact_ids`` (optional) lets callers attribute the summary
 to the artifacts being gated (e.g. the bound workflow + test spec):
@@ -20,40 +25,71 @@ those ids become ``parent_ids`` on the persisted summary so
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import ClassVar
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.policy.event_log import record_approval_decision
+from molexp.harness.policy.event_log import record_approval_decision, record_approval_request
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ArtifactRef
 
-__all__ = ["ApprovalGate"]
+__all__ = ["ApprovalGate", "Approver", "auto_grant_approver"]
+
+Approver = Callable[[ApprovalRequest], Awaitable[ApprovalDecision]]
+"""Async callback resolving one :class:`ApprovalRequest` into a decision."""
+
+
+async def auto_grant_approver(request: ApprovalRequest) -> ApprovalDecision:
+    """Grant ``request`` unconditionally, stamped at the actual decision time.
+
+    The default for non-interactive pipelines; the grant is still recorded
+    on the event log like any other decision, so the audit trail states
+    explicitly that an auto-approver decided.
+    """
+    return ApprovalDecision(
+        request_id=request.id,
+        granted=True,
+        decided_by="auto-approver",
+        decided_at=datetime.now(tz=UTC),
+        reason="auto-grant (non-interactive pipeline)",
+    )
 
 
 class ApprovalGate(Stage):
-    """Gate pipeline progression on pre-resolved approvals."""
+    """Gate pipeline progression on approvals resolved at run time."""
 
     name: ClassVar[str] = "approval_gate"
 
     def __init__(
         self,
-        decisions: list[tuple[ApprovalRequest, ApprovalDecision]],
+        requests: list[ApprovalRequest],
         *,
+        approve: Approver | None = None,
         subject_artifact_ids: list[str] | None = None,
     ) -> None:
-        self._decisions = list(decisions)
+        self._requests = list(requests)
+        self._approve = approve if approve is not None else auto_grant_approver
         self._subject_artifact_ids = list(subject_artifact_ids or [])
 
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
-        # Record every decision FIRST so the audit trail captures the
-        # full ledger even if the gate then aborts. Skipping this on
-        # rejection (the old behavior) lost the audit row for the very
-        # rejection that aborted the run — the worst time to lose it.
-        for req, dec in self._decisions:
-            record_approval_decision(ctx.event_log, ctx.run_id, req, dec)
+        # Record request THEN decision for each ask, before the gate
+        # decides pass/fail — so the audit trail captures the full ledger
+        # even if the gate then aborts on a rejection.
+        decisions: list[tuple[ApprovalRequest, ApprovalDecision]] = []
+        for request in self._requests:
+            record_approval_request(ctx.event_log, ctx.run_id, request)
+            decision = await self._approve(request)
+            if decision.request_id != request.id:
+                raise StageExecutionError(
+                    f"ApprovalGate: approver answered request {decision.request_id!r} "
+                    f"for request {request.id!r} — refusing the mismatched decision"
+                )
+            record_approval_decision(ctx.event_log, ctx.run_id, request, decision)
+            decisions.append((request, decision))
 
-        rejected = [(req, dec) for req, dec in self._decisions if not dec.granted]
+        rejected = [(req, dec) for req, dec in decisions if not dec.granted]
         if rejected:
             intents = [req.intent for req, _ in rejected]
             raise StageExecutionError(
@@ -61,9 +97,9 @@ class ApprovalGate(Stage):
             )
 
         summary = {
-            "approved_intents": [req.intent for req, _ in self._decisions],
-            "decided_by": list({dec.decided_by for _, dec in self._decisions}),
-            "decision_count": len(self._decisions),
+            "approved_intents": [req.intent for req, _ in decisions],
+            "decided_by": list({dec.decided_by for _, dec in decisions}),
+            "decision_count": len(decisions),
         }
         return ctx.artifact_store.put_json(
             kind="analysis_result",

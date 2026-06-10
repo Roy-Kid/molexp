@@ -1,4 +1,4 @@
-"""WorkflowGraphCompiler — lower a topology to a genuine pydantic-graph Graph.
+"""WorkflowGraphCompiler — lower a topology to an executable ExecutionPlan.
 
 Pipeline:
 
@@ -17,604 +17,104 @@ Pipeline:
 4. **Reachability check** — every registered task must be reachable from
    the entry frontier through control + reverse-data edges; orphans raise
    :class:`UnreachableTaskError`.
-5. **Lowering** — :meth:`_build_graph` lowers the compiled out-edges,
-   entry frontier, loops and parallels into a real
-   :class:`pydantic_graph.graph_builder.Graph` with **one Step per task**.
-   Control flow rides pg primitives: edges (data/control deps), ``Join``
-   (multi-dependency fan-in), map-Fork + ``Join`` (``wf.parallel``), and
-   ``Decision`` (``wf.branch`` / ``wf.loop`` routing).
+5. **Lowering** — :meth:`_build_plan` lowers the compiled out-edges, entry
+   frontier, back-edges (cycles), per-task trigger sources, and the
+   ``wf.parallel`` declarations into a frozen
+   :class:`~molexp.workflow._pydantic_graph.plan.ExecutionPlan`. The engine
+   (:mod:`.engine`) executes the plan with **values-on-edges** semantics:
+   each task's inputs are delivered from its upstreams' outputs, a task
+   launches exactly when its dependencies are satisfied, and deadlock is
+   detected structurally — no timing constants anywhere.
 
-molexp tasks read their inputs from the shared, mutated
-:class:`WorkflowState` ``results`` dict (not edge tokens); edges only
-express trigger / ordering. The compiler is the **sole** sanctioned
-``import pydantic_graph`` site together with the rest of
-``workflow/_pydantic_graph/``.
+This module is plain structural lowering; it does not import
+``pydantic_graph`` (the workflow layer's remaining pg surface is the ``End``
+sentinel re-export, confined to ``workflow/_pydantic_graph/``).
 """
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import graphlib
-import warnings
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
-from pydantic_graph.graph_builder import GraphBuilder
-from pydantic_graph.join import reduce_dict_update, reduce_null
-from pydantic_graph.step import StepContext
-
-from .._graph_decl import ParallelDecl, WorkflowTopology
+from .._graph_decl import WorkflowTopology
 from ..types import (
     BranchEdges,
     CycleError,
     EdgeShapeError,
     EntryAmbiguousError,
-    LoopMaxItersExceeded,
-    Next,
     OutEdges,
-    ParallelExecutionError,
     UnconditionalEdges,
-    UnknownRouteError,
     UnknownTaskError,
     UnreachableTaskError,
-    WorkflowDeadlockError,
 )
-from ._graph_analysis import compute_back_edges, compute_indegree
-from .node import (
-    END_TARGET,
-    NO_OUTPUT,
-    TakeEnd,
-    TakeLabel,
-    _classify_return,
-    _EndTok,
-    _Failure,
-    _Trigger,
-    run_task_body,
-)
-from .node_cache import run_task_body_cached
-from .persistence import mark_task_status
-from .state import WorkflowDeps, WorkflowState
+from ._graph_analysis import compute_back_edges, compute_in_sources, compute_recurrent
+from .node import END_TARGET
+from .plan import ExecutionPlan
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from pydantic_graph.graph_builder import Graph
-    from pydantic_graph.step import StepFunction
-
     # The compiled workflow graph type. Re-exported here so layer modules
-    # that may not import ``pydantic_graph`` directly (e.g. ``compiled.py``,
-    # guarded by the encapsulation seam) can name the type via the workflow
-    # layer instead of reaching for ``pydantic_graph.graph_builder``.
-    CompiledGraph = Graph[WorkflowState, WorkflowDeps, None, None]
-
-# A graph node handle is any value GraphBuilder.add_edge accepts as a
-# destination — a Step, Join, Decision, or the start/end node markers.
-# pydantic-graph types these as overlapping generics; we keep the local
-# alias loose to avoid over-specifying the builder's internal generics.
-
-
-def _cache_is_active(deps: WorkflowDeps, name: str) -> bool:
-    """Gate the per-task cache hook (spec workflow-refactor-04 §Cache hook).
-
-    Caching is engaged for task *name* only when a cache is present, a
-    snapshot exists for the task, and the task is a batch ``Task`` (never an
-    ``Actor`` / streaming body — those are never cached).
-    """
-    if deps.cache is None or name not in deps.snapshots:
-        return False
-    registration = deps.registration_by_name.get(name)
-    if registration is None:
-        return False
-    return not getattr(registration, "is_actor", False)
-
-
-# Timeout fallback for the per-Step dependency barrier (see `_make_step_fn`).
-# The barrier ``await``s an ``asyncio.Event`` that is set the instant a result
-# lands or a body finishes, so it normally wakes immediately (no busy-poll
-# latency). This timeout only bounds how often it re-checks the frontier when no
-# signal arrives — i.e. how fast a real deadlock is detected. Only Steps
-# prematurely finalized by a join-reducer ever wait here.
-_DEP_BARRIER_POLL_S = 0.02
-
-# Frontier-exhaustion threshold for the dependency barrier. A barrier declares a
-# deadlock only after this many *consecutive* wake cycles in which no task body
-# was executing (``state.running == 0``) AND no result was recorded
-# (``state.progress`` unchanged), while a dependency is still missing — i.e. the
-# whole graph has quiesced with the dep unsatisfiable. This is NOT a wall-clock
-# timeout: a genuinely slow upstream keeps ``running > 0`` and resets the count,
-# so it never trips. The window debounces transient quiescence between two
-# adjacent steps; at the timeout above it bounds a real deadlock to a fraction
-# of a second.
-_DEADLOCK_QUIESCENT_POLLS = 25
+    # outside the engine package (e.g. ``compiled.py``) can name the type via
+    # the workflow layer instead of reaching into the engine package.
+    CompiledGraph = ExecutionPlan
 
 
 class WorkflowGraphCompiler:
-    """Lower a :class:`WorkflowTopology` into a genuine pydantic-graph ``Graph``.
+    """Lower a :class:`WorkflowTopology` into an executable :class:`ExecutionPlan`.
 
     Internal helper invoked exactly once by
     :meth:`molexp.workflow.compiler.WorkflowCompiler.compile`. The returned
-    ``Graph`` carries one Step per task; the runtime drives it via
-    ``graph.run(state=..., deps=..., inputs=None)``.
+    plan carries the validated structural graph; the runtime drives it via
+    :func:`.engine.run_plan`.
     """
 
-    def compile(self, spec: WorkflowTopology) -> Graph[WorkflowState, WorkflowDeps, None, None]:
+    def compile(self, spec: WorkflowTopology) -> ExecutionPlan:
         self._validate_data_dag(spec)
         out_edges = self._compile_edge_sets(spec)
         entry_frontier = self._resolve_entry_frontier(spec)
         self._check_reachability(spec, out_edges, entry_frontier)
-        return self._build_graph(spec, out_edges, entry_frontier)
+        return self._build_plan(spec, out_edges, entry_frontier)
 
-    # ── Stage 5 ─ pydantic-graph lowering ───────────────────────────────
+    # ── Stage 5 ─ structural lowering ────────────────────────────────────
 
-    def _build_graph(
+    def _build_plan(
         self,
         spec: WorkflowTopology,
         out_edges: dict[str, OutEdges],
         entry_frontier: tuple[str, ...],
-    ) -> Graph[WorkflowState, WorkflowDeps, None, None]:
-        """Lower compiled edges/entries into a real ``pydantic_graph`` Graph.
+    ) -> ExecutionPlan:
+        """Lower compiled edges/entries into a frozen :class:`ExecutionPlan`.
 
-        Lowering rules (see module docstring):
+        Derivations (all structural, computed once at compile time):
 
-        * Entry tasks → edge from ``start_node`` (multiple → auto fork).
-        * ``UnconditionalEdges`` → edge into each target's incoming node;
-          ``_end`` → ``end_node``.
-        * Indegree>1 task → a ``reduce_null`` ``Join`` placed before its
-          Step; all upstreams edge into the Join.
-        * Terminal task (no out-edges) → edge to ``end_node``.
-        * ``BranchEdges`` task → Step returns a ``Next`` token; a
-          ``Decision`` routes it per label.
-        * ``wf.parallel`` → ``map_over`` Step → mapping-edge fan-out into a
-          body-wrapper Step → ``reduce_dict_update`` ``Join`` → collector
-          Step → user join Step.
+        * **back-edges** — cycle-forming edges (``wf.loop`` back-branch,
+          self-loops) that re-launch their target directly at run time;
+        * **in-sources** — each task's forward trigger sources (``START``
+          for entries), driving the engine's control-readiness;
+        * **recurrent set** — tasks on a control cycle, whose non-chosen
+          branch routes must stay live across iterations;
+        * **parallel maps** — ``body → decl`` and ``map_over → decl`` so the
+          engine fans out / publishes without re-deriving the topology.
         """
-        gb = GraphBuilder[WorkflowState, WorkflowDeps, None, None](
-            name=spec.name or "workflow",
-            state_type=WorkflowState,
-            deps_type=WorkflowDeps,
-            output_type=type(None),
-        )
-
         parallel_decls = {par.body: par for par in spec._parallels}
-        # ``map_over → ParallelDecl`` so the map_over Step uses the dedicated
-        # mapping edge instead of a routing Decision.
         parallel_by_map_over = {par.map_over: par for par in spec._parallels}
 
-        # ── Back-edge detection (cycles: wf.loop / self-loop) ───────────
-        # A back-edge re-enters an already-visited node, forming a cycle
-        # (sequential re-run, not a fan-in). It must route directly to the
-        # target Step — never through a coalescing Join — and is excluded
-        # from indegree counting so it does not synthesise a spurious Join.
         back_edges = compute_back_edges(out_edges, entry_frontier, parallel_decls)
+        in_sources = compute_in_sources(spec, out_edges, entry_frontier, parallel_decls, back_edges)
+        recurrent = compute_recurrent(out_edges, parallel_decls)
 
-        # ── Indegree coalescing: count incoming edges per task ──────────
-        indegree = compute_indegree(spec, out_edges, entry_frontier, parallel_decls, back_edges)
-
-        # ── Build Step nodes (skip parallel body tasks — they get a
-        #    dedicated wrapper Step instead of the plain body Step) ──────
-        steps: dict[str, object] = {}
-        for t in spec._tasks:
-            if t.name in parallel_decls:
-                continue
-            steps[t.name] = gb.step(
-                self._make_step_fn(t.name, out_edges[t.name], indegree.get(t.name, 0) > 1),
-                node_id=t.name,
-            )
-
-        # ── Join nodes for indegree>1 tasks (the task's "incoming node") ─
-        joins: dict[str, object] = {}
-        for t in spec._tasks:
-            if t.name in parallel_decls:
-                continue
-            if indegree.get(t.name, 0) > 1:
-                joins[t.name] = gb.join(
-                    reduce_null,
-                    initial_factory=lambda: None,
-                    node_id=f"{t.name}__join",
-                )
-
-        def incoming_of(name: str) -> object:
-            """The node an edge into *name* should target (Join if coalesced)."""
-            if name == END_TARGET:
-                return gb.end_node
-            if name in joins:
-                return joins[name]
-            return steps[name]
-
-        def route_to(src: str, tgt: str) -> object:
-            """Destination for the edge ``src → tgt``.
-
-            Back-edges (cycles) bypass any coalescing Join and re-enter the
-            target Step directly; forward edges use :func:`incoming_of`.
-            """
-            if tgt != END_TARGET and (src, tgt) in back_edges:
-                return steps[tgt]
-            return incoming_of(tgt)
-
-        # ── Wire entry edges from start_node ─────────────────────────────
-        # A ``wf.parallel`` body is reached only via its map_over fan-out;
-        # it is never a graph entry even when it has no ``depends_on``.
-        entries = [e for e in entry_frontier if e not in parallel_decls]
-        if not entries:
-            # Empty workflow (no tasks / no entries) — the graph must still
-            # reach end_node for the builder to validate.
-            gb.add_edge(gb.start_node, gb.end_node)
-        for entry in entries:
-            gb.add_edge(gb.start_node, incoming_of(entry))
-
-        # ── Wire Join → Step edges (the coalesced fan-in) ────────────────
-        for name, join in joins.items():
-            gb.add_edge(join, steps[name])
-
-        # ── Per-Step routing via Decision ────────────────────────────────
-        # Every non-parallel, non-map_over Step is routed through a
-        # ``Decision``: branch tasks match a ``Next(label)`` per route;
-        # unconditional tasks match ``_Trigger`` (fan out to all targets) or
-        # ``_EndTok`` (terminate). map_over Steps keep the dedicated parallel
-        # mapping edge (wired below) instead of a Decision.
-        for t in spec._tasks:
-            if t.name in parallel_decls or t.name in parallel_by_map_over:
-                continue
-            edge_set = out_edges[t.name]
-            if isinstance(edge_set, BranchEdges):
-                self._wire_branch(gb, t.name, steps[t.name], edge_set, route_to)
-            else:
-                assert isinstance(edge_set, UnconditionalEdges)
-                self._wire_unconditional(
-                    gb, t.name, steps[t.name], edge_set, route_to, parallel_decls
-                )
-
-        # ── Parallel subgraphs ───────────────────────────────────────────
-        for par in spec._parallels:
-            self._wire_parallel(gb, par, steps, incoming_of)
-
-        return gb.build()
-
-    # ── Step factory ─────────────────────────────────────────────────────
-
-    @staticmethod
-    def _make_step_fn(
-        name: str,
-        edge_set: OutEdges,
-        is_join: bool = False,
-    ) -> StepFunction[WorkflowState, WorkflowDeps, object, object]:
-        """Build the ``async`` Step body for task *name*.
-
-        The Step runs the user body (unless seeded), records the output into
-        the shared ``state.results`` in place, and returns the routing token
-        consumed by the per-Step ``Decision``:
-
-        * branch task → ``Next(label)`` (one per declared route) or
-          ``_EndTok`` (``End()`` / ``_end`` route);
-        * unconditional task → ``_Trigger`` (advance to all targets) or
-          ``_EndTok`` (the body yielded ``End()``).
-        """
-        branch_edges = edge_set if isinstance(edge_set, BranchEdges) else None
-
-        async def _step(ctx: StepContext[WorkflowState, WorkflowDeps, object]) -> object:
-            state = ctx.state
-            deps = ctx.deps
-
-            if name in state.seeded:
-                # Body already produced its value (seed_outputs); skip
-                # running it but still route as if it returned that value.
-                raw: object = state.results.get(name)
-            else:
-                # ── Dependency barrier (fork/join finalization race) ──────
-                # pydantic-graph finalizes any active join-reducer whenever the
-                # task queue momentarily drains. For an indegree>1 Step whose
-                # inputs coalesce through such a Join, that can fire this Step
-                # before *all* of its declared dependencies have recorded a
-                # result — e.g. a fast/seeded dependency racing a slow one that
-                # sits behind a ``wf.parallel`` fork. Collecting inputs then
-                # would yield a ``None`` upstream. Wait until every dependency
-                # is present; in a data DAG each one is guaranteed to arrive,
-                # and awaiting here yields the loop so they can.
-                #
-                # Gated on ``is_join`` (indegree>1): only coalescing-Join Steps
-                # are subject to this race. A single-incoming Step (incl. branch
-                # / loop targets that may be (re-)entered by control flow without
-                # their data dep present) must NOT block here, or a loop/branch
-                # deadlocks.
-                registration = deps.registration_by_name.get(name)
-                if is_join and registration is not None:
-                    event = state.ensure_progress_event()
-                    quiescent = 0
-                    while True:
-                        # Clear before checking so a ``signal_progress`` racing
-                        # between the check and the wait is not lost (it re-sets
-                        # the event and the next wait returns immediately).
-                        event.clear()
-                        if all(dep in state.results for dep in registration.depends_on):
-                            break
-                        before = state.progress
-                        # Wake the instant a result lands or a body finishes
-                        # (event), with a timeout fallback that drives the
-                        # frontier-exhaustion check below.
-                        with contextlib.suppress(TimeoutError):
-                            await asyncio.wait_for(event.wait(), timeout=_DEP_BARRIER_POLL_S)
-                        # Frontier-exhaustion check: if no body is in flight and
-                        # nothing recorded this cycle, the missing deps cannot
-                        # arrive. Require a sustained window to debounce the gap
-                        # between two adjacent steps (a step scheduled but not yet
-                        # started bumps ``running`` on its next event-loop turn).
-                        if state.running == 0 and state.progress == before:
-                            quiescent += 1
-                            if quiescent >= _DEADLOCK_QUIESCENT_POLLS:
-                                missing = [
-                                    dep
-                                    for dep in registration.depends_on
-                                    if dep not in state.results
-                                ]
-                                raise WorkflowDeadlockError(
-                                    f"task {name!r} blocked on dependencies that will "
-                                    f"never be satisfied: {missing} (frontier exhausted "
-                                    f"— no task is running to produce them)"
-                                )
-                        else:
-                            quiescent = 0
-                mark_task_status(deps.run_dir, deps.execution_id, name, "running")
-                try:
-                    if _cache_is_active(deps, name):
-                        # Opt-in content-addressed caching (batch Task only): on a
-                        # hit the body is skipped + cached artifacts re-registered;
-                        # on a miss the body runs and the result + artifact manifest
-                        # are stored. Routing below is identical to a plain return.
-                        raw = await run_task_body_cached(name, deps, state)
-                    else:
-                        raw = await run_task_body(name, deps, state)
-                except Exception as exc:
-                    mark_task_status(
-                        deps.run_dir,
-                        deps.execution_id,
-                        name,
-                        "failed",
-                        error=f"{type(exc).__name__}: {exc}",
-                    )
-                    raise
-
-            try:
-                recorded_value, dispatch = _classify_return(raw, edge_set, task_name=name)
-            except Exception as exc:
-                mark_task_status(
-                    deps.run_dir,
-                    deps.execution_id,
-                    name,
-                    "failed",
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-                raise
-            if recorded_value is not NO_OUTPUT:
-                state.record(name, recorded_value)
-                mark_task_status(
-                    deps.run_dir,
-                    deps.execution_id,
-                    name,
-                    "completed",
-                    output=recorded_value,
-                )
-            else:
-                state.completed.add(name)
-                mark_task_status(deps.run_dir, deps.execution_id, name, "completed")
-
-            # wf.loop max_iters guard — increment the until-task's counter
-            # whenever it would route "continue"; once at the cap, emit
-            # LoopMaxItersExceeded and force "exit".
-            if isinstance(dispatch, TakeLabel) and dispatch.label == "continue":
-                max_iters = deps.loop_max_iters.get(name)
-                if max_iters is not None:
-                    new_count = state.loop_counters.get(name, 0) + 1
-                    state.loop_counters[name] = new_count
-                    if new_count >= max_iters:
-                        warnings.warn(
-                            LoopMaxItersExceeded(
-                                f"Loop guarded by {name!r} reached "
-                                f"max_iters={max_iters}; forcing Next('exit'). "
-                                "Increase max_iters if more iterations are needed."
-                            ),
-                            stacklevel=2,
-                        )
-                        dispatch = TakeLabel("exit")
-
-            if isinstance(dispatch, TakeEnd):
-                return _EndTok()
-
-            if branch_edges is not None:
-                if isinstance(dispatch, TakeLabel):
-                    routes = branch_edges.routes
-                    if dispatch.label not in routes:
-                        raise UnknownRouteError(
-                            f"Task {name!r} returned Next({dispatch.label!r}) but "
-                            f"its declared routes are: {sorted(routes)}."
-                        )
-                    if routes[dispatch.label] == END_TARGET:
-                        return _EndTok()
-                    return Next(dispatch.label)
-                # _classify_return already raises MissingRouteError for a
-                # branch task returning a plain value; this arm is defensive.
-                raise UnknownRouteError(
-                    f"Task {name!r} has branch out-edges but produced no route."
-                )
-
-            # Unconditional task: token is just a trigger to its targets.
-            return _Trigger()
-
-        return _step
-
-    # ── Branch wiring ──────────────────────────────────────────────────────
-
-    @staticmethod
-    def _wire_branch(
-        gb: GraphBuilder[WorkflowState, WorkflowDeps, None, None],
-        src: str,
-        step: object,
-        edge_set: BranchEdges,
-        route_to: Callable[[str, str], object],
-    ) -> None:
-        decision = gb.decision(node_id=f"{src}__decision")
-        for label, target in edge_set.routes.items():
-            if target == END_TARGET:
-                continue  # End routes arrive as _EndTok, handled below
-            decision = decision.branch(
-                gb.match(
-                    Next,
-                    matches=lambda v, lbl=label: isinstance(v, Next) and v.label == lbl,
-                ).to(route_to(src, target))
-            )
-        # ``End()`` / ``_end``-routed branches arrive as ``_EndTok``.
-        decision = decision.branch(gb.match(_EndTok).to(gb.end_node))
-        gb.add_edge(step, decision)
-
-    # ── Unconditional wiring ────────────────────────────────────────────────
-
-    @staticmethod
-    def _wire_unconditional(
-        gb: GraphBuilder[WorkflowState, WorkflowDeps, None, None],
-        src: str,
-        step: object,
-        edge_set: UnconditionalEdges,
-        route_to: Callable[[str, str], object],
-        parallel_decls: dict[str, ParallelDecl],
-    ) -> None:
-        targets = [
-            tgt for tgt in edge_set.targets if tgt != END_TARGET and tgt not in parallel_decls
-        ]
-        decision = gb.decision(node_id=f"{src}__decision")
-        # ``End()`` from the body terminates regardless of declared targets.
-        decision = decision.branch(gb.match(_EndTok).to(gb.end_node))
-        if targets:
-            dests = [route_to(src, tgt) for tgt in targets]
-            decision = decision.branch(gb.match(_Trigger).to(*dests))
-        else:
-            # Terminal task — a trigger also routes to end so the graph
-            # reaches end_node (builder requires every node to reach end).
-            decision = decision.branch(gb.match(_Trigger).to(gb.end_node))
-        gb.add_edge(step, decision)
-
-    # ── Parallel wiring ────────────────────────────────────────────────────
-
-    def _wire_parallel(
-        self,
-        gb: GraphBuilder[WorkflowState, WorkflowDeps, None, None],
-        par: ParallelDecl,
-        steps: dict[str, object],
-        incoming_of: Callable[[str], object],
-    ) -> None:
-        body = par.body
-        collect = gb.join(
-            reduce_dict_update,
-            initial_factory=dict,
-            node_id=f"{body}__collect",
+        return ExecutionPlan(
+            name=spec.name or "workflow",
+            task_names=tuple(t.name for t in spec._tasks),
+            out_edges=dict(out_edges),
+            entry_frontier=entry_frontier,
+            back_edges=frozenset(back_edges),
+            in_sources=in_sources,
+            recurrent=recurrent,
+            parallels=tuple(spec._parallels),
+            parallel_by_body=parallel_decls,
+            parallel_by_map_over=parallel_by_map_over,
         )
-        body_wrapper = gb.step(self._make_parallel_body_fn(body), node_id=body)
-        collector = gb.step(
-            self._make_parallel_collector_fn(body, par.map_over), node_id=f"{body}__collector"
-        )
-
-        # map_over → (enumerate) → map fan-out → body_wrapper
-        gb.add(
-            gb.edge_from(steps[par.map_over])
-            .transform(lambda ctx: list(enumerate(ctx.state.results.get(par.map_over) or [])))
-            .map(downstream_join_id=collect.id)
-            .to(body_wrapper)
-        )
-        gb.add_edge(body_wrapper, collect)
-        gb.add_edge(collect, collector)
-        gb.add_edge(collector, incoming_of(par.join))
-
-    @staticmethod
-    def _make_parallel_body_fn(
-        body: str,
-    ) -> StepFunction[WorkflowState, WorkflowDeps, tuple[int, object], dict[int, object]]:
-        """Body wrapper for one ``wf.parallel`` element.
-
-        Receives ``(idx, elem)`` as ``ctx.inputs``, runs the body under the
-        per-body :class:`anyio.CapacityLimiter`, and returns ``{idx: out}``
-        (or ``{idx: _Failure(exc)}`` on failure — capture-don't-cancel). The
-        single-key dict lets ``reduce_dict_update`` merge results in the
-        collect ``Join`` while preserving the index.
-        """
-
-        async def _body(
-            ctx: StepContext[WorkflowState, WorkflowDeps, tuple[int, object]],
-        ) -> dict[int, object]:
-            idx, elem = ctx.inputs
-            limiter = ctx.deps.parallel_limiters.get(body)
-            mark_task_status(ctx.deps.run_dir, ctx.deps.execution_id, body, "running")
-            try:
-                if limiter is not None:
-                    async with limiter:
-                        out = await run_task_body(body, ctx.deps, ctx.state, element=elem)
-                else:
-                    out = await run_task_body(body, ctx.deps, ctx.state, element=elem)
-            except Exception as exc:  # capture per-element, aggregate in collector
-                mark_task_status(
-                    ctx.deps.run_dir,
-                    ctx.deps.execution_id,
-                    body,
-                    "failed",
-                    error=f"{type(exc).__name__}: {exc}",
-                )
-                return {idx: _Failure(exc)}
-            return {idx: out}
-
-        return _body
-
-    @staticmethod
-    def _make_parallel_collector_fn(
-        body: str,
-        map_over: str,
-    ) -> StepFunction[WorkflowState, WorkflowDeps, dict[int, object], None]:
-        """Collect the merged ``{idx: out}`` dict into an ordered list.
-
-        Raises :class:`ParallelExecutionError` if any element captured a
-        failure; otherwise records ``state.results[body]`` as the
-        index-ordered list and the fan-out width in ``state.parallel_runs``.
-
-        Only publishes once the **whole** fan-out is collected. The collect
-        ``Join`` is a pydantic-graph reducer, which is finalized whenever the
-        task queue momentarily drains — and with ``max_concurrency=1`` the queue
-        drains between each serially-run body. An early finalization therefore
-        carries only a partial ``{idx: out}`` map; publishing it would let the
-        downstream join task run against a truncated list. Ignore partial
-        finalizations; a later one (with the full set) publishes the result.
-        """
-
-        async def _collect(
-            ctx: StepContext[WorkflowState, WorkflowDeps, dict[int, object]],
-        ) -> None:
-            merged: dict[int, object] = ctx.inputs or {}
-            failures = {i: f.exc for i, f in merged.items() if isinstance(f, _Failure)}
-            if failures:
-                mark_task_status(
-                    ctx.deps.run_dir,
-                    ctx.deps.execution_id,
-                    body,
-                    "failed",
-                    error=f"{len(failures)} parallel element failure(s)",
-                )
-                raise ParallelExecutionError(body=body, failures=failures)
-            expected = len(ctx.state.results.get(map_over) or ())
-            if expected and len(merged) < expected:
-                return  # partial finalization — wait for the full fan-out
-            ordered = [merged[i] for i in sorted(merged)]
-            ctx.state.results[body] = ordered
-            ctx.state.completed.add(body)
-            ctx.state.parallel_runs[body] = len(ordered)
-            # Publishing a parallel body's result is forward progress for any
-            # downstream join's deadlock guard (it bypasses ``record``).
-            ctx.state.progress += 1
-            ctx.state.signal_progress()
-            mark_task_status(
-                ctx.deps.run_dir,
-                ctx.deps.execution_id,
-                body,
-                "completed",
-                output=ordered,
-            )
-
-        return _collect
 
     # ── Stage 1 ─ data DAG ──────────────────────────────────────────────
 

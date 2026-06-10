@@ -24,38 +24,36 @@ from __future__ import annotations
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import promote_callable
+from molexp.workflow import TaskContext, WorkflowCompiler
 
 WORKSPACE_ROOT = Path(__file__).resolve().parent / "_workspace"
 
+wf = WorkflowCompiler(name="train")
 
-def train(ctx: me.RunContext) -> None:
+
+@wf.task
+async def train(ctx: TaskContext) -> dict:
     # The framework treats profile contents as opaque user data.
     # Read whatever fields your task needs, with sane defaults.
     epochs = ctx.config.get("epochs", 100)
     dataset = ctx.config.get("dataset", "qm9")
     lr = ctx.config.get("optimizer", {}).get("lr", 1e-3)
     batch = ctx.config.get("batch_size", 32)
+    mode = "lightweight" if ctx.config.get("skip_heavy_compute") else "full"
 
-    if ctx.config.get("skip_heavy_compute"):
-        # Single "pretend to train" iteration so the example stays fast.
-        ctx.set_result("mode", "lightweight")
-    else:
-        ctx.set_result("mode", "full")
-
-    ctx.set_result("profile", ctx.config.name)
-    ctx.set_result("epochs", epochs)
-    ctx.set_result("dataset", dataset)
-    ctx.set_result("lr", lr)
-    ctx.set_result("batch_size", batch)
-    ctx.log("train").append(
-        f"profile={ctx.config.name} dataset={dataset} epochs={epochs} batch={batch} lr={lr}"
-    )
+    return {
+        "profile": ctx.config.name,
+        "mode": mode,
+        "dataset": dataset,
+        "epochs": epochs,
+        "lr": lr,
+        "batch_size": batch,
+    }
 
 
-ws = me.Workspace(WORKSPACE_ROOT, name="run-profiles-demo")
-project = ws.add_project("demo")
-exp = project.add_experiment("train")
-promote_callable(train, name="train").bind_to(exp)
-
-me.entry(ws)
+(
+    me.Workspace(WORKSPACE_ROOT, name="run-profiles-demo")
+    .project("demo")
+    .experiment("train")
+    .run(wf.compile(), params={"seed": [0]})
+)

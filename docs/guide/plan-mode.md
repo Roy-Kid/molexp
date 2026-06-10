@@ -31,7 +31,7 @@ result = await mode.run(
     user_input="screen solvent conditions",
 )
 
-plan_state = result.mode_state["plan"]
+plan_state = result.loop_state["plan"]
 assert "ready_for_run" in plan_state
 ```
 

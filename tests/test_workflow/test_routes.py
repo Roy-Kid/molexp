@@ -104,13 +104,16 @@ async def test_counter_loop_via_control_edge():
 
     @wf.task(routes={"again": "tick", "done": "emit"})
     async def tick(ctx) -> tuple[_Counter, Next]:
-        prev: _Counter | None = ctx.state.results.get("tick")
+        # Values-on-edges: the self-loop delivers the previous iteration's
+        # recorded output as ctx.inputs (None on first entry).
+        prev: _Counter | None = ctx.inputs
         n = (prev.n + 1) if prev else 1
         return _Counter(n=n), Next("again" if n < 3 else "done")
 
     @wf.task
     async def emit(ctx) -> int:
-        return ctx.state.results["tick"].n
+        # The "done" route carries tick's recorded value to the dep-less target.
+        return ctx.inputs.n
 
     result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
@@ -125,7 +128,8 @@ async def test_self_loop_entry_accepted():
 
     @wf.task(routes={"again": "counter", "done": "_end"})
     async def counter(ctx) -> tuple[_Counter, Next | End]:
-        prev: _Counter | None = ctx.state.results.get("counter")
+        # Self-loop re-entry receives the previous output via ctx.inputs.
+        prev: _Counter | None = ctx.inputs
         n = (prev.n + 1) if prev else 1
         if n < 2:
             return _Counter(n=n), Next("again")
@@ -147,16 +151,19 @@ async def test_loop_back_to_entry_accepted():
 
     @wf.task
     async def plan(ctx) -> str:
-        # Each iteration increments via state hack.
-        prev = ctx.state.results.get("plan")
+        # Values-on-edges: the rework loop-back delivers the previous plan
+        # (forwarded by wait_approval) as ctx.inputs; None on first entry.
+        prev = ctx.inputs
         return f"plan-v{(int(prev.split('v')[-1]) + 1) if prev else 1}"
 
     decisions = ["rework", "approve"]
 
     @wf.task(depends_on=["plan"], routes={"approve": "implement", "rework": "plan"})
-    async def wait_approval(ctx) -> Next:
+    async def wait_approval(ctx) -> tuple[str, Next]:
         d = decisions.pop(0)
-        return Next(d)
+        # Forward the plan value on the routed edge so a rework loop-back
+        # re-delivers it to the dep-less entry task via ctx.inputs.
+        return ctx.inputs, Next(d)
 
     @wf.task(depends_on=["wait_approval"])
     async def implement(ctx) -> str:

@@ -62,12 +62,7 @@ export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
 };
 
 const parseObjectView = (raw: string | null): ObjectView | undefined => {
-  if (
-    raw === "overview" ||
-    raw === "logs" ||
-    raw === "metrics" ||
-    raw === "scheduler"
-  ) {
+  if (raw === "overview" || raw === "logs" || raw === "metrics" || raw === "scheduler") {
     return raw;
   }
   return undefined;

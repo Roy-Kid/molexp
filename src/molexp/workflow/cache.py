@@ -54,16 +54,22 @@ logger = get_logger(__name__)
 # Bump this when CacheEntry schema changes in a backwards-incompatible way.
 CACHE_FORMAT_VERSION = 1
 
+# Array-like inputs larger than this (element count) are content-hashed
+# instead of fully serialized when computing cache keys, to avoid OOM on
+# huge ndarrays.
+LARGE_ARRAY_HASH_THRESHOLD_ELEMENTS = 10_000
+
 
 def _robust_json_default(obj: HashablePayload) -> JSONValue:
     """Type-aware JSON serializer for cache input hashing.
 
-    Large array-like objects (>10 000 elements) are hashed rather than
-    fully serialized to avoid excessive memory usage.
+    Large array-like objects (> :data:`LARGE_ARRAY_HASH_THRESHOLD_ELEMENTS`
+    elements) are hashed rather than fully serialized to avoid excessive
+    memory usage.
     """
     if hasattr(obj, "tolist"):
         size = obj.size if hasattr(obj, "size") else len(obj)
-        if size > 10_000:
+        if size > LARGE_ARRAY_HASH_THRESHOLD_ELEMENTS:
             # Hash large arrays instead of serializing to avoid OOM
             raw_bytes = obj.tobytes() if hasattr(obj, "tobytes") else str(obj).encode()
             digest = hashlib.sha256(raw_bytes).hexdigest()

@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
 const NO_TARGET_VALUE = "__none__";
 
@@ -77,7 +78,7 @@ export function CreateExperimentDialog({
     try {
       await workspaceApi.createExperiment(projectId, {
         name,
-        workflow_source: workflow,
+        workflow_source: workflow.trim() ? workflow : undefined,
         description,
         parameter_space: JSON.parse(parameterSpace),
         defaultTarget: defaultTarget === NO_TARGET_VALUE ? null : defaultTarget,
@@ -131,16 +132,24 @@ export function CreateExperimentDialog({
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="exp-workflow" className="text-right">
-                Workflow File
-              </Label>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Label htmlFor="exp-workflow" className="text-right">
+                      Workflow
+                    </Label>
+                  </TooltipTrigger>
+                  <TooltipContent side="left">
+                    Optional. Leave blank to start with an empty canvas.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <Input
                 id="exp-workflow"
                 value={workflow}
                 onChange={(e) => setWorkflow(e.target.value)}
                 placeholder="path/to/workflow.yaml"
                 className="col-span-3"
-                required
               />
             </div>
             <div className="grid grid-cols-4 items-center gap-4">

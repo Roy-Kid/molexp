@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-import molexp.server.dependencies as deps
+import molexp.server.deps.targets as targets_deps
 from molexp.server.app import create_app
 from molexp.server.dependencies import (
     ServedWorkspace,
@@ -38,7 +38,7 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     set_served_workspaces([])
     reset_workspace_target_registry()
     registry = WorkspaceTargetRegistry(store_path=tmp_path / "wt.json")
-    monkeypatch.setattr(deps, "_workspace_target_registry", registry)
+    monkeypatch.setattr(targets_deps, "_workspace_target_registry", registry)
     yield
     reset_workspace_cache()
     set_workspace_path_override(None)

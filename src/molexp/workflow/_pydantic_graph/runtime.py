@@ -1,23 +1,24 @@
-"""WorkflowRuntime: pydantic-graph-backed workflow runtime.
+"""WorkflowRuntime: the workflow execution facade over the structural engine.
 
 The single concrete runtime; molexp does not abstract over runtime
 backends because there is only one.  Execution modes:
 
 - ``execute()`` — run to completion, return :class:`WorkflowResult`.
 - ``start()`` — launch in background, return :class:`WorkflowExecution`.
-- ``iter()`` / ``stream()`` — async step-by-step iteration.
 
-``resume()`` is removed — the new ``GraphBuilder``-based API does not
-expose ``iter_from_persistence``.  No per-frame snapshots are written; only
-an initial ``workflow.json`` is emitted via
-:func:`.persistence.write_initial_workflow_json` for observability. Resume is
-caller-driven via ``WorkflowResult.outputs`` + ``execute(seed_outputs=…)``.
+No per-frame snapshots are written; ``workflow.json`` is opened via
+:func:`.persistence.open_execution_document` for observability (per-node
+:func:`.persistence.mark_task_status` updates are coalesced in memory and
+flushed at bounded staleness; terminal states flush synchronously, and a
+``finally``-path :func:`.persistence.close_execution_document` guarantees
+the last write even when the engine raises). Resume is caller-driven via
+``WorkflowResult.outputs`` + ``execute(seed_outputs=…)``.
 
-Each ``CompiledWorkflow`` carries a genuine ``pydantic_graph`` ``Graph``
-(one Step per task; see :mod:`.compiler`). The runtime builds fresh state
-+ deps per execution and drives ``compiled.graph.run(state=…, deps=…,
-inputs=None)``; final outputs are read from the shared, mutated
-``state.results``.
+Each ``CompiledWorkflow`` carries a frozen
+:class:`~molexp.workflow._pydantic_graph.plan.ExecutionPlan` (see
+:mod:`.compiler`). The runtime builds fresh state + deps per execution and
+drives :func:`.engine.run_plan` — the values-on-edges scheduler; final
+outputs are read from the shared, mutated ``state.results``.
 """
 
 from __future__ import annotations
@@ -34,13 +35,45 @@ from mollog import get_logger
 from ..materialization_store import FileMaterializationStore, MaterializationStore
 from ..protocols import JSONMapping, JSONValue, RunContextLike, TaskOutput, UserDeps
 from ..types import WorkflowError, WorkflowExecution, WorkflowResult
+from .engine import run_plan
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
-    from pydantic_graph.graph_builder import Graph
-
     from ..cache import Caching
     from ..compiled import CompiledWorkflow, _ExperimentLike
+    from .plan import ExecutionPlan
+
+
+# Sentinel for ``execute(root_input=…)``: distinguishes "no forwarding" from a
+# legitimately-``None`` forwarded value (a fan-out element may itself be ``None``).
+_NO_ROOT_INPUT: Any = object()
+
+
+def _resolve_single_root(compiled: CompiledWorkflow) -> str:
+    """Return the inner spec's single entry task (the one fed a forwarded input).
+
+    Used when a :class:`~molexp.workflow.SubWorkflow` forwards its node input into
+    the inner workflow: that value becomes the entry task's ``ctx.inputs``. Prefers
+    an explicit single ``entries`` declaration; otherwise computes the single
+    dependency-root (a task with no upstream deps that is not a ``wf.parallel``
+    body). Raises :class:`ValueError` when the entry is ambiguous, mirroring
+    :meth:`SubWorkflow._resolve_output_name`.
+    """
+    entries = tuple(compiled._entries)
+    if len(entries) == 1:
+        return entries[0]
+    body_names = {par.body for par in compiled._parallels}
+    roots = sorted(
+        reg.name for reg in compiled._tasks if not reg.depends_on and reg.name not in body_names
+    )
+    if len(roots) == 1:
+        return roots[0]
+    raise ValueError(
+        f"SubWorkflow forwards an input into inner workflow {compiled.name!r}, "
+        f"but it has {len(roots)} entry task(s) {roots!r}; give the inner spec a "
+        f"single entry (one root task, or WorkflowCompiler(entry='<task>')) so the "
+        f"forwarded input has an unambiguous destination."
+    )
 
 
 def _resolve_cache(
@@ -99,19 +132,17 @@ logger = get_logger(__name__)
 
 
 async def _run_compiled(
-    graph: Graph[WorkflowState, WorkflowDeps, None, None],
+    plan: ExecutionPlan,
     state: WorkflowState,
     deps: WorkflowDeps,
 ) -> WorkflowState:
-    """Drive a compiled pg ``Graph`` to completion and return the final state.
+    """Drive a compiled :class:`ExecutionPlan` to completion and return the final state.
 
-    The graph mutates *state* in place (molexp tasks read/write
-    ``state.results`` directly), so the returned object is the same *state*
-    instance carrying the final outputs. pydantic-graph 1.x requires an
-    explicit ``inputs=`` start token; the lowered entry Steps ignore it
-    (``None``) and read their upstreams from ``state.results``.
+    The engine mutates *state* in place (each completed node records into
+    ``state.results``), so the returned object is the same *state* instance
+    carrying the final outputs.
     """
-    await graph.run(state=state, deps=deps, inputs=None)
+    await run_plan(plan, state, deps)
     return state
 
 
@@ -197,13 +228,14 @@ def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
 
 
 class WorkflowRuntime:
-    """Workflow runtime powered by pydantic-graph.
+    """Workflow runtime over the structural values-on-edges engine.
 
     Takes a pre-compiled :class:`~molexp.workflow.compiled.CompiledWorkflow`
     (lowered once by :meth:`WorkflowCompiler.compile`) and executes its
-    ``.graph``; no recompilation happens here. This class owns the
-    execution facade — ``execute`` / ``start`` / ``iter`` / ``stream`` /
-    ``run_on`` — that used to live on the ``Workflow`` spec object.
+    ``.graph`` (an :class:`ExecutionPlan`) via :func:`.engine.run_plan`; no
+    recompilation happens here. This class owns the execution facade —
+    ``execute`` / ``start`` / ``run_on`` — that used to live on the
+    ``Workflow`` spec object.
 
     ``self.cache`` is a flat, settable :class:`~molexp.workflow.cache.Caching`
     instance attribute (default ``None`` — caching off). It is the lowest
@@ -331,31 +363,49 @@ class WorkflowRuntime:
         state: WorkflowState,
         deps: WorkflowDeps,
         run_context: RunContextLike | None,
+        root_input: Any = _NO_ROOT_INPUT,  # noqa: ANN401
     ) -> None:
-        """Inject root-task inputs for a workspace run (capabilities-as-inputs).
+        """Inject root-task inputs (capabilities-as-inputs + SubWorkflow forwarding).
 
         For each ROOT task (no upstream deps, not a ``wf.parallel`` body, not
-        seeded) the engine pre-sets ``ctx.inputs = {"params": <run params>,
-        "workdir": <content-addressed Path>}``. The workdir is a bare
+        seeded) of a *workspace* run the engine pre-sets ``ctx.inputs = {"params":
+        <run params>, "workdir": <content-addressed Path>}``. The workdir is a bare
         ``pathlib.Path`` (NEVER a navigable handle), derived from the node's
-        content identity (``snapshot.key``) via the materialization layer. Opt-in:
-        no-op without a ``run_context`` so non-workspace runs are unaffected.
+        content identity (``snapshot.key``) via the materialization layer; this
+        half is a no-op without a ``run_context`` so non-workspace runs are
+        unaffected.
+
+        When ``root_input`` is provided (a :class:`SubWorkflow` forwarding its node
+        input — the fan-out element, upstream output, or root params — into this
+        inner spec), it is delivered to the single entry task as its ``ctx.inputs``.
+        When BOTH the engine-injected ``{params, workdir}`` and the forwarded value
+        are dicts, they are MERGED (forwarded keys win) so the inner entry sees the
+        element AND keeps ``params`` / ``workdir``; otherwise the forwarded value
+        replaces the entry input. Applies whether or not a ``run_context`` is
+        present, so the inner entry sees the element even on a plain run.
         """
-        if run_context is None:
-            return
-        params = getattr(run_context, "params", None) or {}
         body_names = {par.body for par in compiled._parallels}
-        snapshots = compiled.snapshots
-        for reg in compiled._tasks:
-            name = reg.name
-            if reg.depends_on or name in body_names or name in state.seeded:
-                continue
-            workdir = None
-            if deps.materialization is not None:
-                snap = snapshots.get(name)
-                content_id = snap.key if snap is not None else name
-                workdir = deps.materialization.workdir_for(content_id)
-            state.root_inputs[name] = {"params": dict(params), "workdir": workdir}
+        if run_context is not None:
+            params = getattr(run_context, "params", None) or {}
+            snapshots = compiled.snapshots
+            for reg in compiled._tasks:
+                name = reg.name
+                if reg.depends_on or name in body_names or name in state.seeded:
+                    continue
+                workdir = None
+                if deps.materialization is not None:
+                    snap = snapshots.get(name)
+                    content_id = snap.key if snap is not None else name
+                    workdir = deps.materialization.workdir_for(content_id)
+                state.root_inputs[name] = {"params": dict(params), "workdir": workdir}
+        if root_input is not _NO_ROOT_INPUT:
+            entry = _resolve_single_root(compiled)
+            existing = state.root_inputs.get(entry)
+            if isinstance(existing, dict) and isinstance(root_input, dict):
+                # Merge: keep engine-injected params/workdir, forwarded keys win.
+                state.root_inputs[entry] = {**existing, **root_input}
+            else:
+                state.root_inputs[entry] = root_input
 
     # ── execute ──────────────────────────────────────────────────────────────
 
@@ -370,6 +420,8 @@ class WorkflowRuntime:
         execution_id: str | None = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
         cache: Caching | None = None,
+        root_input: Any = _NO_ROOT_INPUT,  # noqa: ANN401
+        persist: bool = True,
     ) -> WorkflowResult:
         """Run the workflow to completion and return a WorkflowResult.
 
@@ -377,7 +429,16 @@ class WorkflowRuntime:
         already-known task outputs; see :meth:`Workflow.execute` for the
         full contract. ``cache`` (optional) opts the run into content-
         addressed task-result caching; see :func:`_resolve_cache` for the
-        precedence rules when it is omitted.
+        precedence rules when it is omitted. ``root_input`` (optional) forwards a
+        value into the spec's single entry task as its ``ctx.inputs`` — the channel
+        a :class:`~molexp.workflow.SubWorkflow` uses to pass its node input (fan-out
+        element / upstream output) into the inner workflow. ``persist=False``
+        (engine-internal — set by the ``sub_runner`` capability for SubWorkflow
+        inner runs) disables ALL ``workflow.json`` persistence for this
+        execution, so a nested run inheriting the outer ``run_context`` never
+        rewrites the parent execution's document: after a run containing
+        SubWorkflows, ``executions/<exec_id>/workflow.json`` describes the
+        OUTER graph only.
         """
 
         # Validate seed_outputs FAIL-FAST before any IO / scheduling work.
@@ -392,28 +453,52 @@ class WorkflowRuntime:
             or make_execution_id(run_id, resolved_run_dir)
         )
 
-        # Observability — write the initial workflow.json under
-        # ``<run_dir>/executions/<execution_id>/`` so the execution-id directory
-        # always exists post-execution for tooling. The graph runner persists no
-        # per-frame snapshots (resume is caller-driven via seed_outputs); this
-        # one-shot write is all that happens.
-        if resolved_run_dir is not None:
-            from .persistence import write_initial_workflow_json
+        persist_dir = resolved_run_dir if persist else None
 
-            write_initial_workflow_json(resolved_run_dir, execution_id, compiled=compiled)
+        # Resume-seed integrity gate — runs BEFORE the prior workflow.json is
+        # rewritten below. Seeds whose persisted snapshot key no longer matches
+        # the live task code, whose persisted output is lossy, or that cannot
+        # be verified (pre-upgrade document) are dropped with a warning and
+        # recomputed; see ``filter_resume_seeds``. Unknown names already
+        # failed fast in ``_build_initial_state`` above.
+        if seed_outputs and persist_dir is not None:
+            from .persistence import filter_resume_seeds
+
+            verified = filter_resume_seeds(
+                persist_dir, execution_id, seed_outputs, compiled.snapshots
+            )
+            if set(verified) != set(seed_outputs):
+                seed_outputs = verified
+                state = self._build_initial_state(compiled, seed_outputs)
+
+        # Observability — open the execution document (initial workflow.json is
+        # written synchronously under ``<run_dir>/executions/<execution_id>/``
+        # so the execution-id directory always exists post-execution for
+        # tooling) and register the coalescing in-memory writer: per-node
+        # ``mark_task_status`` updates buffer in memory and flush at bounded
+        # staleness instead of rewriting the document per transition. The
+        # graph runner persists no per-frame snapshots (resume is caller-driven
+        # via seed_outputs).
+        if persist_dir is not None:
+            from .persistence import open_execution_document
+
+            open_execution_document(persist_dir, execution_id, compiled=compiled)
 
         try:
             workflow_deps = self._build_deps(
                 compiled,
                 run_context=run_context,
                 run_dir=resolved_run_dir,
-                execution_id=execution_id,
+                # ``deps.execution_id`` gates per-task workflow.json status
+                # writes (``mark_task_status``); a persistence-off (nested)
+                # run must not touch the parent's document.
+                execution_id=execution_id if persist else None,
                 config=config,
                 deps=deps,
                 cache=_resolve_cache(cache, self.cache, run_context),
             )
 
-            self._populate_root_inputs(compiled, state, workflow_deps, run_context)
+            self._populate_root_inputs(compiled, state, workflow_deps, run_context, root_input)
 
             result_state: WorkflowState = await _run_compiled(compiled.graph, state, workflow_deps)
 
@@ -425,11 +510,11 @@ class WorkflowRuntime:
             # not consult — and run.status defaults to ``succeeded``.
             if result_state.failed and run_context is not None:
                 _record_run_failure(run_context, result_state.error)
-            if resolved_run_dir is not None:
+            if persist_dir is not None:
                 from .persistence import mark_workflow_finished
 
                 mark_workflow_finished(
-                    resolved_run_dir,
+                    persist_dir,
                     execution_id,
                     status="failed" if result_state.failed else "completed",
                     outputs=result_state.results,
@@ -446,11 +531,11 @@ class WorkflowRuntime:
             # Programming errors in the workflow definition / task body
             # (CycleError, UnknownRouteError, MissingRouteError, …)
             # propagate to the caller.
-            if resolved_run_dir is not None:
+            if persist_dir is not None:
                 from .persistence import mark_workflow_finished
 
                 mark_workflow_finished(
-                    resolved_run_dir,
+                    persist_dir,
                     execution_id,
                     status="failed",
                     outputs=dict(state.results),
@@ -461,11 +546,11 @@ class WorkflowRuntime:
             logger.exception(f"Workflow {compiled.name!r} execution failed")
             if run_context is not None:
                 _record_run_failure(run_context, str(exc))
-            if resolved_run_dir is not None:
+            if persist_dir is not None:
                 from .persistence import mark_workflow_finished
 
                 mark_workflow_finished(
-                    resolved_run_dir,
+                    persist_dir,
                     execution_id,
                     status="failed",
                     outputs=dict(state.results),
@@ -481,6 +566,16 @@ class WorkflowRuntime:
                 run_id=run_id,
                 execution_id=execution_id,
             )
+        finally:
+            # Guarantee the last in-memory document state lands on disk even
+            # when the engine raises something the arms above never see
+            # (BaseException / cancellation): flush coalesced-but-unwritten
+            # node records and end the writer lifecycle. No-op on the normal
+            # paths (mark_workflow_finished already flushed + closed) and for
+            # persistence-off (SubWorkflow inner) executions.
+            from .persistence import close_execution_document
+
+            close_execution_document(persist_dir, execution_id)
 
     # ── start ────────────────────────────────────────────────────────────────
 
@@ -513,11 +608,12 @@ class WorkflowRuntime:
             or make_execution_id(run_id, resolved_run_dir)
         )
 
-        # Observability — see ``execute()`` for the rationale.
+        # Observability — see ``execute()`` for the rationale (initial write +
+        # coalescing in-memory writer; closed in ``_bg``'s ``finally``).
         if resolved_run_dir is not None:
-            from .persistence import write_initial_workflow_json
+            from .persistence import open_execution_document
 
-            write_initial_workflow_json(resolved_run_dir, execution_id, compiled=compiled)
+            open_execution_document(resolved_run_dir, execution_id, compiled=compiled)
 
         handle = _GraphWorkflowExecution(
             execution_id=execution_id,
@@ -579,64 +675,16 @@ class WorkflowRuntime:
                     )
                 logger.exception(f"Background workflow {compiled.name!r} failed")
             finally:
+                # Terminal-flush guarantee for paths the except-arm never sees
+                # (cancellation): land the last document state, end the writer
+                # lifecycle. No-op when mark_workflow_finished already closed.
+                from .persistence import close_execution_document
+
+                close_execution_document(resolved_run_dir, execution_id)
                 handle._done_event.set()
 
         handle._task = asyncio.create_task(_bg())
         return handle
-
-    # ── iter ─────────────────────────────────────────────────────────────────
-
-    def iter(
-        self,
-        compiled: CompiledWorkflow,
-        *,
-        run_context: RunContextLike | None = None,
-        run_dir: str | Path | None = None,
-        config: JSONMapping | None = None,
-        deps: UserDeps = None,
-        seed_outputs: Mapping[str, TaskOutput] | None = None,
-        cache: Caching | None = None,
-    ) -> Any:  # noqa: ANN401
-        """Return an async context manager for step-by-step iteration.
-
-        See :meth:`execute` for ``seed_outputs`` / ``cache`` semantics.
-        """
-        state = self._build_initial_state(compiled, seed_outputs)
-        resolved_run_dir = _resolve_run_dir(run_context, run_dir)
-        workflow_deps = self._build_deps(
-            compiled,
-            run_context=run_context,
-            run_dir=resolved_run_dir,
-            execution_id=None,
-            config=config,
-            deps=deps,
-            cache=_resolve_cache(cache, self.cache, run_context),
-        )
-        return compiled.graph.iter(state=state, deps=workflow_deps, inputs=None)
-
-    # ── stream ───────────────────────────────────────────────────────────────
-
-    def stream(
-        self,
-        compiled: CompiledWorkflow,
-        *,
-        run_context: RunContextLike | None = None,
-        run_dir: str | Path | None = None,
-        config: JSONMapping | None = None,
-        deps: UserDeps = None,
-        seed_outputs: Mapping[str, TaskOutput] | None = None,
-        cache: Caching | None = None,
-    ) -> Any:  # noqa: ANN401
-        """Alias for iter() — streaming Actor support in a future phase."""
-        return self.iter(
-            compiled,
-            run_context=run_context,
-            run_dir=run_dir,
-            config=config,
-            deps=deps,
-            seed_outputs=seed_outputs,
-            cache=cache,
-        )
 
     # ── run_on ─────────────────────────────────────────────────────────────────
 
@@ -660,7 +708,7 @@ class WorkflowRuntime:
         recoverable after process restart.
         """
         params_dict = dict(parameters) if parameters is not None else None
-        run = cast("Any", experiment).add_run(parameters=params_dict)
+        run = cast("Any", experiment).add_run(params=params_dict)
         with run.start(profile_config=profile_config) as run_ctx:
             result = await self.execute(
                 compiled, run_context=run_ctx, config=config, deps=deps, cache=cache

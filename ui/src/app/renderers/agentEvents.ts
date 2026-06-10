@@ -1,13 +1,16 @@
 import {
   Bot,
   CheckCircle2,
-  CircleUser,
+  ClipboardList,
   FileText,
   HelpCircle,
+  Milestone,
   Minimize2,
+  Play,
   ShieldAlert,
-  Sparkles,
+  ShieldCheck,
   Terminal,
+  Wrench,
   XCircle,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -35,41 +38,44 @@ export interface EventMeta {
  * render without crashing.
  */
 export const EVENT_META: Record<string, EventMeta> = {
-  mode_started: { icon: Sparkles, label: "Started", colorClass: "text-violet-400" },
-  mode_completed: { icon: CheckCircle2, label: "Completed", colorClass: "text-emerald-500" },
-  stage_started: { icon: CircleUser, label: "Stage started", colorClass: "text-muted-foreground" },
+  // Colors come exclusively from the molcrafts semantic token set:
+  // info = activity/accent, success/warning/destructive = state,
+  // muted-foreground = lifecycle metadata. No decorative hues.
+  loop_started: { icon: Play, label: "Started", colorClass: "text-info" },
+  loop_completed: { icon: CheckCircle2, label: "Completed", colorClass: "text-success" },
+  stage_started: { icon: Milestone, label: "Stage started", colorClass: "text-muted-foreground" },
   stage_completed: {
-    icon: CheckCircle2,
+    icon: Milestone,
     label: "Stage completed",
     colorClass: "text-muted-foreground",
   },
-  plan_emitted: { icon: Sparkles, label: "Plan created", colorClass: "text-violet-500" },
+  plan_emitted: { icon: ClipboardList, label: "Plan created", colorClass: "text-info" },
   approval_requested: {
     icon: ShieldAlert,
     label: "Approval needed",
-    colorClass: "text-orange-500",
+    colorClass: "text-warning",
   },
   approval_decided: {
-    icon: CheckCircle2,
+    icon: ShieldCheck,
     label: "Approval decided",
-    colorClass: "text-violet-400",
+    colorClass: "text-info",
   },
-  tool_call_started: { icon: Terminal, label: "Tool call", colorClass: "text-blue-500" },
-  tool_call_completed: { icon: CheckCircle2, label: "Tool result", colorClass: "text-green-600" },
+  tool_call_started: { icon: Terminal, label: "Tool call", colorClass: "text-info" },
+  tool_call_completed: { icon: CheckCircle2, label: "Tool result", colorClass: "text-success" },
   artifact_written: {
     icon: FileText,
     label: "Artifact written",
-    colorClass: "text-muted-foreground",
+    colorClass: "text-info",
   },
-  preflight_failed: { icon: XCircle, label: "Preflight failed", colorClass: "text-red-500" },
-  repair_proposed: { icon: Sparkles, label: "Repair proposed", colorClass: "text-amber-500" },
-  clarification_required: { icon: HelpCircle, label: "Question", colorClass: "text-fuchsia-500" },
+  preflight_failed: { icon: XCircle, label: "Preflight failed", colorClass: "text-destructive" },
+  repair_proposed: { icon: Wrench, label: "Repair proposed", colorClass: "text-warning" },
+  clarification_required: { icon: HelpCircle, label: "Question", colorClass: "text-warning" },
   compaction_performed: {
     icon: Minimize2,
     label: "Compaction",
     colorClass: "text-muted-foreground",
   },
-  error: { icon: XCircle, label: "Error", colorClass: "text-red-500" },
+  error: { icon: XCircle, label: "Error", colorClass: "text-destructive" },
   thinking_delta: { icon: Bot, label: "Thinking", colorClass: "text-muted-foreground" },
   token_delta: { icon: Bot, label: "Response", colorClass: "text-muted-foreground" },
 };
@@ -107,14 +113,14 @@ export const normalizeStreamFrame = (data: Record<string, unknown>): ApiSessionE
  * waiting on the user. In the snake_case vocabulary the only such event is
  * `clarification_required` (a PlanMode prompt); it carries `questions` rather
  * than a `request_id`, so a `gate`/synthetic id is used. Resolved once a
- * later `mode_completed` / `approval_decided` supersedes it.
+ * later `loop_completed` / `approval_decided` supersedes it.
  *
  * Largely inactive until the clarification/approval path fires agent-side.
  */
 export const derivePendingUserRequest = (events: ApiSessionEvent[]): PendingUserRequest | null => {
   for (let i = events.length - 1; i >= 0; i--) {
     const ev = events[i];
-    if (ev.type === "mode_completed" || ev.type === "approval_decided") return null;
+    if (ev.type === "loop_completed" || ev.type === "approval_decided") return null;
     if (ev.type === "clarification_required") {
       const payload = (ev.payload ?? {}) as Record<string, unknown>;
       const rid =
@@ -145,12 +151,23 @@ export interface ConversationTurn {
   steps: ApiSessionEvent[];
   /** True when this turn is still streaming (no terminal result yet). */
   inProgress: boolean;
+  /** ISO timestamp of the loop_started that opened this turn, if seen. */
+  startedTs: string | null;
 }
 
+/** Wall-clock seconds from a turn's opening loop_started to its result. */
+export const turnDurationSeconds = (turn: ConversationTurn): number | null => {
+  if (!turn.startedTs || !turn.result?.ts) return null;
+  const started = new Date(turn.startedTs).getTime();
+  const finished = new Date(turn.result.ts).getTime();
+  if (Number.isNaN(started) || Number.isNaN(finished) || finished < started) return null;
+  return (finished - started) / 1000;
+};
+
 const isResultEvent = (event: ApiSessionEvent): boolean =>
-  event.type === "mode_completed" ||
+  event.type === "loop_completed" ||
   // plan_emitted IS the agent's answer for a plan-mode turn — the user reviews
-  // and approves it as the headline; a later mode_completed overrides it.
+  // and approves it as the headline; a later loop_completed overrides it.
   event.type === "plan_emitted";
 
 const eventKey = (event: ApiSessionEvent, fallback: number): string =>
@@ -158,12 +175,12 @@ const eventKey = (event: ApiSessionEvent, fallback: number): string =>
 
 /**
  * Group events into conversational turns. Each turn begins with a
- * `mode_started` event (carrying the turn's `user_input`): the first one is
- * absorbed into the implicit goal turn, and every subsequent `mode_started`
- * opens a new turn. A turn closes on `mode_completed` / `plan_emitted`.
+ * `loop_started` event (carrying the turn's `user_input`): the first one is
+ * absorbed into the implicit goal turn, and every subsequent `loop_started`
+ * opens a new turn. A turn closes on `loop_completed` / `plan_emitted`.
  *
  * Intermediate events (tool calls, …) are surfaced as `steps` so the UI can
- * collapse them; a `mode_started` boundary is not itself a step row.
+ * collapse them; a `loop_started` boundary is not itself a step row.
  */
 export const groupEventsIntoTurns = (
   events: ApiSessionEvent[],
@@ -178,14 +195,16 @@ export const groupEventsIntoTurns = (
     result: null,
     steps: [],
     inProgress: true,
+    startedTs: null,
   };
-  let sawFirstModeStarted = false;
+  let sawFirstLoopStarted = false;
 
   events.forEach((event, idx) => {
-    if (event.type === "mode_started") {
-      if (!sawFirstModeStarted) {
-        // The first mode_started opens the implicit goal turn — absorb it.
-        sawFirstModeStarted = true;
+    if (event.type === "loop_started") {
+      if (!sawFirstLoopStarted) {
+        // The first loop_started opens the implicit goal turn — absorb it.
+        sawFirstLoopStarted = true;
+        current.startedTs = event.ts;
         return;
       }
       const payload = (event.payload ?? {}) as Record<string, unknown>;
@@ -199,6 +218,7 @@ export const groupEventsIntoTurns = (
         result: null,
         steps: [],
         inProgress: true,
+        startedTs: event.ts,
       };
       return;
     }
@@ -227,7 +247,20 @@ export interface ToolCallState {
   status: "started" | "completed";
   ok: boolean | null;
   resultSummary: string | null;
+  /** ISO timestamp of the started event ("" when unknown). */
+  startedTs: string;
+  /** ISO timestamp of the completed event; null while still running. */
+  completedTs: string | null;
 }
+
+/** Wall-clock seconds between a call's started/completed pair, if both known. */
+export const toolCallDurationSeconds = (call: ToolCallState): number | null => {
+  if (!call.startedTs || !call.completedTs) return null;
+  const started = new Date(call.startedTs).getTime();
+  const completed = new Date(call.completedTs).getTime();
+  if (Number.isNaN(started) || Number.isNaN(completed) || completed < started) return null;
+  return (completed - started) / 1000;
+};
 
 /** Render-ready streamed state for one turn (token answer, reasoning, tools). */
 export interface StreamedTurn {
@@ -253,7 +286,7 @@ const _str = (value: unknown): string => (typeof value === "string" ? value : ""
  * tool entry, upgraded in place to `completed` (with `ok`/`resultSummary`) by
  * the matching `tool_call_completed` — matched FIFO by `tool_name`, falling
  * back to the earliest still-`started` entry. When no `token_delta` streamed,
- * `answer` falls back to a trailing `mode_completed.text`.
+ * `answer` falls back to a trailing `loop_completed.text`.
  */
 export const foldStreamedTurn = (events: ApiSessionEvent[]): StreamedTurn => {
   let answer = "";
@@ -278,6 +311,8 @@ export const foldStreamedTurn = (events: ApiSessionEvent[]): StreamedTurn => {
           status: "started",
           ok: null,
           resultSummary: null,
+          startedTs: event.ts,
+          completedTs: null,
         });
         break;
       case "tool_call_completed": {
@@ -290,11 +325,12 @@ export const foldStreamedTurn = (events: ApiSessionEvent[]): StreamedTurn => {
             status: "completed",
             ok: typeof p.ok === "boolean" ? p.ok : true,
             resultSummary: typeof p.result_summary === "string" ? p.result_summary : null,
+            completedTs: event.ts,
           };
         }
         break;
       }
-      case "mode_completed":
+      case "loop_completed":
         fallback = _str(p.text);
         break;
       default:

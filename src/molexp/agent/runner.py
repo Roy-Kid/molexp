@@ -51,7 +51,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from mollog import get_logger
 
-from molexp.agent.events import AgentEvent, AsyncIteratorEventSink, ModeCompletedEvent
+from molexp.agent.events import AgentEvent, AsyncIteratorEventSink, LoopCompletedEvent
 from molexp.agent.execution_env import LocalExecutionEnv
 from molexp.agent.loop import AgentRunResult
 from molexp.agent.router import ModelTier, Router, TierModels
@@ -147,7 +147,7 @@ class AgentRunner:
 
         Drains the loop's :data:`AgentEvent` stream, accumulates every
         event, and folds the terminal
-        :class:`~molexp.agent.events.ModeCompletedEvent` into
+        :class:`~molexp.agent.events.LoopCompletedEvent` into
         the returned result (whose ``events`` field carries the whole
         stream).
         """
@@ -341,17 +341,17 @@ def _result_from_stream(events: tuple[AgentEvent, ...]) -> AgentRunResult:
     """Fold an accumulated event stream into the terminal :class:`AgentRunResult`.
 
     The loop's terminal
-    :class:`~molexp.agent.events.ModeCompletedEvent` carries the
+    :class:`~molexp.agent.events.LoopCompletedEvent` carries the
     result's JSON dump in ``result``; we rebuild the typed result from
     it and attach the whole stream as ``events``.
     """
-    terminal: ModeCompletedEvent | None = None
+    terminal: LoopCompletedEvent | None = None
     for event in events:
-        if isinstance(event, ModeCompletedEvent):
+        if isinstance(event, LoopCompletedEvent):
             terminal = event
     if terminal is None:
         raise RuntimeError(
-            "the loop's event stream ended without a ModeCompletedEvent; "
+            "the loop's event stream ended without a LoopCompletedEvent; "
             "every AgentLoop.run must yield one as its terminal event."
         )
     if terminal.result is not None:

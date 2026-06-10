@@ -4,8 +4,11 @@ Replaces the prior ``AgentHarness`` god-object. After spec
 ``harness-as-mode-substrate-03b``, ``molexp.agent`` only ships two
 modes (:class:`~molexp.agent.loops.ChatLoop` + the emergent
 :class:`~molexp.agent.loops.InteractiveLoop`), neither of which needs
-stage brackets, unified-approval gates, or compaction wiring — those
-concerns moved to ``molexp.harness``. What a mode does need is a typed
+stage brackets or unified-approval gates — those concerns moved to
+``molexp.harness``. (Context compaction stayed in the agent layer:
+the loops trigger it themselves via
+:func:`molexp.agent.loops._compact.maybe_compact`.) What a mode does
+need is a typed
 bundle of the three runtime services the agent layer still owns: the
 :class:`~molexp.agent.session.Session` entry tree, the LLM dispatch
 :class:`~molexp.agent.router.Router`, and the

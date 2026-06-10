@@ -265,7 +265,7 @@ def test_prefetch_reconstructs_tree_and_no_plural_index_files(tmp_path: Path):
     ws = Workspace(root=root, name="ws")
     proj = ws.add_project("alpha")
     exp = proj.add_experiment("counter")
-    run = exp.add_run(parameters={"x": 1})
+    run = exp.add_run(params={"x": 1})
     with run.start():
         pass
 

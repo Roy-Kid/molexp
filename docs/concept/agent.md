@@ -28,14 +28,14 @@ from molexp.agent import (
   history, mode-specific scratch state, and the session ID.
 - `AgentRunResult` — frozen pydantic model returned by every
   `AgentRunner.run` call. Contains `text`, `usage`, optional
-  `mode_state`, optional `failure`.
+  `loop_state`, optional `failure`.
 
 Concrete modes live in `molexp.agent.modes`:
 
 - `ChatMode` — single-turn LLM round-trip via the harness.
 - `PlanMode` — workflow-backed; drives a private multi-step plan
   graph through the public `molexp.workflow` API. Returns an
-  `AgentRunResult` whose `mode_state["plan"]` carries the structured
+  `AgentRunResult` whose `loop_state["plan"]` carries the structured
   plan.
 - `ReviewMode` — phase-2 placeholder.
 

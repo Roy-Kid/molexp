@@ -15,7 +15,7 @@ from unittest.mock import patch
 import pytest
 
 import molexp.agent
-from molexp.agent.events import ModeCompletedEvent, ModeStartedEvent
+from molexp.agent.events import LoopCompletedEvent, LoopStartedEvent
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.loops import ChatLoop, ChatLoopConfig
 from molexp.agent.mcp import defaults as defaults_mod
@@ -158,7 +158,7 @@ async def test_chat_mode_round_trip_via_model_string() -> None:
     assert isinstance(result, AgentRunResult)
     assert result.text
     # the run accumulated its event stream
-    assert any(isinstance(e, ModeCompletedEvent) for e in result.events)
+    assert any(isinstance(e, LoopCompletedEvent) for e in result.events)
 
 
 @pytest.mark.asyncio
@@ -188,8 +188,8 @@ async def test_runner_run_events_exposes_live_stream() -> None:
 
     runner = AgentRunner(loop=ChatLoop(), model=TestModel())  # type: ignore[arg-type]
     streamed = [ev async for ev in runner.run_events(runner.session("s"), "hi")]
-    assert any(isinstance(e, ModeStartedEvent) for e in streamed)
-    assert isinstance(streamed[-1], ModeCompletedEvent)
+    assert any(isinstance(e, LoopStartedEvent) for e in streamed)
+    assert isinstance(streamed[-1], LoopCompletedEvent)
 
 
 def test_run_events_drains_via_async_iterator_sink() -> None:
@@ -218,7 +218,7 @@ async def test_run_events_propagates_mode_exception_without_orphan_task() -> Non
     """
     import asyncio
 
-    from molexp.agent.events import AsyncIteratorEventSink, ModeStartedEvent
+    from molexp.agent.events import AsyncIteratorEventSink, LoopStartedEvent
     from molexp.agent.runtime import AgentRuntime
 
     class _ExplodingMode:
@@ -231,7 +231,7 @@ async def test_run_events_propagates_mode_exception_without_orphan_task() -> Non
             sink: AsyncIteratorEventSink,
             user_input: str,
         ) -> None:
-            await sink(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+            await sink(LoopStartedEvent(loop_name=self.name, user_input=user_input))
             raise RuntimeError("mode boom")
 
     pytest.importorskip("pydantic_ai")

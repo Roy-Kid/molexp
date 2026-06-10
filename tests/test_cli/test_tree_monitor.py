@@ -1,8 +1,9 @@
-"""Unit tests for molexp.tree_monitor data/layout primitives.
+"""Unit tests for the molexp.cli.tui data/layout primitives.
 
 Covers tree build, flatten + expansion, short-id formatting, target
-collection, and the dialog classification path.  TUI loop and key
-handling are out of scope — validated manually.
+collection, the dialog classification path, and the deprecated
+``molexp.tree_monitor`` shim.  TUI loop and key handling are out of
+scope — validated manually.
 """
 
 from __future__ import annotations
@@ -12,16 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from molexp.tree_monitor import (
-    _collect_targets,
-    _prepare_dialog,
-    _short_exec_label,
-    _short_id,
-    _UIState,
-    build_tree,
-    flatten,
-    node_path_str,
-)
+from molexp.cli.tui import build_tree, flatten, node_path_str
+from molexp.cli.tui.tree_model import _short_exec_label, _short_id
+from molexp.cli.tui.tree_monitor import _collect_targets, _prepare_dialog, _UIState
 from molexp.workspace import Workspace
 from molexp.workspace.models import ExecutionRecord
 
@@ -33,8 +27,8 @@ def seeded_workspace(tmp_path):
 
     p = ws.add_project("proj-a")
     e = p.add_experiment("exp-x", workflow_source="s.py", params={})
-    r1 = e.add_run(parameters={"seed": 1}, id="abcdef0123456789")
-    r2 = e.add_run(parameters={"seed": 2}, id="fedcba9876543210")
+    r1 = e.add_run(params={"seed": 1}, id="abcdef0123456789")
+    r2 = e.add_run(params={"seed": 2}, id="fedcba9876543210")
 
     # r1: two execution attempts
     hist = []
@@ -169,3 +163,21 @@ class TestPrepareDialog:
         dialog = _prepare_dialog([run])
         assert dialog.plan_lines[0][0] == "!"
         assert "uncancellable" in dialog.plan_lines[0][2]
+
+
+class TestDeprecatedShim:
+    def test_legacy_import_path_warns_and_reexports(self):
+        import importlib
+        import sys
+
+        sys.modules.pop("molexp.tree_monitor", None)
+        with pytest.warns(DeprecationWarning, match="molexp.cli.tui"):
+            shim = importlib.import_module("molexp.tree_monitor")
+
+        import molexp.cli.tui as tui
+
+        assert shim.TreeMonitor is tui.TreeMonitor
+        assert shim.TreeNode is tui.TreeNode
+        assert shim.build_tree is tui.build_tree
+        assert shim.flatten is tui.flatten
+        assert shim.node_path_str is tui.node_path_str

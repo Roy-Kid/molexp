@@ -22,7 +22,7 @@ from molexp.workspace.catalog.index import AssetCatalog
 def run(tmp_path):
     ws = Workspace(root=tmp_path / "lab", name="lab")
     exp = ws.add_project("p").add_experiment("e")
-    return exp.add_run(parameters={"i": 0})
+    return exp.add_run(params={"i": 0})
 
 
 def test_append_does_not_rewrite_manifest_or_catalog_per_line(run, monkeypatch):

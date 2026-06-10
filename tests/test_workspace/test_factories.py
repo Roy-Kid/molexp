@@ -122,8 +122,8 @@ def test_experiment_add_run_is_idempotent(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
     proj = ws.add_project(name="demo")
     exp = proj.add_experiment(name="counter")
-    r1 = exp.add_run(parameters={"lr": 1e-3}, id="r1")
-    r2 = exp.add_run(parameters={"lr": 1e-3}, id="r1")
+    r1 = exp.add_run(params={"lr": 1e-3}, id="r1")
+    r2 = exp.add_run(params={"lr": 1e-3}, id="r1")
     assert r1.id == r2.id == "r1"
 
 
@@ -131,7 +131,7 @@ def test_experiment_get_run_is_strict_getter(tmp_path):
     ws = Workspace(root=tmp_path, name="ws")
     proj = ws.add_project(name="demo")
     exp = proj.add_experiment(name="counter")
-    exp.add_run(parameters={"lr": 1e-3}, id="r1")
+    exp.add_run(params={"lr": 1e-3}, id="r1")
     got = exp.get_run("r1")
     assert got.id == "r1"
 

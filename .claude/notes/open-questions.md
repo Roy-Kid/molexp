@@ -66,7 +66,7 @@ Candidates considered:
 
 - **(A) Frozen pydantic type, serialized to a `handoff:` section
   inside `manifest.yaml` — RECOMMENDED DEFAULT.** In-process
-  consumers read `AgentRunResult.mode_state["plan"]["handoff"]`;
+  consumers read `AgentRunResult.loop_state["plan"]["handoff"]`;
   on-disk consumers read `manifest.yaml`.
 - (B) On-disk YAML manifest only (no in-process pydantic mirror).
 - (C) Frozen pydantic type only (no on-disk persistence; consumer

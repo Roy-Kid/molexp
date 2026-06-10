@@ -34,6 +34,13 @@ equivalent styles share the compiler class:
 
        compiled = WorkflowCompiler(name="pipeline").add(ExternalProcessor()).compile()
 
+Control flow beyond the DAG shape is declared on the compiler:
+``wf.parallel`` (runtime-sized fan-out), ``wf.branch`` (label-routed
+edges) and ``wf.loop`` (repeat-until). A branch or loop-``until`` task
+returns ``(value, Next("label"))``; the routed target receives ``value``
+as its ``ctx.inputs`` (values-on-edges delivery — see
+``docs/guide/control-flow.md``).
+
 Execution lives on :class:`WorkflowRuntime`
 (``runtime.execute(compiled)`` / ``.start`` / ``.run_on``), not on the
 artifact. Bind a compiled workflow to an experiment via
@@ -44,7 +51,7 @@ code (CLI / server / cluster workers) can recover it via
 """
 
 from ._names import generate_name
-from ._pydantic_graph.persistence import read_node_outputs
+from ._pydantic_graph.persistence import read_node_outputs, seed_from_execution
 from ._pydantic_graph.runtime import WorkflowRuntime, make_execution_id
 from .binding import WorkflowBinding, WorkflowBindingRegistry, default_binding_registry
 from .cache import Caching
@@ -97,6 +104,7 @@ from .types import (
     LoopMaxItersExceeded,
     MissingRouteError,
     MissingUpstreamResultError,
+    Next,
     OutEdges,
     ParallelExecutionError,
     UnconditionalEdges,
@@ -137,6 +145,7 @@ __all__ = [
     "LoopMaxItersExceeded",
     "MissingRouteError",
     "MissingUpstreamResultError",
+    "Next",
     "OutEdges",
     "ParallelExecutionError",
     "Runnable",
@@ -186,5 +195,6 @@ __all__ = [
     "render_workflow_mermaid",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
+    "seed_from_execution",
     "validate_workflow_contract",
 ]

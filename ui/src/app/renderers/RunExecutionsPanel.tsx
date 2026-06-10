@@ -4,9 +4,9 @@ import { DashboardCard, EmptyState, StatusIcon } from "@/app/components/entity";
 import { formatDuration } from "@/app/renderers/dashboardData";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary, WorkflowSummary } from "@/app/types";
-import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
+import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
 
 const formatTimeOfDay = (iso: string | null): string => {
   if (!iso) return "—";
@@ -91,13 +91,7 @@ export const RunExecutionsPanel = ({
       cancelled = true;
       if (interval) clearInterval(interval);
     };
-  }, [
-    effectiveExecutionId,
-    run.experimentId,
-    run.id,
-    run.projectId,
-    shouldPoll,
-  ]);
+  }, [effectiveExecutionId, run.experimentId, run.id, run.projectId, shouldPoll]);
 
   const staticWorkflowIr = useMemo(() => parseWorkflowIr(run.workflowSource), [run.workflowSource]);
   const workflowIr = executionGraph ?? staticWorkflowIr;

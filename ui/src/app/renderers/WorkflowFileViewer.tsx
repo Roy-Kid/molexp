@@ -5,16 +5,16 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { workspaceApi } from "@/app/state/api";
+import type { RendererProps, SemanticStatus } from "@/app/types";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { FlowgramCanvas } from "@/components/workflow/flowgram-canvas";
 import {
   buildFlowgramDocument,
   type FlowgramDocument,
   normalizeTaskGraph,
 } from "@/components/workflow/flowgram-document";
-import { workspaceApi } from "@/app/state/api";
-import type { RendererProps, SemanticStatus } from "@/app/types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
 
 interface WorkflowFileNode {
   task_id: string;

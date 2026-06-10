@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Emitted at the start of a logical stage in a mode's body.
+ * Emitted at the start of a logical stage in a loop's body.
  */
 export type StageStartedEvent = {
     kind?: string;

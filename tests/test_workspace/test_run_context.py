@@ -139,7 +139,7 @@ class TestCheckpointAccessor:
 
 class TestRunContextParams:
     def test_params_shortcut(self, experiment):
-        run = experiment.add_run(parameters={"lr": 1e-4, "batch": 32})
+        run = experiment.add_run(params={"lr": 1e-4, "batch": 32})
         with run.start() as ctx:
             assert ctx.params == {"lr": 1e-4, "batch": 32}
             assert ctx.params is ctx.run.parameters

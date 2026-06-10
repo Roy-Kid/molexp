@@ -1,70 +1,59 @@
 # Workflow Runtime
 
-The workflow runtime is the execution backend behind `Workflow`. In ordinary usage you do not instantiate it yourself. You call `spec.execute(...)` or `spec.start(...)`, and MolExp creates the default runtime lazily when it is needed.
+Execution lives on `WorkflowRuntime`, not on the compiled artifact. You instantiate the runtime (it is cheap and stateless apart from an optional cache) and hand it a `CompiledWorkflow`:
 
 ```python
-await spec.execute(run=run)
-handle = await spec.start(run=run)
+from molexp.workflow import WorkflowRuntime
+
+runtime = WorkflowRuntime()
+result = await runtime.execute(compiled)
+handle = await runtime.start(compiled)
 ```
 
-The concrete implementation currently shipped by MolExp is `GraphWorkflowRuntime`, backed by `pydantic-graph`, but most user code should treat that as an implementation detail rather than as a direct API surface.
+The compiled artifact carries a frozen, molexp-owned `ExecutionPlan` that a structural engine executes with values-on-edges semantics (task inputs are delivered from upstream outputs; `pydantic-graph` survives only as the `End` sentinel re-export) — but most user code should treat that as an implementation detail rather than as a direct API surface.
 
 ## What the Runtime Actually Does
 
-When execution begins, the runtime validates the compiled graph, groups tasks by dependency level, and then drives those levels in order. Tasks at the same level have no unresolved data dependency between them, so they can run concurrently through `asyncio.gather`. That is why most workflow parallelism in MolExp is implicit. You declare the dependency structure, and the runtime extracts the available concurrency from that structure.
+When execution begins, the runtime builds the initial workflow state (optionally seeded with already-known task outputs), injects root-task inputs, and drives the lowered graph to completion. Tasks whose dependencies are all satisfied run concurrently. That is why most workflow parallelism in MolExp is implicit: you declare the dependency structure, and the runtime extracts the available concurrency from that structure.
 
-If a `Run` is attached, the runtime also owns the `RunContext` lifecycle. It opens the run context at entry, applies profile metadata, appends an `ExecutionRecord`, and closes the context on success, failure, or cancellation. The task code sees that lifecycle only indirectly through `TaskContext`, but the runtime is what actually ties the workflow execution to the persistent run record.
+If a `RunContext` is attached (`execute(..., run_context=ctx)`), the runtime threads the run's profile config into every task's `ctx.config`, injects the run's sweep parameters and a content-addressed `workdir` into root-task `ctx.inputs`, persists per-node outputs under the run's execution directory, and back-propagates task failures so the run's final status is correct.
 
 The runtime also relies on the compiled workflow identity rather than on ad hoc process state. `workflow_id` is derived deterministically from the workflow name and task topology, which is what makes it useful for correlating equivalent graphs across executions and machines.
 
 ## Where Persistent State Lives
 
-Workflow execution state — the `workflow.json` snapshot under
-`<run_dir>/executions/<exec_id>/` — is written through workspace's
-public `atomic_write_json` helper, not raw filesystem calls. The
-atomicity guarantee is workspace's, not a runtime-layer reinvention.
-This is the runtime side of the *workflow → workspace* dependency
-direction documented in CLAUDE.md.
+Workflow execution state — the `workflow.json` snapshot under `<run_dir>/executions/<exec_id>/` — is written through workspace's public `atomic_write_json` helper, not raw filesystem calls. The atomicity guarantee is workspace's, not a runtime-layer reinvention. This is the runtime side of the *workflow → workspace* dependency direction documented in CLAUDE.md. Resume is caller-driven: a failed run preserves completed node outputs on disk, and the caller (e.g. `molexp run --resume`) re-seeds them via `execute(..., seed_outputs=...)`.
 
 ## Caching
 
-Cache persistence is pluggable. `Caching` orchestrates the cache
-policy (key derivation, format version, LRU eviction); the storage
-primitive is a `CacheStore` impl supplied at construction time:
+Cache persistence is pluggable. `Caching` orchestrates the cache policy (key derivation, format version, LRU eviction); the storage primitive is a `CacheStore` implementation supplied at construction time:
 
-- `WorkspaceCacheStore(workspace)` — content-addressed entries land
-  under `<workspace_root>/.subsystems/workflow.cache/`. This is the
-  preferred form for in-process workflow runs that already have a
-  workspace.
-- `FileCacheStore(path)` — a plain filesystem directory. Useful when
-  the caller has no workspace (e.g. ad-hoc scripts; the FastAPI
-  server's process-local cache).
+- `ws.cache.as_cache_store()` — the workspace's singleton cache folder, the preferred form for runs that already have a workspace. When you pass a `run_context`, the runtime builds this workspace-backed cache automatically.
+- `FileCacheStore(path)` — a plain filesystem directory. Useful when the caller has no workspace (e.g. ad-hoc scripts; the FastAPI server's process-local cache).
 
-The user-home `~/.molexp/cache/` shortcut from earlier MolExp
-versions is gone — caching is always either workspace-rooted or
-explicitly opted into via `FileCacheStore`.
+The user-home `~/.molexp/cache/` shortcut from earlier MolExp versions is gone — caching is always either workspace-rooted or explicitly opted into via `FileCacheStore`.
 
 ## Blocking Execution and Background Execution
 
-`spec.execute(...)` is the block-and-return path. It runs the workflow to completion and returns a `WorkflowResult`. `spec.start(...)` launches the same execution through an async handle and returns a `WorkflowExecution`, which can later be awaited or cancelled. The two entry points differ in control style, not in workflow semantics.
+`runtime.execute(...)` is the block-and-return path. It runs the workflow to completion and returns a `WorkflowResult`. `runtime.start(...)` launches the same execution as a background asyncio task and returns a `WorkflowExecution` handle, which can later be awaited (`await handle.wait()`) or cancelled (`await handle.cancel()`). The two entry points differ in control style, not in workflow semantics.
 
 ## Attaching Persistent State
 
-There are three practical execution modes. The first is pure in-memory execution with no workspace attached. The second is execution under a `Run`, where the runtime opens the run context for you. The third is execution under an already-opened `RunContext`, which is useful only when you need to manage that lifecycle manually.
+There are two practical execution modes. The first is pure in-memory execution with no workspace attached. The second is execution under an opened `RunContext`:
 
 ```python
-await spec.execute()
-await spec.execute(run=run)
+await runtime.execute(compiled)
+await runtime.execute(compiled, config={"scale": 2.0})
 
 with run.start(profile_config=cfg) as ctx:
-    await spec.execute(run_context=ctx)
+    await runtime.execute(compiled, run_context=ctx)
 ```
 
-The second and third forms should not be mixed. If you already have a live `RunContext`, that context owns the active config and the runtime should not be asked to open another one around it.
+When a live `RunContext` is passed, its profile config owns `ctx.config` (the `config=` kwarg is ignored in its favor), and the run's lifecycle — status transitions, execution records, error capture — is managed by the `with run.start()` block. For the common "build a fresh run and execute on it" shape, `runtime.run_on(compiled, experiment, parameters=...)` does both steps in one call.
 
 ## Cancellation and Failure
 
-When execution runs through the background handle returned by `spec.start(...)`, cancellation flows through that handle. A cancelled execution closes the run context and marks the run accordingly. A failed execution records structured error information and closes the same lifecycle. In other words, cancellation and failure are not special side channels; they are part of the same run history model as successful completion.
+When execution runs through the background handle returned by `runtime.start(...)`, cancellation flows through that handle. A failed task does not raise out of `execute(...)`: the result comes back with `status="failed"`, completed outputs preserved (for `seed_outputs=` resume), and the failure recorded on the run when a `run_context` is attached. Programming errors in the workflow definition itself (cycles, unknown routes, …) do raise, as `WorkflowError` subclasses. Cancellation and failure are not special side channels; they are part of the same run history model as successful completion.
 
 ## The Useful Boundary
 
@@ -72,4 +61,4 @@ The most useful way to think about the runtime is that it is responsible for tur
 
 ## Runnable Example
 
-`examples/workflow/workflow_runtime.py` shows both entry points — `spec.execute()` blocking to completion and `spec.start()` returning a `WorkflowExecution` handle.
+`examples/workflow/workflow_runtime.py` shows both entry points — `runtime.execute()` blocking to completion and `runtime.start()` returning a `WorkflowExecution` handle.

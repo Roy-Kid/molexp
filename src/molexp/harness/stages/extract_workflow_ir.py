@@ -1,14 +1,9 @@
 """``ExtractWorkflowIR`` — third stage of the §3 pipeline.
 
-Asks the configured :class:`AgentGateway` to expand an
+Asks the gateway on ``ctx.agent_gateway`` to expand an
 ``ExperimentReport`` artifact into a structured :class:`WorkflowIR`.
-
-Unlike Phase-2's :class:`GenerateExperimentReport` (which takes the
-gateway as a constructor arg because Phase-1 ``HarnessRunContext`` had
-no ``agent_gateway`` field), Phase 7 ships the field and reads it from
-ctx. The architectural inflection point: ctor-injection (Phase 2) and
-ctx-injection (Phase 7+) coexist temporarily — a future cleanup phase
-will migrate Phase-2's stage to the ctx-based pattern.
+Every LLM-backed stage reads the gateway from ctx — context injection is
+the one pattern; no stage takes a gateway constructor arg.
 
 Fail-fast: if ``ctx.agent_gateway is None``, the stage raises
 :class:`StageExecutionError` rather than NPE-ing midway through the

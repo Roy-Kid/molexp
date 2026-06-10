@@ -77,6 +77,25 @@ def _build_single_step_inner() -> WorkflowCompiler:
     return wf
 
 
+def _build_input_consuming_inner() -> WorkflowCompiler:
+    """An inner chain whose ENTRY reads ``ctx.inputs`` (the forwarded value).
+
+    seed(x) → x  →  scale → x * 10. Used to prove the SubWorkflow node's input
+    (fan-out element / upstream output) reaches the inner entry task.
+    """
+    wf = WorkflowCompiler(name="inner-consume")
+
+    @wf.task
+    async def seed(ctx: TaskContext) -> int:
+        return ctx.inputs
+
+    @wf.task(depends_on=["seed"])
+    async def scale(ctx: TaskContext) -> int:
+        return ctx.inputs * 10
+
+    return wf
+
+
 # ── ac-002 / ac-005: multi-step inner returns terminal output ────────────────
 
 
@@ -308,3 +327,113 @@ async def test_subworkflow_parallel_element_failure_surfaces() -> None:
 
     assert exc_info.value.body == "sub"
     assert set(exc_info.value.failures.keys()) == {1}
+
+
+# ── input forwarding: the node input reaches the inner entry task ─────────────
+
+
+@pytest.mark.asyncio
+async def test_subworkflow_parallel_body_forwards_element() -> None:
+    """Each fan-out element reaches the inner entry task → distinct per-element
+    outputs (the contract that lets a SubWorkflow replace a hand-rolled ``_sub``
+    fan-out body that threaded the element by hand)."""
+    wf = WorkflowCompiler(name="outer-forward", entry="enumerate")
+
+    @wf.task
+    async def enumerate(ctx: TaskContext) -> list[int]:
+        return [1, 2, 3]
+
+    wf.add(SubWorkflow(_build_input_consuming_inner()), name="sub")
+
+    @wf.task
+    async def collect(ctx: TaskContext) -> list[int]:
+        return list(ctx.inputs)
+
+    wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=2)
+
+    result = await WorkflowRuntime().execute(wf.compile())
+    assert result.status == "completed"
+    # seed(x)=x → scale=x*10, one DISTINCT output per element (not all identical).
+    assert result.outputs["collect"] == [10, 20, 30]
+
+
+@pytest.mark.asyncio
+async def test_subworkflow_chained_forwards_upstream_output() -> None:
+    """A non-parallel SubWorkflow node forwards its upstream output into the inner
+    entry task — not just fan-out elements."""
+
+    class Source(Task):
+        async def execute(self, ctx: TaskContext) -> int:
+            return 7
+
+    outer = (
+        WorkflowCompiler(name="outer-chain-forward")
+        .add(Source(), name="src")
+        .add(SubWorkflow(_build_input_consuming_inner()), name="sub", depends_on=["src"])
+        .compile()
+    )
+    result = await WorkflowRuntime().execute(outer)
+    assert result.status == "completed"
+    assert result.outputs["sub"] == 70  # seed(7) → scale 70
+
+
+@pytest.mark.asyncio
+async def test_subworkflow_bare_root_runs_inner_unchanged() -> None:
+    """A bare-root SubWorkflow (no element, no deps, no run params) forwards
+    nothing — an inner spec with several roots is NOT forced to declare a single
+    entry, preserving the pre-forwarding behavior for input-less inner specs."""
+    inner = WorkflowCompiler(name="inner-two-roots")
+
+    @inner.task
+    async def root_a(ctx: TaskContext) -> int:
+        return 1
+
+    @inner.task
+    async def root_b(ctx: TaskContext) -> int:
+        return 2
+
+    @inner.task(depends_on=["root_a", "root_b"])
+    async def merge(ctx: TaskContext) -> int:
+        return ctx.inputs["root_a"] + ctx.inputs["root_b"]
+
+    outer = WorkflowCompiler(name="outer-two-roots").add(SubWorkflow(inner), name="sub").compile()
+    result = await WorkflowRuntime().execute(outer)
+    assert result.status == "completed"
+    assert result.outputs["sub"] == 3
+
+
+def test_resolve_single_root_ambiguous_raises() -> None:
+    """Forwarding into a multi-root inner spec raises a clear error pointing the
+    user at declaring a single entry."""
+    from molexp.workflow._pydantic_graph.runtime import _resolve_single_root
+
+    inner = WorkflowCompiler(name="inner-ambiguous-roots")
+
+    @inner.task
+    async def root_a(ctx: TaskContext) -> int:
+        return 1
+
+    @inner.task
+    async def root_b(ctx: TaskContext) -> int:
+        return 2
+
+    with pytest.raises(ValueError, match="single entry"):
+        _resolve_single_root(inner.compile())
+
+
+def test_resolve_single_root_honors_explicit_entry() -> None:
+    """An explicit single ``entry=`` resolves to that entry (the forwarded-input
+    destination), independent of the root computation."""
+    from molexp.workflow._pydantic_graph.runtime import _resolve_single_root
+
+    inner = WorkflowCompiler(name="inner-explicit-entry", entry="head")
+
+    @inner.task
+    async def head(ctx: TaskContext) -> int:
+        return ctx.inputs
+
+    @inner.task(depends_on=["head"])
+    async def tail(ctx: TaskContext) -> int:
+        return ctx.inputs + 1
+
+    assert _resolve_single_root(inner.compile()) == "head"

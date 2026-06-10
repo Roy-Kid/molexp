@@ -23,11 +23,17 @@ import {
   WorkflowNodeRenderer,
 } from "@flowgram.ai/free-layout-editor";
 import "@flowgram.ai/free-layout-editor/index.css";
-import { Maximize2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
-import { createContext, type JSX, useContext, useEffect, useMemo, useRef } from "react";
+import { Layers, Maximize2, Minus, Plus, Redo2, Undo2 } from "lucide-react";
+import { createContext, type JSX, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { StatusIcon, type StatusKey, statusKey } from "@/app/components/entity";
 import { Button } from "@/components/ui/button";
-import type { FlowgramDocument, FlowgramNodeData } from "@/components/workflow/flowgram-document";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  buildFlowgramDocument,
+  type FlowgramDocument,
+  type FlowgramNodeData,
+} from "@/components/workflow/flowgram-document";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -38,6 +44,14 @@ const prefersReducedMotion = (): boolean =>
  * up by the (reliable) node id via this context.
  */
 const NodeDataContext = createContext<Map<string, Partial<FlowgramNodeData>>>(new Map());
+
+/**
+ * Lets a `SubWorkflow` node ask the canvas to open its inner graph in a
+ * read-only drill-down dialog. Undefined outside a `FlowgramCanvas`.
+ */
+const SubworkflowExpandContext = createContext<
+  ((taskId: string, inner: TaskGraphJson) => void) | undefined
+>(undefined);
 
 export interface FlowgramCanvasProps {
   document: FlowgramDocument;
@@ -91,42 +105,70 @@ const STATUS_VISUAL: Record<StatusKey, string> = {
 const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): JSX.Element => {
   const render = useNodeRender();
   const nodeDataById = useContext(NodeDataContext);
+  const expandSubworkflow = useContext(SubworkflowExpandContext);
   const data = nodeDataById.get(render.id) ?? {};
   const taskId = data.taskId ?? render.id;
   const role = data.role ?? "task";
   const status = data.status ?? "pending";
   const parallel = data.parallel ?? false;
+  const subworkflow = data.subworkflow;
   const visual = STATUS_VISUAL[statusKey(status)];
   // Fake stacked cards behind the node = UML expansion-region multiplicity.
   const stack = parallel ? "shadow-[5px_5px_0_-2px] shadow-violet-300 dark:shadow-violet-800" : "";
+  // A subworkflow node also reads as a (UML rake-glyph) composite — render the
+  // expand affordance and a ▣ badge so it is visually distinct.
   return (
-    <button
-      type="button"
-      title={`${taskId} · ${role}${parallel ? " · parallel ×N" : ""} · ${status}`}
-      className={`relative flex min-w-[150px] max-w-[260px] cursor-pointer flex-col px-3 py-2 text-left transition-[filter] hover:brightness-95 ${ROLE_SHAPE[role]} ${visual} ${stack}`}
-      onClick={() => onNodeClick?.(taskId)}
-    >
-      <StatusIcon status={status} className="absolute right-1.5 top-1.5 h-3.5 w-3.5" />
-      <span className="flex items-center gap-1 truncate pr-4 text-xs font-semibold">
-        {ROLE_GLYPH[role] && (
-          <span className="shrink-0 text-[10px] leading-none" aria-hidden>
-            {ROLE_GLYPH[role]}
-          </span>
-        )}
-        {parallel && (
-          <span
-            className="shrink-0 rounded bg-violet-600 px-1 text-[9px] font-bold text-white"
-            aria-hidden
-          >
-            ∥×N
-          </span>
-        )}
-        <span className="truncate">{data.title ?? taskId}</span>
-      </span>
-      <span className="truncate font-mono text-[10px] opacity-70">
-        [{data.taskType ?? data.subtitle ?? ""}]
-      </span>
-    </button>
+    <div className="relative">
+      <button
+        type="button"
+        title={`${taskId} · ${role}${parallel ? " · parallel ×N" : ""}${subworkflow ? " · subworkflow" : ""} · ${status}`}
+        className={`relative flex min-w-[150px] max-w-[260px] cursor-pointer flex-col px-3 py-2 text-left transition-[filter] hover:brightness-95 ${ROLE_SHAPE[role]} ${visual} ${stack}`}
+        onClick={() => onNodeClick?.(taskId)}
+      >
+        <StatusIcon status={status} className="absolute right-1.5 top-1.5 h-3.5 w-3.5" />
+        <span className="flex items-center gap-1 truncate pr-4 text-xs font-semibold">
+          {ROLE_GLYPH[role] && (
+            <span className="shrink-0 text-[10px] leading-none" aria-hidden>
+              {ROLE_GLYPH[role]}
+            </span>
+          )}
+          {parallel && (
+            <span
+              className="shrink-0 rounded bg-violet-600 px-1 text-[9px] font-bold text-white"
+              aria-hidden
+            >
+              ∥×N
+            </span>
+          )}
+          {subworkflow && (
+            <span
+              className="shrink-0 rounded bg-sky-600 px-1 text-[9px] font-bold text-white"
+              aria-hidden
+            >
+              ▣ sub
+            </span>
+          )}
+          <span className="truncate">{data.title ?? taskId}</span>
+        </span>
+        <span className="truncate font-mono text-[10px] opacity-70">
+          [{data.taskType ?? data.subtitle ?? ""}]
+        </span>
+      </button>
+      {subworkflow && expandSubworkflow && (
+        <button
+          type="button"
+          title="Open inner workflow"
+          aria-label={`Open inner workflow of ${taskId}`}
+          className="absolute -right-2 -bottom-2 flex h-5 w-5 items-center justify-center rounded-full border border-sky-600 bg-card text-sky-600 shadow-sm transition-colors hover:bg-sky-600 hover:text-white"
+          onClick={(event) => {
+            event.stopPropagation();
+            expandSubworkflow(taskId, subworkflow);
+          }}
+        >
+          <Layers className="h-3 w-3" />
+        </button>
+      )}
+    </div>
   );
 };
 
@@ -339,15 +381,44 @@ export const FlowgramCanvas = ({
     [document],
   );
 
+  // Read-only drill-down: a SubWorkflow node's expand button opens its inner
+  // graph in a dialog. The nested canvas is always read-only, regardless of the
+  // outer `editable` (you view inner topology, you don't edit it here).
+  const [expanded, setExpanded] = useState<{ taskId: string; inner: TaskGraphJson } | null>(null);
+  const innerDocument = useMemo(
+    () => (expanded ? buildFlowgramDocument(expanded.inner) : null),
+    [expanded],
+  );
+
   return (
-    <NodeDataContext.Provider value={nodeDataById}>
-      <div className={`relative h-full w-full ${className ?? ""}`}>
-        <FreeLayoutEditorProvider {...editorProps}>
-          <EditorRenderer />
-          <AutoLayoutOnMount />
-          <FlowgramCanvasControls editable={editable} />
-        </FreeLayoutEditorProvider>
-      </div>
-    </NodeDataContext.Provider>
+    <SubworkflowExpandContext.Provider value={(taskId, inner) => setExpanded({ taskId, inner })}>
+      <NodeDataContext.Provider value={nodeDataById}>
+        <div className={`relative h-full w-full ${className ?? ""}`}>
+          <FreeLayoutEditorProvider {...editorProps}>
+            <EditorRenderer />
+            <AutoLayoutOnMount />
+            <FlowgramCanvasControls editable={editable} />
+          </FreeLayoutEditorProvider>
+        </div>
+      </NodeDataContext.Provider>
+
+      <Dialog open={expanded !== null} onOpenChange={(open) => !open && setExpanded(null)}>
+        <DialogContent className="flex h-[80vh] max-w-5xl flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 font-mono text-sm">
+              <Layers className="h-4 w-4 text-sky-600" />
+              {expanded?.taskId}
+              <span className="text-muted-foreground">· inner workflow</span>
+              {expanded?.inner.name && (
+                <span className="text-muted-foreground">({expanded.inner.name})</span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1">
+            {innerDocument && <FlowgramCanvas document={innerDocument} />}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </SubworkflowExpandContext.Provider>
   );
 };

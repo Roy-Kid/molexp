@@ -4,14 +4,14 @@ This dissolves the old ``Workflow`` god-object. It carries everything the
 compiler derives in one pass:
 
 - the topology (tasks + control/branch/loop/parallel/entry decls),
-- the executable ``graph`` (a layer-private ``pydantic_graph`` ``Graph`` with
-  one Step per task; only the workflow runtime reads it),
+- the executable ``graph`` (a layer-private ``ExecutionPlan`` lowered by the
+  engine compiler; only the workflow runtime reads it),
 - per-task ``snapshots`` (one :class:`TaskSnapshot` each),
 - the ``version`` (:class:`WorkflowVersion`, reusing the snapshot code-hash),
 - the experiment ``binding`` (``WorkflowBinding | None``).
 
-It is a **plain class**, not a ``pydantic.BaseModel``: ``graph`` holds live
-task callables, which makes this a runtime container by definition (per the
+It is a **plain class**, not a ``pydantic.BaseModel``: it holds live task
+callables, which makes this a runtime container by definition (per the
 CLAUDE.md "Pydantic vs plain class" rule). It is immutable by discipline —
 construct it via :meth:`WorkflowCompiler.compile` and do not mutate it.
 
@@ -77,7 +77,7 @@ class CompiledWorkflow:
         self.workflow_id = workflow_id
         self.version_label = version_label
         self._mode = mode
-        # ``graph`` is a layer-private pydantic_graph Graph; only the runtime reads it.
+        # ``graph`` is the layer-private ExecutionPlan; only the runtime reads it.
         self.graph = graph
         self.snapshots = snapshots
         self.version = version
@@ -270,7 +270,6 @@ class CompiledWorkflow:
                     is_actor=t.is_actor,
                     remote=t.remote,
                     task_type=t.task_type,
-                    config=t.config,
                     dependent_params=t.dependent_params,
                 )
             )

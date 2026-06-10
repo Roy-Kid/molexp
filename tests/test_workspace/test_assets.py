@@ -39,7 +39,7 @@ def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
     proj = ws.add_project("demo")
     exp = proj.add_experiment("baseline", params={"lr": 1e-3})
     for i in range(n_runs):
-        r = exp.add_run(parameters={"seed": i})
+        r = exp.add_run(params={"seed": i})
         with r.start() as ctx:
             ctx.artifact.save("metrics.json", {"loss": 0.1 * i})
             ctx.log("train").append(f"run {i} starting")

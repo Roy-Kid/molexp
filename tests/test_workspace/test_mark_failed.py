@@ -19,7 +19,7 @@ from molexp.workspace.run import RunStatus
 def run(tmp_path):
     ws = Workspace(root=tmp_path / "lab", name="lab")
     exp = ws.add_project("p").add_experiment("e")
-    return exp.add_run(parameters={"i": 0})
+    return exp.add_run(params={"i": 0})
 
 
 def test_mark_failed_resolves_failed_on_clean_exit(run):

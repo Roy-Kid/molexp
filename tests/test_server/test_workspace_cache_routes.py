@@ -34,14 +34,14 @@ from molexp.workspace.fs_local import LocalFileSystem
 
 @pytest.fixture(autouse=True)
 def _isolate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    import molexp.server.dependencies as deps
+    import molexp.server.deps.targets as targets_deps
 
     reset_workspace_cache()
     set_workspace_path_override(None)
     set_active_workspace_descriptor(None)
     reset_workspace_target_registry()
     registry = WorkspaceTargetRegistry(store_path=tmp_path / "wt.json")
-    monkeypatch.setattr(deps, "_workspace_target_registry", registry)
+    monkeypatch.setattr(targets_deps, "_workspace_target_registry", registry)
     yield
     reset_workspace_cache()
     set_workspace_path_override(None)
@@ -67,7 +67,7 @@ def _make_remote_ws_on_disk(remote_root: Path) -> Workspace:
     ws.materialize()
     proj = ws.add_project("alpha")
     exp = proj.add_experiment("first", workflow_source="train.py")
-    exp.add_run(parameters={"lr": 1e-3})
+    exp.add_run(params={"lr": 1e-3})
     return ws
 
 

@@ -61,7 +61,7 @@ def monitor(
         rprint("[yellow]No runs found[/yellow] — check --project / --experiment filters.")
         raise typer.Exit(0)
 
-    from molexp.monitor import RunMonitor
+    from molexp.cli.tui import RunMonitor
 
     title = ws.name
     if experiment:

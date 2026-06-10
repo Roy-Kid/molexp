@@ -20,6 +20,7 @@ Public surface:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import inspect
 from collections.abc import Callable
 from pathlib import Path
@@ -30,16 +31,100 @@ from .context import TaskContext
 from .task import Task
 
 
+def _entrypoint_ref_of(fn: Callable) -> str | None:
+    """Return ``"module:qualname"`` iff *fn* round-trips through importlib.
+
+    ``None`` when *fn* is not importable by reference: a lambda, a nested
+    function (closure), a ``__main__``/REPL definition, or any callable whose
+    module/qualname does not resolve back to the **same object**.
+    """
+    module = getattr(fn, "__module__", None)
+    qualname = getattr(fn, "__qualname__", None)
+    if not module or not qualname or module == "__main__":
+        return None
+    if "<locals>" in qualname or "<lambda>" in qualname:
+        return None
+    try:
+        resolved: object = importlib.import_module(module)
+        for part in qualname.split("."):
+            resolved = getattr(resolved, part)
+    except (ImportError, AttributeError):
+        return None
+    return f"{module}:{qualname}" if resolved is fn else None
+
+
+def _resolve_entrypoint_ref(ref: str) -> Callable:
+    """Resolve a ``"module:qualname"`` entrypoint ref back to its callable.
+
+    Raises:
+        ValueError: If *ref* is not of the ``module:qualname`` form.
+        ImportError: If the module imports but the qualname is missing.
+        TypeError: If the ref resolves to a non-callable.
+    """
+    module_name, sep, qualname = ref.partition(":")
+    if not sep or not module_name or not qualname:
+        raise ValueError(
+            f"invalid promoted-callable entrypoint ref {ref!r}; expected 'pkg.mod:qualname'"
+        )
+    resolved: object = importlib.import_module(module_name)
+    try:
+        for part in qualname.split("."):
+            resolved = getattr(resolved, part)
+    except AttributeError as exc:
+        raise ImportError(f"cannot resolve {qualname!r} in module {module_name!r}: {exc}") from exc
+    if not callable(resolved):
+        raise TypeError(
+            f"entrypoint ref {ref!r} resolved to non-callable {type(resolved).__name__}"
+        )
+    return resolved
+
+
 class _EntryTask(Task):
     """Wraps a bare ``fn(inputs, config) -> object`` into a workflow Task.
 
     Module-private; users get to it through :func:`promote_callable`. The
     pure-task-context contract delivers data via ``ctx.inputs`` / ``ctx.config``
     (no ``run_context``); the promoted callable receives those two arguments.
+
+    Accepts either the live callable or a ``"module:qualname"`` entrypoint ref
+    (the form :meth:`CompiledWorkflow.to_graph_ir` serializes), resolved via
+    importlib at construction. Either form normalizes to the same resolved
+    callable, so the content-addressed cache identity (which keys on the
+    callable's AST-normalized source, never the ref string) is stable across
+    serialization round-trips.
     """
 
-    def __init__(self, fn: Callable) -> None:
-        self._fn = fn
+    def __init__(self, fn: Callable | str) -> None:
+        if isinstance(fn, str):
+            self._fn: Callable = _resolve_entrypoint_ref(fn)
+            self._entrypoint_ref: str | None = fn
+        else:
+            self._fn = fn
+            self._entrypoint_ref = _entrypoint_ref_of(fn)
+        # Override the auto-captured ``_task_config`` (which may hold the ref
+        # string) with the resolved callable: the TaskSnapshot config hash must
+        # come from the fn's source so editing the body invalidates the cache.
+        self._task_config = {"fn": self._fn}
+
+    def entrypoint_ref(self) -> str:
+        """The ``"module:qualname"`` ref serialized into the graph IR.
+
+        Raises:
+            ValueError: When the wrapped callable is not importable — IR
+                serialization (and therefore tracked execution) needs a
+                reference a fresh process can re-import.
+        """
+        if self._entrypoint_ref is None:
+            fn_name = getattr(self._fn, "__qualname__", None) or repr(self._fn)
+            raise ValueError(
+                f"promote_callable: {fn_name!r} is not importable (a lambda, a "
+                "nested function/closure, or a function defined in __main__ / a "
+                "REPL), so this workflow cannot be serialized for tracked "
+                "execution (Experiment.run / to_graph_ir). Either move the "
+                "function to module scope in an importable module, or execute "
+                "the workflow in-memory via WorkflowRuntime().execute(...)."
+            )
+        return self._entrypoint_ref
 
     async def execute(self, ctx: TaskContext) -> object:
         if asyncio.iscoroutinefunction(self._fn):

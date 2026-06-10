@@ -13,7 +13,7 @@ export const MolqRunInspector = (props: RendererProps): JSX.Element => {
     return props.snapshot.runs.find((item) => item.id === props.selection.objectId) ?? null;
   }, [props.selection.objectId, props.snapshot.runs]);
 
-  if (!run || run.executorInfo.backend !== "molq") {
+  if (run?.executorInfo.backend !== "molq") {
     return <MetadataInspector {...props} />;
   }
 

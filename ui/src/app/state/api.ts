@@ -183,7 +183,7 @@ export const workspaceApi = {
     return ProjectsService.createProjectApiProjectsPost(data);
   },
   deleteProject: async (projectId: string): Promise<void> => {
-    await ProjectsService.deleteProjectApiProjectsIdDelete(projectId);
+    await ProjectsService.deleteProjectApiProjectsProjectIdDelete(projectId);
   },
   getExperiments: async (projectId: string): Promise<ApiExperimentResponse[]> => {
     return ExperimentsService.listExperimentsApiProjectsProjectIdExperimentsGet(projectId);
@@ -460,13 +460,13 @@ export const workspaceApi = {
     ) as unknown as Promise<ExperimentComparisonResponse>;
   },
 
-  /** Best-effort kill: marks the run as cancelled. */
+  /** Best-effort cancel: marks the run as cancelled (canonical /cancel route). */
   killRun: async (
     projectId: string,
     experimentId: string,
     runId: string,
   ): Promise<RunActionResponse> => {
-    return RunsService.killRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
+    return RunsService.cancelRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdCancelPost(
       projectId,
       experimentId,
       runId,

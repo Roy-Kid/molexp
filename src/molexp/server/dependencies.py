@@ -1,566 +1,139 @@
-"""Dependency injection for MolExp API.
+"""Facade over :mod:`molexp.server.deps` — the historical import surface.
 
-This module provides FastAPI dependencies for:
-- Workspace instances
-- WorkspaceFolderStore
-- Configuration settings
+The implementation lives in the ``molexp.server.deps`` package, split by
+domain (config, workspace state, served set, resolution, targets, folder
+store, agent runtime). This module re-exports the full public surface so
+existing ``from molexp.server.dependencies import …`` importers keep working
+unchanged.
 
-Using dependency injection instead of global variables improves:
-- Testability (easy to mock dependencies)
-- Separation of concerns
-- Configuration management
+Singleton semantics: every mutable global lives in exactly **one** owner
+module under ``deps/``. Public names are re-bound here (function/class
+identity is shared, so FastAPI ``app.dependency_overrides`` keyed on either
+import path match), while private module-level globals are *forwarded
+dynamically* via module ``__getattr__`` — reading e.g.
+``dependencies._workspace_path_override`` always reflects the owner module's
+current value. Code that needs to *reassign* a private global (test
+monkeypatching) must target the owner module, not this facade.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from functools import lru_cache
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from fastapi import Request
-from molcfg import Config, ConfigLoader, DictSource, Source
-from pydantic import BaseModel
+from molexp.server.deps import (
+    agent_runtime as _agent_runtime_mod,
+)
+from molexp.server.deps import (
+    config as _config_mod,
+)
+from molexp.server.deps import (
+    folder_store as _folder_store_mod,
+)
+from molexp.server.deps import (
+    resolution as _resolution_mod,
+)
+from molexp.server.deps import (
+    served as _served_mod,
+)
+from molexp.server.deps import (
+    targets as _targets_mod,
+)
+from molexp.server.deps import (
+    workspace_state as _workspace_state_mod,
+)
+from molexp.server.deps.agent_runtime import get_agent_runtime, reset_agent_runtime
+from molexp.server.deps.config import Settings, get_settings
+from molexp.server.deps.folder_store import (
+    WorkspaceFolderStore,
+    get_workspace_folder_store,
+    reset_workspace_folder_store,
+)
+from molexp.server.deps.resolution import (
+    get_active_workspace,
+    get_workspace,
+    get_workspace_by_key,
+)
+from molexp.server.deps.served import (
+    ServedWorkspace,
+    active_served_key,
+    assert_served_workspace,
+    assert_workspace_writable,
+    get_served_workspaces,
+    set_served_workspaces,
+)
+from molexp.server.deps.targets import (
+    get_remote_fs_factory,
+    get_workspace_target_registry,
+    reset_workspace_target_registry,
+)
+from molexp.server.deps.workspace_state import (
+    get_workspace_path,
+    register_workspace_subscriber,
+    reset_workspace_cache,
+    set_active_workspace_descriptor,
+    set_workspace_path_override,
+)
 
-from molexp.workspace import Workspace
+__all__ = [
+    "ServedWorkspace",
+    "Settings",
+    "WorkspaceFolderStore",
+    "active_served_key",
+    "assert_served_workspace",
+    "assert_workspace_writable",
+    "get_active_workspace",
+    "get_agent_runtime",
+    "get_remote_fs_factory",
+    "get_served_workspaces",
+    "get_settings",
+    "get_workspace",
+    "get_workspace_by_key",
+    "get_workspace_folder_store",
+    "get_workspace_path",
+    "get_workspace_target_registry",
+    "register_workspace_subscriber",
+    "reset_agent_runtime",
+    "reset_workspace_cache",
+    "reset_workspace_folder_store",
+    "reset_workspace_target_registry",
+    "set_active_workspace_descriptor",
+    "set_served_workspaces",
+    "set_workspace_path_override",
+]
 
-if TYPE_CHECKING:
-    from molexp.server.agent_runtime import AgentSessionRegistry
-
-_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
-
-_SERVER_DEFAULTS: dict[str, Any] = {
-    "workspace_path": "",
-    "debug": False,
+# Private module-level names forwarded to their single owner module. Reads of
+# mutable globals (e.g. ``dependencies._workspace_cache``) stay live because
+# ``__getattr__`` defers to the owner at access time.
+_PRIVATE_NAME_OWNERS = {
+    # config
+    "_SERVER_DEFAULTS": _config_mod,
+    "_load_server_config": _config_mod,
+    # workspace_state
+    "_SAFE_METHODS": _workspace_state_mod,
+    "_workspace_cache": _workspace_state_mod,
+    "_workspace_path_override": _workspace_state_mod,
+    "_workspace_descriptor_override": _workspace_state_mod,
+    "_active_workspace_key": _workspace_state_mod,
+    "_active_workspace_subscribers": _workspace_state_mod,
+    "_drain_workspace_subscribers": _workspace_state_mod,
+    "_await_one": _workspace_state_mod,
+    # served
+    "_served_workspaces": _served_mod,
+    "_served_by_key": _served_mod,
+    # resolution
+    "_workspace_key_from_request": _resolution_mod,
+    # targets
+    "_workspace_target_registry": _targets_mod,
+    # folder_store
+    "_workspace_folder_store": _folder_store_mod,
+    # agent_runtime
+    "_agent_runtime_registry": _agent_runtime_mod,
 }
 
 
-class Settings(BaseModel):
-    """Application settings loaded via molcfg."""
-
-    workspace_path: str = ""
-    debug: bool = False
-
-    @classmethod
-    def from_config(cls, config: Config | None = None) -> Settings:
-        """Create settings from a molcfg Config."""
-        if config is None:
-            config = _load_server_config()
-        return cls(
-            workspace_path=str(config.get("workspace_path", "")),
-            debug=bool(config.get("debug", False)),
-        )
-
-    def get_workspace_path(self) -> Path:
-        """Get workspace path, defaulting to current directory."""
-        if self.workspace_path:
-            return Path(self.workspace_path)
-        return Path.cwd()
-
-
-def _load_server_config() -> Config:
-    """Load server configuration from defaults + optional molexp.toml."""
-    sources: list[Source] = [DictSource(_SERVER_DEFAULTS)]
-    config_file = Path.cwd() / "molexp.toml"
-    if config_file.exists():
-        from molcfg import TomlFileSource
-
-        sources.append(TomlFileSource(str(config_file)))
-    return ConfigLoader(sources).load()
-
-
-@lru_cache
-def get_settings() -> Settings:
-    """Get cached application settings."""
-    return Settings.from_config()
-
-
-# Cache key is ``(kind, identifier)`` — for ``kind == "local"`` the identifier
-# is the resolved absolute path; for ``kind == "remote"`` it is the
-# ``WorkspaceTarget`` name (registered via the workspace-targets registry).
-_workspace_cache: dict[tuple[str, str], Workspace] = {}
-
-
-def _workspace_key_from_request(request: Request | None) -> str | None:
-    """Extract an explicit workspace key from a request, if any.
-
-    Resolution order: ``{ws}`` path segment (the aggregate routes) →
-    ``?ws=`` query param → ``X-Molexp-Workspace`` header. Returns ``None``
-    when the request addresses the active/default workspace (flat routes).
-    """
-    if request is None:
-        return None
-    return (
-        request.path_params.get("ws")
-        or request.query_params.get("ws")
-        or request.headers.get("x-molexp-workspace")
-        or None
-    )
-
-
-def get_workspace(request: Request):  # noqa: ANN201
-    """FastAPI dependency to get a cached Workspace instance.
-
-    When the request carries an explicit workspace key (``{ws}`` path segment,
-    ``?ws=``, or ``X-Molexp-Workspace`` header) the named served workspace is
-    resolved via :func:`get_workspace_by_key`. Otherwise the **active/default**
-    workspace is used — the unchanged single-workspace path.
-
-    Mutating requests (non-GET) against a remote workspace are rejected with
-    :class:`RemoteWorkspaceReadOnlyError`.
-    """
-    explicit_key = _workspace_key_from_request(request)
-    if explicit_key is not None:
-        if request.method not in _SAFE_METHODS:
-            sw = _served_by_key(explicit_key)
-            if sw is not None and sw.is_remote:
-                from molexp.server.exceptions import RemoteWorkspaceReadOnlyError
-
-                raise RemoteWorkspaceReadOnlyError(explicit_key)
-        return get_workspace_by_key(explicit_key)
-
-    # No explicit workspace key → the active/default workspace, with its
-    # existing semantics unchanged. The remote read-only policy applies to the
-    # aggregate surface only (explicit key / `/workspaces/{ws}`), so the legacy
-    # active-switch surface (e.g. cache invalidation on a switched-to remote)
-    # keeps working.
-    return get_active_workspace()
-
-
-def get_active_workspace():  # noqa: ANN201
-    """Resolve (and cache) the active/default workspace, ignoring any request.
-
-    The cache key is ``(kind, identifier)`` — local-vs-remote workspaces
-    coexist without collision. This is the request-free core used by
-    :func:`get_workspace` and by direct callers that have no request.
-    """
-    kind, identifier = _active_workspace_key()
-    cache_key = (kind, identifier)
-    if cache_key not in _workspace_cache:
-        if kind == "remote":
-            from molexp.server.workspace_targets import (
-                target_to_filesystem_for_workspace_target,
-            )
-
-            registry = get_workspace_target_registry()
-            try:
-                target = registry.get(identifier)
-            except KeyError as exc:
-                raise KeyError(
-                    f"active workspace target {identifier!r} no longer registered"
-                ) from exc
-            fs = target_to_filesystem_for_workspace_target(target)
-            _workspace_cache[cache_key] = Workspace(target.root_path, fs=fs)
-        else:
-            _workspace_cache[cache_key] = Workspace(Path(identifier))
-    return _workspace_cache[cache_key]
-
-
-def get_workspace_by_key(key: str):  # noqa: ANN201
-    """Resolve a served workspace by its stable ``key`` (the ``{ws}`` segment).
-
-    Raises:
-        UnknownWorkspaceError: ``key`` names no served workspace (404).
-        RemoteWorkspaceUnreachableError: the remote transport failed (502).
-    """
-    sw = _served_by_key(key)
-    if sw is None:
-        from molexp.server.exceptions import UnknownWorkspaceError
-
-        raise UnknownWorkspaceError(key)
-
-    if sw.is_remote:
-        target_name = sw.target_name or sw.key
-        cache_key = ("remote", target_name)
-        if cache_key not in _workspace_cache:
-            from molexp.server.exceptions import RemoteWorkspaceUnreachableError
-            from molexp.server.workspace_targets import (
-                target_to_filesystem_for_workspace_target,
-            )
-
-            try:
-                target = get_workspace_target_registry().get(target_name)
-                fs = target_to_filesystem_for_workspace_target(target)
-                _workspace_cache[cache_key] = Workspace(target.root_path, fs=fs)
-            except Exception as exc:  # connection / auth / unknown target
-                raise RemoteWorkspaceUnreachableError(sw.key, str(exc)) from exc
-        return _workspace_cache[cache_key]
-
-    assert sw.path is not None  # local always carries a path
-    cache_key = ("local", str(Path(sw.path).resolve()))
-    if cache_key not in _workspace_cache:
-        _workspace_cache[cache_key] = Workspace(Path(sw.path))
-    return _workspace_cache[cache_key]
-
-
-def reset_workspace_cache() -> None:
-    """Clear the workspace cache (for testing or workspace switching)."""
-    _workspace_cache.clear()
-
-
-# ============================================================================
-# Workspace-target registry (server-process scope)
-# ============================================================================
-
-
-_workspace_target_registry: object | None = None  # lazy singleton; typed via accessor
-
-
-def get_workspace_target_registry():  # noqa: ANN201 — return type stated in docstring
-    """Return the process-singleton :class:`WorkspaceTargetRegistry`.
-
-    The registry is server-process scope (lives at
-    ``~/.molexp/workspace_targets.json`` in production) so it must
-    exist *before* any workspace is open.  Tests should override this
-    dependency via ``app.dependency_overrides`` rather than touching
-    the singleton.
-    """
-    global _workspace_target_registry
-    from molexp.server.workspace_targets import WorkspaceTargetRegistry
-
-    if _workspace_target_registry is None:
-        _workspace_target_registry = WorkspaceTargetRegistry()
-    return _workspace_target_registry
-
-
-def reset_workspace_target_registry() -> None:
-    """Drop the process singleton (test fixture support)."""
-    global _workspace_target_registry
-    _workspace_target_registry = None
-
-
-def get_remote_fs_factory():  # noqa: ANN201
-    """Return the FS-factory callable used by the workspace-targets probe.
-
-    Separated as a FastAPI dependency so tests can substitute a fake
-    factory via ``app.dependency_overrides[get_remote_fs_factory]``.
-    """
-    from molexp.server.workspace_targets import (
-        target_to_filesystem_for_workspace_target,
-    )
-
-    return target_to_filesystem_for_workspace_target
-
-
-# ============================================================================
-# Workspace Folder Store (in-memory singleton)
-# ============================================================================
-
-
-class WorkspaceFolderStore:
-    """In-memory storage for workspace folders.
-
-    Thread-safe storage for tracking added workspace folders.
-    Each folder has an ID, path, name, and timestamp.
-    """
-
-    def __init__(self) -> None:
-        self._folders: dict[str, dict[str, Any]] = {}
-
-    def add(self, folder_id: str, path: str, name: str, added_at: str) -> None:
-        """Add a folder to the store."""
-        self._folders[folder_id] = {
-            "id": folder_id,
-            "path": path,
-            "name": name,
-            "added_at": added_at,
-        }
-
-    def remove(self, folder_id: str) -> bool:
-        """Remove a folder from the store.
-
-        Returns:
-            True if folder was removed, False if not found
-        """
-        if folder_id in self._folders:
-            del self._folders[folder_id]
-            return True
-        return False
-
-    def get(self, folder_id: str) -> dict[str, Any] | None:
-        """Get a folder by ID."""
-        return self._folders.get(folder_id)
-
-    def list_all(self) -> list[dict[str, Any]]:
-        """List all folders."""
-        return list(self._folders.values())
-
-    def find_by_path(self, path: Path) -> dict[str, Any] | None:
-        """Find a folder by its path."""
-        resolved = path.resolve()
-        for folder in self._folders.values():
-            if Path(folder["path"]).resolve() == resolved:
-                return folder
-        return None
-
-
-# Global singleton instance
-_workspace_folder_store: WorkspaceFolderStore | None = None
-_workspace_path_override: Path | None = None
-
-
-def get_workspace_folder_store() -> WorkspaceFolderStore:
-    """FastAPI dependency to get WorkspaceFolderStore instance.
-
-    Usage:
-        @app.post("/api/workspace/folders")
-        def add_folder(store: WorkspaceFolderStore = Depends(get_workspace_folder_store)):
-            ...
-    """
-    global _workspace_folder_store
-    if _workspace_folder_store is None:
-        _workspace_folder_store = WorkspaceFolderStore()
-    return _workspace_folder_store
-
-
-def reset_workspace_folder_store() -> None:
-    """Reset the workspace folder store (for testing)."""
-    global _workspace_folder_store
-    _workspace_folder_store = None
-
-
-# ============================================================================
-# Agent session runtime (server-process singleton)
-# ============================================================================
-#
-# A process-singleton mirroring ``get_workspace_folder_store`` rather than
-# ``app.state``: the relit session routes in ``routes/agent.py`` are plain
-# functions called directly by ``agent_tasks.py`` (not request-scoped FastAPI
-# endpoints), so they need a callable accessor, not a ``request``. The same
-# accessor doubles as a FastAPI dependency; tests reset via
-# ``reset_agent_runtime()`` (which cancels any in-flight turns).
-
-_agent_runtime_registry: AgentSessionRegistry | None = None
-
-
-def get_agent_runtime() -> AgentSessionRegistry:
-    """Return the process-singleton :class:`AgentSessionRegistry`.
-
-    Usable both as a FastAPI dependency (``Depends(get_agent_runtime)``) and as
-    a plain accessor from the directly-called session routes. Lazily created on
-    first use; the app lifespan cancels its in-flight turns on shutdown via
-    :func:`reset_agent_runtime`.
-    """
-    global _agent_runtime_registry
-    if _agent_runtime_registry is None:
-        from molexp.server.agent_runtime import AgentSessionRegistry
-
-        _agent_runtime_registry = AgentSessionRegistry()
-    return _agent_runtime_registry
-
-
-async def reset_agent_runtime() -> None:
-    """Cancel every in-flight turn and drop the registry singleton.
-
-    Awaited by the app lifespan on shutdown and by test fixtures for isolation.
-    """
-    global _agent_runtime_registry
-    if _agent_runtime_registry is not None:
-        await _agent_runtime_registry.aclose()
-        _agent_runtime_registry = None
-
-
-_workspace_descriptor_override: str | None = None
-
-
-# ============================================================================
-# Served-workspace set (the workspaces `molexp serve` was pointed at)
-# ============================================================================
-#
-# The active workspace (overrides above) is whichever one is *currently* being
-# read; the served set is every workspace the server was started with, so the
-# UI can list them and switch (via ``POST /api/workspace/open``) between them.
-# Exactly one served workspace is the unchanged single-workspace case.
-
-
-@dataclass(frozen=True)
-class ServedWorkspace:
-    """One workspace `molexp serve` is hosting.
-
-    Attributes:
-        key: Stable slug, unique within this server process — the switch handle.
-        label: Human-facing description (a path, or ``user@host:/path``).
-        is_remote: True for an SSH-backed remote workspace.
-        path: Absolute local root, or ``None`` when remote.
-        target_name: Registered :class:`WorkspaceTarget` name, or ``None`` when local.
-    """
-
-    key: str
-    label: str
-    is_remote: bool
-    path: str | None = None
-    target_name: str | None = None
-
-
-_served_workspaces: list[ServedWorkspace] = []
-
-
-def set_served_workspaces(workspaces: list[ServedWorkspace]) -> None:
-    """Record the workspaces this server is hosting (called once by ``serve``)."""
-    global _served_workspaces
-    _served_workspaces = list(workspaces)
-
-
-def get_served_workspaces() -> list[ServedWorkspace]:
-    """Return the served workspace set (empty until ``serve`` populates it)."""
-    return list(_served_workspaces)
-
-
-def _served_by_key(key: str) -> ServedWorkspace | None:
-    """Look up a served workspace by its stable key (``None`` if absent)."""
-    for sw in _served_workspaces:
-        if sw.key == key:
-            return sw
-    return None
-
-
-def active_served_key() -> str | None:
-    """The key of the served workspace that is currently active, if any.
-
-    Matches the active ``(kind, identifier)`` against the served set so the UI
-    can mark which workspace its flat routes / deep tree currently address.
-    """
-    kind, identifier = _active_workspace_key()
-    for sw in _served_workspaces:
-        if sw.is_remote and kind == "remote" and (sw.target_name or sw.key) == identifier:
-            return sw.key
-        if (
-            not sw.is_remote
-            and kind == "local"
-            and sw.path is not None
-            and str(Path(sw.path).resolve()) == identifier
-        ):
-            return sw.key
-    return None
-
-
-def assert_served_workspace(key: str) -> None:
-    """Raise :class:`UnknownWorkspaceError` (404) unless ``key`` is served."""
-    if _served_by_key(key) is None:
-        from molexp.server.exceptions import UnknownWorkspaceError
-
-        raise UnknownWorkspaceError(key)
-
-
-def assert_workspace_writable(key: str, method: str) -> None:
-    """Reject a mutating ``method`` against a remote workspace (read-only v1).
-
-    Raises :class:`RemoteWorkspaceReadOnlyError` (405). Safe methods and local
-    workspaces always pass.
-    """
-    if method in _SAFE_METHODS:
-        return
-    sw = _served_by_key(key)
-    if sw is not None and sw.is_remote:
-        from molexp.server.exceptions import RemoteWorkspaceReadOnlyError
-
-        raise RemoteWorkspaceReadOnlyError(key)
-
-
-def set_workspace_path_override(path: Path | None) -> None:
-    """Activate a local workspace path.
-
-    Clears the descriptor override (mutual exclusion), drains workspace-bound
-    subscribers, and resets the workspace cache.
-    """
-    global _workspace_path_override, _workspace_descriptor_override
-    _drain_workspace_subscribers()
-    _workspace_path_override = path
-    _workspace_descriptor_override = None
-    reset_workspace_cache()
-
-
-def set_active_workspace_descriptor(name: str | None) -> None:
-    """Activate a remote ``WorkspaceTarget`` by name.
-
-    Clears the path override (mutual exclusion), drains workspace-bound
-    subscribers, and resets the workspace cache.
-    """
-    global _workspace_path_override, _workspace_descriptor_override
-    _drain_workspace_subscribers()
-    _workspace_descriptor_override = name
-    _workspace_path_override = None
-    reset_workspace_cache()
-
-
-def get_workspace_path() -> Path:
-    """Resolve the active *local* workspace path.
-
-    Raises :class:`RuntimeError` if the active workspace is remote.
-    """
-    if _workspace_descriptor_override is not None:
-        raise RuntimeError(
-            "Active workspace is remote — no local path; "
-            "use _active_workspace_key() / get_workspace() instead."
-        )
-    if _workspace_path_override is not None:
-        return _workspace_path_override
-    settings = get_settings()
-    return settings.get_workspace_path()
-
-
-def _active_workspace_key() -> tuple[str, str]:
-    """Compute the (kind, identifier) key of the active workspace."""
-    if _workspace_descriptor_override is not None:
-        return ("remote", _workspace_descriptor_override)
-    if _workspace_path_override is not None:
-        return ("local", str(_workspace_path_override.resolve()))
-    settings = get_settings()
-    return ("local", str(settings.get_workspace_path().resolve()))
-
-
-# ============================================================================
-# Workspace-switch subscriber drain
-# ============================================================================
-#
-# Long-lived workspace-bound resources (SSE streams, file watchers) register a
-# closer that gets awaited *before* the cache is reset on a switch.  Any
-# closer may return an awaitable; the drain helper runs sync-callables
-# directly and awaits async ones via ``asyncio.run`` (creating a fresh loop)
-# or ``loop.run_until_complete`` if one is already running.
-
-
-_active_workspace_subscribers: list = []
-
-
-def register_workspace_subscriber(closer) -> None:  # noqa: ANN001
-    """Register a closer to be invoked on the next workspace switch.
-
-    Closers are one-shot: drained and discarded on switch.  Callers that
-    want to re-subscribe must register again after the switch completes.
-    """
-    _active_workspace_subscribers.append(closer)
-
-
-def _drain_workspace_subscribers() -> None:
-    """Invoke and clear every registered subscriber.
-
-    Sync callables are called directly; async callables are awaited via a
-    fresh event loop (or the running loop's ``run_until_complete``).
-    """
-    import asyncio
-    import inspect
-
-    closers = list(_active_workspace_subscribers)
-    _active_workspace_subscribers.clear()
-    for closer in closers:
-        try:
-            result = closer()
-        except Exception:
-            # Closer is best-effort; one failing closer must not block the switch.
-            continue
-        if inspect.isawaitable(result):
-            try:
-                asyncio.run(_await_one(result))
-            except RuntimeError:
-                # Already inside an event loop — run synchronously.
-                loop = asyncio.get_event_loop()
-                loop.run_until_complete(_await_one(result))
-
-
-async def _await_one(awaitable) -> None:  # noqa: ANN001
-    import contextlib
-
-    # Best-effort drain — swallow per-closer failures.
-    with contextlib.suppress(Exception):
-        await awaitable
+def __getattr__(name: str) -> Any:  # noqa: ANN401 — module-level attribute forwarding
+    """Forward private globals to their owner module (live reads)."""
+    owner = _PRIVATE_NAME_OWNERS.get(name)
+    if owner is not None:
+        return getattr(owner, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

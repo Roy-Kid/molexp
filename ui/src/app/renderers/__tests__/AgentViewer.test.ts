@@ -15,8 +15,8 @@ const ev = (type: string, payload: Record<string, unknown> = {}): ApiSessionEven
 });
 
 const KINDS = [
-  "mode_started",
-  "mode_completed",
+  "loop_started",
+  "loop_completed",
   "stage_started",
   "stage_completed",
   "plan_emitted",
@@ -87,7 +87,7 @@ describe("normalizeStreamFrame", () => {
   });
 
   it("passes through an already-normalized {type, ts, payload} envelope", () => {
-    const env = { type: "mode_completed", ts: "2026-05-30T00:00:02Z", payload: { text: "done" } };
+    const env = { type: "loop_completed", ts: "2026-05-30T00:00:02Z", payload: { text: "done" } };
     expect(normalizeStreamFrame(env)).toEqual(env);
   });
 });
@@ -114,11 +114,11 @@ describe("derivePendingUserRequest", () => {
     expect(result).toEqual({ requestId: "scope", prompt: "Which scope?" });
   });
 
-  it("clears once a later mode_completed supersedes the clarification", () => {
+  it("clears once a later loop_completed supersedes the clarification", () => {
     expect(
       derivePendingUserRequest([
         ev("clarification_required", { gate: "scope", questions: "?" }),
-        ev("mode_completed", { text: "resolved" }),
+        ev("loop_completed", { text: "resolved" }),
       ]),
     ).toBeNull();
   });
@@ -145,35 +145,35 @@ describe("groupEventsIntoTurns", () => {
     expect(turns[0].steps).toEqual([]);
   });
 
-  it("absorbs the leading mode_started into the goal turn and promotes mode_completed", () => {
+  it("absorbs the leading loop_started into the goal turn and promotes loop_completed", () => {
     const events: ApiSessionEvent[] = [
-      ev("mode_started", { user_input: "List runs" }),
+      ev("loop_started", { user_input: "List runs" }),
       ev("tool_call_started", { tool_name: "list_runs" }),
       ev("tool_call_completed", { tool_name: "list_runs" }),
-      ev("mode_completed", { text: "Found 3 runs." }),
+      ev("loop_completed", { text: "Found 3 runs." }),
     ];
     const turns = groupEventsIntoTurns(events, "List runs");
     expect(turns).toHaveLength(1);
     expect(turns[0].source).toBe("goal");
-    // mode_started is a boundary, not a step; the two tool events are steps.
+    // loop_started is a boundary, not a step; the two tool events are steps.
     expect(turns[0].steps).toHaveLength(2);
-    expect(turns[0].steps.every((s) => s.type !== "mode_started")).toBe(true);
-    expect(turns[0].result?.type).toBe("mode_completed");
+    expect(turns[0].steps.every((s) => s.type !== "loop_started")).toBe(true);
+    expect(turns[0].result?.type).toBe("loop_completed");
     expect(turns[0].inProgress).toBe(false);
   });
 
-  it("opens a new turn on a subsequent mode_started using its user_input", () => {
+  it("opens a new turn on a subsequent loop_started using its user_input", () => {
     const events: ApiSessionEvent[] = [
-      ev("mode_started", { user_input: "Initial goal" }),
+      ev("loop_started", { user_input: "Initial goal" }),
       ev("tool_call_completed", { tool_name: "first" }),
-      ev("mode_completed", { text: "first answer" }),
-      ev("mode_started", { user_input: "follow-up question" }),
+      ev("loop_completed", { text: "first answer" }),
+      ev("loop_started", { user_input: "follow-up question" }),
       ev("tool_call_started", { tool_name: "list_runs" }),
     ];
     const turns = groupEventsIntoTurns(events, "Initial goal");
     expect(turns).toHaveLength(2);
     expect(turns[0]).toMatchObject({ question: "Initial goal", source: "goal", inProgress: false });
-    expect(turns[0].result?.type).toBe("mode_completed");
+    expect(turns[0].result?.type).toBe("loop_completed");
     expect(turns[1]).toMatchObject({
       question: "follow-up question",
       source: "user",
@@ -185,7 +185,7 @@ describe("groupEventsIntoTurns", () => {
 
   it("promotes a plan_emitted to the turn result and keeps tool calls as steps", () => {
     const events: ApiSessionEvent[] = [
-      ev("mode_started", { user_input: "Plan something" }),
+      ev("loop_started", { user_input: "Plan something" }),
       ev("tool_call_started", { tool_name: "list_task_types" }),
       ev("plan_emitted", { plan_id: "plan-1", step_count: 2 }),
     ];
@@ -196,16 +196,16 @@ describe("groupEventsIntoTurns", () => {
     expect(turns[0].steps.some((s) => s.type === "tool_call_started")).toBe(true);
   });
 
-  it("demotes an earlier plan_emitted to a step when mode_completed follows", () => {
+  it("demotes an earlier plan_emitted to a step when loop_completed follows", () => {
     const events: ApiSessionEvent[] = [
-      ev("mode_started", { user_input: "Run it" }),
+      ev("loop_started", { user_input: "Run it" }),
       ev("plan_emitted", { plan_id: "plan-1", step_count: 1 }),
       ev("tool_call_started", { tool_name: "execute_run" }),
-      ev("mode_completed", { text: "done" }),
+      ev("loop_completed", { text: "done" }),
     ];
     const turns = groupEventsIntoTurns(events, "Run it");
     expect(turns).toHaveLength(1);
-    expect(turns[0].result?.type).toBe("mode_completed");
+    expect(turns[0].result?.type).toBe("loop_completed");
     expect(turns[0].steps.some((s) => s.type === "plan_emitted")).toBe(true);
   });
 });

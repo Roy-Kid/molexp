@@ -62,7 +62,7 @@ construction) or an already-compiled `CompiledWorkflow`.
 
 Because a `SubWorkflow` is a single registered task from the outer graph's
 perspective, it slots straight into `builder.parallel(body=...)` — no change to
-`ParallelDecl`, the compiler, or the pg lowering. The outer engine fans out the
+`ParallelDecl`, the compiler, or the plan lowering. The outer engine fans out the
 single `SubWorkflow` node per element, and the node runs the full inner chain
 for each element. The compiled task set stays exactly the declared outer tasks
 (no per-element node growth).

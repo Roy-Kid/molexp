@@ -16,6 +16,11 @@ import type { FileNode } from "../db";
 
 const API_BASE = "/api";
 
+// Local-path opens mirror the server's create_if_missing semantics
+// (src/molexp/server/routes/workspace.py): unknown path + no flag → 404;
+// flag → "create" the path by adding it to the known set.
+const knownWorkspacePaths = new Set<string>(["/mock-workspace"]);
+
 /**
  * Build a synthetic LAMMPS log for mock mode so the molvis plugin can parse
  * thermo output without needing a real run on disk. Used by the workspace
@@ -409,6 +414,15 @@ export const workspaceHandlers = [
         }
 
         const path = String(body.path ?? "");
+        if (!knownWorkspacePaths.has(path)) {
+            if (body.create_if_missing !== true) {
+                return HttpResponse.json(
+                    { detail: "Workspace path not found" },
+                    { status: 404 },
+                );
+            }
+            knownWorkspacePaths.add(path);
+        }
         const projects = getAllProjects();
         const assets = getAllAssets();
         return HttpResponse.json({

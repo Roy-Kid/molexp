@@ -277,6 +277,10 @@ class Workspace(Folder):
         child = self._construct_child(Project, name, fs=self._fs)
         return cast(Project, self.add_folder(child))
 
+    def project(self, name: str) -> Project:
+        """Fluent create-or-get alias for :meth:`add_project` (idempotent)."""
+        return self.add_project(name)
+
     def get_project(self, name: str) -> Project:
         """Strict getter — raise :class:`ProjectNotFoundError` if absent."""
         return self.get_folder(name, cls=Project)

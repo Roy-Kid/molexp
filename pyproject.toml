@@ -118,6 +118,13 @@ line-ending = "lf"
 docstring-code-format = true
 
 # ─── ty (type checker) ───────────────────────────────────────────────────────
+[tool.ty.environment]
+# Pin resolution to the project venv: a monorepo shell often exports
+# VIRTUAL_ENV=<root>/.venv, and without this pin ty resolves third-party
+# imports against the wrong environment (pydantic_ai etc. show up as
+# unresolved-import even though `uv run` imports them fine).
+python = "./.venv"
+
 [tool.ty.src]
 include = ["src", "tests", "examples"]
 exclude = [

@@ -188,7 +188,7 @@ class TestExperiment:
 
 class TestRun:
     def test_creation(self, experiment):
-        run = experiment.add_run(parameters={"x": 1})
+        run = experiment.add_run(params={"x": 1})
         assert run.parameters == {"x": 1}
         assert run.status == "pending"
 
@@ -203,13 +203,13 @@ class TestRun:
         assert snap["git_commit"] == "abc123"
 
     def test_list_runs(self, experiment):
-        experiment.add_run(parameters={"x": 1})
-        experiment.add_run(parameters={"x": 2})
+        experiment.add_run(params={"x": 1})
+        experiment.add_run(params={"x": 2})
         assert len(experiment.list_runs()) == 2
 
     def test_reload_from_disk(self, experiment):
         run = experiment.add_run(
-            parameters={"x": 42},
+            params={"x": 42},
             workflow_snapshot={"source": "train.py"},
         )
         reloaded = experiment.get_run(run.id)

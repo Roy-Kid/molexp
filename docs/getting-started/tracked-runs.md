@@ -4,62 +4,51 @@ The workflow layer is enough to describe computation, but it is not enough to pr
 
 ## The Persistent Hierarchy
 
-MolExp stores persistent state as `Workspace -> Project -> Experiment -> Run`. The workspace is the root directory. The project groups related work. The experiment is the repeatable definition of one workflow plus one parameter set. The run is one concrete execution attempt under that definition.
+MolExp stores persistent state as `Workspace -> Project -> Experiment -> Run`. The workspace is the root directory. The project groups related work. The experiment is the repeatable definition of one workflow plus one parameter sweep. The run is one concrete execution attempt under that definition.
 
 That split is the heart of the model. An experiment is not the same thing as a run. The experiment says what should be repeatable. The run records what actually happened this time.
 
-## Binding a Workflow to an Experiment
+## Declaring a Workflow on an Experiment
 
 ```python
 import molexp as me
-from molexp.workflow import Workflow
 
-ws = me.Workspace("./lab")
-project = ws.Project("qm9")
-exp = project.Experiment(
-    "baseline",
-    params={"lr": 1e-3},
-    workflow_source="train.py",
-)
-spec.bind_to(exp)
+ws = me.Workspace("./lab", name="lab")
+exp = ws.project("qm9").experiment("baseline").run(compiled, params={"lr": [1e-3]})
 ```
 
-`set_workflow` lives in `molexp.workflow.bindings`. It records the
-`Workflow` in a process-local registry keyed by `experiment.id` so
-the CLI, server routes, and agent tools can later retrieve it via
-`Workflow.for_experiment(experiment)`. The previous workspace-side
-`exp.set_workflow(...)` method was removed when the layer direction was
-rectified — workspace no longer carries any workflow-shaped types.
+`Experiment.run(workflow, params=...)` is the declaration step. It binds the compiled workflow to the experiment in `molexp.workflow.default_binding_registry` (an explicit, injectable `{experiment_id → CompiledWorkflow}` store keyed by `experiment.id`, so the CLI, server routes, and agent tools can retrieve it via `default_binding_registry.for_experiment(experiment)`), records the workflow's graph IR on the experiment, registers the workspace for CLI discovery, and materializes one content-addressed `Run` per cell of the `params` sweep. `params=None` seeds a single parameter-free run.
 
-`Workspace(...)` itself is lightweight. The workspace record is materialized explicitly with `ws.materialize()` or implicitly when the first child object is created. In ordinary usage, calling `ws.Project(...)` is enough to create the real on-disk hierarchy.
+`Workspace(...)` itself is lightweight. The workspace record is materialized explicitly with `ws.materialize()` or implicitly when the first child object is created. In ordinary usage, calling `ws.project(...)` is enough to create the real on-disk hierarchy.
 
-## Creating a Stable Run
+## Run Identity Is Content-Addressed
 
-When you create runs directly from Python, the safest habit is to give them explicit ids:
+Runs seeded through `exp.run(..., params=...)` derive their ids from their parameters, so re-declaring the same sweep is idempotent — repeated invocations rediscover the same runs instead of creating duplicates. When you create runs directly, `exp.add_run(params)` generates a fresh id unless you pass `id=...` yourself:
 
 ```python
-run = exp.Run(parameters={"lr": 1e-3}, id="baseline-default")
-result = await spec.execute(run=run)
+run = exp.add_run({"lr": 1e-3}, id="baseline-default")
 ```
 
-That explicit id makes the run directory stable and easy to reason about. If you omit the id, MolExp creates a fresh run identity. The CLI behaves differently: it derives deterministic run ids from the resolved parameters, replica index, and active profile metadata so that repeated `molexp run` invocations can find the same run again.
+The CLI builds on the same mechanism: `molexp run` folds resolved parameters, replica index, and active profile metadata into deterministic run ids so that repeated invocations can find the same run again.
 
-## Recording Results, Artifacts, and Assets
+## Executing and Recording Results
 
-Once a workflow runs under a `Run`, the task context gains workspace-backed helpers:
+A tracked execution happens inside the run's `RunContext`, with the compiled workflow driven by `WorkflowRuntime`:
 
 ```python
-@wf.task(depends_on=["fetch"])
-async def train(ctx: TaskContext) -> dict:
-    dataset = ctx.find_asset("training-data")
-    loss = 0.05
-    ctx.set_result("final_loss", loss)
-    ctx.artifact.save("metrics.json", {"loss": loss})
-    ctx.log("train").append(f"loss={loss}")
-    return {"loss": loss, "dataset": dataset.path if dataset else None}
+from molexp.workflow import WorkflowRuntime
+
+run = exp.list_runs()[0]
+with run.start() as ctx:
+    result = await WorkflowRuntime().execute(compiled, run_context=ctx)
+    ctx.set_result("final_loss", result.outputs["train"])
+    ctx.artifact.save("metrics.json", result.outputs["train"])
+    ctx.log("train").append("done")
+
+print(run.status, run.get_result("final_loss"))
 ```
 
-`ctx.set_result(...)` stores lightweight structured values on the run record. `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers an `ArtifactAsset` in the catalog. `ctx.log(name)` returns a bound log handle that appends lines into `logs/<name>.log`. `ctx.find_asset(...)` walks the unified asset hierarchy from run to experiment to project to workspace, which is what allows task code to ask for named resources without hard-coding one particular disk path.
+Task bodies stay on the pure `{inputs, config}` contract — they cannot reach the run or the workspace. The workspace helpers live on the driver-side `RunContext`: `ctx.set_result(...)` stores lightweight structured values on the run record (read them back later with the public `run.get_result(key)`), `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers an `ArtifactAsset` in the catalog, `ctx.log(name)` returns a bound log handle that appends lines into the run's logs, and `ctx.find_asset(...)` walks the unified asset hierarchy from run to experiment to project to workspace.
 
 If a run produces a file that should become reusable managed state, promote it into the experiment's data-asset library:
 
@@ -80,4 +69,4 @@ The next practical step is usually to let the CLI discover and drive that same w
 
 ## Runnable Example
 
-`examples/getting_started/03_tracked_run.py` executes one tracked run and prints the resulting on-disk layout plus the saved `run.json` fields.
+`examples/getting_started/03_tracked_run.py` executes one tracked run and prints the resulting on-disk layout plus the persisted run fields.

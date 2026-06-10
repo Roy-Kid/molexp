@@ -4,7 +4,9 @@ A multi-turn REPL on top of the emergent
 :class:`~molexp.agent.loops.interactive.InteractiveLoop`. Each turn
 drives :meth:`AgentRunner.run_events` and hands the live
 :data:`~molexp.agent.events.AgentEvent` stream to the
-:class:`~molexp.cli.agent_render.AgentEventRenderer`.
+:class:`~molexp.cli.agent_render.AgentEventRenderer`; a ``finally``
+calls :meth:`~molexp.cli.agent_render.AgentEventRenderer.finish` so an
+interrupted stream never leaves the terminal mid-render.
 
 Slash-command split: **REPL-meta** commands (``/help``, ``/exit``,
 ``/quit``) are handled here and never reach the runner; **agent-semantic**
@@ -18,30 +20,43 @@ plain ``molexp --help`` stays fast.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 if TYPE_CHECKING:
+    from rich.panel import Panel
+
     from molexp.agent import AgentRunner
     from molexp.agent.loops import InteractiveLoop
     from molexp.agent.session import Session
 
 __all__ = ["agent"]
 
+_PROMPT = "\n❯ "  # noqa: RUF001 — deliberate prompt glyph, not a `>`
+
+
+@dataclass(frozen=True)
+class _ReplContext:
+    """What the banner shows about this REPL session."""
+
+    model: str
+    session_name: str
+    workspace: Path
+
 
 def _configured_model() -> str | None:
-    """Return the ``agent.model`` value from ``molexp config``, if any."""
-    from molexp.cli.config_cmd import _load_config
+    """Return the ``agent.model`` value from ``molexp config``, if any.
 
-    config = _load_config()
-    agent_config = config.get("agent")
-    if isinstance(agent_config, dict):
-        model = agent_config.get("model")
-        if isinstance(model, str) and model:
-            return model
-    return None
+    Delegates to the shared operator-config loader so the CLI and the
+    server resolve the model from the same file and key.
+    """
+    from molexp.server.operator_config import configured_agent_model, load_operator_config
+
+    return configured_agent_model(load_operator_config())
 
 
 def _make_runner(
@@ -60,32 +75,66 @@ def _make_runner(
     return AgentRunner(loop=loop, model=model, workspace=workspace)
 
 
-def _print_help() -> None:
-    """Print the REPL-meta slash-command help."""
-    from molexp.cli._common import console
+def _short_path(path: Path) -> str:
+    """Render *path* with the home directory abbreviated to ``~``."""
+    try:
+        return f"~/{path.relative_to(Path.home())}"
+    except ValueError:
+        return str(path)
 
-    console.print(
-        "[bold]Commands[/bold]\n"
-        "  /help          show this help\n"
-        "  /exit, /quit   leave the REPL\n"
-        "  /plan <text>   hand a preliminary plan to the structured planner\n"
-        "[dim]Anything else is sent to the interactive agent.[/dim]"
+
+def _banner(ctx: _ReplContext) -> Panel:
+    """Compose the session banner panel shown when the REPL starts."""
+    from rich import box
+    from rich.panel import Panel
+    from rich.table import Table
+
+    grid = Table.grid(padding=(0, 2))
+    grid.add_column(style="dim", justify="right")
+    grid.add_column(style="bold")
+    grid.add_row("model", ctx.model)
+    grid.add_row("session", ctx.session_name)
+    grid.add_row("workspace", _short_path(ctx.workspace))
+    return Panel(
+        grid,
+        title="[bold cyan]molexp agent[/bold cyan]",
+        subtitle="[dim]/help · /plan · /exit[/dim]",
+        border_style="cyan",
+        box=box.ROUNDED,
+        expand=False,
+        padding=(0, 2),
     )
 
 
-async def _repl(runner: AgentRunner, session: Session) -> None:
+def _print_help() -> None:
+    """Print the REPL-meta slash-command help."""
+    from rich.table import Table
+
+    from molexp.cli._common import console
+
+    grid = Table.grid(padding=(0, 3))
+    grid.add_column(style="cyan", no_wrap=True)
+    grid.add_column()
+    grid.add_row("/help", "show this help")
+    grid.add_row("/exit, /quit", "leave the REPL")
+    grid.add_row("/plan <text>", "hand a preliminary plan to the structured planner")
+    console.print("[bold]Commands[/bold]")
+    console.print(grid)
+    console.print("[dim]Anything else is sent to the interactive agent.[/dim]")
+
+
+async def _repl(runner: AgentRunner, session: Session, ctx: _ReplContext) -> None:
     """Run the multi-turn read → dispatch → render loop until exit / EOF."""
+    from rich.text import Text
+
     from molexp.cli._common import console
     from molexp.cli.agent_render import AgentEventRenderer
 
     renderer = AgentEventRenderer(console)
-    console.print(
-        "[bold]molexp agent[/bold] — interactive mode. "
-        "[dim]/help for commands, /exit to quit.[/dim]"
-    )
+    console.print(_banner(ctx))
     while True:
         try:
-            user_input = await asyncio.to_thread(input, "\nyou > ")
+            user_input = await asyncio.to_thread(input, _PROMPT)
         except (EOFError, KeyboardInterrupt):
             console.print("\n[dim]bye[/dim]")
             return
@@ -104,7 +153,10 @@ async def _repl(runner: AgentRunner, session: Session) -> None:
             async for event in runner.run_events(session, user_input):
                 renderer.render(event)
         except Exception as exc:  # one bad turn must not kill the REPL
-            console.print(f"[bold red]turn failed:[/bold red] {exc}")
+            renderer.finish()
+            console.print(Text.assemble(("✗ turn failed: ", "bold red"), (str(exc), "red")))
+        finally:
+            renderer.finish()
 
 
 def agent(
@@ -134,7 +186,16 @@ def agent(
         )
         raise typer.Exit(1)
 
+    # Arrow-key line editing + in-session history for the prompt, where
+    # the platform provides readline (no-op fallback elsewhere).
+    with contextlib.suppress(ImportError):
+        import readline  # noqa: F401
+
     loop = InteractiveLoop(config=InteractiveLoopConfig(workspace_root=workspace_root))
     runner = _make_runner(loop=loop, model=resolved_model, workspace=workspace_root)
     repl_session = runner.session(session)
-    asyncio.run(_repl(runner, repl_session))
+    ctx = _ReplContext(model=resolved_model, session_name=session, workspace=workspace_root)
+    try:
+        asyncio.run(_repl(runner, repl_session, ctx))
+    except KeyboardInterrupt:
+        rprint("[dim]bye[/dim]")

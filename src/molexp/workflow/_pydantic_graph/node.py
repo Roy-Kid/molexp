@@ -1,25 +1,21 @@
-"""molexp per-task pydantic-graph lowering — node-body helpers.
+"""molexp per-task node-body helpers for the structural engine.
 
-The workflow DAG is lowered to a genuine ``pydantic_graph`` graph with
-**one Step per task** (see :mod:`.compiler`). pydantic-graph primitives
-carry control flow — edges for data/control deps, ``Join`` for
-multi-dependency fan-in, map-Fork + ``Join`` for ``wf.parallel``,
-``Decision`` for ``wf.branch`` / ``wf.loop`` routing.
-
-molexp tasks do **not** read inputs from edge tokens — each task reads
-its upstream outputs from the shared, mutated :class:`WorkflowState`
-``results`` dict. Edges express TRIGGER / ORDERING only. The token value
-matters only for (a) ``wf.parallel`` map fan-out (the list to spread) and
-(b) branch routing (the ``Next`` token fed to a ``Decision``).
+The workflow DAG is lowered to an :class:`~.plan.ExecutionPlan` (see
+:mod:`.compiler`) and driven by the values-on-edges engine in
+:mod:`.engine`: each task's inputs are delivered from its upstreams'
+outputs — via the declared ``depends_on`` interface, the engine-injected
+``root_inputs``, or the value carried on the activating trigger edge
+(branch-routed / loop-back delivery).
 
 ``Task`` and ``Actor`` are plain abstract classes (no pg ``BaseNode``
-inheritance) — the Step body invokes ``execute(ctx)`` / ``run(ctx)``
-directly via duck typing.
+inheritance) — the engine invokes ``execute(ctx)`` / ``run(ctx)``
+directly via duck typing. ``End`` is the re-exported
+``pydantic_graph.End`` sentinel (the layer's remaining pg surface).
 
 Module surface:
 
 * :func:`run_task_body` — invoke one task's body against a fresh
-  ``TaskContext`` (reused by every Step factory).
+  ``TaskContext`` (reused by the engine for every node).
 * :func:`_classify_return` / :data:`Dispatch` — split a raw user return
   into ``(recorded_value, dispatch_verb)``.
 * :class:`_Failure` — wraps a captured per-element parallel exception.
@@ -53,9 +49,9 @@ from .node_params import _resolve_dependent_params
 from .state import WorkflowDeps, WorkflowState
 
 if TYPE_CHECKING:
+    from .._graph_decl import TaskRegistration
     from ..compiled import CompiledWorkflow
     from ..protocols import JSONMapping
-    from .._graph_decl import TaskRegistration
 
 
 # ── Dispatch sum type — "what to do after this task" ────────────────────────
@@ -184,90 +180,117 @@ def _classify_return(
 # ── Body dispatcher (called by every per-task Step) ─────────────────────────
 
 
+def _merge_delivered(base: TaskInput, delivered: TaskInput) -> TaskInput:
+    """Fold a trigger-delivered value into engine-injected root inputs.
+
+    Mirrors the SubWorkflow ``root_input`` forwarding merge: when both are
+    dicts they MERGE (delivered keys win) so a loop-back / branch-routed value
+    reaches a workspace root task without losing ``params`` / ``workdir``;
+    otherwise the delivered value replaces the base.
+    """
+    if isinstance(base, dict) and isinstance(delivered, dict):
+        return {**base, **delivered}
+    return delivered
+
+
 async def run_task_body(
     name: str,
     deps: WorkflowDeps,
     state: WorkflowState,
     *,
     element: TaskInput = NO_OUTPUT,
+    delivered: TaskInput = NO_OUTPUT,
 ) -> TaskOutput:
     """Invoke one task's body against a freshly-built context.
 
-    The per-task pydantic-graph ``Step`` nodes (built in :mod:`.compiler`)
-    all route through here so context-construction + remote-gate +
-    dependent-params logic lives in one place. When *element* is provided
-    (``wf.parallel`` fan-out), it is used as ``ctx.inputs`` directly instead
-    of collecting upstream outputs.
+    The engine (:mod:`.engine`) routes every node through here so
+    context-construction + remote-gate + dependent-params logic lives in one
+    place. Input resolution (values-on-edges):
+
+    * *element* (``wf.parallel`` fan-out) is used as ``ctx.inputs`` directly;
+    * engine-injected ``root_inputs`` (run params + content-addressed
+      workdir) come next, merged with *delivered* when one was carried;
+    * a non-empty ``depends_on`` collects the declared upstream outputs;
+    * otherwise *delivered* — the value carried on the activating trigger
+      edge (a branch-routed value or a loop-back from the previous
+      iteration) — becomes ``ctx.inputs``.
     """
     registration = deps.registration_by_name.get(name)
     if registration is None:
         raise UnknownTaskError(f"run_task_body: unknown task {name!r}")
 
-    # Mark this body in flight for the whole duration it executes. The
-    # dependency barrier in :mod:`.compiler` reads ``state.running`` as a
-    # frontier-liveness signal: while any body is running it cannot declare
-    # a deadlock, so a slow upstream is never mistaken for an absent one.
-    state.running += 1
-    try:
-        body = registration.fn_or_class
-        if element is not NO_OUTPUT:
-            inputs: TaskInput = element
-            effective_config = deps.config
-        elif name in state.root_inputs:
+    body = registration.fn_or_class
+    if element is not NO_OUTPUT:
+        inputs: TaskInput = element
+        effective_config = deps.config
+    else:
+        if name in state.root_inputs:
             # Engine-injected root inputs (sweep params + content-addressed
             # workdir Path). The body still runs; only its inputs are pre-set.
+            # A trigger-delivered value (loop-back into a root task) merges in.
             inputs = state.root_inputs[name]
-            effective_config = _resolve_dependent_params(
-                registration=registration,
-                state=state,
-                run_context=deps.run_context,
-                base_config=deps.config,
-            )
+            if delivered is not NO_OUTPUT:
+                inputs = _merge_delivered(inputs, delivered)
+        elif registration.depends_on:
+            inputs = _collect_upstream_outputs(registration, state)
+        elif delivered is not NO_OUTPUT:
+            # Values-on-edges: the activating edge carried the upstream's
+            # recorded output (branch-routed value / loop-back iteration).
+            inputs = delivered
         else:
             inputs = _collect_upstream_outputs(registration, state)
-            effective_config = _resolve_dependent_params(
-                registration=registration,
-                state=state,
-                run_context=deps.run_context,
-                base_config=deps.config,
-            )
-
-        # Capabilities-as-inputs: an engine-internal task may declare
-        # ``__wf_capability__``; the engine injects the named capability as
-        # ``ctx.inputs`` so the task stays on the pure {inputs, config} contract
-        # (no ``run_context``). ``sub_runner`` runs an inner workflow bound to
-        # this run via the PRIVATE ``deps.run_context`` channel.
-        if getattr(body, "__wf_capability__", None) == "sub_runner":
-            inputs = _make_sub_runner(deps)
-
-        task_ctx: TaskContext[Any, TaskInput] = TaskContext(
-            inputs=inputs,
-            config=effective_config,
+        effective_config = _resolve_dependent_params(
+            registration=registration,
             state=state,
+            run_context=deps.run_context,
+            base_config=deps.config,
         )
 
-        # Tag artifacts produced by this body with ``producer.task_id == name``
-        # so the cache hook (and asset queries) can find them by producer task.
-        set_active_task = getattr(deps.run_context, "set_active_task", None)
-        if callable(set_active_task):
-            set_active_task(name)
+    # Capabilities-as-inputs: an engine-internal task may declare
+    # ``__wf_capability__``; the engine injects the named capability as
+    # ``ctx.inputs`` so the task stays on the pure {inputs, config} contract
+    # (no ``run_context``). ``sub_runner`` runs an inner workflow bound to
+    # this run via the PRIVATE ``deps.run_context`` channel.
+    if getattr(body, "__wf_capability__", None) == "sub_runner":
+        # The node's resolved input (fan-out element / upstream output / routed
+        # value / root params) is forwarded into the inner workflow's entry task;
+        # the closure replaces ``ctx.inputs`` so SubWorkflow.execute stays on the
+        # pure {inputs=sub_runner, config} contract. Only forward when the node
+        # actually has an input — a bare root SubWorkflow (no element, no deps,
+        # no workspace root params) runs the inner unchanged, so an inner spec
+        # with several roots is not forced to declare a single entry.
+        has_input = (
+            element is not NO_OUTPUT
+            or delivered is not NO_OUTPUT
+            or name in state.root_inputs
+            or bool(registration.depends_on)
+        )
+        inputs = _make_sub_runner(deps, root_input=inputs, forward=has_input)
 
-        remote = getattr(registration, "remote", None)
-        if remote is not None and element is NO_OUTPUT:
-            remote_executor = getattr(deps, "remote_executor", None)
-            if remote_executor is not None:
-                return await remote_executor.execute_remote(
-                    entry=registration,
-                    inputs=task_ctx.inputs,
-                    run_dir=getattr(deps, "run_dir", None),
-                )
+    task_ctx: TaskContext[Any, TaskInput] = TaskContext(
+        inputs=inputs,
+        config=effective_config,
+        state=state,
+        workdir=_workdir_for(deps, name),
+    )
 
-        return await _invoke_body_with_ctx(registration, task_ctx)
-    finally:
-        state.running -= 1
-        # Wake any barrier waiter so it re-evaluates the frontier the instant a
-        # body finishes (the last one finishing is how a deadlock is detected).
-        state.signal_progress()
+    # Tag artifacts produced by this body with ``producer.task_id == name``
+    # so the cache hook (and asset queries) can find them by producer task.
+    set_active_task = getattr(deps.run_context, "set_active_task", None)
+    if callable(set_active_task):
+        set_active_task(name)
+
+    remote = getattr(registration, "remote", None)
+    if remote is not None and element is NO_OUTPUT:
+        remote_executor = getattr(deps, "remote_executor", None)
+        if remote_executor is not None:
+            return await remote_executor.execute_remote(
+                entry=registration,
+                inputs=task_ctx.inputs,
+                run_dir=getattr(deps, "run_dir", None),
+            )
+
+    return await _invoke_body_with_ctx(registration, task_ctx)
 
 
 async def _invoke_body_with_ctx(
@@ -330,22 +353,54 @@ async def _invoke_body_with_ctx(
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _make_sub_runner(deps: WorkflowDeps):  # noqa: ANN202
+def _workdir_for(deps: WorkflowDeps, name: str):  # noqa: ANN202
+    """Content-addressed scratch ``Path`` for task *name* (``None`` if no materialization).
+
+    Mirrors the root-input workdir injection in
+    :meth:`WorkflowRuntime._populate_root_inputs`, but applies to EVERY task so
+    ``ctx.workdir`` is always available (not just root tasks). Keyed on the task's
+    ``TaskSnapshot.key`` so the location is stable across runs (content-addressed).
+    """
+    materialization = getattr(deps, "materialization", None)
+    if materialization is None:
+        return None
+    snap = deps.snapshots.get(name)
+    content_id = snap.key if snap is not None else name
+    return materialization.workdir_for(content_id)
+
+
+def _make_sub_runner(deps: WorkflowDeps, *, root_input: TaskInput, forward: bool):  # noqa: ANN202
     """Build the ``sub_runner`` capability for a :class:`SubWorkflow` body.
 
     Returns an ``async (inner_spec, config=None) -> WorkflowResult`` closure that
     runs *inner_spec* through the engine bound to this run via the PRIVATE
     ``deps.run_context`` channel — so the SubWorkflow body never touches a
     run-context itself (pure {inputs, config} contract).
+
+    When ``forward`` is true, ``root_input`` (the outer node's resolved input —
+    fan-out element, upstream output, or workspace root params) is forwarded into
+    the inner spec's single entry task as its ``ctx.inputs``. When false (a bare
+    root SubWorkflow with no input), the inner spec runs unchanged.
+
+    Inner runs execute with ``persist=False``: they inherit the OUTER
+    ``run_context`` (same run dir + active execution id), so letting them
+    persist would rewrite ``executions/<exec_id>/workflow.json`` with the
+    INNER spec's document — clobbering the parent's graph/statuses, polluting
+    resume seeds, and racing under ``wf.parallel`` fan-out. The parent
+    execution's document must describe the outer graph only; the SubWorkflow
+    node itself is statused there by the outer run.
     """
 
     async def _sub_runner(inner: CompiledWorkflow, config: JSONMapping | None = None):  # noqa: ANN202
         from .runtime import WorkflowRuntime
 
+        extra = {"root_input": root_input} if forward else {}
         return await WorkflowRuntime().execute(
             inner,
             run_context=deps.run_context,
             config=config if config is not None else deps.config,
+            persist=False,
+            **extra,
         )
 
     return _sub_runner
@@ -365,8 +420,8 @@ def _collect_upstream_outputs(registration: TaskRegistration, state: WorkflowSta
     # ``None`` to a parallel-join consumer). A dep is satisfied if it recorded a
     # result OR completed without one (a branch/routing task returns ``Next``
     # and lands in ``completed`` but not ``results`` — its value is legitimately
-    # ``None``). The barrier guarantees presence on the happy path, so a dep in
-    # neither set is a genuine never-ran error, not a silent ``None``.
+    # ``None``). The engine launches a task only after its deps are satisfied,
+    # so a dep in neither set is a genuine never-ran error, not a silent ``None``.
     missing = [dep for dep in deps if dep not in state.results and dep not in state.completed]
     if missing:
         raise MissingUpstreamResultError(registration.name, missing, sorted(state.results))

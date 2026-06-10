@@ -5,6 +5,7 @@
 import { http, HttpResponse } from "msw";
 import {
     deleteExperiment,
+    getExperiment,
     getExperimentsByProject,
     getRunsByExperiment,
     setExperiment,
@@ -45,6 +46,30 @@ export const experimentHandlers = [
         setExperiment(newExperiment);
         return HttpResponse.json(newExperiment, { status: 201 });
     }),
+
+    // PUT /api/projects/:projectId/experiments/:experimentId/workflow - Persist
+    // workflow IR onto the experiment (no codec normalization in mock mode; the
+    // raw document round-trips so mapWorkflows parses it after a refresh).
+    http.put(
+        `${API_BASE}/projects/:projectId/experiments/:experimentId/workflow`,
+        async ({ request, params }) => {
+            const { projectId, experimentId } = params;
+            const experiment = getExperiment(experimentId as string);
+            if (!experiment) {
+                return HttpResponse.json(
+                    { message: `Experiment ${experimentId} not found` },
+                    { status: 404 }
+                );
+            }
+            const body = (await request.json()) as { document: Record<string, unknown> };
+            setExperiment({ ...experiment, workflow: JSON.stringify(body.document) });
+            return HttpResponse.json({
+                project_id: projectId as string,
+                experiment_id: experimentId as string,
+                document: body.document,
+            });
+        }
+    ),
 
     // GET /api/projects/:projectId/experiments/:experimentId/comparison - Sweep matrix
     http.get(

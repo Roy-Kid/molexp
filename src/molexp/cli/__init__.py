@@ -33,13 +33,17 @@ from molexp.cli.agent_cmd import agent as _agent_cmd  # noqa: E402
 
 app.command(name="agent")(_agent_cmd)
 
+from molexp.cli.plan_cmd import plan as _plan_cmd  # noqa: E402
+
+app.command(name="plan")(_plan_cmd)
+
 # ── Noun groups (resource CRUD) — flat at top level ──────────────────────────
 from molexp.cli.prune import register as _register_prune  # noqa: E402
 from molexp.cli.target_cmd import target_app  # noqa: E402
+from molexp.cli.workspace.mcp_config import mcp_app  # noqa: E402
 from molexp.cli.workspace.resources import (  # noqa: E402
     asset_app,
     experiment_app,
-    mcp_app,
     project_app,
     run_app,
 )

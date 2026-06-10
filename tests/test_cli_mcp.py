@@ -307,14 +307,14 @@ def test_preserves_unknown_fields_inside_a_server_entry(cfg):
 
 class TestScope:
     def test_user_scope_resolves_to_claude_json(self):
-        from molexp.cli.workspace.resources import _resolve_mcp_path
+        from molexp.cli.workspace.mcp_config import _resolve_mcp_path
 
         path = _resolve_mcp_path("user", None)
         assert path.name == ".claude.json"
         assert path.parent == Path.home()
 
     def test_project_scope_resolves_to_cwd_mcp_json(self, tmp_path, monkeypatch):
-        from molexp.cli.workspace.resources import _resolve_mcp_path
+        from molexp.cli.workspace.mcp_config import _resolve_mcp_path
 
         monkeypatch.chdir(tmp_path)
         path = _resolve_mcp_path("project", None)
@@ -322,14 +322,14 @@ class TestScope:
         assert path.parent == tmp_path.resolve()
 
     def test_config_override_wins(self, tmp_path):
-        from molexp.cli.workspace.resources import _resolve_mcp_path
+        from molexp.cli.workspace.mcp_config import _resolve_mcp_path
 
         explicit = tmp_path / "custom.json"
         assert _resolve_mcp_path("user", explicit) == explicit.resolve()
         assert _resolve_mcp_path("project", explicit) == explicit.resolve()
 
     def test_unknown_scope_rejected(self):
-        from molexp.cli.workspace.resources import _resolve_mcp_path
+        from molexp.cli.workspace.mcp_config import _resolve_mcp_path
 
         with pytest.raises(typer.BadParameter):
             _resolve_mcp_path("galaxy", None)

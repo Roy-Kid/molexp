@@ -30,6 +30,12 @@ export interface TaskNodeJson {
   params?: Record<string, unknown>;
   /** Free-form per-node metadata. */
   metadata?: Record<string, unknown>;
+  /**
+   * When this node is a `SubWorkflow`, the inner workflow's graph IR — so the
+   * canvas can mark it with a distinct badge and drill into the inner topology
+   * (read-only). Absent for ordinary task / actor nodes.
+   */
+  subworkflow?: TaskGraphJson;
 }
 
 export interface EdgeJson {

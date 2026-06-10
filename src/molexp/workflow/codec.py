@@ -42,6 +42,7 @@ from ._graph_decl import LoopDecl, ParallelDecl, TaskRegistration
 from ._helpers import _ir_object_list, _require_str
 from .contract import WorkflowContract
 from .protocols import Streamable
+from .snapshot import task_config_of
 
 if TYPE_CHECKING:
     from .compiled import CompiledWorkflow
@@ -175,6 +176,8 @@ class WorkflowCodec:
             cfg_raw = tc.get("config")
             config: dict[str, JSONValue] = dict(cfg_raw) if isinstance(cfg_raw, dict) else {}
             factory = registry.get(slug)
+            # The reconstructed instance re-captures these ``__init__`` args as its
+            # own ``_task_config`` — config lives on the instance, not the registration.
             instance = factory(config)
             tasks.append(
                 TaskRegistration(
@@ -183,7 +186,6 @@ class WorkflowCodec:
                     depends_on=deps_by_target.get(task_id, []),
                     is_actor=isinstance(instance, Streamable),
                     task_type=slug,
-                    config=config,
                     position=_read_position(tc.get("position")),
                 )
             )
@@ -262,7 +264,9 @@ class WorkflowCodec:
             tc: dict[str, JSONValue] = {
                 "task_id": t.name,
                 "task_type": t.task_type,
-                "config": dict(t.config) if t.config else {},
+                # Config = the task instance's captured ``__init__`` args, the form
+                # ``ir_to_spec`` round-trips via ``cls(**config)``.
+                "config": task_config_of(t.fn_or_class),
                 "status": "pending",
             }
             position = getattr(t, "position", None)

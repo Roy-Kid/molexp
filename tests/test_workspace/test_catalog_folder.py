@@ -176,7 +176,7 @@ def recorded(tmp_path: Path):
     ws._catalog = rec  # type: ignore[assignment]
     proj = ws.add_project("alpha")
     exp = proj.add_experiment("counter")
-    run = exp.add_run(parameters={"x": 1})
+    run = exp.add_run(params={"x": 1})
     return ws, proj, exp, run, rec
 
 

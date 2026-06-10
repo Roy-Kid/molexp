@@ -4,5 +4,5 @@ Contributor-facing docs for working on `molexp` internals.
 
 ## Internals
 
-- [Compiler](compiler.md) — DSL → `Workflow` → pydantic-graph trampoline, identity, caching
+- [Compiler](compiler.md) — DSL → `CompiledWorkflow` → `ExecutionPlan` lowering + structural engine, identity, caching
 - [Task Protocols](task-protocols.md) — `Runnable` / `Streamable` structural contracts

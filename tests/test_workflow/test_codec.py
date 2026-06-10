@@ -77,9 +77,16 @@ def _register_golden_task_types():
         async def execute(self, ctx):
             return None
 
+    def _factory(cfg):
+        # Config now lives on the instance (a task IS its config); the factory
+        # attaches the reconstructed __init__ args so spec_to_ir re-emits them.
+        inst = _Noop()
+        inst._task_config = dict(cfg)
+        return inst
+
     for slug in ("golden_inspect", "golden_train"):
         if slug not in default_registry._factories:  # type: ignore[attr-defined]
-            default_registry.register(slug, lambda cfg: _Noop())  # noqa: ARG005
+            default_registry.register(slug, _factory)
 
 
 @pytest.mark.unit

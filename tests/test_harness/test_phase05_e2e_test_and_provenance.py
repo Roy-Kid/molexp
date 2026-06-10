@@ -22,8 +22,8 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
         GenerateExperimentReport,
         HarnessRunContext,
         SaveUserPlan,
+        SQLiteArtifactLineageStore,
         SQLiteEventLog,
-        SQLiteProvenanceStore,
         StageRunner,
     )
     from molexp.harness.gateways.stub import StubAgentGateway
@@ -31,7 +31,7 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
-    provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifacts)
     stub = StubAgentGateway(artifact_store=artifacts)
     stub.register(
         agent_name="experiment_report_writer",
@@ -48,7 +48,7 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
         agent_gateway=stub,
     )
 
@@ -69,7 +69,7 @@ def test_phase05_validate_provenance_on_pipeline_output(tmp_path: Path) -> None:
     report = validate_provenance(
         report_ref.id,
         artifact_store=ctx.artifact_store,
-        provenance_store=ctx.provenance_store,
+        lineage_store=ctx.lineage_store,
         root_kind="user_plan",
     )
     assert report.passed is True, f"unexpected violations: {report.violations}"
@@ -85,7 +85,7 @@ def test_phase05_validate_provenance_with_custom_root_kind(tmp_path: Path) -> No
     result = validate_provenance(
         report_ref.id,
         artifact_store=ctx.artifact_store,
-        provenance_store=ctx.provenance_store,
+        lineage_store=ctx.lineage_store,
         root_kind="experiment_report",
     )
     assert result.passed is True

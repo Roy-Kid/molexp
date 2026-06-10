@@ -13,6 +13,7 @@ from __future__ import annotations
 from pathlib import Path as _LocalPath
 from typing import TYPE_CHECKING, Any, cast
 
+from molexp._typing import JSONValue
 from molexp.path import Path
 
 if TYPE_CHECKING:
@@ -239,20 +240,56 @@ class Project(Folder):
 
     # ── Experiment CRUD: typed semantic sugar over generic Folder CRUD ─────
 
-    def add_experiment(self, name: str, **kwargs: Any) -> Experiment:  # noqa: ANN401
+    def add_experiment(
+        self,
+        name: str,
+        *,
+        id: str | None = None,
+        params: dict[str, JSONValue] | None = None,
+        n_replicas: int = 1,
+        seeds: list[int] | None = None,
+        workflow_source: str | None = None,
+        workflow_type: str | None = None,
+        git_commit: str | None = None,
+        description: str = "",
+        tags: list[str] | None = None,
+        default_target: str | None = None,
+    ) -> Experiment:
         """Mount an experiment under this project (idempotent on slug).
 
         One-line wrapper over generic ``add_folder``. The slugified
         ``name`` doubles as the experiment id when no explicit ``id=``
-        kwarg is given — matching the legacy ``Project.Experiment``
+        is given — matching the legacy ``Project.Experiment``
         factory semantics so ``add_experiment("counter")`` twice returns
         the same instance.
+
+        The signature is spelled out explicitly (mirroring the
+        :class:`~molexp.workspace.models.ExperimentMetadata` fields the
+        :class:`Experiment` constructor accepts) so a typo such as
+        ``prams=`` raises ``TypeError`` instead of flowing silently.
+        ``params`` is the canonical spelling for the parameter dict.
         """
-        explicit_id = kwargs.pop("id", None)
-        resolved_id = explicit_id if explicit_id is not None else slugify(name)
-        _validate_target_registered(self.workspace, kwargs.get("default_target"))
-        child = self._construct_child(Experiment, name, id=resolved_id, **kwargs)
+        resolved_id = id if id is not None else slugify(name)
+        _validate_target_registered(self.workspace, default_target)
+        child = self._construct_child(
+            Experiment,
+            name,
+            id=resolved_id,
+            params=params,
+            n_replicas=n_replicas,
+            seeds=seeds,
+            workflow_source=workflow_source,
+            workflow_type=workflow_type,
+            git_commit=git_commit,
+            description=description,
+            tags=tags,
+            default_target=default_target,
+        )
         return cast(Experiment, self.add_folder(child))
+
+    def experiment(self, name: str, **kwargs: Any) -> Experiment:  # noqa: ANN401
+        """Fluent create-or-get alias for :meth:`add_experiment` (idempotent)."""
+        return self.add_experiment(name, **kwargs)
 
     def get_experiment(self, name: str) -> Experiment:
         return self.get_folder(name, cls=Experiment)

@@ -213,18 +213,18 @@ def ctx(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     return HarnessRunContext(
         run_id="run-gate",
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
     )
 
 
@@ -240,15 +240,21 @@ def _req(intent: str = "full_execution"):
     )
 
 
-def _decision(req, *, granted: bool):
+def _scripted_approver(verdicts: dict[str, bool]):
+    """Approver answering each request from a ``request.id -> granted`` map."""
+    from datetime import datetime as _datetime
+
     from molexp.harness.schemas.approval import ApprovalDecision
 
-    return ApprovalDecision(
-        request_id=req.id,
-        granted=granted,
-        decided_by="alice",
-        decided_at=datetime(2026, 5, 26, tzinfo=UTC),
-    )
+    async def approve(request):
+        return ApprovalDecision(
+            request_id=request.id,
+            granted=verdicts[request.id],
+            decided_by="alice",
+            decided_at=_datetime.now(tz=UTC),
+        )
+
+    return approve
 
 
 def test_approval_gate_name_and_subclass() -> None:
@@ -265,13 +271,29 @@ def test_approval_gate_passes_when_all_granted(ctx) -> None:
     r1 = _req("hpc_submission")
     r2 = _req("full_execution")
     stage = ApprovalGate(
-        decisions=[
-            (r1, _decision(r1, granted=True)),
-            (r2, _decision(r2, granted=True)),
-        ]
+        requests=[r1, r2],
+        approve=_scripted_approver({r1.id: True, r2.id: True}),
     )
     ref = asyncio.run(stage.run(ctx))
     assert ref.kind == "analysis_result"
+
+
+def test_approval_gate_default_approver_auto_grants(ctx) -> None:
+    """Without an explicit approver the gate auto-grants — at run time.
+
+    The decision is produced when the gate runs (``decided_at`` is the
+    decision moment, ``decided_by`` names the auto-approver), and recorded
+    on the event log like any human decision.
+    """
+    from molexp.harness.stages.approval_gate import ApprovalGate
+
+    stage = ApprovalGate(requests=[_req("final_report")])
+    ref = asyncio.run(stage.run(ctx))
+
+    assert ref.kind == "analysis_result"
+    granted = [e for e in ctx.event_log.list_events(ctx.run_id) if e.type == "approval_granted"]
+    assert len(granted) == 1
+    assert granted[0].payload["decided_by"] == "auto-approver"
 
 
 def test_approval_gate_raises_on_any_rejected(ctx) -> None:
@@ -281,18 +303,16 @@ def test_approval_gate_raises_on_any_rejected(ctx) -> None:
     r1 = _req("hpc_submission")
     r2 = _req("full_execution")
     stage = ApprovalGate(
-        decisions=[
-            (r1, _decision(r1, granted=True)),
-            (r2, _decision(r2, granted=False)),
-        ]
+        requests=[r1, r2],
+        approve=_scripted_approver({r1.id: True, r2.id: False}),
     )
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx))
     assert "full_execution" in str(exc.value)
 
 
-def test_approval_gate_records_decision_events_before_failing(ctx) -> None:
-    """Every decision MUST land on the event log even when the gate aborts.
+def test_approval_gate_records_request_and_decision_events_before_failing(ctx) -> None:
+    """Every ask AND answer MUST land on the event log even when the gate aborts.
 
     Regression: the previous implementation raised before recording, so
     the audit row for the rejection that aborted the run was missing.
@@ -303,18 +323,37 @@ def test_approval_gate_records_decision_events_before_failing(ctx) -> None:
     r1 = _req("hpc_submission")
     r2 = _req("full_execution")
     stage = ApprovalGate(
-        decisions=[
-            (r1, _decision(r1, granted=True)),
-            (r2, _decision(r2, granted=False)),
-        ]
+        requests=[r1, r2],
+        approve=_scripted_approver({r1.id: True, r2.id: False}),
     )
     with pytest.raises(StageExecutionError):
         asyncio.run(stage.run(ctx))
-    timeline = ctx.event_log.list_events(ctx.run_id)
-    types = [e.type for e in timeline]
-    # Both decisions present; the granted one BEFORE the rejected one.
+    types = [e.type for e in ctx.event_log.list_events(ctx.run_id)]
+    # Both asks and both answers present, request before its decision.
+    assert types.count("approval_requested") == 2
     assert "approval_granted" in types
     assert "approval_rejected" in types
+
+
+def test_approval_gate_rejects_mismatched_decision(ctx) -> None:
+    """An approver answering the wrong request id is refused fail-fast."""
+    from datetime import datetime as _datetime
+
+    from molexp.harness.errors import StageExecutionError
+    from molexp.harness.schemas.approval import ApprovalDecision
+    from molexp.harness.stages.approval_gate import ApprovalGate
+
+    async def confused_approver(request):
+        return ApprovalDecision(
+            request_id="someone-else",
+            granted=True,
+            decided_by="alice",
+            decided_at=_datetime.now(tz=UTC),
+        )
+
+    stage = ApprovalGate(requests=[_req("overwrite")], approve=confused_approver)
+    with pytest.raises(StageExecutionError, match="mismatched"):
+        asyncio.run(stage.run(ctx))
 
 
 def test_approval_gate_summary_carries_subject_artifact_ids(ctx) -> None:
@@ -326,7 +365,8 @@ def test_approval_gate_summary_carries_subject_artifact_ids(ctx) -> None:
     )
     r1 = _req("hpc_submission")
     stage = ApprovalGate(
-        decisions=[(r1, _decision(r1, granted=True))],
+        requests=[r1],
+        approve=_scripted_approver({r1.id: True}),
         subject_artifact_ids=[parent.id],
     )
     ref = asyncio.run(stage.run(ctx))

@@ -1,16 +1,15 @@
-"""Internal pydantic-graph state and deps types.
+"""Internal workflow-engine state and deps types.
 
 Users never import these directly — they touch them only through the
 public ``WorkflowResult`` API.
 
 This module MUST NOT import ``pydantic_graph`` — it carries only plain
-data containers threaded through the per-task ``Step`` nodes built in
-:mod:`.compiler`.
+data containers threaded through the per-task node bodies driven by
+:mod:`.engine`.
 """
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,12 +36,11 @@ if TYPE_CHECKING:
 class WorkflowState:
     """Shared, **mutated-in-place** state threaded through workflow tasks.
 
-    pydantic-graph holds a single reference to this object for the whole
-    run and snapshots it after each node. molexp tasks do not read their
-    inputs from edge tokens — each task reads upstream outputs from this
-    shared ``results`` dict (via ``_collect_upstream_outputs``). Each
-    per-task ``Step`` therefore mutates ``results`` in place:
-    ``ctx.state.results[name] = output``.
+    The engine holds a single reference to this object for the whole run.
+    Tasks receive their inputs from upstream outputs (values-on-edges); the
+    shared ``results`` dict is the run's output ledger — each completed node
+    records ``results[name] = output`` in place, and downstream ``depends_on``
+    collection reads from it.
 
     Fields:
 
@@ -50,25 +48,14 @@ class WorkflowState:
       prior values ("曾经完成过一次" semantics).
     * ``completed`` — names of tasks that finished at least once.
     * ``loop_counters`` — per-loop ``until``-task → iteration count; the
-      ``until`` step increments and consults this to enforce
+      engine increments and consults this to enforce
       ``wf.loop(..., max_iters=N)``.
-    * ``parallel_runs`` — ``wf.parallel`` body fan-out width, recorded by
-      the collector step for observability.
+    * ``parallel_runs`` — ``wf.parallel`` body fan-out width, recorded when
+      the fan-out publishes (observability).
     * ``failed`` / ``error`` — terminal failure flags.
     * ``seeded`` — names that arrived already-completed via
-      ``Workflow.execute(seed_outputs=...)``; their step skips the body
+      ``Workflow.execute(seed_outputs=...)``; their node skips the body
       but still routes normally.
-    * ``running`` — number of task bodies currently executing. The
-      per-Step dependency barrier reads this as a frontier-liveness
-      signal: ``running == 0`` while a dependency is still missing means
-      no body is in flight to ever satisfy it (deadlock detection).
-    * ``progress`` — monotonic counter bumped on every ``record`` and on
-      every parallel-collector publish; lets the barrier distinguish a
-      quiescent (no progress) window from one where results are landing.
-    * ``_progress_event`` — lazily-created :class:`asyncio.Event` the
-      dependency barrier waits on. :meth:`signal_progress` sets it whenever a
-      result lands or a body finishes, so a blocked barrier wakes *immediately*
-      (no busy-poll latency) instead of only on its timeout fallback.
     """
 
     results: dict[str, TaskOutput] = field(default_factory=dict)
@@ -85,25 +72,6 @@ class WorkflowState:
     failed: bool = False
     error: str | None = None
     seeded: set[str] = field(default_factory=set)
-    running: int = 0
-    progress: int = 0
-    _progress_event: asyncio.Event | None = field(default=None, compare=False, repr=False)
-
-    def ensure_progress_event(self) -> asyncio.Event:
-        """Lazily create (in the running loop) and return the barrier event."""
-        if self._progress_event is None:
-            self._progress_event = asyncio.Event()
-        return self._progress_event
-
-    def signal_progress(self) -> None:
-        """Wake any barrier waiter — a result landed or a task body finished.
-
-        No-op until a barrier has created the event via
-        :meth:`ensure_progress_event`; if no task is waiting, there is nothing
-        to wake.
-        """
-        if self._progress_event is not None:
-            self._progress_event.set()
 
     @classmethod
     def from_seed(cls, seed: Mapping[str, TaskOutput]) -> WorkflowState:
@@ -126,13 +94,11 @@ class WorkflowState:
         """Record *step_name*'s output in place and mark it completed."""
         self.results[step_name] = output
         self.completed.add(step_name)
-        self.progress += 1
-        self.signal_progress()
 
 
 @dataclass
 class WorkflowDeps:
-    """Dependencies injected into every per-task ``Step`` node.
+    """Dependencies injected into every per-task node body.
 
     Attributes:
         run: The molexp Run associated with this execution (may be None).

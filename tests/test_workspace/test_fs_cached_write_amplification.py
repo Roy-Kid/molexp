@@ -54,7 +54,7 @@ def test_prefetch_writes_sidecar_once(tmp_path, monkeypatch):
         proj = ws.add_project(f"proj{p}")
         for e in range(2):
             exp = proj.add_experiment(f"exp{e}")
-            exp.add_run(parameters={"i": 0})
+            exp.add_run(params={"i": 0})
 
     # Navigate it through a fresh cached FS and count sidecar writes.
     cached = CachedRemoteFileSystem(LocalFileSystem(), mirror_root=tmp_path / "mirror")

@@ -34,7 +34,7 @@ def test_add_star_idempotent_same_instance(tmp_path):
     assert proj.add_experiment("baseline") is proj.add_experiment("baseline")
 
     exp = proj.add_experiment("baseline")
-    r = exp.add_run(parameters={"seed": 1}, id="run-x")
+    r = exp.add_run(params={"seed": 1}, id="run-x")
     assert exp.add_run(id="run-x") is r
 
 
@@ -45,7 +45,7 @@ def test_add_star_idempotent_across_fresh_instances(tmp_path):
     ws1 = Workspace(root=root, name="lab")
     proj1 = ws1.add_project("demo")
     exp1 = proj1.add_experiment("baseline")
-    exp1.add_run(parameters={"seed": 1}, id="run-x")
+    exp1.add_run(params={"seed": 1}, id="run-x")
 
     # Fresh instance — no in-memory caches warmed.
     ws2 = Workspace(root)

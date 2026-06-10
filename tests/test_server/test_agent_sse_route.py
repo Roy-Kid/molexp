@@ -18,8 +18,8 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-import molexp.server.dependencies as deps
-from molexp.agent.events import ModeCompletedEvent, TokenDeltaEvent
+import molexp.server.deps.agent_runtime as agent_runtime_deps
+from molexp.agent.events import LoopCompletedEvent, TokenDeltaEvent
 from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
@@ -103,7 +103,7 @@ def _session(sid: str) -> Session:
 @pytest.fixture
 def registry(monkeypatch: pytest.MonkeyPatch) -> AgentSessionRegistry:
     reg = AgentSessionRegistry()
-    monkeypatch.setattr(deps, "_agent_runtime_registry", reg)
+    monkeypatch.setattr(agent_runtime_deps, "_agent_runtime_registry", reg)
     return reg
 
 
@@ -153,9 +153,9 @@ async def test_route_streams_ordered_frames_then_done(
 
     frames = await _drain(resp)
     kinds = [f.get("kind") or f.get("type") for f in frames]
-    assert kinds[0] == "mode_started"
+    assert kinds[0] == "loop_started"
     assert "token_delta" in kinds
-    assert kinds[-2] == "mode_completed"
+    assert kinds[-2] == "loop_completed"
     assert kinds[-1] == "done"
     await registry.aclose()
 
@@ -211,7 +211,7 @@ async def test_replay_then_tail_no_duplication(
         goal="x",
         user_input="x",
     )
-    # wait until the pre-gate events (mode_started + 2 token deltas) are collected
+    # wait until the pre-gate events (loop_started + 2 token deltas) are collected
     for _ in range(200):
         if len(rt.events()) >= 3:
             break
@@ -220,20 +220,20 @@ async def test_replay_then_tail_no_duplication(
 
     sub = rt.subscribe_events()
     replay = [await sub.__anext__() for _ in range(3)]  # snapshot at subscribe time
-    assert [e.kind for e in replay] == ["mode_started", "token_delta", "token_delta"]
+    assert [e.kind for e in replay] == ["loop_started", "token_delta", "token_delta"]
 
     gate.set()  # release the rest of the turn → tail
     tail = [event async for event in sub]
-    assert [e.kind for e in tail] == ["token_delta", "mode_completed"]
+    assert [e.kind for e in tail] == ["token_delta", "loop_completed"]
 
     # union is each event exactly once, in order
     all_kinds = [e.kind for e in replay + tail]
     assert all_kinds == [
-        "mode_started",
+        "loop_started",
         "token_delta",
         "token_delta",
         "token_delta",
-        "mode_completed",
+        "loop_completed",
     ]
     await rt.await_finished()
     await registry.aclose()
@@ -242,4 +242,4 @@ async def test_replay_then_tail_no_duplication(
 def test_token_and_completed_event_imports() -> None:
     # guard: the event kinds the stream relies on exist with the expected discriminators
     assert TokenDeltaEvent(text="x").kind == "token_delta"
-    assert ModeCompletedEvent(text="x").kind == "mode_completed"
+    assert LoopCompletedEvent(text="x").kind == "loop_completed"

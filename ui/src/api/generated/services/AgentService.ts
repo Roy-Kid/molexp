@@ -12,12 +12,12 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete(
+    public static agentDisabledApiAgentPathPut(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/api/agent/{path}',
+            url: '/api/agent/{path}',
             path: {
                 'path': path,
             },
@@ -32,12 +32,12 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete1(
+    public static agentDisabledApiAgentPathPut1(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/api/agent/{path}',
+            url: '/api/agent/{path}',
             path: {
                 'path': path,
             },
@@ -52,12 +52,12 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete2(
+    public static agentDisabledApiAgentPathPut2(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PATCH',
-            url: '/api/api/agent/{path}',
+            url: '/api/agent/{path}',
             path: {
                 'path': path,
             },
@@ -72,12 +72,12 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete3(
+    public static agentDisabledApiAgentPathPut3(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/api/agent/{path}',
+            url: '/api/agent/{path}',
             path: {
                 'path': path,
             },
@@ -92,12 +92,12 @@ export class AgentService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentDisabledApiApiAgentPathDelete4(
+    public static agentDisabledApiAgentPathPut4(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PUT',
-            url: '/api/api/agent/{path}',
+            url: '/api/agent/{path}',
             path: {
                 'path': path,
             },

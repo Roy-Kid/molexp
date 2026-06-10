@@ -127,9 +127,9 @@ async def test_turn_runs_and_collects_events(tmp_path: Path) -> None:
     )
     await rt.await_finished()
     kinds = [e.kind for e in rt.events()]
-    assert "mode_started" in kinds
+    assert "loop_started" in kinds
     assert "token_delta" in kinds
-    assert kinds[-1] == "mode_completed"
+    assert kinds[-1] == "loop_completed"
     assert rt.status() == "completed"
     await reg.aclose()
 

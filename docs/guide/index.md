@@ -4,7 +4,7 @@ The guide section is for topics that are easier to read after the first-run path
 
 ## Workflow Authoring
 
-When the question is about the shape of the graph itself, start with [Task and Actor](task-and-actor.md). Continue with [TaskContext](task-context.md) when you need the execution boundary inside one task, and [Workflow Runtime](workflow-runtime.md) when you need to understand what happens after `spec.execute(...)` starts. [Control Flow](control-flow.md) and [Sub-workflows](subworkflows.md) are the pages to read once ordinary dependency edges are no longer enough.
+When the question is about the shape of the graph itself, start with [Task and Actor](task-and-actor.md). Continue with [TaskContext](task-context.md) when you need the execution boundary inside one task, and [Workflow Runtime](workflow-runtime.md) when you need to understand what happens after `WorkflowRuntime().execute(...)` starts. [Control Flow](control-flow.md) and [Sub-workflows](subworkflows.md) are the pages to read once ordinary dependency edges are no longer enough.
 
 ## Records and Assets
 

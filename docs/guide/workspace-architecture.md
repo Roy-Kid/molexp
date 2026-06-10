@@ -9,7 +9,7 @@ Workspace
         └── Run          (one execution attempt; re-runs append ExecutionRecords)
 ```
 
-Every persistent byproduct — imported data, task artifacts, logs, checkpoints, error traces, workflow execution state — is a typed `Asset` subclass recorded in a per-scope `assets.json` manifest and indexed by the workspace catalog at `.catalog/index.json`. Every metadata write is atomic (temp-file + `os.rename`), so a crash never leaves a half-written JSON file.
+Every persistent byproduct — imported data, task artifacts, logs, checkpoints, error traces, workflow execution state — is a typed `Asset` subclass recorded in a per-scope `assets.json` manifest and indexed by the workspace catalog at `catalog/index.sqlite`. Every metadata write is atomic (temp-file + `os.rename`), so a crash never leaves a half-written JSON file.
 
 Workspace is the bottom of the molexp dependency DAG. It owns filesystem layout, atomic JSON, content-addressed assets, and generic per-kind subsystem storage — and **does not know about workflows, sessions, agents, or LLMs**. Upstream layers (workflow, agent) reach *down* into workspace's public surface; the inverse is forbidden by the import-guard test.
 
@@ -35,23 +35,21 @@ Each `Run` captures reproducibility metadata: an opaque `workflow_snapshot` payl
 
 ## Creating a Hierarchy
 
-The hierarchy is created from the top down, but not every step has identical identity rules. `ws.Project(...)` and `project.Experiment(...)` are get-or-create operations keyed by slug or explicit id, so repeated calls can load existing objects from disk. `exp.run(...)` is different: it creates a fresh run unless you provide an explicit `id`, in which case it becomes a get-or-load operation for that concrete run directory.
+The hierarchy is created from the top down, but not every step has identical identity rules. `ws.project(...)` and `project.experiment(...)` are get-or-create operations keyed by slug or explicit id, so repeated calls can load existing objects from disk. `exp.add_run(...)` is different: it creates a fresh run unless you provide an explicit `id`, in which case it becomes a get-or-load operation for that concrete run directory. Runs seeded by `exp.run(workflow, params=...)` derive their ids from their parameters, so the sweep declaration is idempotent.
 
 ```python
 import molexp as me
 
-ws = me.Workspace("./lab")                                # lightweight object; no files yet
-project = ws.Project("MD Simulations")                    # materializes workspace.json and project.json
-exp = project.Experiment(
+ws = me.Workspace("./lab", name="lab")                    # lightweight object; no files yet
+project = ws.project("MD Simulations")                    # materializes workspace.json and project.json
+exp = project.experiment(
     "temperature-300K",
     params={"T": 300, "pressure": 1.0},
     n_replicas=3,
     seeds=[42, 43, 44],
-    workflow_source="workflows/md.py",                    # advisory free-form string
-    git_commit="abc123",
 )
-run = exp.run(
-    parameters={"T": 300, "pressure": 1.0},
+run = exp.add_run(
+    {"T": 300, "pressure": 1.0, "seed": 42},
     id="temperature-300K-seed-42",
 )                                                         # materializes run.json
 ```
@@ -60,56 +58,52 @@ Re-calling the project or experiment factory with the same name or id returns th
 
 ## Parameter Combinations
 
-`GridSpace` and `UniformSpace` generate parameter combinations. One combination = one `Experiment`:
+`GridSpace` and `UniformSpace` generate parameter combinations. `Experiment.run(workflow, params=...)` accepts a space (or a plain `{axis: [values]}` grid mapping) directly and materializes one content-addressed `Run` per cell:
 
 ```python
 from molexp import GridSpace
 
 grid = GridSpace({"T": [300, 310, 320], "force_field": ["amber", "charmm"]})
 
-for params in grid:
-    slug = f"T{params['T']}-{params['force_field']}"
-    exp = project.Experiment(slug, params=params, n_replicas=3, workflow_source="md.py")
-    for seed in exp.get_seeds():
-        run = exp.Run(parameters={**params, "seed": seed})
-        await spec.execute(run=run)
+exp = project.experiment("md-sweep").run(compiled, params=grid)
+print(len(exp.list_runs()))  # 6 — one per grid cell
 ```
 
 `UniformSpace(param_values, n_samples, seed=None)` samples `n_samples` combinations uniformly at random — handy for broader search spaces.
 
 ## Pairing an Experiment with a Workflow
 
-Workspace does **not** track the experiment-to-workflow association. The `Experiment` is a parameter container; pairing it with a workflow happens at execution time in the caller's code:
+Workspace itself stores no workflow-shaped types. The association is declared through `Experiment.run(workflow, params=...)`, which records the workflow's graph IR on the experiment and binds the live `CompiledWorkflow` in the workflow layer's `default_binding_registry`:
 
 ```python
-from molexp.workflow import Workflow, promote_callable, WorkflowBuilder
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
-# Build (or load) a Workflow however you like — workspace doesn't care.
-spec = WorkflowBuilder(name="train").add(TrainTask()).build()
-# or, for a bare fn(RunContext):
-spec = promote_callable(train_fn, name="train")
+compiled = WorkflowCompiler(name="train").add(TrainTask()).compile()
+exp = project.experiment("baseline").run(compiled, params={"lr": [1e-3]})
 
-# Workspace just provides the Run that the workflow executes within.
-run = exp.Run(parameters={"lr": 1e-3})
-result = await spec.execute(run=run)
+# Workspace just provides the Run the workflow executes within.
+run = exp.list_runs()[0]
+with run.start() as ctx:
+    result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 ```
 
-This intentional decoupling came out of the 2026-05-09 rectification: workspace stays a storage primitive, workflow stays a graph engine, and the *orchestration* layer (typically the agent layer or a user script) decides which workflow to run against which experiment.
+This decoupling came out of the 2026-05-09 rectification: workspace stays a storage primitive, workflow stays a graph engine, and the cross-layer seam (`molexp.entry`) wires `Experiment.run` to the binding registry without workspace ever importing the workflow layer.
 
 ## Executing a Run
 
 ```python
-result = await spec.execute(run=run)
+with run.start() as ctx:
+    result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 ```
 
-Under the hood, the workflow runtime opens a `RunContext` which:
+Entering `run.start()` opens a `RunContext` which:
 
 1. Ensures `artifacts/`, `logs/`, and `.ckpt/` subdirectories exist.
 2. Records temporary ownership metadata for the active execution.
 3. Appends a new `ExecutionRecord` to `run.execution_history`.
 4. Sets `run.status = "running"` and runs the workflow.
 5. On success, writes `status="succeeded"` plus the final timestamp.
-6. On failure, writes `status="failed"`, an `ErrorInfo`, and registers an `ErrorTraceAsset` pointing at `execution/<exec_id>/error.txt`.
+6. On failure, writes `status="failed"`, an `ErrorInfo`, and registers an `ErrorTraceAsset` pointing at `executions/<exec_id>/error.txt`.
 
 Every attempt appears in `run.metadata.execution_history`, newest last — a run that was retried twice will have three records.
 
@@ -122,14 +116,13 @@ ws.data_assets.import_asset("bert_model", "/models/bert.pt")
 project.data_assets.import_asset("dataset", "/data/qm9.tar.bz2")
 exp.data_assets.import_asset("features", "/data/features.h5")
 
-# Inside a task
-class Train(Task):
-    async def execute(self, ctx: TaskContext) -> dict:
-        dataset = ctx.find_asset("dataset")       # walks run → experiment → project → workspace
-        features = ctx.find_asset("features")
-        ctx.artifact.save("metrics.json", {"val_loss": 0.1})
-        ctx.log("train").append("epoch 1")
-        ...
+# Driver-side, around the workflow execution
+with run.start() as ctx:
+    dataset = ctx.find_asset("dataset")       # walks run → experiment → project → workspace
+    features = ctx.find_asset("features")
+    result = await WorkflowRuntime().execute(compiled, run_context=ctx)
+    ctx.artifact.save("metrics.json", result.outputs["train"])
+    ctx.log("train").append("epoch 1")
 ```
 
 `import_asset(name, src, action="copy", meta=None)` supports `"copy"`, `"move"`, `"symlink"`, and `"hardlink"` for ingestion. See [Unified Asset Model](assets.md) for the full list of asset kinds (artifact, log, checkpoint, error trace, execution state, output, data) and how the catalog can be rebuilt from disk when needed.
@@ -153,7 +146,7 @@ molexp info      # show workspace summary
 ```
 ./lab/
 ├── workspace.json
-├── .catalog/index.json             # derived workspace-wide catalog
+├── catalog/index.sqlite            # derived workspace-wide catalog
 ├── assets.json                     # workspace-scoped asset manifest
 ├── data_assets/<asset_id>/payload/ # imported DataAssets
 └── projects/
@@ -173,7 +166,7 @@ molexp info      # show workspace summary
                         ├── artifacts/
                         ├── logs/
                         ├── .ckpt/
-                        └── execution/<exec_id>/   # per-attempt workflow.json + error.txt
+                        └── executions/<exec_id>/  # per-attempt workflow.json + error.txt
 ```
 
 ## Runnable Example

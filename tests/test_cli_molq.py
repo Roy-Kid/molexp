@@ -18,7 +18,7 @@ def _make_workspace(tmp_path):
     workspace = Workspace(root=tmp_path / "workspace", name="Test")
     project = workspace.add_project("demo")
     experiment = project.add_experiment("train")
-    run = experiment.add_run(parameters={"seed": 0})
+    run = experiment.add_run(params={"seed": 0})
     return workspace, experiment, run
 
 

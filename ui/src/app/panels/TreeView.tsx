@@ -96,9 +96,7 @@ const TreeRow = ({
         />
       )}
       {node.leadingAccessory && <span className="flex-none">{node.leadingAccessory}</span>}
-      <span className={`min-w-0 flex-1 truncate ${node.labelClassName ?? ""}`}>
-        {node.label}
-      </span>
+      <span className={`min-w-0 flex-1 truncate ${node.labelClassName ?? ""}`}>{node.label}</span>
       {node.right && <span className="flex-none">{node.right}</span>}
       {node.meta !== undefined && node.meta !== null && (
         <span className="flex-none font-mono text-[10px] text-muted-foreground">{node.meta}</span>

@@ -27,7 +27,7 @@ async def test_resume_roundtrip_seeds_and_reopens(tmp_path) -> None:
     ws = Workspace(root=tmp_path, name="x")
     p = ws.add_project("p")
     e = p.add_experiment("e", workflow_source="train.py", params={}, git_commit="c")
-    run = e.add_run(parameters={})
+    run = e.add_run(params={})
 
     good_runs = {"n": 0}
 

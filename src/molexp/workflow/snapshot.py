@@ -30,6 +30,47 @@ from .._typing import JSONValue
 logger = get_logger(__name__)
 
 
+def task_config_of(body: object) -> dict[str, JSONValue]:
+    """The build-time config of a task body = its ``__init__`` arguments.
+
+    A :class:`~molexp.workflow.Task` / :class:`~molexp.workflow.Actor` instance
+    captures its constructor arguments into ``_task_config`` (see
+    :class:`~molexp.workflow.task._CapturesInitConfig`); that dict is the task's
+    config identity and the form IR round-trips via ``cls(**config)``.
+
+    Falls back gracefully: a third-party instance with no captured config exposes
+    its public ``__dict__``; a bare function (no construction state) has none.
+    """
+    captured = getattr(body, "_task_config", None)
+    if captured is not None:
+        return dict(captured)
+    if hasattr(body, "__dict__") and not inspect.isfunction(body) and not inspect.ismethod(body):
+        return {k: v for k, v in vars(body).items() if not k.startswith("_")}
+    return {}
+
+
+def _stable_config_default(obj: object) -> str:
+    """Deterministic JSON fallback for non-JSON ``__init__`` args.
+
+    ``json.dumps(default=str)`` is unusable for the config hash: a default
+    ``repr`` embeds the instance's memory address (``<… at 0x…>``), so a task
+    constructed with a live object (a callable, a sub-workflow) would hash
+    differently every process — breaking content-addressing across a run/resume.
+
+    Callables hash by their AST-normalized source (stable AND discriminating);
+    other objects collapse to their *type* name (stable, address-free).
+    """
+    code = getattr(obj, "__code__", None) or getattr(
+        getattr(obj, "__func__", None), "__code__", None
+    )
+    if code is not None:
+        source_hash = _normalized_source_hash(code)
+        mod = getattr(obj, "__module__", "?")
+        qualname = getattr(obj, "__qualname__", getattr(obj, "__name__", "?"))
+        return f"callable:{mod}.{qualname}:{source_hash or 'nosrc'}"
+    return f"<{type(obj).__module__}.{type(obj).__qualname__}>"
+
+
 @functools.lru_cache(maxsize=4096)
 def _normalized_source_hash(code: CodeType) -> str | None:
     """Memoized AST-normalized source hash for a code object.
@@ -87,7 +128,6 @@ class TaskSnapshot(BaseModel):
         cls,
         task_id: str,
         body: object,
-        config_data: dict[str, JSONValue] | None = None,
     ) -> TaskSnapshot:
         """Create a snapshot from any registered task body.
 
@@ -96,6 +136,10 @@ class TaskSnapshot(BaseModel):
         ``Streamable``. It resolves the hashable callable (``execute`` → ``run``
         → the body itself), so the compiler computes one snapshot per task and
         reuses its ``code_hash`` for the :class:`WorkflowVersion`.
+
+        The ``config_hash`` is derived from the task *instance's* construction
+        identity — its ``__init__`` arguments (see :func:`task_config_of`), NOT a
+        separately-declared registration config. A task instance *is* its config.
         """
         fn = getattr(body, "execute", None) or getattr(body, "run", None) or body
         if hasattr(body, "execute") or hasattr(body, "run"):
@@ -106,8 +150,13 @@ class TaskSnapshot(BaseModel):
             qualname = getattr(body, "__qualname__", getattr(body, "__name__", "?"))
             task_type = f"{module}.{qualname}"
             identity = task_type
-        cfg = dict(config_data) if config_data else {}
-        config_raw = json.dumps(cfg, sort_keys=True, default=str)
+        cfg = task_config_of(body)
+        config_raw = json.dumps(cfg, sort_keys=True, default=_stable_config_default)
+        # ``config_data`` must be JSON-clean (a task may be constructed with live
+        # objects — a sub-workflow, a callable). Round-trip through the same
+        # serialization the hash uses so the stored field matches the hash and is
+        # always a valid ``JSONValue`` (non-serializable args land as their str).
+        config_clean: dict[str, JSONValue] = json.loads(config_raw)
         try:
             source = inspect.getsource(fn) if callable(fn) else ""
         except (OSError, TypeError):
@@ -119,7 +168,7 @@ class TaskSnapshot(BaseModel):
             config_hash=hashlib.sha256(config_raw.encode()).hexdigest()[:32],
             code_source=source,
             created_at=datetime.now(UTC),
-            config_data=cfg,
+            config_data=config_clean,
         )
 
     @staticmethod

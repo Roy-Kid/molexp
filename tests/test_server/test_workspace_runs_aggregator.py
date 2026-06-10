@@ -16,7 +16,7 @@ def _seed_run(
     experiment = project.add_experiment(
         experiment_id, workflow_source="train.py", params=parameters
     )
-    run = experiment.add_run(parameters=parameters)
+    run = experiment.add_run(params=parameters)
     updates = {"status": status}
     if executor_info is not None:
         updates["executor_info"] = executor_info

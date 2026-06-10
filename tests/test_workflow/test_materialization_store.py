@@ -40,7 +40,7 @@ def _new_run(tmp_path: Path):
     ws = Workspace(tmp_path / "lab")
     project = ws.add_project(name="p")
     experiment = project.add_experiment(name="e")
-    return experiment.add_run(parameters={})
+    return experiment.add_run(params={})
 
 
 def test_persist_result_returns_sha256_and_registers_lineage(tmp_path: Path) -> None:

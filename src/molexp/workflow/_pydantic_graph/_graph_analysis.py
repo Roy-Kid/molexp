@@ -62,32 +62,71 @@ def compute_back_edges(
     return back_edges
 
 
-def compute_indegree(
+def compute_recurrent(
+    out_edges: dict[str, OutEdges],
+    parallel_decls: dict[str, ParallelDecl],
+) -> frozenset[str]:
+    """Tasks lying on a control cycle — i.e. re-triggerable after completing.
+
+    A branch task NOT on a cycle completes exactly once, so its non-chosen
+    route edges are permanently dead the moment it routes (structural death
+    propagates). A branch ON a cycle (``wf.loop`` until, self-loop) may fire a
+    different label on a later iteration, so its non-chosen edges stay live.
+    Computed as strongly-connected reachability: ``t`` is recurrent iff ``t``
+    is reachable from one of its own successors.
+    """
+    successors: dict[str, list[str]] = {}
+    for src, edge_set in out_edges.items():
+        if src in parallel_decls:
+            continue
+        successors[src] = [t for t in iter_targets(edge_set) if t not in parallel_decls]
+
+    recurrent: set[str] = set()
+    for start in successors:
+        stack = list(successors.get(start, ()))
+        seen: set[str] = set()
+        while stack:
+            node = stack.pop()
+            if node == start:
+                recurrent.add(start)
+                break
+            if node in seen:
+                continue
+            seen.add(node)
+            stack.extend(successors.get(node, ()))
+    return frozenset(recurrent)
+
+
+def compute_in_sources(
     spec: WorkflowTopology,
     out_edges: dict[str, OutEdges],
     entry_frontier: tuple[str, ...],
     parallel_decls: dict[str, ParallelDecl],
     back_edges: set[tuple[str, str]],
-) -> dict[str, int]:
-    """Count *forward* incoming edges per task across the edge structure.
+) -> dict[str, frozenset[str]]:
+    """Collect each task's *forward* trigger sources across the edge structure.
 
-    Entry edges from ``start_node`` count as incoming. Back-edges (cycles) are
-    excluded — they re-enter the target Step directly and must not synthesise a
-    coalescing Join. ``wf.parallel`` targets the join task via the collector
-    Step (one incoming edge); the body / map_over / join wiring is owned by the
-    parallel and excluded here. End targets never count.
+    Entry tasks get the :data:`~.plan.START` pseudo-source. Back-edges
+    (cycles) are excluded — a back-edge trigger re-launches its target
+    directly and never participates in forward coalescing. ``wf.parallel``
+    body wiring is owned by the parallel primitive: the body task has no
+    forward sources (the engine fans it out from ``map_over`` directly) and
+    the join task gains the body as its source. End targets never count.
     """
-    indegree: dict[str, int] = defaultdict(int)
+    from .plan import START
+
+    in_sources: defaultdict[str, set[str]] = defaultdict(set)
     for entry in entry_frontier:
-        indegree[entry] += 1
+        if entry not in parallel_decls:
+            in_sources[entry].add(START)
     for src, edge_set in out_edges.items():
         if src in parallel_decls:
-            continue  # body's out-edges owned by the parallel
+            continue  # body's out-edges fire after the fan-out publishes
         for tgt in iter_targets(edge_set):
             if tgt in parallel_decls or (src, tgt) in back_edges:
                 continue
-            indegree[tgt] += 1
-    # The collector → join edge is one incoming edge into each parallel join.
+            in_sources[tgt].add(src)
+    # The published fan-out → join edge is the join's incoming trigger.
     for par in spec._parallels:
-        indegree[par.join] += 1
-    return dict(indegree)
+        in_sources[par.join].add(par.body)
+    return {name: frozenset(sources) for name, sources in in_sources.items()}

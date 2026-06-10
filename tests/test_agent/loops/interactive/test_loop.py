@@ -17,8 +17,8 @@ import pytest
 
 from molexp.agent.events import (
     AgentEvent,
-    ModeCompletedEvent,
-    ModeStartedEvent,
+    LoopCompletedEvent,
+    LoopStartedEvent,
     ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
@@ -108,11 +108,11 @@ async def test_emergent_loop_translates_chunks_to_events(tmp_path: Path) -> None
 
     assert router.stream_agentic_calls == 1
     kinds = _kinds(events)
-    assert ModeStartedEvent in kinds
+    assert LoopStartedEvent in kinds
     assert TokenDeltaEvent in kinds
     assert ToolCallStartedEvent in kinds
     assert ToolCallCompletedEvent in kinds
-    assert isinstance(events[-1], ModeCompletedEvent)
+    assert isinstance(events[-1], LoopCompletedEvent)
     assert events[-1].text == "Looking into it. Done."
 
 
@@ -155,9 +155,9 @@ async def test_emergent_loop_surfaces_thinking_event(tmp_path: Path) -> None:
         return next(i for i, e in enumerate(events) if isinstance(e, kind))
 
     # reasoning streams before the answer text, before the terminal result
-    assert first(ThinkingDeltaEvent) < first(TokenDeltaEvent) < first(ModeCompletedEvent)
+    assert first(ThinkingDeltaEvent) < first(TokenDeltaEvent) < first(LoopCompletedEvent)
     # the final answer never includes the reasoning text
-    assert isinstance(events[-1], ModeCompletedEvent)
+    assert isinstance(events[-1], LoopCompletedEvent)
     assert events[-1].text == "The answer."
 
 
@@ -173,11 +173,11 @@ async def test_emergent_loop_event_ordering(tmp_path: Path) -> None:
         return next(i for i, e in enumerate(events) if isinstance(e, kind))
 
     assert (
-        first(ModeStartedEvent)
+        first(LoopStartedEvent)
         < first(TokenDeltaEvent)
         < first(ToolCallStartedEvent)
         < first(ToolCallCompletedEvent)
-        < first(ModeCompletedEvent)
+        < first(LoopCompletedEvent)
     )
 
 

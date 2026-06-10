@@ -58,7 +58,7 @@ def create_execution(
         spec = default_codec.ir_to_spec(request.workflow_json)
         default_binding_registry.bind(experiment, spec)
 
-    new_run = experiment.add_run(parameters=request.parameters)
+    new_run = experiment.add_run(params=request.parameters)
     return RunResponse.from_model(new_run)
 
 

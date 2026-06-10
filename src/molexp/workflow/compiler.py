@@ -26,7 +26,7 @@ from ._helpers import _callable_name, _stable_workflow_id, _to_snake_case
 from ._pydantic_graph.compiler import WorkflowGraphCompiler
 from .binding import default_binding_registry
 from .compiled import CompiledWorkflow
-from .protocols import JSONMapping, Streamable, TaskBody, TaskOutput, UserDeps
+from .protocols import Streamable, TaskBody, TaskOutput, UserDeps
 from .snapshot import TaskSnapshot
 from .version import TaskTopologyEntry, WorkflowVersion
 
@@ -85,7 +85,7 @@ def compile_registrations(
     graph = _lowering.compile(topology)
 
     snapshots: dict[str, TaskSnapshot] = {
-        t.name: TaskSnapshot.from_task_body(t.name, t.fn_or_class, t.config) for t in tasks
+        t.name: TaskSnapshot.from_task_body(t.name, t.fn_or_class) for t in tasks
     }
     version = WorkflowVersion(
         workflow_id=workflow_id,
@@ -253,7 +253,6 @@ class WorkflowCompiler:
         depends_on: list[str] | None = None,
         name: str | None = None,
         remote: UserDeps = None,
-        config: JSONMapping | None = None,
         routes: Mapping[str, str] | None = None,
         next_: str | None = None,
         dependent_params: DependentParamsFn | None = None,
@@ -263,10 +262,11 @@ class WorkflowCompiler:
         The serialization slug is **not** an argument here: it is a property of
         the task *type*, declared once via
         :meth:`TaskTypeRegistry.register` / ``@default_registry.register("slug")``
-        and resolved automatically at :meth:`compile` time. Pass ``config`` when
-        the task came from a registry factory and you want
-        :meth:`CompiledWorkflow.to_ir` to reconstruct it. Returns ``self`` to
-        support chaining.
+        and resolved automatically at :meth:`compile` time. A task's build-time
+        config is **not** declared here either — it is the task instance's own
+        ``__init__`` arguments (captured automatically; see
+        :func:`~molexp.workflow.snapshot.task_config_of`), which the cache and IR
+        both key on. Returns ``self`` to support chaining.
         """
         if routes is not None and next_ is not None:
             raise TypeError("WorkflowCompiler.add: routes= and next_= are mutually exclusive.")
@@ -284,7 +284,6 @@ class WorkflowCompiler:
                 depends_on=depends_on or [],
                 is_actor=isinstance(task, Streamable),
                 remote=remote,
-                config=config,
                 dependent_params=dependent_params,
             )
         )

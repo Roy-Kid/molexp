@@ -118,8 +118,8 @@ class TestRunFilesAndActions:
 
 class TestExperimentComparison:
     def test_comparison_aggregates_runs(self, client, project, experiment):
-        r1 = experiment.add_run(parameters={"lr": 1e-3})
-        r2 = experiment.add_run(parameters={"lr": 1e-4})
+        r1 = experiment.add_run(params={"lr": 1e-3})
+        r2 = experiment.add_run(params={"lr": 1e-4})
 
         with r1.start() as ctx:
             ctx.set_active_task("train")

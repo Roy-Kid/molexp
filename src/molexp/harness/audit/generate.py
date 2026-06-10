@@ -1,7 +1,7 @@
 """Generate an :class:`AuditReport` from the run's stores.
 
 Pure function — no side effects. Walks the event log + artifact store +
-provenance store, gathers approvals / validations / failures / commands,
+lineage store, gathers approvals / validations / failures / commands,
 and returns a populated :class:`AuditReport`. The caller decides where to
 persist (typically as an ``audit_report`` artifact — the kind is registered
 in :data:`molexp.harness.WELL_KNOWN_ARTIFACT_KINDS`).
@@ -12,7 +12,7 @@ from __future__ import annotations
 from molexp.harness.schemas import AuditReport
 from molexp.harness.store.artifact_store import ArtifactStore
 from molexp.harness.store.event_log import EventLog
-from molexp.harness.store.provenance_store import ProvenanceStore
+from molexp.harness.store.lineage_store import ArtifactLineageStore
 
 __all__ = ["generate_audit_report"]
 
@@ -22,7 +22,7 @@ def generate_audit_report(
     run_id: str,
     event_log: EventLog,
     artifact_store: ArtifactStore,
-    provenance_store: ProvenanceStore,  # noqa: ARG001 — accepted for symmetry; Phase 11 may use trace_backward
+    lineage_store: ArtifactLineageStore,  # noqa: ARG001 — accepted for symmetry; Phase 11 may use trace_backward
 ) -> AuditReport:
     """Assemble an :class:`AuditReport` for ``run_id``."""
     events = event_log.list_events(run_id)

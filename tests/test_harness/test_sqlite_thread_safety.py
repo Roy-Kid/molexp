@@ -8,7 +8,7 @@ identity) and ac-005 (runtime: concurrent ``asyncio.to_thread`` ``append`` +
 Design A (per spec): ``open_db`` opens the connection with
 ``check_same_thread=False`` and returns ``(conn, lock)`` where ``lock`` is a
 ``threading.Lock`` shared across every store that opens the *same* resolved
-DB-file path. ``SQLiteEventLog`` and ``SQLiteProvenanceStore`` constructed on
+DB-file path. ``SQLiteEventLog`` and ``SQLiteArtifactLineageStore`` constructed on
 the same path therefore serialize through one identical lock object.
 
 They guard against two regressions: ``open_db`` dropping the lock tuple (so
@@ -80,7 +80,7 @@ def test_open_db_uses_check_same_thread_false_and_returns_shared_lock(
     assert errors == [], f"connection rejected cross-thread use: {errors!r}"
 
 
-def test_event_log_and_provenance_store_share_one_lock_on_same_path(
+def test_event_log_and_lineage_store_share_one_lock_on_same_path(
     db_path: Path,
     artifact_store,
 ) -> None:
@@ -90,10 +90,10 @@ def test_event_log_and_provenance_store_share_one_lock_on_same_path(
     ``is`` identity assertion raises ``AttributeError``.
     """
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     elog = SQLiteEventLog(path=db_path)
-    pstore = SQLiteProvenanceStore(path=db_path, artifact_store=artifact_store)
+    pstore = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store)
 
     assert elog._lock is pstore._lock
 
@@ -166,10 +166,10 @@ async def test_concurrent_append_and_add_edge_same_path_no_error(
     RED today: same-thread ``ProgrammingError`` from worker threads.
     """
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     elog = SQLiteEventLog(path=db_path)
-    pstore = SQLiteProvenanceStore(path=db_path, artifact_store=artifact_store)
+    pstore = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store)
 
     n = 25
     # Pre-create artifacts so add_edge has real ids to reference (parent_id

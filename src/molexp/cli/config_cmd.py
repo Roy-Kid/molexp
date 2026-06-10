@@ -4,12 +4,21 @@ from __future__ import annotations
 
 import contextlib
 import json
-from pathlib import Path
 from typing import Annotated
 
 import typer
 
 from molexp.cli._common import rprint
+
+# Single source of truth for the operator config path + loader — shared with
+# the server's startup bridge (server must not import molexp.cli, so the
+# loader lives in molexp.server.operator_config and the CLI delegates).
+from molexp.server.operator_config import (
+    OPERATOR_CONFIG_PATH as _CONFIG_PATH,
+)
+from molexp.server.operator_config import (
+    load_operator_config as _load_operator_config,
+)
 
 config_app = typer.Typer(
     name="config",
@@ -17,16 +26,9 @@ config_app = typer.Typer(
     no_args_is_help=True,
 )
 
-_CONFIG_PATH = Path.home() / ".molexp" / "config.json"
-
 
 def _load_config() -> dict:
-    if _CONFIG_PATH.exists():
-        try:
-            return json.loads(_CONFIG_PATH.read_text())
-        except json.JSONDecodeError:
-            return {}
-    return {}
+    return _load_operator_config(_CONFIG_PATH)
 
 
 def _save_config(cfg: dict) -> None:

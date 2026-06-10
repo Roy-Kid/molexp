@@ -27,14 +27,14 @@ from molexp.server.workspace_targets import (
 @pytest.fixture(autouse=True)
 def _isolate_dependency_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Reset cache + overrides + registry for each test."""
-    import molexp.server.dependencies as deps
+    import molexp.server.deps.targets as targets_deps
 
     reset_workspace_cache()
     set_workspace_path_override(None)
     set_active_workspace_descriptor(None)
     reset_workspace_target_registry()
     registry = WorkspaceTargetRegistry(store_path=tmp_path / "wt.json")
-    monkeypatch.setattr(deps, "_workspace_target_registry", registry)
+    monkeypatch.setattr(targets_deps, "_workspace_target_registry", registry)
     yield
     reset_workspace_cache()
     set_workspace_path_override(None)

@@ -1,18 +1,47 @@
-"""MCP server builder — wraps pydantic-ai's MCP transports.
+"""MCP toolset builder — wraps pydantic-ai's ``MCPToolset`` API.
 
 Sole site for ``from pydantic_ai.mcp import ...`` (alongside the harness).
-``agent/mcp/probe.py`` calls into :func:`build_mcp_server` instead of
-importing pydantic-ai directly, keeping the import-boundary firewall
-intact.
+Callers outside ``_pydanticai`` obtain MCP toolsets via
+:func:`build_mcp_server` instead of importing pydantic-ai directly, keeping
+the import-boundary firewall intact.
+
+v2 migration note: the deprecated ``MCPServerStdio`` / ``MCPServerSSE`` /
+``MCPServerStreamableHTTP`` classes are replaced by ``MCPToolset`` over
+explicit fastmcp transports (``StdioTransport`` / ``SSETransport`` /
+``StreamableHttpTransport``, re-exported by ``pydantic_ai.mcp``). We build
+the transport explicitly rather than passing a URL string because pydantic-ai
+infers SSE-vs-streamable-HTTP from the URL shape (``/sse`` suffix), which
+would misroute an explicitly-configured transport whose URL doesn't follow
+that convention. The v1 ``tool_prefix`` becomes ``.prefixed(name)`` — same
+``{name}_{tool}`` naming.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     import httpx
-    from pydantic_ai.mcp import MCPServerSSE, MCPServerStdio, MCPServerStreamableHTTP
+    from pydantic_ai.toolsets import PrefixedToolset
+
+
+def _make_httpx_client_factory(
+    http_client: httpx.AsyncClient,
+) -> Callable[..., httpx.AsyncClient]:
+    """Adapt a pre-built ``httpx.AsyncClient`` to fastmcp's ``httpx_client_factory``.
+
+    fastmcp calls the factory with keyword arguments (``headers``, ``auth``,
+    ``timeout``, ``follow_redirects``, …); accepting ``**kwargs`` and ignoring
+    them mirrors pydantic-ai's own internal adapter — the user-supplied client
+    is authoritative for headers/auth/timeouts.
+    """
+
+    def factory(**_kwargs: object) -> httpx.AsyncClient:
+        return http_client
+
+    return factory
 
 
 def build_mcp_server(
@@ -25,35 +54,41 @@ def build_mcp_server(
     url: str = "",
     http_client: httpx.AsyncClient | None = None,
     headers: dict[str, str] | None = None,
-) -> MCPServerStdio | MCPServerStreamableHTTP | MCPServerSSE:
-    """Map a resolved transport spec onto the right pydantic-ai MCP class.
+) -> PrefixedToolset[Any]:
+    """Map a resolved transport spec onto a pydantic-ai ``MCPToolset``.
 
-    Returns a pydantic-ai ``MCPServerStdio`` / ``MCPServerStreamableHTTP``
-    / ``MCPServerSSE`` instance. The caller passes either ``http_client``
-    or ``headers`` (never both — pydantic-ai rejects the combination).
+    Returns the ``MCPToolset`` wrapped with ``.prefixed(name)`` so every tool
+    is exposed as ``{name}_{tool}`` — identical naming to the v1
+    ``tool_prefix=name`` behavior. ``name`` is also set as the toolset ``id``.
+
+    The caller passes either ``http_client`` or ``headers`` (never both);
+    when ``http_client`` is given it is authoritative and ``headers`` are
+    ignored, matching the v1 builder's precedence.
     """
     from pydantic_ai.mcp import (
-        MCPServerSSE,
-        MCPServerStdio,
-        MCPServerStreamableHTTP,
+        MCPToolset,
+        SSETransport,
+        StdioTransport,
+        StreamableHttpTransport,
     )
 
     if transport == "stdio":
-        return MCPServerStdio(
-            command=command,
-            args=list(args),
-            env=env,
-            tool_prefix=name,
-        )
+        # keep_alive=False restores v1 ``MCPServerStdio`` lifecycle: the
+        # subprocess is terminated when the toolset context exits (fastmcp
+        # defaults to keeping it alive for session reuse).
+        stdio = StdioTransport(command=command, args=list(args), env=env, keep_alive=False)
+        return MCPToolset(stdio, id=name).prefixed(name)
 
-    if transport == "http":
-        if http_client is not None:
-            return MCPServerStreamableHTTP(url=url, tool_prefix=name, http_client=http_client)
-        return MCPServerStreamableHTTP(url=url, tool_prefix=name, headers=headers)
-    if transport == "sse":
-        if http_client is not None:
-            return MCPServerSSE(url=url, tool_prefix=name, http_client=http_client)
-        return MCPServerSSE(url=url, tool_prefix=name, headers=headers)
+    if transport in ("http", "sse"):
+        factory = _make_httpx_client_factory(http_client) if http_client is not None else None
+        transport_cls = StreamableHttpTransport if transport == "http" else SSETransport
+        fastmcp_transport = transport_cls(
+            url=url,
+            headers=headers if http_client is None else None,
+            httpx_client_factory=factory,
+        )
+        return MCPToolset(fastmcp_transport, id=name).prefixed(name)
+
     raise ValueError(f"Unknown MCP transport: {transport!r}")
 
 
@@ -94,7 +129,11 @@ async def check_stdio_handshake(
             os.close(devnull)
 
     async def _run() -> None:
-        server = MCPToolset(StdioTransport(command=command, args=list(args)))
+        # keep_alive=False so the probe actually terminates the subprocess on
+        # exit — fastmcp's default keeps it alive for reuse, which would leak
+        # a child process per handshake check.
+        transport = StdioTransport(command=command, args=list(args), keep_alive=False)
+        server = MCPToolset(transport)
         async with server:
             pass
 

@@ -94,6 +94,44 @@ export class RunsService {
         });
     }
     /**
+     * Cancel Run
+     * Cancel a run.
+     *
+     * ``cancel`` is the canonical verb (matching the CLI ``molexp runs cancel``
+     * and the resulting ``cancelled`` status); ``/kill`` remains as a
+     * deprecated alias route bound to this same handler.
+     *
+     * Routes through :func:`molexp.plugins.submit_molq.cancel.try_cancel`, which signals
+     * molq via :class:`molq.Submitor` for cluster-submitted runs and
+     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
+     * path applies (run never submitted, terminal, or executor info
+     * missing) we fall back to flipping the metadata status so the UI
+     * still reflects user intent.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns RunActionResponse Successful Response
+     * @throws ApiError
+     */
+    public static cancelRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdCancelPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+    ): CancelablePromise<RunActionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/cancel',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Get Run Execution
      * Return runtime workflow graph state from workflow.json.
      * @param projectId
@@ -246,22 +284,16 @@ export class RunsService {
         });
     }
     /**
-     * Kill Run
-     * Cancel a run.
-     *
-     * Routes through :func:`molexp._run_cancel.try_cancel`, which signals
-     * molq via :class:`molq.Submitor` for cluster-submitted runs and
-     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
-     * path applies (run never submitted, terminal, or executor info
-     * missing) we fall back to flipping the metadata status so the UI
-     * still reflects user intent.
+     * @deprecated
+     * Cancel Run
+     * Deprecated alias for `POST .../{run_id}/cancel` (same handler).
      * @param projectId
      * @param experimentId
      * @param runId
      * @returns RunActionResponse Successful Response
      * @throws ApiError
      */
-    public static killRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
+    public static cancelRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
         projectId: string,
         experimentId: string,
         runId: string,
@@ -385,10 +417,11 @@ export class RunsService {
     }
     /**
      * Rerun Run
-     * Rerun a run from scratch in a new execution on the same run (no clone).
+     * Rerun a failed/cancelled run from scratch in a new execution (no clone).
      *
      * A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
-     * through molq; no parameters are cloned and no new Run is created.
+     * through molq; no parameters are cloned and no new Run is created. 409 unless
+     * the run is failed/cancelled (pending/succeeded/running are not rerun's job).
      * @param projectId
      * @param experimentId
      * @param runId
@@ -415,12 +448,12 @@ export class RunsService {
     }
     /**
      * Resume Run
-     * Resume a run in place: reopen its last non-succeeded execution.
+     * Resume a failed/cancelled run: reopen its last non-succeeded execution.
      *
      * The reopened execution is re-dispatched on the same ``execution_id``; the
      * worker seeds already-completed nodes from disk and recomputes the rest.
-     * 409 when the run has no resumable execution (use ``rerun`` instead) — no
-     * silent fallback to a fresh attempt.
+     * 409 unless the run is failed/cancelled (pending/succeeded/running are not
+     * resume's job).
      * @param projectId
      * @param experimentId
      * @param runId
@@ -549,6 +582,47 @@ export class RunsService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Cancel Run
+     * Cancel a run.
+     *
+     * ``cancel`` is the canonical verb (matching the CLI ``molexp runs cancel``
+     * and the resulting ``cancelled`` status); ``/kill`` remains as a
+     * deprecated alias route bound to this same handler.
+     *
+     * Routes through :func:`molexp.plugins.submit_molq.cancel.try_cancel`, which signals
+     * molq via :class:`molq.Submitor` for cluster-submitted runs and
+     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
+     * path applies (run never submitted, terminal, or executor info
+     * missing) we fall back to flipping the metadata status so the UI
+     * still reflects user intent.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @returns RunActionResponse Successful Response
+     * @throws ApiError
+     */
+    public static cancelRunApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdCancelPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+    ): CancelablePromise<RunActionResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/cancel',
             path: {
                 'project_id': projectId,
                 'experiment_id': experimentId,
@@ -728,15 +802,9 @@ export class RunsService {
         });
     }
     /**
-     * Kill Run
-     * Cancel a run.
-     *
-     * Routes through :func:`molexp._run_cancel.try_cancel`, which signals
-     * molq via :class:`molq.Submitor` for cluster-submitted runs and
-     * sends ``SIGTERM`` for runs still owned by a local pid.  When neither
-     * path applies (run never submitted, terminal, or executor info
-     * missing) we fall back to flipping the metadata status so the UI
-     * still reflects user intent.
+     * @deprecated
+     * Cancel Run
+     * Deprecated alias for `POST .../{run_id}/cancel` (same handler).
      * @param projectId
      * @param experimentId
      * @param runId
@@ -744,7 +812,7 @@ export class RunsService {
      * @returns RunActionResponse Successful Response
      * @throws ApiError
      */
-    public static killRunApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
+    public static cancelRunApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
         projectId: string,
         experimentId: string,
         runId: string,
@@ -879,10 +947,11 @@ export class RunsService {
     }
     /**
      * Rerun Run
-     * Rerun a run from scratch in a new execution on the same run (no clone).
+     * Rerun a failed/cancelled run from scratch in a new execution (no clone).
      *
      * A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
-     * through molq; no parameters are cloned and no new Run is created.
+     * through molq; no parameters are cloned and no new Run is created. 409 unless
+     * the run is failed/cancelled (pending/succeeded/running are not rerun's job).
      * @param projectId
      * @param experimentId
      * @param runId
@@ -912,12 +981,12 @@ export class RunsService {
     }
     /**
      * Resume Run
-     * Resume a run in place: reopen its last non-succeeded execution.
+     * Resume a failed/cancelled run: reopen its last non-succeeded execution.
      *
      * The reopened execution is re-dispatched on the same ``execution_id``; the
      * worker seeds already-completed nodes from disk and recomputes the rest.
-     * 409 when the run has no resumable execution (use ``rerun`` instead) — no
-     * silent fallback to a fresh attempt.
+     * 409 unless the run is failed/cancelled (pending/succeeded/running are not
+     * resume's job).
      * @param projectId
      * @param experimentId
      * @param runId

@@ -5,8 +5,8 @@ import {
 } from "@/app/registry";
 import { RunsPage } from "@/app/runs/RunsPage";
 import { SettingsPage } from "@/app/settings/SettingsPage";
-import { WorkflowsPage } from "@/app/workflows/WorkflowsPage";
 import type { InspectorTarget, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
+import { WorkflowsPage } from "@/app/workflows/WorkflowsPage";
 
 const EmptySelectionPlaceholder = (): JSX.Element => (
   <div className="flex h-full items-center justify-center p-6 text-center">
@@ -43,7 +43,7 @@ export const CenterPanel = ({
       return <RunsPage snapshot={snapshot} />;
     }
     if (leftPanelView === "workflow") {
-      return <WorkflowsPage snapshot={snapshot} />;
+      return <WorkflowsPage snapshot={snapshot} onRefresh={onRefresh} />;
     }
     if (leftPanelView === "settings") {
       return <SettingsPage />;

@@ -22,7 +22,7 @@ interface AppShellProps {
   onLeftPanelViewChange: (view: LeftPanelView) => void;
   onSelectionChange: (selection: Selection) => void;
   onInspectorTargetChange: (target: InspectorTarget) => void;
-  onOpenWorkspace: (path: string) => void;
+  onOpenWorkspace: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
   onCreateDirectory: (path: string) => void;
   onCreateFile: (path: string) => void;
   onWorkspaceRefresh: () => void;

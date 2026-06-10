@@ -29,8 +29,8 @@ import {
   Zap,
 } from "lucide-react";
 import type { JSX } from "react";
-import { useCallback, useEffect, useState } from "react";
-import { EntityPage } from "@/app/components/entity";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { EmptyState, EntityPage } from "@/app/components/entity";
 import { McpServersTab } from "@/app/renderers/agent_settings/McpServersTab";
 import {
   baseUrlPlaceholder,
@@ -68,6 +68,15 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -198,38 +207,43 @@ interface AgentCoreTabProps {
 }
 
 const AgentCoreTab = ({ onLaunchSession }: AgentCoreTabProps): JSX.Element => {
+  // The tab content area is overflow-hidden (EntityTabContent owns no
+  // scrolling) — this single ScrollArea is the one scroll container for
+  // the stacked sections; the sections themselves stay plain blocks.
   return (
-    <div className="space-y-6">
-      <section aria-labelledby="agent-core-instructions">
-        <div className="mb-2 flex items-center gap-2">
-          <FileText className="h-4 w-4 text-muted-foreground" />
-          <h2 id="agent-core-instructions" className="text-base font-semibold">
-            Instructions
-          </h2>
-        </div>
-        <InstructionsTab />
-      </section>
+    <ScrollArea className="flex-1">
+      <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-4 pb-10 pt-3">
+        <section aria-labelledby="agent-core-instructions">
+          <div className="mb-2 flex items-center gap-2">
+            <FileText className="h-4 w-4 text-muted-foreground" />
+            <h2 id="agent-core-instructions" className="text-base font-semibold">
+              Instructions
+            </h2>
+          </div>
+          <InstructionsTab />
+        </section>
 
-      <section aria-labelledby="agent-core-commands">
-        <div className="mb-2 flex items-center gap-2">
-          <Slash className="h-4 w-4 text-muted-foreground" />
-          <h2 id="agent-core-commands" className="text-base font-semibold">
-            Commands
-          </h2>
-        </div>
-        <CommandsTab onLaunchSession={onLaunchSession} />
-      </section>
+        <section aria-labelledby="agent-core-commands">
+          <div className="mb-2 flex items-center gap-2">
+            <Slash className="h-4 w-4 text-muted-foreground" />
+            <h2 id="agent-core-commands" className="text-base font-semibold">
+              Commands
+            </h2>
+          </div>
+          <CommandsTab onLaunchSession={onLaunchSession} />
+        </section>
 
-      <section aria-labelledby="agent-core-tools">
-        <div className="mb-2 flex items-center gap-2">
-          <Wrench className="h-4 w-4 text-muted-foreground" />
-          <h2 id="agent-core-tools" className="text-base font-semibold">
-            Native tools
-          </h2>
-        </div>
-        <ToolsTab />
-      </section>
-    </div>
+        <section aria-labelledby="agent-core-tools">
+          <div className="mb-2 flex items-center gap-2">
+            <Wrench className="h-4 w-4 text-muted-foreground" />
+            <h2 id="agent-core-tools" className="text-base font-semibold">
+              Native tools
+            </h2>
+          </div>
+          <ToolsTab />
+        </section>
+      </div>
+    </ScrollArea>
   );
 };
 
@@ -333,8 +347,9 @@ const ProviderTab = (): JSX.Element => {
     }
   }, [draft]);
 
+  const [confirmClearKey, setConfirmClearKey] = useState(false);
+
   const handleClearKey = useCallback(async () => {
-    if (!window.confirm("Clear the stored API key? Sessions will fall back to env vars.")) return;
     setSaving(true);
     setError(null);
     setSaveOk(false);
@@ -386,7 +401,7 @@ const ProviderTab = (): JSX.Element => {
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex flex-col gap-4 px-4 pb-6 pt-2">
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 pb-10 pt-3">
         <p className="text-sm text-muted-foreground">
           Choose which LLM the agent should call and supply your API key. The key is stored at{" "}
           <code className="rounded bg-muted px-1">.agent_provider.json</code> in the workspace root
@@ -486,17 +501,30 @@ const ProviderTab = (): JSX.Element => {
 
             {error && <p className="text-xs text-destructive">{error}</p>}
             {saveOk && !error && (
-              <p className="text-xs text-emerald-600">Saved. New sessions will use this config.</p>
+              <p className="flex items-center gap-1 text-xs text-success-foreground">
+                <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                Saved. New sessions will use this config.
+              </p>
             )}
 
             {testResult && <ProviderTestResult result={testResult} />}
+
+            <ConfirmDialog
+              open={confirmClearKey}
+              onOpenChange={setConfirmClearKey}
+              title="Clear the stored API key?"
+              description="Sessions will fall back to environment variables until a new key is saved."
+              confirmLabel="Clear key"
+              destructive
+              onConfirm={() => void handleClearKey()}
+            />
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={saving || !config?.apiKeySet}
-                onClick={() => void handleClearKey()}
+                onClick={() => setConfirmClearKey(true)}
               >
                 Clear stored key
               </Button>
@@ -545,7 +573,7 @@ const SavedProviderList = ({
               className={
                 "flex items-center gap-3 rounded-md border px-3 py-2 text-sm " +
                 (hasKey
-                  ? "border-emerald-500/40 bg-emerald-500/5"
+                  ? "border-success/30 bg-success-soft/40"
                   : isActive
                     ? "border-primary/40 bg-primary/5"
                     : "border-border/60 bg-card")
@@ -594,9 +622,9 @@ const ProviderTestResult = ({ result }: { result: ApiAgentProviderTestResult }):
   return (
     <div
       className={
-        "rounded border px-3 py-2 text-xs " +
+        "rounded-md border px-3 py-2 text-xs " +
         (ok
-          ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700"
+          ? "border-success/30 bg-success-soft text-success-foreground"
           : "border-destructive/40 bg-destructive/10 text-destructive")
       }
     >
@@ -670,8 +698,9 @@ const InstructionsTab = (): JSX.Element => {
     }
   }, [draft]);
 
+  const [confirmClear, setConfirmClear] = useState(false);
+
   const handleClear = useCallback(async () => {
-    if (!window.confirm("Clear the workspace-default instructions?")) return;
     setSaving(true);
     setError(null);
     try {
@@ -687,66 +716,144 @@ const InstructionsTab = (): JSX.Element => {
   }, []);
 
   if (loading) {
-    return <div className="px-4 pt-2 text-sm text-muted-foreground">Loading instructions…</div>;
+    return <p className="text-sm text-muted-foreground">Loading instructions…</p>;
   }
 
   const dirty = (config?.instructions ?? "") !== draft;
 
   return (
-    <ScrollArea className="h-full">
-      <div className="flex flex-col gap-3 px-4 pb-6 pt-2">
-        <p className="text-sm text-muted-foreground">
-          Workspace-default system prompt addendum. Appended to the molexp built-in preamble for
-          every new session. Skills can layer additional instructions on top, and individual
-          sessions may override the whole stack via the chat hero.
-        </p>
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        Workspace-default system prompt addendum. Appended to the molexp built-in preamble for every
+        new session. Skills can layer additional instructions on top, and individual sessions may
+        override the whole stack from the chat input.
+      </p>
 
-        <Card className="border-border">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Workspace instructions</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3 pt-0">
-            <Textarea
-              rows={10}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder={
-                "Always cite source data with project/experiment/run ids.\n" +
-                "Prefer existing workflow templates before writing new code."
-              }
-              className="font-mono text-xs"
-            />
-            <p className="text-[10px] text-muted-foreground">
-              Saved alongside the provider credentials; never sent to the model directly — only
-              attached as the agent's system prompt.
+      <Card className="border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm">Workspace instructions</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 pt-0">
+          <Textarea
+            rows={10}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={
+              "Always cite source data with project/experiment/run ids.\n" +
+              "Prefer existing workflow templates before writing new code."
+            }
+            className="font-mono text-xs"
+          />
+          <p className="text-[10px] text-muted-foreground">
+            Saved alongside the provider credentials; never sent to the model directly — only
+            attached as the agent's system prompt.
+          </p>
+          {error && <p className="text-xs text-destructive">{error}</p>}
+          {savedAt && !error && (
+            <p className="flex items-center gap-1 text-xs text-success-foreground">
+              <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+              Saved. New sessions will use these instructions.
             </p>
-            {error && <p className="text-xs text-destructive">{error}</p>}
-            {savedAt && !error && (
-              <p className="text-xs text-emerald-600">
-                Saved. New sessions will use these instructions.
-              </p>
-            )}
-            <div className="flex justify-between gap-2 pt-1">
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={saving || (config?.instructions ?? "") === ""}
-                onClick={() => void handleClear()}
-              >
-                Clear
-              </Button>
-              <Button size="sm" disabled={saving || !dirty} onClick={() => void handleSave()}>
-                {saving ? "Saving…" : "Save"}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </ScrollArea>
+          )}
+          <ConfirmDialog
+            open={confirmClear}
+            onOpenChange={setConfirmClear}
+            title="Clear the workspace instructions?"
+            description="New sessions will start from the molexp built-in preamble only."
+            confirmLabel="Clear instructions"
+            destructive
+            onConfirm={() => void handleClear()}
+          />
+          <div className="flex justify-between gap-2 pt-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={saving || (config?.instructions ?? "") === ""}
+              onClick={() => setConfirmClear(true)}
+            >
+              Clear
+            </Button>
+            <Button size="sm" disabled={saving || !dirty} onClick={() => void handleSave()}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 };
 
 // ─── Commands tab (formerly Skills) ────────────────────────────────────────
+
+/** Unique `{{placeholder}}` names in a goal template, in first-seen order. */
+const templatePlaceholders = (goalTemplate: string): string[] =>
+  Array.from(goalTemplate.matchAll(/\{\{\s*([A-Za-z_]\w*)\s*\}\}/g))
+    .map((m) => m[1])
+    .filter((v, i, a) => a.indexOf(v) === i);
+
+/**
+ * Parameter form shown before launching a command whose goal template
+ * carries `{{placeholders}}` — replaces the old chain of window.prompt
+ * calls with one in-app dialog.
+ */
+const SkillLaunchDialog = ({
+  skill,
+  onOpenChange,
+  onLaunch,
+}: {
+  skill: ApiSkill;
+  onOpenChange: (open: boolean) => void;
+  onLaunch: (params: Record<string, string>) => Promise<void>;
+}): JSX.Element => {
+  const placeholders = useMemo(() => templatePlaceholders(skill.goalTemplate), [skill]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [launching, setLaunching] = useState(false);
+
+  const handleLaunch = async (): Promise<void> => {
+    setLaunching(true);
+    try {
+      await onLaunch(values);
+      onOpenChange(false);
+    } finally {
+      setLaunching(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Launch {skill.name}</DialogTitle>
+          <DialogDescription className="font-mono text-xs">{skill.goalTemplate}</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          {placeholders.map((key) => (
+            <div key={key}>
+              <Label htmlFor={`param-${key}`} className="font-mono text-xs">
+                {`{{${key}}}`}
+              </Label>
+              <Input
+                id={`param-${key}`}
+                value={values[key] ?? ""}
+                onChange={(e) => setValues((v) => ({ ...v, [key]: e.target.value }))}
+                autoFocus={key === placeholders[0]}
+              />
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" disabled={launching} onClick={() => void handleLaunch()}>
+            <PlayCircle className="mr-1 h-4 w-4" />
+            {launching ? "Launching…" : "Launch session"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 const CommandsTab = ({
   onLaunchSession,
@@ -758,6 +865,8 @@ const CommandsTab = ({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<ApiSkill | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [deleting, setDeleting] = useState<ApiSkill | null>(null);
+  const [launchingSkill, setLaunchingSkill] = useState<ApiSkill | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -777,7 +886,6 @@ const CommandsTab = ({
 
   const handleDelete = useCallback(
     async (skill: ApiSkill) => {
-      if (!window.confirm(`Delete skill "${skill.name}"?`)) return;
       try {
         await agentAdminApi.deleteSkill(skill.id);
         await refresh();
@@ -788,17 +896,8 @@ const CommandsTab = ({
     [refresh],
   );
 
-  const handleLaunch = useCallback(
-    async (skill: ApiSkill) => {
-      const params: Record<string, string> = {};
-      const placeholders = Array.from(skill.goalTemplate.matchAll(/\{\{\s*([A-Za-z_]\w*)\s*\}\}/g))
-        .map((m) => m[1])
-        .filter((v, i, a) => a.indexOf(v) === i);
-      for (const key of placeholders) {
-        const value = window.prompt(`Value for {{${key}}}:`);
-        if (value === null) return;
-        params[key] = value;
-      }
+  const launchWithParams = useCallback(
+    async (skill: ApiSkill, params: Record<string, string>) => {
       try {
         const session = await agentAdminApi.launchSkill(skill.id, params);
         onLaunchSession?.(session.sessionId);
@@ -809,8 +908,19 @@ const CommandsTab = ({
     [onLaunchSession],
   );
 
+  const handleLaunch = useCallback(
+    (skill: ApiSkill): void => {
+      if (templatePlaceholders(skill.goalTemplate).length === 0) {
+        void launchWithParams(skill, {});
+        return;
+      }
+      setLaunchingSkill(skill);
+    },
+    [launchWithParams],
+  );
+
   return (
-    <div className="flex h-full flex-col px-4 pb-4">
+    <div className="flex flex-col">
       <div className="mb-3 flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           Saved goal templates. Use <code className="rounded bg-muted px-1">{"{{name}}"}</code>{" "}
@@ -842,94 +952,120 @@ const CommandsTab = ({
           }}
         />
       )}
-      <ScrollArea className="mt-2 flex-1">
-        <div className="flex flex-col gap-2 pr-2">
-          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {!loading && skills.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              No skills yet. Create one to save common goals for one-click launches.
-            </p>
-          )}
-          {skills.map((skill) => (
-            <Card key={skill.id} className="border-border">
-              <CardHeader className="pb-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    {skill.slashName ? (
-                      <Badge
-                        variant="outline"
-                        className="font-mono text-[11px]"
-                        title="Type this in chat to invoke"
-                      >
-                        /{skill.slashName}
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary" className="text-[10px]">
-                        launcher only
-                      </Badge>
-                    )}
-                    <CardTitle className="truncate text-sm">{skill.name}</CardTitle>
-                    {skill.defaultPlanMode && (
-                      <Badge variant="outline" className="text-[10px]">
-                        plan
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="flex gap-1">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void handleLaunch(skill)}
-                      title="Launch session from this skill"
+      <ConfirmDialog
+        open={deleting !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleting(null);
+        }}
+        title={`Delete "${deleting?.name ?? ""}"?`}
+        description="The saved goal template and its slash name are removed. Existing sessions are not affected."
+        confirmLabel="Delete command"
+        destructive
+        onConfirm={() => {
+          if (deleting) void handleDelete(deleting);
+          setDeleting(null);
+        }}
+      />
+      {launchingSkill && (
+        <SkillLaunchDialog
+          skill={launchingSkill}
+          onOpenChange={(open) => {
+            if (!open) setLaunchingSkill(null);
+          }}
+          onLaunch={(params) => launchWithParams(launchingSkill, params)}
+        />
+      )}
+      <div className="flex flex-col gap-2">
+        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {!loading && skills.length === 0 && (
+          <EmptyState
+            density="compact"
+            icon={<Slash className="h-5 w-5" />}
+            title="No commands yet"
+            description="Save a goal template to launch it in one click or type /name in the chat input."
+          />
+        )}
+        {skills.map((skill) => (
+          <Card key={skill.id} className="border-border">
+            <CardHeader className="pb-2">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  {skill.slashName ? (
+                    <Badge
+                      variant="outline"
+                      className="font-mono text-[11px]"
+                      title="Type this in chat to invoke"
                     >
-                      <PlayCircle className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setEditing(skill);
-                        setShowForm(true);
-                      }}
-                      title="Edit"
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => void handleDelete(skill)}
-                      title="Delete"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {skill.description && (
-                  <p className="mb-2 text-xs text-muted-foreground">{skill.description}</p>
-                )}
-                <pre className="mb-2 whitespace-pre-wrap rounded bg-muted px-2 py-1 text-xs">
-                  {skill.goalTemplate}
-                </pre>
-                {skill.instructions && (
-                  <p className="mb-2 text-[11px] italic text-muted-foreground">
-                    +{skill.instructions.length} chars of additional instructions
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-1">
-                  {skill.tags.map((tag) => (
-                    <Badge key={tag} variant="secondary" className="text-[10px]">
-                      {tag}
+                      /{skill.slashName}
                     </Badge>
-                  ))}
+                  ) : (
+                    <Badge variant="secondary" className="text-[10px]">
+                      launcher only
+                    </Badge>
+                  )}
+                  <CardTitle className="truncate text-sm">{skill.name}</CardTitle>
+                  {skill.defaultPlanMode && (
+                    <Badge variant="outline" className="text-[10px]">
+                      plan
+                    </Badge>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </ScrollArea>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => handleLaunch(skill)}
+                    title="Launch a session from this command"
+                    aria-label={`Launch ${skill.name}`}
+                  >
+                    <PlayCircle className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setEditing(skill);
+                      setShowForm(true);
+                    }}
+                    title="Edit command"
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setDeleting(skill)}
+                    title="Delete command"
+                    aria-label={`Delete ${skill.name}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {skill.description && (
+                <p className="mb-2 text-xs text-muted-foreground">{skill.description}</p>
+              )}
+              <pre className="mb-2 whitespace-pre-wrap rounded bg-muted px-2 py-1 text-xs">
+                {skill.goalTemplate}
+              </pre>
+              {skill.instructions && (
+                <p className="mb-2 text-[11px] italic text-muted-foreground">
+                  +{skill.instructions.length} chars of additional instructions
+                </p>
+              )}
+              <div className="flex flex-wrap gap-1">
+                {skill.tags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="text-[10px]">
+                    {tag}
+                  </Badge>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
   );
 };
@@ -1061,7 +1197,7 @@ const SkillForm = ({
             type="checkbox"
             checked={form.defaultPlanMode}
             onChange={(e) => setForm({ ...form, defaultPlanMode: e.target.checked })}
-            className="h-3.5 w-3.5"
+            className="h-3.5 w-3.5 accent-primary"
           />
           <Label htmlFor="defaultPlanMode" className="text-xs">
             Launch in plan mode by default (read-only inspection, agent emits a plan)
@@ -1301,7 +1437,7 @@ const ToolsTab = (): JSX.Element => {
   const failingMcp = data.mcpGroups.filter((g: ApiMcpToolGroup) => !g.ok).length;
 
   return (
-    <div className="flex h-full flex-col px-4 pb-4">
+    <div className="flex flex-col">
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {totalTools} tool{totalTools === 1 ? "" : "s"} across {totalMcp + 1} source
@@ -1311,15 +1447,18 @@ const ToolsTab = (): JSX.Element => {
           )}
         </p>
         <div className="flex items-center gap-2">
-          <Label className="text-xs text-muted-foreground">Sort by</Label>
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortMode)}
-            className="rounded border bg-background px-2 py-1 text-xs"
-          >
-            <option value="server">Server / domain</option>
-            <option value="name">Tool name</option>
-          </select>
+          <Label className="text-xs text-muted-foreground" htmlFor="tools-sort">
+            Sort by
+          </Label>
+          <Select value={sort} onValueChange={(value) => setSort(value as SortMode)}>
+            <SelectTrigger id="tools-sort" className="h-7 w-[150px] text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="server">Server / domain</SelectItem>
+              <SelectItem value="name">Tool name</SelectItem>
+            </SelectContent>
+          </Select>
           <Button
             type="button"
             size="sm"
@@ -1332,12 +1471,10 @@ const ToolsTab = (): JSX.Element => {
         </div>
       </div>
       {error && <p className="mb-2 text-xs text-destructive">{error}</p>}
-      <ScrollArea className="flex-1">
-        <div className="flex flex-col gap-3 pr-2">
-          {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
-          {!loading && groups.map((group) => <ToolGroupSection key={group.source} group={group} />)}
-        </div>
-      </ScrollArea>
+      <div className="flex flex-col gap-3">
+        {loading && <p className="text-sm text-muted-foreground">Loading…</p>}
+        {!loading && groups.map((group) => <ToolGroupSection key={group.source} group={group} />)}
+      </div>
     </div>
   );
 };

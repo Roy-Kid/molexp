@@ -221,8 +221,8 @@ class _WrapperB(CommandTask):
     """A second wrapper, also pure delegation."""
 
 
-@pytest.mark.asyncio
 class TestNoDuplicationReuse:
+    @pytest.mark.asyncio
     async def test_both_wrappers_delegate_raise_to_command_task(self) -> None:
         for wrapper_cls, code in ((_WrapperA, 4), (_WrapperB, 5)):
             wrapper = wrapper_cls(_nonzero_argv(stderr="from-wrapper", code=code))

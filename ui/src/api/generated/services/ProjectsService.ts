@@ -3,8 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AssetResponse } from '../models/AssetResponse';
-import type { Body_upload_project_asset_api_projects__id__assets_upload_post } from '../models/Body_upload_project_asset_api_projects__id__assets_upload_post';
-import type { Body_upload_project_asset_api_workspaces__ws__projects__id__assets_upload_post } from '../models/Body_upload_project_asset_api_workspaces__ws__projects__id__assets_upload_post';
+import type { Body_upload_project_asset_api_projects__project_id__assets_upload_post } from '../models/Body_upload_project_asset_api_projects__project_id__assets_upload_post';
+import type { Body_upload_project_asset_api_workspaces__ws__projects__project_id__assets_upload_post } from '../models/Body_upload_project_asset_api_workspaces__ws__projects__project_id__assets_upload_post';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { ProjectCreateRequest } from '../models/ProjectCreateRequest';
 import type { ProjectResponse } from '../models/ProjectResponse';
@@ -44,18 +44,18 @@ export class ProjectsService {
     }
     /**
      * Delete Project
-     * @param id
+     * @param projectId
      * @returns MessageResponse Successful Response
      * @throws ApiError
      */
-    public static deleteProjectApiProjectsIdDelete(
-        id: string,
+    public static deleteProjectApiProjectsProjectIdDelete(
+        projectId: string,
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/projects/{id}',
+            url: '/api/projects/{project_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             errors: {
                 422: `Validation Error`,
@@ -64,18 +64,18 @@ export class ProjectsService {
     }
     /**
      * Get Project
-     * @param id
+     * @param projectId
      * @returns ProjectResponse Successful Response
      * @throws ApiError
      */
-    public static getProjectApiProjectsIdGet(
-        id: string,
+    public static getProjectApiProjectsProjectIdGet(
+        projectId: string,
     ): CancelablePromise<ProjectResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}',
+            url: '/api/projects/{project_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             errors: {
                 422: `Validation Error`,
@@ -85,20 +85,20 @@ export class ProjectsService {
     /**
      * List Project Assets
      * List every asset (any kind) in the project scope via the catalog.
-     * @param id
+     * @param projectId
      * @param limit
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static listProjectAssetsApiProjectsIdAssetsGet(
-        id: string,
+    public static listProjectAssetsApiProjectsProjectIdAssetsGet(
+        projectId: string,
         limit: number = 100,
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}/assets',
+            url: '/api/projects/{project_id}/assets',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             query: {
                 'limit': limit,
@@ -111,20 +111,20 @@ export class ProjectsService {
     /**
      * Upload Project Asset
      * Upload a file into the project's ``DataAssetLibrary``.
-     * @param id
+     * @param projectId
      * @param formData
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static uploadProjectAssetApiProjectsIdAssetsUploadPost(
-        id: string,
-        formData: Body_upload_project_asset_api_projects__id__assets_upload_post,
+    public static uploadProjectAssetApiProjectsProjectIdAssetsUploadPost(
+        projectId: string,
+        formData: Body_upload_project_asset_api_projects__project_id__assets_upload_post,
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/projects/{id}/assets/upload',
+            url: '/api/projects/{project_id}/assets/upload',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             formData: formData,
             mediaType: 'multipart/form-data',
@@ -135,20 +135,20 @@ export class ProjectsService {
     }
     /**
      * Get Project Asset
-     * @param id
+     * @param projectId
      * @param assetId
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static getProjectAssetApiProjectsIdAssetsAssetIdGet(
-        id: string,
+    public static getProjectAssetApiProjectsProjectIdAssetsAssetIdGet(
+        projectId: string,
         assetId: string,
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}/assets/{asset_id}',
+            url: '/api/projects/{project_id}/assets/{asset_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'asset_id': assetId,
             },
             errors: {
@@ -158,20 +158,20 @@ export class ProjectsService {
     }
     /**
      * Download Project Asset
-     * @param id
+     * @param projectId
      * @param assetId
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadProjectAssetApiProjectsIdAssetsAssetIdDownloadGet(
-        id: string,
+    public static downloadProjectAssetApiProjectsProjectIdAssetsAssetIdDownloadGet(
+        projectId: string,
         assetId: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}/assets/{asset_id}/download',
+            url: '/api/projects/{project_id}/assets/{asset_id}/download',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'asset_id': assetId,
             },
             errors: {
@@ -225,20 +225,20 @@ export class ProjectsService {
     }
     /**
      * Delete Project
-     * @param id
+     * @param projectId
      * @param ws
      * @returns MessageResponse Successful Response
      * @throws ApiError
      */
-    public static deleteProjectApiWorkspacesWsProjectsIdDelete(
-        id: string,
+    public static deleteProjectApiWorkspacesWsProjectsProjectIdDelete(
+        projectId: string,
         ws: string,
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/workspaces/{ws}/projects/{id}',
+            url: '/api/workspaces/{ws}/projects/{project_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'ws': ws,
             },
             errors: {
@@ -248,20 +248,20 @@ export class ProjectsService {
     }
     /**
      * Get Project
-     * @param id
+     * @param projectId
      * @param ws
      * @returns ProjectResponse Successful Response
      * @throws ApiError
      */
-    public static getProjectApiWorkspacesWsProjectsIdGet(
-        id: string,
+    public static getProjectApiWorkspacesWsProjectsProjectIdGet(
+        projectId: string,
         ws: string,
     ): CancelablePromise<ProjectResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/workspaces/{ws}/projects/{id}',
+            url: '/api/workspaces/{ws}/projects/{project_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'ws': ws,
             },
             errors: {
@@ -272,22 +272,22 @@ export class ProjectsService {
     /**
      * List Project Assets
      * List every asset (any kind) in the project scope via the catalog.
-     * @param id
+     * @param projectId
      * @param ws
      * @param limit
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static listProjectAssetsApiWorkspacesWsProjectsIdAssetsGet(
-        id: string,
+    public static listProjectAssetsApiWorkspacesWsProjectsProjectIdAssetsGet(
+        projectId: string,
         ws: string,
         limit: number = 100,
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/workspaces/{ws}/projects/{id}/assets',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'ws': ws,
             },
             query: {
@@ -301,22 +301,22 @@ export class ProjectsService {
     /**
      * Upload Project Asset
      * Upload a file into the project's ``DataAssetLibrary``.
-     * @param id
+     * @param projectId
      * @param ws
      * @param formData
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static uploadProjectAssetApiWorkspacesWsProjectsIdAssetsUploadPost(
-        id: string,
+    public static uploadProjectAssetApiWorkspacesWsProjectsProjectIdAssetsUploadPost(
+        projectId: string,
         ws: string,
-        formData: Body_upload_project_asset_api_workspaces__ws__projects__id__assets_upload_post,
+        formData: Body_upload_project_asset_api_workspaces__ws__projects__project_id__assets_upload_post,
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/workspaces/{ws}/projects/{id}/assets/upload',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets/upload',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'ws': ws,
             },
             formData: formData,
@@ -328,22 +328,22 @@ export class ProjectsService {
     }
     /**
      * Get Project Asset
-     * @param id
+     * @param projectId
      * @param assetId
      * @param ws
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static getProjectAssetApiWorkspacesWsProjectsIdAssetsAssetIdGet(
-        id: string,
+    public static getProjectAssetApiWorkspacesWsProjectsProjectIdAssetsAssetIdGet(
+        projectId: string,
         assetId: string,
         ws: string,
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/workspaces/{ws}/projects/{id}/assets/{asset_id}',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets/{asset_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'asset_id': assetId,
                 'ws': ws,
             },
@@ -354,22 +354,22 @@ export class ProjectsService {
     }
     /**
      * Download Project Asset
-     * @param id
+     * @param projectId
      * @param assetId
      * @param ws
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadProjectAssetApiWorkspacesWsProjectsIdAssetsAssetIdDownloadGet(
-        id: string,
+    public static downloadProjectAssetApiWorkspacesWsProjectsProjectIdAssetsAssetIdDownloadGet(
+        projectId: string,
         assetId: string,
         ws: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/workspaces/{ws}/projects/{id}/assets/{asset_id}/download',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets/{asset_id}/download',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'asset_id': assetId,
                 'ws': ws,
             },

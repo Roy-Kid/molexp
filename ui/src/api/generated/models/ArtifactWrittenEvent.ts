@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Emitted when a mode materializes a file artefact.
+ * Emitted when a loop materializes a file artefact.
  */
 export type ArtifactWrittenEvent = {
     description?: string;

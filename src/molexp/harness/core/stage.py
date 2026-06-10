@@ -32,12 +32,12 @@ class Stage(ABC):
         """Execute this stage and return its produced artifact.
 
         Args:
-            ctx: services container (artifact store, event log, provenance
+            ctx: services container (artifact store, event log, lineage
                 store) bound to the current run.
 
         Returns:
             The single :class:`ArtifactRef` produced by this stage.
             ``StageRunner`` consumes ``ref.parent_ids`` to wire
-            ``derived_from`` provenance edges automatically.
+            ``derived_from`` lineage edges automatically.
         """
         raise NotImplementedError

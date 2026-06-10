@@ -70,7 +70,7 @@ from .models import (
 )
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
-from .run import Run, RunContext, RunStatus
+from .run import RETRYABLE_STATUSES, Run, RunContext, RunStatus
 from .target import (
     LocalTarget,
     RemoteTarget,
@@ -94,6 +94,8 @@ from .targets import (
 from .workspace import Workspace
 
 __all__ = [
+    # Retryable-status domain (resume / rerun verb selection)
+    "RETRYABLE_STATUSES",
     # Folder kind taxonomy (unify-folder-abstraction-02)
     "WORKSPACE_CACHE_KIND",
     "WORKSPACE_EXPERIMENT_KIND",

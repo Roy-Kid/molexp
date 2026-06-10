@@ -43,8 +43,8 @@ def test_four_stage_pipeline_yields_five_layer_provenance_chain(tmp_path: Path) 
         GenerateExperimentReport,
         HarnessRunContext,
         SaveUserPlan,
+        SQLiteArtifactLineageStore,
         SQLiteEventLog,
-        SQLiteProvenanceStore,
         StageRunner,
         ValidateWorkflowIR,
     )
@@ -54,7 +54,7 @@ def test_four_stage_pipeline_yields_five_layer_provenance_chain(tmp_path: Path) 
     db = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db)
-    provenance = SQLiteProvenanceStore(path=db, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db, artifact_store=artifacts)
     stub = StubAgentGateway(artifact_store=artifacts)
     stub.register(
         agent_name="experiment_report_writer",
@@ -77,7 +77,7 @@ def test_four_stage_pipeline_yields_five_layer_provenance_chain(tmp_path: Path) 
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
         agent_gateway=stub,
     )
     runner = StageRunner(ctx)
@@ -95,7 +95,7 @@ def test_four_stage_pipeline_yields_five_layer_provenance_chain(tmp_path: Path) 
     assert validation_ref.kind == "validation_report"
 
     # Five-layer provenance chain: validation_report → workflow_ir → experiment_report → user_plan → raw_text
-    ancestors = ctx.provenance_store.trace_backward(validation_ref.id)
+    ancestors = ctx.lineage_store.trace_backward(validation_ref.id)
     assert len(ancestors) == 4
     ids_in_order = [r.id for r in ancestors]
     # BFS layer-by-layer: immediate parent first.
@@ -115,8 +115,8 @@ def test_event_log_contains_four_quartets(tmp_path: Path) -> None:
         GenerateExperimentReport,
         HarnessRunContext,
         SaveUserPlan,
+        SQLiteArtifactLineageStore,
         SQLiteEventLog,
-        SQLiteProvenanceStore,
         StageRunner,
         ValidateWorkflowIR,
     )
@@ -125,7 +125,7 @@ def test_event_log_contains_four_quartets(tmp_path: Path) -> None:
     db = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db)
-    provenance = SQLiteProvenanceStore(path=db, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db, artifact_store=artifacts)
     stub = StubAgentGateway(artifact_store=artifacts)
     stub.register(
         agent_name="experiment_report_writer",
@@ -146,7 +146,7 @@ def test_event_log_contains_four_quartets(tmp_path: Path) -> None:
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
         agent_gateway=stub,
     )
     runner = StageRunner(ctx)

@@ -175,7 +175,7 @@ export const loadRemotePlugin = (state: LoaderState, descriptor: PluginManifest)
  * {@link loadRemotePlugin}. Failures are isolated.
  */
 export const discoverAndLoad = async (state: LoaderState): Promise<void> => {
-  let listing;
+  let listing: Awaited<ReturnType<typeof PluginsService.listPluginsApiPluginsGet>>;
   try {
     listing = await PluginsService.listPluginsApiPluginsGet();
   } catch (error) {

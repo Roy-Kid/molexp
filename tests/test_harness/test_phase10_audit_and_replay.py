@@ -12,12 +12,12 @@ from pydantic import ValidationError
 def stores(tmp_path: Path):
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     return a, e, p
 
 
@@ -100,7 +100,7 @@ def test_generate_audit_report_assembles_known_facts(stores) -> None:
         payload={"stage": "FailingStage", "error": "oops"},
     )
 
-    report = generate_audit_report(run_id=run_id, event_log=e, artifact_store=a, provenance_store=p)
+    report = generate_audit_report(run_id=run_id, event_log=e, artifact_store=a, lineage_store=p)
     assert report.run_id == run_id
     assert any(d.get("artifact_ids") == ["req-x"] for d in report.approvals)
     assert val.id in report.validation_results

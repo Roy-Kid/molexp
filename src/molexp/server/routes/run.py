@@ -11,7 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from molexp._run_cancel import try_cancel
+from molexp.plugins.submit_molq.cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workflow import (
     WorkflowSnapshotRef,
@@ -20,6 +20,7 @@ from molexp.workflow import (
     resolve_spec_entrypoint,
 )
 from molexp.workspace import (
+    RETRYABLE_STATUSES,
     Experiment,
     RunStatus,
 )
@@ -199,7 +200,7 @@ def create_run(
             ) from exc
 
     run = experiment.add_run(
-        parameters=run_req.parameters,
+        params=run_req.parameters,
         target=run_req.target,
         workflow_snapshot=_synthesize_snapshot(experiment),
     )
@@ -514,9 +515,10 @@ def _require_retryable(run, run_id: str) -> None:  # noqa: ANN001
     resume / rerun own exactly the finished-but-not-succeeded runs. ``pending``
     is started via the normal run/create flow, ``succeeded`` is done, and a live
     ``running`` run must not get a second concurrent execution — keeping the
-    three verbs orthogonal.
+    three verbs orthogonal. The retryable domain is the shared
+    :data:`molexp.workspace.RETRYABLE_STATUSES`.
     """
-    if run.status not in ("failed", "cancelled"):
+    if run.status not in RETRYABLE_STATUSES:
         raise HTTPException(
             status_code=409,
             detail=(
@@ -617,8 +619,14 @@ def rerun_run(
     )
 
 
-@router.post("/{run_id}/kill", response_model=RunActionResponse)
-def kill_run(
+@router.post("/{run_id}/cancel", response_model=RunActionResponse)
+@router.post(
+    "/{run_id}/kill",
+    response_model=RunActionResponse,
+    deprecated=True,
+    description="Deprecated alias for `POST .../{run_id}/cancel` (same handler).",
+)
+def cancel_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
@@ -626,7 +634,11 @@ def kill_run(
 ) -> RunActionResponse:
     """Cancel a run.
 
-    Routes through :func:`molexp._run_cancel.try_cancel`, which signals
+    ``cancel`` is the canonical verb (matching the CLI ``molexp runs cancel``
+    and the resulting ``cancelled`` status); ``/kill`` remains as a
+    deprecated alias route bound to this same handler.
+
+    Routes through :func:`molexp.plugins.submit_molq.cancel.try_cancel`, which signals
     molq via :class:`molq.Submitor` for cluster-submitted runs and
     sends ``SIGTERM`` for runs still owned by a local pid.  When neither
     path applies (run never submitted, terminal, or executor info

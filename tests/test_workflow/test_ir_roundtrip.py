@@ -127,13 +127,12 @@ class TestRoundtrip:
         from molexp.workflow.registry import _Add, _Constant
 
         wf = WorkflowCompiler(name="py_built")
-        wf.add(_Constant(value=4), name="four", config={"value": 4})
-        wf.add(_Constant(value=6), name="six", config={"value": 6})
+        wf.add(_Constant(value=4), name="four")
+        wf.add(_Constant(value=6), name="six")
         wf.add(
             _Add(),
             name="sum",
             depends_on=["four", "six"],
-            config={},
         )
         spec = wf.compile()
         ir = spec.to_ir()
@@ -197,7 +196,6 @@ class TestTypedEdgeRoundtrip:
             _Constant(value=value),
             name=name,
             depends_on=deps,
-            config={"value": value},
             **kw,
         )
 

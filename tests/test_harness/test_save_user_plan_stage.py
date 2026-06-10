@@ -23,18 +23,18 @@ def ctx(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
-    provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifacts)
     return HarnessRunContext(
         run_id="run-save-user-plan",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
     )
 
 
@@ -63,7 +63,7 @@ def test_save_user_plan_writes_two_artifacts_and_wires_provenance(ctx) -> None:
     # Structured ref carries raw ref in parent_ids; StageRunner has wired
     # the derived_from edge for us.
     assert raw_ref.id in structured_ref.parent_ids
-    ancestors = ctx.provenance_store.trace_backward(structured_ref.id)
+    ancestors = ctx.lineage_store.trace_backward(structured_ref.id)
     assert [r.id for r in ancestors] == [raw_ref.id]
 
 

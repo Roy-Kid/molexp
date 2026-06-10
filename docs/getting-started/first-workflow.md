@@ -4,12 +4,12 @@ Before MolExp becomes a workspace or a CLI tool, it is a workflow system. The fi
 
 ## Writing the First Task
 
-A task is an async computation that receives a `TaskContext`. The context gives the task its upstream input, any injected dependencies, shared state, and the active profile configuration if one exists.
+A task is an async computation that receives a `TaskContext`. The context gives the task its upstream input (`ctx.inputs`) and the active configuration mapping (`ctx.config`).
 
 ```python
-from molexp.workflow import TaskContext, workflow
+from molexp.workflow import TaskContext, WorkflowCompiler
 
-wf = workflow(name="pipeline")
+wf = WorkflowCompiler(name="pipeline")
 
 
 @wf.task
@@ -27,25 +27,27 @@ The important thing here is not the arithmetic. It is the dependency line. `scal
 
 ## Compiling the Graph
 
-Once the tasks have been declared, `wf.build()` turns the definition into a `Workflow`:
+Once the tasks have been declared, `wf.compile()` turns the definition into a frozen `CompiledWorkflow`:
 
 ```python
-spec = wf.build()
+compiled = wf.compile()
 ```
 
-That compiled object is what MolExp executes. It has a deterministic `workflow_id`, a validated dependency structure, and enough task snapshot data for the runtime to reason about the graph consistently.
+That compiled artifact is what MolExp executes. It has a deterministic `workflow_id`, a validated dependency structure, and per-task content snapshots that let the runtime and the cache reason about the graph consistently.
 
 ## Running Without a Workspace
 
-The compiled workflow can run purely in memory:
+Execution lives on `WorkflowRuntime`, not on the artifact. The compiled workflow can run purely in memory:
 
 ```python
 import asyncio
 
+from molexp.workflow import WorkflowRuntime
+
 
 async def main() -> None:
-    result = await spec.execute()
-    print(result.outputs)
+    result = await WorkflowRuntime().execute(compiled)
+    print(result.status, result.outputs)
 
 
 asyncio.run(main())
@@ -55,10 +57,10 @@ This mode is useful during early iteration because it lets you work on task boun
 
 ## Using Task Classes Instead of Inline Functions
 
-The functional DSL is the shortest path for small workflows, but it is not the only authoring style. If you want reusable task classes, `WorkflowBuilder` gives you the same workflow model with a different surface:
+The decorator style is the shortest path for small workflows, but it is not the only authoring style. If you want reusable task classes, the same `WorkflowCompiler` accepts instances through `.add(...)`:
 
 ```python
-from molexp.workflow import Task, TaskContext, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, WorkflowCompiler
 
 
 class Fetch(Task):
@@ -71,11 +73,11 @@ class Scale(Task):
         return ctx.inputs["value"] * 2
 
 
-spec = (
-    WorkflowBuilder(name="pipeline")
+compiled = (
+    WorkflowCompiler(name="pipeline")
     .add(Fetch())
     .add(Scale(), depends_on=["fetch"])
-    .build()
+    .compile()
 )
 ```
 
@@ -87,4 +89,4 @@ Once the workflow model itself is clear, the next question is usually what happe
 
 ## Runnable Example
 
-`examples/getting_started/02_first_workflow.py` builds and runs this kind of workspace-less spec as a single script.
+`examples/getting_started/02_first_workflow.py` compiles and runs this kind of workspace-less workflow as a single script.

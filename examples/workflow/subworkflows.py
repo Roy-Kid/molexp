@@ -28,12 +28,20 @@ from molexp.workflow import (
 
 
 def build_preprocess() -> WorkflowCompiler:
-    """The inner pipeline — could live in its own module."""
+    """The inner pipeline — could live in its own module.
+
+    ``load`` reads ``ctx.inputs`` (the value forwarded into the inner workflow's
+    entry task), so when this spec is used as a ``parallel`` body each fan-out
+    element drives a *distinct* inner run.
+    """
     wf = WorkflowCompiler(name="preprocess")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[float]:
-        return [3.0, 1.0, 4.0, 1.0, 5.0]
+        # ``ctx.inputs`` is the forwarded node input: the fan-out element (an int)
+        # in the parallel case, or ``None`` when this inner is run standalone.
+        seed = ctx.inputs if isinstance(ctx.inputs, int) else 0
+        return [3.0 + seed, 1.0, 4.0, 1.0, 5.0]
 
     @wf.task(depends_on=["load"])
     async def normalize(ctx: TaskContext) -> list[float]:
@@ -66,9 +74,10 @@ async def run_chained() -> None:
 async def run_parallel_body() -> None:
     """SubWorkflow as the per-element body of ``builder.parallel``.
 
-    The fan-out runs the full inner chain once per element; ``join`` receives
-    one inner output per element in iteration order. The compiled task set stays
-    exactly {enumerate, preprocess, collect} — no per-element node growth.
+    The fan-out runs the full inner chain once per element; each element is
+    forwarded into the inner entry task (``load``), so ``join`` receives one
+    *distinct* inner output per element in iteration order. The compiled task set
+    stays exactly {enumerate, preprocess, collect} — no per-element node growth.
     """
     wf = WorkflowCompiler(name="fanout", entry="enumerate")
 

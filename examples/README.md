@@ -21,10 +21,11 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 | Guide | Example | What it shows |
 |---|---|---|
-| [task-and-actor](../docs/guide/task-and-actor.md) | `workflow/task_and_actor.py` | Functional DSL, OOP builder, and Protocol-form tasks |
-| [task-context](../docs/guide/task-context.md) | `workflow/task_context.py` | `ctx.inputs` / `ctx.deps` / `ctx.config` / `ctx.run_context` |
-| [workflow-runtime](../docs/guide/workflow-runtime.md) | `workflow/workflow_runtime.py` | `spec.execute()` vs `spec.start()` |
-| [control-flow](../docs/guide/control-flow.md) | `workflow/control_flow.py` | Diamond fan-out, conditional branches, build-time fan-out |
+| [task-and-actor](../docs/guide/task-and-actor.md) | `workflow/task_and_actor.py` | Decorator, OOP, and Protocol-form tasks, plus a streaming actor |
+| [task-context](../docs/guide/task-context.md) | `workflow/task_context.py` | `ctx.inputs` / `ctx.config` / `ctx.workdir` — the pure task context |
+| [workflow-runtime](../docs/guide/workflow-runtime.md) | `workflow/workflow_runtime.py` | `WorkflowRuntime.execute()` vs `.start()` |
+| [control-flow](../docs/guide/control-flow.md) | `workflow/control_flow.py` | Diamond fan-out, conditionals, build-time and `wf.parallel` fan-out |
+| [control-flow](../docs/guide/control-flow.md) | `workflow/branch_and_loop.py` | `wf.branch` routing and `wf.loop` repeat-until — `(value, Next(label))` values arrive via `ctx.inputs` |
 | [subworkflows](../docs/guide/subworkflows.md) | `workflow/subworkflows.py` | Calling a sub-spec from inside a task |
 
 ## Records and Assets
@@ -46,53 +47,70 @@ You can delete these freely; none of them touch `~/` or any system path.
 
 ## Agent Layer
 
+The agent examples are **offline-first**: each ships an in-file
+`ScriptedRouter` implementing the SDK-free `molexp.agent.router.Router`
+Protocol and injects it via `AgentRunner(router=...)` — no network, no API
+key, deterministic exit 0, so both files run inside the examples smoke gate
+(`tests/test_examples_smoke.py`) and break loudly on any API drift. Paste a
+key into the `API_KEY` constant to flip the *same* loop to the real model.
+
 | Example | What it shows |
 |---|---|
-| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner` against real DeepSeek. Shows the contract: `runner.run` drains the loop's `AgentEvent` stream into an `AgentRunResult`, and the Jsonl-backed session resumes across runner instances. |
-| `agent/interactive_loop.py` | The emergent read-only tool loop — `InteractiveLoop` driving `Router.stream_agentic` so the model calls workspace/code tools across turns before answering. The loop behind the `molexp agent` CLI REPL. |
+| `agent/chat_loop.py` | Minimum viable agent loop — `ChatLoop` + a named runtime `AgentSession` driven through `AgentRunner`. The offline run proves the persistence contract: two turns on one named session, then `result.messages` carries all four messages rebuilt from `entries.jsonl`. |
+| `agent/interactive_loop.py` | The emergent tool loop — `InteractiveLoop` driving `Router.stream_agentic`. The scripted stream yields a thinking delta, one full tool round, then the streamed answer; the demo asserts the chunk→`AgentEvent` translation (`ToolCallStartedEvent` / `ToolCallCompletedEvent`). The loop behind the `molexp agent` CLI REPL. |
 
-> Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode`).
+> Note: "**Loop**" is the agent-layer LLM-conversation concept (`AgentLoop` → `ChatLoop` / `InteractiveLoop`). "**Mode**" is reserved for the harness orchestration concept below (`harness.Mode` → `PlanMode` / `RunMode`).
 >
-> **API keys** — every example registers its LLM key *in code* via `molexp.config["deepseek_api_key"] = ...` (paste into the `API_KEY` constant at the top of each file). `molexp.config` is a live `molcfg.Config`; molexp reads the key from it, **never from environment variables**.
+> **API keys** — live mode registers the LLM key *in code* via `molexp.config["deepseek_api_key"] = ...` (paste into the `API_KEY` constant at the top of each file). `molexp.config` is a live `molcfg.Config`; molexp reads the key from it, **never from environment variables**.
 
 ## Harness Layer
 
 `PlanMode` is the harness `Mode` that turns a short natural-language experiment
 draft into generated, validated, runnable `molexp.workflow` source — running its
 stage pipeline (ExperimentReport → WorkflowIR → BoundWorkflow → workflow source)
-on a `workspace.Run` with full provenance + audit.
+on a `workspace.Run` with full provenance + audit. Its back half, `RunMode`
+(chained on the same Run via `molexp plan --execute`), generates unit tests,
+really runs them with pytest, executes the workflow through an executor
+subprocess on the real engine, and writes the final report + audit trail.
 
 | Example | What it shows |
 |---|---|
-| `harness/plan_mode_live.py` | `PlanMode` end-to-end against the **real DeepSeek API** (`deepseek:deepseek-v4-flash`) — a short draft in, generated + validated runnable `molexp.workflow` code out. Prints the per-stage artifacts, the generated source, the `workflow_source → user_plan` lineage, and the audit summary. Register your key via `molexp.config["deepseek_api_key"] = ...` (the `API_KEY` constant). |
+| `harness/experiment_pipeline.py` | **The flagship**: a natural-language experiment goal → `PlanMode` (plan + validated workflow source) → `RunMode` (generated unit tests REALLY run under pytest, the workflow REALLY executes on the `molexp.workflow` engine in an executor subprocess) → extracted `FinalReport` + audit trail. Offline by default via an in-file `CannedGateway` implementing the public `AgentGateway` Protocol — only the LLM is canned; every validator, pytest, and the engine run for real (a seeded 1D random walk whose D = MSD/(2·d·t) ≈ 0.5). Paste a key into `API_KEY` to run the same pipeline against the real DeepSeek API through `RouterBackedAgentGateway`. |
 
 ## Driving a Run
 
-The canonical pattern is to bind a `Workflow` to the experiment via
-the workflow-layer registry, enter a workspace `RunContext`, and forward
-it to `spec.execute()`:
+The sanctioned surface is the fluent chain: declare which workflow an
+experiment runs (this seeds one content-addressed `Run` per parameter cell
+and binds the compiled workflow), then either let `molexp run` drive the
+runs or execute one in-process through `WorkflowRuntime`:
 
 ```python
-from molexp.workflow import promote_callable, Workflow
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
-spec = promote_callable(train, name="train")  # or wf.build()
-spec.bind_to(experiment)
+compiled = WorkflowCompiler(name="train").add(Train()).compile()
 
-run = experiment.Run(parameters={"seed": 0})
+exp = ws.project("demo").experiment("train").run(compiled, params={"lr": [1e-3]})
+
+run = exp.list_runs()[0]
 with run.start(profile_config=cfg) as ctx:
-    result = await spec.execute(run_context=ctx)
+    result = await WorkflowRuntime().execute(compiled, run_context=ctx)
+    ctx.set_result("final_loss", result.outputs["train"])
 ```
 
-`Workflow.bind_to` stores the spec in a class-level process-local
-registry keyed by `experiment.id` so the CLI, server, and agent tools
-can later retrieve it via `Workflow.for_experiment(experiment)`. The
-registry is process-local — cluster workers re-establish it by
-re-running the user script on import.
+`Experiment.run(workflow, params=...)` binds the compiled workflow to the
+experiment in `molexp.workflow.default_binding_registry` (an explicit,
+injectable `{experiment_id → CompiledWorkflow}` store — the old class-level
+`bind_to` registry was replaced) and registers the workspace for CLI
+discovery, so a separate `me.entry(ws)` call is no longer needed. The
+registry is process-local — cluster workers re-establish it by re-running
+the user script on import.
 
-`run_context=` is the only way to expose workspace helpers
-(`ctx.artifact` / `ctx.log` / `ctx.set_result`) inside task bodies.
-Tasks unable to find a `RunContext` fall through to in-memory execution
-and the workspace-side helpers are no-ops.
+Task bodies stay on the pure `{inputs, config}` contract: a root task of a
+tracked run receives `{"params": <run params>, "workdir": <Path>}` as
+`ctx.inputs`, and `ctx.config` is the resolved profile. Workspace helpers
+(`ctx.set_result` / `ctx.artifact` / `ctx.log`) live on the driver-side
+`RunContext`; read persisted results back with the public
+`run.get_result(key)` instead of parsing `run.json` by hand.
 
 ## Running an Example
 

@@ -6,9 +6,11 @@ structured output. Both methods share one configuration surface
 (:class:`AgentRunner` ``model=`` / ``models=`` kwargs) and one cache.
 
 This module is the *protocol*, not the *implementation*. The concrete
-class :class:`~molexp.agent._pydanticai.router.PydanticAIRouter` lives
-under the ``_pydanticai/`` firewall — this file imports nothing from
-pydantic-ai. Stub routers used by tests implement the same protocol.
+class lives under the ``_pydanticai/`` firewall and is re-exported
+**lazily** from the package surface — spell it
+``from molexp.agent import PydanticAIRouter`` (never import from
+``_pydanticai`` directly). This file imports nothing from pydantic-ai.
+Stub routers used by tests implement the same protocol.
 
 ``RouterTextResult`` is a frozen :class:`dataclasses.dataclass` rather
 than a pydantic model: it carries an opaque pydantic-ai
@@ -245,9 +247,10 @@ class Router(Protocol):
 
         Raises:
             ProviderError: On retry exhaustion or non-retryable
-                failure. (The internal name remains
-                ``ProviderError`` to minimize churn — catch via
-                ``from molexp.agent._pydanticai.errors import ProviderError``.)
+                failure (the
+                :class:`~molexp.agent._pydanticai.errors.ProviderError`
+                raised by the concrete router; the internal name
+                remains ``ProviderError`` to minimize churn).
         """
         ...
 

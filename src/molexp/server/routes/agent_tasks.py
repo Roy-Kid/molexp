@@ -32,14 +32,20 @@ from .agent_task_store import (
 
 router = APIRouter(prefix="/agent-tasks", tags=["agent-tasks"])
 
+# Maximum length (in characters) of an auto-derived task title; longer
+# goals are truncated with a "..." suffix within this budget.
+_TITLE_MAX_CHARS = 72
+_TITLE_ELLIPSIS = "..."
+
 
 def _title_from_goal(goal: str) -> str:
     compact = " ".join(goal.split())
     if not compact:
         return "Untitled agent task"
-    if len(compact) <= 72:
+    if len(compact) <= _TITLE_MAX_CHARS:
         return compact
-    return f"{compact[:69].rstrip()}..."
+    clipped = compact[: _TITLE_MAX_CHARS - len(_TITLE_ELLIPSIS)].rstrip()
+    return f"{clipped}{_TITLE_ELLIPSIS}"
 
 
 def _task_from_session(

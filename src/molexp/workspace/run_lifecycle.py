@@ -15,20 +15,39 @@ from __future__ import annotations
 
 import os
 import platform
+import threading
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+from mollog import get_logger
 
 from .models import ErrorInfo, ExecutionMetadata, ExecutionRecord, RunStatus
 
 if TYPE_CHECKING:
     from .runcontext import RunContext
 
+logger = get_logger(__name__)
+
+#: Cadence of the ownership-heartbeat refresh while a run is executing.
+#: Cross-host zombie reapers (see ``molexp.cli._common.reap_zombie_run``)
+#: only reap a remote ``running`` run when this stamp is stale well beyond
+#: the refresh cadence, so the two constants must stay far apart.
+HEARTBEAT_INTERVAL_SECONDS = 30.0
+
 
 class RunLifecycle:
     """Enter/exit orchestration for a :class:`RunContext`."""
 
-    def __init__(self, ctx: RunContext) -> None:
+    def __init__(
+        self,
+        ctx: RunContext,
+        *,
+        heartbeat_interval: float = HEARTBEAT_INTERVAL_SECONDS,
+    ) -> None:
         self._ctx = ctx
+        self._heartbeat_interval = heartbeat_interval
+        self._heartbeat_stop: threading.Event | None = None
+        self._heartbeat_thread: threading.Thread | None = None
 
     def enter(self) -> None:
         ctx = self._ctx
@@ -80,8 +99,13 @@ class RunLifecycle:
         )
         ctx._assets.append_run_log(f"execution started  exec_id={ctx._execution_id}")
         ctx._ctx_store.save()
+        self._start_heartbeat()
 
     def exit(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
+        # Stop the heartbeat first so it cannot race the terminal-status
+        # writes below (the reaper must never see a fresh heartbeat on a
+        # run whose status is already terminal-in-progress).
+        self._stop_heartbeat()
         ctx = self._ctx
         # ``enter()`` always runs first and assigns a non-None execution id.
         execution_id = ctx._execution_id
@@ -157,3 +181,68 @@ class RunLifecycle:
         for key in ("pid", "host", "heartbeat"):
             labels.pop(key, None)
         return labels
+
+    # ── Heartbeat ────────────────────────────────────────────────────────
+    #
+    # The ownership stamp written by ``_claim_ownership`` includes a
+    # ``heartbeat`` label. Same-host reapers can check the pid directly,
+    # but cross-host observers (molq / SLURM submissions are the core
+    # scenario) have only this timestamp to tell a live remote run from a
+    # zombie — so it must be refreshed while the run executes.
+
+    def _start_heartbeat(self) -> None:
+        """Spawn the daemon thread that re-stamps ``labels['heartbeat']``."""
+        stop = threading.Event()
+        thread = threading.Thread(
+            target=self._heartbeat_loop,
+            args=(stop,),
+            name=f"molexp-heartbeat-{self._ctx.run.id}",
+            daemon=True,
+        )
+        self._heartbeat_stop = stop
+        self._heartbeat_thread = thread
+        thread.start()
+
+    def _stop_heartbeat(self) -> None:
+        """Signal the heartbeat thread to exit and wait briefly for it."""
+        if self._heartbeat_stop is not None:
+            self._heartbeat_stop.set()
+        if self._heartbeat_thread is not None:
+            self._heartbeat_thread.join(timeout=5.0)
+        self._heartbeat_stop = None
+        self._heartbeat_thread = None
+
+    def _heartbeat_loop(self, stop: threading.Event) -> None:
+        while not stop.wait(self._heartbeat_interval):
+            try:
+                self.refresh_heartbeat()
+            except Exception:
+                # Never let a display/metadata hiccup kill the worker;
+                # a missed beat only delays staleness detection.
+                logger.debug(f"heartbeat refresh failed for run {self._ctx.run.id}", exc_info=True)
+
+    def refresh_heartbeat(self) -> None:
+        """Re-stamp ``labels['heartbeat']`` in ``run.json``, preserving all other content.
+
+        Surgical read-modify-write under the run's advisory metadata lock:
+        only the heartbeat label is touched, so concurrent status writes
+        and the run.json ``context`` blob written by ``ContextStore`` are
+        never clobbered by the background thread.
+        """
+        from .schema_version import read_versioned_json, write_versioned_json
+
+        run = self._ctx.run
+        path = run._fs.join(run.run_dir, "run.json")
+        now_iso = datetime.now().isoformat()
+        with run._metadata_lock():
+            if not run._fs.exists(path):
+                return
+            data = read_versioned_json(path, fs=run._fs)
+            labels_raw = data.get("labels")
+            labels = dict(labels_raw) if isinstance(labels_raw, dict) else {}
+            labels["heartbeat"] = now_iso
+            data["labels"] = labels
+            write_versioned_json(path, data, fs=run._fs)
+        run.metadata = run.metadata.model_copy(
+            update={"labels": {**run.metadata.labels, "heartbeat": now_iso}}
+        )

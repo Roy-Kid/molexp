@@ -1,17 +1,16 @@
 """``GenerateExperimentReport`` — second stage of the §3 pipeline.
 
-Builds an :class:`AgentCallSpec` that asks the configured
-:class:`AgentGateway` for a structured :class:`ExperimentReport` derived
+Builds an :class:`AgentCallSpec` that asks the gateway on
+``ctx.agent_gateway`` for a structured :class:`ExperimentReport` derived
 from the given ``user_plan`` artifact, then returns the gateway's parsed
 ``output_artifact`` unchanged. The gateway is responsible for persisting
-both the parsed output and the raw response and for wiring
-``parent_ids`` so :class:`StageRunner` materializes the
-``user_plan → experiment_report`` ``derived_from`` edge automatically.
+both the parsed output and the raw response and for wiring ``parent_ids``
+so the audit bracket materializes the ``user_plan → experiment_report``
+``derived_from`` edge automatically.
 
-Phase 2 wires the gateway via constructor injection (not through
-:class:`HarnessRunContext`) because the real LLM-backed gateway impl is
-still Phase 5+; once it lands, the gateway moves into the context and this
-stage's constructor loses the ``gateway`` arg.
+Fail-fast: if ``ctx.agent_gateway is None``, the stage raises
+:class:`StageExecutionError` rather than NPE-ing midway through the
+:class:`AgentCallSpec` construction.
 """
 
 from __future__ import annotations
