@@ -61,7 +61,7 @@ molexp is an agent-assisted scientific-workflow platform for FAIR research — P
        harness          (experiment orchestrator — artifact lineage, audit,
          │                stages, executors, approval gates)
          │
-         ├─ uses ─→ agent     (pydantic-ai facade + LLM-only modes)
+         ├─ uses ─→ agent     (pydantic-ai facade + LLM-only loops)
          ├─ uses ─→ workflow  (graph engine, content-addressed cache)
          └─ uses ─→ workspace (pure storage)
 
@@ -92,7 +92,7 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 - **resume is task-granular, caller-driven, and self-validating.** A failed run preserves completed outputs in `WorkflowResult.outputs`; the caller (CLI/server) re-seeds them via `runtime.execute(..., seed_outputs=…)`, sourced from the *existing* execution's persisted node-level state. Node state is persisted **incrementally** to `executions/<exec_id>/workflow.json` (per-task status + outputs + `snapshot_key` + `outputs_lossy` flag — not per-frame engine checkpoints; within-task checkpointing belongs to `ctx.workdir`). At seed time the engine drops (warn, recompute — never error) any seed whose recomputed `TaskSnapshot.key` differs (code changed), whose outputs were lossy-truncated, or which cannot be verified (pre-flag documents). Seeded nodes are recorded in `WorkflowState.seeded` and skip their body (`from_seed`); unknown seed names fail-fast. `rerun` simply calls `execute` with no seed (new `exec_id`). SubWorkflow inner runs execute with persistence off — `executions/<exec_id>/workflow.json` always describes the **outer** graph only.
 - MUST NOT: import `agent` / `plugins` / `server` / `cli` / `sweep`. MUST NOT import `pydantic_graph` outside `_pydantic_graph/`. No second `End` sentinel, no per-task `BaseNode` codegen. `Next` is public (the `wf.branch` / `wf.loop` routing return value, in `molexp.workflow.__all__`) but stays out of the frozen top-level `molexp.__all__` / lazy re-exports.
 
-**`molexp.agent`** — sibling of workflow above workspace; pydantic-ai facade + LLM-only modes.
+**`molexp.agent`** — sibling of workflow above workspace; pydantic-ai facade + LLM-only loops.
 - Owns: the public surface (`AgentRunner`, `AgentLoop`, `AgentRunResult`, `AgentRuntime`, `AgentSession`). `AgentRuntime` is the frozen-dataclass bundle (`session` + `router` + `execution_env`) a loop receives at run time. Flat module list — `loop.py` / `runtime.py` / `session.py` / `session_storage.py` / `session_entry.py` / `events.py` (`AgentEvent` discriminated union + `AsyncIteratorEventSink`) / `compaction.py` / `execution_env.py` / `router.py` (Protocol) / `runner.py` / `folders.py`. Two concrete loops under `loops/`: `ChatLoop` (one round-trip) and `InteractiveLoop` (emergent tool loop driving `Router.stream_agentic`). Private `_pydanticai/` is the **sole** sanctioned `import pydantic_ai` site (`router.py`, `mcp.py`, `messages_codec.py`, …).
 - Uses workspace only (`Folder`, `Workspace`, `Run`, `RunContext`, `AssetCatalog`, …) for on-disk session storage. **MUST NOT** import `molexp.workflow` or `molexp.harness` — those layers are siblings (workflow) and one layer above (harness); pipeline orchestration that used to live in agent (PlanMode / AuthorMode / RunMode / ReviewMode) moved to harness, reached through the `AgentGateway` Protocol.
 - MUST NOT: import `molexp.workflow`, `molexp.harness`, `plugins`, `server`, `cli`, `sweep`. MUST NOT import `pydantic_ai` outside `_pydanticai/`. MUST NOT import `pydantic_graph` anywhere under `agent/`.

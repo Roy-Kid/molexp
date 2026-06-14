@@ -16,6 +16,7 @@ nav = [
         { "Overview" = "concept/index.md" },
         { "Workflow Model" = "concept/workflow.md" },
         { "Workspace Model" = "concept/workspace.md" },
+        { "Agent" = "concept/agent.md" },
         { "Assets and Reproducibility" = "concept/assets-and-reproducibility.md" },
         { "Plugins" = "concept/plugins.md" }
     ]},
@@ -26,7 +27,8 @@ nav = [
             { "TaskContext" = "guide/task-context.md" },
             { "Workflow Runtime" = "guide/workflow-runtime.md" },
             { "Control Flow" = "guide/control-flow.md" },
-            { "Sub-workflows" = "guide/subworkflows.md" }
+            { "Sub-workflows" = "guide/subworkflows.md" },
+            { "IR Export" = "guide/ir-export.md" }
         ]},
         { "Records and Assets" = [
             { "Workspace API" = "guide/workspace-api.md" },
@@ -36,21 +38,22 @@ nav = [
             { "Run Profiles" = "guide/run-profiles.md" }
         ]},
         { "Operations" = [
+            { "Plan & Run with the Agent Harness" = "guide/plan-mode.md" },
             { "Server Lifecycle" = "guide/server-lifecycle.md" },
             { "Molq Plugin" = "guide/molq.md" }
         ]}
     ]},
     { "Architecture" = [
         { "Overview" = "architecture/index.md" },
+        { "Agent Layer" = "architecture/agent.md" },
         { "Plan Mode" = "architecture/plan-mode.md" },
-        { "Workflow Layer" = "architecture/workflow-layer.md" },
-        { "Experiment and Runner Boundary" = "architecture/experiment-runner-boundary.md" }
+        { "Workflow Layer" = "architecture/workflow-layer.md" }
     ]},
     { "Development" = [
         { "Index" = "development/index.md" },
         { "Compiler" = "development/compiler.md" },
         { "Task Protocols" = "development/task-protocols.md" },
-        { "Spec: Refactor Plan Mode" = "development/specs/refactor-plan-mode-around-molexp-workflow.md" }
+        { "Writing a Plugin" = "plugins.md" }
     ]}
 ]
 

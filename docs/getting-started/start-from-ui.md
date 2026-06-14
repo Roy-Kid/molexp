@@ -60,8 +60,8 @@ The activity bar on the left switches the panel between six views:
   file viewer/editor and "New file / New folder" actions.
 - **Asset** — the asset inventory (artifacts, logs, checkpoints) with
   lineage back to the run and task that produced each one.
-- **Agent Tasks** — LLM-driven sessions; see
-  [Agent end-to-end](agent-end-to-end.md) for that path.
+- **Agent Tasks** — LLM-driven sessions; see the
+  [Agent concept](../concept/agent.md) for the loop model behind them.
 
 A command palette and a **Settings** page (remote workspaces, compute
 targets) round out the shell.
@@ -211,8 +211,9 @@ both keeping the same run id:
 Everything above is also reachable conversationally: the **Agent
 Tasks** panel's **New goal** button starts an LLM session that can
 create projects, experiments, and runs through tool calls while you
-watch the tree update. That path — including provider/API-key setup —
-is covered in [Agent end-to-end](agent-end-to-end.md).
+watch the tree update. That session is driven by the agent's
+`InteractiveLoop` — see the [Agent concept](../concept/agent.md) for the
+model, and set your provider key with `molexp config set agent.model …`.
 
 ## Feature status
 
