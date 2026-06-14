@@ -10,7 +10,7 @@ each :data:`AgenticChunk` to the injected sink as the corresponding
 * ``ToolCallChunk``  → ``ToolCallStartedEvent``
 * ``ToolResultChunk`` → ``ToolCallCompletedEvent``
 * ``FinalChunk``     → the assistant's terminal text (captured + appended
-  to the session entry-tree; emitted as ``ModeCompletedEvent``)
+  to the session entry-tree; emitted as ``LoopCompletedEvent``)
 
 Read-only tools are pulled from
 :func:`~molexp.agent.loops.interactive.tools.readonly_tools` and passed
@@ -20,7 +20,7 @@ Protocol — this module imports nothing from pydantic-ai directly.
 
 The harness's planning pipeline lives in ``molexp.harness.PlanMode`` (a
 harness ``Mode``), reached through the ``AgentGateway`` Protocol — not from
-this agent loop. See ``examples/harness/plan_mode_live.py`` for the
+this agent loop. See ``examples/harness/experiment_pipeline.py`` for the
 end-to-end flow.
 """
 
@@ -30,18 +30,20 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mollog import get_logger
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from molexp.agent.compaction import CompactionSettings
 from molexp.agent.events import (
     AsyncIteratorEventSink,
-    ModeCompletedEvent,
-    ModeStartedEvent,
+    LoopCompletedEvent,
+    LoopStartedEvent,
     ThinkingDeltaEvent,
     TokenDeltaEvent,
     ToolCallCompletedEvent,
     ToolCallStartedEvent,
 )
 from molexp.agent.loop import AgentLoop, AgentRunResult
+from molexp.agent.loops._compact import maybe_compact
 from molexp.agent.loops.interactive.tools import readonly_tools
 from molexp.agent.router import (
     FinalChunk,
@@ -69,12 +71,15 @@ class InteractiveLoopConfig(BaseModel):
         workspace_root: Directory the read-only tools are confined to.
             ``None`` falls back to the current working directory at run
             time.
+        compaction: Context-compaction policy; pass
+            ``CompactionSettings(enabled=False)`` to opt out.
     """
 
     model_config = ConfigDict(frozen=True)
 
     system_prompt: str = ""
     workspace_root: Path | None = None
+    compaction: CompactionSettings = Field(default_factory=CompactionSettings)
 
 
 class InteractiveLoop(AgentLoop):
@@ -93,9 +98,15 @@ class InteractiveLoop(AgentLoop):
         user_input: str,
     ) -> None:
         """Drive one interactive turn; forward router chunks to ``sink``."""
-        await sink(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+        await sink(LoopStartedEvent(loop_name=self.name, user_input=user_input))
         runtime.router.clear_usage()
         runtime.session.append_message(Message(role="user", content=user_input))
+        await maybe_compact(
+            runtime=runtime,
+            sink=sink,
+            settings=self.config.compaction,
+            loop_name=self.name,
+        )
 
         workspace = self.config.workspace_root or Path.cwd()
         tools = tuple(readonly_tools(workspace_root=workspace))
@@ -141,7 +152,7 @@ class InteractiveLoop(AgentLoop):
             usage_breakdown=breakdown,
         )
         await sink(
-            ModeCompletedEvent(
+            LoopCompletedEvent(
                 text=final_text,
                 result=run_result.model_dump(mode="json"),
             )

@@ -17,12 +17,12 @@ class WorkflowSource(BaseModel):
 
     Attributes:
         source: The emitted Python source. By convention it defines a
-            module-level ``build_workflow()`` returning a ``WorkflowBuilder``,
-            which :class:`ValidateWorkflowSource` calls and ``.build()``s.
+            module-level ``build_workflow()`` returning a ``WorkflowCompiler``,
+            which :class:`ValidateWorkflowSource` calls and ``.compile()``s.
         module_name: A suggested module name for the program.
         bound_workflow_id: The ``BoundWorkflow`` artifact id this derives from.
         symbols: The public ``molexp.workflow`` symbols the program uses
-            (e.g. ``("WorkflowBuilder", "Task", "TaskContext")``).
+            (e.g. ``("WorkflowCompiler", "Task", "TaskContext")``).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

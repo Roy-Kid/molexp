@@ -1,38 +1,26 @@
-"""``Mode`` orchestration tests (spec plan-mode-revival-01).
+"""``Mode`` orchestration tests.
 
-``Mode`` is the thin harness base class that compiles a declared list of
-``Stage`` objects into a ``molexp.workflow`` ``Workflow`` (one ``StageTask``
-per stage, linearly chained) and executes it on a ``workspace.Run``,
-returning a frozen ``ModeResult``.
+``Mode`` is the harness base class that runs a declared list of ``Stage``
+objects eagerly — one at a time through the shared audit bracket — against a
+``workspace.Run``, returning a frozen ``ModeResult``.
 
     class Mode(ABC):
         name: ClassVar[str]
         def stages(self, user_input) -> list[Stage]: ...
         async def run(self, *, run, user_input, gateway=None) -> ModeResult: ...
 
-Tests map to acceptance:
+Covered behaviour:
 
-- ac-007  happy path — declared stages execute on a tmp ``workspace.Run``;
-          ``ModeResult`` carries each stage's ``ArtifactRef`` + the final.
-- ac-009  cache-hit — a second identical ``Mode.run`` leaves an
-          invocation-counting stub Stage's counter flat.
-- ac-010  resume — a run failing at stage N, re-run, does NOT re-invoke
-          stages ``0..N-1``.
-
-ENGINE-WIRING ASSUMPTION (load-bearing for ac-009 / ac-010): the
-``molexp.workflow`` runtime does NOT, today, engage content-addressed
-caching (``Caching`` is a standalone utility) or checkpoint-resume
-(``WorkflowRuntime`` docstring states ``resume()`` is removed and
-per-frame snapshots are no longer injected into the graph runner). The only
-engine-native skip mechanism is ``Workflow.execute(seed_outputs=...)``.
-Therefore the cache/resume *observable behaviour* asserted here (counter
-stays flat on identical re-run; stages ``0..N-1`` not re-invoked after a
-mid-pipeline failure) MUST be wired by the GREEN implementation inside
-``Mode.run`` / ``StageTask`` (e.g. consulting ``ws.cache.as_cache_store()``
-keyed on the stage snapshot + user_input, and/or seeding already-completed
-stages via ``seed_outputs`` after reading prior execution artifacts). These
-tests assert the intended behaviour; the GREEN step confirms the chosen
-wiring delivers it. All tests are RED now (``Mode`` does not yet exist).
+- happy path — declared stages execute; ``ModeResult`` carries each stage's
+  ``ArtifactRef`` + the final.
+- cache-hit — a second identical ``Mode.run`` leaves an invocation-counting
+  stub Stage's counter flat.
+- resume — a run failing at stage N, re-run, does NOT re-invoke stages
+  ``0..N-1``.
+- verified ledger — entries are reused only when the recorded stage code
+  fingerprint matches and the artifact still exists; unverifiable entries
+  (legacy ledgers, tampered fingerprints, missing artifacts) recompute with
+  a warning — never silently reuse, never error.
 """
 
 from __future__ import annotations
@@ -58,7 +46,7 @@ def run(tmp_path: Path):
     ws.materialize()
     project = ws.add_project("demo")
     exp = project.add_experiment("train")
-    return exp.add_run(parameters={"seed": 0})
+    return exp.add_run(params={"seed": 0})
 
 
 class CountingStage(Stage):
@@ -235,3 +223,132 @@ def test_mode_resume_does_not_reinvoke_completed_stages(run) -> None:
     assert counter["StageC"] == 1, "downstream stage runs after the resumed stage succeeds"
     assert result.final_artifact is not None
     assert result.final_artifact.kind == "final_report"
+
+
+# ─────────────────────── ledger as the Run ↔ harness-artifact linkage record
+
+
+def test_mode_ledger_is_self_describing(run) -> None:
+    """The completion ledger names the Run, the mode, and stage → artifact ids.
+
+    The ledger lives under ``run_dir/.mode_ledger`` — it is the workspace-Run
+    side of the provenance linkage: from a Run on disk you can discover which
+    pipeline ran and which artifact each stage produced.
+    """
+    import json
+
+    counter: dict[str, int] = {}
+    mode = _make_mode(
+        lambda _ui: [
+            CountingStage("StageA", counter, kind="user_plan"),
+            CountingStage("StageB", counter, kind="final_report"),
+        ]
+    )
+    user_input = {"goal": "link-me"}
+    result = asyncio.run(mode.run(run=run, user_input=user_input))
+
+    ledger_files = list((Path(run.run_dir) / ".mode_ledger").glob("*.json"))
+    assert len(ledger_files) == 1
+    ledger = json.loads(ledger_files[0].read_text(encoding="utf-8"))
+    assert ledger["run_id"] == run.id
+    assert ledger["mode"] == "demo"
+    assert set(ledger["stages"]) == {"StageA", "StageB"}
+    # Each entry pairs the produced artifact with the producing stage's
+    # code fingerprint — the verified-resume key.
+    assert ledger["stages"]["StageA"]["artifact"] == result.stage_artifacts[0].id
+    assert ledger["stages"]["StageB"]["artifact"] == result.stage_artifacts[1].id
+    for entry in ledger["stages"].values():
+        assert entry["fingerprint"].startswith("sha256:")
+
+
+def test_mode_recomputes_unverifiable_legacy_ledger_entries(run) -> None:
+    """Pre-fingerprint ledger entries are unverifiable → recompute, never trust.
+
+    A legacy ledger (entries are bare artifact-id strings) cannot prove the
+    stage code that produced its artifacts is the code that would run today,
+    so the entries are dropped with a warning and the stages re-run once —
+    after which the rewritten ledger is fingerprinted and skips again.
+    """
+    import json
+
+    counter: dict[str, int] = {}
+    stages = [
+        CountingStage("StageA", counter, kind="user_plan"),
+        CountingStage("StageB", counter, kind="final_report"),
+    ]
+    mode = _make_mode(lambda _ui: stages)
+    user_input = {"goal": "legacy-ledger"}
+
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 1, "StageB": 1}
+
+    # Rewrite the ledger in the legacy flat shape (no fingerprints), re-run.
+    ledger_path = next((Path(run.run_dir) / ".mode_ledger").glob("*.json"))
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    flat = {name: entry["artifact"] for name, entry in ledger["stages"].items()}
+    ledger_path.write_text(json.dumps(flat), encoding="utf-8")
+
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 2, "StageB": 2}, (
+        "unverifiable legacy entries must recompute exactly once"
+    )
+
+    # The recompute re-wrote a fingerprinted ledger — a third run skips.
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 2, "StageB": 2}
+
+
+def test_mode_recomputes_stage_whose_fingerprint_changed(run) -> None:
+    """A ledger entry whose stage code fingerprint mismatches recomputes.
+
+    Only the changed stage re-runs; entries that still verify keep skipping.
+    """
+    import json
+
+    counter: dict[str, int] = {}
+    stages = [
+        CountingStage("StageA", counter, kind="user_plan"),
+        CountingStage("StageB", counter, kind="final_report"),
+    ]
+    mode = _make_mode(lambda _ui: stages)
+    user_input = {"goal": "fingerprint-me"}
+
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 1, "StageB": 1}
+
+    # Simulate StageB's code having changed since the ledger was written.
+    ledger_path = next((Path(run.run_dir) / ".mode_ledger").glob("*.json"))
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["stages"]["StageB"]["fingerprint"] = "sha256:stale"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 1, "StageB": 2}, (
+        "the code-changed stage must recompute; the verified stage must not"
+    )
+
+
+def test_mode_recomputes_stage_whose_artifact_is_gone(run) -> None:
+    """A ledger entry pointing at a missing artifact recomputes the stage."""
+    import json
+
+    counter: dict[str, int] = {}
+    stages = [
+        CountingStage("StageA", counter, kind="user_plan"),
+        CountingStage("StageB", counter, kind="final_report"),
+    ]
+    mode = _make_mode(lambda _ui: stages)
+    user_input = {"goal": "lost-artifact"}
+
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 1, "StageB": 1}
+
+    ledger_path = next((Path(run.run_dir) / ".mode_ledger").glob("*.json"))
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["stages"]["StageA"]["artifact"] = "art-nonexistent"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    asyncio.run(mode.run(run=run, user_input=user_input))
+    assert counter == {"StageA": 2, "StageB": 1}, (
+        "the artifact-less stage must recompute; the intact stage must not"
+    )

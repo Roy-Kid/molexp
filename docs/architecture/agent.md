@@ -1,24 +1,29 @@
 # Agent Layer Architecture
 
 The agent layer (`molexp.agent`) is a clean, user-facing wrapper around
-[pydantic-ai](https://github.com/pydantic/pydantic-ai) and
-[pydantic-graph](https://github.com/pydantic/pydantic-graph). Both
-libraries are implementation details hidden inside private subpackages
-and **never appear in the public surface**.
+[pydantic-ai](https://github.com/pydantic/pydantic-ai). The library is
+an implementation detail hidden inside the private `_pydanticai/`
+subpackage and **never appears in the public surface**.
+(`pydantic-graph` belongs to the workflow layer and is never imported
+under `agent/` — see the confinement rule below.)
 
 ## Public API
 
-The agent layer exposes exactly four user-visible names plus the three
-concrete modes:
+The agent layer exposes five user-visible names plus the two concrete
+loops:
 
 ```python
-from molexp.agent import AgentRunner, AgentMode, AgentRunResult, AgentSession
-from molexp.agent.modes import (
-    PlanMode, PlanModeConfig,
-    ChatMode, ChatModeConfig,
-    ReviewMode, ReviewModeConfig,
+from molexp.agent import (
+    AgentLoop, AgentRunner, AgentRunResult, AgentRuntime, AgentSession,
 )
+from molexp.agent.loops import ChatLoop, InteractiveLoop
 ```
+
+`ChatLoop` is one LLM round-trip; `InteractiveLoop` is the emergent
+tool loop driving `Router.stream_agentic`. ("Loop" is the agent-layer
+LLM-conversation concept; "Mode" is reserved for `molexp.harness.Mode`
+orchestration — the former PlanMode / ReviewMode pipelines moved to the
+harness layer.)
 
 Construction is plain Python — no factory functions
 (`create_agent(...)` / `build_agent(...)` / `Agent(provider=...)`).
@@ -28,13 +33,16 @@ Construction is plain Python — no factory functions
 ## Layer Boundaries
 
 ```
-agent ──uses──▶ workflow ──uses──▶ workspace
+harness ──uses──▶ agent ──uses──▶ workspace
+                  (agent and workflow are SIBLINGS — no edge between them)
 ```
 
-`molexp.agent` may import from `molexp.workspace.*` and
-`molexp.workflow.*` (downstream layers). It must **not** import from
-sibling application layers (`molexp.plugins`, `molexp.server`,
-`molexp.cli`, `molexp.sweep`).
+`molexp.agent` may import from `molexp.workspace.*` (the storage layer
+below it). It must **not** import `molexp.workflow` or `molexp.harness`
+— workflow is a sibling and harness sits above; harness reaches the
+agent layer through `molexp.agent.router` (the SDK-free Protocol
+module). It must also not import sibling application layers
+(`molexp.plugins`, `molexp.server`, `molexp.cli`, `molexp.sweep`).
 
 ### pydantic-ai firewall
 
@@ -133,7 +141,7 @@ The contract:
    * raise `UnevidencedApiReference` on any miss.
 4. **Repair-loop integration** — `drive_with_repair` catches
    `CapabilityDiscoveryRequired` and `UnevidencedApiReference` from
-   `spec.execute()`. The first maps to a re-run of both discovery
+   the workflow runtime execution. The first maps to a re-run of both discovery
    nodes; the second maps to `DiscoverCapabilities` only on the first
    occurrence and escalates to both nodes from the second. Both
    exceptions subclass `molexp.workflow.WorkflowError` so the

@@ -8,6 +8,12 @@ agents has a non-empty, SDK-free ``SYSTEM_PROMPT`` string, that
 package docstring records the DeepSeek production wiring for spec 04, and
 that importing the package pulls no pydantic-ai / pydantic-graph SDK into
 ``sys.modules`` (subprocess probe, mirroring ``test_import_guard.py``).
+
+Spec ``harness-run-mode-01-substrate`` extends the registry with the two
+run-mode writers (``test_code_writer`` / ``final_report_writer``); their
+registration + prompt-contract tests live at the bottom of this file, with
+new-symbol imports inside the test functions so the pre-existing tests keep
+collecting (and passing) while the new ones are RED.
 """
 
 from __future__ import annotations
@@ -25,6 +31,12 @@ _AGENT_NAMES = {
     "test_spec_writer",
 }
 
+# The two run-mode agent_names added by spec harness-run-mode-01-substrate.
+_RUN_AGENT_NAMES = {
+    "test_code_writer",
+    "final_report_writer",
+}
+
 
 # ── ac-005: each SYSTEM_PROMPT module is a non-empty str ───────────────────
 
@@ -36,6 +48,8 @@ _AGENT_NAMES = {
         "workflow_ir",
         "bound_workflow",
         "test_spec",
+        "test_code",
+        "final_report",
     ],
 )
 def test_each_module_defines_non_empty_system_prompt(module_name: str) -> None:
@@ -94,12 +108,17 @@ def test_import_prompts_pulls_no_sdk_into_sys_modules() -> None:
 # ── ac-006: prompts_by_agent() keys exactly the four agent_names ───────────
 
 
-def test_prompts_by_agent_keys_exactly_the_four_agent_names() -> None:
-    """ac-006 — ``prompts_by_agent()`` keys == the four stage agent_names."""
+def test_prompts_by_agent_keys_exactly_the_canonical_agent_names() -> None:
+    """ac-006 + harness-run-mode-01 — ``prompts_by_agent()`` keys == the four
+    planning agent_names plus the two run-mode writer agent_names.
+
+    (``workflow_source_writer`` is a known pre-existing gap, deliberately
+    left to the 02-wire leg — see the substrate spec's Out of scope.)
+    """
     from molexp.harness.prompts import prompts_by_agent
 
     mapping = prompts_by_agent()
-    assert set(mapping) == _AGENT_NAMES
+    assert set(mapping) == _AGENT_NAMES | _RUN_AGENT_NAMES
 
 
 def test_prompts_by_agent_values_are_non_empty_strings() -> None:
@@ -133,3 +152,39 @@ def test_package_docstring_documents_deepseek_wiring() -> None:
     doc = prompts.__doc__ or ""
     assert "deepseek:deepseek-v4-flash" in doc
     assert "dict.fromkeys" in doc
+
+
+# ── harness-run-mode-01: test_code_writer / final_report_writer ────────────
+
+
+def test_prompts_by_agent_includes_run_mode_writer_keys() -> None:
+    """``prompts_by_agent()`` registers the two run-mode writer agents on
+    top of the four planning agents (superset assertion)."""
+    from molexp.harness.prompts import prompts_by_agent
+
+    mapping = prompts_by_agent()
+    assert set(mapping) >= _AGENT_NAMES | _RUN_AGENT_NAMES
+
+
+def test_test_code_system_prompt_pins_the_pytest_contract() -> None:
+    """``TEST_CODE_SYSTEM_PROMPT`` pins the generated-test contract: pytest
+    functions, the ``build_workflow`` import, the ``test_`` naming
+    convention, and a ban on markdown fences around the emitted source."""
+    from molexp.harness.prompts import TEST_CODE_SYSTEM_PROMPT
+
+    assert isinstance(TEST_CODE_SYSTEM_PROMPT, str)
+    assert TEST_CODE_SYSTEM_PROMPT.strip()
+    assert "pytest" in TEST_CODE_SYSTEM_PROMPT
+    assert "build_workflow" in TEST_CODE_SYSTEM_PROMPT
+    assert "test_" in TEST_CODE_SYSTEM_PROMPT
+    lower = TEST_CODE_SYSTEM_PROMPT.lower()
+    assert "fence" in lower or "markdown" in lower
+
+
+def test_final_report_system_prompt_mentions_report() -> None:
+    """``FINAL_REPORT_SYSTEM_PROMPT`` is a non-empty report-writer brief."""
+    from molexp.harness.prompts import FINAL_REPORT_SYSTEM_PROMPT
+
+    assert isinstance(FINAL_REPORT_SYSTEM_PROMPT, str)
+    assert FINAL_REPORT_SYSTEM_PROMPT.strip()
+    assert "report" in FINAL_REPORT_SYSTEM_PROMPT.lower()

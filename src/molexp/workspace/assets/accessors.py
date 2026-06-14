@@ -123,24 +123,35 @@ class _BoundLog:
         self._scope_dir = scope_dir
         self._manifest = manifest
         self._catalog = catalog
+        self._dirty = False
 
     @property
     def asset(self) -> LogAsset:
         return self._asset
 
     def append(self, line: str) -> None:
+        # The line bytes go straight to the .log file (O(1) append). The
+        # ``line_count`` / ``updated_at`` metadata is bumped in memory only and
+        # marked dirty; rewriting the whole manifest + a catalog row on *every*
+        # line is O(lines x assets) churn, so the flush is deferred to
+        # :meth:`flush` (called once when the run context exits).
         self._asset.append(self._scope_dir, line)
-        # Lazy refresh of line_count + updated_at
-        updated = self._asset.model_copy(
+        self._asset = self._asset.model_copy(
             update={
                 "line_count": self._asset.line_count + 1,
                 "updated_at": datetime.now(),
             }
         )
-        self._asset = updated
-        self._manifest.update(updated)
+        self._dirty = True
+
+    def flush(self) -> None:
+        """Persist the accumulated ``line_count`` / ``updated_at`` once."""
+        if not self._dirty:
+            return
+        self._manifest.update(self._asset)
         if self._catalog is not None:
-            self._catalog.update(updated)
+            self._catalog.update(self._asset)
+        self._dirty = False
 
     def tail(self, n: int = 100) -> list[str]:
         return self._asset.tail(self._scope_dir, n)
@@ -208,6 +219,11 @@ class LogAccessor(_AccessorBase):
         bound = _BoundLog(existing, self._scope_dir, self._manifest, self._catalog)
         self._cache[name] = bound
         return bound
+
+    def flush_all(self) -> None:
+        """Flush deferred metadata for every bound log (called on context exit)."""
+        for bound in self._cache.values():
+            bound.flush()
 
 
 class CheckpointAccessor(_AccessorBase):

@@ -58,7 +58,7 @@ def create_execution(
         spec = default_codec.ir_to_spec(request.workflow_json)
         default_binding_registry.bind(experiment, spec)
 
-    new_run = experiment.add_run(parameters=request.parameters)
+    new_run = experiment.add_run(params=request.parameters)
     return RunResponse.from_model(new_run)
 
 
@@ -76,15 +76,15 @@ def get_execution_plan() -> JSONResponse:
 # ============================================================================
 
 # Process-local cache — NOT shared across workers.  Use --workers 1.
-_cache_instance = None
+_cache_instance: Caching | None = None
 
 
-def _get_cache():  # noqa: ANN202
+def _get_cache() -> Caching:
     global _cache_instance
     if _cache_instance is None:
         store_dir = Path.home() / ".molexp" / "cache"
         _cache_instance = Caching(store_dir=store_dir)
-        _cache_instance.initialize()
+        _cache_instance.initialize()  # ty: ignore[unresolved-attribute]
     return _cache_instance
 
 
@@ -92,9 +92,12 @@ def _get_cache():  # noqa: ANN202
 def get_cache_stats() -> CacheStatsResponse:
     cache = _get_cache()
     entry_count = 0
-    if cache._store_dir.exists():
-        entry_count = len(list(cache._store_dir.glob("*.json")))
-    return CacheStatsResponse(storeDir=str(cache._store_dir), entryCount=entry_count)
+    if cache._store_dir.exists():  # ty: ignore[unresolved-attribute]
+        entry_count = len(list(cache._store_dir.glob("*.json")))  # ty: ignore[unresolved-attribute]
+    return CacheStatsResponse(
+        storeDir=str(cache._store_dir),  # ty: ignore[unresolved-attribute]
+        entryCount=entry_count,
+    )
 
 
 @router.delete("/cache", response_model=CacheClearResponse)

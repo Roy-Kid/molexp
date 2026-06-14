@@ -91,8 +91,7 @@ class TestProject:
         from molexp.workspace import ProjectNotFoundError
 
         workspace.remove_project(project.id)
-        # clear cache after delete (otherwise in-memory stays)
-        workspace._projects_cache.pop(project.id, None)
+        # remove_folder evicts the single _children_cache; no manual clear needed.
         with pytest.raises(ProjectNotFoundError):
             workspace.get_project(project.id)
 
@@ -118,6 +117,35 @@ class TestExperiment:
         assert exp.metadata.workflow_source == "train.py"
         assert exp.metadata.parameter_space == {"lr": 1e-4}
         assert exp.metadata.git_commit == "abc"
+
+    def test_ir_workflow_source_externalized_to_workflow_json(self, project):
+        """A compiled-IR ``workflow_source`` lands as a standalone ``workflow.json``.
+
+        The IR is the contract the molexp VSCode preview reads directly, so it
+        must be a clean, pretty-printed file (no ``schema_version`` envelope) and
+        must have a single on-disk home — stripped from the embedded
+        ``experiment.json`` field, rehydrated from the file on reload.
+        """
+        ir = {"workflow_id": "wf", "name": "demo", "task_configs": [], "links": []}
+        exp = project.add_experiment("ir-exp", workflow_source=json.dumps(ir))
+
+        doc = Path(exp.experiment_dir) / "workflow.json"
+        assert doc.is_file()
+        # Clean IR — directly previewable, no version-envelope pollution.
+        assert json.loads(doc.read_text()) == ir
+        # Single home: the embedded field is cleared in experiment.json.
+        raw = json.loads((Path(exp.experiment_dir) / "experiment.json").read_text())
+        assert raw["workflow_source"] is None
+        # File is canonical: reload rehydrates the in-memory field from it.
+        reloaded = project.get_experiment("ir-exp")
+        assert json.loads(reloaded.metadata.workflow_source) == ir
+
+    def test_non_ir_workflow_source_stays_embedded(self, project):
+        """A non-JSON ``workflow_source`` (a Python path) is never externalized."""
+        exp = project.add_experiment("py-exp", workflow_source="train.py")
+        assert not (Path(exp.experiment_dir) / "workflow.json").exists()
+        raw = json.loads((Path(exp.experiment_dir) / "experiment.json").read_text())
+        assert raw["workflow_source"] == "train.py"
 
     def test_parent_references(self, experiment):
         assert experiment.project is not None
@@ -160,7 +188,7 @@ class TestExperiment:
 
 class TestRun:
     def test_creation(self, experiment):
-        run = experiment.add_run(parameters={"x": 1})
+        run = experiment.add_run(params={"x": 1})
         assert run.parameters == {"x": 1}
         assert run.status == "pending"
 
@@ -175,13 +203,13 @@ class TestRun:
         assert snap["git_commit"] == "abc123"
 
     def test_list_runs(self, experiment):
-        experiment.add_run(parameters={"x": 1})
-        experiment.add_run(parameters={"x": 2})
+        experiment.add_run(params={"x": 1})
+        experiment.add_run(params={"x": 2})
         assert len(experiment.list_runs()) == 2
 
     def test_reload_from_disk(self, experiment):
         run = experiment.add_run(
-            parameters={"x": 42},
+            params={"x": 42},
             workflow_snapshot={"source": "train.py"},
         )
         reloaded = experiment.get_run(run.id)

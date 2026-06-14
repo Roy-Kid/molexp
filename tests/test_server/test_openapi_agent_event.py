@@ -31,7 +31,7 @@ def test_schema_contains_kind_discriminated_agent_event_union() -> None:
         "TokenDeltaEvent",
         "ToolCallStartedEvent",
         "ToolCallCompletedEvent",
-        "ModeCompletedEvent",
+        "LoopCompletedEvent",
     ):
         assert member in schemas, f"{member} missing from OpenAPI components"
         kind = schemas[member]["properties"]["kind"]

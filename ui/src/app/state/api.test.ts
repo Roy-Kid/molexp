@@ -105,9 +105,19 @@ describe("mapExperiments", () => {
     expect(result.summary).toBe("Baseline experiment");
   });
 
-  it("falls back to workflow path when description is absent", () => {
+  it("does not use workflow as summary when description is absent", () => {
     const [result] = mapExperiments("proj-alpha", [fixtureExperimentNoDescription]);
-    expect(result.summary).toBe("variant.py");
+    expect(result.summary).toBe("");
+  });
+
+  it("does not expose inline workflow JSON as summary", () => {
+    const [result] = mapExperiments("proj-alpha", [
+      {
+        ...fixtureExperimentNoDescription,
+        workflow: JSON.stringify({ task_configs: [{ id: "build" }], links: [] }),
+      },
+    ]);
+    expect(result.summary).toBe("");
   });
 
   it("sets workflowFile from workflow field", () => {

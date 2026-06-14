@@ -17,7 +17,7 @@ def _make_workspace(tmp_path, status="pending", job_id=None, scheduler_job_id=No
     ws = Workspace(root=ws_path, name="test-ws")
     project = ws.add_project("proj1")
     exp = project.add_experiment("exp1")
-    run = exp.add_run(parameters={"lr": 0.001})
+    run = exp.add_run(params={"lr": 0.001})
     if status != "pending":
         run._set_status(RunStatus(status))
     if job_id or scheduler_job_id:

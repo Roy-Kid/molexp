@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { TaskNodeJson } from "@/types/task_graph_ir";
+import type { TaskNodeJson } from "@/components/workflow/task-graph-ir";
 
 const buildNodeFields = (node: TaskNodeJson | null): MetadataField[] => {
   if (!node) {

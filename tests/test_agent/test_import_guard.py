@@ -242,3 +242,27 @@ def test_agent_workspace_only_is_allowed() -> None:
     assert "molexp.workspace" not in FORBIDDEN_PREFIXES
     assert "molexp.workflow" in FORBIDDEN_PREFIXES
     assert "molexp.harness" in FORBIDDEN_PREFIXES
+
+
+def test_pydanticai_router_public_reexport_is_lazy() -> None:
+    """``from molexp.agent import PydanticAIRouter`` works and stays lazy.
+
+    The public spelling resolves through a module-level ``__getattr__``:
+    ``import molexp.agent`` alone must not load ``pydantic_ai``; touching
+    the ``PydanticAIRouter`` attribute loads the SDK and returns the same
+    class that lives under the ``_pydanticai/`` firewall.
+    """
+    code = (
+        "import sys\n"
+        "import molexp.agent\n"
+        "assert 'pydantic_ai' not in sys.modules, (\n"
+        "    'import molexp.agent must stay pydantic_ai-free even with the '\n"
+        "    'PydanticAIRouter re-export declared'\n"
+        ")\n"
+        "from molexp.agent import PydanticAIRouter\n"
+        "from molexp.agent._pydanticai.router import PydanticAIRouter as Private\n"
+        "assert PydanticAIRouter is Private, 'public re-export must be the same class'\n"
+        "assert 'pydantic_ai' in sys.modules, 'attribute access should have loaded the SDK'\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr or result.stdout

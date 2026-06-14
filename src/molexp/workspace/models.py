@@ -7,6 +7,7 @@ The server, CLI, and Python API all derive from these models.
 from __future__ import annotations
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -14,6 +15,22 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from molexp._typing import JSONValue
 
 # ── Shared value objects ────────────────────────────────────────────────────
+
+
+class RunStatus(StrEnum):
+    """Lifecycle state of a run.
+
+    Lives here (the workspace schema source of truth) rather than in
+    ``run.py`` so the run-lifecycle collaborators can import it without a
+    circular ``run.py`` dependency. Re-exported from ``run.py`` for
+    backward compatibility (``from molexp.workspace.run import RunStatus``).
+    """
+
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class ErrorInfo(BaseModel, frozen=True):
@@ -206,7 +223,7 @@ class ExecutionRecord(BaseModel, frozen=True):
     scheduler_job_id: str | None = None
 
 
-class ExecutionMetadata(BaseModel):
+class ExecutionMetadata(BaseModel, frozen=True):
     """Per-attempt metadata persisted to ``executions/<exec_id>/execution.json``.
 
     Mirrors the matching :class:`ExecutionRecord` entry in
@@ -226,7 +243,7 @@ class ExecutionMetadata(BaseModel):
     error: ErrorInfo | None = None
 
 
-class RunMetadata(BaseModel):
+class RunMetadata(BaseModel, frozen=True):
     """Single execution instance metadata.
 
     ``profile`` is the activated molcfg profile name (normalized,
@@ -280,9 +297,3 @@ class RunMetadata(BaseModel):
     # without a bound Workflow (legacy / ad-hoc runs).
     workflow_id: str | None = None
     workflow_version: str | None = None
-
-    # Walltime chunking — last completed step recorded by
-    # ``RunContext.checkpoint_step``.  ``None`` for runs that don't use
-    # step-based chunking.  ``RunContext.resumed_step`` reads this to
-    # decide where the next chunk picks up.
-    last_step: int | None = None

@@ -15,7 +15,7 @@ import os
 import re
 import shutil
 from datetime import datetime
-from typing import ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
 
 from molexp._typing import JSONValue
 from molexp.path import Path
@@ -26,6 +26,10 @@ from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
 from .models import FolderMetadata
 from .utils import slugify
+
+if TYPE_CHECKING:
+    from .catalog import AssetCatalog
+    from .workspace import Workspace
 
 F = TypeVar("F", bound="Folder")
 
@@ -74,13 +78,25 @@ def _validate_name_to_id(name: str) -> str:
     return derived
 
 
-def _slugify_name_to_id(name: str) -> str:
-    if not isinstance(name, str) or not name:
-        raise ValueError("folder name must be a non-empty string")
-    derived = slugify(name)
-    if not derived or not _KIND_PATTERN.fullmatch(derived):
-        raise ValueError(f"folder name {name!r} produced invalid id {derived!r}")
-    return derived
+def _validate_target_registered(workspace: object, target: str | None) -> None:
+    """Reject a *target* that is not in the workspace's compute-target registry.
+
+    No-op when *target* is ``None`` or the registry is empty (a registry-less
+    workspace keeps accepting free-form target strings — back-compat). Once a
+    workspace registers any target, references must name a registered one
+    (models.py: ``RunMetadata.target`` is "validated against
+    WorkspaceMetadata.targets at write time").
+    """
+    if target is None:
+        return
+    metadata = getattr(workspace, "metadata", None)
+    registered = getattr(metadata, "targets", ()) or ()
+    if registered and not any(getattr(t, "name", None) == target for t in registered):
+        names = sorted(getattr(t, "name", "?") for t in registered)
+        raise ValueError(
+            f"unknown compute target {target!r}: not in the workspace target "
+            f"registry {names}; register it first (e.g. `molexp target add`)."
+        )
 
 
 class Folder:
@@ -308,11 +324,31 @@ class Folder:
 
     # ── Generic five-verb CRUD ───────────────────────────────────────────
 
+    def _construct_child(self, cls: type[F], name: str, **kwargs: object) -> F:
+        """Build a typed child folder parented at ``self`` (not yet on disk).
+
+        The single construction hook the typed ``add_*`` sugar
+        (:meth:`Workspace.add_project`, :meth:`Project.add_experiment`,
+        :meth:`Experiment.add_run`) uses before handing the child to
+        :meth:`add_folder`. Entity constructors require a parent, so the child
+        is built self-parented; :meth:`add_folder` accepts a self-parented
+        child and performs the idempotent mount (cache / on-disk hit / create).
+        """
+        # Heterogeneous entity constructors (Run/Experiment/Project) all accept
+        # ``parent`` + ``name`` plus their own typed kwargs; the dynamic forward
+        # is sound at the call sites but not statically checkable here.
+        return cls(parent=self, name=name, **kwargs)  # ty: ignore[invalid-argument-type]
+
     def add_folder(self, child: Folder) -> Folder:
-        if child._parent is not None or child._root_path is not None:
+        # Accept an unmounted child, or one already parented at ``self`` (the
+        # typed ``add_*`` sugar builds self-parented children via
+        # ``_construct_child``). Reject a child mounted elsewhere or a root.
+        if child._root_path is not None or (
+            child._parent is not None and child._parent is not self
+        ):
             raise ValueError(
                 f"folder {child._name!r} (kind={child._kind!r}) is already mounted; "
-                "add_folder() accepts only unmounted folders"
+                "add_folder() accepts only unmounted or self-parented folders"
             )
         target_cls = type(child)
         slug = child._name
@@ -344,7 +380,7 @@ class Folder:
                 loaded = cls.from_disk(child_dir, self)
                 if isinstance(loaded, cls):
                     self._children_cache[loaded._name] = loaded
-                    return cast(F, loaded)
+                    return loaded
         raise cls._not_found_error_cls(name)
 
     def has_folder(self, name: str, *, cls: type[Folder]) -> bool:
@@ -403,7 +439,7 @@ class Folder:
         for slug in raw:
             cached = self._children_cache.get(str(slug))
             if isinstance(cached, cls):
-                out.append(cast(F, cached))
+                out.append(cached)
                 continue
             child_dir = cls.child_dir(self, str(slug))
             if not self._fs.is_dir(child_dir):
@@ -414,7 +450,7 @@ class Folder:
                 continue
             if isinstance(loaded, cls):
                 self._children_cache[loaded._name] = loaded
-                out.append(cast(F, loaded))
+                out.append(loaded)
         return out
 
     def sync_folders(self, *, cls: type[Folder]) -> None:
@@ -489,13 +525,58 @@ class Folder:
             return
         if not isinstance(raw, dict):
             return
-        if slug not in raw:
+        rows = cast("dict[str, JSONValue]", raw)
+        if slug not in rows:
             return
-        raw.pop(slug)
-        self._fs.atomic_write_json(fpath, raw)
+        rows.pop(slug)
+        self._fs.atomic_write_json(fpath, rows)
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._metadata.model_dump(mode="json"))
+
+    # ── Catalog upsert dispatch ──────────────────────────────────────────
+    #
+    # Workspace / Project / Experiment / Run each publish a row into the
+    # root workspace catalog on materialize / save.  Only the *dispatch* —
+    # resolve the root workspace catalog, then write the kind-specific row —
+    # is shared here; each entity supplies its own payload and
+    # ``upsert_<kind>`` call through :meth:`_write_catalog_row`.  The four
+    # bodies are semantically distinct, so this is dispatch dedup only, not
+    # a literal merge.
+
+    def _catalog_upsert(self) -> None:
+        """Publish this node's row into the root workspace catalog.
+
+        Resolves the catalog once (walking to the root workspace) and
+        delegates the per-kind payload to :meth:`_write_catalog_row`.
+        """
+        self._write_catalog_row(self._workspace_catalog)
+
+    @property
+    def _workspace_catalog(self) -> AssetCatalog:
+        """The root workspace's :class:`AssetCatalog`.
+
+        Walks the parent chain to the root node — the only one without a
+        parent, always the :class:`Workspace` for the four catalog-bearing
+        entities — and returns its ``catalog``.
+        """
+        node: Folder = self
+        while node._parent is not None:
+            node = node._parent
+        return cast("Workspace", node).catalog
+
+    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
+        """Build this node's catalog record and call ``catalog.upsert_<kind>``.
+
+        Per-kind hook with no shared payload — overridden by the four
+        catalog-bearing entities (Workspace / Project / Experiment / Run).
+        The default raises so a non-entity ``Folder`` (cache, agent
+        sessions) that never calls :meth:`_catalog_upsert` cannot silently
+        no-op into the catalog.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not participate in the workspace catalog"
+        )
 
     # ── Delete + move ────────────────────────────────────────────────────
 
@@ -512,11 +593,20 @@ class Folder:
         *,
         new_name: str | None = None,
     ) -> None:
+        # move_to uses OS-level ``shutil.move`` (local paths only). On a
+        # remote-backed folder that would silently operate on the wrong (local)
+        # path, so refuse it with a clear error instead.
+        if not isinstance(self._fs, LocalFileSystem) or not isinstance(
+            new_parent._fs, LocalFileSystem
+        ):
+            raise NotImplementedError(
+                "move_to is only supported for local-filesystem folders "
+                "(it uses OS-level shutil.move); remote-backed folders cannot be moved."
+            )
         target_id = self._name if new_name is None else _validate_name_to_id(new_name)
         target_dir = Path(new_parent._fs.join(new_parent.path(), target_id))
         if new_parent._fs.exists(target_dir):
             raise FolderMoveCollisionError(str(self.resolve()), str(target_dir))
-        # move_to uses OS-level move (shutil.move) — only works local→local
         src = self.resolve()
         dst = target_dir
         shutil.move(str(src), str(dst))

@@ -40,6 +40,7 @@ WELL_KNOWN_ARTIFACT_KINDS: tuple[str, ...] = (
     "bound_workflow",
     "workflow_source",
     "test_spec",
+    "test_source",
     "execution_plan",
     "execution_result",
     "test_result",

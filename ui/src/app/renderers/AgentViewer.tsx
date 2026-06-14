@@ -1,14 +1,17 @@
 import {
   Bot,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   CircleUser,
+  ClipboardList,
+  Cpu,
   HelpCircle,
   Loader2,
   Send,
   Settings,
   ShieldAlert,
-  Sparkles,
+  Target,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -26,10 +29,13 @@ import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { MarkdownContent } from "@/components/ui/markdown";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Skeleton } from "@/components/ui/skeleton";
 import { ThinkingBlock } from "@/components/ui/thinking-block";
 import { ToolCallRow } from "@/components/ui/tool-call-row";
 import { MolvisRawChart } from "@/lib/charts";
+import { formatDurationCompact } from "@/lib/format-time";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import {
   type ConversationTurn,
@@ -38,7 +44,26 @@ import {
   foldStreamedTurn,
   groupEventsIntoTurns,
   normalizeStreamFrame,
+  turnDurationSeconds,
 } from "./agentEvents";
+
+// ---------------------------------------------------------------------------
+// Shared visual recipe — one composer shell + one column width everywhere so
+// the agent surface reads as a single instrument, not assembled parts.
+// ---------------------------------------------------------------------------
+
+const COLUMN = "mx-auto w-full max-w-3xl";
+
+const COMPOSER_SHELL =
+  "flex items-end gap-2 rounded-lg border border-border bg-card px-3 py-2 shadow-xs " +
+  "transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 " +
+  "focus-within:ring-ring/25";
+
+const COMPOSER_BAR = "border-t border-border/60 bg-background px-4 pb-4 pt-3 md:px-8";
+
+const TEXTAREA_CLASS =
+  "max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-6 " +
+  "placeholder:text-muted-foreground focus:outline-none disabled:opacity-60";
 
 // ---------------------------------------------------------------------------
 // Event row
@@ -54,6 +79,12 @@ const formatTs = (ts: string): string => {
   } catch {
     return ts;
   }
+};
+
+const formatTokens = (count: number): string => {
+  if (count < 1_000) return String(count);
+  if (count < 1_000_000) return `${(count / 1_000).toFixed(1)}k`;
+  return `${(count / 1_000_000).toFixed(1)}M`;
 };
 
 const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
@@ -77,25 +108,21 @@ const EventRow = ({ event }: { event: ApiSessionEvent }): JSX.Element => {
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">{meta.label}</span>
-          {event.type === "tool_call_started" && Boolean(payload.tool_name) && (
-            <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
-              {String(payload.tool_name)}
-            </Badge>
-          )}
-          {event.type === "tool_call_completed" && Boolean(payload.tool_name) && (
-            <Badge variant="secondary" className="font-mono text-[10px] h-4 px-1">
-              {String(payload.tool_name)}
-            </Badge>
-          )}
-          <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+          {(event.type === "tool_call_started" || event.type === "tool_call_completed") &&
+            Boolean(payload.tool_name) && (
+              <Badge variant="secondary" className="h-4 px-1 font-mono text-[10px]">
+                {String(payload.tool_name)}
+              </Badge>
+            )}
+          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
             {formatTs(event.ts)}
           </span>
           {hasDetail && (
             <button
               type="button"
-              className="text-muted-foreground hover:text-foreground transition-colors"
+              className="text-muted-foreground transition-colors hover:text-foreground"
               onClick={() => setExpanded((v) => !v)}
-              aria-label={expanded ? "Collapse" : "Expand"}
+              aria-label={expanded ? "Collapse event detail" : "Expand event detail"}
             >
               {expanded ? (
                 <ChevronDown className="h-3 w-3" />
@@ -107,28 +134,22 @@ const EventRow = ({ event }: { event: ApiSessionEvent }): JSX.Element => {
         </div>
 
         {/* Inline content for common event types */}
-        {event.type === "mode_completed" && (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 dark:border-emerald-800 dark:bg-emerald-950/30">
-            {Boolean(payload.text) && (
-              <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                {String(payload.text)}
-              </p>
-            )}
+        {event.type === "loop_completed" && Boolean(payload.text) && (
+          <div className="rounded-md border border-success/25 bg-success-soft px-3 py-2">
+            <p className="text-xs text-success-foreground">{String(payload.text)}</p>
           </div>
         )}
 
         {event.type === "tool_call_completed" && <ToolResultArtifacts payload={payload} />}
 
         {event.type === "clarification_required" && Boolean(payload.questions) && (
-          <div className="rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 dark:border-fuchsia-800 dark:bg-fuchsia-950/30">
-            <p className="text-xs text-fuchsia-700 dark:text-fuchsia-300">
-              {String(payload.questions)}
-            </p>
+          <div className="rounded-md border border-warning/25 bg-warning-soft px-3 py-2">
+            <p className="text-xs text-warning-foreground">{String(payload.questions)}</p>
           </div>
         )}
 
         {expanded && hasDetail && (
-          <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 text-[11px] font-mono text-muted-foreground">
+          <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
             {JSON.stringify(payload, null, 2)}
           </pre>
         )}
@@ -152,10 +173,8 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
     const data = Array.isArray(inner.data) ? (inner.data as unknown[]) : [];
     const layout = (inner.layout as Record<string, unknown> | undefined) ?? {};
     return (
-      <div className="space-y-2 rounded-md border border-indigo-200 bg-indigo-50/40 p-3 dark:border-indigo-900 dark:bg-indigo-950/20">
-        {title && (
-          <p className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">{title}</p>
-        )}
+      <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
+        {title && <p className="text-xs font-medium text-foreground">{title}</p>}
         <MolvisRawChart
           spec={{
             data,
@@ -175,7 +194,7 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
     return (
       <div className="overflow-x-auto rounded-md border border-border/60">
         {title && (
-          <p className="border-b border-border/60 bg-muted/40 px-3 py-1 text-xs font-semibold">
+          <p className="border-b border-border/60 bg-muted/40 px-3 py-1 text-xs font-medium">
             {title}
           </p>
         )}
@@ -215,68 +234,13 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
 
   if (kind === "text" && typeof inner.body === "string") {
     return (
-      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md bg-muted/40 px-3 py-2 text-[11px] text-foreground">
+      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[11px] text-foreground">
         {inner.body}
       </pre>
     );
   }
 
   return null;
-};
-
-// ---------------------------------------------------------------------------
-// Turn card — one conversational round-trip (question → answer)
-// ---------------------------------------------------------------------------
-
-const TurnAnswer = ({
-  result,
-  inProgress,
-}: {
-  result: ApiSessionEvent | null;
-  inProgress: boolean;
-}): JSX.Element => {
-  if (!result) {
-    if (inProgress) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          <span>Working…</span>
-        </div>
-      );
-    }
-    return (
-      <p className="text-sm italic text-muted-foreground">
-        No final answer recorded for this turn.
-      </p>
-    );
-  }
-
-  const payload = (result.payload ?? {}) as Record<string, unknown>;
-
-  if (result.type === "mode_completed") {
-    const summary = typeof payload.text === "string" ? payload.text : "";
-    return (
-      <div className="space-y-2">
-        {summary ? (
-          <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
-            {summary}
-          </p>
-        ) : (
-          <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
-        )}
-      </div>
-    );
-  }
-
-  if (result.type === "tool_call_completed") {
-    return <ToolResultArtifacts payload={payload} />;
-  }
-
-  return (
-    <pre className="overflow-x-auto rounded-md bg-muted/40 px-3 py-2 text-xs">
-      {JSON.stringify(payload, null, 2)}
-    </pre>
-  );
 };
 
 /**
@@ -311,16 +275,95 @@ const ToolResultArtifacts = ({
   );
 };
 
-const TurnCard = ({
-  turn,
-  index,
-  total,
+// ---------------------------------------------------------------------------
+// Turn card — one conversational round-trip (question → answer)
+// ---------------------------------------------------------------------------
+
+const TurnAnswer = ({
+  result,
+  inProgress,
 }: {
-  turn: ConversationTurn;
-  index: number;
-  total: number;
+  result: ApiSessionEvent | null;
+  inProgress: boolean;
 }): JSX.Element => {
-  const isLast = index === total - 1;
+  if (!result) {
+    if (inProgress) {
+      return (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-3.5 w-3.5 animate-spin text-info" />
+          <span>Working…</span>
+        </div>
+      );
+    }
+    return (
+      <p className="text-sm italic text-muted-foreground">
+        No final answer recorded for this turn.
+      </p>
+    );
+  }
+
+  const payload = (result.payload ?? {}) as Record<string, unknown>;
+
+  if (result.type === "loop_completed") {
+    const summary = typeof payload.text === "string" ? payload.text : "";
+    return summary ? (
+      <MarkdownContent text={summary} />
+    ) : (
+      <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
+    );
+  }
+
+  if (result.type === "plan_emitted") {
+    const planId = typeof payload.plan_id === "string" ? payload.plan_id : "plan";
+    const stepCount = typeof payload.step_count === "number" ? payload.step_count : 0;
+    return (
+      <div className="flex items-center gap-2 rounded-md border border-info/25 bg-info-soft px-3 py-2 text-xs text-info-foreground">
+        <ClipboardList className="h-3.5 w-3.5 flex-none" />
+        <span className="font-mono font-medium">{planId}</span>
+        <span>
+          · {stepCount} {stepCount === 1 ? "step" : "steps"} — review the plan to continue
+        </span>
+      </div>
+    );
+  }
+
+  if (result.type === "tool_call_completed") {
+    return <ToolResultArtifacts payload={payload} />;
+  }
+
+  return (
+    <pre className="overflow-x-auto rounded-md bg-muted/40 px-3 py-2 text-xs">
+      {JSON.stringify(payload, null, 2)}
+    </pre>
+  );
+};
+
+/** Dim provenance footer: outcome · duration · token usage (CLI parity). */
+const TurnFooter = ({ turn }: { turn: ConversationTurn }): JSX.Element | null => {
+  if (!turn.result) return null;
+  const payload = (turn.result.payload ?? {}) as Record<string, unknown>;
+  const resultDump = (payload.result as Record<string, unknown> | undefined) ?? {};
+  const usage = (resultDump.usage as Record<string, unknown> | undefined) ?? {};
+  const tokensIn = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
+  const tokensOut = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
+  const duration = formatDurationCompact(turnDurationSeconds(turn));
+  const isPlan = turn.result.type === "plan_emitted";
+
+  return (
+    <div className="flex items-center gap-1.5 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
+      <CheckCircle2 className={`h-3 w-3 ${isPlan ? "text-info" : "text-success"}`} />
+      <span>{isPlan ? "plan ready" : "done"}</span>
+      {duration && <span className="tabular-nums">· {duration}</span>}
+      {(tokensIn > 0 || tokensOut > 0) && (
+        <span className="tabular-nums">
+          · ↑{formatTokens(tokensIn)} ↓{formatTokens(tokensOut)} tok
+        </span>
+      )}
+    </div>
+  );
+};
+
+const TurnCard = ({ turn }: { turn: ConversationTurn }): JSX.Element => {
   const [stepsOpen, setStepsOpen] = useState(false);
   const stepCount = turn.steps.length;
 
@@ -330,67 +373,47 @@ const TurnCard = ({
     [turn.steps, turn.result],
   );
 
-  const QuestionIcon = turn.source === "goal" ? Sparkles : CircleUser;
-  const questionLabel = turn.source === "goal" ? "Goal" : "You asked";
+  const QuestionIcon = turn.source === "goal" ? Target : CircleUser;
 
   return (
-    <article className="rounded-xl border border-border/70 bg-card shadow-sm">
-      <header className="flex items-start gap-3 border-b border-border/60 px-4 py-3">
-        <div
-          className={
-            turn.source === "goal"
-              ? "mt-0.5 flex-none rounded-full bg-violet-500/10 p-1.5 text-violet-500"
-              : "mt-0.5 flex-none rounded-full bg-blue-500/10 p-1.5 text-blue-500"
-          }
+    <article className="overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs">
+      <header className="flex items-start gap-2.5 border-b border-border/60 bg-muted/30 px-4 py-2.5">
+        <QuestionIcon
+          className="mt-0.5 h-3.5 w-3.5 flex-none text-muted-foreground"
+          aria-label={turn.source === "goal" ? "Task goal" : "Your message"}
+        />
+        <p
+          className="min-w-0 flex-1 whitespace-pre-wrap text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]"
+          title={turn.question}
         >
-          <QuestionIcon className="h-3.5 w-3.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {questionLabel}
-          </p>
-          <p className="mt-0.5 whitespace-pre-wrap text-sm font-medium text-foreground">
-            {turn.question || <span className="italic text-muted-foreground">(no question)</span>}
-          </p>
-        </div>
+          {turn.question || <span className="italic text-muted-foreground">(no question)</span>}
+        </p>
+        {turn.inProgress && <StatusBadge status="running" size="sm" dot />}
       </header>
 
-      <div className="space-y-3 px-4 py-3">
+      <div className="space-y-2.5 px-4 py-3">
         {streamed.thinking && (
           <ThinkingBlock thinking={streamed.thinking} streaming={turn.inProgress} />
         )}
 
         {streamed.toolCalls.length > 0 && (
-          <div className="space-y-1">
+          <div className="-mx-1.5">
             {streamed.toolCalls.map((call) => (
               <ToolCallRow key={call.id} call={call} />
             ))}
           </div>
         )}
 
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 flex-none rounded-full bg-emerald-500/10 p-1.5 text-emerald-500">
-            <Bot className="h-3.5 w-3.5" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {turn.result?.type === "mode_completed" && isLast ? "Final answer" : "Answer"}
-            </p>
-            <div className="mt-1">
-              {turn.inProgress && !turn.result && streamed.answer ? (
-                // Token-by-token streaming answer before a terminal result lands.
-                <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-foreground">
-                  {streamed.answer}
-                </p>
-              ) : (
-                <TurnAnswer result={turn.result} inProgress={turn.inProgress} />
-              )}
-            </div>
-          </div>
-        </div>
+        {turn.inProgress && !turn.result && streamed.answer ? (
+          // Token-by-token streaming answer before a terminal result lands —
+          // rendered as markdown so structure appears as it streams.
+          <MarkdownContent text={streamed.answer} />
+        ) : (
+          <TurnAnswer result={turn.result} inProgress={turn.inProgress} />
+        )}
 
         {stepCount > 0 && (
-          <div className="ml-9">
+          <div>
             <button
               type="button"
               onClick={() => setStepsOpen((v) => !v)}
@@ -407,14 +430,17 @@ const TurnCard = ({
               </span>
             </button>
             {stepsOpen && (
-              <div className="mt-2 rounded-md border border-border/50 bg-muted/20 px-3 py-2">
-                {turn.steps.map((event) => (
-                  <EventRow key={`${turn.key}-step-${event.type}-${event.ts}`} event={event} />
+              <div className="mt-2 rounded-md border border-border/50 bg-muted/20 px-3 py-1">
+                {turn.steps.map((event, stepIdx) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: the event log is append-only, so the position is a stable identity even when two events share a timestamp
+                  <EventRow key={`${turn.key}-step-${stepIdx}-${event.type}`} event={event} />
                 ))}
               </div>
             )}
           </div>
         )}
+
+        <TurnFooter turn={turn} />
       </div>
     </article>
   );
@@ -462,9 +488,11 @@ const ChatBox = ({
     : "Message the agent… (⌘+Enter to send)";
 
   return (
-    <div className="bg-gradient-to-t from-background via-background to-background/0 px-4 pb-4 pt-3 md:px-8 md:pb-6">
+    <div className={COMPOSER_BAR}>
       {awaitingRequestId && (
-        <div className="mx-auto mb-2 flex max-w-5xl items-start gap-2 rounded-md border border-fuchsia-200 bg-fuchsia-50 px-3 py-2 text-xs text-fuchsia-700 dark:border-fuchsia-800 dark:bg-fuchsia-950/30 dark:text-fuchsia-300">
+        <div
+          className={`${COLUMN} mb-2 flex items-start gap-2 rounded-md border border-warning/30 bg-warning-soft px-3 py-2 text-xs text-warning-foreground`}
+        >
           <HelpCircle className="mt-0.5 h-3.5 w-3.5 flex-none" />
           <p className="flex-1">
             <span className="font-semibold">Agent is waiting</span>
@@ -472,10 +500,10 @@ const ChatBox = ({
           </p>
         </div>
       )}
-      <div className="mx-auto flex max-w-5xl items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-md focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/30">
+      <div className={`${COLUMN} ${COMPOSER_SHELL}`}>
         <textarea
           rows={1}
-          className="max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
+          className={TEXTAREA_CLASS}
           placeholder={placeholder}
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -488,8 +516,8 @@ const ChatBox = ({
             void handleSend();
           }}
           disabled={disabled || sending || !content.trim()}
-          className="h-8 w-8 flex-none rounded-full"
-          aria-label="Send"
+          className="h-8 w-8 flex-none rounded-md"
+          aria-label="Send message"
         >
           {sending ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -562,8 +590,8 @@ const GoalInput = ({
     palette.syncFromValue(description);
   }, [description, palette]);
 
-  // Fetch the active provider/model once so the input can show it inline,
-  // Codex/Claude-style. Soft-fail: missing provider means no badge.
+  // Fetch the active provider/model once so the input can show it inline.
+  // Soft-fail: missing provider means no badge.
   useEffect(() => {
     let cancelled = false;
     agentAdminApi
@@ -701,7 +729,7 @@ const GoalInput = ({
 
   const handlePaletteSelect = useCallback(
     (cmd: ApiCommand): void => {
-      const replaced = `/${cmd.slashName}${cmd.parameters.length > 0 ? " " : " "}`;
+      const replaced = `/${cmd.slashName} `;
       setDescription(replaced);
       palette.close();
       textareaRef.current?.focus();
@@ -710,22 +738,26 @@ const GoalInput = ({
   );
 
   return (
-    <div className="bg-gradient-to-t from-background via-background to-background/0 px-4 pb-4 pt-3 md:px-8 md:pb-6">
+    <div className={COMPOSER_BAR}>
       {info && (
-        <div className="mx-auto mb-2 max-w-5xl rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs">
+        <div
+          className={`${COLUMN} mb-2 rounded-md border border-border/60 bg-muted/40 px-3 py-1.5 text-xs`}
+        >
           <pre className="whitespace-pre-wrap font-mono">{info}</pre>
         </div>
       )}
       {error && (
-        <div className="mx-auto mb-2 max-w-5xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+        <div
+          className={`${COLUMN} mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-1.5 text-xs text-destructive`}
+        >
           {error}
         </div>
       )}
       {showAdvanced && (
-        <div className="mx-auto mb-2 max-w-5xl rounded-xl border border-border/60 bg-card/60 p-3">
+        <div className={`${COLUMN} mb-2 rounded-md border border-border/60 bg-card p-3`}>
           <label
             htmlFor="prompt-override"
-            className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-muted-foreground"
+            className="mb-1 block text-xs font-medium text-muted-foreground"
           >
             System prompt override (replaces workspace + skill layers)
           </label>
@@ -740,15 +772,12 @@ const GoalInput = ({
           />
         </div>
       )}
-      <div className="relative mx-auto max-w-5xl">
-        <div
-          ref={anchorRef}
-          className="flex items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-md focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/30"
-        >
+      <div className={`${COLUMN} relative`}>
+        <div ref={anchorRef} className={COMPOSER_SHELL}>
           <textarea
             ref={textareaRef}
             rows={1}
-            className="max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-6 placeholder:text-muted-foreground focus:outline-none"
+            className={TEXTAREA_CLASS}
             placeholder={placeholder}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -759,7 +788,7 @@ const GoalInput = ({
             size="icon"
             onClick={handleSendButton}
             disabled={disabled || !description.trim()}
-            className="h-8 w-8 flex-none rounded-full"
+            className="h-8 w-8 flex-none rounded-md"
             aria-label="Start agent task"
           >
             {disabled ? (
@@ -771,7 +800,7 @@ const GoalInput = ({
         </div>
         <CommandPalette state={palette} anchorRef={anchorRef} onPick={handlePaletteSelect} />
       </div>
-      <div className="mx-auto mt-1.5 flex max-w-5xl items-center gap-2 text-[11px] text-muted-foreground">
+      <div className={`${COLUMN} mt-1.5 flex items-center gap-2 text-[11px] text-muted-foreground`}>
         {providerLabel ? (
           <button
             type="button"
@@ -779,7 +808,7 @@ const GoalInput = ({
             className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono text-[10px] transition-colors hover:bg-muted hover:text-foreground"
             title="Active model — click to change in Settings"
           >
-            <Sparkles className="h-3 w-3 opacity-60" />
+            <Cpu className="h-3 w-3 opacity-60" />
             <span>{providerLabel}</span>
           </button>
         ) : null}
@@ -789,7 +818,7 @@ const GoalInput = ({
           className={
             "rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors " +
             (planMode
-              ? "bg-violet-500/10 text-violet-600 hover:bg-violet-500/20"
+              ? "bg-primary/10 text-primary hover:bg-primary/15"
               : "hover:bg-muted hover:text-foreground")
           }
           title={
@@ -797,6 +826,7 @@ const GoalInput = ({
               ? "Plan mode on: agent inspects and emits a plan; no writes"
               : "Toggle plan mode for the next launch"
           }
+          aria-pressed={planMode}
         >
           Plan {planMode ? "on" : "off"}
         </button>
@@ -831,9 +861,9 @@ const AgentHealthBanner = ({
   health: ApiAgentHealth;
   onOpenSettings: () => void;
 }): JSX.Element => (
-  <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-700 dark:bg-amber-950/30">
-    <ShieldAlert className="mt-0.5 h-5 w-5 flex-none text-amber-600 dark:text-amber-400" />
-    <div className="flex-1 text-amber-900 dark:text-amber-100">
+  <div className="flex items-start gap-3 rounded-md border border-warning/30 bg-warning-soft px-4 py-3 text-sm">
+    <ShieldAlert className="mt-0.5 h-5 w-5 flex-none text-warning" />
+    <div className="flex-1 text-warning-foreground">
       <p className="font-medium">Agent not ready</p>
       <p className="mt-0.5 text-xs opacity-90">{health.reason}</p>
     </div>
@@ -860,35 +890,41 @@ const HeaderSettingsAction = ({ onOpenSettings }: { onOpenSettings: () => void }
   </Button>
 );
 
-const LiveIndicator = (): JSX.Element => (
-  <span className="inline-flex items-center gap-1 rounded-md bg-info-soft px-1.5 py-0.5 text-[10px] font-medium text-info-foreground">
-    <Loader2 className="h-3 w-3 animate-spin" />
-    Live
-  </span>
+const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => (
+  <EntityHeader icon={Bot} title={session.goal} status={session.status} />
 );
-
-const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => {
-  const isRunning = session.status === "running";
-  return (
-    <EntityHeader
-      icon={Bot}
-      title={session.goal}
-      status={session.status}
-      titleAccessory={isRunning ? <LiveIndicator /> : undefined}
-    />
-  );
-};
 
 const NewSessionHeader = ({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element => {
   return (
     <EntityHeader
-      icon={Sparkles}
+      icon={Bot}
       title="New agent task"
       subtitle="Set the task goal"
       actions={<HeaderSettingsAction onOpenSettings={onOpenSettings} />}
     />
   );
 };
+
+// ---------------------------------------------------------------------------
+// Loading skeleton — sketches two turn cards instead of a centered spinner.
+// ---------------------------------------------------------------------------
+
+const SessionSkeleton = (): JSX.Element => (
+  <div className={`${COLUMN} space-y-4 px-4 pb-6 pt-4 md:px-8`}>
+    {["first", "second"].map((slot) => (
+      <div key={slot} className="overflow-hidden rounded-lg border border-border/70 bg-card">
+        <div className="border-b border-border/60 bg-muted/30 px-4 py-2.5">
+          <Skeleton className="h-4 w-2/5" />
+        </div>
+        <div className="space-y-2.5 px-4 py-3">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-4/5" />
+          <Skeleton className="h-3 w-3/5" />
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 // ---------------------------------------------------------------------------
 // Main AgentViewer
@@ -1009,12 +1045,30 @@ const AgentSessionViewer = ({
     };
   }, [sessionId, session?.status]);
 
-  // Auto-scroll to bottom when events change
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+  // Auto-scroll: jump to the latest activity when a session loads, then
+  // follow the stream only while the user is already reading the tail
+  // (never yank the viewport away from someone scrolled up).
+  const scrollViewport = useCallback((): HTMLElement | null => {
+    const root = scrollRef.current;
+    if (!root) return null;
+    return root.querySelector<HTMLElement>("[data-radix-scroll-area-viewport]") ?? root;
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const viewport = scrollViewport();
+    if (viewport) viewport.scrollTop = viewport.scrollHeight;
+  }, [loading, scrollViewport]);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `events` is the stream tick this effect follows
+  useEffect(() => {
+    const viewport = scrollViewport();
+    if (!viewport) return;
+    const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
+    if (distanceFromBottom < 160) {
+      viewport.scrollTop = viewport.scrollHeight;
+    }
+  }, [events, scrollViewport]);
 
   // While running, poll session stats so token/usage counts stay live
   // even though they aren't part of the SSE event payloads. Depend on
@@ -1100,7 +1154,7 @@ const AgentSessionViewer = ({
   // Detect whether the agent is currently waiting on the user's reply.
   const pendingUserRequest = useMemo(() => derivePendingUserRequest(events), [events]);
 
-  // --- "new" state: ChatGPT-style hero with composer at the bottom ---
+  // --- "new" state: quiet empty state with the composer at the bottom ---
   if (!sessionId || (!loading && !session)) {
     const notReady = health !== null && !health.ready;
     const recent = snapshot.agentSessions.slice(0, 5);
@@ -1108,42 +1162,43 @@ const AgentSessionViewer = ({
       <div className="flex h-full flex-col bg-background">
         <NewSessionHeader onOpenSettings={openSettings} />
         <div className="flex flex-1 flex-col overflow-auto">
-          <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
+          <div className={`${COLUMN} flex flex-1 flex-col gap-6 px-4 py-8 md:px-8`}>
             {notReady && health && (
               <AgentHealthBanner health={health} onOpenSettings={openSettings} />
             )}
             {error && (
-              <div className="flex items-center justify-between gap-3 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/30 dark:text-red-400">
+              <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-2 text-sm text-destructive">
                 <span className="flex-1">{error}</span>
                 {notReady && (
                   <Button size="sm" variant="outline" onClick={openSettings}>
-                    Open Agent Settings
+                    Open agent settings
                   </Button>
                 )}
               </div>
             )}
 
-            <div className="flex flex-col items-center gap-3 pt-8 text-center">
-              <div className="rounded-full bg-violet-500/10 p-3 text-violet-500">
-                <Sparkles className="h-6 w-6" />
+            <div className="flex flex-col items-center gap-2 pt-10 text-center">
+              <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-card">
+                <Bot className="h-5 w-5 text-muted-foreground" />
               </div>
-              <h2 className="text-xl font-semibold">What can the agent help you with?</h2>
-              <p className="max-w-md text-sm text-muted-foreground">Set a task goal to begin.</p>
+              <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
+              <p className="max-w-md text-sm text-muted-foreground">
+                Describe a goal. The agent plans the steps, calls molexp tools, and reports results
+                with artifacts.
+              </p>
             </div>
 
             {recent.length > 0 && (
               <div className="space-y-1.5">
-                <p className="px-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                  Recent tasks
-                </p>
+                <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
                 {recent.map((s) => (
                   <button
                     key={s.id}
                     type="button"
                     onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
-                    className="flex w-full items-center gap-3 rounded-lg border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
+                    className="flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
                   >
-                    <Bot className="h-4 w-4 flex-none text-violet-400" />
+                    <Bot className="h-4 w-4 flex-none text-muted-foreground" />
                     <p className="flex-1 truncate text-sm">{s.goal}</p>
                     <StatusBadge status={s.status} size="sm" />
                   </button>
@@ -1163,8 +1218,8 @@ const AgentSessionViewer = ({
 
   if (loading) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="flex h-full flex-col bg-background">
+        <SessionSkeleton />
       </div>
     );
   }
@@ -1172,10 +1227,10 @@ const AgentSessionViewer = ({
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
-        <XCircle className="h-10 w-10 text-red-500" />
+        <XCircle className="h-10 w-10 text-destructive" />
         <p className="text-sm text-muted-foreground">{error}</p>
         <Button variant="outline" size="sm" onClick={() => setError(null)}>
-          Retry
+          Dismiss error
         </Button>
       </div>
     );
@@ -1191,9 +1246,9 @@ const AgentSessionViewer = ({
       <SessionHeader session={session} />
 
       <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
-        <div className="mx-auto flex max-w-5xl flex-col gap-4 px-4 pb-6 pt-4 md:px-8">
-          {turns.map((turn, turnIdx) => (
-            <TurnCard key={turn.key} turn={turn} index={turnIdx} total={turns.length} />
+        <div className={`${COLUMN} flex flex-col gap-4 px-4 pb-6 pt-4 md:px-8`}>
+          {turns.map((turn) => (
+            <TurnCard key={turn.key} turn={turn} />
           ))}
         </div>
       </ScrollArea>

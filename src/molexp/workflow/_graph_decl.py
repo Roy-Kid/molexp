@@ -106,7 +106,6 @@ class TaskRegistration:
     """Internal record of one registered task or actor."""
 
     __slots__ = (
-        "config",
         "dependent_params",
         "depends_on",
         "fn_or_class",
@@ -125,7 +124,6 @@ class TaskRegistration:
         is_actor: bool = False,
         remote: UserDeps = None,
         task_type: str | None = None,
-        config: JSONMapping | None = None,
         dependent_params: DependentParamsFn | None = None,
         position: tuple[float, float] | None = None,
     ) -> None:
@@ -135,10 +133,10 @@ class TaskRegistration:
         self.is_actor = is_actor
         self.remote = remote
         self.task_type = task_type
-        self.config = dict(config) if config else None
         self.dependent_params = dependent_params
         # Editor-canvas coordinate metadata (free-layout graph). Pure UI
         # metadata: it round-trips through the IR but never enters the
-        # ``TaskSnapshot`` content hash (snapshot reads ``fn_or_class`` +
-        # ``config`` only), so moving a node never invalidates the cache.
+        # ``TaskSnapshot`` content hash (the snapshot reads the task instance's
+        # code + captured ``__init__`` config), so moving a node never
+        # invalidates the cache.
         self.position = position

@@ -42,6 +42,7 @@ from ._graph_decl import LoopDecl, ParallelDecl, TaskRegistration
 from ._helpers import _ir_object_list, _require_str
 from .contract import WorkflowContract
 from .protocols import Streamable
+from .snapshot import task_config_of
 
 if TYPE_CHECKING:
     from .compiled import CompiledWorkflow
@@ -175,6 +176,8 @@ class WorkflowCodec:
             cfg_raw = tc.get("config")
             config: dict[str, JSONValue] = dict(cfg_raw) if isinstance(cfg_raw, dict) else {}
             factory = registry.get(slug)
+            # The reconstructed instance re-captures these ``__init__`` args as its
+            # own ``_task_config`` — config lives on the instance, not the registration.
             instance = factory(config)
             tasks.append(
                 TaskRegistration(
@@ -183,7 +186,6 @@ class WorkflowCodec:
                     depends_on=deps_by_target.get(task_id, []),
                     is_actor=isinstance(instance, Streamable),
                     task_type=slug,
-                    config=config,
                     position=_read_position(tc.get("position")),
                 )
             )
@@ -236,25 +238,35 @@ class WorkflowCodec:
             parallels=parallels,
         )
 
-    def spec_to_ir(self, spec: CompiledWorkflow) -> JSONMapping:
+    def spec_to_ir(self, spec: CompiledWorkflow, *, strict: bool = True) -> JSONMapping:
         """Serialize a :class:`Workflow` to the JSON IR shape (see ``schema/workflow.json``).
 
         This is the authoritative :class:`Workflow` → IR body;
         :meth:`Workflow.to_dict` delegates here.
+
+        ``strict`` (default ``True``) requires every task to carry a
+        ``task_type`` slug so the IR round-trips back through
+        :meth:`ir_to_spec`. Pass ``strict=False`` for non-round-tripping
+        observability use (e.g. the live ``workflow.json`` graph): slug-less
+        tasks then serialize with ``task_type: None`` instead of raising.
         """
         unslugged = [t.name for t in spec._tasks if t.task_type is None]
-        if unslugged:
+        if unslugged and strict:
             raise ValueError(
                 "Cannot serialize workflow to IR: the following tasks have no "
-                f"task_type slug: {unslugged}. Use `WorkflowBuilder.add(..., task_type=...)` "
-                "or build the spec from IR via CompiledWorkflow.from_ir()."
+                f"task_type slug: {unslugged}. Register the task type via "
+                "`@default_registry.register('<namespace>.<name>')` on the task "
+                "class (the slug is then resolved automatically), or build the "
+                "spec from IR via CompiledWorkflow.from_ir()."
             )
         task_configs: list[JSONValue] = []
         for t in spec._tasks:
             tc: dict[str, JSONValue] = {
                 "task_id": t.name,
                 "task_type": t.task_type,
-                "config": dict(t.config) if t.config else {},
+                # Config = the task instance's captured ``__init__`` args, the form
+                # ``ir_to_spec`` round-trips via ``cls(**config)``.
+                "config": task_config_of(t.fn_or_class),
                 "status": "pending",
             }
             position = getattr(t, "position", None)

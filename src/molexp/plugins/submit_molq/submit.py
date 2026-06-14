@@ -123,6 +123,8 @@ class SubmitHandler:
         mol_run: Run,
         experiment: Experiment,  # noqa: ARG002
         project: Project,
+        *,
+        execution_id: str | None = None,
     ) -> None:
         from molq import (
             Cluster,
@@ -141,13 +143,13 @@ class SubmitHandler:
         job_name = f"{project.name[:20]}-{mol_run.id[:8]}"
         run_dir = Path(mol_run.run_dir)
 
-        # Pre-allocate the execution_id the worker will use.  When running
-        # locally the per-attempt directory is created here so molq's
-        # stdout/stderr/jobs paths land alongside the workflow.json the
-        # worker will write.  When running on a remote target the staging
-        # step takes care of mirror-creating the equivalent directory on
-        # the transport's filesystem.
-        execution_id = make_execution_id(mol_run.id, run_dir)
+        # The execution_id the worker will use. ``resume`` passes the existing
+        # one to reopen (the worker seeds from its persisted node outputs);
+        # ``rerun`` and first-submit derive a fresh ``exec-{run_id}-N``. When
+        # running locally the per-attempt directory is created here so molq's
+        # stdout/stderr/jobs paths land alongside the workflow.json the worker
+        # writes; a remote target mirror-creates it during staging.
+        execution_id = execution_id or make_execution_id(mol_run.id, run_dir)
         local_exec_dir = run_dir / "executions" / execution_id
         local_exec_dir.mkdir(parents=True, exist_ok=True)
 

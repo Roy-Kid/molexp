@@ -9,8 +9,8 @@ import pytest
 
 from molexp.agent.events import (
     AsyncIteratorEventSink,
-    ModeCompletedEvent,
-    ModeStartedEvent,
+    LoopCompletedEvent,
+    LoopStartedEvent,
 )
 from molexp.agent.loops import ChatLoop, ChatLoopConfig
 from molexp.agent.router import AgenticChunk, ModelTier, RouterTextResult
@@ -113,8 +113,8 @@ async def test_chat_loop_emits_started_then_completed() -> None:
     await ChatLoop().run(runtime=runtime, sink=sink, user_input="ping")
     await sink.close()
     events = [ev async for ev in sink]
-    assert isinstance(events[0], ModeStartedEvent)
-    assert isinstance(events[-1], ModeCompletedEvent)
+    assert isinstance(events[0], LoopStartedEvent)
+    assert isinstance(events[-1], LoopCompletedEvent)
     assert events[-1].text == "the answer"
 
 
@@ -166,5 +166,5 @@ async def test_chat_loop_run_returns_non_empty_text_via_test_model() -> None:
     await sink.close()
     events = [ev async for ev in sink]
     completed = events[-1]
-    assert isinstance(completed, ModeCompletedEvent)
+    assert isinstance(completed, LoopCompletedEvent)
     assert completed.text

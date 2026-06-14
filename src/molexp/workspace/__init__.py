@@ -35,14 +35,11 @@ from .assets import (
     DataAsset,
     DataAssetLibrary,
     ErrorTraceAsset,
-    ExecutionStateAsset,
     LogAsset,
-    OutputAsset,
     Producer,
 )
 from .base import atomic_write_json, atomic_write_text
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
-from .catalog import WORKSPACE_CATALOG_KIND
 from .context import Context
 from .errors import (
     ExperimentExistsError,
@@ -73,7 +70,7 @@ from .models import (
 )
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
-from .run import Run, RunContext, RunStatus
+from .run import RETRYABLE_STATUSES, Run, RunContext, RunStatus
 from .target import (
     LocalTarget,
     RemoteTarget,
@@ -97,9 +94,10 @@ from .targets import (
 from .workspace import Workspace
 
 __all__ = [
+    # Retryable-status domain (resume / rerun verb selection)
+    "RETRYABLE_STATUSES",
     # Folder kind taxonomy (unify-folder-abstraction-02)
     "WORKSPACE_CACHE_KIND",
-    "WORKSPACE_CATALOG_KIND",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",
@@ -122,7 +120,6 @@ __all__ = [
     "ErrorInfo",
     "ErrorTraceAsset",
     "ExecutionRecord",
-    "ExecutionStateAsset",
     "Experiment",
     # Workspace error hierarchy
     "ExperimentExistsError",
@@ -136,7 +133,6 @@ __all__ = [
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
     "LogAsset",
-    "OutputAsset",
     # Parameters
     "ParamSpace",
     "Params",

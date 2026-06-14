@@ -3,6 +3,7 @@ import {
   Ban,
   Blocks,
   Bot,
+  CloudOff,
   Copy,
   ExternalLink,
   FilePlus,
@@ -12,17 +13,20 @@ import {
   FolderOpen,
   FolderPlus,
   FolderTree,
+  HardDrive,
   PlayCircle,
   Plus,
   RefreshCw,
+  Server,
   Settings,
   Sparkles,
   Terminal,
   Workflow,
 } from "lucide-react";
-import type { ComponentType, SVGProps } from "react";
+import type { ComponentType, ReactNode, SVGProps } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { ApiError } from "@/api/generated";
 import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
@@ -40,9 +44,11 @@ import type {
   FileKind,
   LeftPanelView,
   ObjectView,
+  ProjectSummary,
   RunSummary,
   Selection,
   SemanticStatus,
+  ServedWorkspaceSummary,
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
@@ -53,6 +59,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 
+const errorDetail = (error: unknown): string => {
+  if (error instanceof ApiError) {
+    const detail = (error.body as { detail?: unknown } | null)?.detail;
+    if (typeof detail === "string" && detail) return detail;
+    return error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+};
+
 interface LeftPanelProps {
   view: LeftPanelView;
   selection: Selection | null;
@@ -60,7 +75,7 @@ interface LeftPanelProps {
   searchQuery?: string;
   onViewChange: (view: LeftPanelView) => void;
   onSelect: (selection: Selection) => void;
-  onOpenWorkspace: (path: string) => void;
+  onOpenWorkspace: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
   onCreateDirectory: (path: string) => void;
   onCreateFile: (path: string) => void;
   onRefresh: () => void;
@@ -72,17 +87,19 @@ interface ViewOption {
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }
 
+// Order matters: the primary research flow is Experiments → Runs → Workflows →
+// Workspaces, with the secondary inventories (Assets, Agent Tasks) trailing.
 const viewOptions: ViewOption[] = [
-  { id: "projects", label: "Projects", icon: Blocks },
-  { id: "workspace", label: "Workspace", icon: FolderTree },
+  { id: "projects", label: "Experiments", icon: Blocks },
   { id: "runs", label: "Runs", icon: PlayCircle },
-  { id: "asset", label: "Asset", icon: Archive },
   { id: "workflow", label: "Workflow", icon: Workflow },
+  { id: "workspace", label: "Workspace", icon: FolderTree },
+  { id: "asset", label: "Asset", icon: Archive },
   { id: "agent", label: "Agent Tasks", icon: Bot },
 ];
 
 const listHeaderByView: Record<LeftPanelView, string> = {
-  projects: "Projects",
+  projects: "Experiments",
   workspace: "Workspace",
   runs: "Runs",
   asset: "Assets",
@@ -111,15 +128,26 @@ const detectFileKind = (path: string | undefined): FileKind => {
   return fileKindByExtension[extension] ?? "unknown";
 };
 
-const runIconClass = (status: SemanticStatus): string => {
+const statusTextClass = (status: SemanticStatus): string => {
   switch (status) {
+    case "active":
+    case "approved":
     case "succeeded":
-      return "text-emerald-500";
+      return "font-medium text-success";
     case "failed":
-      return "text-rose-500";
+    case "rejected":
+      return "font-medium text-destructive";
     case "running":
-      return "text-blue-500";
-    default:
+      return "font-medium text-info";
+    case "draft":
+    case "expired":
+    case "waiting_for_review":
+      return "font-medium text-warning";
+    case "archived":
+    case "cancelled":
+    case "skipped":
+      return "text-muted-foreground";
+    case "pending":
       return "text-muted-foreground";
   }
 };
@@ -172,12 +200,6 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
     onSelect: () => actions.onOpenRunView(run, "logs"),
   },
   {
-    id: "snapshot",
-    label: "View snapshot",
-    icon: Archive,
-    onSelect: () => actions.onOpenRunView(run, "snapshot"),
-  },
-  {
     id: "copy-id",
     label: "Copy run ID",
     icon: Copy,
@@ -197,14 +219,19 @@ const buildRunActions = (run: RunSummary, actions: ProjectTreeActions): TreeNode
   },
 ];
 
+const CompactCount = ({ children }: { children: ReactNode }): JSX.Element => (
+  <span className="font-mono text-[10px] text-muted-foreground">{children}</span>
+);
+
 const buildProjectNodes = (
   snapshot: WorkspaceSnapshot,
   actions: ProjectTreeActions,
   searchQuery: string,
+  projectsOverride?: ProjectSummary[],
 ): TreeNode[] => {
   const lowerQuery = searchQuery.toLowerCase().trim();
 
-  const hierarchy = snapshot.projects.map((project) => ({
+  const hierarchy = (projectsOverride ?? snapshot.projects).map((project) => ({
     ...project,
     experiments: snapshot.experiments
       .filter((experiment) => experiment.projectId === project.id)
@@ -236,9 +263,10 @@ const buildProjectNodes = (
   return filtered.map((project) => ({
     id: project.id,
     label: project.name,
+    labelClassName: statusTextClass(project.status),
     icon: Blocks,
     iconClassName: "text-blue-500",
-    meta: `${project.experiments.length} exp`,
+    right: <CompactCount>{project.experiments.length} exp</CompactCount>,
     onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
     actions: [
       {
@@ -271,10 +299,10 @@ const buildProjectNodes = (
     children: project.experiments.map((experiment) => ({
       id: experiment.id,
       label: experiment.name,
+      labelClassName: statusTextClass(experiment.status),
       icon: FlaskConical,
       iconClassName: "text-purple-500",
-      right: <StatusBadge status={experiment.status} size="sm" />,
-      meta: `${experiment.runs.length} runs`,
+      right: <CompactCount>{experiment.runs.length} runs</CompactCount>,
       onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
       actions: [
         {
@@ -318,15 +346,90 @@ const buildProjectNodes = (
       children: experiment.runs.map((run) => ({
         id: run.id,
         label: run.name || run.id,
+        labelClassName: statusTextClass(run.status),
         icon: PlayCircle,
-        iconClassName: runIconClass(run.status),
-        right: <StatusBadge status={run.status} size="sm" />,
-        meta: run.profile ?? run.id.substring(0, 8),
+        iconClassName: "text-emerald-500",
         onSelect: () => actions.onOpenRunView(run),
         actions: buildRunActions(run, actions),
       })),
     })),
   }));
+};
+
+// A small chip describing a served workspace's kind/state in the nav header.
+const workspaceBadge = (ws: ServedWorkspaceSummary): ReactNode => {
+  const tone = ws.unreachable
+    ? "bg-red-500/10 text-red-600"
+    : ws.isRemote
+      ? "bg-amber-500/10 text-amber-600"
+      : "bg-muted text-muted-foreground";
+  const text = ws.unreachable ? "unreachable" : ws.isRemote ? "remote" : "local";
+  return <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>{text}</span>;
+};
+
+// Shallow project leaves for a NON-active workspace — clicking one activates
+// that workspace so its full tree loads on the next poll. Kept id-prefixed by
+// workspace key so expansion/keys never collide with the active group, whose
+// project ids are the real (unprefixed) ones.
+const buildShallowProjectNodes = (
+  projects: ProjectSummary[],
+  searchQuery: string,
+  workspaceKey: string,
+  onActivate: () => void,
+): TreeNode[] => {
+  const lowerQuery = searchQuery.toLowerCase().trim();
+  return projects
+    .filter((project) => !lowerQuery || project.name.toLowerCase().includes(lowerQuery))
+    .map((project) => ({
+      id: `${workspaceKey}/${project.id}`,
+      label: project.name,
+      labelClassName: statusTextClass(project.status),
+      icon: Blocks,
+      iconClassName: "text-blue-500/50",
+      right: <CompactCount>switch</CompactCount>,
+      onSelect: onActivate,
+    }));
+};
+
+// Multi-workspace nav: one collapsible header per served workspace (label +
+// local/remote/unreachable badge). The ACTIVE workspace shows its full
+// interactive project tree (experiments/runs); the others list project names
+// that activate the workspace on click. Single-workspace callers use
+// buildProjectNodes directly (unchanged flat list).
+const buildWorkspaceGroupedNodes = (
+  snapshot: WorkspaceSnapshot,
+  actions: ProjectTreeActions,
+  searchQuery: string,
+  onActivateWorkspace: (ws: ServedWorkspaceSummary) => void,
+): TreeNode[] => {
+  return snapshot.workspaces.map((ws) => {
+    const wsProjects = snapshot.projects.filter((project) => project.workspaceKey === ws.key);
+    const header: TreeNode = {
+      id: `ws:${ws.key}`,
+      label: ws.label,
+      icon: ws.unreachable ? CloudOff : ws.isRemote ? Server : HardDrive,
+      iconClassName: ws.unreachable
+        ? "text-red-500"
+        : ws.active
+          ? "text-blue-500"
+          : "text-muted-foreground",
+      right: workspaceBadge(ws),
+      emptyChildLabel: ws.unreachable ? "Unreachable" : "No projects",
+    };
+    if (ws.unreachable) {
+      return { ...header, children: [] };
+    }
+    if (ws.active) {
+      return { ...header, children: buildProjectNodes(snapshot, actions, searchQuery, wsProjects) };
+    }
+    return {
+      ...header,
+      onSelect: () => onActivateWorkspace(ws),
+      children: buildShallowProjectNodes(wsProjects, searchQuery, ws.key, () =>
+        onActivateWorkspace(ws),
+      ),
+    };
+  });
 };
 
 interface WorkspaceSemantic {
@@ -365,7 +468,7 @@ const detectWorkspaceSemantic = (
 
   const run = snapshot.runs.find((r) => path.endsWith(`runs/${r.id}`));
   if (run) {
-    return { type: "run", id: run.id, icon: PlayCircle, iconClass: runIconClass(run.status) };
+    return { type: "run", id: run.id, icon: PlayCircle, iconClass: "text-emerald-500" };
   }
 
   const parts = path.split("/");
@@ -711,7 +814,25 @@ export const LeftPanel = ({
       confirmLabel: "Open",
     });
     if (!path) return;
-    onOpenWorkspace(path);
+    try {
+      await onOpenWorkspace(path);
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        const create = await confirm({
+          title: "Create workspace?",
+          description: `${path} does not exist.`,
+          confirmLabel: "Create",
+        });
+        if (!create) return;
+        try {
+          await onOpenWorkspace(path, { createIfMissing: true });
+        } catch (retryError) {
+          await alert({ title: "Open failed", description: errorDetail(retryError) });
+        }
+        return;
+      }
+      await alert({ title: "Open failed", description: errorDetail(error) });
+    }
   };
   const handleCreateFile = async (): Promise<void> => {
     const path = await prompt({
@@ -865,7 +986,24 @@ export const LeftPanel = ({
     onRefresh,
   };
 
-  const projectNodes = buildProjectNodes(snapshot, projectTreeActions, searchQuery);
+  const handleActivateWorkspace = (ws: ServedWorkspaceSummary): void => {
+    void workspaceApi
+      .activateServedWorkspace(ws)
+      .then(() => onRefresh())
+      .catch((err) => console.warn(`Failed to switch to workspace ${ws.key}:`, err));
+  };
+
+  // >1 served workspace → group projects under per-workspace headers; otherwise
+  // today's flat project list (single-workspace behaviour unchanged).
+  const projectNodes =
+    snapshot.workspaces.length > 1
+      ? buildWorkspaceGroupedNodes(
+          snapshot,
+          projectTreeActions,
+          searchQuery,
+          handleActivateWorkspace,
+        )
+      : buildProjectNodes(snapshot, projectTreeActions, searchQuery);
   const workspaceNodes = buildWorkspaceNodes(snapshot, workspaceTreeActions);
   const assetNodes = buildAssetNodes(snapshot, onSelect, handleCopyText, searchQuery);
   const workflowNodes = buildWorkflowNodes(snapshot, onSelect, handleCopyText, searchQuery);

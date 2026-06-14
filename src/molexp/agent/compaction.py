@@ -1,13 +1,14 @@
 """Context compaction.
 
-When a session's entry tree grows past a token budget, the harness
+When a session's entry tree grows past a token budget, the loop
 *compacts* it: an LLM summarizes the oldest span and a
 :class:`~molexp.agent.session_entry.CompactionEntry` records the
 cut. This module owns the **deterministic** half — choosing the cut
-point and estimating tokens — leaving the LLM call to
-:meth:`~molexp.agent.runtime.AgentHarness.compact`, which routes
-it through the :class:`~molexp.agent.router.Router` protocol (never
-``pydantic_ai`` directly).
+point and estimating tokens — leaving the trigger and the LLM call to
+:func:`molexp.agent.loops._compact.maybe_compact` (used by both
+shipped loops), which routes the summary through the
+:class:`~molexp.agent.router.Router` protocol (never ``pydantic_ai``
+directly).
 
 :func:`prepare_compaction` keeps the most-recent ``keep_recent_tokens``
 window of entries and proposes summarizing everything older. It returns
@@ -26,6 +27,7 @@ from molexp.agent.session_entry import MessageEntry, SessionEntry
 __all__ = [
     "CompactionPlan",
     "CompactionSettings",
+    "estimate_entries_tokens",
     "estimate_tokens",
     "prepare_compaction",
 ]
@@ -94,6 +96,16 @@ def _entry_tokens(entry: SessionEntry) -> int:
         return estimate_tokens(entry.message.content)
     # non-message markers are tiny; a flat small cost keeps them cheap.
     return 1
+
+
+def estimate_entries_tokens(entries: tuple[SessionEntry, ...]) -> int:
+    """Estimate the total token weight of ``entries``.
+
+    Pure aggregation of the per-entry heuristic; callers use it to
+    decide *when* to trigger compaction (compare against
+    ``keep_recent_tokens + reserve_tokens``).
+    """
+    return sum(_entry_tokens(entry) for entry in entries)
 
 
 def prepare_compaction(

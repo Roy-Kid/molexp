@@ -174,12 +174,12 @@ def test_spec_yaml_round_trip_via_compiler() -> None:
             return None
 
     if not default_registry.has("test.inert_yaml_rt"):
-        default_registry.register("test.inert_yaml_rt", lambda _config: Inert())
+        default_registry.register("test.inert_yaml_rt", Inert)
 
     spec = (
         WorkflowCompiler(name="rt")
-        .add(Inert(), name="A", task_type="test.inert_yaml_rt")
-        .add(Inert(), name="B", task_type="test.inert_yaml_rt", depends_on=["A"])
+        .add(Inert(), name="A")
+        .add(Inert(), name="B", depends_on=["A"])
         .compile()
     )
     text = default_codec.spec_to_yaml(spec)

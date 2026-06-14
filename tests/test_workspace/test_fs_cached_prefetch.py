@@ -1,7 +1,7 @@
 """Prefetch walk: partial-failure semantics.
 
-A bad ``experiments.json`` for one project must not abort the walk; it
-must surface as a :class:`PrefetchWarning` while other projects still
+A bad ``experiment.json`` read for one project must not abort the walk;
+it must surface as a :class:`PrefetchWarning` while other projects still
 populate the cache.
 """
 
@@ -15,12 +15,14 @@ from typing import IO, Any
 
 import pytest
 
+from molexp.workspace import Workspace
 from molexp.workspace.fs import StatResult
 from molexp.workspace.fs_cached import (
     CachedRemoteFileSystem,
     PrefetchWarning,
     prefetch_workspace_indices,
 )
+from molexp.workspace.fs_local import LocalFileSystem
 
 
 class _ScriptedFS:
@@ -159,29 +161,21 @@ class _ScriptedFS:
 
 
 def _seed_workspace(fs: _ScriptedFS, root: str) -> None:
-    """Build a 2-project workspace with one project's experiments-index erroring.
+    """Build a 2-project workspace; ``beta``'s ``experiment.json`` read errors.
 
-    Children-index filenames are auto-derived from ``cls.__name__``
-    snake_case (see :meth:`Folder._index_filename`) — singular: workspace's
-    projects-index is ``project.json``; project's experiments-index is
-    ``experiment.json``; experiment's runs-index is ``run.json``.
+    Child names are discovered via ``listdir`` over the seeded child dirs —
+    the entity ``*.json`` (``workspace.json`` / ``project.json`` /
+    ``experiment.json`` / ``run.json``) is the sole truth source.  The
+    parent-path ``*.json`` is read only to warm the cache, so no separate
+    children-index payload is seeded.
     """
     fs.files[f"{root}/workspace.json"] = b'{"id":"ws","name":"ws"}'
-    fs.files[f"{root}/project.json"] = json.dumps(
-        {"items": [{"path": "alpha"}, {"path": "beta"}]}
-    ).encode("utf-8")
 
     fs.files[f"{root}/projects/alpha/project.json"] = b'{"id":"alpha","name":"alpha"}'
-    fs.files[f"{root}/projects/alpha/experiment.json"] = json.dumps(
-        {"items": [{"path": "exp1"}]}
-    ).encode("utf-8")
     fs.files[f"{root}/projects/alpha/experiments/exp1/experiment.json"] = b'{"id":"exp1"}'
-    fs.files[f"{root}/projects/alpha/experiments/exp1/run.json"] = json.dumps(
-        {"items": [{"path": "r1"}]}
-    ).encode("utf-8")
     fs.files[f"{root}/projects/alpha/experiments/exp1/runs/r1/run.json"] = b'{"id":"r1"}'
 
-    # Beta exists but its experiments-index read raises a transport error.
+    # Beta exists but its experiment.json read raises a transport error.
     fs.files[f"{root}/projects/beta/project.json"] = b'{"id":"beta","name":"beta"}'
     fs.errors[f"{root}/projects/beta/experiment.json"] = ConnectionError("ssh dropped")
 
@@ -251,3 +245,46 @@ def test_warnings_are_immutable_prefetch_warnings(scripted):
     assert all(isinstance(w, PrefetchWarning) for w in warnings)
     with pytest.raises(Exception):  # noqa: B017 — dataclass frozen
         warnings[0].path = "tampered"  # type: ignore[misc]
+
+
+@pytest.mark.unit
+def test_prefetch_reconstructs_tree_and_no_plural_index_files(tmp_path: Path):
+    """Full tree is prefetchable from entity ``*.json`` with no plural index.
+
+    workspace-slim-02: the entity ``*.json`` is the sole truth source and
+    the catalog is the derived index.  After a real workspace materializes
+    a project → experiment → run and runs one execution, there must be *no*
+    bare-``pathlib`` plural container-index files (``projects.json`` /
+    ``experiments.json`` / ``runs.json`` / ``executions.json``) anywhere
+    under the root — and the navigation prefetch must still reconstruct the
+    full ``workspace → project → experiment → run`` tree over a cached
+    remote FS, sourcing names via ``self._fs`` (``listdir`` + per-child
+    entity metadata) rather than the deleted ``runs.json`` chain.
+    """
+    root = tmp_path / "ws"
+    ws = Workspace(root=root, name="ws")
+    proj = ws.add_project("alpha")
+    exp = proj.add_experiment("counter")
+    run = exp.add_run(params={"x": 1})
+    with run.start():
+        pass
+
+    plural = {"projects.json", "experiments.json", "runs.json", "executions.json"}
+    stray = sorted(str(p) for p in root.rglob("*.json") if p.name in plural)
+    assert stray == [], f"plural container-index files must not exist: {stray}"
+
+    # Observe the prefetch through a fresh cached remote FS over the same disk.
+    cached = CachedRemoteFileSystem(
+        LocalFileSystem(), mirror_root=tmp_path / "mirror", ttl_seconds=300
+    )
+    nav = SimpleNamespace(root=str(root), _fs=cached)
+    warnings = prefetch_workspace_indices(nav)
+    assert warnings == [], warnings
+
+    cached_paths = cached.cached_paths()
+    assert any(p.endswith("/workspace.json") for p in cached_paths), cached_paths
+    assert any(p.endswith("/projects/alpha/project.json") for p in cached_paths), cached_paths
+    assert any(p.endswith("/experiments/counter/experiment.json") for p in cached_paths), (
+        cached_paths
+    )
+    assert any("/runs/" in p and p.endswith("/run.json") for p in cached_paths), cached_paths

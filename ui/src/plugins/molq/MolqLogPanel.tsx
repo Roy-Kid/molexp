@@ -63,6 +63,7 @@ export const MolqLogPanel = ({ target, jobId }: MolqLogPanelProps): JSX.Element 
   }, [target, jobId]);
 
   // Auto-scroll on new lines unless the user has scrolled away.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `lines` is an intentional trigger — the effect must re-run on every appended line even though the body only reads the container ref.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -101,6 +102,7 @@ export const MolqLogPanel = ({ target, jobId }: MolqLogPanelProps): JSX.Element 
           <div className="italic text-zinc-500">Waiting for output…</div>
         )}
         {lines.map((line, idx) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: log rows are stateless text in an append-only (cap-truncated) stream — index identity cannot corrupt reconciliation state.
           <div key={idx} className="whitespace-pre-wrap break-words">
             {line}
           </div>

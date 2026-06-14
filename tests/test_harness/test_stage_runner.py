@@ -21,18 +21,18 @@ def ctx(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
-    provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifacts)
     return HarnessRunContext(
         run_id="run-test",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
     )
 
 
@@ -143,7 +143,7 @@ def test_persisted_failure_emits_artifact_created_and_edges_before_failing(ctx) 
     types = [e.type for e in events]
     assert types == ["stage_started", "artifact_created", "stage_failed"]
     # And the provenance edge from parent → persisted report is recorded.
-    descendants = ctx.provenance_store.trace_forward(parent_ref.id)
+    descendants = ctx.lineage_store.trace_forward(parent_ref.id)
     assert any(d.kind == "validation_report" for d in descendants)
 
 
@@ -185,7 +185,7 @@ def test_two_stage_pipeline_materializes_derived_from_edge(ctx) -> None:
     ref_a = asyncio.run(runner.run_stage(StageA()))
     ref_b = asyncio.run(runner.run_stage(StageB(parent_id=ref_a.id)))
 
-    ancestors = ctx.provenance_store.trace_backward(ref_b.id)
+    ancestors = ctx.lineage_store.trace_backward(ref_b.id)
     assert [r.id for r in ancestors] == [ref_a.id]
 
 

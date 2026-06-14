@@ -11,9 +11,9 @@ import type { ClarificationRequiredEvent } from '../models/ClarificationRequired
 import type { CompactionPerformedEvent } from '../models/CompactionPerformedEvent';
 import type { ErrorEvent } from '../models/ErrorEvent';
 import type { GoalCreateRequest } from '../models/GoalCreateRequest';
+import type { LoopCompletedEvent } from '../models/LoopCompletedEvent';
+import type { LoopStartedEvent } from '../models/LoopStartedEvent';
 import type { MessageResponse } from '../models/MessageResponse';
-import type { ModeCompletedEvent } from '../models/ModeCompletedEvent';
-import type { ModeStartedEvent } from '../models/ModeStartedEvent';
 import type { PlanEmittedEvent } from '../models/PlanEmittedEvent';
 import type { PreflightFailedEvent } from '../models/PreflightFailedEvent';
 import type { RepairProposedEvent } from '../models/RepairProposedEvent';
@@ -96,7 +96,7 @@ export class AgentTasksService {
      */
     public static streamAgentTaskEventsApiAgentTasksTaskIdEventsGet(
         taskId: string,
-    ): CancelablePromise<(ModeStartedEvent | StageStartedEvent | StageCompletedEvent | ArtifactWrittenEvent | ApprovalRequestedEvent | ApprovalDecidedEvent | PlanEmittedEvent | PreflightFailedEvent | RepairProposedEvent | ClarificationRequiredEvent | CompactionPerformedEvent | ModeCompletedEvent | ErrorEvent | ThinkingDeltaEvent | TokenDeltaEvent | ToolCallStartedEvent | ToolCallCompletedEvent)> {
+    ): CancelablePromise<(LoopStartedEvent | StageStartedEvent | StageCompletedEvent | ArtifactWrittenEvent | ApprovalRequestedEvent | ApprovalDecidedEvent | PlanEmittedEvent | PreflightFailedEvent | RepairProposedEvent | ClarificationRequiredEvent | CompactionPerformedEvent | LoopCompletedEvent | ErrorEvent | ThinkingDeltaEvent | TokenDeltaEvent | ToolCallStartedEvent | ToolCallCompletedEvent)> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/agent-tasks/{task_id}/events',

@@ -11,6 +11,7 @@ import { Bot, ChevronRight, FileText, Lock, Slash } from "lucide-react";
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 import type { SessionStatsResponse } from "@/api/generated";
+import { StatusBadge } from "@/app/components/entity";
 import { isLegacySession, legacyBadgeMeta } from "@/app/renderers/agent_session/inspectorHelpers";
 import { type ApiAgentSystemPrompt, agentApi, planApi } from "@/app/state/api";
 import type { ApiAgentSession, RendererProps } from "@/app/types";
@@ -169,9 +170,7 @@ export const AgentSessionInspector = (props: RendererProps): JSX.Element => {
             <Lock className="h-3 w-3" /> {legacyMeta.label}
           </Badge>
         ) : session?.status ? (
-          <Badge variant="secondary" className="h-5 px-1.5 text-[10px] uppercase tracking-wide">
-            {session.status}
-          </Badge>
+          <StatusBadge status={session.status} size="sm" dot />
         ) : null}
       </div>
 
@@ -274,8 +273,10 @@ const CommandsHistorySection = ({ session }: { session: ApiAgentSession }): JSX.
   const commands = useMemo(() => {
     const rows: { ts: string; slashName: string }[] = [];
     for (const event of events) {
-      if (event.type !== "UserMessageReceived") continue;
-      const content = event.payload?.content;
+      // Each turn opens with loop_started carrying the user's raw input —
+      // that is where slash invocations live in the snake_case vocabulary.
+      if (event.type !== "loop_started") continue;
+      const content = event.payload?.user_input;
       if (typeof content !== "string") continue;
       const match = SLASH_LINE_RE.exec(content);
       if (!match) continue;

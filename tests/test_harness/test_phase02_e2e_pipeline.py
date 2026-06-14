@@ -24,20 +24,20 @@ def ctx(tmp_path: Path):
     from molexp.harness import (
         FileArtifactStore,
         HarnessRunContext,
+        SQLiteArtifactLineageStore,
         SQLiteEventLog,
-        SQLiteProvenanceStore,
     )
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     events = SQLiteEventLog(path=db_path)
-    provenance = SQLiteProvenanceStore(path=db_path, artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(path=db_path, artifact_store=artifacts)
     return HarnessRunContext(
         run_id="run-e2e",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=events,
-        provenance_store=provenance,
+        lineage_store=provenance,
     )
 
 
@@ -70,7 +70,7 @@ def test_e2e_pipeline_three_layer_provenance(ctx) -> None:
     report_ref = asyncio.run(runner.run_stage(GenerateExperimentReport()))
 
     # Three-layer chain: raw_text → user_plan → experiment_report.
-    ancestors = ctx.provenance_store.trace_backward(report_ref.id)
+    ancestors = ctx.lineage_store.trace_backward(report_ref.id)
     assert len(ancestors) == 2
     ids_in_order = [r.id for r in ancestors]
     # BFS: first the immediate parent (user_plan_ref), then the raw text.

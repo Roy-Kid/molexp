@@ -26,9 +26,9 @@ def list_projects(workspace=Depends(get_workspace)) -> list[ProjectResponse]:  #
     return [ProjectResponse.from_model(p) for p in workspace.list_projects()]
 
 
-@router.get("/{id}", response_model=ProjectResponse)
-def get_project(id: str, workspace=Depends(get_workspace)) -> ProjectResponse:  # noqa: ANN001
-    project = workspace.get_project(id)
+@router.get("/{project_id}", response_model=ProjectResponse)
+def get_project(project_id: str, workspace=Depends(get_workspace)) -> ProjectResponse:  # noqa: ANN001
+    project = workspace.get_project(project_id)
     return ProjectResponse.from_model(project, experiment_count=len(project.list_experiments()))
 
 
@@ -41,46 +41,50 @@ def create_project(
     return ProjectResponse.from_model(new_project)
 
 
-@router.delete("/{id}", response_model=MessageResponse)
-def delete_project(id: str, workspace=Depends(get_workspace)) -> MessageResponse:  # noqa: ANN001
+@router.delete("/{project_id}", response_model=MessageResponse)
+def delete_project(project_id: str, workspace=Depends(get_workspace)) -> MessageResponse:  # noqa: ANN001
     try:
-        workspace.remove_project(id)
+        workspace.remove_project(project_id)
     except KeyError:
-        raise ProjectNotFoundError(id)  # noqa: B904
+        raise ProjectNotFoundError(project_id)  # noqa: B904
     return MessageResponse(message="Project deleted")
 
 
 # ── Project Assets ──────────────────────────────────────────────────────────
 
 
-@router.get("/{id}/assets", response_model=list[AssetResponse])
+@router.get("/{project_id}/assets", response_model=list[AssetResponse])
 def list_project_assets(
-    id: str,
+    project_id: str,
     limit: int = 100,
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> list[AssetResponse]:
     """List every asset (any kind) in the project scope via the catalog."""
-    project = workspace.get_project(id)
+    project = workspace.get_project(project_id)
     return [AssetResponse.from_model(a) for a in project.assets.list()[:limit]]
 
 
-@router.get("/{id}/assets/{asset_id}", response_model=AssetResponse)
-def get_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)) -> AssetResponse:  # noqa: ANN001
-    project = workspace.get_project(id)
+@router.get("/{project_id}/assets/{asset_id}", response_model=AssetResponse)
+def get_project_asset(
+    project_id: str,
+    asset_id: str,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> AssetResponse:
+    project = workspace.get_project(project_id)
     asset = project.assets.get(asset_id)
     if not asset:
         raise AssetNotFoundError(asset_id)
     return AssetResponse.from_model(asset)
 
 
-@router.post("/{id}/assets/upload", response_model=AssetResponse, status_code=201)
+@router.post("/{project_id}/assets/upload", response_model=AssetResponse, status_code=201)
 async def upload_project_asset(
-    id: str,
+    project_id: str,
     file: UploadFile = File(...),
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> AssetResponse:
     """Upload a file into the project's ``DataAssetLibrary``."""
-    project = workspace.get_project(id)
+    project = workspace.get_project(project_id)
 
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         shutil.copyfileobj(file.file, tmp)
@@ -101,9 +105,9 @@ async def upload_project_asset(
         raise
 
 
-@router.get("/{id}/assets/{asset_id}/download")
-def download_project_asset(id: str, asset_id: str, workspace=Depends(get_workspace)):  # noqa: ANN001, ANN201
-    project = workspace.get_project(id)
+@router.get("/{project_id}/assets/{asset_id}/download")
+def download_project_asset(project_id: str, asset_id: str, workspace=Depends(get_workspace)):  # noqa: ANN001, ANN201
+    project = workspace.get_project(project_id)
     asset = project.assets.get(asset_id)
     if not asset:
         raise AssetNotFoundError(asset_id)

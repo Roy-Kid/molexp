@@ -31,7 +31,7 @@ import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from mollog import get_logger
 from pydantic import BaseModel
@@ -318,12 +318,19 @@ class PydanticAIRouter:
             # follow-up turn — cheap and exactly the failure mode the
             # router's outer retry was double-handling before
             # ``plan-mode-pydanticai-rewrite``.
-            self._agents[key] = Agent(
-                model=model,
-                output_type=schema,
-                system_prompt=system,
-                output_retries=2,
+            # ty's overload solver currently can't bind Agent's generic
+            # overloads through ``output_type=type[SchemaT]``; the call is
+            # valid per pydantic-ai's signature (output_retries included).
+            agent = cast(
+                "Agent[None, SchemaT]",
+                Agent(  # ty: ignore[no-matching-overload]
+                    model=model,
+                    output_type=schema,
+                    system_prompt=system,
+                    output_retries=2,
+                ),
             )
+            self._agents[key] = cast("Agent[None, Any]", agent)
         return self._agents[key]  # type: ignore[return-value]
 
     def _fire(self, hook: EventCallback, event: ProviderEvent) -> None:

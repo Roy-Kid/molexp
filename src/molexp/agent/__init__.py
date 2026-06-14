@@ -9,7 +9,15 @@ Pipeline-style orchestration (Plan / Author / Run / Review) moved to
 
 The user-visible surface is five names — :class:`AgentRunner`,
 :class:`AgentLoop`, :class:`AgentRunResult`, :class:`AgentRuntime`,
-:class:`AgentSession`.
+:class:`AgentSession` — plus one **lazy** re-export:
+``PydanticAIRouter``, the concrete :class:`~molexp.agent.router.Router`
+impl living under the ``_pydanticai/`` firewall. It resolves through a
+module-level ``__getattr__`` so plain ``import molexp.agent`` still does
+not pull ``pydantic_ai`` into ``sys.modules``; the SDK loads only when
+the attribute is actually touched (or on the first
+:meth:`AgentRunner.run`). Spell it
+``from molexp.agent import PydanticAIRouter`` — never import from
+``_pydanticai`` directly.
 
 ``AgentSession`` is the runtime conversation value — the
 :class:`~molexp.agent.session.Session` entry-tree class re-exported
@@ -64,10 +72,17 @@ See ``§ Architecture`` in CLAUDE.md and the import-guard tests under
 ``tests/test_agent/`` for the binding rules.
 """
 
+from typing import TYPE_CHECKING
+
 from molexp.agent.loop import AgentLoop, AgentRunResult
 from molexp.agent.runner import AgentRunner
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.session import Session as AgentSession
+
+if TYPE_CHECKING:
+    # Redundant alias = the sanctioned re-export idiom: type checkers see
+    # the name without the SDK loading at runtime (served by __getattr__).
+    from molexp.agent._pydanticai.router import PydanticAIRouter as PydanticAIRouter
 
 __all__ = [
     "AgentLoop",
@@ -76,3 +91,22 @@ __all__ = [
     "AgentRuntime",
     "AgentSession",
 ]
+
+
+def __getattr__(name: str) -> object:
+    """Lazy re-export — keeps ``import molexp.agent`` pydantic-ai-free.
+
+    ``PydanticAIRouter`` is the only attribute served here; everything
+    else surfaces through the eager imports above. It is deliberately
+    *not* in ``__all__`` (the five-name loop-orchestration contract is
+    pinned by ``tests/test_agent/test_public_surface.py``), but it is
+    the official public spelling for the concrete router. The SDK
+    behind the ``_pydanticai/`` firewall loads on first attribute
+    access, matching the laziness contract pinned by
+    ``tests/test_agent/test_import_guard.py``.
+    """
+    if name == "PydanticAIRouter":
+        from molexp.agent._pydanticai.router import PydanticAIRouter
+
+        return PydanticAIRouter
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

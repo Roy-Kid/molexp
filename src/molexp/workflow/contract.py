@@ -6,6 +6,7 @@ runtime semantics. Validation runs through :func:`validate_workflow_contract`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
@@ -339,7 +340,9 @@ def _check_outputs_match_downstream_inputs(
 
 # ── Runner dispatch ──────────────────────────────────────────────────────
 
-_RUNNERS: dict[ValidationCheckId, object] = {
+_RunnerFn = Callable[["WorkflowContract", "Workflow | None"], list["ValidationIssue"]]
+
+_RUNNERS: dict[ValidationCheckId, _RunnerFn] = {
     _C.no_orphan_tasks: _check_no_orphan_tasks,
     _C.unique_artifact_paths: _check_unique_artifact_paths,
     _C.acyclic_data_edges: _check_acyclic_data_edges,

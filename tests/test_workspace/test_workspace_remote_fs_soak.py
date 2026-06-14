@@ -97,7 +97,7 @@ def test_full_hierarchy_round_trips_through_fs(spy_workspace):
     ws, fs = spy_workspace
     proj = ws.add_project("alpha")
     exp = proj.add_experiment("first-exp", workflow_source="train.py")
-    run = exp.add_run(parameters={"lr": 1e-3})
+    run = exp.add_run(params={"lr": 1e-3})
 
     # Every level touched a path under remote_lab/.
     for needle in ("alpha", "first-exp", run.metadata.id):
@@ -147,7 +147,7 @@ def test_workspace_hierarchy_with_cached_wrapper_serves_second_read_from_mirror(
     ws.materialize()
     proj = ws.add_project("alpha")
     exp = proj.add_experiment("first-exp", workflow_source="train.py")
-    run = exp.add_run(parameters={"lr": 1e-3})
+    run = exp.add_run(params={"lr": 1e-3})
 
     # Pick a stable file the run created and read it twice through the cache.
     run_meta_path = inner.join(str(run.resolve()), "run.json")

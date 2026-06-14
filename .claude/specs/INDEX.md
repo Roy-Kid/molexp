@@ -1,6 +1,9 @@
-# Spec index
+# Specs Index
 
-- [flowgram-workflow-canvas-03-read-canvas](flowgram-workflow-canvas-03-read-canvas.md) — flowgram read-only canvas replaces xyflow/ELK/dagre (Monaco untouched, no form-materials) [code-complete — ac-007 owes /mol:web]
-- [flowgram-workflow-canvas-04-edit-writeback](flowgram-workflow-canvas-04-edit-writeback.md) — editable canvas + reverse serializer + write-back via generated client [code-complete — ac-004/006/007 owe /mol:web]
+- [execution-semantics](execution-semantics.md) — Workspace↔workflow execution: `ctx.workdir` (first-class, not `inputs["workdir"]`, content-addressed incl. params), persisted binding via `Experiment.run(workflow, params=)` (seam → `workflow.json` + `source/` copy + entrypoint), workflow-layer batch `Runner`; execution model A (re-import). Surface = option C: `ws.project(p).experiment(e).run(wf, params=)`. [draft] **Supersedes the workdir-in-`inputs` parts of 01/03.**
+- [pure-task-context-01-cache-contract](pure-task-context-01-cache-contract.md) — Solidify + test + document the cache-identity contract (code+config+inputs hash) [code-complete]
+- [pure-task-context-03-build-flow-rewrite](pure-task-context-03-build-flow-rewrite.md) — Rewrite polymer_electrolyte/build_flow.py to the pure {inputs, config} contract [approved; workdir-via-inputs part superseded by execution-semantics]
 
-Note: 01-ir (fb69e97) and 02-server (5bc5f16, e9928eb, 557ac34) done & deleted. Read/edit canvas: fb7795d, a285229.
+_ui-creation-entries — done & closed 2026-06-10: workspace create-on-open (404 → confirm → create_if_missing; open route materializes new dirs) + WorkflowsPage "New workflow" (seed empty IR → graph editor) + optional workflow field in CreateExperimentDialog; 7/7 criteria verified, committed in the 2026-06-10 batch commit._
+
+_pure-task-context state-elimination — staged removal shipped 2026-06-09: `ctx.state` now emits a DeprecationWarning and returns a read-only snapshot (`MappingProxyType` copy / frozen `ReadOnlyStateView`); all in-repo consumers migrated to the values-on-edges `ctx.inputs` channel; hard removal of `ctx.state` is the remaining step._

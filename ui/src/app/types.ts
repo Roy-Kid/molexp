@@ -1,4 +1,4 @@
-import type { TaskGraphJson } from "@/types/task_graph_ir";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 export type LeftPanelView =
   | "workspace"
@@ -105,6 +105,12 @@ export interface ProjectSummary {
   status: SemanticStatus;
   summary: string;
   updatedAt: string;
+  /**
+   * Stable key of the served workspace this project belongs to. Undefined in
+   * the single-workspace case (the flat `/api/projects` path), set when the
+   * project list is aggregated across several served workspaces.
+   */
+  workspaceKey?: string;
 }
 
 export interface ExperimentSummary {
@@ -201,7 +207,24 @@ export interface ConsoleEntry {
   timestamp: string;
 }
 
+/** One workspace `molexp serve` is hosting (mirrors GET /api/workspaces). */
+export interface ServedWorkspaceSummary {
+  key: string;
+  label: string;
+  isRemote: boolean;
+  path: string | null;
+  /** True for the workspace whose deep tree (experiments/runs) is loaded. */
+  active: boolean;
+  unreachable: boolean;
+}
+
 export interface WorkspaceSnapshot {
+  /**
+   * The set of served workspaces (empty or single in the unchanged
+   * single-workspace case). When length > 1 the left nav groups projects under
+   * a per-workspace header.
+   */
+  workspaces: ServedWorkspaceSummary[];
   projects: ProjectSummary[];
   experiments: ExperimentSummary[];
   runs: RunSummary[];
@@ -212,7 +235,7 @@ export interface WorkspaceSnapshot {
   consoleEntries: ConsoleEntry[];
 }
 
-export type ObjectView = "overview" | "logs" | "metrics" | "scheduler" | "snapshot";
+export type ObjectView = "overview" | "logs" | "metrics" | "scheduler";
 
 export interface ObjectSelection {
   objectType: BaseObjectType;

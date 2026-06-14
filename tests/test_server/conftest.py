@@ -95,7 +95,7 @@ def experiment_with_entrypoint(project):
 
 @pytest.fixture
 def run(experiment):
-    return experiment.add_run(parameters={"lr": 1e-4})
+    return experiment.add_run(params={"lr": 1e-4})
 
 
 @pytest.fixture

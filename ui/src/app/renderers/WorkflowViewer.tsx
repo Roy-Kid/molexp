@@ -114,9 +114,13 @@ export const WorkflowViewer = (props: RendererProps): JSX.Element => {
       activeTab={activeTab}
       onActiveTabChange={setActiveTab}
       tabs={[
-        { value: "graph", label: "Graph", content: <WorkflowGraphViewer {...props} /> },
-        { value: "source", label: "Source", content: <WorkflowSourceViewer {...props} /> },
+        {
+          value: "graph",
+          label: "Graph",
+          content: activeTab === "graph" ? <WorkflowGraphViewer {...props} /> : null,
+        },
         { value: "overview", label: "Overview", content: <WorkflowOverviewBody {...props} /> },
+        { value: "source", label: "Source", content: <WorkflowSourceViewer {...props} /> },
       ]}
     />
   );

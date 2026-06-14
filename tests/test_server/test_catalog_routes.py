@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 class TestCatalogByPath:
     def test_unmatched_path_under_projects_returns_derived_scope(self, client, project, experiment):
@@ -82,15 +84,19 @@ class TestRunFilesAndActions:
         artifact_nodes = [n for n in all_nodes if n.get("assetKind") == "artifact"]
         assert artifact_nodes, "expected at least one artifact node"
 
-    def test_run_rerun_creates_new_run_with_same_params(self, client, project, experiment, run):
+    def test_run_rerun_starts_new_execution_on_same_run(self, client, project, experiment, run):
+        # rerun only acts on failed/cancelled runs — drive a failure first.
+        with pytest.raises(RuntimeError, match="boom"), run.start():
+            raise RuntimeError("boom")
+        before = len(experiment.list_runs())
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201
         data = resp.json()
-        assert data["sourceRunId"] == run.id
-        assert data["newRunId"] != run.id
-        new_run = experiment.get_run(data["newRunId"])
-        assert new_run is not None
-        assert new_run.parameters == run.parameters
+        # Same run — no clone, no new Run.
+        assert data["runId"] == run.id
+        assert "newRunId" not in data
+        assert data["executionId"].startswith(f"exec-{run.id}")
+        assert len(experiment.list_runs()) == before
 
     def test_run_kill_marks_cancelled(self, client, project, experiment, run):
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/kill")
@@ -112,8 +118,8 @@ class TestRunFilesAndActions:
 
 class TestExperimentComparison:
     def test_comparison_aggregates_runs(self, client, project, experiment):
-        r1 = experiment.add_run(parameters={"lr": 1e-3})
-        r2 = experiment.add_run(parameters={"lr": 1e-4})
+        r1 = experiment.add_run(params={"lr": 1e-3})
+        r2 = experiment.add_run(params={"lr": 1e-4})
 
         with r1.start() as ctx:
             ctx.set_active_task("train")

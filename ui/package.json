@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "rsbuild build && rm -rf ../src/molexp/dist && mkdir -p ../src/molexp/dist && cp -r dist/. ../src/molexp/dist/",
+    "build": "rm -rf dist ../src/molexp/dist && rsbuild build && mkdir -p ../src/molexp/dist && cp -r dist/. ../src/molexp/dist/",
     "dev": "rsbuild dev",
     "dev:mock": "MOLEXP_USE_MOCK=true rsbuild dev",
     "preview": "rsbuild preview",

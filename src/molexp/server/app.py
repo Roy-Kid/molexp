@@ -148,6 +148,14 @@ def create_app(
             is auto-detected via ``importlib.resources``.
         serve_static: Set to ``False`` to run in API-only mode.
     """
+    # 0. Bridge operator config (~/.molexp/config.json) into the in-code
+    #    ``molexp.config`` — e.g. ``agent.model`` set via ``molexp config`` —
+    #    so server routes see the same configuration the CLI documents.
+    #    In-code registrations keep precedence.
+    from .operator_config import bridge_operator_config
+
+    bridge_operator_config()
+
     app = FastAPI(
         title="MolExp API",
         version="0.1.0",

@@ -1,7 +1,8 @@
-"""``spec.execute()`` vs ``spec.start()`` — the two runtime entry points.
+"""``runtime.execute()`` vs ``runtime.start()`` — the two runtime entry points.
 
 Matches ``docs/guide/workflow-runtime.md``.
 
+Execution lives on ``WorkflowRuntime``, not on the compiled artifact.
 ``execute()`` blocks and returns a ``WorkflowResult``; ``start()`` launches
 the same execution in the background and returns a ``WorkflowExecution``
 handle that can be awaited or cancelled.
@@ -15,11 +16,11 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, WorkflowBuilder
+from molexp.workflow import CompiledWorkflow, TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
-def build_slow_workflow() -> object:
-    wf = WorkflowBuilder(name="slow")
+def build_slow_workflow() -> CompiledWorkflow:
+    wf = WorkflowCompiler(name="slow")
 
     @wf.task
     async def step_one(ctx: TaskContext) -> int:
@@ -31,18 +32,18 @@ def build_slow_workflow() -> object:
         await asyncio.sleep(0.05)
         return ctx.inputs + 1
 
-    return wf.build()
+    return wf.compile()
 
 
 async def blocking_entry() -> None:
     """``execute()`` — simplest call shape. Awaits to completion."""
-    result = await build_slow_workflow().execute()
+    result = await WorkflowRuntime().execute(build_slow_workflow())
     print(f"execute:   status={result.status}, outputs={result.outputs}")
 
 
 async def background_entry() -> None:
     """``start()`` — fire-and-observe handle; awaitable and cancellable."""
-    handle = await build_slow_workflow().start()
+    handle = await WorkflowRuntime().start(build_slow_workflow())
     print(f"start:     launched handle={handle!r}")
     result = await handle.wait()
     print(f"           joined: status={result.status}, outputs={result.outputs}")

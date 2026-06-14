@@ -66,6 +66,11 @@ class TaskTypeRegistry:
     def __init__(self) -> None:
         self._factories: dict[str, TaskFactory] = {}
         self._descriptions: dict[str, str] = {}
+        # Reverse index: task class -> slug. Populated only for *class*
+        # registrations (a bare factory callable has no single class to map
+        # back from). This is what lets serialization resolve a task's slug
+        # from its type, so authors never restate it at ``add()`` time.
+        self._slug_for_class: dict[type, str] = {}
 
     @overload
     def register(
@@ -113,6 +118,7 @@ class TaskTypeRegistry:
                     return cls(**(cfg or {}))
 
                 self._factories[slug] = _from_class
+                self._bind_reverse(cls, slug)
             else:
                 self._factories[slug] = target
             if description:
@@ -122,6 +128,33 @@ class TaskTypeRegistry:
         if factory is None:
             return _wrap
         return _wrap(factory)
+
+    def _bind_reverse(self, cls: type, slug: str) -> None:
+        """Record ``cls -> slug`` for serialization-time resolution.
+
+        One slug per class: re-registering the same class under the same slug
+        is idempotent, but a second, *different* slug for an already-mapped
+        class is a configuration error (the reverse lookup would be ambiguous).
+        """
+        existing = self._slug_for_class.get(cls)
+        if existing is not None and existing != slug:
+            raise ValueError(
+                f"{cls.__qualname__} is already registered as {existing!r}; "
+                f"cannot also register it as {slug!r} (one slug per task type)."
+            )
+        self._slug_for_class[cls] = slug
+
+    def slug_for(self, target: object) -> str | None:
+        """Return the registry slug for a task body / class, or ``None``.
+
+        Accepts a task *instance* (resolves via ``type(target)``) or a class
+        directly. Returns ``None`` when the type was never registered, or was
+        registered only as a bare factory callable (no class to map back from).
+        This is the inverse of :meth:`get` and the reason ``WorkflowCompiler.add``
+        needs no ``task_type`` argument.
+        """
+        cls = target if isinstance(target, type) else type(target)
+        return self._slug_for_class.get(cls)
 
     def get(self, slug: str) -> TaskFactory:
         """Return the factory for ``slug``, raising on unknown slugs."""
@@ -163,7 +196,7 @@ class _Constant(Task):
     def __init__(self, value: TaskOutput = 0) -> None:
         self.value = value
 
-    async def execute(self, _ctx: TaskContext) -> TaskOutput:
+    async def execute(self, ctx: TaskContext) -> TaskOutput:  # noqa: ARG002
         return self.value
 
 

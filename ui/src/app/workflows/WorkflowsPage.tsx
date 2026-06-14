@@ -1,23 +1,41 @@
-import { Workflow as WorkflowIcon } from "lucide-react";
+import { Plus, Workflow as WorkflowIcon } from "lucide-react";
 import type { JSX } from "react";
-import { EntityHeader, StatusBadge } from "@/app/components/entity";
+import { useState } from "react";
+import { CreateWorkflowDialog } from "@/app/components/CreateWorkflowDialog";
+import { EmptyState, EntityHeader, StatusBadge } from "@/app/components/entity";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { WorkspaceSnapshot } from "@/app/types";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 interface WorkflowsPageProps {
   snapshot: WorkspaceSnapshot;
+  onRefresh: () => void;
 }
 
 /**
  * WorkflowsPage — the landing page for the ``/workflows`` section. Lists every
  * workflow (one per experiment) as a card showing its task/dependency counts;
- * clicking a card opens the full workflow graph viewer. Without this, the
- * section root rendered only the generic "select an item" placeholder.
+ * clicking a card opens the full workflow graph viewer. "New workflow" creates
+ * an experiment seeded with an empty document and jumps straight to its canvas.
  */
-export const WorkflowsPage = ({ snapshot }: WorkflowsPageProps): JSX.Element => {
+export const WorkflowsPage = ({ snapshot, onRefresh }: WorkflowsPageProps): JSX.Element => {
   const { setSelection } = useNavigationState(snapshot);
   const workflows = snapshot.workflows;
+  const [createOpen, setCreateOpen] = useState(false);
+
+  const handleCreated = (experimentId: string): void => {
+    onRefresh();
+    const workflowId = `workflow:${experimentId}`;
+    setSelection({ objectType: "workflow", objectId: workflowId, workflowId });
+  };
+
+  const newWorkflowButton = (
+    <Button size="sm" className="h-7 gap-1" onClick={() => setCreateOpen(true)}>
+      <Plus className="h-3.5 w-3.5" />
+      New workflow
+    </Button>
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -25,14 +43,18 @@ export const WorkflowsPage = ({ snapshot }: WorkflowsPageProps): JSX.Element => 
         icon={WorkflowIcon}
         title="Workflows"
         subtitle="Workflow definitions across the workspace — open one to inspect its task graph."
+        actions={newWorkflowButton}
+      />
+      <CreateWorkflowDialog
+        projects={snapshot.projects}
+        onCreated={handleCreated}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
       />
       <div className="flex-1 overflow-auto p-4">
         {workflows.length === 0 ? (
-          <div className="flex h-full items-center justify-center p-6 text-center">
-            <p className="max-w-sm text-sm text-muted-foreground">
-              No workflows found. A workflow appears here once an experiment records a
-              <span className="font-mono"> workflow_source</span>.
-            </p>
+          <div className="flex h-full items-center justify-center">
+            <EmptyState title="No workflows yet." action={newWorkflowButton} />
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">

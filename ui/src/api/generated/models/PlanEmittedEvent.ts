@@ -3,7 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 /**
- * Emitted when a mode produces a plan graph.
+ * Emitted when a loop produces a plan graph.
  *
  * Carries a lightweight reference (``plan_id`` / ``step_count``)
  * rather than the whole ``PlanGraph`` so the event stream stays cheap

@@ -6,8 +6,9 @@ Spec: workflow-rectification (criteria `pydantic-graph-boundary-guard`,
 Six assertions:
 
 1. ``molexp.workflow.End is pydantic_graph.End`` (re-export, no duplicate sentinel).
-2. ``"Next" not in molexp.workflow.__all__`` while
-   ``from molexp.workflow.types import Next`` still works (IR-internal).
+2. ``Next`` is public (``"Next" in molexp.workflow.__all__``) and the
+   public re-export is the same class as ``workflow.types.Next`` —
+   the ``wf.branch`` / ``wf.loop`` routing return value.
 3. AST scan of ``src/molexp/workflow/**/*.py`` rejects new
    ``*Scheduler`` / ``*Runner`` / ``*Frontier`` / ``*GraphRunner`` class names
    and any new ``class End(BaseModel)``-style definitions, against an
@@ -54,25 +55,28 @@ def test_end_is_pydantic_graph_end():
     )
 
 
-def test_next_not_in_public_all_but_importable_internally():
+def test_next_is_public_and_single_class():
+    """``Next`` is blessed public API: in ``__all__``, and the public name is
+    the one class defined in ``workflow.types`` (no duplicate token)."""
     import molexp.workflow as W
+    from molexp.workflow.types import Next as InternalNext
 
-    assert "Next" not in W.__all__, (
-        "Next is an IR-internal routing token; it must not be in the public __all__."
+    assert "Next" in W.__all__, (
+        "Next is the public wf.branch / wf.loop routing return value; "
+        "it must be in molexp.workflow.__all__."
     )
-    # Still importable via the internal path for wf.loop / wf.branch / proposal compiler.
-    from molexp.workflow.types import Next as _N  # noqa: F401
+    assert W.Next is InternalNext, (
+        "molexp.workflow.Next must be the same class as workflow.types.Next."
+    )
 
 
-def test_next_docstring_flags_ir_internal():
-    from molexp.workflow.types import Next
+def test_next_docstring_documents_routing_contract():
+    from molexp.workflow import Next
 
     doc = (Next.__doc__ or "").lower()
-    assert "ir" in doc and (
-        "ir-internal" in doc or "ir routing token" in doc or "internal routing" in doc
-    ), (
-        "Next docstring must explicitly flag it as an IR-internal routing token "
-        "to discourage Python-developer-facing use."
+    assert "routing" in doc and "routes" in doc, (
+        "Next docstring must document the route-label contract "
+        "(picks a declared routes={label: target} entry)."
     )
 
 
@@ -119,14 +123,15 @@ def test_no_duplicate_end_sentinel():
 def test_claude_md_documents_boundary():
     """The pg boundary rule is documented in CLAUDE.md.
 
-    After ``workflow-refactor-03-pg-node-lowering`` the architectural facts
-    are:
+    After the values-on-edges lowering the durable architectural facts are:
 
-    1. the DAG is lowered to a genuine pg Graph with one ``Step`` per task
-       (no per-task ``BaseNode`` codegen);
-    2. ``pydantic_graph`` imports are confined to
+    1. ``pydantic_graph`` imports are confined to
        ``workflow/_pydantic_graph/``;
-    3. ``Task`` / ``Actor`` do not subclass ``pydantic_graph.BaseNode``.
+    2. ``Task`` / ``Actor`` do not subclass ``pydantic_graph.BaseNode``.
+
+    (The per-Step pg lowering bullet was design-of-the-day, not a boundary
+    invariant — the engine now owns scheduling, so this test pins only the
+    confinement facts.)
     """
     assert CLAUDE_MD.exists(), "CLAUDE.md must exist at the repo root"
     text = CLAUDE_MD.read_text()
@@ -136,9 +141,6 @@ def test_claude_md_documents_boundary():
     assert "BaseNode" in text, (
         "CLAUDE.md must document the rule that Task / Actor do not "
         "subclass pydantic_graph.BaseNode."
-    )
-    assert "Step" in text and "per task" in text, (
-        "CLAUDE.md must document the genuine pg-node lowering (one Step per task)."
     )
 
 
@@ -177,14 +179,18 @@ def test_no_basenode_subclasses_after_pg_lowering():
     )
 
 
-def test_compiler_uses_genuine_pg_primitives():
-    """ac-001 / ac-003 — the lowering compiler imports and uses the genuine
-    pydantic-graph building blocks (GraphBuilder + Join reducers + Decision)."""
+def test_compiler_does_not_use_pg_primitives():
+    """Post values-on-edges: the lowering compiler is pg-free. The DAG lowers
+    to a molexp-owned ``ExecutionPlan`` executed by the structural engine;
+    pg's GraphBuilder / Join reducers / Decision are no longer used. The
+    surviving pg surface in the workflow layer is the ``End`` sentinel
+    re-export."""
     compiler_src = (WORKFLOW_ROOT / "_pydantic_graph" / "compiler.py").read_text()
-    assert "GraphBuilder" in compiler_src
-    assert "gb.join(" in compiler_src or ".join(" in compiler_src
-    assert "gb.decision(" in compiler_src or ".decision(" in compiler_src
-    assert "reduce_" in compiler_src
+    assert "GraphBuilder" not in compiler_src
+    assert "gb.join(" not in compiler_src
+    assert "gb.decision(" not in compiler_src
+    assert "reduce_null" not in compiler_src and "reduce_dict_update" not in compiler_src
+    assert "ExecutionPlan" in compiler_src
 
 
 def test_compiler_does_not_construct_pg_graph():

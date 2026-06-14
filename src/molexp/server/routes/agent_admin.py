@@ -11,7 +11,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-router = APIRouter(prefix="/api/agent/admin", tags=["agent-admin"])
+# NOTE: no ``/api`` here — the router is mounted under the global ``/api``
+# prefix by ``create_app`` (a hardcoded ``/api/agent/admin`` used to produce
+# live ``/api/api/agent/admin/*`` paths).
+router = APIRouter(prefix="/agent/admin", tags=["agent-admin"])
 
 
 _GONE_DETAIL = (

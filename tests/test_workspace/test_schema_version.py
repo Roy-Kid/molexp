@@ -34,16 +34,12 @@ def _every_entity_json(workspace_root) -> list:
     root = Path(workspace_root)
     out = []
     out.append(root / "workspace.json")
-    out.append(root / "projects.json")
     for proj in (root / "projects").iterdir():
         out.append(proj / "project.json")
-        out.append(proj / "experiments.json")
         for exp in (proj / "experiments").iterdir():
             out.append(exp / "experiment.json")
-            out.append(exp / "runs.json")
             for run in (exp / "runs").iterdir():
                 out.append(run / "run.json")
-                out.append(run / "executions.json")
                 exec_root = run / "executions"
                 if exec_root.exists():
                     for ex in exec_root.iterdir():

@@ -9,21 +9,23 @@ in emission order.
 Conversation context comes from the session entry-tree: prior turns are
 rebuilt with :meth:`Session.build_context` and rendered into the prompt
 when the router supports it. The terminal
-:class:`~molexp.agent.events.ModeCompletedEvent` carries the JSON dump
+:class:`~molexp.agent.events.LoopCompletedEvent` carries the JSON dump
 of the run's :class:`AgentRunResult` so the runner can rebuild it.
 """
 
 from __future__ import annotations
 
 from mollog import get_logger
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from molexp.agent.compaction import CompactionSettings
 from molexp.agent.events import (
     AsyncIteratorEventSink,
-    ModeCompletedEvent,
-    ModeStartedEvent,
+    LoopCompletedEvent,
+    LoopStartedEvent,
 )
 from molexp.agent.loop import AgentLoop, AgentRunResult
+from molexp.agent.loops._compact import maybe_compact
 from molexp.agent.runtime import AgentRuntime
 from molexp.agent.types import Message
 
@@ -33,12 +35,20 @@ __all__ = ["ChatLoop", "ChatLoopConfig"]
 
 
 class ChatLoopConfig(BaseModel):
-    """Tunables for :class:`ChatLoop`."""
+    """Tunables for :class:`ChatLoop`.
+
+    Attributes:
+        system_prompt: System prompt for the round trip.
+        temperature: Optional sampling temperature.
+        compaction: Context-compaction policy; pass
+            ``CompactionSettings(enabled=False)`` to opt out.
+    """
 
     model_config = ConfigDict(frozen=True)
 
     system_prompt: str = ""
     temperature: float | None = None
+    compaction: CompactionSettings = Field(default_factory=CompactionSettings)
 
 
 class ChatLoop(AgentLoop):
@@ -57,10 +67,16 @@ class ChatLoop(AgentLoop):
         user_input: str,
     ) -> None:
         """Drive one chat turn; emit events through ``sink``."""
-        await sink(ModeStartedEvent(mode_name=self.name, user_input=user_input))
+        await sink(LoopStartedEvent(loop_name=self.name, user_input=user_input))
         runtime.router.clear_usage()
 
         runtime.session.append_message(Message(role="user", content=user_input))
+        await maybe_compact(
+            runtime=runtime,
+            sink=sink,
+            settings=self.config.compaction,
+            loop_name=self.name,
+        )
         result = await runtime.router.complete_text(
             prompt=user_input,
             system=self.config.system_prompt,
@@ -80,7 +96,7 @@ class ChatLoop(AgentLoop):
             usage_breakdown=breakdown,
         )
         await sink(
-            ModeCompletedEvent(
+            LoopCompletedEvent(
                 text=result.text,
                 result=run_result.model_dump(mode="json"),
             )

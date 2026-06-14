@@ -1,7 +1,7 @@
 """StageRunner async-offload guard (perf-hardening-01, ac-003).
 
 Deterministic, sqlite-latency-independent RED/GREEN test: a stub
-``event_log`` / ``provenance_store`` whose ``append`` / ``add_edge`` block
+``event_log`` / ``lineage_store`` whose ``append`` / ``add_edge`` block
 the calling thread for a fixed 50 ms via ``time.sleep``. ``run_stage`` runs
 under ``asyncio.gather`` alongside a heartbeat coroutine that records
 ``time.perf_counter`` every ~5 ms and computes the max inter-tick gap.
@@ -72,8 +72,8 @@ class _BlockingEventLog:
         return []
 
 
-class _BlockingProvenanceStore:
-    """Stub ``ProvenanceStore`` whose ``add_edge`` blocks the thread 50 ms."""
+class _BlockingArtifactLineageStore:
+    """Stub ``ArtifactLineageStore`` whose ``add_edge`` blocks the thread 50 ms."""
 
     def __init__(self) -> None:
         self.edges: list[tuple[str, str, str]] = []
@@ -83,6 +83,9 @@ class _BlockingProvenanceStore:
         parent_id: str,
         child_id: str,
         relation: str = "derived_from",
+        *,
+        stage: str | None = None,
+        run_id: str | None = None,
     ) -> None:
         time.sleep(BLOCKING_SECONDS)
         self.edges.append((parent_id, child_id, relation))
@@ -113,14 +116,14 @@ async def test_run_stage_does_not_starve_heartbeat(tmp_path: Path) -> None:
 
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
     event_log = _BlockingEventLog()
-    provenance = _BlockingProvenanceStore()
+    provenance = _BlockingArtifactLineageStore()
 
     ctx = HarnessRunContext(
         run_id="run-offload",
         workspace_root=tmp_path,
         artifact_store=artifacts,
         event_log=event_log,  # type: ignore[arg-type]
-        provenance_store=provenance,  # type: ignore[arg-type]
+        lineage_store=provenance,  # type: ignore[arg-type]
     )
 
     class NoopStage(Stage):

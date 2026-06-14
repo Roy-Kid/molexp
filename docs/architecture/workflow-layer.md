@@ -4,12 +4,14 @@
 graph-shaped scientific workflow — planning, executable, repair,
 dry-run, etc. — must be represented through this layer.
 
-`molexp.workflow` may internally use `pydantic-graph` for state-machine
-plumbing, but that dependency is private: anything that imports
+The execution engine is molexp-owned: compilation lowers the workflow
+to a frozen `ExecutionPlan` walked by a structural values-on-edges
+engine. The `pydantic-graph` dependency survives only as the `End`
+sentinel re-export, and it is private: anything that imports
 `pydantic_graph` directly must live under
-`src/molexp/workflow/_pydantic_graph/`. `WorkflowStep` is the only
-class molexp exposes to pg as a `BaseNode`; user-side `Task` and
-`Actor` do not subclass `BaseNode`.
+`src/molexp/workflow/_pydantic_graph/`. No class under `workflow/`
+subclasses `pydantic_graph.BaseNode` — user-side `Task` and `Actor`
+included.
 
 ## Layer position
 
@@ -25,15 +27,16 @@ agent           ───────► workflow ───────► works
 
 Concretely the workflow layer reaches downward for:
 
-- `Workspace.subsystem_store("workflow.cache")` — backs
-  `WorkspaceCacheStore`, the content-addressed result cache. The
-  user-home `~/.molexp/cache/` shortcut is gone.
-- `workspace.atomic_write_json` — used by `RunStorePersistence` to
-  write `workflow.json` snapshots under each run's
-  `executions/<exec_id>/` directory. Atomicity is workspace's
-  guarantee, not a workflow-layer reinvention.
+- `ws.cache.as_cache_store()` — the workspace's singleton cache
+  folder, backing the content-addressed result cache. The user-home
+  `~/.molexp/cache/` shortcut is gone.
+- `workspace.atomic_write_json` — used by the execution-document
+  writer (`_pydantic_graph/persistence.py`) to write `workflow.json`
+  under each run's `executions/<exec_id>/` directory. Atomicity is
+  workspace's guarantee, not a workflow-layer reinvention.
 - `workspace.Run`, `workspace.RunContext` — accepted as the canonical
-  execution unit by `Workflow.execute(run=run)` / `Workflow.start(...)`.
+  execution unit by `WorkflowRuntime.execute(..., run_context=ctx)` /
+  `WorkflowRuntime.run_on(...)`.
 
 The workflow layer does **not** import from `molexp.agent`,
 `molexp.plugins`, `molexp.server`, `molexp.cli`, or `molexp.sweep`.
@@ -46,25 +49,29 @@ opaque.
 
 `molexp.workflow` owns:
 
-- workflow declaration (`Workflow` builder, `Workflow` compiled)
-- task / actor abstractions (`Task`, `Actor`, `TaskContext`,
-  `ActorContext`, plus the structural `Runnable` / `Streamable`
-  protocols)
+- workflow declaration (`WorkflowCompiler` builder → frozen
+  `CompiledWorkflow`)
+- task / actor abstractions (`Task`, `Actor`, the single `TaskContext`,
+  plus the structural `Runnable` / `Streamable` protocols)
 - task-type registry (`TaskTypeRegistry`) for IR-driven round-trip
 - snapshotting and content-addressed identity (`TaskSnapshot`,
   `WorkflowVersion`)
 - **caching**: `Caching` orchestrates the cache policy (key
   derivation, format version, LRU eviction) on top of a pluggable
   `CacheStore` (`FileCacheStore` for plain directories,
-  `WorkspaceCacheStore` for workspace-rooted caches)
-- **persistence**: `RunStorePersistence` (a pg `BaseStatePersistence`
-  subclass) writes a single `workflow.json` per execution attempt
-  through workspace's atomic-write helper
+  `ws.cache.as_cache_store()` for workspace-rooted caches)
+- **persistence**: the coalescing execution-document writer
+  (`_pydantic_graph/persistence.py` — `open_execution_document` /
+  bounded-staleness flush / mandatory synchronous flush on failures
+  and terminal states) writes a single `workflow.json` per execution
+  attempt through workspace's atomic-write helper
 - the IR ↔ Python ↔ Mermaid codec (`WorkflowCodec`)
 - declarative IR sugar (`wf.loop` / `wf.parallel` / `wf.branch`)
-- the `WorkflowStep` scheduler — the sole `pydantic_graph.BaseNode`
-  subclass molexp exposes to pg, wrapping the entire frontier-advance
-  scheduler (data deps, branching, loops, parallel, `max_concurrency`)
+- the structural execution engine — the frozen `ExecutionPlan`
+  lowering plus `engine.run_plan`, which owns values-on-edges
+  scheduling (data deps, branching, loops, parallel fan-out,
+  `max_concurrency`) and structural deadlock detection
+  (`WorkflowDeadlockError`, zero timing constants)
 - the `End` re-export — `molexp.workflow.End is pydantic_graph.End`
 
 It does **not** own scheduler dispatch (Slurm, PBS, …), job
@@ -97,13 +104,14 @@ Allowed outside `molexp.workflow`:
 
 ```python
 from molexp.workflow import (
-    Workflow,
-    Workflow,
+    WorkflowCompiler,
+    CompiledWorkflow,
+    WorkflowRuntime,
     Task,
     Actor,
     TaskContext,
     Caching,
-    WorkspaceCacheStore,
+    FileCacheStore,
     promote_callable,
     WorkflowSnapshotRef,
 )
@@ -120,5 +128,7 @@ import molexp.workflow._pydantic_graph        # private subtree
 The import-boundary firewall is enforced by
 `tests/test_workflow/test_import_guard.py` (forbids upstream layers,
 confines `pydantic_graph` to `_pydantic_graph/`) and
-`tests/test_workflow/test_pydantic_graph_boundary.py` (`WorkflowStep`
-is the sole `BaseNode`, no duplicate `End` sentinel, etc.).
+`tests/test_workflow/test_pydantic_graph_boundary.py` (`End` is the
+`pydantic_graph.End` re-export, no duplicate `End` sentinel, no
+`BaseNode` subclasses or new scheduler-shaped classes under
+`workflow/`, the lowering compiler never builds a pg `Graph`).

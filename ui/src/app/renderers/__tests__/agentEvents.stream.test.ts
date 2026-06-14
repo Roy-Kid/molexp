@@ -18,7 +18,7 @@ describe("foldStreamedTurn", () => {
       ev("token_delta", { text: "answer" }),
       ev("tool_call_started", { tool_name: "read_file", args_summary: "path=a.py" }),
       ev("tool_call_completed", { tool_name: "read_file", result_summary: "12 lines", ok: true }),
-      ev("mode_completed", { text: "the answer" }),
+      ev("loop_completed", { text: "the answer" }),
     ]);
 
     expect(turn.answer).toBe("the answer");
@@ -53,10 +53,10 @@ describe("foldStreamedTurn", () => {
     expect(turn.toolCalls[0].ok).toBeNull();
   });
 
-  it("falls back to mode_completed.text when no token_delta streamed", () => {
+  it("falls back to loop_completed.text when no token_delta streamed", () => {
     const turn = foldStreamedTurn([
       ev("tool_call_started", { tool_name: "noop" }),
-      ev("mode_completed", { text: "final summary" }),
+      ev("loop_completed", { text: "final summary" }),
     ]);
     expect(turn.answer).toBe("final summary");
   });

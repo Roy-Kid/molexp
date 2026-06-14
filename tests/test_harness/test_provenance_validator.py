@@ -22,10 +22,12 @@ import pytest
 @pytest.fixture()
 def stores(tmp_path: Path):
     from molexp.harness.store.file_artifact_store import FileArtifactStore
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
-    provenance = SQLiteProvenanceStore(path=tmp_path / "events.sqlite", artifact_store=artifacts)
+    provenance = SQLiteArtifactLineageStore(
+        path=tmp_path / "events.sqlite", artifact_store=artifacts
+    )
     return artifacts, provenance
 
 
@@ -40,12 +42,12 @@ def test_artifact_not_found(stores) -> None:
     """Validator must catch ArtifactNotFoundError; never let it bubble."""
     from molexp.harness.validators.provenance import validate_provenance
 
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     # No artifact registered.
     report = validate_provenance(
         "ghost-id",
         artifact_store=artifact_store,
-        provenance_store=provenance_store,
+        lineage_store=lineage_store,
     )
     assert "artifact_not_found" in _codes(report)
     assert report.passed is False
@@ -57,16 +59,16 @@ def test_unreachable_root(stores) -> None:
     """Chain B→C with no user_plan ancestor."""
     from molexp.harness.validators.provenance import validate_provenance
 
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     b = artifact_store.put_json(
         kind="experiment_report", obj={"b": 1}, created_by="x", parent_ids=[]
     )
     c = artifact_store.put_json(kind="workflow_ir", obj={"c": 1}, created_by="x", parent_ids=[b.id])
-    provenance_store.add_edge(parent_id=b.id, child_id=c.id)
+    lineage_store.add_edge(parent_id=b.id, child_id=c.id)
     report = validate_provenance(
         c.id,
         artifact_store=artifact_store,
-        provenance_store=provenance_store,
+        lineage_store=lineage_store,
     )
     assert "unreachable_root" in _codes(report)
 
@@ -75,14 +77,14 @@ def test_orphan_artifact_warning(stores) -> None:
     """Singleton non-root artifact → warning (could be partial run)."""
     from molexp.harness.validators.provenance import validate_provenance
 
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     ref = artifact_store.put_json(
         kind="experiment_report", obj={"x": 1}, created_by="x", parent_ids=[]
     )
     report = validate_provenance(
         ref.id,
         artifact_store=artifact_store,
-        provenance_store=provenance_store,
+        lineage_store=lineage_store,
     )
     matches = [v for v in report.violations if v.code == "orphan_artifact"]
     assert matches, "expected orphan_artifact warning"
@@ -98,14 +100,14 @@ def test_artifact_is_root_clean(stores) -> None:
     """Artifact whose own kind == root_kind with empty backward trace → clean."""
     from molexp.harness.validators.provenance import validate_provenance
 
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     ref = artifact_store.put_text(
         kind="user_plan", text="simulate water", created_by="user", parent_ids=[]
     )
     report = validate_provenance(
         ref.id,
         artifact_store=artifact_store,
-        provenance_store=provenance_store,
+        lineage_store=lineage_store,
     )
     assert report.passed is True
     assert report.violations == []
@@ -115,7 +117,7 @@ def test_chain_reaches_root_clean(stores) -> None:
     """Multi-edge chain root_kind → ... → leaf returns passed=True."""
     from molexp.harness.validators.provenance import validate_provenance
 
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     user_plan = artifact_store.put_text(
         kind="user_plan", text="simulate water", created_by="user", parent_ids=[]
     )
@@ -128,12 +130,12 @@ def test_chain_reaches_root_clean(stores) -> None:
     ir = artifact_store.put_json(
         kind="workflow_ir", obj={"y": 1}, created_by="harness", parent_ids=[report.id]
     )
-    provenance_store.add_edge(parent_id=user_plan.id, child_id=report.id)
-    provenance_store.add_edge(parent_id=report.id, child_id=ir.id)
+    lineage_store.add_edge(parent_id=user_plan.id, child_id=report.id)
+    lineage_store.add_edge(parent_id=report.id, child_id=ir.id)
     validation = validate_provenance(
         ir.id,
         artifact_store=artifact_store,
-        provenance_store=provenance_store,
+        lineage_store=lineage_store,
     )
     assert validation.passed is True
     assert validation.violations == []
@@ -143,7 +145,7 @@ def test_root_kind_override(stores) -> None:
     """root_kind kwarg lets caller assert lineage to an intermediate kind."""
     from molexp.harness.validators.provenance import validate_provenance
 
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     user_plan = artifact_store.put_text(
         kind="user_plan", text="x", created_by="user", parent_ids=[]
     )
@@ -156,13 +158,13 @@ def test_root_kind_override(stores) -> None:
     ir = artifact_store.put_json(
         kind="workflow_ir", obj={"y": 1}, created_by="harness", parent_ids=[report.id]
     )
-    provenance_store.add_edge(parent_id=user_plan.id, child_id=report.id)
-    provenance_store.add_edge(parent_id=report.id, child_id=ir.id)
+    lineage_store.add_edge(parent_id=user_plan.id, child_id=report.id)
+    lineage_store.add_edge(parent_id=report.id, child_id=ir.id)
     # Assert ir traces back to some experiment_report (not necessarily user_plan).
     result = validate_provenance(
         ir.id,
         artifact_store=artifact_store,
-        provenance_store=provenance_store,
+        lineage_store=lineage_store,
         root_kind="experiment_report",
     )
     assert result.passed is True
@@ -178,7 +180,7 @@ def test_validate_provenance_signature_and_import(stores) -> None:
     from molexp.harness.validators.provenance import validate_provenance as via_mod
 
     assert top is via_pkg is via_mod
-    artifact_store, provenance_store = stores
+    artifact_store, lineage_store = stores
     ref = artifact_store.put_text(kind="user_plan", text="x", created_by="user", parent_ids=[])
-    report = top(ref.id, artifact_store=artifact_store, provenance_store=provenance_store)
+    report = top(ref.id, artifact_store=artifact_store, lineage_store=lineage_store)
     assert isinstance(report, ValidationReport)

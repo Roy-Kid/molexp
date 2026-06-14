@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "id": "878327bdc04aef0b",
+  "status": "succeeded",
+  "parameters": {
+    "seed": 42,
+    "replica": 0
+  },
+  "created_at": "2026-06-08T14:36:50.330983",
+  "finished_at": "2026-06-08T14:36:50.336537",
+  "error": null,
+  "workflow_snapshot": null,
+  "script": "/private/var/folders/mr/dtyzj7qx5bv5tr7bvvv9ghqm0000gn/T/pytest-of-roykid/pytest-167/test_explicit_root_in_script_n0/scripts/train.py",
+  "submit_cwd": "/Users/roykid/work/molcrafts/molexp",
+  "profile": "dry_run",
+  "config": {
+    "epochs": 1,
+    "dataset": "md17",
+    "skip_heavy": true
+  },
+  "config_hash": "72dc9613944c6d7ea4ca776a1b5e20c520cc157d0a96e4dcc1c4f893a943938f",
+  "labels": {},
+  "executor_info": {},
+  "execution_history": [
+    {
+      "execution_id": "exec-878327bdc04aef0b",
+      "started_at": "2026-06-08T14:36:50.332979",
+      "finished_at": "2026-06-08T14:36:50.336537",
+      "status": "succeeded",
+      "scheduler_job_id": null
+    }
+  ],
+  "target": null,
+  "workflow_id": null,
+  "workflow_version": null,
+  "context": {
+    "run_id": "878327bdc04aef0b",
+    "experiment_id": "train",
+    "project_id": "demo",
+    "work_dir": "/Users/roykid/work/molcrafts/molexp/projects/demo/experiments/train/runs/run-878327bdc04aef0b",
+    "tasks": {},
+    "results": {
+      "epochs": 1
+    },
+    "status": {},
+    "errors": {},
+    "workflow": null,
+    "execution": {}
+  }
+}

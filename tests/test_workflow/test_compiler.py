@@ -51,12 +51,12 @@ def test_compile_emits_compiled_workflow_with_snapshots_version_graph():
     # the version reuses the per-task snapshot code-hash (single hasher)
     for entry in compiled.version.topology:
         assert entry.code_hash == compiled.snapshots[entry.name].code_hash
-    # a non-None executable graph — now a genuine pydantic_graph Graph with
-    # one Step per task (entry_frontier is baked into the graph structure,
-    # no longer a public attr on the lowered object).
-    from pydantic_graph.graph_builder import Graph
+    # a non-None executable graph — the engine's structural ExecutionPlan
+    # (one node per task; values-on-edges execution, no pg lowering).
+    from molexp.workflow._pydantic_graph.plan import ExecutionPlan
 
-    assert isinstance(compiled.graph, Graph)
+    assert isinstance(compiled.graph, ExecutionPlan)
+    assert set(compiled.graph.task_names) == {"fetch", "train"}
     # no binding without an experiment
     assert compiled.binding is None
 

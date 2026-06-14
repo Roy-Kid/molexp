@@ -1,11 +1,11 @@
-"""Internal pydantic-graph state and deps types.
+"""Internal workflow-engine state and deps types.
 
 Users never import these directly — they touch them only through the
 public ``WorkflowResult`` API.
 
 This module MUST NOT import ``pydantic_graph`` — it carries only plain
-data containers threaded through the per-task ``Step`` nodes built in
-:mod:`.compiler`.
+data containers threaded through the per-task node bodies driven by
+:mod:`.engine`.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 
     from .._graph_decl import ParallelDecl, TaskRegistration
     from ..cache import Caching
+    from ..materialization_store import MaterializationStore
     from ..snapshot import TaskSnapshot
 
 
@@ -35,12 +36,11 @@ if TYPE_CHECKING:
 class WorkflowState:
     """Shared, **mutated-in-place** state threaded through workflow tasks.
 
-    pydantic-graph holds a single reference to this object for the whole
-    run and snapshots it after each node. molexp tasks do not read their
-    inputs from edge tokens — each task reads upstream outputs from this
-    shared ``results`` dict (via ``_collect_upstream_outputs``). Each
-    per-task ``Step`` therefore mutates ``results`` in place:
-    ``ctx.state.results[name] = output``.
+    The engine holds a single reference to this object for the whole run.
+    Tasks receive their inputs from upstream outputs (values-on-edges); the
+    shared ``results`` dict is the run's output ledger — each completed node
+    records ``results[name] = output`` in place, and downstream ``depends_on``
+    collection reads from it.
 
     Fields:
 
@@ -48,18 +48,25 @@ class WorkflowState:
       prior values ("曾经完成过一次" semantics).
     * ``completed`` — names of tasks that finished at least once.
     * ``loop_counters`` — per-loop ``until``-task → iteration count; the
-      ``until`` step increments and consults this to enforce
+      engine increments and consults this to enforce
       ``wf.loop(..., max_iters=N)``.
-    * ``parallel_runs`` — ``wf.parallel`` body fan-out width, recorded by
-      the collector step for observability.
+    * ``parallel_runs`` — ``wf.parallel`` body fan-out width, recorded when
+      the fan-out publishes (observability).
     * ``failed`` / ``error`` — terminal failure flags.
     * ``seeded`` — names that arrived already-completed via
-      ``Workflow.execute(seed_outputs=...)``; their step skips the body
+      ``Workflow.execute(seed_outputs=...)``; their node skips the body
       but still routes normally.
     """
 
     results: dict[str, TaskOutput] = field(default_factory=dict)
     completed: set[str] = field(default_factory=set)
+    # Engine-injected inputs for ROOT tasks (no upstream deps). Opt-in: empty by
+    # default, so a root task with no entry sees ``ctx.inputs is None`` exactly
+    # as before. The runtime populates an entry (e.g. ``{"params": ...,
+    # "workdir": Path}``) for roots of a parameterized/workspace run. Distinct
+    # from ``seeded`` (which SKIPS the body); a root-input task still RUNS its
+    # body with the injected inputs pre-set.
+    root_inputs: dict[str, TaskOutput] = field(default_factory=dict)
     loop_counters: dict[str, int] = field(default_factory=dict)
     parallel_runs: dict[str, int] = field(default_factory=dict)
     failed: bool = False
@@ -91,7 +98,7 @@ class WorkflowState:
 
 @dataclass
 class WorkflowDeps:
-    """Dependencies injected into every per-task ``Step`` node.
+    """Dependencies injected into every per-task node body.
 
     Attributes:
         run: The molexp Run associated with this execution (may be None).
@@ -124,9 +131,13 @@ class WorkflowDeps:
     # It is reached only by molq-aware tasks and is opaque to the runtime.
     remote_executor: UserDeps = None
     run_dir: Path | None = None
+    execution_id: str | None = None
     registration_by_name: Mapping[str, TaskRegistration] = field(default_factory=dict)
     parallel_decls: Mapping[str, ParallelDecl] = field(default_factory=dict)
     loop_max_iters: Mapping[str, int] = field(default_factory=dict)
     parallel_limiters: Mapping[str, anyio.CapacityLimiter] = field(default_factory=dict)
     cache: Caching | None = None
     snapshots: Mapping[str, TaskSnapshot] = field(default_factory=dict)
+    # Engine-side materialization layer (content-addressed workdir + task
+    # return-value persistence). ``None`` disables it (behaviour unchanged).
+    materialization: MaterializationStore | None = None

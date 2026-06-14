@@ -22,22 +22,23 @@ from pydantic import BaseModel, ConfigDict
 from .._typing import JSONValue, TaskOutput
 from ._pydantic_graph import End as End
 
-# ── IR-internal route routing token ─────────────────────────────────────────
+# ── Route routing token (public) ─────────────────────────────────────────────
 
 
 class Next(BaseModel):
-    """IR-internal routing token.
+    """Routing token — the public return value of branch / loop-``until`` tasks.
 
-    Used by the declarative IR sugar (``wf.loop`` / ``wf.branch`` /
-    ``wf.parallel`` builder methods) to pick a declared outgoing route
-    by label. Picks one of the ``routes={label: target}`` entries
-    declared on the task; does NOT jump to a task named ``label``.
+    ``Next("label")`` picks one of the ``routes={label: target}`` entries
+    declared on the task (via ``wf.branch`` or ``@wf.task(routes=...)``);
+    it does NOT jump to a task named ``label``. A ``wf.loop`` ``until``
+    task returns ``Next("continue")`` to repeat the body or
+    ``Next("exit")`` to proceed to ``on_exit``.
 
-    **Python-developer-facing tasks should return native pydantic-graph node
-    instances instead** (``return AcceptNode()`` / ``return End()``). ``Next``
-    is intentionally absent from ``molexp.workflow.__all__``; reach for it
-    via ``from molexp.workflow.types import Next`` only when implementing
-    declarative IR machinery.
+    Return ``(value, Next("label"))`` to carry a value on the routed edge:
+    the target task receives ``value`` as its ``ctx.inputs``
+    (values-on-edges delivery; a declared ``depends_on`` interface always
+    wins). Part of ``molexp.workflow.__all__`` — import it as
+    ``from molexp.workflow import Next``.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -149,6 +150,46 @@ class ParallelExecutionError(WorkflowError):
             f"Parallel body {body!r} had {len(failures)} element failure(s) "
             f"at indices {indices}: "
             + ", ".join(f"[{i}] {type(failures[i]).__name__}: {failures[i]}" for i in indices)
+        )
+
+
+class CommandError(WorkflowError):
+    """An external command run by a :class:`~molexp.workflow.CommandTask` exited non-zero.
+
+    Carries the command's ``returncode``, ``stdout``, and ``stderr`` for caller
+    introspection; the message surfaces ``stderr`` (falling back to ``stdout``
+    when ``stderr`` is empty). Under ``wf.parallel`` it is captured per element
+    like any other :class:`WorkflowError`.
+    """
+
+    def __init__(self, returncode: int, stdout: str, stderr: str) -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+        detail = (stderr or stdout or "").strip()
+        super().__init__(
+            f"command exited with returncode {returncode}" + (f": {detail}" if detail else "")
+        )
+
+
+class MissingUpstreamResultError(WorkflowError):
+    """A consumer's declared dependency has no recorded result.
+
+    Raised by ``_collect_upstream_outputs`` when a multi-dependency consumer
+    asks for a declared dependency name that never landed in
+    ``WorkflowState.results`` — turning the old silent ``dict.get`` ``None``
+    coalescing into a loud, named failure (the dependency barrier guarantees
+    presence on the happy path, so this is a contract assertion). The message
+    names the consumer task, the missing dependency, and the recorded names.
+    """
+
+    def __init__(self, consumer: str, missing: list[str], recorded: list[str]) -> None:
+        self.consumer = consumer
+        self.missing = missing
+        self.recorded = recorded
+        super().__init__(
+            f"task {consumer!r} expected upstream result(s) {missing} but none were "
+            f"recorded; recorded results: {recorded}"
         )
 
 

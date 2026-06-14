@@ -62,7 +62,7 @@ describe("RemoteWorkspacesPanel — test result rendering is inline, not toast",
     // rounded-md div — i.e. it appears in the document, not via a
     // dismiss-after-timeout toast component.
     expect(source).toMatch(/\{testResult && \(/);
-    expect(source).toContain('rounded-md border border-border');
+    expect(source).toContain("rounded-md border border-border");
   });
 
   it("includes the 'reachable' label for ok=true and 'unreachable' for ok=false", () => {

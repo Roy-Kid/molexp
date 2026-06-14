@@ -9,7 +9,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Code,
-  Database,
   GitCompareArrows,
   Hash,
   ListChecks,
@@ -18,11 +17,13 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import type { RunExecutionResponse } from "@/api/generated/models/RunExecutionResponse";
 import type { WorkflowSnapshotResponse } from "@/api/generated/models/WorkflowSnapshotResponse";
-import type { WorkflowStepInfo } from "@/api/generated/models/WorkflowStepInfo";
-import { KeyValueGrid, StatusBadge } from "@/app/components/entity";
+import { KeyValueGrid } from "@/app/components/entity";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
+import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
+import { WorkflowGraph } from "@/components/workflow/workflow-graph";
 
 // Local shape used by the diff viewer only. The backend no longer exposes a
 // per-task snapshot schema; the diff fixture is kept for the experiment-level
@@ -676,7 +677,7 @@ const DiffSummaryBar = ({ diffs }: { diffs: TaskDiff[] }): JSX.Element => {
 // ============================================================================
 
 interface RunSnapshotPanelProps {
-  run: Pick<RunSummary, "id" | "projectId" | "experimentId" | "workflowSnapshot">;
+  run: Pick<RunSummary, "id" | "projectId" | "experimentId" | "workflowSnapshot" | "status">;
 }
 
 const snapshotMissing = <span className="italic text-muted-foreground">—</span>;
@@ -715,30 +716,9 @@ const SnapshotHeader = ({
   </div>
 );
 
-const WorkflowStepRow = ({ step }: { step: WorkflowStepInfo }): JSX.Element => {
-  const status = step.status ?? "pending";
-  const outputEntries = Object.entries(step.outputs ?? {});
-  return (
-    <div className="rounded-md border border-border/70 bg-card p-3">
-      <div className="flex items-center justify-between text-xs">
-        <span className="font-mono text-muted-foreground">step #{step.index}</span>
-        <StatusBadge status={status} size="sm" />
-      </div>
-      {outputEntries.length > 0 && (
-        <div className="mt-2 space-y-1">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Outputs</p>
-          <pre className="max-h-40 overflow-x-auto rounded bg-muted/40 p-2 font-mono text-[11px]">
-            {JSON.stringify(step.outputs, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
-  );
-};
-
 /**
- * Displays the immutable workflow snapshot + live per-step execution status
- * for the latest attempt of a single run.
+ * Displays the immutable workflow snapshot + live runtime workflow graph for
+ * the latest attempt of a single run.
  */
 export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element => {
   const [execution, setExecution] = useState<RunExecutionResponse | null>(null);
@@ -747,27 +727,38 @@ export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element =>
 
   useEffect(() => {
     let cancelled = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
     setLoading(true);
     setError(null);
-    workspaceApi
-      .getRunExecution(run.projectId, run.experimentId, run.id)
-      .then((data) => {
-        if (cancelled) return;
-        setExecution(data);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load workflow execution");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    const load = (): void => {
+      workspaceApi
+        .getRunExecution(run.projectId, run.experimentId, run.id)
+        .then((data) => {
+          if (cancelled) return;
+          setExecution(data);
+          setError(null);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setError(err instanceof Error ? err.message : "Failed to load workflow execution");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+    load();
+    if (run.status === "running") {
+      interval = setInterval(load, 1000);
+    }
     return () => {
       cancelled = true;
+      if (interval) clearInterval(interval);
     };
-  }, [run.id, run.projectId, run.experimentId]);
+  }, [run.experimentId, run.id, run.projectId, run.status]);
 
-  const steps = execution?.steps ?? [];
+  const graph = useMemo<TaskGraphJson | null>(() => {
+    return execution?.workflow ? normalizeTaskGraph(execution.workflow) : null;
+  }, [execution]);
 
   return (
     <div className="flex h-full flex-col overflow-y-auto">
@@ -775,8 +766,10 @@ export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element =>
         <div className="flex items-center gap-2">
           <ListChecks className="h-4 w-4 text-muted-foreground" />
           <span className="text-sm font-medium">
-            Workflow steps
-            <span className="ml-1 font-normal text-muted-foreground">({steps.length})</span>
+            Workflow graph
+            <span className="ml-1 font-normal text-muted-foreground">
+              ({graph?.task_configs.length ?? 0})
+            </span>
           </span>
         </div>
         {execution?.execution_id && (
@@ -794,18 +787,16 @@ export const RunSnapshotPanel = ({ run }: RunSnapshotPanelProps): JSX.Element =>
             <AlertCircle className="h-4 w-4" />
             {error}
           </div>
-        ) : steps.length === 0 ? (
+        ) : graph === null ? (
           <div className="flex flex-col items-center justify-center gap-3 py-12 text-muted-foreground">
-            <Database className="h-10 w-10 opacity-20" />
+            <ListChecks className="h-10 w-10 opacity-20" />
             <p className="text-sm">
               No workflow execution state yet. The run hasn't materialized a workflow.json file.
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {steps.map((step) => (
-              <WorkflowStepRow key={`step-${step.index}`} step={step} />
-            ))}
+          <div className="min-h-[480px]">
+            <WorkflowGraph ir={graph} height={480} />
           </div>
         )}
       </div>

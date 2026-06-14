@@ -1,6 +1,6 @@
 # MolExp
 
-MolExp is a workflow system for research execution, persistent experiment records, and managed reusable assets. It is built around a simple separation of concerns. The workflow defines the computation. The workspace preserves the record of what was run. The asset layer keeps shared inputs and derived resources recoverable across runs.
+MolExp is an agent-assisted scientific-workflow platform for FAIR research. It is built around a simple separation of concerns. The workflow defines the computation. The workspace preserves the record of what was run. The asset layer keeps shared inputs and derived resources recoverable across runs. An optional LLM agent can plan, generate, and drive workflows.
 
 ## Start Here
 

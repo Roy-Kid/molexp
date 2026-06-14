@@ -190,19 +190,64 @@ def test_to_ir_captures_loops_and_parallels():
     )
 
 
+def test_to_graph_ir_emits_parallel_fanout_edges():
+    """ac-001/002: to_graph_ir tags both map_over→body and body→join edges
+    kind="parallel"; to_ir's data-DAG wire format omits them (by-design)."""
+    wf = WorkflowCompiler(name="par")
+
+    @wf.task
+    async def items(ctx):
+        return [1, 2]
+
+    @wf.task
+    async def process(ctx):
+        return 3
+
+    @wf.task(depends_on=["items"])
+    async def gather(ctx):
+        return 4
+
+    wf.parallel(map_over="items", body="process", join="gather")
+    compiled = wf.compile()
+
+    parallel_pairs = {
+        (e.source, e.target) for e in compiled.to_graph_ir().edges if e.kind == "parallel"
+    }
+    assert ("items", "process") in parallel_pairs
+    assert ("process", "gather") in parallel_pairs
+
+    # The data-DAG wire format (to_ir) deliberately omits the parallel fan-out
+    # representation: it never tags an edge "parallel", and the map_over→body
+    # edge is absent. (The body→join wiring rides a plain data dep, so it may
+    # appear as a "data" link — what to_ir lacks is the *parallel* topology,
+    # not every pairing.)
+    links = compiled.to_ir(strict=False).get("links", [])
+    assert all(link.get("kind") != "parallel" for link in links if isinstance(link, dict))
+    data_pairs = {(link["source"], link["target"]) for link in links if isinstance(link, dict)}
+    assert ("items", "process") not in data_pairs
+
+
 @pytest.mark.unit
 def test_to_ir_carries_config_for_oop_tasks():
     from molexp.workflow import Task
+    from molexp.workflow.registry import default_registry
 
     class Adder(Task):
+        def __init__(self, value: int = 0) -> None:
+            self.value = value
+
         async def execute(self, ctx):
             return 1
 
+    # Slug lives with the type, declared once; resolved at compile time.
+    default_registry.register("test.adder", Adder)
+
     wf = WorkflowCompiler(name="oop")
-    wf.add(Adder(), name="adder", task_type="core.add", config={"value": 10})
+    # Config is the instance's captured __init__ args — IR carries them for round-trip.
+    wf.add(Adder(value=10), name="adder")
     ir = wf.compile().to_graph_ir()
     adder = next(t for t in ir.tasks if t.name == "adder")
-    assert adder.task_type == "core.add"
+    assert adder.task_type == "test.adder"
     assert adder.config == {"value": 10}
 
 
@@ -309,7 +354,7 @@ def test_to_mermaid_renders_loop_and_parallel_edges():
 @pytest.mark.unit
 def test_to_mermaid_sanitizes_unsafe_task_names():
     wf = WorkflowCompiler(name="x")
-    wf.add(_Noop(), name="step-one.v2", task_type="t", config={})
+    wf.add(_Noop(), name="step-one.v2")
     out = wf.compile().to_graph_mermaid()
     assert "n_step_one_v2" in out
     # Original name preserved inside the display label.
@@ -319,3 +364,47 @@ def test_to_mermaid_sanitizes_unsafe_task_names():
 class _Noop:
     async def execute(self, ctx):
         return None
+
+
+# ── SubWorkflow nodes carry their inner graph IR (UI drill-down surface) ──────
+
+
+@pytest.mark.unit
+def test_to_graph_ir_embeds_subworkflow_inner_graph():
+    """A SubWorkflow node exposes the full inner WorkflowGraphIR under
+    ``GraphTaskIR.subworkflow`` so a UI can render a distinct badge and drill into
+    the inner topology; ordinary nodes carry ``subworkflow=None``."""
+    from molexp.workflow import SubWorkflow
+
+    inner = WorkflowCompiler(name="inner")
+
+    @inner.task
+    async def load(ctx):
+        return ctx.inputs
+
+    @inner.task(depends_on=["load"])
+    async def scale(ctx):
+        return ctx.inputs
+
+    outer = (
+        WorkflowCompiler(name="outer")
+        .add(SubWorkflow(inner), name="sub")
+        .add(_Noop(), name="after", depends_on=["sub"])
+        .compile()
+    )
+    ir = outer.to_graph_ir()
+    by_name = {t.name: t for t in ir.tasks}
+
+    # The plain node has no inner graph.
+    assert by_name["after"].subworkflow is None
+
+    # The SubWorkflow node carries the inner graph IR, recursively typed.
+    sub_ir = by_name["sub"].subworkflow
+    assert isinstance(sub_ir, WorkflowGraphIR)
+    assert sub_ir.name == "inner"
+    assert {t.name for t in sub_ir.tasks} == {"load", "scale"}
+    # Round-trips through JSON (the wire contract for the UI).
+    dumped = ir.model_dump(mode="json")
+    sub_dumped = next(t for t in dumped["tasks"] if t["name"] == "sub")["subworkflow"]
+    assert sub_dumped["name"] == "inner"
+    assert WorkflowGraphIR.model_validate(dumped) == ir

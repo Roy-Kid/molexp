@@ -1,7 +1,7 @@
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { Breadcrumb } from "@/app/entities/Breadcrumb";
-import { buildTrail } from "@/app/entities/breadcrumb";
+import { buildTrail } from "@/app/entities/breadcrumbTrail";
 import { GlobalCommandPalette } from "@/app/entities/GlobalCommandPalette";
 import { ContextBar } from "@/app/layout/ContextBar";
 import { CenterPanel } from "@/app/panels/CenterPanel";
@@ -30,7 +30,7 @@ interface AppShellProps {
   onLeftPanelViewChange: (view: LeftPanelView) => void;
   onSelectionChange: (selection: Selection) => void;
   onInspectorTargetChange: (target: InspectorTarget) => void;
-  onOpenWorkspace: (path: string) => void;
+  onOpenWorkspace: (path: string, options?: { createIfMissing?: boolean }) => Promise<void>;
   onCreateDirectory: (path: string) => void;
   onCreateFile: (path: string) => void;
   onWorkspaceRefresh: () => void;

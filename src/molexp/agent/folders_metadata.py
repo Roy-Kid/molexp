@@ -30,7 +30,7 @@ def _utc_now() -> datetime:
 SessionStatusStr = Literal["pending", "running", "paused", "succeeded", "failed", "cancelled"]
 
 
-class AgentMetadata(FolderMetadata):
+class AgentMetadata(FolderMetadata, frozen=True):
     """Persisted ``agent.json`` payload for an :class:`Agent` folder.
 
     Extends :class:`FolderMetadata` with the agent persona fields the
@@ -45,7 +45,7 @@ class AgentMetadata(FolderMetadata):
     description: str = ""
 
 
-class AgentSessionMetadata(FolderMetadata):
+class AgentSessionMetadata(FolderMetadata, frozen=True):
     """Persisted ``agent_session.json`` payload for an :class:`AgentSession`.
 
     Extends :class:`FolderMetadata` with conversation-shaped fields.

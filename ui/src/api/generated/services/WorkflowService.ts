@@ -60,4 +60,62 @@ export class WorkflowService {
             },
         });
     }
+    /**
+     * Get Workflow Document
+     * Return the persisted workflow IR document, or 404 if none stored.
+     * @param projectId
+     * @param experimentId
+     * @param ws
+     * @returns WorkflowDocumentResponse Successful Response
+     * @throws ApiError
+     */
+    public static getWorkflowDocumentApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdWorkflowGet(
+        projectId: string,
+        experimentId: string,
+        ws: string,
+    ): CancelablePromise<WorkflowDocumentResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/workflow',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Put Workflow Document
+     * Validate, normalize, and persist an edited workflow IR document.
+     * @param projectId
+     * @param experimentId
+     * @param ws
+     * @param requestBody
+     * @returns WorkflowDocumentResponse Successful Response
+     * @throws ApiError
+     */
+    public static putWorkflowDocumentApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdWorkflowPut(
+        projectId: string,
+        experimentId: string,
+        ws: string,
+        requestBody: WorkflowDocumentRequest,
+    ): CancelablePromise<WorkflowDocumentResponse> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/workflow',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'ws': ws,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
 }

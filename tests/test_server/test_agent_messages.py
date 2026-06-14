@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-import molexp.server.dependencies as deps
+import molexp.server.deps.agent_runtime as agent_runtime_deps
 from molexp.agent.loops.interactive import InteractiveLoop, InteractiveLoopConfig
 from molexp.agent.router import (
     AgenticChunk,
@@ -85,7 +85,7 @@ def _runner(tmp: Path, router: object | None = None) -> AgentRunner:
 @pytest.fixture
 def registry(monkeypatch: pytest.MonkeyPatch) -> AgentSessionRegistry:
     reg = AgentSessionRegistry()
-    monkeypatch.setattr(deps, "_agent_runtime_registry", reg)
+    monkeypatch.setattr(agent_runtime_deps, "_agent_runtime_registry", reg)
     return reg
 
 

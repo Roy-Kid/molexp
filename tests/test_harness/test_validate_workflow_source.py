@@ -99,18 +99,18 @@ def ctx(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     return HarnessRunContext(
         run_id="run-vws",
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
     )
 
 

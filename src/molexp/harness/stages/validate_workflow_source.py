@@ -3,8 +3,9 @@
 Loads a :class:`WorkflowSource` artifact, runs the pure
 :func:`validate_workflow_source` pre-checks (syntax + public-surface imports),
 and only if those pass **lazily imports** ``molexp.workflow`` to compile the
-source into a real ``Workflow`` (calling the program's ``build_workflow()`` and
-``.build()``). A :class:`ValidationReport` is **always persisted**; on failure
+source into a real ``CompiledWorkflow`` (calling the program's
+``build_workflow()`` and ``.compile()``). A :class:`ValidationReport` is
+**always persisted**; on failure
 the stage raises :class:`StagePersistedFailureError` (mirroring
 :class:`ValidateWorkflowIR`).
 

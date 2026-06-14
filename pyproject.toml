@@ -1,11 +1,12 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setup"
+backend-path = ["."]
 
 [project]
 name = "molexp"
 version = "0.0.1"
-description = "Workflow and agent platform for research experiment management"
+description = "Agent-assisted scientific-workflow platform for FAIR research"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}
 requires-python = ">=3.12"
@@ -117,6 +118,13 @@ line-ending = "lf"
 docstring-code-format = true
 
 # ─── ty (type checker) ───────────────────────────────────────────────────────
+[tool.ty.environment]
+# Pin resolution to the project venv: a monorepo shell often exports
+# VIRTUAL_ENV=<root>/.venv, and without this pin ty resolves third-party
+# imports against the wrong environment (pydantic_ai etc. show up as
+# unresolved-import even though `uv run` imports them fine).
+python = "./.venv"
+
 [tool.ty.src]
 include = ["src", "tests", "examples"]
 exclude = [
@@ -137,18 +145,15 @@ unresolved-import = "error"
 invalid-assignment = "error"
 invalid-type-form = "error"
 
-[tool.hatch.build]
-# Ship the built frontend bundle inside the wheel — populated by
-# `npm run build` (in ui/) before `python -m build --wheel`.
-artifacts = [
-    "src/molexp/dist/**",
-]
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/molexp"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
-[tool.hatch.build.targets.sdist]
-include = [
-    "/src",
-    "/README.md",
+[tool.setuptools.package-data]
+molexp = [
+    "openapi.json",
+    "dist/**",
 ]

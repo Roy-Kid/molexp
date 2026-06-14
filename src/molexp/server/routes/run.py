@@ -11,14 +11,16 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from molexp._run_cancel import try_cancel
+from molexp.plugins.submit_molq.cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workflow import (
     WorkflowSnapshotRef,
     default_binding_registry,
+    make_execution_id,
     resolve_spec_entrypoint,
 )
 from molexp.workspace import (
+    RETRYABLE_STATUSES,
     Experiment,
     RunStatus,
 )
@@ -41,6 +43,7 @@ from ..schemas import (
     LammpsThermoStage,
     MetricSeriesResponse,
     RunActionResponse,
+    RunContinueResponse,
     RunCreateRequest,
     RunExecutionResponse,
     RunFileNode,
@@ -48,10 +51,8 @@ from ..schemas import (
     RunFileTextResponse,
     RunLogsResponse,
     RunMetricsResponse,
-    RunRerunResponse,
     RunResponse,
     RunStatusResponse,
-    WorkflowStepInfo,
 )
 
 router = APIRouter(
@@ -114,11 +115,13 @@ def _synthesize_snapshot(experiment: Experiment) -> dict | None:
     return snap.model_dump(mode="json")
 
 
-def _dispatch_to_molq(target, run) -> None:  # noqa: ANN001
+def _dispatch_to_molq(target, run, execution_id: str | None = None) -> None:  # noqa: ANN001
     """Submit *run* through molq onto *target*.
 
     Resources and scheduling come from the target's defaults — the API
-    has no per-run CLI overrides like ``molexp run --cpus``.
+    has no per-run CLI overrides like ``molexp run --cpus``. When
+    *execution_id* is given the worker reuses it (resume reopens; rerun
+    runs the freshly-derived id) instead of deriving its own.
     """
     snapshot = run.metadata.workflow_snapshot
     entrypoint = snapshot.get("entrypoint") if isinstance(snapshot, dict) else None
@@ -144,7 +147,7 @@ def _dispatch_to_molq(target, run) -> None:  # noqa: ANN001
         scheduling=target.default_scheduling,
         target=target,
     )
-    handler(None, run, run.experiment, run.experiment.project)
+    handler(None, run, run.experiment, run.experiment.project, execution_id=execution_id)
 
 
 @router.get("", response_model=list[RunResponse])
@@ -197,7 +200,7 @@ def create_run(
             ) from exc
 
     run = experiment.add_run(
-        parameters=run_req.parameters,
+        params=run_req.parameters,
         target=run_req.target,
         workflow_snapshot=_synthesize_snapshot(experiment),
     )
@@ -399,9 +402,10 @@ def get_run_execution(
     project_id: str,
     experiment_id: str,
     run_id: str,
+    execution_id: str | None = Query(default=None, description="Execution attempt id."),
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunExecutionResponse:
-    """Return workflow execution state from workflow.json."""
+    """Return runtime workflow graph state from workflow.json."""
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
         raise RunNotFoundError(project_id, experiment_id, run_id)
@@ -413,25 +417,20 @@ def get_run_execution(
     if not history:
         return RunExecutionResponse()
 
-    latest_id = history[-1].execution_id
-    wf_file = Path(run.run_dir) / "executions" / latest_id / "workflow.json"
+    known_ids = {rec.execution_id for rec in history}
+    selected_id = execution_id or history[-1].execution_id
+    if selected_id not in known_ids:
+        raise HTTPException(status_code=404, detail=f"Execution {selected_id!r} not found")
+
+    wf_file = Path(run.run_dir) / "executions" / selected_id / "workflow.json"
     if not wf_file.exists():
-        return RunExecutionResponse(execution_id=latest_id)
+        return RunExecutionResponse(execution_id=selected_id)
 
     data = json.loads(wf_file.read_text())
-    steps = [
-        WorkflowStepInfo(
-            index=s["index"],
-            status=s.get("status", "pending"),
-            outputs=s.get("outputs", {}),
-        )
-        for s in data.get("steps", [])
-    ]
     return RunExecutionResponse(
-        execution_id=data.get("execution_id", latest_id),
+        execution_id=data.get("execution_id", selected_id),
         status=data.get("status", "running"),
-        steps=steps,
-        end=data.get("end"),
+        workflow=data,
     )
 
 
@@ -502,18 +501,72 @@ def get_run_files(
     )
 
 
-@router.post("/{run_id}/rerun", response_model=RunRerunResponse, status_code=201)
-def rerun_run(
+def _resumable_execution_id(run) -> str | None:  # noqa: ANN001
+    """Return the most recent non-succeeded execution_id, or ``None``."""
+    for record in reversed(run.metadata.execution_history):
+        if record.status != "succeeded":
+            return record.execution_id
+    return None
+
+
+def _require_retryable(run, run_id: str) -> None:  # noqa: ANN001
+    """409 unless *run* is in a retryable state (``failed`` / ``cancelled``).
+
+    resume / rerun own exactly the finished-but-not-succeeded runs. ``pending``
+    is started via the normal run/create flow, ``succeeded`` is done, and a live
+    ``running`` run must not get a second concurrent execution — keeping the
+    three verbs orthogonal. The retryable domain is the shared
+    :data:`molexp.workspace.RETRYABLE_STATUSES`.
+    """
+    if run.status not in RETRYABLE_STATUSES:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"run {run_id!r} is {run.status!r}; resume/rerun apply only to "
+                "failed or cancelled runs"
+            ),
+        )
+
+
+def _dispatch_continuation(workspace, run, execution_id: str) -> None:  # noqa: ANN001
+    """Re-dispatch *run* on *execution_id* through its inherited target (if any).
+
+    Mirrors the create path: a targeted run is submitted via molq onto the
+    chosen execution_id; a target-less run is not executed server-side (the
+    operator runs ``molexp run`` locally). 422 when the target is unregistered.
+    """
+    inherited_target = run.metadata.target
+    if inherited_target is None:
+        return
+    try:
+        target = get_target(workspace, inherited_target)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"compute target {inherited_target!r} is not registered on this workspace",
+        ) from exc
+    # Ensure the run carries a workflow entrypoint the worker can re-import.
+    snapshot = run.metadata.workflow_snapshot
+    if not (isinstance(snapshot, dict) and snapshot.get("entrypoint")):
+        synthesized = _synthesize_snapshot(run.experiment)
+        if synthesized is not None:
+            run._update_metadata(workflow_snapshot=synthesized)
+    _dispatch_to_molq(target, run, execution_id=execution_id)
+
+
+@router.post("/{run_id}/resume", response_model=RunContinueResponse, status_code=201)
+def resume_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
     workspace=Depends(get_workspace),  # noqa: ANN001
-) -> RunRerunResponse:
-    """Clone an existing run's parameters into a fresh run within the same experiment.
+) -> RunContinueResponse:
+    """Resume a failed/cancelled run: reopen its last non-succeeded execution.
 
-    The new run inherits the source run's compute target.  When a target is
-    set, the new run is also submitted through molq so a re-run from the UI
-    actually re-executes (no manual ``molexp run`` step required).
+    The reopened execution is re-dispatched on the same ``execution_id``; the
+    worker seeds already-completed nodes from disk and recomputes the rest.
+    409 unless the run is failed/cancelled (pending/succeeded/running are not
+    resume's job).
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -521,36 +574,59 @@ def rerun_run(
     run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
+    _require_retryable(run, run_id)
 
-    inherited_target = run.metadata.target
-    target = None
-    if inherited_target is not None:
-        try:
-            target = get_target(workspace, inherited_target)
-        except KeyError as exc:
-            raise HTTPException(
-                status_code=422,
-                detail=f"compute target {inherited_target!r} is not registered on this workspace",
-            ) from exc
-
-    new_run = experiment.add_run(
-        parameters=dict(run.parameters),
-        target=inherited_target,
-        workflow_snapshot=_synthesize_snapshot(experiment),
-    )
-    if target is not None:
-        _dispatch_to_molq(target, new_run)
-    return RunRerunResponse(
-        sourceRunId=run.id,
-        newRunId=new_run.id,
+    execution_id = _resumable_execution_id(run) or make_execution_id(run.id, Path(run.run_dir))
+    _dispatch_continuation(workspace, run, execution_id)
+    return RunContinueResponse(
+        runId=run.id,
+        executionId=execution_id,
         projectId=project_id,
         experimentId=experiment_id,
-        status=new_run.status,
+        status=run.status,
     )
 
 
-@router.post("/{run_id}/kill", response_model=RunActionResponse)
-def kill_run(
+@router.post("/{run_id}/rerun", response_model=RunContinueResponse, status_code=201)
+def rerun_run(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> RunContinueResponse:
+    """Rerun a failed/cancelled run from scratch in a new execution (no clone).
+
+    A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
+    through molq; no parameters are cloned and no new Run is created. 409 unless
+    the run is failed/cancelled (pending/succeeded/running are not rerun's job).
+    """
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = _get_run_or_none(experiment, run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    _require_retryable(run, run_id)
+
+    execution_id = make_execution_id(run.id, Path(run.run_dir))
+    _dispatch_continuation(workspace, run, execution_id)
+    return RunContinueResponse(
+        runId=run.id,
+        executionId=execution_id,
+        projectId=project_id,
+        experimentId=experiment_id,
+        status=run.status,
+    )
+
+
+@router.post("/{run_id}/cancel", response_model=RunActionResponse)
+@router.post(
+    "/{run_id}/kill",
+    response_model=RunActionResponse,
+    deprecated=True,
+    description="Deprecated alias for `POST .../{run_id}/cancel` (same handler).",
+)
+def cancel_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
@@ -558,7 +634,11 @@ def kill_run(
 ) -> RunActionResponse:
     """Cancel a run.
 
-    Routes through :func:`molexp._run_cancel.try_cancel`, which signals
+    ``cancel`` is the canonical verb (matching the CLI ``molexp runs cancel``
+    and the resulting ``cancelled`` status); ``/kill`` remains as a
+    deprecated alias route bound to this same handler.
+
+    Routes through :func:`molexp.plugins.submit_molq.cancel.try_cancel`, which signals
     molq via :class:`molq.Submitor` for cluster-submitted runs and
     sends ``SIGTERM`` for runs still owned by a local pid.  When neither
     path applies (run never submitted, terminal, or executor info

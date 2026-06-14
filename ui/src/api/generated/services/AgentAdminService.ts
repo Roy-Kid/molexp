@@ -12,12 +12,12 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathPatch(
+    public static agentAdminDisabledApiAgentAdminPathPut(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/api/agent/admin/{path}',
+            url: '/api/agent/admin/{path}',
             path: {
                 'path': path,
             },
@@ -32,12 +32,12 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathPatch1(
+    public static agentAdminDisabledApiAgentAdminPathPut1(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/api/agent/admin/{path}',
+            url: '/api/agent/admin/{path}',
             path: {
                 'path': path,
             },
@@ -52,12 +52,12 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathPatch2(
+    public static agentAdminDisabledApiAgentAdminPathPut2(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PATCH',
-            url: '/api/api/agent/admin/{path}',
+            url: '/api/agent/admin/{path}',
             path: {
                 'path': path,
             },
@@ -72,12 +72,12 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathPatch3(
+    public static agentAdminDisabledApiAgentAdminPathPut3(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/api/agent/admin/{path}',
+            url: '/api/agent/admin/{path}',
             path: {
                 'path': path,
             },
@@ -92,12 +92,12 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiApiAgentAdminPathPatch4(
+    public static agentAdminDisabledApiAgentAdminPathPut4(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'PUT',
-            url: '/api/api/agent/admin/{path}',
+            url: '/api/agent/admin/{path}',
             path: {
                 'path': path,
             },

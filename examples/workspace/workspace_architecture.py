@@ -19,25 +19,29 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import promote_callable
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+
+wf = WorkflowCompiler(name="baseline")
 
 
-async def task(ctx: me.RunContext) -> None:
-    ctx.artifact.save("metrics.json", {"loss": 0.1})
-    ctx.log("train").append("epoch 1 complete")
-    ctx.checkpoint("epoch-1", data={"step": 1})
+@wf.task
+async def task(ctx: TaskContext) -> dict:
+    return {"loss": 0.1}
+
+
+compiled = wf.compile()
 
 
 async def main() -> None:
     root = Path(tempfile.mkdtemp(prefix="molexp-arch-"))
     ws = me.Workspace(root, name="arch-demo")
-    project = ws.add_project("demo")
-    exp = project.add_experiment("baseline")
-    spec = promote_callable(task, name="task")
-    spec.bind_to(exp)
-    run = exp.add_run()
+    exp = ws.project("demo").experiment("baseline").run(compiled, params=None)
+    run = exp.list_runs()[0]
     with run.start() as ctx:
-        await spec.execute(run_context=ctx)
+        result = await WorkflowRuntime().execute(compiled, run_context=ctx)
+        ctx.artifact.save("metrics.json", result.outputs["task"])
+        ctx.log("train").append("epoch 1 complete")
+        ctx.checkpoint("epoch-1", data={"step": 1})
 
     print(f"workspace root: {root}\n")
     for path in sorted(root.rglob("*")):

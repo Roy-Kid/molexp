@@ -15,12 +15,12 @@ import pytest
 def stores(tmp_path: Path):
     from molexp.harness.store.file_artifact_store import FileArtifactStore
     from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_provenance_store import SQLiteProvenanceStore
+    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     return a, e, p
 
 
@@ -34,7 +34,7 @@ def test_construct_with_only_phase1_args_backward_compatible(tmp_path: Path, sto
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
     )
     assert ctx.run_id == "run-x"
     assert ctx.capability_registry is None
@@ -57,7 +57,7 @@ def test_construct_with_all_new_services(tmp_path: Path, stores) -> None:
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
         capability_registry=reg,
         agent_gateway=gw,
         approval_policy=pol,
@@ -76,7 +76,7 @@ def test_new_fields_frozen_post_construction(tmp_path: Path, stores) -> None:
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
     )
     with pytest.raises(AttributeError):
         ctx.capability_registry = "mutated"  # type: ignore[misc]

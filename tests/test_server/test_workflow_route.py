@@ -19,14 +19,12 @@ from molexp.workflow.registry import _Constant
 
 def _valid_ir() -> dict:
     wf = WorkflowCompiler(name="wf")
-    wf.add(_Constant(value=1), name="a", task_type="core.constant", config={"value": 1})
-    wf.add(_Constant(value=2), name="b", task_type="core.constant", config={"value": 2})
+    wf.add(_Constant(value=1), name="a")
+    wf.add(_Constant(value=2), name="b")
     wf.add(
         _Constant(value=3),
         name="c",
         depends_on=["a", "b"],
-        task_type="core.constant",
-        config={"value": 3},
     )
     return dict(default_codec.spec_to_ir(wf.compile()))
 
@@ -83,6 +81,20 @@ class TestPutGet:
         resp = client.get(_url(project, exp))
         assert resp.status_code == 404
         assert "error" in resp.json()
+
+    def test_put_empty_ir_round_trips(self, client, project, exp) -> None:
+        """The empty-canvas seed document (ui-creation-entries) is legal IR.
+
+        CreateWorkflowDialog seeds a brand-new experiment with an empty graph
+        so the canvas opens on a 200 instead of the no-document 404.
+        """
+        put = client.put(_url(project, exp), json={"document": {"task_configs": [], "links": []}})
+        assert put.status_code == 200, put.text
+        assert put.json()["document"]["task_configs"] == []
+
+        got = client.get(_url(project, exp))
+        assert got.status_code == 200, got.text
+        assert got.json()["document"] == put.json()["document"]
 
 
 class TestErrorMapping:

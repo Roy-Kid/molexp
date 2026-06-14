@@ -1,41 +1,43 @@
-"""Workspace-level JSON catalog.
+"""Workspace-level derived asset catalog (SQLite backend).
 
-One file: ``<workspace_root>/catalog/index.json``.  Sections:
+One database: ``<workspace_root>/catalog/index.sqlite`` with six tables —
+``workspaces  projects  experiments  runs  executions  assets``.
 
-    workspaces  projects  experiments  runs  executions  assets  consumes
-
-All sections are derived from filesystem state.  ``rebuild()`` wipes
-and rewalks.  Mutations use load → edit → atomic-rename with a
-process-local lock.
+Every section is **derived** from entity ``*.json`` + asset manifests, which
+remain the single source of truth; :meth:`AssetCatalog.rebuild` wipes the DB
+and rewalks the tree. Mutations are row-level ``INSERT OR REPLACE`` / ``DELETE``
+under WAL, so concurrent multi-process writers do not lose rows (the legacy
+load-mutate-atomic-rename ``index.json`` did) and each write is ~O(log A)
+instead of an O(A) whole-file rewrite. See :mod:`._sqlite` for the rationale.
 """
 
 from __future__ import annotations
 
 import json
+import os
+import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from ..assets._adapter import ASSET_ADAPTER, parse_asset
 from ..assets.base import Asset, AssetScope, Producer
 from ..assets.manifest import MANIFEST_FILENAME, AssetManifest
 from ..utils import generate_asset_id
+from ._sqlite import CATALOG_DB_FILENAME, open_catalog_db
 
-CATALOG_SCHEMA_VERSION = 2
+CATALOG_SCHEMA_VERSION = 3
 CATALOG_DIRNAME = "catalog"
-CATALOG_FILENAME = "index.json"
+CATALOG_FILENAME = CATALOG_DB_FILENAME
 
-_EMPTY_CATALOG: dict[str, Any] = {
-    "schema_version": CATALOG_SCHEMA_VERSION,
-    "workspaces": {},
-    "projects": {},
-    "experiments": {},
-    "runs": {},
-    "executions": {},
-    "assets": {},
-    "consumes": [],
+_SCOPE_KIND_RANK: dict[str, int] = {
+    "workspace": 0,
+    "project": 1,
+    "experiment": 2,
+    "run": 3,
 }
 
 
@@ -53,22 +55,49 @@ class RebuildReport:
 
 
 class AssetCatalog:
-    """Workspace-wide JSON index."""
+    """Workspace-wide derived index, backed by SQLite."""
 
-    def __init__(self, workspace_root: Path) -> None:
+    def __init__(self, workspace_root: str | os.PathLike[str]) -> None:
         self.workspace_root = Path(workspace_root).resolve()
         self.dir = self.workspace_root / CATALOG_DIRNAME
-        self.path = self.dir / CATALOG_FILENAME
-        self._lock = threading.Lock()
+        self.path = self.dir / CATALOG_DB_FILENAME
+        self._connection: sqlite3.Connection | None = None
+        self._db_lock: threading.Lock | None = None
+
+    # ── Connection (lazy; no I/O in __init__) ────────────────────────────
+
+    def _conn(self) -> tuple[sqlite3.Connection, threading.Lock]:
+        if self._connection is None or self._db_lock is None:
+            self._connection, self._db_lock = open_catalog_db(self.path)
+        return self._connection, self._db_lock
+
+    def _write(self, sql: str, params: tuple) -> None:
+        conn, lock = self._conn()
+        with lock:
+            conn.execute(sql, params)
+
+    def _read(self, sql: str, params: tuple = ()) -> list[tuple]:
+        conn, lock = self._conn()
+        with lock:
+            return conn.execute(sql, params).fetchall()
+
+    @contextmanager
+    def _txn(self) -> Iterator[sqlite3.Connection]:
+        conn, lock = self._conn()
+        with lock:
+            conn.execute("BEGIN")
+            try:
+                yield conn
+                conn.execute("COMMIT")
+            except BaseException:
+                conn.execute("ROLLBACK")
+                raise
 
     # ── Asset operations ─────────────────────────────────────────────────
 
     def register(self, asset: Asset) -> None:
         """Insert or overwrite an asset row."""
-        with self._lock:
-            data = self._load()
-            data["assets"][asset.asset_id] = _dump_asset(asset)
-            self._save(data)
+        self._write(_ASSET_UPSERT_SQL, _asset_row(_dump_asset(asset)))
 
     def update(self, asset: Asset) -> None:
         self.register(asset)
@@ -78,16 +107,16 @@ class AssetCatalog:
 
         Content-addressed lookup used by the workflow cache's re-registration
         path: the bytes are guaranteed present iff some asset row already
-        points at them (no row → the store does not hold the artifact, so
-        the caller skips it gracefully).
+        points at them (no row → the store does not hold the artifact, so the
+        caller skips it gracefully).
         """
         if not content_hash:
             return None
-        data = self._load()
-        for entry in data["assets"].values():
-            if entry.get("content_hash") == content_hash:
-                return parse_asset(entry)
-        return None
+        rows = self._read(
+            "SELECT json FROM assets WHERE content_hash = ? ORDER BY rowid LIMIT 1",
+            (content_hash,),
+        )
+        return parse_asset(json.loads(rows[0][0])) if rows else None
 
     def reregister_artifact(
         self,
@@ -102,8 +131,8 @@ class AssetCatalog:
         Looks the artifact up by ``content_hash`` (the bytes must already be
         catalogued by an earlier run); if found, inserts a fresh artifact row
         bound to *target_scope* that points at the SAME on-disk path and the
-        SAME ``content_hash`` — no recompute, no byte recopy. Returns the
-        new asset, or ``None`` when the bytes are absent (different / fresh
+        SAME ``content_hash`` — no recompute, no byte recopy. Returns the new
+        asset, or ``None`` when the bytes are absent (different / fresh
         workspace) so the caller can skip gracefully.
 
         Idempotent: when *target_scope* already holds an artifact with this
@@ -113,54 +142,45 @@ class AssetCatalog:
         if source is None:
             return None
 
-        with self._lock:
-            data = self._load()
-            for entry in data["assets"].values():
-                escope = entry.get("scope") or {}
-                if (
-                    entry.get("kind") == "artifact"
-                    and entry.get("content_hash") == content_hash
-                    and entry.get("name") == name
-                    and escope.get("kind") == target_scope.kind
-                    and tuple(escope.get("ids", ())) == target_scope.ids
-                ):
-                    return parse_asset(entry)
+        scope_ids = "/".join(target_scope.ids)
+        existing = self._read(
+            "SELECT json FROM assets WHERE kind = 'artifact' AND content_hash = ? "
+            "AND scope_kind = ? AND scope_ids = ?",
+            (content_hash, target_scope.kind, scope_ids),
+        )
+        for (raw,) in existing:
+            if json.loads(raw).get("name") == name:
+                return parse_asset(json.loads(raw))
 
-            now = datetime.now()
-            clone = source.model_copy(
-                update={
-                    "asset_id": generate_asset_id(),
-                    "name": name,
-                    "scope": target_scope,
-                    "created_at": now,
-                    "updated_at": now,
-                    "producer": Producer(
-                        run_id=target_scope.ids[-1] if target_scope.ids else None,
-                        task_id=producer_task,
-                    ),
-                }
-            )
-            data["assets"][clone.asset_id] = _dump_asset(clone)
-            self._save(data)
-            return clone
+        now = datetime.now()
+        clone = source.model_copy(
+            update={
+                "asset_id": generate_asset_id(),
+                "name": name,
+                "scope": target_scope,
+                "created_at": now,
+                "updated_at": now,
+                "producer": Producer(
+                    run_id=target_scope.ids[-1] if target_scope.ids else None,
+                    task_id=producer_task,
+                ),
+            }
+        )
+        self._write(_ASSET_UPSERT_SQL, _asset_row(_dump_asset(clone)))
+        return clone
 
     def deregister_asset(self, asset_id: str) -> None:
-        with self._lock:
-            data = self._load()
-            data["assets"].pop(asset_id, None)
-            self._save(data)
+        self._write("DELETE FROM assets WHERE asset_id = ?", (asset_id,))
 
     def get(self, asset_id: str) -> Asset | None:
-        data = self._load()
-        entry = data["assets"].get(asset_id)
-        return parse_asset(entry) if entry else None
+        rows = self._read("SELECT json FROM assets WHERE asset_id = ?", (asset_id,))
+        return parse_asset(json.loads(rows[0][0])) if rows else None
 
     def resolve(self, uri: str) -> Asset | None:
         """Resolve ``asset://.../<asset_id>`` to the stored asset."""
         if not uri.startswith("asset://"):
             return None
-        asset_id = uri.rsplit("/", 1)[-1]
-        return self.get(asset_id)
+        return self.get(uri.rsplit("/", 1)[-1])
 
     def query_assets(
         self,
@@ -175,32 +195,37 @@ class AssetCatalog:
     ) -> list[Asset]:
         """Query assets matching the given filters.
 
-        When ``recursive`` is ``True`` and ``scope`` is given, the scope
-        match also includes any sub-scope whose ids start with the given
-        scope's ids — i.e. an experiment scope sees all assets in its
-        runs, a project scope sees all assets in its experiments + runs.
-        Default (``recursive=False``) preserves the historic exact-scope
-        match.
+        When ``recursive`` is ``True`` and ``scope`` is given, the scope match
+        also includes any sub-scope whose ids start with the given scope's ids
+        — an experiment scope sees all assets in its runs, a project scope sees
+        all assets in its experiments + runs. Default (``recursive=False``)
+        preserves the historic exact-scope match.
         """
-        data = self._load()
+        clauses: list[str] = []
+        params: list[object] = []
+
         kind_str = _kind_value(kind)
+        if kind_str:
+            clauses.append("kind = ?")
+            params.append(kind_str)
+        if scope is not None:
+            _append_scope_clause(clauses, params, scope, recursive)
+        if producer_run:
+            clauses.append("producer_run = ?")
+            params.append(producer_run)
+        if producer_task:
+            clauses.append("producer_task = ?")
+            params.append(producer_task)
+
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        rows = self._read(f"SELECT json FROM assets{where} ORDER BY rowid", tuple(params))
+
         out: list[Asset] = []
-        for entry in data["assets"].values():
-            if kind_str and entry.get("kind") != kind_str:
-                continue
-            if scope is not None and not _scope_matches(entry, scope, recursive):
-                continue
-            if producer_run:
-                producer = entry.get("producer") or {}
-                if producer.get("run_id") != producer_run:
-                    continue
-            if producer_task:
-                producer = entry.get("producer") or {}
-                if producer.get("task_id") != producer_task:
-                    continue
+        for (raw,) in rows:
+            entry = json.loads(raw)
             if tag is not None:
                 tk, tv = tag
-                if entry.get("tags", {}).get(tk) != tv:
+                if (entry.get("tags") or {}).get(tk) != tv:
                     continue
             out.append(parse_asset(entry))
             if limit is not None and len(out) >= limit:
@@ -210,89 +235,80 @@ class AssetCatalog:
     # ── Scope upserts ────────────────────────────────────────────────────
 
     def upsert_workspace(self, record: dict) -> None:
-        self._upsert("workspaces", record["workspace_id"], record)
+        self._write(
+            "INSERT OR REPLACE INTO workspaces (workspace_id, json) VALUES (?, ?)",
+            (record["workspace_id"], _dumps(record)),
+        )
 
     def upsert_project(self, record: dict) -> None:
-        self._upsert("projects", record["project_id"], record)
+        self._write(
+            "INSERT OR REPLACE INTO projects (project_id, workspace_id, json) VALUES (?, ?, ?)",
+            (record["project_id"], record.get("workspace_id"), _dumps(record)),
+        )
 
     def upsert_experiment(self, record: dict) -> None:
-        self._upsert("experiments", record["experiment_id"], record)
+        self._write(
+            "INSERT OR REPLACE INTO experiments (experiment_id, project_id, json) VALUES (?, ?, ?)",
+            (record["experiment_id"], record.get("project_id"), _dumps(record)),
+        )
 
     def upsert_run(self, record: dict) -> None:
-        self._upsert("runs", record["run_id"], record)
+        self._write(_RUN_UPSERT_SQL, _run_row(record))
 
     def upsert_execution(self, record: dict) -> None:
-        self._upsert("executions", record["execution_id"], record)
+        self._write(_EXEC_UPSERT_SQL, _exec_row(record))
 
-    def _upsert(self, section: str, key: str, record: dict) -> None:
-        with self._lock:
-            data = self._load()
-            data[section][key] = record
-            self._save(data)
+    def upsert_run_with_executions(self, run_record: dict, execution_records: list[dict]) -> None:
+        """Upsert a run row plus all its executions in one transaction.
+
+        Batches what was N+1 separate whole-file rewrites in the legacy
+        backend into a single SQLite transaction — the run row and only the
+        executions handed in (the caller passes the current history).
+        """
+        with self._txn() as conn:
+            conn.execute(_RUN_UPSERT_SQL, _run_row(run_record))
+            for rec in execution_records:
+                conn.execute(_EXEC_UPSERT_SQL, _exec_row(rec))
 
     # ── Scope removals (cascade) ─────────────────────────────────────────
 
     def remove_project(self, project_id: str) -> None:
         """Drop a project and everything scoped under it."""
-        with self._lock:
-            data = self._load()
-            data["projects"].pop(project_id, None)
-            exp_ids = {
-                eid for eid, e in data["experiments"].items() if e.get("project_id") == project_id
-            }
-            for eid in exp_ids:
-                data["experiments"].pop(eid, None)
-            run_ids = {rid for rid, r in data["runs"].items() if r.get("experiment_id") in exp_ids}
-            for rid in run_ids:
-                data["runs"].pop(rid, None)
-            data["executions"] = {
-                xid: x for xid, x in data["executions"].items() if x.get("run_id") not in run_ids
-            }
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
-            ]
-            self._save(data)
+        with self._txn() as conn:
+            conn.execute(
+                "DELETE FROM executions WHERE run_id IN ("
+                "  SELECT run_id FROM runs WHERE experiment_id IN ("
+                "    SELECT experiment_id FROM experiments WHERE project_id = ?))",
+                (project_id,),
+            )
+            conn.execute(
+                "DELETE FROM runs WHERE experiment_id IN ("
+                "  SELECT experiment_id FROM experiments WHERE project_id = ?)",
+                (project_id,),
+            )
+            conn.execute("DELETE FROM experiments WHERE project_id = ?", (project_id,))
+            conn.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
 
     def remove_experiment(self, experiment_id: str) -> None:
         """Drop an experiment and its runs / executions."""
-        with self._lock:
-            data = self._load()
-            data["experiments"].pop(experiment_id, None)
-            run_ids = {
-                rid for rid, r in data["runs"].items() if r.get("experiment_id") == experiment_id
-            }
-            for rid in run_ids:
-                data["runs"].pop(rid, None)
-            data["executions"] = {
-                xid: x for xid, x in data["executions"].items() if x.get("run_id") not in run_ids
-            }
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
-            ]
-            self._save(data)
+        with self._txn() as conn:
+            conn.execute(
+                "DELETE FROM executions WHERE run_id IN ("
+                "  SELECT run_id FROM runs WHERE experiment_id = ?)",
+                (experiment_id,),
+            )
+            conn.execute("DELETE FROM runs WHERE experiment_id = ?", (experiment_id,))
+            conn.execute("DELETE FROM experiments WHERE experiment_id = ?", (experiment_id,))
 
     def remove_run(self, run_id: str) -> None:
         """Drop a run and its executions."""
-        with self._lock:
-            data = self._load()
-            data["runs"].pop(run_id, None)
-            data["executions"] = {
-                xid: x for xid, x in data["executions"].items() if x.get("run_id") != run_id
-            }
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") in data["executions"]
-            ]
-            self._save(data)
+        with self._txn() as conn:
+            conn.execute("DELETE FROM executions WHERE run_id = ?", (run_id,))
+            conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
 
     def remove_execution(self, execution_id: str) -> None:
         """Drop a single execution row."""
-        with self._lock:
-            data = self._load()
-            data["executions"].pop(execution_id, None)
-            data["consumes"] = [
-                edge for edge in data["consumes"] if edge.get("execution_id") != execution_id
-            ]
-            self._save(data)
+        self._write("DELETE FROM executions WHERE execution_id = ?", (execution_id,))
 
     # ── Scope queries ────────────────────────────────────────────────────
 
@@ -303,17 +319,19 @@ class AssetCatalog:
         status: str | None = None,
         limit: int | None = None,
     ) -> list[dict]:
-        data = self._load()
-        out: list[dict] = []
-        for entry in data["runs"].values():
-            if experiment_id and entry.get("experiment_id") != experiment_id:
-                continue
-            if status and entry.get("status") != status:
-                continue
-            out.append(entry)
-            if limit is not None and len(out) >= limit:
-                break
-        return out
+        clauses: list[str] = []
+        params: list[object] = []
+        if experiment_id:
+            clauses.append("experiment_id = ?")
+            params.append(experiment_id)
+        if status:
+            clauses.append("status = ?")
+            params.append(status)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT json FROM runs{where} ORDER BY rowid"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        return [json.loads(raw) for (raw,) in self._read(sql, tuple(params))]
 
     def query_executions(
         self,
@@ -321,203 +339,237 @@ class AssetCatalog:
         run_id: str | None = None,
         limit: int | None = None,
     ) -> list[dict]:
-        data = self._load()
-        out: list[dict] = []
-        for entry in data["executions"].values():
-            if run_id and entry.get("run_id") != run_id:
-                continue
-            out.append(entry)
-            if limit is not None and len(out) >= limit:
-                break
-        return out
-
-    # ── Lineage ──────────────────────────────────────────────────────────
-
-    def record_consumes(self, execution_id: str, task_id: str, asset_id: str) -> None:
-        with self._lock:
-            data = self._load()
-            edge = {
-                "execution_id": execution_id,
-                "task_id": task_id,
-                "asset_id": asset_id,
-            }
-            if edge not in data["consumes"]:
-                data["consumes"].append(edge)
-            self._save(data)
+        clauses: list[str] = []
+        params: list[object] = []
+        if run_id:
+            clauses.append("run_id = ?")
+            params.append(run_id)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        sql = f"SELECT json FROM executions{where} ORDER BY rowid"
+        if limit is not None:
+            sql += f" LIMIT {int(limit)}"
+        return [json.loads(raw) for (raw,) in self._read(sql, tuple(params))]
 
     # ── Rebuild ──────────────────────────────────────────────────────────
 
     def rebuild(self) -> RebuildReport:
-        """Drop the index and rewalk the workspace from on-disk truth."""
+        """Drop the index and rewalk the workspace from on-disk truth.
+
+        Asset rows are copied straight from each manifest's validated dict —
+        no ``parse_asset → _dump_asset`` round-trip.
+        """
         report = RebuildReport()
-        fresh = json.loads(json.dumps(_EMPTY_CATALOG))  # deep copy
+        with self._txn() as conn:
+            for table in ("workspaces", "projects", "experiments", "runs", "executions", "assets"):
+                conn.execute(f"DELETE FROM {table}")
 
-        # Workspace
+            ws_id = self._rebuild_workspace(conn, report)
+            self._rebuild_tree(conn, report, ws_id)
+            self._rebuild_assets(conn, report)
+
+        # Drop a stale legacy single-file index left by an older backend.
+        legacy = self.dir / "index.json"
+        if legacy.exists():
+            legacy.unlink()
+        return report
+
+    def _rebuild_workspace(self, conn: sqlite3.Connection, report: RebuildReport) -> str | None:
         ws_json = self.workspace_root / "workspace.json"
-        if ws_json.exists():
-            raw = _read_json(ws_json) or {}
-            wid = raw.get("id")
-            if wid:
-                fresh["workspaces"][wid] = {
-                    "workspace_id": wid,
-                    "root_path": str(self.workspace_root),
-                    "name": raw.get("name", wid),
-                    "created_at": raw.get("created_at"),
-                    "updated_at": raw.get("created_at"),
-                }
-                report.workspaces += 1
+        raw = _read_json(ws_json) or {}
+        wid = raw.get("id")
+        if not wid:
+            return None
+        record = {
+            "workspace_id": wid,
+            "root_path": str(self.workspace_root),
+            "name": raw.get("name", wid),
+            "created_at": raw.get("created_at"),
+            "updated_at": raw.get("created_at"),
+        }
+        conn.execute(
+            "INSERT OR REPLACE INTO workspaces (workspace_id, json) VALUES (?, ?)",
+            (wid, _dumps(record)),
+        )
+        report.workspaces += 1
+        return wid
 
-        # Projects, experiments, runs
+    def _rebuild_tree(
+        self, conn: sqlite3.Connection, report: RebuildReport, ws_id: str | None
+    ) -> None:
         projects_dir = self.workspace_root / "projects"
-        if projects_dir.exists():
-            for proj_dir in projects_dir.iterdir():
-                if not proj_dir.is_dir():
-                    continue
-                proj_record = _read_json(proj_dir / "project.json")
-                if proj_record is None:
-                    continue
-                pid = proj_record.get("id")
-                if not pid:
-                    continue
-                fresh["projects"][pid] = {
-                    "project_id": pid,
-                    "workspace_id": fresh["workspaces"] and next(iter(fresh["workspaces"])),
-                    "path": str(proj_dir.relative_to(self.workspace_root)),
-                    **proj_record,
-                }
-                report.projects += 1
+        if not projects_dir.exists():
+            return
+        for proj_dir in projects_dir.iterdir():
+            if not proj_dir.is_dir():
+                continue
+            proj_record = _read_json(proj_dir / "project.json")
+            pid = proj_record.get("id") if proj_record else None
+            if proj_record is None or not pid:
+                continue
+            conn.execute(
+                "INSERT OR REPLACE INTO projects (project_id, workspace_id, json) VALUES (?, ?, ?)",
+                (
+                    pid,
+                    ws_id,
+                    _dumps(
+                        {
+                            "project_id": pid,
+                            "workspace_id": ws_id,
+                            "path": str(proj_dir.relative_to(self.workspace_root)),
+                            **proj_record,
+                        }
+                    ),
+                ),
+            )
+            report.projects += 1
+            self._rebuild_experiments(conn, report, proj_dir, pid)
 
-                experiments_dir = proj_dir / "experiments"
-                if experiments_dir.exists():
-                    for exp_dir in experiments_dir.iterdir():
-                        if not exp_dir.is_dir():
-                            continue
-                        exp_record = _read_json(exp_dir / "experiment.json")
-                        if exp_record is None:
-                            continue
-                        eid = exp_record.get("id")
-                        if not eid:
-                            continue
-                        fresh["experiments"][eid] = {
+    def _rebuild_experiments(
+        self, conn: sqlite3.Connection, report: RebuildReport, proj_dir: Path, pid: str
+    ) -> None:
+        experiments_dir = proj_dir / "experiments"
+        if not experiments_dir.exists():
+            return
+        for exp_dir in experiments_dir.iterdir():
+            if not exp_dir.is_dir():
+                continue
+            exp_record = _read_json(exp_dir / "experiment.json")
+            eid = exp_record.get("id") if exp_record else None
+            if exp_record is None or not eid:
+                continue
+            conn.execute(
+                "INSERT OR REPLACE INTO experiments "
+                "(experiment_id, project_id, json) VALUES (?, ?, ?)",
+                (
+                    eid,
+                    pid,
+                    _dumps(
+                        {
                             "experiment_id": eid,
                             "project_id": pid,
                             "path": str(exp_dir.relative_to(self.workspace_root)),
                             **exp_record,
                         }
-                        report.experiments += 1
+                    ),
+                ),
+            )
+            report.experiments += 1
+            self._rebuild_runs(conn, report, exp_dir, eid)
 
-                        runs_dir = exp_dir / "runs"
-                        if runs_dir.exists():
-                            for run_dir in runs_dir.iterdir():
-                                if not run_dir.is_dir():
-                                    continue
-                                run_record = _read_json(run_dir / "run.json")
-                                if run_record is None:
-                                    continue
-                                rid = run_record.get("id")
-                                if not rid:
-                                    continue
-                                fresh["runs"][rid] = {
-                                    "run_id": rid,
-                                    "experiment_id": eid,
-                                    "path": str(run_dir.relative_to(self.workspace_root)),
-                                    **{k: v for k, v in run_record.items() if k != "context"},
-                                }
-                                report.runs += 1
+    def _rebuild_runs(
+        self, conn: sqlite3.Connection, report: RebuildReport, exp_dir: Path, eid: str
+    ) -> None:
+        runs_dir = exp_dir / "runs"
+        if not runs_dir.exists():
+            return
+        for run_dir in runs_dir.iterdir():
+            if not run_dir.is_dir():
+                continue
+            run_record = _read_json(run_dir / "run.json")
+            rid = run_record.get("id") if run_record else None
+            if run_record is None or not rid:
+                continue
+            row = {
+                "run_id": rid,
+                "experiment_id": eid,
+                "path": str(run_dir.relative_to(self.workspace_root)),
+                **{k: v for k, v in run_record.items() if k != "context"},
+            }
+            conn.execute(_RUN_UPSERT_SQL, _run_row(row))
+            report.runs += 1
+            for exec_record in run_record.get("execution_history", []):
+                xid = exec_record.get("execution_id")
+                if not xid:
+                    continue
+                conn.execute(_EXEC_UPSERT_SQL, _exec_row({"run_id": rid, **exec_record}))
+                report.executions += 1
 
-                                # Executions from history
-                                for exec_record in run_record.get("execution_history", []):
-                                    xid = exec_record.get("execution_id")
-                                    if not xid:
-                                        continue
-                                    fresh["executions"][xid] = {
-                                        "execution_id": xid,
-                                        "run_id": rid,
-                                        **exec_record,
-                                    }
-                                    report.executions += 1
-
-        # Assets — scan every scope's manifest that exists
+    def _rebuild_assets(self, conn: sqlite3.Connection, report: RebuildReport) -> None:
         for manifest_path in _iter_manifest_paths(self.workspace_root):
-            if not manifest_path.exists():
+            data = _read_json(manifest_path)
+            if data is None:
                 continue
             try:
-                with open(manifest_path) as fh:  # noqa: PTH123
-                    data = json.load(fh)
                 for entry in (data.get("assets") or {}).values():
-                    asset = parse_asset(entry)
-                    fresh["assets"][asset.asset_id] = _dump_asset(asset)
+                    conn.execute(_ASSET_UPSERT_SQL, _asset_row(entry))
                     report.assets += 1
-            except (json.JSONDecodeError, OSError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 report.errors.append(f"{manifest_path}: {exc}")
 
-        with self._lock:
-            self._save(fresh)
 
-        return report
+# ── Row builders / SQL ─────────────────────────────────────────────────────
 
-    # ── Internal I/O ─────────────────────────────────────────────────────
-
-    def _load(self) -> dict:
-        if not self.path.exists():
-            return json.loads(json.dumps(_EMPTY_CATALOG))
-        with open(self.path) as fh:  # noqa: PTH123
-            data = json.load(fh)
-        if data.get("schema_version") != CATALOG_SCHEMA_VERSION:
-            # Schema mismatch → rebuild is the answer; return empty for now,
-            # callers should invoke rebuild() explicitly.
-            return json.loads(json.dumps(_EMPTY_CATALOG))
-        # Ensure all expected sections exist (for older files)
-        for key, default in _EMPTY_CATALOG.items():
-            if key == "schema_version":
-                continue
-            data.setdefault(key, json.loads(json.dumps(default)))
-        return data
-
-    def _save(self, data: dict) -> None:
-        from ..base import _atomic_write_json
-
-        self.dir.mkdir(parents=True, exist_ok=True)
-        _atomic_write_json(self.path, data)
+_ASSET_UPSERT_SQL = (
+    "INSERT OR REPLACE INTO assets "
+    "(asset_id, kind, content_hash, scope_kind, scope_rank, scope_ids, "
+    " producer_run, producer_task, json) "
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+)
+_RUN_UPSERT_SQL = (
+    "INSERT OR REPLACE INTO runs (run_id, experiment_id, status, json) VALUES (?, ?, ?, ?)"
+)
+_EXEC_UPSERT_SQL = "INSERT OR REPLACE INTO executions (execution_id, run_id, json) VALUES (?, ?, ?)"
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
+def _dumps(obj: object) -> str:
+    """JSON-encode a catalog record, stringifying stragglers (``Path``, …).
+
+    Mirrors the legacy ``atomic_write_json(default=str)`` tolerance: run /
+    workspace records may still carry a ``Path`` value.
+    """
+    return json.dumps(obj, default=str)
+
+
+def _asset_row(entry: dict) -> tuple:
+    """Extract indexed columns + JSON blob from a validated asset dict.
+
+    Used by both ``register`` (asset → ``_dump_asset`` dict) and ``rebuild``
+    (manifest entry dict, no pydantic round-trip).
+    """
+    scope = entry.get("scope") or {}
+    scope_kind = scope.get("kind")
+    ids = tuple(scope.get("ids", ()))
+    producer = entry.get("producer") or {}
+    return (
+        entry["asset_id"],
+        entry.get("kind"),
+        entry.get("content_hash"),
+        scope_kind,
+        _SCOPE_KIND_RANK.get(scope_kind) if scope_kind else None,
+        "/".join(ids),
+        producer.get("run_id"),
+        producer.get("task_id"),
+        _dumps(entry),
+    )
+
+
+def _run_row(record: dict) -> tuple:
+    return (record["run_id"], record.get("experiment_id"), record.get("status"), _dumps(record))
+
+
+def _exec_row(record: dict) -> tuple:
+    return (record["execution_id"], record.get("run_id"), _dumps(record))
+
+
+def _append_scope_clause(
+    clauses: list[str], params: list[object], scope: AssetScope, recursive: bool
+) -> None:
+    if not recursive:
+        clauses.append("scope_kind = ? AND scope_ids = ?")
+        params.extend([scope.kind, "/".join(scope.ids)])
+        return
+    # Recursive: this scope and any deeper scope whose ids extend these ids.
+    rank = _SCOPE_KIND_RANK.get(scope.kind)
+    clauses.append("scope_rank IS NOT NULL AND scope_rank >= ?")
+    params.append(rank if rank is not None else 0)
+    if scope.ids:
+        prefix = "/".join(scope.ids)
+        clauses.append("(scope_ids = ? OR scope_ids LIKE ?)")
+        params.extend([prefix, prefix + "/%"])
 
 
 def _dump_asset(asset: Asset) -> dict:
     return ASSET_ADAPTER.dump_python(asset, mode="json")
-
-
-_SCOPE_KIND_RANK: dict[str, int] = {
-    "workspace": 0,
-    "project": 1,
-    "experiment": 2,
-    "run": 3,
-}
-
-
-def _scope_matches(entry: dict, scope: AssetScope, recursive: bool) -> bool:
-    """Return True if *entry*'s recorded scope satisfies the query scope.
-
-    Default (``recursive=False``) is the historic exact-scope behaviour.
-    With ``recursive=True``, an entry whose scope is *underneath* the
-    queried scope also matches — i.e. its ids start with the queried
-    ids and its kind is at the same or deeper level in the hierarchy.
-    """
-    entry_scope = entry.get("scope") or {}
-    entry_kind = entry_scope.get("kind")
-    entry_ids = tuple(entry_scope.get("ids", ()))
-
-    if not recursive:
-        return entry_kind == scope.kind and entry_ids == scope.ids
-
-    if entry_kind not in _SCOPE_KIND_RANK or scope.kind not in _SCOPE_KIND_RANK:
-        return False
-    if _SCOPE_KIND_RANK[entry_kind] < _SCOPE_KIND_RANK[scope.kind]:
-        return False
-    if len(entry_ids) < len(scope.ids):
-        return False
-    return entry_ids[: len(scope.ids)] == scope.ids
 
 
 def _kind_value(kind: str | type[Asset] | None) -> str | None:
@@ -525,12 +577,10 @@ def _kind_value(kind: str | type[Asset] | None) -> str | None:
         return None
     if isinstance(kind, str):
         return kind
-    # It's a subclass of Asset; pull the Literal default
     try:
-        default = kind.model_fields["kind"].default  # type: ignore[attr-defined]
+        return kind.model_fields["kind"].default  # type: ignore[attr-defined]
     except (AttributeError, KeyError):
         return None
-    return default
 
 
 def _read_json(path: Path) -> dict | None:
@@ -543,7 +593,7 @@ def _read_json(path: Path) -> dict | None:
         return None
 
 
-def _iter_manifest_paths(workspace_root: Path):  # noqa: ANN202
+def _iter_manifest_paths(workspace_root: Path) -> Iterator[Path]:
     """Yield every scope's assets.json path (workspace, projects, experiments, runs)."""
     yield workspace_root / MANIFEST_FILENAME
     projects_dir = workspace_root / "projects"
@@ -569,8 +619,8 @@ def _iter_manifest_paths(workspace_root: Path):  # noqa: ANN202
                 yield run_dir / MANIFEST_FILENAME
 
 
-# Also expose AssetManifest here for convenience when scope entities
-# want to construct their own local manifest:
+# Also expose AssetManifest here for convenience when scope entities want to
+# construct their own local manifest:
 __all__ = [
     "CATALOG_DIRNAME",
     "CATALOG_FILENAME",

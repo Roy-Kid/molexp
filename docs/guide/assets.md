@@ -19,8 +19,6 @@ Every asset is a Pydantic model with a common shape (id, name, scope, path, time
 - `LogAsset` — a structured line-oriented log, with `line_count`.
 - `CheckpointAsset` — a workflow checkpoint, with a `ckpt_id` and an optional `parent_ckpt_id` that forms a linear chain.
 - `ErrorTraceAsset` — a captured exception, with `exception_type`, `message`, and `execution_id`.
-- `ExecutionStateAsset` — a snapshot of pydantic-graph persistence (`workflow.json`).
-- `OutputAsset` — a named output value promoted from a run so downstream workflows can consume it.
 
 All of these serialize as the same `AssetResponse` JSON at the API boundary — the discriminator is the `kind` field, and the subclass-specific fields land in `extra` so the frontend can render them without a schema per kind.
 
@@ -58,7 +56,7 @@ The unified model does **not** centralise payloads. Files stay where their produ
             ├── logs/               # LogAsset payloads
             ├── .ckpt/              # CheckpointAsset payloads
             └── execution/<exec_id>/
-                ├── workflow.json   # ExecutionStateAsset
+                ├── workflow.json   # workflow execution state (not an Asset)
                 └── error.txt       # ErrorTraceAsset
 ```
 
@@ -117,7 +115,7 @@ The import stores the payload under `<scope>/data_assets/<asset_id>/payload/` an
 
 ## Querying from the UI
 
-On the server side every `AssetResponse` exposes the same envelope — `id`, `name`, `kind`, `scope_kind`, `scope_ids`, `path`, `created_at`, `updated_at`, `producer`, `tags`, `extra` — so the frontend can use a single table widget filterable by kind, scope, producing run, or tag. The typed `AssetViewer` dispatches on `kind` to pick the right content preview: a log tail for `LogAsset`, a JSON tree for `CheckpointAsset` / `ExecutionStateAsset`, a stack-trace header for `ErrorTraceAsset`, and a file preview for anything with bytes.
+On the server side every `AssetResponse` exposes the same envelope — `id`, `name`, `kind`, `scope_kind`, `scope_ids`, `path`, `created_at`, `updated_at`, `producer`, `tags`, `extra` — so the frontend can use a single table widget filterable by kind, scope, producing run, or tag. The typed `AssetViewer` dispatches on `kind` to pick the right content preview: a log tail for `LogAsset`, a JSON tree for `CheckpointAsset`, a stack-trace header for `ErrorTraceAsset`, and a file preview for anything with bytes.
 
 ## Limits
 

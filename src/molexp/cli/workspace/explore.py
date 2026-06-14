@@ -49,7 +49,7 @@ def explore(
         rprint("  Run [bold]molexp init[/bold] to create one.")
         raise typer.Exit(1)  # noqa: B904
 
-    from molexp.tree_monitor import TreeMonitor
+    from molexp.cli.tui import TreeMonitor
 
     monitor = TreeMonitor(
         project_filter=project,

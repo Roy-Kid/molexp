@@ -5,10 +5,10 @@ An :data:`AgentEvent` is a discriminated union (pydantic
 member carries a ``kind`` :data:`typing.Literal`, a typed payload, and a
 ``timestamp`` sourced from :func:`molexp.agent.types.utc_now`.
 
-These events describe **orchestration lifecycle** — a mode starting, a
+These events describe **orchestration lifecycle** — a loop starting, a
 stage opening/closing, an artefact landing, an approval being requested
 or decided, a plan being emitted, a preflight failing, a repair being
-proposed, a compaction running, a mode finishing, an error.
+proposed, a compaction running, a loop finishing, an error.
 
 Four members carry the **emergent loop** of
 :class:`~molexp.agent.loops.interactive.InteractiveLoop`: a reasoning-level
@@ -44,8 +44,8 @@ __all__ = [
     "CompactionPerformedEvent",
     "ErrorEvent",
     "EventSink",
-    "ModeCompletedEvent",
-    "ModeStartedEvent",
+    "LoopCompletedEvent",
+    "LoopStartedEvent",
     "PlanEmittedEvent",
     "PreflightFailedEvent",
     "RepairProposedEvent",
@@ -73,30 +73,30 @@ class _BaseEvent(BaseModel):
     timestamp: datetime = Field(default_factory=utc_now)
 
 
-class ModeStartedEvent(_BaseEvent):
-    """Emitted once when a mode begins driving the harness."""
+class LoopStartedEvent(_BaseEvent):
+    """Emitted once when a loop begins a run."""
 
-    kind: Literal["mode_started"] = "mode_started"
-    mode_name: str
+    kind: Literal["loop_started"] = "loop_started"
+    loop_name: str
     user_input: str
 
 
 class StageStartedEvent(_BaseEvent):
-    """Emitted at the start of a logical stage in a mode's body."""
+    """Emitted at the start of a logical stage in a loop's body."""
 
     kind: Literal["stage_started"] = "stage_started"
     stage_name: str
 
 
 class StageCompletedEvent(_BaseEvent):
-    """Emitted at the end of a logical stage in a mode's body."""
+    """Emitted at the end of a logical stage in a loop's body."""
 
     kind: Literal["stage_completed"] = "stage_completed"
     stage_name: str
 
 
 class ArtifactWrittenEvent(_BaseEvent):
-    """Emitted when a mode materializes a file artefact."""
+    """Emitted when a loop materializes a file artefact."""
 
     kind: Literal["artifact_written"] = "artifact_written"
     path: str
@@ -121,7 +121,7 @@ class ApprovalDecidedEvent(_BaseEvent):
 
 
 class PlanEmittedEvent(_BaseEvent):
-    """Emitted when a mode produces a plan graph.
+    """Emitted when a loop produces a plan graph.
 
     Carries a lightweight reference (``plan_id`` / ``step_count``)
     rather than the whole ``PlanGraph`` so the event stream stays cheap
@@ -177,7 +177,7 @@ class CompactionPerformedEvent(_BaseEvent):
     entries_summarized: int
 
 
-class ModeCompletedEvent(_BaseEvent):
+class LoopCompletedEvent(_BaseEvent):
     """Terminal event — carries the run's final text + optional result.
 
     ``result`` is the JSON-mode dump of the terminal
@@ -186,7 +186,7 @@ class ModeCompletedEvent(_BaseEvent):
     the accumulated stream.
     """
 
-    kind: Literal["mode_completed"] = "mode_completed"
+    kind: Literal["loop_completed"] = "loop_completed"
     text: str
     result: dict[str, Any] | None = None
 
@@ -255,7 +255,7 @@ class ToolCallCompletedEvent(_BaseEvent):
 
 
 AgentEvent = Annotated[
-    ModeStartedEvent
+    LoopStartedEvent
     | StageStartedEvent
     | StageCompletedEvent
     | ArtifactWrittenEvent
@@ -266,7 +266,7 @@ AgentEvent = Annotated[
     | RepairProposedEvent
     | ClarificationRequiredEvent
     | CompactionPerformedEvent
-    | ModeCompletedEvent
+    | LoopCompletedEvent
     | ErrorEvent
     | ThinkingDeltaEvent
     | TokenDeltaEvent
@@ -302,12 +302,12 @@ class AsyncIteratorEventSink:
     """Queue-backed :data:`EventSink` that also exposes :class:`AsyncIterator`.
 
     Bridges the callable-sink Protocol with an async iterator so future
-    ``async def mode.run(...) -> ArtifactRef`` flows can route AgentEvent
+    ``async def loop.run(...) -> ArtifactRef`` flows can route AgentEvent
     through a side-channel: producers ``await sink(event)``; the runner
     drains via ``async for event in sink:``.
 
     Complementary to :class:`molexp.agent.runner._SinkCollector` (drain-
-    after-yield list collector). The collector relies on the mode yielding
+    after-yield list collector). The collector relies on the loop yielding
     periodically to trigger a drain; this sink is a live queue where push
     and consume run concurrently.
 

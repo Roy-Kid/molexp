@@ -67,7 +67,7 @@ def _make_run(tmp_path: Path):
     ws.materialize()
     project = ws.add_project("p")
     experiment = project.add_experiment("e", params={})
-    run = experiment.add_run(parameters={"seed": 1})
+    run = experiment.add_run(params={"seed": 1})
     return ws, project, experiment, run
 
 

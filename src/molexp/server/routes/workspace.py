@@ -296,13 +296,19 @@ def open_workspace(
     """
     if isinstance(request, WorkspaceOpenLocalRequest):
         path = Path(request.path).expanduser().resolve()
+        created = False
         if not path.exists():
             if not request.create_if_missing:
                 raise HTTPException(status_code=404, detail="Workspace path not found")
             path.mkdir(parents=True, exist_ok=True)
+            created = True
 
         set_workspace_path_override(path)
         workspace = Workspace(path)
+        if created:
+            # Only a just-created directory is materialized — opening an
+            # existing path must never write workspace.json on its own.
+            workspace.materialize()
         return WorkspaceInfoResponse(
             root=str(workspace.root),
             projectCount=len(workspace.list_projects()),

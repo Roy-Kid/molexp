@@ -20,7 +20,7 @@ def seeded_workspace(tmp_path):
     ws = Workspace(root=tmp_path, name="prune-lab")
     project = ws.add_project("proj-a")
     exp = project.add_experiment("exp-x", workflow_source="s.py", params={})
-    run = exp.add_run(parameters={"seed": 1})
+    run = exp.add_run(params={"seed": 1})
 
     # Seed three executions: two failed, one succeeded.
     history = []
@@ -101,7 +101,7 @@ def test_prune_refuses_live_running_record(tmp_path):
     ws = Workspace(root=tmp_path, name="live-lab")
     project = ws.add_project("proj-a")
     exp = project.add_experiment("exp-x", workflow_source="s.py", params={})
-    run = exp.add_run(parameters={})
+    run = exp.add_run(params={})
 
     exec_id = f"exec-{run.id}"
     Path(run.run_dir / "executions" / exec_id).mkdir(parents=True)

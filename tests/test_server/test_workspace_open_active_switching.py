@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 
 from molexp.server.app import create_app
 from molexp.server.dependencies import (
-    get_workspace,
+    get_active_workspace,
     get_workspace_target_registry,
     register_workspace_subscriber,
     reset_workspace_cache,
@@ -27,14 +27,14 @@ from molexp.server.workspace_targets import (
 @pytest.fixture(autouse=True)
 def _isolate_dependency_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """Reset cache + overrides + registry for each test."""
-    import molexp.server.dependencies as deps
+    import molexp.server.deps.targets as targets_deps
 
     reset_workspace_cache()
     set_workspace_path_override(None)
     set_active_workspace_descriptor(None)
     reset_workspace_target_registry()
     registry = WorkspaceTargetRegistry(store_path=tmp_path / "wt.json")
-    monkeypatch.setattr(deps, "_workspace_target_registry", registry)
+    monkeypatch.setattr(targets_deps, "_workspace_target_registry", registry)
     yield
     reset_workspace_cache()
     set_workspace_path_override(None)
@@ -134,7 +134,7 @@ def test_cache_rekeyed_on_switch(
         json={"kind": "local", "path": str(local_root), "create_if_missing": True},
     )
     # Make sure cache contains the local entry
-    _ = get_workspace()
+    _ = get_active_workspace()
     assert any(k[0] == "local" for k in deps._workspace_cache)
 
     # Switch to remote — cache should be cleared (so no stale local entry left)

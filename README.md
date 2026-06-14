@@ -5,7 +5,7 @@
   &nbsp;molexp
 </h1>
 
-<p><strong>Workflow and experiment-management platform for computational research</strong></p>
+<p><strong>An agent-assisted scientific-workflow platform for FAIR research</strong></p>
 
 <p>
   <a href="https://img.shields.io/github/actions/workflow/status/MolCrafts/molexp/ci.yml?style=flat-square&logo=githubactions&logoColor=white&label=CI"><img src="https://img.shields.io/github/actions/workflow/status/MolCrafts/molexp/ci.yml?style=flat-square&logo=githubactions&logoColor=white&label=CI" alt="CI"></a>
@@ -23,7 +23,7 @@
 
 </div>
 
-molexp turns a Python script of typed tasks into a tracked, reproducible experiment: it pairs a content-hashed workflow engine with a file-system-backed `Workspace → Project → Experiment → Run` hierarchy, profile-driven run variants, optional cluster submission, and a FastAPI server with a bundled React UI.
+molexp turns a Python script of typed tasks into a tracked, reproducible experiment. It pairs a content-hashed workflow engine with a file-system-backed `Workspace → Project → Experiment → Run` hierarchy, profile-driven run variants, and optional cluster submission — then layers on an audited orchestration harness (Plan/Run stage pipelines, artifact lineage, approval gates), an optional LLM agent that can plan and drive those workflows, and a FastAPI server with a bundled React UI.
 
 > **Under active development.** Public APIs may change between minor releases.
 
@@ -39,10 +39,12 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 
 | Module | Capability |
 |--------|------------|
-| `molexp.workflow`   | Typed task-graph engine — `WorkflowBuilder` (decorator + OOP + protocol styles), content-hashed `Workflow`, topology-driven parallelism, IR compiler, contract validation |
+| `molexp.workflow`   | Typed task-graph engine — `WorkflowCompiler` (decorator + OOP + protocol styles) compiles to a frozen, content-hashed `CompiledWorkflow`; `WorkflowRuntime` executes it with topology-driven parallelism, IR export, contract validation |
 | `molexp.workspace`  | File-system storage primitive — `Workspace → Project → Experiment → Run` `Folder` hierarchy, content-addressed assets, atomic JSON I/O, run lifecycle |
-| `molexp.config`     | `molcfg.yaml` loading and named profiles — resolves `defaults` + `profiles` into immutable, content-hashed per-run config |
-| `molexp.agent`      | Optional LLM harness — `AgentRunner` / `AgentMode` with chat / plan / review modes and persisted sessions, built on PydanticAI (lazy-loaded) |
+| `molexp.config`     | In-code process-global config — a live `molcfg.Config` for runtime values such as LLM API keys, registered in code (never from env) |
+| `molexp.profile`    | File-based per-run config — `molcfg.yaml` loading and named profiles; resolves `defaults` + `profiles` into an immutable, content-hashed `ProfileConfig` |
+| `molexp.agent`      | Optional LLM layer — `AgentRunner` / `AgentLoop` (`ChatLoop` one round-trip, `InteractiveLoop` emergent tool loop) with persisted `AgentSession`s, built on PydanticAI (lazy-loaded) |
+| `molexp.harness`    | Experiment orchestrator — audited `PlanMode` / `RunMode` stage pipelines (artifact lineage, approval gates, executors) over a content-addressed Run; the production `molexp plan [--execute]` entry point that lets an LLM agent plan, generate, and drive a workflow |
 | `molexp.server`     | FastAPI app — REST routes for workspace, projects, experiments, runs, assets, execution, plus SSE streaming and bundled-SPA serving |
 | `molexp.cli`        | `molexp` command-line entry point — workspace init/info, run/execute, project / experiment / run / asset / target / session subcommands |
 | `molexp.plugins`    | On-demand capability registry — `submit_molq` scheduler bridge (SLURM / PBS / LSF) and `gh` GitHub client; core stays dependency-light |
@@ -60,25 +62,28 @@ Requires Python >= 3.12. Core depends on `pydantic`, `pydantic-graph`, `typer`, 
 ## Quick start
 
 ```python
-from molexp.workflow import TaskContext, WorkflowBuilder
+import asyncio
 
-builder = WorkflowBuilder(name="demo")
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+
+wf = WorkflowCompiler(name="demo")
 
 
-@builder.task
+@wf.task
 async def fetch(ctx: TaskContext) -> list[float]:
     return [1.0, 4.0, 9.0]
 
 
-@builder.task(depends_on=["fetch"])
+@wf.task(depends_on=["fetch"])
 async def reduce(ctx: TaskContext) -> float:
     return sum(ctx.inputs)
 
 
-workflow = builder.build()
+result = asyncio.run(WorkflowRuntime().execute(wf.compile()))
+print(result.outputs)  # {'fetch': [1.0, 4.0, 9.0], 'reduce': 14.0}
 ```
 
-Binding a workflow to a `Workspace`, running it with `molcfg` profiles, and submitting to a cluster are covered in the docs.
+Attaching a workflow to a tracked `Workspace` experiment (`ws.project(...).experiment(...).run(wf.compile(), params=...)`), running it with `molcfg` profiles via `molexp run`, and submitting to a cluster are covered in the docs.
 
 ## Documentation
 
@@ -96,7 +101,7 @@ Binding a workflow to a `Workspace`, running it with `molcfg` profiles, and subm
 | [molrs](https://github.com/MolCrafts/molrs)     | Rust core — molecular data structures & compute kernels (native + WASM) |
 | [molpack](https://github.com/MolCrafts/molpack) | Packmol-grade molecular packing (Rust + Python) |
 | [molvis](https://github.com/MolCrafts/molvis)   | WebGL molecular visualization & editing |
-| **molexp** | Workflow & experiment-management platform — this repo |
+| **molexp** | Agent-assisted scientific-workflow platform for FAIR research — this repo |
 | [molnex](https://github.com/MolCrafts/molnex)   | Molecular machine-learning framework |
 | [molq](https://github.com/MolCrafts/molq)       | Unified job queue — local / SLURM / PBS / LSF |
 | [molcfg](https://github.com/MolCrafts/molcfg)   | Layered configuration library |

@@ -171,6 +171,7 @@ describe("resolveRenderer", () => {
       agentSessions: [],
       workspaceRoot: null,
       consoleEntries: [],
+      workspaces: [],
     } satisfies WorkspaceSnapshot;
 
     expect(

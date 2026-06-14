@@ -4,10 +4,12 @@ The workflow layer is the in-memory model of a computation graph. It is concerne
 
 ## A Workflow Is a Definition
 
-In MolExp, a workflow is something you author, compile, and execute. You can write it with the functional DSL, or with reusable task classes and `WorkflowBuilder`, but in both cases the result is the same kind of object: a compiled `Workflow`.
+In MolExp, a workflow is something you author, compile, and execute. You can write it with decorators or with reusable task classes, but both styles live on the same `WorkflowCompiler` and produce the same kind of object: a frozen `CompiledWorkflow`.
 
 ```python
-wf = workflow(name="demo")
+from molexp.workflow import TaskContext, WorkflowCompiler
+
+wf = WorkflowCompiler(name="demo")
 
 
 @wf.task
@@ -20,26 +22,29 @@ async def summarize(ctx: TaskContext) -> float:
     return sum(ctx.inputs)
 
 
-spec = wf.build()
+compiled = wf.compile()
 ```
 
-That `spec` is already a complete workflow definition. It can run without a workspace:
+That `compiled` is already a complete workflow definition. Execution lives on `WorkflowRuntime`. It can run without a workspace:
 
 ```python
-result = await spec.execute()
+from molexp.workflow import WorkflowRuntime
+
+result = await WorkflowRuntime().execute(compiled)
 ```
 
-Or it can run under a tracked `Run`:
+Or it can run under a tracked `Run` by forwarding the run's context:
 
 ```python
-result = await spec.execute(run=run)
+with run.start() as ctx:
+    result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 ```
 
 The graph does not become a different graph when you attach it to persistent state. The same workflow definition is simply being executed under a richer lifecycle.
 
 ## Authoring, Compilation, and Execution
 
-MolExp keeps authoring, compilation, and execution separate on purpose. Authoring is the stage where tasks and dependencies are declared. Compilation is the stage where that declaration becomes a validated `Workflow` with a deterministic `workflow_id`. Execution is the stage where the compiled graph is driven by a runtime, optionally under a `RunContext`.
+MolExp keeps authoring, compilation, and execution separate on purpose. Authoring is the stage where tasks and dependencies are declared on a mutable `WorkflowCompiler`. Compilation is the stage where that declaration becomes a validated, frozen `CompiledWorkflow` with a deterministic `workflow_id`. Execution is the stage where the compiled graph is driven by a `WorkflowRuntime`, optionally under a `RunContext`.
 
 That separation prevents import-time side effects from becoming part of the workflow model. A script can define a graph, inspect it, bind it to an experiment, and expose it to the CLI without accidentally running computation just because the module was imported.
 
@@ -51,6 +56,6 @@ This narrow boundary is what lets `Workflow` remain reusable. The same compiled 
 
 ## Where It Connects to the Rest of MolExp
 
-The workflow becomes operationally meaningful when it is bound to an experiment in the workspace layer. That binding associates one graph with one persistent research definition, one parameter set, and one replica policy. The workflow also receives profile data and workspace helpers through `TaskContext`, which is why authoring code can remain mostly unchanged while the surrounding execution environment becomes richer.
+The workflow becomes operationally meaningful when it is declared on an experiment in the workspace layer via `experiment.run(compiled, params=...)`. That declaration associates one graph with one persistent research definition and one parameter sweep. At execution time the engine delivers profile data through `ctx.config` and the run's sweep parameters plus a content-addressed working directory through the root task's `ctx.inputs`, which is why authoring code can remain mostly unchanged while the surrounding execution environment becomes richer.
 
 If you need the persistent side of this story, continue with [Workspace](workspace.md). If the missing piece is reusable data and provenance, continue with [Assets and Reproducibility](assets-and-reproducibility.md).

@@ -6,7 +6,7 @@ import io
 import json
 import os
 from collections.abc import Iterable
-from typing import IO, Any
+from typing import IO, Any, cast
 
 from molq.transport import Transport
 
@@ -95,8 +95,8 @@ class RemoteFileSystem:
         self._t.copytree(os.fspath(src), os.fspath(dst))
 
     def stat(self, path: PathArg) -> StatResult:
-        d = self._t.stat(os.fspath(path))
-        return StatResult(**d)  # type: ignore[arg-type]
+        d = cast("dict[str, Any]", self._t.stat(os.fspath(path)))
+        return StatResult(**d)
 
     def lstat(self, path: PathArg) -> StatResult:
         return self.stat(path)

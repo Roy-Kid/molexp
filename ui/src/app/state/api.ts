@@ -5,11 +5,6 @@ import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
 import { WorkflowService } from "@/api/generated/services/WorkflowService";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
-import {
-  buildFlowgramDocument,
-  type FlowgramDocument,
-  parseTaskGraphIr,
-} from "@/app/renderers/flowgram-document";
 import type {
   AgentSessionSummary,
   ApiAgentSession,
@@ -27,11 +22,17 @@ import type {
   ProjectSummary,
   RunCreateRequest,
   RunSummary,
+  ServedWorkspaceSummary,
   WorkflowSummary,
   WorkspaceSnapshot,
   WorkspaceTreeNode,
 } from "@/app/types";
-import type { TaskGraphJson } from "@/types/task_graph_ir";
+import {
+  buildFlowgramDocument,
+  type FlowgramDocument,
+  parseTaskGraphIr,
+} from "@/components/workflow/flowgram-document";
+import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 
 // Local types not yet in OpenAPI. The lineage fields (`assetId`,
 // `assetKind`, `producerRunId`, `producerTaskId`) are populated when
@@ -130,11 +131,59 @@ export const workspaceApi = {
   getProjects: async (): Promise<ApiProjectResponse[]> => {
     return ProjectsService.listProjectsApiProjectsGet();
   },
+  // The served-workspace set (GET /api/workspaces) is outside the generated
+  // client; a plain fetch keeps it decoupled from the per-workspace routes.
+  getServedWorkspaces: async (): Promise<ServedWorkspaceSummary[]> => {
+    const response = await fetch("/api/workspaces");
+    if (!response.ok) return [];
+    const rows = (await response.json()) as Array<{
+      key: string;
+      label: string;
+      isRemote: boolean;
+      path: string | null;
+      active?: boolean;
+      unreachable?: boolean;
+    }>;
+    return rows.map((row) => ({
+      key: row.key,
+      label: row.label,
+      isRemote: row.isRemote,
+      path: row.path ?? null,
+      active: row.active ?? false,
+      unreachable: row.unreachable ?? false,
+    }));
+  },
+  // Switch the active workspace (used when a user opens a non-active workspace
+  // in the multi-workspace nav). Local switches by path; remote by target name
+  // (which equals the served key).
+  activateServedWorkspace: async (workspace: ServedWorkspaceSummary): Promise<void> => {
+    const body = workspace.isRemote
+      ? { kind: "remote", name: workspace.key }
+      : { kind: "local", path: workspace.path };
+    const response = await fetch("/api/workspace/open", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to activate workspace ${workspace.key}: ${response.status}`);
+    }
+  },
+  // Projects of one named workspace via the aggregate route
+  // (GET /api/workspaces/{ws}/projects). Used when several workspaces are
+  // served so each group lists its own projects without a collision.
+  getProjectsForWorkspace: async (workspaceKey: string): Promise<ApiProjectResponse[]> => {
+    const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceKey)}/projects`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch projects for workspace ${workspaceKey}: ${response.status}`);
+    }
+    return (await response.json()) as ApiProjectResponse[];
+  },
   createProject: async (data: ProjectCreateRequest): Promise<ApiProjectResponse> => {
     return ProjectsService.createProjectApiProjectsPost(data);
   },
   deleteProject: async (projectId: string): Promise<void> => {
-    await ProjectsService.deleteProjectApiProjectsIdDelete(projectId);
+    await ProjectsService.deleteProjectApiProjectsProjectIdDelete(projectId);
   },
   getExperiments: async (projectId: string): Promise<ApiExperimentResponse[]> => {
     return ExperimentsService.listExperimentsApiProjectsProjectIdExperimentsGet(projectId);
@@ -188,11 +237,17 @@ export const workspaceApi = {
       executionId,
     );
   },
-  getRunExecution: async (projectId: string, experimentId: string, runId: string) => {
+  getRunExecution: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    executionId?: string | null,
+  ) => {
     return RunsService.getRunExecutionApiProjectsProjectIdExperimentsExperimentIdRunsRunIdExecutionGet(
       projectId,
       experimentId,
       runId,
+      executionId,
     );
   },
   getRunLammpsLog: async (projectId: string, experimentId: string, runId: string, path: string) => {
@@ -405,30 +460,43 @@ export const workspaceApi = {
     ) as unknown as Promise<ExperimentComparisonResponse>;
   },
 
-  /** Best-effort kill: marks the run as cancelled. */
+  /** Best-effort cancel: marks the run as cancelled (canonical /cancel route). */
   killRun: async (
     projectId: string,
     experimentId: string,
     runId: string,
   ): Promise<RunActionResponse> => {
-    return RunsService.killRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdKillPost(
+    return RunsService.cancelRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdCancelPost(
       projectId,
       experimentId,
       runId,
     ) as unknown as Promise<RunActionResponse>;
   },
 
-  /** Clone an existing run's parameters into a fresh run. */
+  /** Resume a run in place: reopen its last non-succeeded execution, seeding completed nodes. */
+  resumeRun: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<RunContinueResponse> => {
+    return RunsService.resumeRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdResumePost(
+      projectId,
+      experimentId,
+      runId,
+    ) as unknown as Promise<RunContinueResponse>;
+  },
+
+  /** Rerun a run from scratch in a new execution on the same run (no clone). */
   rerunRun: async (
     projectId: string,
     experimentId: string,
     runId: string,
-  ): Promise<RunRerunResponse> => {
+  ): Promise<RunContinueResponse> => {
     return RunsService.rerunRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdRerunPost(
       projectId,
       experimentId,
       runId,
-    ) as unknown as Promise<RunRerunResponse>;
+    ) as unknown as Promise<RunContinueResponse>;
   },
 
   /** Stream URL for a run export zip — used directly via <a href>. */
@@ -511,9 +579,9 @@ export interface RunActionResponse {
   message: string | null;
 }
 
-export interface RunRerunResponse {
-  sourceRunId: string;
-  newRunId: string;
+export interface RunContinueResponse {
+  runId: string;
+  executionId: string;
   projectId: string;
   experimentId: string;
   status: string;
@@ -521,6 +589,7 @@ export interface RunRerunResponse {
 
 export const buildEmptySnapshot = (): WorkspaceSnapshot => {
   return {
+    workspaces: [],
     projects: [],
     experiments: [],
     runs: [],
@@ -532,13 +601,17 @@ export const buildEmptySnapshot = (): WorkspaceSnapshot => {
   };
 };
 
-export const mapProjects = (projects: ApiProjectResponse[]): ProjectSummary[] => {
+export const mapProjects = (
+  projects: ApiProjectResponse[],
+  workspaceKey?: string,
+): ProjectSummary[] => {
   return projects.map((project) => ({
     id: project.id,
     name: project.name,
     status: "active",
     summary: project.description || "No description",
     updatedAt: project.created,
+    ...(workspaceKey ? { workspaceKey } : {}),
   }));
 };
 
@@ -550,7 +623,7 @@ export const mapExperiments = (
     id: experiment.id,
     name: experiment.name,
     status: "active",
-    summary: experiment.description || experiment.workflow || "No workflow",
+    summary: experiment.description || "",
     workflowFile: experiment.workflow ?? "",
     updatedAt: experiment.created,
     projectId,

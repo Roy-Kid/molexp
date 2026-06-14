@@ -3,7 +3,8 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { AssetResponse } from '../models/AssetResponse';
-import type { Body_upload_project_asset_api_projects__id__assets_upload_post } from '../models/Body_upload_project_asset_api_projects__id__assets_upload_post';
+import type { Body_upload_project_asset_api_projects__project_id__assets_upload_post } from '../models/Body_upload_project_asset_api_projects__project_id__assets_upload_post';
+import type { Body_upload_project_asset_api_workspaces__ws__projects__project_id__assets_upload_post } from '../models/Body_upload_project_asset_api_workspaces__ws__projects__project_id__assets_upload_post';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { ProjectCreateRequest } from '../models/ProjectCreateRequest';
 import type { ProjectResponse } from '../models/ProjectResponse';
@@ -43,18 +44,18 @@ export class ProjectsService {
     }
     /**
      * Delete Project
-     * @param id
+     * @param projectId
      * @returns MessageResponse Successful Response
      * @throws ApiError
      */
-    public static deleteProjectApiProjectsIdDelete(
-        id: string,
+    public static deleteProjectApiProjectsProjectIdDelete(
+        projectId: string,
     ): CancelablePromise<MessageResponse> {
         return __request(OpenAPI, {
             method: 'DELETE',
-            url: '/api/projects/{id}',
+            url: '/api/projects/{project_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             errors: {
                 422: `Validation Error`,
@@ -63,18 +64,18 @@ export class ProjectsService {
     }
     /**
      * Get Project
-     * @param id
+     * @param projectId
      * @returns ProjectResponse Successful Response
      * @throws ApiError
      */
-    public static getProjectApiProjectsIdGet(
-        id: string,
+    public static getProjectApiProjectsProjectIdGet(
+        projectId: string,
     ): CancelablePromise<ProjectResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}',
+            url: '/api/projects/{project_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             errors: {
                 422: `Validation Error`,
@@ -84,20 +85,20 @@ export class ProjectsService {
     /**
      * List Project Assets
      * List every asset (any kind) in the project scope via the catalog.
-     * @param id
+     * @param projectId
      * @param limit
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static listProjectAssetsApiProjectsIdAssetsGet(
-        id: string,
+    public static listProjectAssetsApiProjectsProjectIdAssetsGet(
+        projectId: string,
         limit: number = 100,
     ): CancelablePromise<Array<AssetResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}/assets',
+            url: '/api/projects/{project_id}/assets',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             query: {
                 'limit': limit,
@@ -110,20 +111,20 @@ export class ProjectsService {
     /**
      * Upload Project Asset
      * Upload a file into the project's ``DataAssetLibrary``.
-     * @param id
+     * @param projectId
      * @param formData
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static uploadProjectAssetApiProjectsIdAssetsUploadPost(
-        id: string,
-        formData: Body_upload_project_asset_api_projects__id__assets_upload_post,
+    public static uploadProjectAssetApiProjectsProjectIdAssetsUploadPost(
+        projectId: string,
+        formData: Body_upload_project_asset_api_projects__project_id__assets_upload_post,
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'POST',
-            url: '/api/projects/{id}/assets/upload',
+            url: '/api/projects/{project_id}/assets/upload',
             path: {
-                'id': id,
+                'project_id': projectId,
             },
             formData: formData,
             mediaType: 'multipart/form-data',
@@ -134,20 +135,20 @@ export class ProjectsService {
     }
     /**
      * Get Project Asset
-     * @param id
+     * @param projectId
      * @param assetId
      * @returns AssetResponse Successful Response
      * @throws ApiError
      */
-    public static getProjectAssetApiProjectsIdAssetsAssetIdGet(
-        id: string,
+    public static getProjectAssetApiProjectsProjectIdAssetsAssetIdGet(
+        projectId: string,
         assetId: string,
     ): CancelablePromise<AssetResponse> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}/assets/{asset_id}',
+            url: '/api/projects/{project_id}/assets/{asset_id}',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'asset_id': assetId,
             },
             errors: {
@@ -157,21 +158,220 @@ export class ProjectsService {
     }
     /**
      * Download Project Asset
-     * @param id
+     * @param projectId
      * @param assetId
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static downloadProjectAssetApiProjectsIdAssetsAssetIdDownloadGet(
-        id: string,
+    public static downloadProjectAssetApiProjectsProjectIdAssetsAssetIdDownloadGet(
+        projectId: string,
         assetId: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
             method: 'GET',
-            url: '/api/projects/{id}/assets/{asset_id}/download',
+            url: '/api/projects/{project_id}/assets/{asset_id}/download',
             path: {
-                'id': id,
+                'project_id': projectId,
                 'asset_id': assetId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Projects
+     * @param ws
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static listProjectsApiWorkspacesWsProjectsGet(
+        ws: string,
+    ): CancelablePromise<Array<ProjectResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects',
+            path: {
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Create Project
+     * @param ws
+     * @param requestBody
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static createProjectApiWorkspacesWsProjectsPost(
+        ws: string,
+        requestBody: ProjectCreateRequest,
+    ): CancelablePromise<ProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects',
+            path: {
+                'ws': ws,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Delete Project
+     * @param projectId
+     * @param ws
+     * @returns MessageResponse Successful Response
+     * @throws ApiError
+     */
+    public static deleteProjectApiWorkspacesWsProjectsProjectIdDelete(
+        projectId: string,
+        ws: string,
+    ): CancelablePromise<MessageResponse> {
+        return __request(OpenAPI, {
+            method: 'DELETE',
+            url: '/api/workspaces/{ws}/projects/{project_id}',
+            path: {
+                'project_id': projectId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Project
+     * @param projectId
+     * @param ws
+     * @returns ProjectResponse Successful Response
+     * @throws ApiError
+     */
+    public static getProjectApiWorkspacesWsProjectsProjectIdGet(
+        projectId: string,
+        ws: string,
+    ): CancelablePromise<ProjectResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}',
+            path: {
+                'project_id': projectId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * List Project Assets
+     * List every asset (any kind) in the project scope via the catalog.
+     * @param projectId
+     * @param ws
+     * @param limit
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static listProjectAssetsApiWorkspacesWsProjectsProjectIdAssetsGet(
+        projectId: string,
+        ws: string,
+        limit: number = 100,
+    ): CancelablePromise<Array<AssetResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets',
+            path: {
+                'project_id': projectId,
+                'ws': ws,
+            },
+            query: {
+                'limit': limit,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Upload Project Asset
+     * Upload a file into the project's ``DataAssetLibrary``.
+     * @param projectId
+     * @param ws
+     * @param formData
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static uploadProjectAssetApiWorkspacesWsProjectsProjectIdAssetsUploadPost(
+        projectId: string,
+        ws: string,
+        formData: Body_upload_project_asset_api_workspaces__ws__projects__project_id__assets_upload_post,
+    ): CancelablePromise<AssetResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets/upload',
+            path: {
+                'project_id': projectId,
+                'ws': ws,
+            },
+            formData: formData,
+            mediaType: 'multipart/form-data',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Project Asset
+     * @param projectId
+     * @param assetId
+     * @param ws
+     * @returns AssetResponse Successful Response
+     * @throws ApiError
+     */
+    public static getProjectAssetApiWorkspacesWsProjectsProjectIdAssetsAssetIdGet(
+        projectId: string,
+        assetId: string,
+        ws: string,
+    ): CancelablePromise<AssetResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets/{asset_id}',
+            path: {
+                'project_id': projectId,
+                'asset_id': assetId,
+                'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Download Project Asset
+     * @param projectId
+     * @param assetId
+     * @param ws
+     * @returns any Successful Response
+     * @throws ApiError
+     */
+    public static downloadProjectAssetApiWorkspacesWsProjectsProjectIdAssetsAssetIdDownloadGet(
+        projectId: string,
+        assetId: string,
+        ws: string,
+    ): CancelablePromise<any> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/assets/{asset_id}/download',
+            path: {
+                'project_id': projectId,
+                'asset_id': assetId,
+                'ws': ws,
             },
             errors: {
                 422: `Validation Error`,

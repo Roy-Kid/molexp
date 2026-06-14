@@ -46,4 +46,46 @@ export class TensorboardService {
             },
         });
     }
+    /**
+     * Get Run Tensorboard Scalars
+     * Parse all (or filtered) scalar tags from a run's tfevents files.
+     *
+     * Returns 503 with an install hint when the optional ``tensorboard``
+     * extra is missing, 404 when the run is unknown, and 200 with an
+     * empty ``series`` list when the run has no tfevents on disk.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @param tag Repeatable scalar-tag filter
+     * @param logdir Relative path under run_dir; default = discover every tfevents dir
+     * @returns TensorboardScalarsResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunTensorboardScalarsApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdTensorboardScalarsGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+        tag?: (Array<string> | null),
+        logdir?: (string | null),
+    ): CancelablePromise<TensorboardScalarsResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/tensorboard/scalars',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            query: {
+                'tag': tag,
+                'logdir': logdir,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
 }

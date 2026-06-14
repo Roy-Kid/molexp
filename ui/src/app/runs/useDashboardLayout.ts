@@ -78,7 +78,9 @@ export const reconcileLayout = (
   const rows: DashboardRow[] = [];
   for (const row of stored.rows) {
     const panels = row.panels.filter((id) => validIds.has(id) && !seen.has(id));
-    panels.forEach((id) => seen.add(id));
+    for (const id of panels) {
+      seen.add(id);
+    }
     if (panels.length > 0) {
       rows.push({ id: row.id, panels });
     }

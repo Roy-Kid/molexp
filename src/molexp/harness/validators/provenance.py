@@ -1,7 +1,7 @@
 """Structural validator for artifact provenance lineage (Phase 5).
 
 Given an ``artifact_id`` and the run's :class:`ArtifactStore` +
-:class:`ProvenanceStore`, walks ``trace_backward`` and verifies the
+:class:`ArtifactLineageStore`, walks ``trace_backward`` and verifies the
 artifact can be traced to an ancestor of the declared ``root_kind``
 (default ``"user_plan"``).
 
@@ -32,7 +32,7 @@ from molexp.harness.errors import ArtifactNotFoundError
 from molexp.harness.schemas.artifact import ArtifactKind
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
 from molexp.harness.store.artifact_store import ArtifactStore
-from molexp.harness.store.provenance_store import ProvenanceStore
+from molexp.harness.store.lineage_store import ArtifactLineageStore
 
 __all__ = ["validate_provenance"]
 
@@ -41,7 +41,7 @@ def validate_provenance(
     artifact_id: str,
     *,
     artifact_store: ArtifactStore,
-    provenance_store: ProvenanceStore,
+    lineage_store: ArtifactLineageStore,
     root_kind: ArtifactKind = "user_plan",
 ) -> ValidationReport:
     violations: list[ValidationViolation] = []
@@ -71,7 +71,7 @@ def validate_provenance(
             violations=violations,
         )
 
-    ancestors = provenance_store.trace_backward(artifact_id)
+    ancestors = lineage_store.trace_backward(artifact_id)
 
     # 3. orphan_artifact (warning) — no ancestors AND not the root itself.
     if not ancestors:

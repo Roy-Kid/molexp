@@ -24,7 +24,7 @@ def event_to_sse_frame(event: AgentEvent) -> str:
 
 
 def done_frame() -> str:
-    """Render the terminal ``done`` control frame (after ``mode_completed``)."""
+    """Render the terminal ``done`` control frame (after ``loop_completed``)."""
     return f"data: {json.dumps({'type': 'done'})}\n\n"
 
 

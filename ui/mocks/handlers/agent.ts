@@ -179,17 +179,25 @@ export const agentHandlers = [
                     return;
                 }
                 const goal = session.goal ?? "demo";
+                const answerChunks = [
+                    "Based on the latest run, **val_loss converged to 0.032**.\n\n",
+                    "| epoch | train | val |\n|---|---|---|\n",
+                    "| 10 | 0.041 | 0.038 |\n| 15 | 0.034 | 0.032 |\n\n",
+                    "Next I suggest a finite-size check at `2x` box length.",
+                ];
                 const seq: Record<string, unknown>[] = [
-                    { kind: "mode_started", timestamp: now(), mode_name: "interactive", user_input: goal },
+                    { kind: "loop_started", timestamp: now(), loop_name: "interactive", user_input: goal },
                     { kind: "thinking_delta", timestamp: now(), text: "Let me reason about " },
                     { kind: "thinking_delta", timestamp: now(), text: "the request before answering." },
                     { kind: "tool_call_started", timestamp: now(), tool_name: "read_file", args_summary: "path=README.md" },
                     { kind: "tool_call_completed", timestamp: now(), tool_name: "read_file", result_summary: "42 lines", ok: true },
-                    { kind: "token_delta", timestamp: now(), text: "Here " },
-                    { kind: "token_delta", timestamp: now(), text: "is " },
-                    { kind: "token_delta", timestamp: now(), text: "the " },
-                    { kind: "token_delta", timestamp: now(), text: "answer." },
-                    { kind: "mode_completed", timestamp: now(), text: "Here is the answer." },
+                    ...answerChunks.map((text) => ({ kind: "token_delta", timestamp: now(), text })),
+                    {
+                        kind: "loop_completed",
+                        timestamp: now(),
+                        text: answerChunks.join(""),
+                        result: { usage: { input_tokens: 18234, output_tokens: 1456 } },
+                    },
                 ];
                 for (const ev of seq) {
                     controller.enqueue(frame(ev));

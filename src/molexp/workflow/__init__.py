@@ -34,6 +34,13 @@ equivalent styles share the compiler class:
 
        compiled = WorkflowCompiler(name="pipeline").add(ExternalProcessor()).compile()
 
+Control flow beyond the DAG shape is declared on the compiler:
+``wf.parallel`` (runtime-sized fan-out), ``wf.branch`` (label-routed
+edges) and ``wf.loop`` (repeat-until). A branch or loop-``until`` task
+returns ``(value, Next("label"))``; the routed target receives ``value``
+as its ``ctx.inputs`` (values-on-edges delivery — see
+``docs/guide/control-flow.md``).
+
 Execution lives on :class:`WorkflowRuntime`
 (``runtime.execute(compiled)`` / ``.start`` / ``.run_on``), not on the
 artifact. Bind a compiled workflow to an experiment via
@@ -44,14 +51,16 @@ code (CLI / server / cluster workers) can recover it via
 """
 
 from ._names import generate_name
+from ._pydantic_graph.persistence import read_node_outputs, seed_from_execution
 from ._pydantic_graph.runtime import WorkflowRuntime, make_execution_id
 from .binding import WorkflowBinding, WorkflowBindingRegistry, default_binding_registry
 from .cache import Caching
 from .cache_store import CacheStore, FileCacheStore
 from .codec import WorkflowCodec, default_codec
+from .command_task import CommandTask
 from .compiled import CompiledWorkflow
 from .compiler import WorkflowCompiler
-from .context import ActorContext, TaskContext
+from .context import TaskContext
 from .contract import (
     ArtifactDecl,
     Severity,
@@ -82,16 +91,20 @@ from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
 from .snapshot import TaskSnapshot
 from .snapshot_ref import WorkflowSnapshotRef
+from .subworkflow import SubWorkflow
 from .sweep import SweepMap
 from .task import Actor, Task
 from .types import (
     BranchEdges,
+    CommandError,
     CycleError,
     EdgeShapeError,
     End,
     EntryAmbiguousError,
     LoopMaxItersExceeded,
     MissingRouteError,
+    MissingUpstreamResultError,
+    Next,
     OutEdges,
     ParallelExecutionError,
     UnconditionalEdges,
@@ -111,11 +124,12 @@ from .version import (
 
 __all__ = [
     "Actor",
-    "ActorContext",
     "ArtifactDecl",
     "BranchEdges",
     "CacheStore",
     "Caching",
+    "CommandError",
+    "CommandTask",
     "CompiledWorkflow",
     "CycleError",
     "EdgeKind",
@@ -130,11 +144,14 @@ __all__ = [
     "GraphTaskIR",
     "LoopMaxItersExceeded",
     "MissingRouteError",
+    "MissingUpstreamResultError",
+    "Next",
     "OutEdges",
     "ParallelExecutionError",
     "Runnable",
     "Severity",
     "Streamable",
+    "SubWorkflow",
     "SweepMap",
     "Task",
     "TaskContext",
@@ -174,8 +191,10 @@ __all__ = [
     "generate_name",
     "make_execution_id",
     "promote_callable",
+    "read_node_outputs",
     "render_workflow_mermaid",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
+    "seed_from_execution",
     "validate_workflow_contract",
 ]

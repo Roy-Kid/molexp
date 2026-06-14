@@ -70,8 +70,11 @@ class TestFunctionalExecution:
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.status == "failed"
 
-    async def test_run_context_is_forwarded_to_tasks(self, tmp_path):
-        wf = WorkflowCompiler(name="with-run-context")
+    async def test_run_context_is_not_exposed_on_task_ctx(self, tmp_path):
+        # Pure-task-context contract: run_context is NOT forwarded to the public
+        # TaskContext. A task accessing ctx.run_context raises AttributeError; the
+        # engine still drives the run via its private channel.
+        wf = WorkflowCompiler(name="no-run-context")
 
         run_ctx = _RunContextStub(
             work_dir=tmp_path / "run",
@@ -80,7 +83,7 @@ class TestFunctionalExecution:
 
         @wf.task
         async def inspect(ctx: TaskContext) -> bool:
-            assert ctx.run_context is run_ctx
+            assert not hasattr(ctx, "run_context")
             return True
 
         result = await WorkflowRuntime().execute(wf.compile(), run_context=run_ctx)

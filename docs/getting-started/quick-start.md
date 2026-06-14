@@ -1,15 +1,16 @@
 # Quick Start
 
-The fastest way to understand MolExp is to see one small script move through the whole lifecycle. The example below defines a workflow, binds it to a workspace experiment, executes one tracked run, and exposes the workspace to the CLI.
+The fastest way to understand MolExp is to see one small script move through the whole lifecycle. The example below defines a workflow, declares it on a workspace experiment, executes one tracked run, and reads the persisted result back.
 
 ## One Small Script
 
 ```python
 import asyncio
-import molexp as me
-from molexp.workflow import TaskContext, Workflow, Workflow, WorkflowBuilder
 
-wf = WorkflowBuilder(name="demo")
+import molexp as me
+from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+
+wf = WorkflowCompiler(name="sum")
 
 
 @wf.task
@@ -20,30 +21,22 @@ async def fetch(ctx: TaskContext) -> list[float]:
 @wf.task(depends_on=["fetch"])
 async def summarize(ctx: TaskContext) -> float:
     scale = ctx.config.get("scale", 1.0)
-    total = sum(ctx.inputs) * scale
-    ctx.set_result("total", total)
-    ctx.artifact.save("metrics.json", {"total": total})
-    return total
+    return sum(ctx.inputs) * scale
 
 
-spec = wf.build()
+compiled = wf.compile()
 
-ws = me.Workspace("./lab")
-project = ws.Project("demo")
-exp = project.Experiment(
-    "sum",
-    params={"scale": 1.0},
-    workflow_source="train.py",
-)
-spec.bind_to(exp)
-
-me.entry(ws)
+ws = me.Workspace("./lab", name="lab")
+exp = ws.project("demo").experiment("sum").run(compiled, params={"scale": [1.0]})
 
 
 async def main() -> None:
-    run = exp.Run(parameters={"scale": 1.0}, id="sum-default")
-    result = await spec.execute(run=run)
-    print(result.outputs)
+    run = exp.list_runs()[0]
+    with run.start() as ctx:
+        result = await WorkflowRuntime().execute(compiled, run_context=ctx)
+        ctx.set_result("total", result.outputs["summarize"])
+        ctx.artifact.save("metrics.json", {"total": result.outputs["summarize"]})
+    print(run.status, run.get_result("total"))
 
 
 if __name__ == "__main__":
@@ -52,21 +45,21 @@ if __name__ == "__main__":
 
 ## What This Script Does
 
-The workflow itself is only the graph created by `workflow(...)`, the two task definitions, and `spec = wf.build()`. Everything after that is about persistence. The workspace creates a durable root on disk. The project groups related work. The experiment binds the compiled workflow to one named research definition. The run gives one concrete execution attempt a stable directory and metadata record.
+The workflow itself is only the graph created by `WorkflowCompiler(...)`, the two task definitions, and `compiled = wf.compile()`. Everything after that is about persistence. The workspace creates a durable root on disk. The project groups related work. The experiment binds the compiled workflow to one named research definition via `exp.run(compiled, params=...)` — `params` is the sweep, and MolExp materializes one content-addressed `Run` per parameter cell. Each run gives one concrete execution attempt a stable directory and metadata record.
 
-The explicit run id matters in direct Python usage. If you call `exp.run()` without an id, you get a fresh run. When you do want stable identity from Python, provide the id yourself. The CLI does that automatically when it derives deterministic ids from parameters and profile metadata.
+Because run ids are derived from the run's parameters, re-declaring the same sweep is idempotent: repeated invocations rediscover the same runs instead of creating duplicates.
 
-Inside the task body, `ctx.config` exposes profile data when a profile is active. `ctx.set_result(...)` stores lightweight result values on the run record. `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers it as an `ArtifactAsset` in the workspace catalog. The task code does not need to know where that directory lives, only that a run-backed context is attached. See [Unified Asset Model](../guide/assets.md) for the full shape of artifacts, logs, checkpoints, and data assets.
+Inside a task body, `ctx.inputs` carries the data flowing in along the graph's edges (the upstream output, or — for a root task of a tracked run — the engine-injected `{"params": ..., "workdir": ...}` mapping) and `ctx.config` exposes profile data when a profile is active. Workspace helpers live on the driver-side `RunContext` opened by `run.start()`: `ctx.set_result(...)` stores lightweight result values on the run record (read them back with the public `run.get_result(key)`), and `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers it as an `ArtifactAsset` in the workspace catalog. See [Unified Asset Model](../guide/assets.md) for the full shape of artifacts, logs, checkpoints, and data assets.
 
 ## Running the Script
 
-If you execute the file directly with Python, the `main()` function above will create one tracked run and print the workflow outputs. If you want MolExp to discover the same workspace through the CLI, keep the `me.entry(ws)` call and run:
+If you execute the file directly with Python, the `main()` function above will execute one tracked run and print its status and result. The `exp.run(...)` declaration also registers the workspace for CLI discovery, so the same script can be driven by `molexp run` instead:
 
 ```bash
 molexp run train.py
 ```
 
-At that point the same script can be driven by the CLI rather than by the manual `asyncio.run(...)` path. That is usually where profiles, resume behavior, and scheduler-backed execution start to matter.
+At that point the CLI owns run selection, deterministic run ids, and the `RunContext` lifecycle. That is usually where profiles, resume behavior, and scheduler-backed execution start to matter.
 
 ## After the First Run
 

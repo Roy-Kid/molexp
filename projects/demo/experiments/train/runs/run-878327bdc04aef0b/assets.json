@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "assets": {
+    "0215da2c-a7bc-460d-9889-88120a3ce778": {
+      "asset_id": "0215da2c-a7bc-460d-9889-88120a3ce778",
+      "name": "run",
+      "scope": {
+        "kind": "run",
+        "ids": [
+          "demo",
+          "train",
+          "878327bdc04aef0b"
+        ]
+      },
+      "path": "executions/exec-878327bdc04aef0b/logs/run.log",
+      "created_at": "2026-06-08T14:36:50.333435",
+      "updated_at": "2026-06-08T14:36:50.337085",
+      "producer": {
+        "run_id": "878327bdc04aef0b",
+        "execution_id": "exec-878327bdc04aef0b",
+        "task_id": null,
+        "inputs": []
+      },
+      "tags": {},
+      "content_hash": null,
+      "kind": "log",
+      "encoding": "utf-8",
+      "line_count": 2
+    }
+  }
+}

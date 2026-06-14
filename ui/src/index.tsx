@@ -3,10 +3,16 @@
 import "reflect-metadata";
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { bootPlugins } from "@/plugins/runtime";
 import App from "./App";
 import "./styles/tailwind.css";
+
+// A data router (vs. the plain <BrowserRouter>) is required so in-app navigation
+// can be intercepted with `useBlocker` — e.g. to confirm before discarding
+// unsaved workflow-graph edits. App reads `location` directly, so a single
+// splat route renders the whole SPA.
+const router = createBrowserRouter([{ path: "*", element: <App /> }]);
 
 const rootElement = document.getElementById("root");
 
@@ -34,9 +40,7 @@ enableMocking().then(() => {
   const root = ReactDOM.createRoot(rootElement);
   root.render(
     <React.StrictMode>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
+      <RouterProvider router={router} />
     </React.StrictMode>,
   );
 });

@@ -56,6 +56,7 @@ def create_experiment(
         )
     exp = project.add_experiment(
         name=req.name,
+        description=req.description,
         workflow_source=req.workflow_source,
         params=req.parameter_space,
         default_target=req.default_target,

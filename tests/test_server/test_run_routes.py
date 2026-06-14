@@ -97,12 +97,12 @@ def local_target(workspace):
 
 @pytest.fixture
 def captured_submits(monkeypatch):
-    """Recorder for ``SubmitHandler.__call__``; each entry is ``(handler, args)``."""
+    """Recorder for ``SubmitHandler.__call__``; each entry is ``(handler, args, kwargs)``."""
     calls: list = []
     monkeypatch.setattr(
         SubmitHandler,
         "__call__",
-        lambda self, *args, **kwargs: calls.append((self, args)),  # noqa: ARG005
+        lambda self, *args, **kwargs: calls.append((self, args, kwargs)),
     )
     return calls
 
@@ -127,7 +127,7 @@ class TestRunSubmissionWiring:
         )
         assert resp.status_code == 201, resp.text
         assert len(captured_submits) == 1
-        handler, args = captured_submits[0]
+        handler, args, _kwargs = captured_submits[0]
         assert handler._scheduler == "local"
         _script, mol_run, exp, proj = args
         assert mol_run.id == resp.json()["id"]
@@ -154,7 +154,7 @@ class TestRunSubmissionWiring:
         assert resp.status_code == 422
         assert "entrypoint" in resp.json()["detail"].lower()
 
-    def test_rerun_inherits_target_and_dispatches(
+    def test_rerun_starts_new_execution_on_same_run_and_dispatches(
         self,
         client,
         project,
@@ -162,24 +162,188 @@ class TestRunSubmissionWiring:
         local_target,
         captured_submits,
     ):
-        src_run = experiment_with_entrypoint.add_run(parameters={"lr": 1e-4}, target=local_target)
-        captured_submits.clear()  # ignore implicit submit on source-run creation
+        """ac-002: rerun appends a new execution on the SAME run; no clone."""
+        src_run = experiment_with_entrypoint.add_run(params={"lr": 1e-4}, target=local_target)
+        # rerun only acts on failed/cancelled runs — drive a failure first.
+        with pytest.raises(RuntimeError, match="boom"), src_run.start():
+            raise RuntimeError("boom")
+        captured_submits.clear()  # ignore the source-run submit + fail drive
+        runs_before = len(experiment_with_entrypoint.list_runs())
 
         resp = client.post(
             f"{self._prefix(project, experiment_with_entrypoint)}/{src_run.id}/rerun"
         )
         assert resp.status_code == 201, resp.text
         body = resp.json()
-        assert body["sourceRunId"] == src_run.id
-        assert body["newRunId"] != src_run.id
+        # Same run id — not a fresh run.
+        assert body["runId"] == src_run.id
+        assert "newRunId" not in body
+        assert "sourceRunId" not in body
+        # A real exec id on this run.
+        assert body["executionId"].startswith(f"exec-{src_run.id}")
+        # No clone: the experiment's run count is unchanged.
+        assert len(experiment_with_entrypoint.list_runs()) == runs_before
+        # One molq dispatch carrying the chosen execution id.
         assert len(captured_submits) == 1
+        _handler, _args, kwargs = captured_submits[0]
+        assert kwargs.get("execution_id") == body["executionId"]
 
     def test_rerun_without_target_does_not_submit(
         self, client, project, experiment, run, captured_submits
     ):
+        with pytest.raises(RuntimeError, match="boom"), run.start():
+            raise RuntimeError("boom")
         resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/rerun")
         assert resp.status_code == 201
+        body = resp.json()
+        assert body["runId"] == run.id
+        assert "newRunId" not in body
+        assert body["executionId"].startswith(f"exec-{run.id}")
         assert captured_submits == []
+
+    def test_resume_reopens_last_non_succeeded_execution(
+        self, client, project, experiment, run, captured_submits
+    ):
+        """ac-003: resume reopens the run's last non-succeeded execution.
+
+        Drive a real execution that fails so ``execution_history`` carries
+        a non-succeeded record; resume must target *that* existing id and
+        append no new execution.
+        """
+        with pytest.raises(RuntimeError, match="boom"), run.start():
+            raise RuntimeError("boom")
+
+        history = run.metadata.execution_history
+        assert history, "the failed run should have one execution record"
+        last_exec_id = history[-1].execution_id
+        history_len = len(history)
+
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/resume")
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["runId"] == run.id
+        assert body["executionId"] == last_exec_id
+        # No new execution appended by resume (it reopened the existing one).
+        assert len(run.metadata.execution_history) == history_len
+
+    def test_resume_on_pending_run_returns_409(self, client, project, experiment, run):
+        """A pending run is plain run's job, not resume's — resume 409s on it
+        (orthogonal verbs); it is not started fresh by resume."""
+        assert run.status == "pending"
+
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/resume")
+        assert resp.status_code == 409, resp.text
+        assert "failed or cancelled" in resp.json()["detail"].lower()
+
+    def test_targeted_resume_dispatches_on_reopened_execution_id(
+        self,
+        client,
+        project,
+        experiment_with_entrypoint,
+        local_target,
+        captured_submits,
+    ):
+        """ac-005: targeted resume hits the molq seam with the reopened exec id."""
+        src_run = experiment_with_entrypoint.add_run(params={"lr": 1e-4}, target=local_target)
+        with pytest.raises(RuntimeError, match="boom"), src_run.start():
+            raise RuntimeError("boom")
+        captured_submits.clear()
+        last_exec_id = src_run.metadata.execution_history[-1].execution_id
+
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{src_run.id}/resume"
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["executionId"] == last_exec_id
+        assert len(captured_submits) == 1
+        _handler, _args, kwargs = captured_submits[0]
+        assert kwargs.get("execution_id") == last_exec_id
+
+    def test_resume_with_unregistered_target_returns_422(
+        self, client, project, experiment_with_entrypoint, captured_submits
+    ):
+        """ac-005: an inherited target not registered on the workspace → 422."""
+        src_run = experiment_with_entrypoint.add_run(params={"lr": 1e-4}, target="ghost")
+        with pytest.raises(RuntimeError, match="boom"), src_run.start():
+            raise RuntimeError("boom")
+        captured_submits.clear()
+
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{src_run.id}/resume"
+        )
+        assert resp.status_code == 422, resp.text
+        assert captured_submits == []
+
+    def test_rerun_with_target_but_no_entrypoint_returns_422(
+        self, client, project, experiment, local_target, captured_submits
+    ):
+        """ac-005: targeted run whose experiment lacks a workflow entrypoint → 422.
+
+        ``experiment`` (not ``experiment_with_entrypoint``) binds no spec, so
+        ``_dispatch_to_molq``'s entrypoint guard fires.
+        """
+        src_run = experiment.add_run(params={"lr": 1e-4}, target=local_target)
+        # Must be retryable (failed) to pass the status gate and reach the
+        # entrypoint check.
+        with pytest.raises(RuntimeError, match="boom"), src_run.start():
+            raise RuntimeError("boom")
+        captured_submits.clear()
+
+        resp = client.post(f"{self._prefix(project, experiment)}/{src_run.id}/rerun")
+        assert resp.status_code == 422, resp.text
+        assert "entrypoint" in resp.json()["detail"].lower()
+        assert captured_submits == []
+
+
+class TestRunContinuationSchemaAndOpenAPI:
+    """ac-001 + ac-006: the schema swap and OpenAPI surface change."""
+
+    def _prefix(self, project, experiment):
+        return f"/api/projects/{project.id}/experiments/{experiment.id}/runs"
+
+    def test_run_continue_response_schema_shape(self):
+        """ac-001: RunContinueResponse importable with the five fields."""
+        from molexp.server.schemas import RunContinueResponse
+
+        model = RunContinueResponse(
+            runId="r1",
+            executionId="exec-r1",
+            status="pending",
+            projectId="p1",
+            experimentId="e1",
+        )
+        assert set(model.model_fields) == {
+            "runId",
+            "executionId",
+            "status",
+            "projectId",
+            "experimentId",
+        }
+
+    def test_run_rerun_response_is_removed(self):
+        """ac-001: the old clone-shaped response is gone."""
+        import molexp.server.schemas as schemas
+
+        assert not hasattr(schemas, "RunRerunResponse")
+        with pytest.raises(ImportError):
+            from molexp.server.schemas import RunRerunResponse  # noqa: F401
+
+    def test_openapi_exposes_resume_and_rerun_paths(self, client):
+        """ac-006: paths + new schema present, old shape absent."""
+        spec = client.get("/api/openapi.json").json()
+        paths = spec["paths"]
+        resume_paths = [p for p in paths if p.endswith("/{run_id}/resume")]
+        rerun_paths = [p for p in paths if p.endswith("/{run_id}/rerun")]
+        assert resume_paths, "resume path missing from OpenAPI"
+        assert rerun_paths, "rerun path missing from OpenAPI"
+
+        schema_names = set(spec.get("components", {}).get("schemas", {}))
+        assert "RunContinueResponse" in schema_names
+        assert "RunRerunResponse" not in schema_names
+
+        raw = client.get("/api/openapi.json").text
+        assert "RunRerunResponse" not in raw
+        assert "newRunId" not in raw
 
     def test_kill_routes_through_try_cancel(self, client, project, experiment, run, monkeypatch):
         seen: list = []
@@ -208,3 +372,31 @@ class TestRunSubmissionWiring:
         body = resp.json()
         assert body["message"] == "no molq job id"
         assert body["status"] == "cancelled"
+
+    def test_cancel_is_canonical_route(self, client, project, experiment, run, monkeypatch):
+        """``POST .../cancel`` is the documented verb; same handler as /kill."""
+        seen: list = []
+
+        def fake_try_cancel(r):
+            seen.append(r.id)
+            r.cancel()
+            return
+
+        monkeypatch.setattr("molexp.server.routes.run.try_cancel", fake_try_cancel)
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/cancel")
+        assert resp.status_code == 200
+        assert seen == [run.id]
+        assert resp.json()["message"] == "Run cancelled"
+        assert resp.json()["status"] == "cancelled"
+
+    def test_openapi_marks_kill_deprecated_and_cancel_canonical(self, client):
+        spec = client.get("/api/openapi.json").json()
+        paths = spec["paths"]
+        cancel_paths = [p for p in paths if p.endswith("/{run_id}/cancel")]
+        kill_paths = [p for p in paths if p.endswith("/{run_id}/kill")]
+        assert cancel_paths, "cancel path missing from OpenAPI"
+        assert kill_paths, "kill alias path missing from OpenAPI"
+        for p in cancel_paths:
+            assert not paths[p]["post"].get("deprecated", False)
+        for p in kill_paths:
+            assert paths[p]["post"].get("deprecated") is True

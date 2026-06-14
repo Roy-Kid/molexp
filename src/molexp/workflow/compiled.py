@@ -4,14 +4,14 @@ This dissolves the old ``Workflow`` god-object. It carries everything the
 compiler derives in one pass:
 
 - the topology (tasks + control/branch/loop/parallel/entry decls),
-- the executable ``graph`` (a layer-private ``pydantic_graph`` ``Graph`` with
-  one Step per task; only the workflow runtime reads it),
+- the executable ``graph`` (a layer-private ``ExecutionPlan`` lowered by the
+  engine compiler; only the workflow runtime reads it),
 - per-task ``snapshots`` (one :class:`TaskSnapshot` each),
 - the ``version`` (:class:`WorkflowVersion`, reusing the snapshot code-hash),
 - the experiment ``binding`` (``WorkflowBinding | None``).
 
-It is a **plain class**, not a ``pydantic.BaseModel``: ``graph`` holds live
-task callables, which makes this a runtime container by definition (per the
+It is a **plain class**, not a ``pydantic.BaseModel``: it holds live task
+callables, which makes this a runtime container by definition (per the
 CLAUDE.md "Pydantic vs plain class" rule). It is immutable by discipline —
 construct it via :meth:`WorkflowCompiler.compile` and do not mutate it.
 
@@ -24,6 +24,7 @@ here; binding lives in :class:`WorkflowBindingRegistry`, not on a global.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
+from functools import cached_property
 from typing import TYPE_CHECKING, Protocol
 
 from ._graph_decl import (
@@ -76,7 +77,7 @@ class CompiledWorkflow:
         self.workflow_id = workflow_id
         self.version_label = version_label
         self._mode = mode
-        # ``graph`` is a layer-private pydantic_graph Graph; only the runtime reads it.
+        # ``graph`` is the layer-private ExecutionPlan; only the runtime reads it.
         self.graph = graph
         self.snapshots = snapshots
         self.version = version
@@ -90,6 +91,24 @@ class CompiledWorkflow:
         self._loops = loops
         self._parallels = parallels
         self._reducer = reducer
+
+    # ── Derived topology maps (built once; the artifact is frozen) ─────────
+
+    @cached_property
+    def registration_by_name(self) -> Mapping[str, TaskRegistration]:
+        """``task_name → TaskRegistration`` — derived once and reused across
+        every execution (the runtime's per-run deps read it)."""
+        return {t.name: t for t in self._tasks}
+
+    @cached_property
+    def parallel_decls_by_body(self) -> Mapping[str, ParallelDecl]:
+        """``body_task_name → ParallelDecl`` — derived once, reused per run."""
+        return {par.body: par for par in self._parallels}
+
+    @cached_property
+    def loop_max_iters(self) -> Mapping[str, int]:
+        """``until_task_name → max_iters`` — derived once, reused per run."""
+        return {loop.until: loop.max_iters for loop in self._loops}
 
     # ── Boundary introspection ────────────────────────────────────────────
 
@@ -122,11 +141,25 @@ class CompiledWorkflow:
 
     # ── Representation codec (folded from spec 01) ─────────────────────────
 
-    def to_ir(self) -> dict[str, JSONValue]:
-        """Serialize to the JSON IR (data-DAG wire format). Delegates to ``default_codec``."""
+    def to_ir(self, *, strict: bool = True) -> dict[str, JSONValue]:
+        """Serialize to the JSON IR (data-DAG **wire** format). Delegates to ``default_codec``.
+
+        This is the persistence / round-trip format: it backs :meth:`from_ir`
+        and :meth:`to_python`, and under ``strict`` (default ``True``) requires
+        a ``task_type`` slug on every task. By design it is the *data DAG only*
+        — it omits the parallel fan-out edges (``map_over→body``, ``body→join``)
+        and other control/branch/loop topology.
+
+        For a UI canvas, control-flow visualization, or any observability
+        consumer that needs the full graph (including those parallel edges),
+        use :meth:`to_graph_ir`, which is total and never requires slugs —
+        mirroring the :meth:`to_mermaid` / :meth:`to_graph_mermaid` split. Pass
+        ``strict=False`` for observability-only serialization that tolerates
+        slug-less tasks (``task_type: None``).
+        """
         from .codec import default_codec
 
-        return dict(default_codec.spec_to_ir(self))
+        return dict(default_codec.spec_to_ir(self, strict=strict))
 
     def to_python(self) -> str:
         """Render as a runnable Python script (via the IR)."""
@@ -159,8 +192,20 @@ class CompiledWorkflow:
     # ── Full-graph IR + diagram export ────────────────────────────────────
 
     def to_graph_ir(self) -> WorkflowGraphIR:
-        """Export the full compiled-graph IR (tasks, deps, entries, control,
-        branches, loops, parallels) — never requires ``task_type`` slugs."""
+        """Export the full compiled-graph IR — the blessed entry point for UI / control-flow / observability consumers.
+
+        Emits the complete graph: tasks, data deps, entries, control and branch
+        edges, loops, and parallels — including the parallel fan-out edges
+        (``map_over→body`` and ``body→join``, tagged ``kind="parallel"``) that
+        :meth:`to_ir`'s data-DAG wire format deliberately omits. It is total and
+        never requires a ``task_type`` slug.
+
+        Contrast with :meth:`to_ir`, the slug-requiring data-DAG format used for
+        persistence / round-trip (:meth:`from_ir`) and script generation
+        (:meth:`to_python`). Prefer this method whenever you need the full
+        topology rather than the round-trippable wire form — the same split as
+        :meth:`to_mermaid` (data DAG) vs :meth:`to_graph_mermaid` (full graph).
+        """
         from .ir import build_workflow_graph_ir
 
         return build_workflow_graph_ir(self)
@@ -225,7 +270,6 @@ class CompiledWorkflow:
                     is_actor=t.is_actor,
                     remote=t.remote,
                     task_type=t.task_type,
-                    config=t.config,
                     dependent_params=t.dependent_params,
                 )
             )

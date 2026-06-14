@@ -45,7 +45,7 @@ def workspace(tmp_path: Path) -> Workspace:
 def _new_run(workspace: Workspace, name: str):
     project = workspace.add_project(name=f"p-{name}")
     experiment = project.add_experiment(name=f"e-{name}")
-    return experiment.add_run(parameters={})
+    return experiment.add_run(params={})
 
 
 # ── ac-001 — rename + flat cache attribute ──────────────────────────────────
@@ -102,8 +102,9 @@ async def test_artifact_reregistered_on_hit_without_recompute(workspace: Workspa
 
     @wf.task
     async def produce(ctx: TaskContext) -> str:
+        # Pure contract: the task RETURNS its product; the engine's
+        # materialization layer persists it as a content-hashed artifact.
         _bump("produce")
-        ctx.run_context.artifact.save("out.txt", b"payload-bytes")
         return "produced"
 
     compiled = wf.compile()
@@ -136,18 +137,17 @@ async def test_artifact_reregistered_on_hit_without_recompute(workspace: Workspa
 @pytest.mark.asyncio
 async def test_config_change_forces_miss(workspace: Workspace) -> None:
     class Compute(Task):
+        def __init__(self, factor: int = 0) -> None:
+            self.factor = factor  # build-time config = the cache-identity discriminator
+
         async def execute(self, ctx: TaskContext) -> int:
             _bump("compute")
-            return ctx.config.get("factor", 0) * 10
+            return self.factor * 10
 
     cache = Caching(store=workspace.cache.as_cache_store())
 
     def _compiled(factor: int):
-        return (
-            WorkflowCompiler(name="cfg")
-            .add(Compute(), name="compute", config={"factor": factor})
-            .compile()
-        )
+        return WorkflowCompiler(name="cfg").add(Compute(factor), name="compute").compile()
 
     run1 = _new_run(workspace, "cfg1")
     with run1.start() as ctx1:
@@ -221,7 +221,8 @@ async def test_cache_entry_result_shape(workspace: Workspace) -> None:
 
     @wf.task
     async def produce(ctx: TaskContext) -> dict:
-        ctx.run_context.artifact.save("o.txt", b"x")
+        # Engine materializes the return value as the task's artifact, so the
+        # cache manifest is populated without an explicit artifact.save.
         return {"value": 7}
 
     compiled = wf.compile()
@@ -241,3 +242,72 @@ async def test_cache_entry_result_shape(workspace: Workspace) -> None:
     assert result["artifacts"], "an artifact-producing task must record a manifest"
     entry = result["artifacts"][0]
     assert set(entry) == {"name", "kind", "content_hash", "asset_id"}
+
+
+# ── put-failure visibility — degraded cache surfaces at WARNING ──────────────
+
+
+class _FailingPutStore:
+    """A CacheStore whose writes always fail (full disk / permissions shape)."""
+
+    def read(self, key: str) -> str | None:
+        return None
+
+    def write(self, key: str, content: str) -> None:
+        raise OSError("disk full")
+
+    def remove(self, key: str) -> bool:
+        return False
+
+    def keys(self):
+        return iter(())
+
+    def access_time(self, key: str) -> float:
+        return 0.0
+
+    def touch(self, key: str) -> None:
+        return None
+
+    def total_bytes(self) -> int:
+        return 0
+
+    def clear(self) -> int:
+        return 0
+
+
+@pytest.mark.asyncio
+async def test_failing_cache_put_warns_once_per_task(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A permanently failing cache backend must be VISIBLE: the first put
+    failure per (execution, task) logs a WARNING (not debug), while the run
+    itself degrades gracefully and completes uncached."""
+    from molexp.workflow._pydantic_graph import node_cache
+
+    warned: list[str] = []
+    monkeypatch.setattr(node_cache.logger, "warning", lambda msg: warned.append(str(msg)))
+
+    wf = WorkflowCompiler(name="degraded-cache")
+
+    @wf.task
+    async def first(ctx: TaskContext) -> int:
+        _bump("first")
+        return 1
+
+    @wf.task(depends_on=["first"])
+    async def second(ctx: TaskContext) -> int:
+        _bump("second")
+        return ctx.inputs + 1
+
+    compiled = wf.compile()
+    cache = Caching(store=_FailingPutStore())
+
+    result = await WorkflowRuntime().execute(compiled, cache=cache)
+    assert result.status == "completed"  # graceful degradation — run unaffected
+    assert result.outputs["second"] == 2
+    assert _COUNTERS == {"first": 1, "second": 1}
+
+    # Exactly one WARNING per task naming the task and the failure.
+    assert len(warned) == 2
+    assert any("'first'" in msg and "disk full" in msg for msg in warned)
+    assert any("'second'" in msg and "disk full" in msg for msg in warned)

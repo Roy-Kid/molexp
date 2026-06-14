@@ -251,8 +251,9 @@ class Session:
 
     def close(self) -> None:
         """Release the underlying transport if it supports cleanup."""
-        if hasattr(self.transport, "close"):
-            self.transport.close()  # type: ignore[attr-defined]
+        close = getattr(self.transport, "close", None)
+        if callable(close):
+            close()
 
 
 class SessionManager:

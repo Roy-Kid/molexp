@@ -58,9 +58,7 @@ describe("AddRemoteWorkspaceForm — label/input association", () => {
 
 describe("AddRemoteWorkspaceForm — service wiring", () => {
   it("submits via WorkspaceService.createWorkspaceTargetApiWorkspaceTargetsPost", () => {
-    expect(source).toContain(
-      "WorkspaceService.createWorkspaceTargetApiWorkspaceTargetsPost",
-    );
+    expect(source).toContain("WorkspaceService.createWorkspaceTargetApiWorkspaceTargetsPost");
   });
 
   it("imports WorkspaceTargetCreateRequest from the generated client", () => {

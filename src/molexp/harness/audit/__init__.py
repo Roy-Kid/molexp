@@ -1,7 +1,7 @@
 """Audit + replay helpers for ``molexp.harness`` (Phase 10).
 
 - :func:`generate_audit_report` — assemble an :class:`AuditReport` from
-  the event log + artifact store + provenance store.
+  the event log + artifact store + lineage store.
 - :func:`replay_metadata` — re-read events for a run.
 - :func:`find_last_successful_stage` — pinpoint resume-from-failure point.
 """

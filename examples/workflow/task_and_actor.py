@@ -1,17 +1,14 @@
-"""The three equivalent ways to define a workflow task.
+"""The three equivalent ways to define a workflow task, plus a streaming actor.
 
 Matches ``docs/guide/task-and-actor.md``.
 
 Demonstrates:
 
 1. Decorator style — ``@wf.task`` decorates async functions.
-2. OOP style — subclass ``Task`` and add via ``Workflow.add``.
+2. OOP style — subclass ``Task`` and register via ``WorkflowCompiler.add``.
 3. Protocol form — any object with ``async def execute(self, ctx)``.
-
-``Actor`` (streaming) is discussed in the guide but is only useful under a
-runtime that interleaves coroutines through a ``RunContext``; see the
-"Runtime Boundaries" section of the guide for what is and is not wired up
-today.
+4. Actor — ``@wf.actor`` (or ``Actor`` subclass) defines an async generator;
+   the engine drives it to exhaustion and records the last yielded value.
 
 Run directly::
 
@@ -22,12 +19,12 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Task, TaskContext, WorkflowBuilder
+from molexp.workflow import Task, TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
 # ── 1. Decorator style ─────────────────────────────────────────────────────
 async def functional_demo() -> None:
-    wf = WorkflowBuilder(name="functional")
+    wf = WorkflowCompiler(name="functional")
 
     @wf.task
     async def load(ctx: TaskContext) -> list[int]:
@@ -37,7 +34,7 @@ async def functional_demo() -> None:
     async def square(ctx: TaskContext) -> list[int]:
         return [x * x for x in ctx.inputs]
 
-    result = await wf.build().execute()
+    result = await WorkflowRuntime().execute(wf.compile())
     print(f"functional: {result.outputs}")
 
 
@@ -53,8 +50,8 @@ class Sum(Task):
 
 
 async def oop_demo() -> None:
-    spec = WorkflowBuilder(name="oop").add(Load()).add(Sum(), depends_on=["load"]).build()
-    result = await spec.execute()
+    compiled = WorkflowCompiler(name="oop").add(Load()).add(Sum(), depends_on=["load"]).compile()
+    result = await WorkflowRuntime().execute(compiled)
     print(f"oop:        {result.outputs}")
 
 
@@ -67,20 +64,38 @@ class ExternalDoubler:
 
 
 async def protocol_demo() -> None:
-    spec = (
-        WorkflowBuilder(name="external")
+    compiled = (
+        WorkflowCompiler(name="external")
         .add(Load())
         .add(ExternalDoubler(), name="double", depends_on=["load"])
-        .build()
+        .compile()
     )
-    result = await spec.execute()
+    result = await WorkflowRuntime().execute(compiled)
     print(f"protocol:   {result.outputs}")
+
+
+# ── 4. Streaming actor — async generator driven to exhaustion ──────────────
+async def actor_demo() -> None:
+    wf = WorkflowCompiler(name="stream")
+
+    @wf.task
+    async def load(ctx: TaskContext) -> list[int]:
+        return [1, 2, 3]
+
+    @wf.actor(depends_on=["load"])
+    async def monitor(ctx: TaskContext):
+        for item in ctx.inputs:
+            yield {"seen": item}  # last yield becomes the task output
+
+    result = await WorkflowRuntime().execute(wf.compile())
+    print(f"actor:      {result.outputs}")
 
 
 async def main() -> None:
     await functional_demo()
     await oop_demo()
     await protocol_demo()
+    await actor_demo()
 
 
 if __name__ == "__main__":

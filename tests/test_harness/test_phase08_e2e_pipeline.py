@@ -83,8 +83,8 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
         GenerateTestSpec,
         HarnessRunContext,
         SaveUserPlan,
+        SQLiteArtifactLineageStore,
         SQLiteEventLog,
-        SQLiteProvenanceStore,
         StageRunner,
         ValidateBoundWorkflow,
         ValidateWorkflowIR,
@@ -94,7 +94,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
     e = SQLiteEventLog(path=db)
-    p = SQLiteProvenanceStore(path=db, artifact_store=a)
+    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     stub = StubAgentGateway(artifact_store=a)
     stub.register("experiment_report_writer", _experiment_report_canned())
     stub.register("workflow_ir_extractor", _workflow_ir_canned(), output_kind="workflow_ir")
@@ -106,7 +106,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
         workspace_root=tmp_path,
         artifact_store=a,
         event_log=e,
-        provenance_store=p,
+        lineage_store=p,
         agent_gateway=stub,
     )
     runner = StageRunner(ctx)
@@ -129,7 +129,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
     assert test_spec.kind == "test_spec"
 
     # test_spec.id → bound_wf → workflow_ir → experiment_report → user_plan → raw_text
-    ancestors = ctx.provenance_store.trace_backward(test_spec.id)
+    ancestors = ctx.lineage_store.trace_backward(test_spec.id)
     ids = [r.id for r in ancestors]
     assert bound_wf.id in ids
     assert workflow_ir.id in ids

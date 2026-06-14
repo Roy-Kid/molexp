@@ -636,21 +636,12 @@ class TensorboardScalarsResponse(BaseModel):
     series: list[TensorboardScalarSeries] = Field(default_factory=list)
 
 
-class WorkflowStepInfo(BaseModel):
-    """Human-readable summary of one workflow execution step."""
-
-    index: int
-    status: str  # pending | running | success | error
-    outputs: dict[str, Any] = Field(default_factory=dict)
-
-
 class RunExecutionResponse(BaseModel):
-    """Workflow execution state read from workflow.json."""
+    """Runtime workflow graph state read from ``workflow.json``."""
 
     execution_id: str | None = None
     status: str = "not_started"  # running | completed | failed | not_started
-    steps: list[WorkflowStepInfo] = Field(default_factory=list)
-    end: dict[str, Any] | None = None
+    workflow: dict[str, Any] | None = None
 
 
 # ── Asset lineage (Producer.inputs DAG) ─────────────────────────────────────
@@ -785,11 +776,16 @@ class RunActionResponse(BaseModel):
     message: str | None = None
 
 
-class RunRerunResponse(BaseModel):
-    """A new run cloned from an existing one."""
+class RunContinueResponse(BaseModel):
+    """Result of continuing a run in place — ``resume`` or ``rerun``.
 
-    sourceRunId: str
-    newRunId: str
+    Both verbs act on the same ``runId`` (no clone, no new run). ``executionId``
+    is the execution the action targeted: the reopened one for ``resume``, the
+    freshly-derived ``exec-{run_id}-N`` for ``rerun``.
+    """
+
+    runId: str
+    executionId: str
     projectId: str
     experimentId: str
     status: str

@@ -4,15 +4,15 @@
 
 ## Task Semantics
 
-A `Task` is a single async function (or class with `async def execute(self, ctx)`) that consumes the typed output of its upstream task and returns a typed output of its own. The compiler groups tasks into **levels** by the dependency graph — every task on the same level runs in parallel.
+A `Task` is a single async function (or class with `async def execute(self, ctx)`) that consumes the typed output of its upstream task and returns a typed output of its own. The compiled graph runs tasks as soon as their dependencies are satisfied — tasks with no unresolved dependency between them run in parallel.
 
-Three equivalent ways to define a task:
+Three equivalent ways to define a task, all on the same `WorkflowCompiler`:
 
 ```python
 # 1. Function decorated with @wf.task
-from molexp.workflow import workflow, TaskContext
+from molexp.workflow import TaskContext, WorkflowCompiler
 
-wf = workflow(name="pipeline")
+wf = WorkflowCompiler(name="pipeline")
 
 @wf.task
 async def fetch(ctx: TaskContext) -> dict:
@@ -51,103 +51,77 @@ async def add_bias(ctx: TaskContext) -> float:
     return ctx.inputs + 10.0
 ```
 
-For the OOP builder:
+For instance registration, chain `.add(...)` calls and finish with `.compile()`:
 
 ```python
-from molexp.workflow import WorkflowBuilder
+from molexp.workflow import WorkflowCompiler
 
-spec = (
-    WorkflowBuilder(name="pipeline")
+compiled = (
+    WorkflowCompiler(name="pipeline")
     .add(Fetch())                                   # auto-named "fetch"
     .add(Process(), depends_on=["fetch"])           # name inferred from class
     .add(Report(), depends_on=["process"], name="report")
-    .build()
+    .compile()
 )
 ```
 
 ## Generic Parameters
 
-`Task` is generic over `StateT, DepsT, InputT, OutputT`. Fill them in only when you want full static typing:
+`Task` is generic over `StateT, InputT, OutputT`. Fill them in only when you want full static typing:
 
 ```python
-from dataclasses import dataclass
-
-@dataclass
-class PipeState:
-    cursor: int = 0
-
-@dataclass
-class PipeDeps:
-    storage: Any
-    metrics: Any
-
-class Fetch(Task[PipeState, PipeDeps, None, dict]):
-    async def execute(
-        self, ctx: TaskContext[PipeState, PipeDeps, None]
-    ) -> dict:
-        ctx.state.cursor += 1
-        return ctx.deps.storage.read("batch-0")
+class Fetch(Task[None, str, dict]):
+    async def execute(self, ctx: TaskContext[None, str]) -> dict:
+        # the source path arrives as an input, not via ambient deps
+        return read_records(ctx.inputs)
 ```
 
-Plain `Task` (no generics) defaults to `Any` everywhere.
+Plain `Task` (no generics) defaults to `Any` everywhere. Build-time configuration is the task instance's own `__init__` arguments — captured automatically as the task's config identity (the cache and the IR both key on it), and read inside the body as plain `self.*` attributes.
 
 ## Actor — Streaming Tasks
 
 `Actor` is the streaming variant. Its `run()` returns an async iterator; the compiler detects it structurally via the `Streamable` protocol. Use actors for continuous sampling, stream transformation, and components that run at a different rate than their peers. If your computation is a single call returning one value, use `Task` — actors are more machinery than you need.
 
 ```python
-# Functional DSL
-from molexp.workflow import workflow, ActorContext
+# Decorator style
+from molexp.workflow import TaskContext, WorkflowCompiler
 
-wf = workflow(name="stream")
+wf = WorkflowCompiler(name="stream")
 
-@wf.actor
-async def monitor(ctx: ActorContext):
-    while True:
-        msg = await ctx.receive()
-        yield {"seen": msg}
+@wf.actor(depends_on=["load"])
+async def monitor(ctx: TaskContext):
+    for item in ctx.inputs:
+        yield {"seen": item}
 ```
 
 ```python
 # Subclass Actor
-from molexp.workflow import Actor, ActorContext
+from molexp.workflow import Actor, TaskContext
 
 class Monitor(Actor):
-    async def run(self, ctx: ActorContext):
-        while True:
-            msg = await ctx.receive()
-            yield {"seen": msg}
+    async def run(self, ctx: TaskContext):
+        for item in ctx.inputs:
+            yield {"seen": item}
 ```
 
-Any object with `async def run(self, ctx)` returning an async iterator satisfies the `Streamable` protocol and can be added via `WorkflowBuilder.add(obj)` — no molexp import required.
+Any object with `async def run(self, ctx)` returning an async iterator satisfies the `Streamable` protocol and can be added via `WorkflowCompiler.add(obj)` — no molexp import required.
 
-### ActorContext
+### Context and output
 
-`ActorContext` extends `TaskContext` (so `ctx.state`, `ctx.deps`, `ctx.inputs`, `ctx.config`, and workspace helpers are all still there) and adds two primitives:
-
-```python
-await ctx.receive()       # wait for the next message on the default "input" channel
-await ctx.send(output)    # emit to the default "output" channel
-```
-
-These route through `RunContext.receive("input")` / `RunContext.emit("output", output)`. Without a connected `RunContext` they raise `NotImplementedError` — actors only make sense under a `Run`.
+A streaming body receives the same `TaskContext` as a batch task (`ctx.inputs`, `ctx.config`, `ctx.workdir`). The engine drives the async generator to exhaustion and records **the last yielded value** as the task's output; downstream tasks read that value from the shared results like any other. Streaming bodies are never cached (they are marked `is_actor` at compile time).
 
 ### Runtime Boundaries
 
 Supported today:
 
-- Structural detection of streaming tasks via `Streamable`.
-- `ctx.receive()` / `ctx.send()` plumbing when a `RunContext` is attached.
-- Interleaving actor coroutines through the normal pydantic-graph scheduler.
+- Structural detection of streaming tasks via `Streamable` (sets `is_actor`, which disables result caching for that task).
+- Driving the async generator to completion and recording the last yielded value as the output.
 
-Not implemented (open an issue if you need it — these are runtime extensions, not doc gaps):
+Not implemented:
 
-- Automatic channel lifecycle (you register channels on `RunContext._channels` yourself).
-- Backpressure / buffered-channel sizing / drop strategies beyond `asyncio.Queue` defaults.
-- Replay or resume for an actor mid-stream.
-- Hot reconfiguration of an actor's config while it runs.
+- Inter-task message-passing channels (`receive` / `send` / `emit`). An earlier, never-wired channel surface was removed — every path raised `NotImplementedError`. If you need streaming *between* concurrently-running tasks, open an issue; today an actor consumes `ctx.inputs` and yields outputs, it does not exchange messages mid-run with peers.
 
-Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.ActorContext`, `molexp.workflow.protocols.Streamable`, `molexp.workspace.run.RunContext.receive` / `emit`.
+Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.TaskContext`, `molexp.workflow.protocols.Streamable`, and the drain loop in `molexp.workflow._pydantic_graph.node`.
 
 ## Task Name Resolution
 
@@ -155,34 +129,36 @@ Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.ActorConte
 |------|-------------|
 | `@wf.task def fetch(...)` | Function name (`fetch`) |
 | `@wf.task(name="X")` | Explicit `name=` |
-| `WorkflowBuilder.add(FetchTask())` | Class name converted to snake_case, minus trailing `_task` / `_actor` → `fetch` |
-| `WorkflowBuilder.add(Fetch(), name="X")` | Explicit `name=` |
+| `WorkflowCompiler.add(FetchTask())` | Class name converted to snake_case, minus trailing `_task` / `_actor` → `fetch` |
+| `WorkflowCompiler.add(Fetch(), name="X")` | Explicit `name=` |
 
 `depends_on` values must match one of these resolved names exactly.
 
-## Parallel-Map and Join Helpers
+## Runtime Fan-Out and Fan-In
 
-Fan-out / fan-in is supported through the `parallel_map` and `join` decorators:
+Fan-out over a runtime-produced list is declared with `wf.parallel`:
 
 ```python
-from molexp.workflow import workflow, parallel_map, join, TaskContext
+from molexp.workflow import TaskContext, WorkflowCompiler
 
-wf = workflow(name="fan-out")
+wf = WorkflowCompiler(name="fan-out", entry="scatter")
 
 @wf.task
 async def scatter(ctx: TaskContext) -> list[int]:
     return [1, 2, 3, 4]
 
-@parallel_map(wf, fan_out_over="scatter")
+@wf.task
 async def compute(ctx: TaskContext) -> int:
-    return ctx.inputs ** 2
+    return ctx.inputs ** 2          # ctx.inputs is one element
 
-@join(wf, depends_on=["compute"], reducer="sum")
+@wf.task
 async def reduce(ctx: TaskContext) -> int:
-    return ctx.inputs
+    return sum(ctx.inputs)          # one output per element, in order
+
+wf.parallel(map_over="scatter", body="compute", join="reduce", max_concurrency=2)
 ```
 
-These are additive shortcuts over the normal `@wf.task` registration — they set per-task metadata (`fan_out_over`, `reducer`) that the runtime interprets during scheduling.
+The runtime runs `compute` once per element of `scatter`'s output and delivers the collected results to `reduce`. See [Control Flow](control-flow.md) for branches and loops.
 
 ## Selection Guide
 
@@ -191,11 +167,10 @@ These are additive shortcuts over the normal `@wf.task` registration — they se
 | One-shot computation, single value returned | `Task` |
 | Streaming / continuous / event-driven | `Actor` |
 | Third-party class you don't want to subclass | Structural `Runnable` / `Streamable` (just implement the method) |
-| Fan-out over a list produced by an upstream | `@parallel_map(wf, fan_out_over=...)` |
-| Fan-in reduction | `@join(wf, reducer=...)` |
+| Fan-out over a list produced by an upstream | `wf.parallel(map_over=..., body=..., join=...)` |
 
 For a broader walk-through, see the [Quick Start](../getting-started/quick-start.md). For the exact TaskContext API see [task-context.md](task-context.md).
 
 ## Runnable Example
 
-`examples/workflow/task_and_actor.py` executes functional DSL, OOP builder, protocol form, and a streaming actor in one script.
+`examples/workflow/task_and_actor.py` executes the decorator style, OOP registration, protocol form, and a streaming actor in one script.

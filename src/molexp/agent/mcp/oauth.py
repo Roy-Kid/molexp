@@ -6,9 +6,10 @@ This module bridges three pieces:
    the actual OAuth flow (PKCE, Dynamic Client Registration, token exchange,
    refresh). It's an ``httpx.Auth`` subclass and plugs into any
    ``httpx.AsyncClient``.
-2. **pydantic-ai** ``MCPServerStreamableHTTP`` / ``MCPServerSSE`` — accept a
-   pre-built ``http_client`` kwarg, so an httpx client wrapped with the
-   OAuth auth handler will transparently negotiate auth on every request.
+2. **pydantic-ai** ``MCPToolset`` — accepts a pre-built ``http_client``
+   kwarg (and ``auth=httpx.Auth``) for HTTP transports, so an httpx client
+   wrapped with the OAuth auth handler will transparently negotiate auth on
+   every request.
 3. **molexp's web UI** — initiates the flow with a click, gets back an
    authorize URL, opens it in the browser, posts the callback ``code`` back.
 
@@ -25,12 +26,16 @@ implementation. We provide:
 - :func:`build_oauth_provider` — convenience factory that wires storage +
   flow session + SDK client metadata.
 
-# TODO(pydantic-ai): when pydantic-ai ships first-class MCP OAuth support
-# (tracked upstream under pydantic/pydantic-ai#mcp-oauth), drop this whole
-# module and pass that helper to ``MCPServerStreamableHTTP`` / SSE directly.
-# The public surface (build_oauth_provider, FileTokenStorage,
-# OAuthFlowSession) should stay stable enough that the swap is local to
-# ``mcp_probe.py`` / ``runtime.py``.
+# TODO(pydantic-ai v2): pydantic-ai 1.105.0 ships first-class MCP OAuth as
+# ``MCPToolset(url, auth='oauth')``, backed by FastMCP's ``OAuth`` provider —
+# but that flow hardcodes a localhost callback HTTP server plus
+# ``webbrowser.open`` (fastmcp/client/auth/oauth.py), so it cannot drive
+# molexp's UI-bridged flow where the browser may be remote from the server
+# (SPA ``/oauth-callback`` route + FastAPI ``/oauth/start`` /
+# ``/oauth/callback`` endpoints). Keep this module until upstream supports
+# pluggable redirect/callback handlers; the swap then stays local because
+# ``OAuthClientProvider`` is an ``httpx.Auth`` and ``MCPToolset`` already
+# accepts ``auth=httpx.Auth`` / ``http_client=`` directly.
 """
 
 from __future__ import annotations

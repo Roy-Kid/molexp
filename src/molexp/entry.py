@@ -1,22 +1,33 @@
 """Entry point registry for CLI discovery.
 
-User scripts call ``me.entry(workspace)`` at module level to register
-a workspace for CLI execution.  The CLI calls ``load_workspaces(script)``
-to import the script and retrieve all registered workspaces.
-
-No source scanning, no magic attribute discovery — explicit registration.
+A user script declares its runnable study with the fluent OOP chain and that
+registers it for ``molexp run`` — no flat helper, no source scanning, no magic
+attribute discovery. :func:`entry` is the low-level primitive (register a
+pre-built workspace); :meth:`~molexp.workspace.Experiment.run` is the fluent
+surface that calls it through the :class:`~molexp.workspace.experiment.WorkflowExecutor`
+seam this module wires up. The CLI calls :func:`load_workspaces` to import the
+script and retrieve all registered workspaces.
 
 Example (user script)::
 
     import molexp as me
-    from molexp.workflow import WorkflowBuilder
+    from molexp.workflow import WorkflowCompiler
 
-    ws = me.Workspace("./lab")
-    project = ws.add_project("my-project")
-    exp = project.add_experiment("baseline", params={"lr": 1e-3}, n_replicas=3)
-    train_spec = WorkflowBuilder(name="train").add(...).build()
-    train_spec.bind_to(exp)
-    me.entry(ws)
+
+    def build_workflow():
+        return WorkflowCompiler(name="train").add(...).compile()
+
+
+    (
+        me.Workspace(name="lab")
+        .project("demo")
+        .experiment("series")
+        .run(build_workflow(), params={"lr": [1e-3, 1e-4]})
+    )
+
+``params`` is the per-run sweep (inputs); ``execute`` seeds one content-addressed
+run per cell, binds the workflow, and registers the workspace. ``molexp run``
+then drives execution.
 
 Example (CLI internal)::
 
@@ -32,8 +43,11 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from molexp.workspace.experiment import set_workflow_executor
+
 if TYPE_CHECKING:
     from molexp.workflow import CompiledWorkflow as Workflow
+    from molexp.workspace.experiment import Experiment
     from molexp.workspace.run import Run
     from molexp.workspace.workspace import Workspace
 
@@ -52,6 +66,66 @@ def entry(workspace: Workspace) -> None:
         workspace: A :class:`~molexp.Workspace` to register.
     """
     _registry.append(workspace)
+
+
+def _execute_experiment(experiment: Experiment, workflow: object) -> None:
+    """Back :meth:`Experiment.run` — the cross-layer workflow association.
+
+    Registered into the workspace layer (which must not import workflow) via
+    :func:`~molexp.workspace.experiment.set_workflow_executor`. Binds the compiled
+    workflow to *experiment* (so ``molexp run`` resolves it through the binding
+    registry), records its IR on the experiment for the server/UI, and registers
+    the owning workspace as a CLI entry. Runs are already seeded by
+    ``Experiment.run`` before this is called.
+    """
+    from molexp.workflow import CompiledWorkflow, default_binding_registry
+
+    if not isinstance(workflow, CompiledWorkflow):
+        raise TypeError(
+            f"Experiment.run expects a compiled workflow "
+            f"(WorkflowCompiler(...).compile()), got {type(workflow).__name__}."
+        )
+    default_binding_registry.bind(experiment, workflow)
+    # Record the IR so the server/UI can render the graph; refresh on every
+    # (idempotent) re-import so script edits take effect next run.
+    ir_json = workflow.to_graph_ir().model_dump_json()
+    experiment.metadata = experiment.metadata.model_copy(update={"workflow_source": ir_json})
+    experiment.save()
+    entry(experiment.project.workspace)
+
+
+# Wire the seam at import time so ``exp.run(workflow, ...)`` works as soon as
+# ``molexp`` is imported, without the workspace layer importing the workflow layer.
+set_workflow_executor(_execute_experiment)
+
+
+def infer_workspace_root(script: Path) -> Path:
+    """Infer the workspace root from an entry-script path.
+
+    Pure path arithmetic — the root is the directory containing *script*.
+    Used by ``molexp run`` so a script may write ``Workspace(name=...)`` with
+    no explicit root and have it resolve to the script's own directory.
+
+    Args:
+        script: Path to the entry script (the argument to ``molexp run``).
+
+    Returns:
+        The resolved parent directory of *script*.
+
+    Raises:
+        ValueError: If *script* is falsy or has no resolvable parent. The
+            caller (not this helper) owns any cwd fallback — this fails fast
+            rather than silently defaulting.
+    """
+    # A usable script path has a filename component; an empty path (``Path("")``
+    # → ``.``) or a bare directory marker does not.
+    if not script or not Path(script).name:
+        raise ValueError(f"infer_workspace_root: {script!r} is not a usable script path")
+    resolved = Path(script).resolve()
+    parent = resolved.parent
+    if parent == resolved:  # a filesystem root has no distinct parent
+        raise ValueError(f"infer_workspace_root: {script!r} has no resolvable parent directory")
+    return parent
 
 
 def load_workspaces(script: Path) -> list[Workspace]:

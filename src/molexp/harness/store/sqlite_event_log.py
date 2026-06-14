@@ -32,7 +32,7 @@ class SQLiteEventLog:
     def __init__(self, path: Path) -> None:
         self._path = Path(path)
         # ``_lock`` is shared per DB file (see ``store._sqlite``); the
-        # provenance store on the same path holds the same lock instance so
+        # lineage store on the same path holds the same lock instance so
         # the cross-table writes serialize. All connection access goes
         # through it because ``StageRunner`` calls us from worker threads.
         self._conn, self._lock = open_db(self._path)

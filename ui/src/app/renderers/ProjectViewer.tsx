@@ -1,57 +1,90 @@
 import {
   Archive,
-  Ban,
   Copy,
   ExternalLink,
   FlaskConical,
   FolderKanban,
   Play,
-  Terminal,
-  Trash2,
   Workflow,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
-const formatDuration = (startIso: string | null, endIso: string | null): string | null => {
-  if (!startIso || !endIso) return null;
-  const start = Date.parse(startIso);
-  const end = Date.parse(endIso);
-  if (Number.isNaN(start) || Number.isNaN(end)) return null;
-  const ms = Math.max(0, end - start);
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 2 : 1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = Math.round(seconds - minutes * 60);
-  return `${minutes}m${remainder}s`;
-};
-
-import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import type { DataTableColumn, DataTableRowAction } from "@/app/components/entity";
 import {
+  DashboardCard,
+  DashboardGrid,
   DataTable,
   EMPTY_COPY,
   EmptyState,
-  EntityMetric,
   EntityPage,
-  KeyValueGrid,
-  OverviewHighlight,
-  OverviewHighlightGrid,
-  OverviewPage,
-  OverviewSection,
-  StatusBadge,
 } from "@/app/components/entity";
+import {
+  buildProjectWorkbenchData,
+  type ExperimentRollup,
+} from "@/app/renderers/entityWorkbenchData";
+import { STATUS_GROUPS } from "@/app/runs/statusGroups";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type {
   ApiAssetResponse,
   ExperimentSummary,
-  ObjectView,
   RendererProps,
-  RunSummary,
+  SemanticStatus,
 } from "@/app/types";
 import { Button } from "@/components/ui/button";
+
+const StatusDistributionBar = ({ counts }: { counts: ExperimentRollup["counts"] }): JSX.Element => {
+  if (counts.total === 0) {
+    return <div className="h-1.5 rounded-full bg-muted" />;
+  }
+  return (
+    <div className="flex h-1.5 overflow-hidden rounded-full bg-muted">
+      {STATUS_GROUPS.map((group) => {
+        const value = counts[group.id];
+        if (value === 0) return null;
+        return (
+          <div
+            key={group.id}
+            title={`${group.label}: ${value}`}
+            style={{ width: `${(value / counts.total) * 100}%`, backgroundColor: group.color }}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
+const statusTextClass = (status: SemanticStatus): string => {
+  switch (status) {
+    case "active":
+    case "approved":
+    case "succeeded":
+      return "font-medium text-success";
+    case "failed":
+    case "rejected":
+      return "font-medium text-destructive";
+    case "running":
+      return "font-medium text-info";
+    case "draft":
+    case "expired":
+    case "waiting_for_review":
+      return "font-medium text-warning";
+    case "archived":
+    case "cancelled":
+    case "skipped":
+    case "pending":
+      return "text-muted-foreground";
+  }
+};
+
+const countAssetsByKind = (assets: ApiAssetResponse[]): Array<[string, number]> => {
+  const counts = new Map<string, number>();
+  for (const asset of assets) {
+    counts.set(asset.kind, (counts.get(asset.kind) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+};
 
 export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps): JSX.Element => {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -81,43 +114,11 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     [snapshot.runs, projectId],
   );
 
-  // Per-experiment run roll-up: counts by status, used by both the
-  // experiment table column and the inline overview Activity panel.
-  interface ExperimentRunStats {
-    total: number;
-    succeeded: number;
-    failed: number;
-    running: number;
-    other: number;
-  }
-
-  const experimentRunStats = useMemo(() => {
-    const map = new Map<string, ExperimentRunStats>();
-    for (const exp of projectExperiments) {
-      map.set(exp.id, { total: 0, succeeded: 0, failed: 0, running: 0, other: 0 });
-    }
-    for (const run of projectRuns) {
-      const stats = map.get(run.experimentId);
-      if (!stats) continue;
-      stats.total += 1;
-      if (run.status === "succeeded") stats.succeeded += 1;
-      else if (run.status === "failed") stats.failed += 1;
-      else if (run.status === "running") stats.running += 1;
-      else stats.other += 1;
-    }
-    return map;
-  }, [projectExperiments, projectRuns]);
-
-  const recentRuns = useMemo(() => {
-    const ranked = [...projectRuns]
-      .filter((r) => r.finishedAt || r.startedAt)
-      .sort((a, b) => {
-        const aT = Date.parse(a.finishedAt ?? a.startedAt ?? "") || 0;
-        const bT = Date.parse(b.finishedAt ?? b.startedAt ?? "") || 0;
-        return bT - aT;
-      });
-    return ranked.slice(0, 5);
-  }, [projectRuns]);
+  const workbench = useMemo(
+    () => buildProjectWorkbenchData(projectId, snapshot, projectAssets),
+    [projectId, snapshot, projectAssets],
+  );
+  const projectAssetsByKind = useMemo(() => countAssetsByKind(projectAssets), [projectAssets]);
 
   const handleDelete = async () => {
     if (!confirm(`Are you sure you want to delete project "${projectId}"?`)) {
@@ -142,14 +143,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     });
   };
 
-  const navigateToRunView = (run: RunSummary, objectView?: ObjectView) => {
-    setSelection({
-      objectType: "run",
-      objectId: run.id,
-      objectView,
-    });
-  };
-
   const handleDeleteExperiment = async (experiment: ExperimentSummary) => {
     if (!confirm(`Are you sure you want to delete experiment "${experiment.id}"?`)) {
       return;
@@ -160,26 +153,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     } catch (error) {
       console.error("Failed to delete experiment:", error);
       alert("Failed to delete experiment");
-    }
-  };
-
-  const handleCancelRun = async (run: RunSummary) => {
-    if (["succeeded", "failed", "cancelled", "skipped"].includes(run.status)) {
-      return;
-    }
-    if (
-      !confirm(
-        `Mark run "${run.id}" as cancelled?\n\nThis updates workspace status only; it does not cancel a scheduler job.`,
-      )
-    ) {
-      return;
-    }
-    try {
-      await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
-      onRefresh();
-    } catch (error) {
-      console.error("Failed to mark run cancelled:", error);
-      alert("Failed to mark run cancelled");
     }
   };
 
@@ -222,7 +195,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       {
         id: "delete",
         label: "Delete experiment",
-        icon: Trash2,
         destructive: true,
         separatorBefore: true,
         onSelect: (experiment) => {
@@ -231,45 +203,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       },
     ];
   };
-
-  const runRowActions = (run: RunSummary): DataTableRowAction<RunSummary>[] => [
-    {
-      id: "open",
-      label: "Open run",
-      icon: ExternalLink,
-      onSelect: () => navigateToRunView(run),
-    },
-    {
-      id: "logs",
-      label: "View logs",
-      icon: Terminal,
-      onSelect: () => navigateToRunView(run, "logs"),
-    },
-    {
-      id: "snapshot",
-      label: "View snapshot",
-      icon: Archive,
-      onSelect: () => navigateToRunView(run, "snapshot"),
-    },
-    {
-      id: "copy-id",
-      label: "Copy run ID",
-      icon: Copy,
-      onSelect: () => copyToClipboard(run.id),
-    },
-    {
-      id: "cancel",
-      label: "Mark cancelled",
-      icon: Ban,
-      disabled: ["succeeded", "failed", "cancelled", "skipped"].includes(run.status),
-      destructive: true,
-      separatorBefore: true,
-      title: "Updates workspace status only; it does not cancel a scheduler job.",
-      onSelect: () => {
-        void handleCancelRun(run);
-      },
-    },
-  ];
 
   const assetRowActions = (asset: ApiAssetResponse): DataTableRowAction<ApiAssetResponse>[] => [
     {
@@ -297,7 +230,7 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
           <div className="rounded-md bg-purple-500/10 p-1.5 text-purple-600 transition-colors group-hover:bg-purple-500/20">
             <FlaskConical className="h-4 w-4" />
           </div>
-          <span className="font-medium text-foreground">{exp.name}</span>
+          <span className={`font-medium ${statusTextClass(exp.status)}`}>{exp.name}</span>
         </div>
       ),
     },
@@ -310,32 +243,36 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       ),
     },
     {
-      key: "status",
-      header: "Status",
-      width: "w-[140px]",
-      cell: (exp) => <StatusBadge status={exp.status} />,
-    },
-    {
       key: "runs",
       header: "Runs",
-      width: "w-[180px]",
+      width: "w-[220px]",
       cell: (exp) => {
-        const stats = experimentRunStats.get(exp.id);
-        if (!stats || stats.total === 0) {
+        const rollup = workbench.experiments.find((item) => item.experiment.id === exp.id);
+        if (!rollup || rollup.counts.total === 0) {
           return <span className="text-xs text-muted-foreground">No runs</span>;
         }
         return (
-          <span className="flex items-baseline gap-2 text-xs">
-            <span className="font-semibold tabular-nums text-foreground">{stats.total}</span>
-            {stats.succeeded > 0 && (
-              <span className="text-emerald-600 dark:text-emerald-400">{stats.succeeded} ok</span>
-            )}
-            {stats.failed > 0 && (
-              <span className="text-rose-600 dark:text-rose-400">{stats.failed} fail</span>
-            )}
-            {stats.running > 0 && (
-              <span className="text-sky-600 dark:text-sky-400">{stats.running} run</span>
-            )}
+          <div className="flex items-center gap-2">
+            <span className="w-8 font-semibold tabular-nums text-foreground">
+              {rollup.counts.total}
+            </span>
+            <div className="min-w-[120px] flex-1">
+              <StatusDistributionBar counts={rollup.counts} />
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      key: "workflow",
+      header: "Workflow",
+      width: "w-[110px]",
+      cell: (exp) => {
+        const rollup = workbench.experiments.find((item) => item.experiment.id === exp.id);
+        return (
+          <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Workflow className="h-3.5 w-3.5" />
+            {rollup?.workflowSummary.exists ? `${rollup.workflowSummary.taskCount}` : "-"}
           </span>
         );
       },
@@ -367,44 +304,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
         >
           <Play className="h-4 w-4 text-muted-foreground hover:text-foreground" />
         </Button>
-      ),
-    },
-  ];
-
-  const runColumns: DataTableColumn<RunSummary>[] = [
-    {
-      key: "run",
-      header: "Run",
-      cell: (run) => (
-        <>
-          <div className="font-medium text-foreground">{run.name || run.id}</div>
-          <div className="font-mono text-xs text-muted-foreground">{run.id}</div>
-        </>
-      ),
-    },
-    {
-      key: "experiment",
-      header: "Experiment",
-      width: "w-[220px]",
-      cell: (run) => {
-        const experiment = snapshot.experiments.find((item) => item.id === run.experimentId);
-        return (
-          <span className="text-muted-foreground">{experiment?.name || run.experimentId}</span>
-        );
-      },
-    },
-    {
-      key: "status",
-      header: "Status",
-      width: "w-[140px]",
-      cell: (run) => <StatusBadge status={run.status} />,
-    },
-    {
-      key: "updated",
-      header: "Updated",
-      width: "w-[180px]",
-      cell: (run) => (
-        <span className="text-muted-foreground">{new Date(run.updatedAt).toLocaleString()}</span>
       ),
     },
   ];
@@ -464,125 +363,126 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
     ? snapshot.experiments.find((experiment) => experiment.id === createRunExperimentId)
     : null;
 
+  const overviewContent = (
+    <DashboardGrid>
+      <DashboardCard title="Project details" className="lg:col-span-8">
+        <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Project ID
+            </dt>
+            <dd className="mt-0.5 truncate font-mono text-xs text-foreground">{project.id}</dd>
+          </div>
+          <div className="min-w-0">
+            <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Updated
+            </dt>
+            <dd className="mt-0.5 truncate text-sm text-foreground">
+              {new Date(project.updatedAt).toLocaleString()}
+            </dd>
+          </div>
+          {project.summary && (
+            <div className="min-w-0 md:col-span-2">
+              <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Summary
+              </dt>
+              <dd className="mt-0.5 text-sm leading-6 text-foreground">{project.summary}</dd>
+            </div>
+          )}
+        </dl>
+      </DashboardCard>
+
+      <DashboardCard title="Summary" className="lg:col-span-4" bodyClassName="space-y-3">
+        <div>
+          <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+            Experiments
+          </div>
+          <div className="mt-1 text-2xl font-semibold tabular-nums text-foreground">
+            {projectExperiments.length}
+          </div>
+        </div>
+        <StatusDistributionBar counts={workbench.counts} />
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+          <div>
+            <dt className="text-muted-foreground">Runs</dt>
+            <dd className="font-semibold tabular-nums text-foreground">{projectRuns.length}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Assets</dt>
+            <dd className="font-semibold tabular-nums text-foreground">{projectAssets.length}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Running</dt>
+            <dd className="font-semibold tabular-nums text-info">{workbench.counts.running}</dd>
+          </div>
+          <div>
+            <dt className="text-muted-foreground">Failed</dt>
+            <dd className="font-semibold tabular-nums text-destructive">
+              {workbench.counts.failed}
+            </dd>
+          </div>
+        </dl>
+      </DashboardCard>
+
+      <DashboardCard title="Run state" className="lg:col-span-6">
+        {workbench.counts.total === 0 ? (
+          <p className="text-xs italic text-muted-foreground">No runs recorded.</p>
+        ) : (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            <div>
+              <dt className="text-muted-foreground">Succeeded</dt>
+              <dd className="font-semibold tabular-nums text-success">
+                {workbench.counts.succeeded}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Running</dt>
+              <dd className="font-semibold tabular-nums text-info">{workbench.counts.running}</dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Pending</dt>
+              <dd className="font-semibold tabular-nums text-warning">
+                {workbench.counts.pending}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Failed</dt>
+              <dd className="font-semibold tabular-nums text-destructive">
+                {workbench.counts.failed}
+              </dd>
+            </div>
+          </dl>
+        )}
+      </DashboardCard>
+
+      <DashboardCard title="Assets" className="lg:col-span-6">
+        {projectAssetsByKind.length === 0 ? (
+          <p className="text-xs italic text-muted-foreground">No assets registered.</p>
+        ) : (
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            {projectAssetsByKind.slice(0, 6).map(([kind, count]) => (
+              <div key={kind} className="min-w-0">
+                <dt className="truncate text-muted-foreground">{kind}</dt>
+                <dd className="font-semibold tabular-nums text-foreground">{count}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </DashboardCard>
+    </DashboardGrid>
+  );
+
   return (
     <>
       <EntityPage
         icon={FolderKanban}
         title={project.name}
-        status={project.status}
         subtitle={project.summary || undefined}
-        actions={
-          <>
-            <CreateExperimentDialog projectId={projectId} onExperimentCreated={onRefresh} />
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="text-muted-foreground hover:text-destructive"
-              title="Delete Project"
-            >
-              <Trash2 className="h-5 w-5" />
-            </Button>
-          </>
-        }
-        metrics={
-          <>
-            <EntityMetric label="Experiments" value={projectExperiments.length} />
-            <EntityMetric label="Runs" value={projectRuns.length} />
-            <EntityMetric label="Assets" value={projectAssets.length} />
-          </>
-        }
         tabs={[
           {
             value: "overview",
             label: "Overview",
-            content: (
-              <OverviewPage
-                aside={
-                  <>
-                    <OverviewSection title="Inventory">
-                      <OverviewHighlightGrid>
-                        <OverviewHighlight label="Experiments" value={projectExperiments.length} />
-                        <OverviewHighlight label="Runs" value={projectRuns.length} />
-                        <OverviewHighlight label="Assets" value={projectAssets.length} />
-                        <OverviewHighlight
-                          label="Updated"
-                          value={new Date(project.updatedAt).toLocaleString()}
-                        />
-                      </OverviewHighlightGrid>
-                    </OverviewSection>
-
-                    <OverviewSection title="Status">
-                      <OverviewHighlightGrid>
-                        <OverviewHighlight label="Workspace state" value={project.status} />
-                      </OverviewHighlightGrid>
-                    </OverviewSection>
-                  </>
-                }
-              >
-                <OverviewSection title="Summary">
-                  <p className="max-w-3xl text-sm leading-6 text-foreground">
-                    {project.summary || (
-                      <span className="text-muted-foreground">No summary provided.</span>
-                    )}
-                  </p>
-                </OverviewSection>
-
-                <OverviewSection
-                  title="Recent activity"
-                  description="Most recently finished runs across this project."
-                >
-                  {recentRuns.length === 0 ? (
-                    <p className="text-sm italic text-muted-foreground">No completed runs yet.</p>
-                  ) : (
-                    <ul className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
-                      {recentRuns.map((run) => {
-                        const exp = projectExperiments.find((e) => e.id === run.experimentId);
-                        const duration = formatDuration(run.startedAt, run.finishedAt);
-                        const when = run.finishedAt ?? run.startedAt;
-                        return (
-                          <li key={run.id}>
-                            <button
-                              type="button"
-                              className="grid w-full grid-cols-[auto_minmax(0,1fr)_auto_auto] items-center gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-muted/40"
-                              onClick={() => navigateToRunView(run)}
-                            >
-                              <StatusBadge status={run.status} size="sm" />
-                              <span className="min-w-0 truncate">
-                                <span className="font-medium text-foreground">
-                                  {exp?.name ?? run.experimentId}
-                                </span>
-                                <span className="ml-2 font-mono text-muted-foreground">
-                                  {run.id.substring(0, 8)}
-                                </span>
-                              </span>
-                              <span className="font-mono text-muted-foreground">
-                                {duration ?? "—"}
-                              </span>
-                              <span className="text-muted-foreground">
-                                {when ? new Date(when).toLocaleString() : "—"}
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </OverviewSection>
-
-                <OverviewSection title="Identity">
-                  <KeyValueGrid
-                    items={[
-                      { label: "Project ID", value: project.id },
-                      { label: "Name", value: project.name },
-                      { label: "Status", value: project.status },
-                      { label: "Updated", value: new Date(project.updatedAt).toLocaleString() },
-                    ]}
-                  />
-                </OverviewSection>
-              </OverviewPage>
-            ),
+            content: overviewContent,
           },
           {
             value: "experiments",
@@ -598,25 +498,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                   <EmptyState
                     title={EMPTY_COPY.experiments.title}
                     description={EMPTY_COPY.experiments.description}
-                  />
-                }
-              />
-            ),
-          },
-          {
-            value: "runs",
-            label: "Runs",
-            content: (
-              <DataTable
-                columns={runColumns}
-                data={projectRuns}
-                getRowKey={(run) => run.id}
-                onRowClick={(run) => navigateToRunView(run)}
-                rowActions={runRowActions}
-                empty={
-                  <EmptyState
-                    title={EMPTY_COPY.projectRuns.title}
-                    description={EMPTY_COPY.projectRuns.description}
                   />
                 }
               />
@@ -657,7 +538,6 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
                     </p>
                   </div>
                   <Button variant="destructive" onClick={handleDelete} disabled={isDeleting}>
-                    <Trash2 className="mr-2 h-4 w-4" />
                     Delete Project
                   </Button>
                 </div>

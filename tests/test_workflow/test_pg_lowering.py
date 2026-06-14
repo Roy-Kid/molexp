@@ -1,14 +1,19 @@
-"""Spec workflow-refactor-03-pg-node-lowering — genuine per-task pg lowering.
+"""Lowering design pins — values-on-edges ExecutionPlan, no pg execution.
 
-The workflow DAG is lowered to a real ``pydantic_graph`` Graph with one
-``Step`` per task; control flow rides pg primitives (edges / Join / Fork /
-Decision / reduce_* reducers). These tests cover:
+The workflow DAG is lowered to a frozen, molexp-owned
+:class:`~molexp.workflow._pydantic_graph.plan.ExecutionPlan`; the engine
+(:mod:`molexp.workflow._pydantic_graph.engine`) executes it with
+values-on-edges semantics. These tests pin:
 
 * ac-001 — the old single-track scheduler (``WorkflowStep`` / ``_dispatch`` /
-  ``_invoke_one`` / ``_partition_by_data_deps`` / ``level_index``) is deleted;
-  ``GraphBuilder`` / ``Join`` reducers / ``Decision`` are imported + used.
-* ac-002 — ``compiled.graph`` is a genuine ``pydantic_graph.graph_builder.Graph``.
-* ac-003 — parallel → Fork+Join, branch → Decision, reduce_* reducers used.
+  ``_invoke_one`` / ``_partition_by_data_deps`` / ``level_index``) stays
+  deleted, AND the barrier-era timing constants
+  (``_DEP_BARRIER_POLL_S`` / ``_DEADLOCK_QUIESCENT_POLLS``) are gone —
+  coordination is structural, with zero timing constants for correctness.
+* ac-002 — ``compiled.graph`` is a genuine :class:`ExecutionPlan` carrying
+  every registered task.
+* ac-003 — parallel decls and branch routes lower structurally (parallel
+  maps + branch out-edges + back-edge/cycle detection on the plan).
 * ac-005 — cyclic data graph and stalled/unsatisfiable graph each raise a
   ``WorkflowError`` subtype.
 """
@@ -19,10 +24,15 @@ import asyncio
 from pathlib import Path
 
 import pytest
-from pydantic_graph.graph_builder import Graph
 
 from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
-from molexp.workflow.types import CycleError, UnreachableTaskError, WorkflowError
+from molexp.workflow._pydantic_graph.plan import START, ExecutionPlan
+from molexp.workflow.types import (
+    BranchEdges,
+    CycleError,
+    UnreachableTaskError,
+    WorkflowError,
+)
 
 PG_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "_pydantic_graph"
 
@@ -31,7 +41,7 @@ def _pg_sources() -> str:
     return "\n".join(p.read_text() for p in PG_ROOT.glob("*.py"))
 
 
-# ── ac-001: deleted scheduler internals ──────────────────────────────────────
+# ── ac-001: deleted scheduler internals + timing constants ───────────────────
 
 
 def test_old_scheduler_internals_deleted() -> None:
@@ -45,24 +55,52 @@ def test_old_scheduler_internals_deleted() -> None:
     ):
         assert forbidden not in src, (
             f"{forbidden!r} must be deleted — the single-track scheduler is replaced "
-            "by genuine per-task pg lowering."
+            "by the structural values-on-edges engine."
         )
 
 
-def test_pg_primitives_imported_and_used() -> None:
+def test_no_timing_constants_for_coordination() -> None:
+    """Coordination is structural: the dependency-barrier poll interval and
+    the quiescence deadlock window must stay deleted. Deadlock detection is
+    an exact graph property (unsatisfiable dependency = no runnable node
+    while triggered nodes remain), never a timer."""
+    src = _pg_sources()
+    for forbidden in (
+        "_DEP_BARRIER_POLL_S",
+        "_DEADLOCK_QUIESCENT_POLLS",
+        "asyncio.wait_for(",
+        "asyncio.sleep(",
+    ):
+        assert forbidden not in src, (
+            f"{forbidden!r} found in the engine package — coordination must be "
+            "event/structure driven with zero timing constants."
+        )
+
+
+def test_engine_owns_execution_no_pg_graph_lowering() -> None:
+    """The compiler emits a plain ExecutionPlan; pg's GraphBuilder / Join /
+    Decision lowering is gone. pydantic_graph survives only as the ``End``
+    sentinel re-export."""
+    import re
+
     compiler_src = (PG_ROOT / "compiler.py").read_text()
-    assert "GraphBuilder" in compiler_src
-    assert "gb.decision(" in compiler_src
-    assert "gb.join(" in compiler_src
-    assert "reduce_null" in compiler_src
-    assert "reduce_dict_update" in compiler_src
-    assert ".map(" in compiler_src  # map-Fork fan-out for wf.parallel
+    for forbidden in ("GraphBuilder", "gb.join(", "gb.decision(", "reduce_null"):
+        assert forbidden not in compiler_src
+    assert "ExecutionPlan" in compiler_src
+    import_pattern = re.compile(
+        r"^\s*(?:from\s+pydantic_graph\b|import\s+pydantic_graph\b)", re.MULTILINE
+    )
+    for module in ("engine.py", "plan.py", "compiler.py", "state.py"):
+        src = (PG_ROOT / module).read_text()
+        assert not import_pattern.search(src), (
+            f"{module} must not import pydantic_graph — the engine is molexp-owned."
+        )
 
 
-# ── ac-002: compiled.graph is a genuine pg Graph ─────────────────────────────
+# ── ac-002: compiled.graph is a genuine ExecutionPlan ────────────────────────
 
 
-def test_compiled_graph_is_pydantic_graph_graph() -> None:
+def test_compiled_graph_is_execution_plan() -> None:
     wf = WorkflowCompiler(name="g")
 
     @wf.task
@@ -74,22 +112,18 @@ def test_compiled_graph_is_pydantic_graph_graph() -> None:
         return ctx.inputs + 1
 
     compiled = wf.compile()
-    assert isinstance(compiled.graph, Graph)
-    # Node count relates to task count: a Step per task (plus routing nodes).
-    node_ids = set(compiled.graph.nodes)
-    assert {"a", "b"} <= node_ids
+    assert isinstance(compiled.graph, ExecutionPlan)
+    assert set(compiled.graph.task_names) == {"a", "b"}
+    # The entry frontier is the data-zero task; b is triggered by a.
+    assert compiled.graph.entry_frontier == ("a",)
+    assert compiled.graph.in_sources["a"] == frozenset({START})
+    assert compiled.graph.in_sources["b"] == frozenset({"a"})
 
 
-# ── ac-003: parallel → Fork+Join, branch → Decision ──────────────────────────
+# ── ac-003: parallel / branch / loop lower structurally ──────────────────────
 
 
-def _graph_nodes(compiled) -> dict[str, object]:
-    return dict(compiled.graph.nodes)
-
-
-def test_parallel_graph_has_fork_and_join() -> None:
-    from pydantic_graph.join import Join
-
+def test_parallel_lowering_carries_fanout_maps() -> None:
     wf = WorkflowCompiler(name="par", entry="seed")
 
     @wf.task
@@ -105,19 +139,15 @@ def test_parallel_graph_has_fork_and_join() -> None:
         return sum(ctx.inputs)
 
     wf.parallel(map_over="seed", body="body", join="gather", max_concurrency=2)
-    compiled = wf.compile()
+    plan = wf.compile().graph
 
-    nodes = _graph_nodes(compiled)
-    # A reduce_dict_update Join collects the fan-out.
-    assert any(isinstance(n, Join) for n in nodes.values()), "wf.parallel must lower to a Join node"
-    # The render carries a fork (map fan-out from start/seed).
-    rendered = compiled.graph.render()
-    assert "fork" in rendered.lower()
+    assert plan.parallel_by_map_over["seed"].body == "body"
+    assert plan.parallel_by_body["body"].join == "gather"
+    # The fan-out publish is the join's trigger source.
+    assert "body" in plan.in_sources["gather"]
 
 
-def test_branch_graph_has_decision() -> None:
-    from pydantic_graph.decision import Decision
-
+def test_branch_lowering_carries_routes() -> None:
     from molexp.workflow.types import Next
 
     wf = WorkflowCompiler(name="br", entry="route")
@@ -134,23 +164,33 @@ def test_branch_graph_has_decision() -> None:
     async def leg_b(ctx: TaskContext) -> str:
         return "b"
 
-    compiled = wf.compile()
-    nodes = _graph_nodes(compiled)
-    assert any(isinstance(n, Decision) for n in nodes.values()), (
-        "wf.branch must lower to a Decision node"
-    )
+    plan = wf.compile().graph
+    edge_set = plan.out_edges["route"]
+    assert isinstance(edge_set, BranchEdges)
+    assert edge_set.routes == {"a": "leg_a", "b": "leg_b"}
+    # route is not on a cycle — its non-chosen edges die when it routes.
+    assert "route" not in plan.recurrent
 
 
-def test_reduce_reducers_used_in_lowering() -> None:
-    """The Join reducers used are the genuine pydantic-graph ``reduce_*``."""
-    from pydantic_graph.join import reduce_dict_update, reduce_null
+def test_loop_lowering_marks_back_edge_and_recurrence() -> None:
+    from molexp.workflow.types import Next
 
-    # Imported names exist and are callables — the compiler references them.
-    assert callable(reduce_null)
-    assert callable(reduce_dict_update)
-    compiler_src = (PG_ROOT / "compiler.py").read_text()
-    assert "reduce_null" in compiler_src
-    assert "reduce_dict_update" in compiler_src
+    wf = WorkflowCompiler(name="loop", entry="step")
+
+    @wf.task
+    async def step(ctx: TaskContext) -> int:
+        return 1
+
+    @wf.task(depends_on=["step"])
+    async def check(ctx: TaskContext) -> Next:
+        return Next("exit")
+
+    wf.loop(body=["step"], until="check", max_iters=3)
+    plan = wf.compile().graph
+
+    assert ("check", "step") in plan.back_edges
+    # Both cycle members are recurrent — a later iteration may re-fire them.
+    assert {"step", "check"} <= plan.recurrent
 
 
 # ── ac-005: cyclic / stalled graphs raise WorkflowError subtypes ─────────────

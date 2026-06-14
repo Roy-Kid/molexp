@@ -4,7 +4,7 @@ This is the workflow layer's *own* IR: a frozen, JSON-serializable snapshot
 of everything a compiled :class:`~molexp.workflow.spec.Workflow` holds — its
 tasks and dependencies plus the complete control-flow topology (entries,
 control edges, branch routes, loops, parallel fan-outs). It is produced by
-:meth:`Workflow.to_ir` after :meth:`WorkflowBuilder.build`.
+:meth:`CompiledWorkflow.to_ir` after :meth:`WorkflowCompiler.compile`.
 
 It is deliberately distinct from two neighbours:
 
@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .._typing import JSONValue
+from .snapshot import task_config_of
 
 if TYPE_CHECKING:
     from .compiled import CompiledWorkflow as Workflow
@@ -90,6 +91,11 @@ class GraphTaskIR(BaseModel):
     is_actor: bool = False
     config: dict[str, JSONValue] = Field(default_factory=dict)
     position: GraphNodePosition | None = None
+    #: When this node is a :class:`~molexp.workflow.SubWorkflow`, the full graph
+    #: IR of the embedded inner workflow — so a UI can render the node with a
+    #: distinct badge and drill into the inner topology (read-only). ``None`` for
+    #: ordinary task/actor nodes.
+    subworkflow: WorkflowGraphIR | None = None
 
 
 class GraphLoopIR(BaseModel):
@@ -154,14 +160,21 @@ def build_workflow_graph_ir(spec: Workflow) -> WorkflowGraphIR:
     Reads the spec's frozen topology directly; every task is included
     regardless of whether it carries a registry ``task_type`` slug.
     """
+    from .subworkflow import SubWorkflow
+
     tasks = tuple(
         GraphTaskIR(
             name=t.name,
             task_type=t.task_type,
             depends_on=tuple(t.depends_on),
             is_actor=t.is_actor,
-            config=dict(t.config) if t.config else {},
+            config=_node_config(t.fn_or_class),
             position=_position_of(t),
+            subworkflow=(
+                t.fn_or_class.inner.to_graph_ir()
+                if isinstance(t.fn_or_class, SubWorkflow)
+                else None
+            ),
         )
         for t in spec._tasks
     )
@@ -193,6 +206,30 @@ def build_workflow_graph_ir(spec: Workflow) -> WorkflowGraphIR:
         parallels=parallels,
         edges=_build_edges(spec),
     )
+
+
+def _node_config(body: object) -> dict[str, JSONValue]:
+    """JSON-safe build-time config for a graph-IR node.
+
+    Identical to :func:`task_config_of` except for two bodies built around live
+    objects: a :class:`SubWorkflow`'s ``inner`` arg (a live ``WorkflowCompiler``
+    / ``CompiledWorkflow``, not JSON-serializable) is dropped — the inner
+    topology is carried explicitly in ``GraphTaskIR.subworkflow`` — and a
+    promoted callable (``_EntryTask``) serializes its ``fn`` as the importable
+    ``"module:qualname"`` entrypoint ref (resolved back via importlib when the
+    task is reconstructed). A non-importable promoted callable (lambda,
+    closure, ``__main__`` function) raises the clear ``ValueError`` from
+    :meth:`_EntryTask.entrypoint_ref` rather than a pydantic ValidationError.
+    """
+    from .promote import _EntryTask
+    from .subworkflow import SubWorkflow
+
+    if isinstance(body, _EntryTask):
+        return {"fn": body.entrypoint_ref()}
+    config = task_config_of(body)
+    if isinstance(body, SubWorkflow):
+        return {k: v for k, v in config.items() if k != "inner"}
+    return config
 
 
 def _position_of(task: object) -> GraphNodePosition | None:
@@ -228,3 +265,10 @@ def _build_edges(spec: Workflow) -> tuple[GraphEdgeIR, ...]:
         edges.append(GraphEdgeIR(source=p.map_over, target=p.body, kind="parallel"))
         edges.append(GraphEdgeIR(source=p.body, target=p.join, kind="parallel"))
     return tuple(edges)
+
+
+# ``GraphTaskIR.subworkflow`` forward-references ``WorkflowGraphIR`` (defined
+# above it), and ``WorkflowGraphIR.tasks`` references ``GraphTaskIR`` — a mutually
+# recursive pair. Rebuild both so pydantic resolves the string annotations.
+GraphTaskIR.model_rebuild()
+WorkflowGraphIR.model_rebuild()

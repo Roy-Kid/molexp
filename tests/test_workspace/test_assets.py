@@ -39,7 +39,7 @@ def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
     proj = ws.add_project("demo")
     exp = proj.add_experiment("baseline", params={"lr": 1e-3})
     for i in range(n_runs):
-        r = exp.add_run(parameters={"seed": i})
+        r = exp.add_run(params={"seed": i})
         with r.start() as ctx:
             ctx.artifact.save("metrics.json", {"loss": 0.1 * i})
             ctx.log("train").append(f"run {i} starting")
@@ -52,24 +52,26 @@ def _seed_workspace(root: Path, n_runs: int = 2) -> Workspace:
 
 class TestCatalogRebuild:
     def test_rebuild_matches_live_state(self, tmp_path):
+        """ac-005: entity *.json is truth; rebuild reproduces a query-equivalent
+        catalog (same row set) after the derived DB is deleted."""
         ws = _seed_workspace(tmp_path / "lab", n_runs=3)
         catalog = ws.catalog
 
-        before = catalog._load()
-        assert len(before["runs"]) == 3
-        assert len(before["assets"]) >= 9  # 3 runs × (artifact + log + ckpt)  # noqa: RUF003
+        before_runs = {r["run_id"] for r in catalog.query_runs()}
+        before_assets = {a.asset_id for a in catalog.query_assets()}
+        before_execs = {x["execution_id"] for x in catalog.query_executions()}
+        assert len(before_runs) == 3
+        assert len(before_assets) >= 9  # 3 runs × (artifact + log + ckpt)  # noqa: RUF003
 
-        # Wipe and rebuild
+        # Wipe the derived catalog and rebuild from on-disk truth.
         shutil.rmtree(tmp_path / "lab" / "catalog")
         fresh = Workspace(tmp_path / "lab")
         report = fresh.catalog.rebuild()
 
         assert report.errors == []
-        after = fresh.catalog._load()
-        assert set(after["runs"]) == set(before["runs"])
-        assert set(after["assets"]) == set(before["assets"])
-        assert set(after["projects"]) == set(before["projects"])
-        assert set(after["experiments"]) == set(before["experiments"])
+        assert {r["run_id"] for r in fresh.catalog.query_runs()} == before_runs
+        assert {a.asset_id for a in fresh.catalog.query_assets()} == before_assets
+        assert {x["execution_id"] for x in fresh.catalog.query_executions()} == before_execs
 
     def test_rebuild_idempotent(self, tmp_path):
         ws = _seed_workspace(tmp_path / "lab", n_runs=2)

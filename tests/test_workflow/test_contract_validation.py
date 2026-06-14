@@ -247,8 +247,8 @@ def test_no_orphan_tasks_passes_when_spec_set_matches_contract() -> None:
 
     spec = (
         WorkflowCompiler(name="wf")
-        .add(Inert(), name="A", task_type="core.inert")
-        .add(Inert(), name="B", task_type="core.inert", depends_on=["A"])
+        .add(Inert(), name="A")
+        .add(Inert(), name="B", depends_on=["A"])
         .compile()
     )
     contract = WorkflowContract(
@@ -275,8 +275,8 @@ def test_no_orphan_tasks_fails_when_spec_has_extra_task() -> None:
 
     spec = (
         WorkflowCompiler(name="wf")
-        .add(Inert(), name="A", task_type="core.inert")
-        .add(Inert(), name="B", task_type="core.inert", depends_on=["A"])
+        .add(Inert(), name="A")
+        .add(Inert(), name="B", depends_on=["A"])
         .compile()
     )
     # Contract is missing TaskIO for "B".

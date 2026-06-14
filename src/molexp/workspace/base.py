@@ -10,13 +10,10 @@ import contextlib
 import json
 import os
 import tempfile
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, TypeVar
 
 from pydantic import BaseModel
-
-from molexp._typing import JSONValue
 
 if TYPE_CHECKING:
     from .fs import FileSystem
@@ -39,7 +36,7 @@ def atomic_write_json(path: Path, data: object) -> None:
     JSON; ``json.dumps`` raises at write time if not.
 
     Public surface — re-exported through ``molexp.workspace`` so the
-    workflow layer's ``RunStorePersistence`` and the agent layer's
+    workflow layer's ``write_initial_workflow_json`` and the agent layer's
     :class:`Agent` / :class:`AgentSession` folder subclasses can write
     through workspace's atomicity guarantee without reaching into a
     private helper.
@@ -100,14 +97,16 @@ def atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> N
         raise
 
 
-def _save_metadata(metadata: BaseModel, path: str, *, fs: FileSystem | None = None) -> None:
+def _save_metadata(metadata: BaseModel, path: str | Path, *, fs: FileSystem | None = None) -> None:
     """Write a Pydantic metadata model to a JSON file atomically."""
     from .schema_version import write_versioned_json
 
     write_versioned_json(path, metadata.model_dump(mode="json"), fs=fs)
 
 
-def _load_metadata[T](metadata_cls: type[T], path: str, *, fs: FileSystem | None = None) -> T:
+def _load_metadata[T](
+    metadata_cls: type[T], path: str | Path, *, fs: FileSystem | None = None
+) -> T:
     """Read a JSON file into a Pydantic metadata model."""
     from .schema_version import read_versioned_json
 
@@ -137,102 +136,3 @@ def _reconstruct[T](
     for key, value in attrs.items():
         setattr(obj, key, value)
     return obj
-
-
-def _rebuild_container_index(
-    container_dir: str | Path,
-    index_filename: str,
-    metadata_filename: str,
-    fields: list[str],
-) -> None:
-    """Rebuild a container directory's index file by scanning child entries.
-
-    Each container level (``projects/``, ``experiments/``, ``runs/``,
-    ``executions/``) ships a sibling ``<container>.json`` index of the
-    form ``{ "updated_at": ..., "items": [...] }``.  The filesystem scan
-    is the source of truth; the index is a cache that local tools can
-    consume without loading the global catalog.
-
-    Args:
-        container_dir: Directory holding child subdirectories
-            (e.g. ``<exp_dir>/runs/``).
-        index_filename: Output filename written next to *container_dir*
-            with a matching basename (e.g. ``runs.json``).
-        metadata_filename: Per-child metadata file to load
-            (e.g. ``run.json``).
-        fields: Top-level field names to copy from each child's metadata
-            JSON into its index entry.  ``id`` and ``name`` are always
-            included if present; the relative ``path`` is added
-            automatically.
-
-    Notes:
-        Silently skips child dirs whose metadata file is missing or
-        unreadable — the catalog remains the authoritative cross-cutting
-        index.
-    """
-    from datetime import datetime
-
-    cdir = Path(container_dir)
-    items: list[dict[str, JSONValue]] = []
-    if cdir.exists():
-        for child_dir in sorted(cdir.iterdir(), key=lambda p: p.name):
-            if not child_dir.is_dir():
-                continue
-            mfile = child_dir / metadata_filename
-            if not mfile.exists():
-                continue
-            try:
-                with open(mfile) as fh:  # noqa: PTH123
-                    data = json.load(fh)
-            except (OSError, json.JSONDecodeError):
-                continue
-            entry: dict[str, JSONValue] = {"path": child_dir.name}
-            for f in fields:
-                if f in data:
-                    entry[f] = data[f]
-            items.append(entry)
-
-    from .schema_version import write_versioned_json
-
-    index_path = cdir.parent / index_filename
-    write_versioned_json(
-        index_path,
-        {
-            "updated_at": datetime.now().isoformat(),
-            "items": items,
-        },
-    )
-
-
-def _list_children[T](
-    children_dir: Path,
-    metadata_filename: str,
-    metadata_cls: type[BaseModel],
-    child_cls: type[T],
-    attrs_factory: Callable[[BaseModel], dict[str, object]],
-) -> list[T]:
-    """List child nodes by scanning a directory for metadata files.
-
-    Args:
-        children_dir: Directory containing child subdirectories.
-        metadata_filename: Name of the metadata JSON file (e.g. "project.json").
-        metadata_cls: Pydantic model class for deserialization.
-        child_cls: Class of the child to reconstruct.
-        attrs_factory: Callable(metadata) -> dict of attrs to pass to _reconstruct.
-
-    Returns:
-        List of reconstructed child instances.
-    """
-    if not children_dir.exists():
-        return []
-
-    children: list[T] = []
-    for child_dir in children_dir.iterdir():
-        if child_dir.is_dir():
-            metadata_file = child_dir / metadata_filename
-            if metadata_file.exists():
-                metadata = _load_metadata(metadata_cls, metadata_file)
-                attrs = attrs_factory(metadata)
-                child = _reconstruct(child_cls, attrs)
-                children.append(child)
-    return children
