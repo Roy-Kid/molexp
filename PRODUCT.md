@@ -12,7 +12,7 @@ The job to be done: author a workflow once, launch it many ways (locally or on a
 
 ## Product Purpose
 
-molexp is a workflow-and-agent platform for research experiment management, shipped as a single Python wheel (FastAPI + pydantic-graph + PydanticAI backend, React 19 SPA frontend). The UI is a three-panel, IDE-like surface over a `Workspace → Project → Experiment → Run → Execution` hierarchy:
+molexp is an agent-assisted scientific-workflow platform for FAIR research, shipped as a single Python wheel (FastAPI + pydantic-graph + PydanticAI backend, React 19 SPA frontend). The UI is a three-panel, IDE-like surface over a `Workspace → Project → Experiment → Run → Execution` hierarchy:
 
 - **Author** task-graph workflows (Flowgram canvas + Monaco Python source).
 - **Launch & monitor** runs — KPI strip, status donut, activity timeline, Gantt, live-polling metric charts (tensorboard scalars).

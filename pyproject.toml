@@ -6,7 +6,7 @@ backend-path = ["."]
 [project]
 name = "molexp"
 version = "0.0.1"
-description = "Workflow and agent platform for research experiment management"
+description = "Agent-assisted scientific-workflow platform for FAIR research"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}
 requires-python = ">=3.12"

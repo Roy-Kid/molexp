@@ -1,12 +1,13 @@
 [project]
 site_name = "MolExp Documentation"
-site_description = "Workflow and agent platform for research experiment management"
+site_description = "Agent-assisted scientific-workflow platform for FAIR research"
 
 nav = [
     { "Home" = "index.md" },
     { "Getting Started" = [
         { "Overview" = "getting-started/index.md" },
         { "Quick Start" = "getting-started/quick-start.md" },
+        { "Start from the UI" = "getting-started/start-from-ui.md" },
         { "Your First Workflow" = "getting-started/first-workflow.md" },
         { "Track a Run" = "getting-started/tracked-runs.md" },
         { "CLI and Profiles" = "getting-started/cli-and-profiles.md" }

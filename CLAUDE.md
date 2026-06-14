@@ -34,7 +34,7 @@ mol_project:
      OUTSIDE these markers. Free-form additions below the closing marker
      are preserved across re-runs. -->
 
-molexp is a workflow-and-agent platform for research experiment management — Python (FastAPI + pydantic-graph + PydanticAI) + TypeScript/React 19 UI, shipped as one wheel.
+molexp is an agent-assisted scientific-workflow platform for FAIR research — Python (FastAPI + pydantic-graph + PydanticAI) + TypeScript/React 19 UI, shipped as one wheel.
 
 ## Where things live
 
