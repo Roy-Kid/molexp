@@ -148,13 +148,10 @@ def _reader_subclasses_in(module) -> list[type]:  # noqa: ANN001
     """Collect concrete ``BaseTrajectoryReader`` subclasses defined in ``module``.
 
     Filters to classes whose ``__module__`` is the sidecar itself (so imported
-    base classes are ignored), excluding the abstract ``BaseTrajectoryReader`` /
-    ``MmapTrajectoryReader`` bases.
+    base classes are ignored), excluding the abstract ``BaseTrajectoryReader``
+    base.
     """
-    from molpy.io import (  # ty: ignore[unresolved-import]
-        BaseTrajectoryReader,
-        MmapTrajectoryReader,
-    )
+    from molpy.io import BaseTrajectoryReader  # ty: ignore[unresolved-import]
 
     found: list[type] = []
     for obj in vars(module).values():
@@ -162,7 +159,7 @@ def _reader_subclasses_in(module) -> list[type]:  # noqa: ANN001
             continue
         if not issubclass(obj, BaseTrajectoryReader):
             continue
-        if obj in (BaseTrajectoryReader, MmapTrajectoryReader):
+        if obj is BaseTrajectoryReader:
             continue
         if getattr(obj, "__module__", None) != module.__name__:
             continue
