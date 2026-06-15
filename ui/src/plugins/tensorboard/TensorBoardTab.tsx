@@ -4,7 +4,7 @@ import { EmptyState, OverviewSection } from "@/app/components/entity";
 import type { TensorboardScalarSeries, TensorboardScalarsResponse } from "@/app/state/api";
 import { TensorboardScalarsError, workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
-import { MolvisLineChart } from "@/lib/charts";
+import { MolplotLineChart } from "@/plugins/molplot";
 import type { DiscoveredFile } from "@/plugins/types";
 
 type TensorBoardTabProps = RendererProps & { discoveredFiles?: DiscoveredFile[] };
@@ -67,7 +67,7 @@ const SeriesCard = ({ series, xMode, yScale }: SeriesCardProps): JSX.Element => 
         </div>
         <div className="font-mono text-xs text-muted-foreground">{formatValue(latest)}</div>
       </div>
-      <MolvisLineChart config={config} style={{ width: "100%", height: "220px" }} />
+      <MolplotLineChart config={config} style={{ width: "100%", height: "220px" }} />
     </section>
   );
 };

@@ -29,16 +29,9 @@ import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, AssetKind, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatBytes } from "@/lib/format-bytes";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
-
-const formatBytes = (bytes: number | null | undefined): string => {
-  if (bytes == null) return "—";
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-};
 
 const KIND_META: Record<string, { label: string; icon: typeof Archive; accent: string }> = {
   data: { label: "Data", icon: Package, accent: "text-amber-500" },

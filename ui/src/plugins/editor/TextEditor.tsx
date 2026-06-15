@@ -1,6 +1,5 @@
-import Editor from "@monaco-editor/react";
 import { Save } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
@@ -8,6 +7,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { filePreviewPluginRegistry } from "@/lib/file-preview-plugins";
+
+/**
+ * Monaco-backed text editor for workspace files.
+ *
+ * Lazy-loaded so `@monaco-editor/react` / `monaco-editor` (a large
+ * dependency) is split into an async chunk fetched only when the editor
+ * actually mounts, instead of riding in the initial page-load bundle.
+ *
+ * Preview-host contract: this component is the host of the `editor` panel
+ * slot (see `./index.ts`). It renders an Edit/Preview tab pair and, in the
+ * Preview tab, delegates to whichever {@link FilePreviewPlugin} the
+ * `filePreviewPluginRegistry` resolves for the current file. The preview
+ * *content* is supplied by other plugins (core markdown/workflow, molvis,
+ * …); this editor only owns the hosting surface.
+ */
+const Editor = lazy(() => import("@monaco-editor/react"));
 
 export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
   const [value, setValue] = useState<string>("");
@@ -117,20 +132,24 @@ export const TextEditor = ({ selection }: RendererProps): JSX.Element => {
             ) : null}
 
             <TabsContent value="edit" className="m-0 flex-1 min-h-0">
-              <Editor
-                height="100%"
-                language={language}
-                value={value}
-                theme="light"
-                onChange={(nextValue) => {
-                  setValue(nextValue ?? "");
-                }}
-                options={{
-                  minimap: { enabled: false },
-                  wordWrap: "on",
-                  scrollBeyondLastLine: false,
-                }}
-              />
+              <Suspense
+                fallback={<div className="p-4 text-sm text-muted-foreground">Loading editor…</div>}
+              >
+                <Editor
+                  height="100%"
+                  language={language}
+                  value={value}
+                  theme="light"
+                  onChange={(nextValue) => {
+                    setValue(nextValue ?? "");
+                  }}
+                  options={{
+                    minimap: { enabled: false },
+                    wordWrap: "on",
+                    scrollBeyondLastLine: false,
+                  }}
+                />
+              </Suspense>
             </TabsContent>
 
             {previewPlugin && selection.objectType === "workspace-file" ? (

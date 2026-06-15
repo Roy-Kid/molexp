@@ -10,7 +10,7 @@
  * is ready, the first fetch escapes to the rsbuild proxy, and the
  * loader silently logs a warning instead of finding any plugins.
  *
- * Internal plugins (`core`, `metrics`, `molq`, `molvis`,
+ * Internal plugins (`core`, `metrics`, `molplot`, `molq`, `molvis`,
  * `tensorboard`) are statically imported here and registered
  * eagerly inside `bootPlugins()`. They do NOT appear in `/api/plugins`.
  * Third-party bundles discovered through Python's
@@ -23,6 +23,8 @@
 
 import { resetContributionRuntimeForTests } from "@/plugins/contribution-runtime";
 import corePlugin from "@/plugins/core";
+import deltafPlugin from "@/plugins/deltaf";
+import editorPlugin from "@/plugins/editor";
 import {
   createLoaderState,
   type DynamicImport,
@@ -35,6 +37,7 @@ import {
   UI_PLUGIN_API_VERSION,
 } from "@/plugins/loader";
 import metricsPlugin from "@/plugins/metrics";
+import molplotPlugin from "@/plugins/molplot";
 import molqPlugin from "@/plugins/molq";
 import molvisPlugin from "@/plugins/molvis";
 import tensorboardPlugin from "@/plugins/tensorboard";
@@ -69,7 +72,12 @@ export const bootPlugins = (): void => {
   // Internal plugins are statically imported and registered eagerly —
   // they are part of the main bundle and do not appear in `/api/plugins`.
   registerPluginInstance(state, corePlugin);
+  // Editor after core: core no longer owns the `editor` panel slot; the
+  // editor plugin hosts it and consumes core's preview contributions.
+  registerPluginInstance(state, editorPlugin);
   registerPluginInstance(state, metricsPlugin);
+  registerPluginInstance(state, deltafPlugin);
+  registerPluginInstance(state, molplotPlugin);
   registerPluginInstance(state, molqPlugin);
   registerPluginInstance(state, molvisPlugin);
   registerPluginInstance(state, tensorboardPlugin);

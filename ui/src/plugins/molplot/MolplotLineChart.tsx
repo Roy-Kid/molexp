@@ -1,8 +1,8 @@
-import type { LineChartConfig, SeriesPoint } from "@molcrafts/molvis-core/charts";
+import type { LineChartConfig, SeriesPoint } from "@molcrafts/molplot";
 import type { JSX } from "react";
 import { useEffect, useImperativeHandle, useRef } from "react";
 
-export interface MolvisLineChartHandle {
+export interface MolplotLineChartHandle {
   /** Push a single point onto an existing series (cheap extendTraces). */
   appendPoint(seriesId: string, point: SeriesPoint): Promise<void>;
   /** Batch-push points; preferred for streaming sources. */
@@ -17,10 +17,10 @@ export interface MolvisLineChartHandle {
   clear(seriesId?: string): Promise<void>;
 }
 
-interface MolvisLineChartProps {
+interface MolplotLineChartProps {
   config: LineChartConfig;
   /** Imperative handle for streaming / cross-pane interaction. */
-  ref?: React.Ref<MolvisLineChartHandle>;
+  ref?: React.Ref<MolplotLineChartHandle>;
   /** Tailwind utility classes for the container. */
   className?: string;
   /** Inline style overrides for the container. */
@@ -41,12 +41,12 @@ interface MolvisLineChartProps {
  * rather than re-passing a growing ``config.series[].initialPoints``
  * each tick.
  */
-export const MolvisLineChart = ({
+export const MolplotLineChart = ({
   config,
   ref,
   className,
   style,
-}: MolvisLineChartProps): JSX.Element => {
+}: MolplotLineChartProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<{
     dispose: () => void;
@@ -78,7 +78,7 @@ export const MolvisLineChart = ({
     }
     let cancelled = false;
     void (async () => {
-      const { LineChart } = await import("@molcrafts/molvis-core/charts");
+      const { LineChart } = await import("@molcrafts/molplot");
       if (cancelled) return;
       chartRef.current = new LineChart(container, config);
     })();

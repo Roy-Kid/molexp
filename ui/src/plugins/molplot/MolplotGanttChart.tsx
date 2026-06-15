@@ -1,8 +1,8 @@
-import type { GanttChartConfig, GanttClickEvent } from "@molcrafts/molvis-core/charts";
+import type { GanttChartConfig, GanttClickEvent } from "@molcrafts/molplot";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
 
-interface MolvisGanttChartProps {
+interface MolplotGanttChartProps {
   config: GanttChartConfig;
   onTaskClick?: (event: GanttClickEvent) => void;
   className?: string;
@@ -10,12 +10,12 @@ interface MolvisGanttChartProps {
 }
 
 /** React wrapper around molvis-core's imperative ``GanttChart``. */
-export const MolvisGanttChart = ({
+export const MolplotGanttChart = ({
   config,
   onTaskClick,
   className,
   style,
-}: MolvisGanttChartProps): JSX.Element => {
+}: MolplotGanttChartProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const clickRef = useRef(onTaskClick);
   useEffect(() => {
@@ -34,7 +34,7 @@ export const MolvisGanttChart = ({
     let unsubscribe: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
-      const { GanttChart } = await import("@molcrafts/molvis-core/charts");
+      const { GanttChart } = await import("@molcrafts/molplot");
       if (cancelled) return;
       chartInstance = new GanttChart(container, config);
       unsubscribe = chartInstance.onTaskClick((e) => clickRef.current?.(e));

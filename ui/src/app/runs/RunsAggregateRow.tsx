@@ -1,8 +1,7 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
-
-import { MolvisBarChart } from "@/lib/charts";
 import { cn } from "@/lib/utils";
+import { MolplotBarChart } from "@/plugins/molplot";
 
 import type { BackendDistributionEntry, FailingExperimentEntry } from "./aggregates";
 
@@ -88,7 +87,7 @@ const BackendDistributionChart = ({
 
   return (
     <PanelShell title="Backend / cluster distribution">
-      <MolvisBarChart
+      <MolplotBarChart
         config={config}
         onBarClick={(event) => {
           const backend = event.customdata;

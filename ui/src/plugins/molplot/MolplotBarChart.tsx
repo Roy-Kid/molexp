@@ -1,8 +1,8 @@
-import type { BarChartConfig, BarClickEvent } from "@molcrafts/molvis-core/charts";
+import type { BarChartConfig, BarClickEvent } from "@molcrafts/molplot";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
 
-interface MolvisBarChartProps {
+interface MolplotBarChartProps {
   config: BarChartConfig;
   onBarClick?: (event: BarClickEvent) => void;
   className?: string;
@@ -10,12 +10,12 @@ interface MolvisBarChartProps {
 }
 
 /** React wrapper around molvis-core's imperative ``BarChart``. */
-export const MolvisBarChart = ({
+export const MolplotBarChart = ({
   config,
   onBarClick,
   className,
   style,
-}: MolvisBarChartProps): JSX.Element => {
+}: MolplotBarChartProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   // Keep the latest click handler in a ref so an inline arrow in the
   // parent doesn't re-trigger the mount effect on every render and
@@ -37,7 +37,7 @@ export const MolvisBarChart = ({
     let unsubscribe: (() => void) | null = null;
     let cancelled = false;
     void (async () => {
-      const { BarChart } = await import("@molcrafts/molvis-core/charts");
+      const { BarChart } = await import("@molcrafts/molplot");
       if (cancelled) return;
       chartInstance = new BarChart(container, config);
       unsubscribe = chartInstance.onBarClick((e) => clickRef.current?.(e));

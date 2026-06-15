@@ -5,8 +5,9 @@ import type { LammpsLogResponse, LammpsThermoStage } from "@/app/state/api";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { Tree, type TreeNodeProps } from "@/components/ui/tree";
-import { MolvisLineChart } from "@/lib/charts";
 import { buildFileTree, collectFolderIds } from "@/lib/file-tree";
+import { formatBytes } from "@/lib/format-bytes";
+import { MolplotLineChart } from "@/plugins/molplot";
 import type { DiscoveredFile } from "@/plugins/types";
 import { TrajectoryViewer } from "./TrajectoryViewer";
 
@@ -27,16 +28,6 @@ const TRAJECTORY_PATTERNS = /\.(lammpstrj|lmptrj|lammpsdump|dump|xyz|extxyz|pdb)
 const LOG_PATTERNS = /(^log\.lammps$|\.lammps\.log$|^lmp\.log$)/i;
 
 const isLogFile = (file: DiscoveredFile): boolean => LOG_PATTERNS.test(file.name);
-
-const formatBytes = (size?: number | null): string => {
-  if (!Number.isFinite(size ?? Number.NaN)) {
-    return "—";
-  }
-  const value = Number(size);
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / 1024 / 1024).toFixed(1)} MB`;
-};
 
 interface FileTreeSidebarProps {
   files: DiscoveredFile[];
@@ -124,7 +115,7 @@ const ThermoChart = ({ stage, columnIndex, color }: ThermoChartProps): JSX.Eleme
     };
   }, [color, stage, columnIndex]);
 
-  return <MolvisLineChart config={config} style={{ width: "100%", height: "220px" }} />;
+  return <MolplotLineChart config={config} style={{ width: "100%", height: "220px" }} />;
 };
 
 interface ThermoStageProps {

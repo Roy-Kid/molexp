@@ -34,8 +34,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ThinkingBlock } from "@/components/ui/thinking-block";
 import { ToolCallRow } from "@/components/ui/tool-call-row";
-import { MolvisRawChart } from "@/lib/charts";
 import { formatDurationCompact } from "@/lib/format-time";
+import { MolplotRawChart } from "@/plugins/molplot";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import {
   type ConversationTurn,
@@ -169,13 +169,13 @@ const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.El
 
   if (kind === "plot") {
     // Agent-emitted specs are untyped — we accept whatever they emit
-    // and let plotly validate at runtime via MolvisRawChart.
+    // and let plotly validate at runtime via MolplotRawChart.
     const data = Array.isArray(inner.data) ? (inner.data as unknown[]) : [];
     const layout = (inner.layout as Record<string, unknown> | undefined) ?? {};
     return (
       <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
         {title && <p className="text-xs font-medium text-foreground">{title}</p>}
-        <MolvisRawChart
+        <MolplotRawChart
           spec={{
             data,
             layout: { autosize: true, margin: { l: 48, r: 16, t: 16, b: 40 }, ...layout },

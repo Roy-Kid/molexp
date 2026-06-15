@@ -1,8 +1,8 @@
-import type { RawChartConfig } from "@molcrafts/molvis-core/charts";
+import type { RawChartConfig } from "@molcrafts/molplot";
 import type { JSX } from "react";
 import { useEffect, useRef } from "react";
 
-interface MolvisRawChartProps {
+interface MolplotRawChartProps {
   spec: RawChartConfig;
   className?: string;
   style?: React.CSSProperties;
@@ -17,7 +17,7 @@ interface MolvisRawChartProps {
  * SSE-driven caller that hands a new spec object every render gets
  * incremental redraws and preserves zoom/pan state.
  */
-export const MolvisRawChart = ({ spec, className, style }: MolvisRawChartProps): JSX.Element => {
+export const MolplotRawChart = ({ spec, className, style }: MolplotRawChartProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<{
     dispose: () => void;
@@ -34,7 +34,7 @@ export const MolvisRawChart = ({ spec, className, style }: MolvisRawChartProps):
     if (!container) return;
     let cancelled = false;
     void (async () => {
-      const { RawChart } = await import("@molcrafts/molvis-core/charts");
+      const { RawChart } = await import("@molcrafts/molplot");
       if (cancelled) return;
       chartRef.current = new RawChart(container, specRef.current);
     })();

@@ -8,7 +8,6 @@ import { MetadataInspector } from "@/app/renderers/MetadataInspector";
 import { ProjectViewer } from "@/app/renderers/ProjectViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
 import { TaskViewer } from "@/app/renderers/TaskViewer";
-import { TextEditor } from "@/app/renderers/TextEditor";
 import { WorkflowFileViewer } from "@/app/renderers/WorkflowFileViewer";
 import { WorkflowInspector } from "@/app/renderers/WorkflowInspector";
 import { WorkflowViewer } from "@/app/renderers/WorkflowViewer";
@@ -74,6 +73,8 @@ export const registerDefaultRenderers = (): void => {
     Component: WorkflowViewer,
   });
 
+  // The `panelKind:"editor"` renderer is owned by the internal `editor`
+  // plugin (`@/plugins/editor`), registered eagerly in `bootPlugins()`.
   const workspaceFileKinds = [
     "yaml",
     "json",
@@ -83,20 +84,6 @@ export const registerDefaultRenderers = (): void => {
     "unknown",
     "image",
   ] as const;
-  const editorFileKinds = ["yaml", "json", "python", "markdown", "text", "unknown"] as const;
-  editorFileKinds.forEach((fileKind) => {
-    registerRenderer({
-      key: {
-        objectType: "workspace-file",
-        fileKind,
-        contentType: "text",
-        panelKind: "editor",
-      },
-      title: "Text Editor",
-      panelSlot: "center",
-      Component: TextEditor,
-    });
-  });
 
   registerRenderer({
     key: {

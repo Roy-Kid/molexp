@@ -15,8 +15,8 @@
  *     malformed module) so other plugins keep loading.
  *
  * The built-in lazy compat table is gone — internal plugins
- * (`core`, `metrics`, `molq`, `molvis`) are statically imported by
- * `App.tsx`, not routed through `discoverAndLoad`.
+ * (`core`, `metrics`, `molplot`, `molq`, `molvis`, `tensorboard`) are
+ * statically imported by `App.tsx`, not routed through `discoverAndLoad`.
  */
 
 import { afterEach, beforeEach, describe, expect, it, rs } from "@rstest/core";
