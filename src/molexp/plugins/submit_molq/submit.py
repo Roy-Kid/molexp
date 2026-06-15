@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shlex
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -89,6 +91,14 @@ class SubmitHandler:
             out on terminal events.  When ``None`` the handler dispatches
             via molq's default ``LocalTransport`` against the workspace's
             local filesystem (the ``--scheduler X`` CLI path with no target).
+        env: Environment variables exported into the batch script before the
+            worker runs (e.g. ``LD_LIBRARY_PATH``). ``None`` values stripped.
+        preamble: Shell lines run *before* the worker, for environments that
+            need setup the scheduler cannot express as resources — ``module
+            load``, ``source venv/bin/activate``, etc. A ``str`` is treated as
+            one line; a sequence is joined with newlines. When set, the job is
+            submitted as an inline script (preamble + ``exec <worker>``) instead
+            of a bare ``argv``.
     """
 
     def __init__(
@@ -100,6 +110,8 @@ class SubmitHandler:
         scheduling: dict[str, JSONValue],
         block: bool = False,
         target: ComputeTarget | None = None,
+        env: dict[str, str] | None = None,
+        preamble: str | Sequence[str] | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._cluster = cluster or "default"
@@ -107,6 +119,11 @@ class SubmitHandler:
         self._sched = _strip_none(scheduling)
         self._block = block
         self._target = target
+        self._env = {k: v for k, v in (env or {}).items() if v is not None}
+        if isinstance(preamble, str):
+            self._preamble: list[str] = [preamble]
+        else:
+            self._preamble = list(preamble or [])
         # ``_handles`` stores molq ``JobExecution`` handles; ``_submitor`` is the
         # active molq ``Submitor`` context. Typed via TYPE_CHECKING string refs
         # so import order stays clean.
@@ -131,6 +148,7 @@ class SubmitHandler:
             JobExecution,
             JobResources,
             JobScheduling,
+            Script,
             Submitor,
         )
 
@@ -202,16 +220,27 @@ class SubmitHandler:
                 ):
                     submitor._event_bus.on(evt, stage_out_cb)
 
+            worker_argv = [
+                sys.executable,
+                "-m",
+                "molexp.cli",
+                "execute",
+                target_run_dir_,
+                "--execution-id",
+                execution_id,
+            ]
+            # With a preamble (module load / source venv / …) the worker can't
+            # be a bare argv: wrap it in an inline script so the setup lines run
+            # first, then ``exec`` the worker so it inherits the job's PID.
+            if self._preamble:
+                worker_cmd = " ".join(shlex.quote(a) for a in worker_argv)
+                script_text = "\n".join([*self._preamble, f"exec {worker_cmd}"])
+                cmd_kwargs: dict[str, object] = {"script": Script.inline(script_text)}
+            else:
+                cmd_kwargs = {"argv": worker_argv}
+
             job = submitor.submit_job(
-                argv=[
-                    sys.executable,
-                    "-m",
-                    "molexp.cli",
-                    "execute",
-                    target_run_dir_,
-                    "--execution-id",
-                    execution_id,
-                ],
+                **cmd_kwargs,
                 resources=JobResources(
                     cpu_count=_as_int(res.get("cpus")),
                     memory=_parse_memory(res.get("mem")),
@@ -229,6 +258,7 @@ class SubmitHandler:
                     cwd=target_exec_dir,
                     output_file=f"{target_exec_dir}/stdout.log",
                     error_file=f"{target_exec_dir}/stderr.log",
+                    env=self._env or None,
                 ),
                 metadata={
                     "run_id": mol_run.id,

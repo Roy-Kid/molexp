@@ -262,20 +262,26 @@ def run_list(
     if not runs:
         rprint(f"[yellow]No runs found in {project_id}/{experiment_id}[/yellow]")
         return
+    from molexp._run_display import elapsed
+
     table = Table(title=f"Runs in {project_id}/{experiment_id}")
     table.add_column("Run ID", style="cyan")
     table.add_column("Status", style="green")
     table.add_column("Profile", style="cyan")
     table.add_column("Created")
+    table.add_column("Duration")
     for r in runs:
         status = str(r.status).lower()
         color = status_color(status)
         profile_display = r.metadata.profile or "—"
+        finished = r.metadata.finished_at.isoformat() if r.metadata.finished_at else None
+        duration = elapsed(r.metadata.created_at.isoformat(), finished)
         table.add_row(
             r.id,
             f"[{color}]{status}[/{color}]",
             profile_display,
             r.metadata.created_at.strftime("%Y-%m-%d %H:%M:%S"),
+            duration or "—",
         )
     _console.print(table)
 
