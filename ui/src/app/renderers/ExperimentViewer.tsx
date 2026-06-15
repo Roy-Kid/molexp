@@ -1,10 +1,13 @@
 import * as Popover from "@radix-ui/react-popover";
 import {
   Ban,
+  BarChart3,
+  Check,
   Copy,
   ExternalLink,
   FileQuestion,
   FlaskConical,
+  ListChecks,
   SlidersHorizontal,
   Terminal,
   Trash2,
@@ -26,7 +29,9 @@ import { countRunStatuses, formatDuration, formatScalar } from "@/app/renderers/
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
 import { WorkflowGraphViewer } from "@/app/renderers/WorkflowGraphViewer";
+import { MultiRunMetricsView } from "@/app/runs/metrics/MultiRunMetricsView";
 import { STATUS_GROUPS } from "@/app/runs/statusGroups";
+import { useRunMultiSelect } from "@/app/runs/useRunMultiSelect";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ObjectView, RendererProps, RunSummary } from "@/app/types";
@@ -162,6 +167,19 @@ export const ExperimentViewer = ({
     }
     return order;
   }, [runs]);
+
+  // Ephemeral multi-run selection (local React state, not the Zustand store) for
+  // the metrics-aggregation flow: pick runs in this tab, aggregate in the next.
+  const orderedRunIds = useMemo(() => runs.map((run) => run.id), [runs]);
+  const runIndex = useMemo(
+    () => new Map(orderedRunIds.map((id, index) => [id, index] as const)),
+    [orderedRunIds],
+  );
+  const multi = useRunMultiSelect(orderedRunIds);
+  const selectedRunIds = useMemo(
+    () => runs.filter((run) => multi.selected.has(run.id)).map((run) => run.id),
+    [runs, multi.selected],
+  );
 
   const handleDelete = async () => {
     if (!projectId) return;
@@ -319,6 +337,40 @@ export const ExperimentViewer = ({
       ),
     },
   ];
+
+  // Leading tick column, shown only in multi-select mode. The cell button reads
+  // the native event so shift (range) / ctrl|meta (toggle) modifiers reach the
+  // pure selection reducer — DataTable's onRowClick alone carries no event.
+  const selectionColumn: DataTableColumn<RunSummary> = {
+    key: "select",
+    header: "",
+    width: "w-[36px]",
+    cell: (run) => {
+      const checked = multi.selected.has(run.id);
+      return (
+        <button
+          type="button"
+          aria-pressed={checked}
+          aria-label={checked ? "Deselect run" : "Select run"}
+          onClick={(event) => {
+            event.stopPropagation();
+            multi.selectAt(runIndex.get(run.id) ?? 0, {
+              shift: event.shiftKey,
+              meta: event.metaKey || event.ctrlKey,
+            });
+          }}
+          className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+            checked
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border hover:border-primary"
+          }`}
+        >
+          {checked && <Check className="h-3 w-3" />}
+        </button>
+      );
+    },
+  };
+  const tableColumns = multi.enabled ? [selectionColumn, ...runColumns] : runColumns;
 
   const runRowActions = (run: RunSummary): DataTableRowAction<RunSummary>[] => [
     {
@@ -524,19 +576,71 @@ export const ExperimentViewer = ({
           value: "runs",
           label: `Runs${counts.total ? ` (${counts.total})` : ""}`,
           content: (
-            <DataTable
-              columns={runColumns}
-              data={runs}
-              getRowKey={(run) => run.id}
-              onRowClick={(run) => navigateToRun(run.id)}
-              rowActions={runRowActions}
-              empty={
-                <EmptyState
-                  title={EMPTY_COPY.runs.title}
-                  description={EMPTY_COPY.runs.description}
-                />
-              }
-            />
+            <div className="flex h-full flex-col">
+              <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
+                <Button
+                  variant={multi.enabled ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 gap-1.5"
+                  aria-pressed={multi.enabled}
+                  onClick={multi.toggleMode}
+                  title="Select multiple runs to aggregate their metrics"
+                >
+                  <ListChecks className="h-3.5 w-3.5" />
+                  {multi.enabled ? "Selecting" : "Select"}
+                </Button>
+                {multi.enabled && (
+                  <>
+                    <span className="text-xs text-muted-foreground">
+                      {multi.selected.size} selected
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1.5"
+                      disabled={multi.selected.size === 0}
+                      onClick={() => setActiveTab("aggregate")}
+                    >
+                      <BarChart3 className="h-3.5 w-3.5" />
+                      Aggregate
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7"
+                      disabled={multi.selected.size === 0}
+                      onClick={multi.clear}
+                    >
+                      Clear
+                    </Button>
+                    <span className="text-[11px] text-muted-foreground">
+                      shift = range · ctrl/⌘ = toggle
+                    </span>
+                  </>
+                )}
+              </div>
+              <DataTable
+                columns={tableColumns}
+                data={runs}
+                getRowKey={(run) => run.id}
+                onRowClick={
+                  multi.enabled
+                    ? (run) =>
+                        multi.selectAt(runIndex.get(run.id) ?? 0, { shift: false, meta: true })
+                    : (run) => navigateToRun(run.id)
+                }
+                rowActions={runRowActions}
+                rowClassName={(run) =>
+                  multi.enabled && multi.selected.has(run.id) ? "bg-primary/5" : ""
+                }
+                empty={
+                  <EmptyState
+                    title={EMPTY_COPY.runs.title}
+                    description={EMPTY_COPY.runs.description}
+                  />
+                }
+              />
+            </div>
           ),
         },
         {
@@ -550,6 +654,18 @@ export const ExperimentViewer = ({
           content:
             activeTab === "compare" ? (
               <ExperimentCompare runs={runs} onOpenRun={navigateToRun} />
+            ) : null,
+        },
+        {
+          value: "aggregate",
+          label: "Aggregate",
+          content:
+            activeTab === "aggregate" ? (
+              <MultiRunMetricsView
+                projectId={projectId}
+                experimentId={experimentId}
+                runIds={selectedRunIds}
+              />
             ) : null,
         },
       ]}

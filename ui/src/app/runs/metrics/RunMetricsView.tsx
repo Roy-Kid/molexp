@@ -100,7 +100,9 @@ export const groupSeries = (series: ScalarSeries[]): Array<[string, ScalarSeries
   return Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
 };
 
-const PALETTE = [
+// Exported so the multi-run aggregation view (aggregateSeries.ts) cycles the
+// same 8 colors across runs that the single-run view cycles across series.
+export const PALETTE = [
   "#2563eb", // blue
   "#dc2626", // red
   "#16a34a", // green
