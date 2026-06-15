@@ -1,5 +1,4 @@
-import { Ban, Boxes, Copy, FileQuestion, ServerCog, Terminal } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Ban, Boxes, Copy, FileQuestion, ServerCog } from "lucide-react";
 import {
   DashboardCard,
   DashboardGrid,
@@ -12,18 +11,14 @@ import {
   StatCard,
   StatGrid,
 } from "@/app/components/entity";
-import { listEntityTabs } from "@/app/registry";
-import { formatDuration, formatScalar, statusTone } from "@/app/renderers/dashboardData";
+import { formatScalar, statusTone } from "@/app/renderers/dashboardData";
 import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
+import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
 import { RunViewer } from "@/app/renderers/RunViewer";
-import { workspaceApi } from "@/app/state/api";
-import { useInspectedTask } from "@/app/state/inspectedTask";
-import { useNavigationState } from "@/app/state/useNavigationState";
+import { useRunViewer } from "@/app/renderers/useRunViewer";
+import { RunMetricsView } from "@/app/runs/metrics/RunMetricsView";
 import type { RendererProps } from "@/app/types";
-import { useAlert, useConfirm } from "@/components/ConfirmDialog";
 import { Button } from "@/components/ui/button";
-
-const terminalRunStatuses = new Set(["succeeded", "failed", "cancelled", "skipped"]);
 
 const getExecutorEntry = (
   executorInfo: Record<string, string>,
@@ -43,64 +38,31 @@ const formatExecutorLabel = (key: string): string => {
 };
 
 export const MolqRunViewer = (props: RendererProps): JSX.Element => {
-  const { selection, snapshot, onRefresh } = props;
-  const { setSelection } = useNavigationState(snapshot);
-  const { inspectTask } = useInspectedTask();
-  const [logs, setLogs] = useState<{ stdout?: string | null; stderr?: string | null } | null>(null);
-  const [logsError, setLogsError] = useState<string | null>(null);
-  const [selectedExecutionId, setSelectedExecutionId] = useState<string | null>(null);
-  const runTabContributions = listEntityTabs("run");
-  const { confirm, dialog: confirmDialog } = useConfirm();
-  const { alert, dialog: alertDialog } = useAlert();
-
-  const run = useMemo(() => {
-    return snapshot.runs.find((item) => item.id === selection.objectId) ?? null;
-  }, [selection.objectId, snapshot.runs]);
-
-  const requestedTab =
-    selection.objectType === "run" ? (selection.objectView ?? "overview") : "overview";
-  const selectedRunId = selection.objectId;
-  const [activeTab, setActiveTab] = useState<string>(requestedTab);
-
-  useEffect(() => {
-    if (selectedRunId) {
-      setActiveTab(requestedTab);
-    }
-  }, [requestedTab, selectedRunId]);
-
-  const runProjectId = run?.projectId;
-  const runExperimentId = run?.experimentId;
-  const runId = run?.id;
-
-  useEffect(() => {
-    let cancelled = false;
-    setLogsError(null);
-
-    if (!runId || !runProjectId || !runExperimentId || activeTab !== "logs") {
-      return;
-    }
-
-    setLogs(null);
-    const fetcher = selectedExecutionId
-      ? workspaceApi.getRunExecutionLogs(runProjectId, runExperimentId, runId, selectedExecutionId)
-      : workspaceApi.getRunLogs(runProjectId, runExperimentId, runId);
-
-    fetcher
-      .then((nextLogs) => {
-        if (!cancelled) {
-          setLogs(nextLogs);
-        }
-      })
-      .catch((error) => {
-        if (!cancelled) {
-          setLogsError(error instanceof Error ? error.message : "Failed to load logs");
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, runProjectId, runExperimentId, runId, selectedExecutionId]);
+  const {
+    run,
+    project,
+    experiment,
+    workflow,
+    selectedRunId,
+    activeTab,
+    setActiveTab,
+    logs,
+    logsError,
+    selectedExecutionId,
+    setSelectedExecutionId,
+    duration,
+    attemptCount,
+    parameterEntries,
+    resultEntries,
+    isTerminal,
+    runTabContributions,
+    inspectTask,
+    setSelection,
+    handleCopyRunId,
+    handleCancelRun,
+    confirmDialog,
+    alertDialog,
+  } = useRunViewer(props);
 
   if (!run) {
     return (
@@ -118,61 +80,11 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
     return <RunViewer {...props} />;
   }
 
-  const project = snapshot.projects.find((item) => item.id === run.projectId);
-  const experiment = snapshot.experiments.find((item) => item.id === run.experimentId);
-  const workflow = experiment
-    ? snapshot.workflows.find(
-        (item) =>
-          item.experimentId === experiment.id &&
-          (item.name === experiment.workflowFile || item.id === experiment.workflowFile),
-      )
-    : undefined;
-
   const scheduler = getExecutorEntry(run.executorInfo, "scheduler") ?? "unknown";
   const cluster = getExecutorEntry(run.executorInfo, "cluster_name", "cluster") ?? "default";
   const jobId = getExecutorEntry(run.executorInfo, "job_id") ?? "pending";
   const schedulerJobId = getExecutorEntry(run.executorInfo, "scheduler_job_id") ?? "not assigned";
   const details = Object.entries(run.executorInfo);
-
-  const duration = formatDuration(run.startedAt, run.finishedAt);
-  const attemptCount = run.executionHistory.length;
-  const parameterEntries = Object.entries(run.parameters ?? {});
-  const resultEntries = Object.entries(run.results ?? {});
-
-  const handleCopyRunId = (): void => {
-    void navigator.clipboard.writeText(run.id);
-  };
-
-  const handleTabChange = (value: string): void => {
-    setActiveTab(value);
-  };
-
-  const handleCancelRun = async (): Promise<void> => {
-    if (terminalRunStatuses.has(run.status)) return;
-    const confirmed = await confirm({
-      title: "Mark run as cancelled?",
-      description: (
-        <>
-          Run <code className="rounded bg-muted px-1 py-0.5 text-xs">{run.id}</code> will be marked
-          cancelled in the workspace. This does not stop any underlying scheduler job.
-        </>
-      ),
-      confirmLabel: "Mark cancelled",
-      destructive: true,
-    });
-    if (!confirmed) return;
-
-    try {
-      await workspaceApi.updateRunStatus(run.projectId, run.experimentId, run.id, "cancelled");
-      onRefresh();
-    } catch (error) {
-      console.error("Failed to mark run cancelled:", error);
-      void alert({
-        title: "Failed to mark run cancelled",
-        description: error instanceof Error ? error.message : String(error),
-      });
-    }
-  };
 
   const fieldGrid = (entries: [string, unknown][], emptyLabel: string): JSX.Element =>
     entries.length === 0 ? (
@@ -214,7 +126,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-destructive"
-              disabled={terminalRunStatuses.has(run.status)}
+              disabled={isTerminal}
               title="Updates workspace status only; it does not cancel a scheduler job."
               onClick={() => {
                 void handleCancelRun();
@@ -227,7 +139,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
       />
 
       <div className="flex flex-1 flex-col overflow-hidden">
-        <EntityTabs value={activeTab} onValueChange={handleTabChange}>
+        <EntityTabs value={activeTab} onValueChange={setActiveTab}>
           <EntityTabBar
             tabs={[
               { value: "overview", label: "Overview" },
@@ -236,6 +148,7 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
                 label: `Executions${attemptCount ? ` (${attemptCount})` : ""}`,
               },
               { value: "logs", label: "Logs" },
+              { value: "metrics", label: "Metrics" },
               ...runTabContributions.map((tab) => ({ value: tab.value, label: tab.label })),
               { value: "scheduler", label: "Scheduler" },
             ]}
@@ -373,47 +286,24 @@ export const MolqRunViewer = (props: RendererProps): JSX.Element => {
             value="logs"
             className="m-0 flex flex-1 flex-col overflow-hidden bg-zinc-950 p-0 text-zinc-50 dark:bg-black"
           >
-            <div className="flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-400">
-              <div className="flex items-center gap-2">
-                <Terminal className="h-3 w-3" />
-                <span>stdout/stderr</span>
-                <span className="text-zinc-500">·</span>
-                <span className="text-zinc-300">
-                  {selectedExecutionId ? selectedExecutionId : "latest attempt"}
-                </span>
-              </div>
-              {selectedExecutionId && (
-                <button
-                  type="button"
-                  className="text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline"
-                  onClick={() => setSelectedExecutionId(null)}
-                >
-                  view latest
-                </button>
-              )}
-            </div>
-            <div className="flex-1 overflow-auto p-3 font-mono text-xs">
-              {logsError ? (
-                <div className="text-rose-300">{logsError}</div>
-              ) : logs ? (
-                <div className="space-y-4">
-                  <section>
-                    <div className="mb-1 text-[11px] uppercase text-zinc-500">stdout</div>
-                    <pre className="whitespace-pre-wrap text-zinc-100">
-                      {logs.stdout || "No stdout captured."}
-                    </pre>
-                  </section>
-                  <section>
-                    <div className="mb-1 text-[11px] uppercase text-zinc-500">stderr</div>
-                    <pre className="whitespace-pre-wrap text-rose-100">
-                      {logs.stderr || "No stderr captured."}
-                    </pre>
-                  </section>
-                </div>
-              ) : (
-                <div className="italic opacity-60">Loading logs...</div>
-              )}
-            </div>
+            <RunLogsPanel
+              logs={logs}
+              logsError={logsError}
+              selectedExecutionId={selectedExecutionId}
+              attemptLabel={selectedExecutionId ? selectedExecutionId : "latest attempt"}
+              onViewLatest={() => setSelectedExecutionId(null)}
+            />
+          </EntityTabContent>
+
+          <EntityTabContent value="metrics">
+            {activeTab === "metrics" && (
+              <RunMetricsView
+                key={run.id}
+                projectId={run.projectId}
+                experimentId={run.experimentId}
+                runId={run.id}
+              />
+            )}
           </EntityTabContent>
 
           {runTabContributions.map((tab) => {
