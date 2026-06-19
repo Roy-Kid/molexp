@@ -1,0 +1,19 @@
+/* Reuse the molexp UI theme verbatim — `@import "tailwindcss"`, the `@theme`
+ * token map, and the :root / .dark CSS-var palette all live in the shared
+ * stylesheet, so the webview renders with the exact same design tokens as
+ * `molexp serve`. (The file is marked KEEP IN SYNC across molcrafts frontends.) */
+@import "../../ui/src/styles/tailwind.css";
+
+/* Tailwind v4 content detection: explicitly include the reused workflow
+ * components and this webview so every utility class they use is generated,
+ * independent of where auto-detection roots itself. */
+@source "../../ui/src/components";
+@source "./";
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}

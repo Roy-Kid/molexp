@@ -1,0 +1,9 @@
+.vscode/**
+src/**
+webview/**
+build.mjs
+tsconfig.json
+**/*.map
+**/.DS_Store
+node_modules/**
+!dist/**
