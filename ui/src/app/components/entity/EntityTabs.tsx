@@ -32,7 +32,7 @@ export const EntityTabBar = ({
       <TabsList
         variant="line"
         className={cn(
-          "h-11 w-full justify-start gap-6 overflow-hidden rounded-none bg-transparent p-0",
+          "h-11 w-full justify-start gap-4 overflow-x-auto rounded-none bg-transparent p-0 sm:gap-6 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
           listClassName,
         )}
       >

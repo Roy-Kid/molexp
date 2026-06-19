@@ -36,8 +36,10 @@ from .assets import (
     DataAssetLibrary,
     ErrorTraceAsset,
     LogAsset,
+    NoteAsset,
     Producer,
 )
+from .library import Library, LibraryIndex, NoteEntry, Reference, ReferenceStore
 from .base import atomic_write_json, atomic_write_text
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .context import Context
@@ -130,15 +132,22 @@ __all__ = [
     "FolderMetadata",
     "FolderMoveCollisionError",
     "GridSpace",
+    # Library — notes + references per scope
+    "Library",
+    "LibraryIndex",
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
     "LogAsset",
+    "NoteAsset",
+    "NoteEntry",
     # Parameters
     "ParamSpace",
     "Params",
     "Producer",
     "Project",
     "ProjectExistsError",
+    "Reference",
+    "ReferenceStore",
     "ProjectMetadata",
     "ProjectNotFoundError",
     "RemoteTarget",

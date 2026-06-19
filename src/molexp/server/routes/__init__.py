@@ -14,6 +14,7 @@ from . import (
     catalog,
     execution,
     experiment,
+    library,
     molq,
     preview,
     project,
@@ -41,6 +42,7 @@ def _workspace_scoped_modules() -> tuple:
         asset,
         preview,
         catalog,
+        library,
         workflow,
         tensorboard,
     )
@@ -83,6 +85,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(asset.router)
     api_router.include_router(preview.router)
     api_router.include_router(catalog.router)
+    api_router.include_router(library.router)
     api_router.include_router(workspace.router)
     api_router.include_router(workspaces.router)
     api_router.include_router(registry.router)
@@ -107,6 +110,7 @@ __all__ = [
     "create_api_router",
     "execution",
     "experiment",
+    "library",
     "molq",
     "preview",
     "project",

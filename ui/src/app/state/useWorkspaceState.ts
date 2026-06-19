@@ -64,6 +64,9 @@ const VIEW_POLL_SLICES: Record<LeftPanelView, readonly SnapshotSlice[]> = {
   workflow: [],
   asset: ["workspaces", "projectsList", "assets"],
   runs: [],
+  // Library self-fetches its index; it only needs the project list for the
+  // scope picker.
+  library: ["workspaces", "projectsList"],
   agent: [],
   settings: [],
 };

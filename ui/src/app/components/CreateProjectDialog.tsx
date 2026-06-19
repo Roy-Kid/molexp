@@ -59,8 +59,8 @@ export function CreateProjectDialog({ onProjectCreated }: CreateProjectDialogPro
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
+              <Label htmlFor="name" className="text-left sm:text-right">
                 Name
               </Label>
               <Input

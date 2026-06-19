@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { useMemo } from "react";
 
-import { MolvisBarChart } from "@/lib/charts";
+import { MolplotBarChart } from "@/plugins/molplot";
 
 import type { ActivityBucket } from "./aggregates";
 
@@ -104,7 +104,7 @@ export const RunsActivityChart = ({ buckets }: RunsActivityChartProps): JSX.Elem
           <LegendDot color={SERIES_COLORS.cancelled} label={`Cancelled ${totals.cancelled}`} />
         </div>
       </div>
-      <MolvisBarChart config={config} style={{ width: "100%", height: "200px" }} />
+      <MolplotBarChart config={config} style={{ width: "100%", height: "200px" }} />
     </div>
   );
 };

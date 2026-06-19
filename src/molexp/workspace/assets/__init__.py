@@ -16,6 +16,7 @@ from .data import DataAsset, DataAssetLibrary, ImportAction
 from .error import ErrorTraceAsset
 from .log import LogAsset
 from .manifest import AssetManifest
+from .note import NoteAsset
 from .view import AssetsView
 
 __all__ = [
@@ -36,6 +37,7 @@ __all__ = [
     "ImportAction",
     "LogAccessor",
     "LogAsset",
+    "NoteAsset",
     "Producer",
     "lineage",
     "parse_asset",

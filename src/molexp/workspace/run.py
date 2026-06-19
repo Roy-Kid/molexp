@@ -33,6 +33,7 @@ from .base import (
 )
 from .errors import RunExistsError, RunNotFoundError
 from .folder import WORKSPACE_RUN_KIND, Folder
+from .library import Library
 from .fs import PathArg
 from .models import (
     FolderMetadata,
@@ -131,6 +132,7 @@ class Run(Folder):
 
         # Entity-specific state
         self._entity_metadata: RunMetadata = meta
+        self._library: Library | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
@@ -156,6 +158,7 @@ class Run(Folder):
         )
         attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
             "_entity_metadata": meta,
+            "_library": None,
         }
         return _reconstruct(cls, attrs)
 
@@ -216,6 +219,15 @@ class Run(Folder):
         from .assets import AssetsView
 
         return AssetsView(self.experiment.project.workspace.catalog, self.scope)
+
+    @property
+    def library(self) -> Library:
+        """Notes + references store for this run scope."""
+        if self._library is None:
+            self._library = Library(
+                Path(self.run_dir), self.scope, self.experiment.project.workspace.catalog
+            )
+        return self._library
 
     def get_result(self, key: str) -> TaskOutput:
         """Read a result value for *key*.

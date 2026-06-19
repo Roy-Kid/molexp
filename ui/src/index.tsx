@@ -4,6 +4,7 @@ import "reflect-metadata";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
+import { RouteErrorBoundary } from "@/app/layout/RouteErrorBoundary";
 import { bootPlugins } from "@/plugins/runtime";
 import App from "./App";
 import "./styles/tailwind.css";
@@ -12,7 +13,13 @@ import "./styles/tailwind.css";
 // can be intercepted with `useBlocker` — e.g. to confirm before discarding
 // unsaved workflow-graph edits. App reads `location` directly, so a single
 // splat route renders the whole SPA.
-const router = createBrowserRouter([{ path: "*", element: <App /> }]);
+//
+// `errorElement` replaces React Router's bare "Unexpected Application Error!"
+// overlay with a styled screen covering 404s and unreachable-backend
+// (`Failed to fetch`) failures that escape the in-app ErrorBoundary.
+const router = createBrowserRouter([
+  { path: "*", element: <App />, errorElement: <RouteErrorBoundary /> },
+]);
 
 const rootElement = document.getElementById("root");
 

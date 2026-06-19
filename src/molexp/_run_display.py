@@ -26,7 +26,9 @@ logger = get_logger(__name__)
 def elapsed(started: str | None, finished: str | None = None) -> str | None:
     """Compute a human-readable elapsed time from ISO timestamps.
 
-    Canonical format: ``"42s"`` / ``"3m 04s"`` / ``"1h 02m"``.
+    Canonical format: ``"42s"`` / ``"3m04s"`` / ``"12h27m56s"`` — compact,
+    no spaces, every coarser unit keeps the finer ones so the hours form
+    still carries its seconds rather than truncating to minutes.
 
     Args:
         started: ISO start timestamp (``None`` → no display).
@@ -47,9 +49,9 @@ def elapsed(started: str | None, finished: str | None = None) -> str | None:
             return f"{secs}s"
         m, s = divmod(secs, 60)
         if m < 60:
-            return f"{m}m {s:02d}s"
+            return f"{m}m{s:02d}s"
         h, m = divmod(m, 60)
-        return f"{h}h {m:02d}m"
+        return f"{h}h{m:02d}m{s:02d}s"
     except Exception:
         logger.debug(f"elapsed: unparseable timestamps started={started!r} finished={finished!r}")
         return None

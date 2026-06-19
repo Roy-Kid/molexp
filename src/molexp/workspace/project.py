@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary, ImportAction
+from .library import Library
 from .base import (
     _load_metadata,
     _reconstruct,
@@ -98,6 +99,7 @@ class Project(Folder):
 
         self._entity_metadata: ProjectMetadata = meta
         self._data_assets: DataAssetLibrary | None = None
+        self._library: Library | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
@@ -125,6 +127,7 @@ class Project(Folder):
         attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
             "_entity_metadata": meta,
             "_data_assets": None,
+            "_library": None,
         }
         return _reconstruct(cls, attrs)
 
@@ -195,6 +198,13 @@ class Project(Folder):
                 self.project_dir, self.scope, self.workspace.catalog
             )
         return self._data_assets
+
+    @property
+    def library(self) -> Library:
+        """Notes + references store for this project scope."""
+        if self._library is None:
+            self._library = Library(self.project_dir, self.scope, self.workspace.catalog)
+        return self._library
 
     # ── Persistence ─────────────────────────────────────────────────────
 

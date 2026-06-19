@@ -18,6 +18,7 @@ from typing import cast
 from molexp.path import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
+from .library import Library
 from .base import (
     _load_metadata,
     _save_metadata,
@@ -137,6 +138,7 @@ class Workspace(Folder):
         self.root: Path = self._root_path
         self._entity_metadata: WorkspaceMetadata = entity_meta
         self._data_assets: DataAssetLibrary | None = None
+        self._library: Library | None = None
         self._catalog: AssetCatalog | None = None
         self._cache_folder: CacheFolder | None = None
 
@@ -193,6 +195,13 @@ class Workspace(Folder):
         if self._data_assets is None:
             self._data_assets = DataAssetLibrary(self.root, self.scope, self.catalog)
         return self._data_assets
+
+    @property
+    def library(self) -> Library:
+        """Notes + references store for the workspace scope."""
+        if self._library is None:
+            self._library = Library(self.root, self.scope, self.catalog)
+        return self._library
 
     @property
     def catalog(self) -> AssetCatalog:

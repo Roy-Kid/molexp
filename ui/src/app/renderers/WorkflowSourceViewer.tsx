@@ -1,8 +1,12 @@
-import Editor from "@monaco-editor/react";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { workspaceApi } from "@/app/state/api";
 import type { RendererProps } from "@/app/types";
 import { Card, CardContent } from "@/components/ui/card";
+
+// Lazy-loaded so `@monaco-editor/react` stays out of the initial page-load
+// bundle. This is the second Monaco consumer alongside the `editor` plugin's
+// TextEditor; both must lazy-import for Monaco to remain an async chunk.
+const Editor = lazy(() => import("@monaco-editor/react"));
 
 export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JSX.Element => {
   const [content, setContent] = useState<string>("");
@@ -71,18 +75,26 @@ export const WorkflowSourceViewer = ({ selection, snapshot }: RendererProps): JS
         {error && (
           <div className="border-b border-border px-4 py-2 text-sm text-destructive">{error}</div>
         )}
-        <Editor
-          height="100%"
-          language="yaml"
-          value={content}
-          theme="light"
-          options={{
-            readOnly: true,
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            lineNumbers: "on",
-          }}
-        />
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              Loading editor…
+            </div>
+          }
+        >
+          <Editor
+            height="100%"
+            language="yaml"
+            value={content}
+            theme="light"
+            options={{
+              readOnly: true,
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              lineNumbers: "on",
+            }}
+          />
+        </Suspense>
       </CardContent>
     </Card>
   );

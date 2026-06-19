@@ -22,9 +22,42 @@ def _tools(root: Path) -> dict[str, object]:
     return {tool.__name__: tool for tool in readonly_tools(root)}
 
 
-def test_readonly_tools_exposes_exactly_three_named_tools(workspace: Path) -> None:
+def test_readonly_tools_exposes_exactly_four_named_tools(workspace: Path) -> None:
     tools = _tools(workspace)
-    assert set(tools) == {"read_file", "list_directory", "search_code"}
+    assert set(tools) == {"read_file", "list_directory", "search_code", "search_library"}
+
+
+def test_search_library_finds_notes_and_references_by_topic(workspace: Path) -> None:
+    lib = workspace / "projects" / "p" / "library"
+    (lib / "notes").mkdir(parents=True)
+    (lib / "notes" / "litrev.md").write_text("# Literature review\n")
+    (lib / "index.json").write_text(
+        """
+        {
+          "scope": "project/p",
+          "notes": [
+            {"title": "Literature review", "path": "library/notes/litrev.md",
+             "summary": "positioning vs prior art", "tags": ["quantization"], "refs": ["so3krates"]}
+          ],
+          "references": [
+            {"key": "so3krates", "title": "So3krates QAT", "arxiv": "2601.02213",
+             "tags": ["quantization"], "note": "only MLIP quantization precedent"}
+          ]
+        }
+        """
+    )
+    search_library = _tools(workspace)["search_library"]
+
+    hit = search_library("quantization")  # type: ignore[operator]
+    assert "Literature review" in hit
+    # NOTE row points at a workspace-relative path read_file can consume.
+    assert "projects/p/library/notes/litrev.md" in hit
+    assert "so3krates" in hit and "2601.02213" in hit
+
+    # Empty query lists everything.
+    assert "Literature review" in search_library("")  # type: ignore[operator]
+    # Non-matching query returns a clear miss.
+    assert "no notes or references" in search_library("zzznotopic")  # type: ignore[operator]
 
 
 def test_no_write_edit_or_bash_tool(workspace: Path) -> None:

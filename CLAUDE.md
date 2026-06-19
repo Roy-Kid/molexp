@@ -74,7 +74,8 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 ### Layer charters
 
 **`molexp.workspace`** — bottom; pure storage.
-- Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (returns the global `AssetCatalog` directly).
+- Owns: `Folder` base + the `Workspace/Project/Experiment/Run` subclasses, typed exceptions (`*NotFoundError` / `*ExistsError`), atomic JSON I/O (`atomic_write_json`), `AssetCatalog` + `Asset` family, `Params` / `ParamSpace` / `GridSpace` / `UniformSpace`, `ComputeTarget`, `RunContext`, the per-scope **`Library`** (notes + literature; see next bullet), and two singleton folders accessed as lowercase properties: `ws.cache` (`CacheFolder` → `as_cache_store()` adapter) and `ws.catalog` (returns the global `AssetCatalog` directly).
+- **Library (notes + literature) is a per-scope concept; the Folder owns the `library/` dir, the Asset is the file.** Every `Folder` exposes `.library` → a `Library` over `<scope>/library/`. Markdown notes are `NoteAsset` (`kind="note"`) files under `library/notes/<slug>.md`, registered in the **authoritative** `assets.json` manifest (and the derived catalog) like any asset. References are molexp-native bib *records* (`Reference`) in `library/references.json` — not files, not assets (a PDF that *is* a file becomes a `DataAsset` linked via `Reference.pdf_asset_id`). `Library.discover_notes()` registers loose top-level `*.md` (e.g. a `README.md`) **in place** as `discovered`-tagged NoteAssets (pointed at, not copied; pruned when the file is deleted), and `build_index()` runs it before deriving `library/index.json` (machine) + `library/INDEX.md` (human/agent) — both *derived*, never the only copy. `Library.import_zotero(path)` links a local `zotero.sqlite` read-only: items become `Reference`s (`source="zotero"`) whose attached PDFs are *pointed at* via `Reference.pdf_path` (no bytes copied), with the association recorded in `library/sources.json`. The agent reads the index via the read-only `search_library` tool.
 - MUST NOT: import any upstream `molexp` layer (`workflow` / `agent` / `plugins` / `server` / `cli` / `sweep`). Allowed `molexp.*` imports are only `_typing` / `profile` / `path` and cross-layer primitives (`mollog`, `molcfg`). MUST NOT define workflow- or agent-shaped types (no `WorkflowSnapshotRef`, no `Agent` / `AgentSession` / `PlanFolder`). MUST NOT write to disk in `__init__` — all I/O is lazy.
 - `import molexp.workspace` must never pull `molexp.workflow`, `molexp.agent`, `pydantic_ai`, or `pydantic_graph` into `sys.modules`.
 
@@ -114,6 +115,13 @@ workspace_root/
 ├── project.json                  # children index (auto-derived: cls.__name__ + ".json")
 ├── cache/<key>.json              # singleton CacheFolder — ws.cache
 ├── catalog/index.sqlite          # ws.catalog (AssetCatalog, SQLite-backed)
+├── library/                      # per-scope notes + literature (attachable at any Folder)
+│   ├── notes/<slug>.md           #   NoteAsset files (registered in assets.json + catalog)
+│   ├── references.json           #   molexp-native bib records (Reference)
+│   ├── sources.json              #   linked external libraries (e.g. Zotero) — pointers, not copies
+│   ├── index.json                #   derived machine index
+│   └── INDEX.md                  #   derived human/agent index (search_library reads it)
+# (loose *.md in any scope dir, e.g. README.md, are auto-discovered as in-place notes)
 ├── agent.json / plan.json        # agent-layer mounts (if any)
 ├── agents/<agent_id>/            # Agent Folder; sessions under agent_sessions/
 └── projects/<project_id>/

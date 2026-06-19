@@ -22,6 +22,7 @@ from molexp.profile import MolCfg, ProfileConfig, load_molcfg
 from molexp.profile.loader import find_default_config
 from molexp.workflow import WorkflowRuntime, default_binding_registry
 from molexp.workspace.run import RETRYABLE_STATUSES
+from molexp.workspace.source_snapshot import snapshot_sources
 from molexp.workspace.target import LocalTarget, RemoteTarget
 
 if TYPE_CHECKING:
@@ -359,8 +360,15 @@ def _dispatch_runs(
                 submit_cwd_str = str(Path.cwd().resolve())
                 for mol_run, _label_text in selected_runs:
                     if not dry_run:
+                        # Capture the defining script + its first-party import
+                        # closure under run_dir/source/ for reproducibility — the
+                        # path in ``script`` is not enough if the tree later changes.
+                        source_snapshot = snapshot_sources(
+                            script.resolve(), Path(str(mol_run.run_dir))
+                        )
                         mol_run._update_metadata(
                             script=str(script.resolve()),
+                            source_snapshot=source_snapshot,
                             submit_cwd=submit_cwd_str,
                             profile=profile_cfg.name,
                             config=profile_cfg.to_dict(),
@@ -417,6 +425,134 @@ def _make_local_inprocess_handler(
             )
 
     return _handler
+
+
+@app.command(name="execute")
+def execute(
+    run_dir: Annotated[
+        Path,
+        typer.Argument(
+            help="Run directory to execute (…/runs/run-<id>).",
+            exists=True,
+            file_okay=False,
+            dir_okay=True,
+            resolve_path=True,
+        ),
+    ],
+    execution_id: Annotated[
+        str | None,
+        typer.Option(
+            "--execution-id",
+            help="Execution attempt to (re)open; already-completed nodes are seeded.",
+        ),
+    ] = None,
+    config: Annotated[
+        Path | None,
+        typer.Option("--config", "-c", help="Path to molcfg file.", exists=True),
+    ] = None,
+    profile: Annotated[
+        str | None,
+        typer.Option("--profile", "-p", help="Profile name to apply."),
+    ] = None,
+) -> None:
+    """Worker entry point — execute one Run's workflow in this process.
+
+    This is what the molq submit plugin launches on the scheduler:
+    ``python -m molexp.cli execute <run_dir> --execution-id <eid>``. molq itself
+    only runs whatever argv it is handed; reconstructing the workflow is the
+    application's job, and that is this command. It reads the run's recorded
+    defining ``script``, imports it to rebuild the experiment→workflow binding
+    (the same registry ``molexp run`` populates), locates the Run, and executes
+    its workflow against *execution_id* — reopening that attempt and seeding any
+    already-completed nodes so a resubmitted job continues rather than restarts.
+    """
+    import asyncio
+
+    from molexp._run_display import read_run_json
+    from molexp.entry import load_workspaces
+    from molexp.workflow import read_node_outputs
+    from molexp.workspace import (
+        ExperimentNotFoundError,
+        ProjectNotFoundError,
+        RunNotFoundError,
+    )
+    from molexp.workspace.run import RunContext
+
+    run_dir = Path(run_dir)
+    meta = read_run_json(run_dir)
+    if not meta:
+        rprint(f"[red]Error:[/red] no readable run.json under {run_dir}")
+        raise typer.Exit(1)
+    ctx_meta = meta.get("context") or {}
+    run_id = meta.get("id") or ctx_meta.get("run_id") or run_dir.name.removeprefix("run-")
+    # project/experiment ids are not stored in run.json; derive them from the
+    # canonical layout …/projects/<P>/experiments/<E>/runs/run-<id>. The run
+    # context only carries them once a run has executed, so a fresh run relies on
+    # the path; fall back to context if the layout ever differs.
+    project_id = ctx_meta.get("project_id")
+    experiment_id = ctx_meta.get("experiment_id")
+    try:
+        experiment_id = experiment_id or run_dir.parent.parent.name
+        project_id = project_id or run_dir.parent.parent.parent.parent.name
+    except (IndexError, AttributeError):
+        pass
+    script = meta.get("script")
+    if not script:
+        rprint(
+            "[red]Error:[/red] run.json has no 'script' field; a worker cannot "
+            "rebuild the workflow without the defining script. Submit via "
+            "`molexp run <script> --scheduler …` so the path is recorded."
+        )
+        raise typer.Exit(1)
+    if not (run_id and project_id and experiment_id):
+        rprint(f"[red]Error:[/red] run.json under {run_dir} is missing project/experiment/run ids.")
+        raise typer.Exit(1)
+
+    # Import the defining script in this fresh process: its module-level
+    # ``me.entry()`` + ``exp.run()`` register the workspaces and the
+    # experiment→workflow binding the runtime resolves below.
+    workspaces = load_workspaces(Path(script))
+    run_obj: Run | None = None
+    experiment: Experiment | None = None
+    for ws in workspaces:
+        try:
+            run_obj = ws.get_project(project_id).get_experiment(experiment_id).get_run(run_id)
+            experiment = ws.get_project(project_id).get_experiment(experiment_id)
+            break
+        except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError):
+            continue
+    if run_obj is None or experiment is None:
+        rprint(
+            f"[red]Error:[/red] {script} did not define run {project_id}/{experiment_id}/{run_id}."
+        )
+        raise typer.Exit(1)
+
+    spec = default_binding_registry.for_experiment(experiment)
+    if spec is None:
+        rprint(f"[red]Error:[/red] experiment {experiment_id!r} has no workflow attached.")
+        raise typer.Exit(1)
+
+    seed_outputs = read_node_outputs(run_obj.run_dir, execution_id) if execution_id else None
+    # Seed the profile config with the run's persisted config + its own dir so
+    # the workflow can locate ``work_dir`` (the in-process ``molexp run`` path
+    # seeds this via RunContext). Any --config/--profile overlays the persisted
+    # values; the run dir is authoritative and always wins.
+    overlay = _resolve_profile(config, profile)
+    merged: dict[str, JSONValue] = dict(run_obj.metadata.config or {})
+    merged.update(overlay.to_dict())
+    merged["work_dir"] = str(run_obj.run_dir)
+    profile_cfg = ProfileConfig(merged, name=overlay.name or run_obj.metadata.profile)
+    rprint(f"[dim]execute[/dim] run={run_id} execution={execution_id or '(new)'}")
+    with RunContext(run_obj, profile_config=profile_cfg, execution_id=execution_id) as ctx:
+        asyncio.run(
+            WorkflowRuntime().execute(
+                spec,
+                run_context=cast("RunContextLike", ctx),
+                execution_id=execution_id,
+                seed_outputs=seed_outputs,
+            )
+        )
+    rprint(f"[green]OK[/green] execute complete run={run_id} status={run_obj.status}")
 
 
 def _spawn_background_local_run(

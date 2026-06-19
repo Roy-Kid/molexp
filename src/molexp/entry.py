@@ -207,6 +207,12 @@ def _import_script(script: Path) -> None:
     # ``sys.modules["__main__"]`` instead of the CLI's own ``__main__``.
     # Matches the semantics of a normal ``python script.py`` invocation.
     sys.modules["__main__"] = module
+    # Match `python script.py`: make the script's directory importable so sibling
+    # modules resolve (e.g. a phase script importing its shared ``experiment`` /
+    # ``quant_teff`` helpers). spec-based loading does not add this automatically.
+    script_dir = str(script.resolve().parent)
+    if script_dir not in sys.path:
+        sys.path.insert(0, script_dir)
     spec.loader.exec_module(module)  # type: ignore[union-attr]
 
 

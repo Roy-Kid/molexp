@@ -1,7 +1,7 @@
 import type { JSX } from "react";
 import { useEffect, useMemo, useState } from "react";
 
-import { MolvisGanttChart } from "@/lib/charts";
+import { MolplotGanttChart } from "@/plugins/molplot";
 
 import type { WorkspaceExecutionRow, WorkspaceRunRow } from "./types";
 
@@ -216,7 +216,7 @@ export const RunsGanttChart = ({
 
   return (
     <div className="rounded border border-border bg-background">
-      <MolvisGanttChart
+      <MolplotGanttChart
         config={config}
         onTaskClick={(event) => {
           const data = event.customdata as

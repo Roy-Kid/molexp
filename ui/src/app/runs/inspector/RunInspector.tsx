@@ -6,6 +6,7 @@ import { StatusBadge } from "@/app/components/entity";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+import { RunMetricsView } from "../metrics/RunMetricsView";
 import type { WorkspaceRunRow } from "../types";
 import { RunInspectorDetails } from "./RunInspectorDetails";
 import { RunInspectorPlaceholder } from "./RunInspectorPlaceholder";
@@ -122,9 +123,11 @@ export const RunInspector = ({
             />
           </TabsContent>
           <TabsContent value="metrics" className="m-0">
-            <RunInspectorPlaceholder
-              title="Metrics view not wired yet"
-              description="The next iteration will read RunsService.getRunMetrics with since_line cursors and render small sparklines per metric key."
+            <RunMetricsView
+              key={run.id}
+              projectId={run.projectId}
+              experimentId={run.experimentId}
+              runId={run.id}
             />
           </TabsContent>
         </div>
