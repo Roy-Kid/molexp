@@ -6,6 +6,7 @@ export type LeftPanelView =
   | "runs"
   | "asset"
   | "workflow"
+  | "library"
   | "agent"
   | "settings";
 

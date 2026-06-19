@@ -277,6 +277,13 @@ class RunMetadata(BaseModel, frozen=True):
     # stores it as a plain dict to avoid an upward dependency.
     workflow_snapshot: dict[str, JSONValue] | None = None
     script: str | None = None
+    # Source snapshot — the entrypoint script's bytes + its first-party
+    # local-import closure, copied under ``run_dir/source/`` at dispatch (see
+    # ``molexp.workspace.source_snapshot.snapshot_sources``). ``script`` records
+    # the *path* and ``workflow_snapshot.code_hash`` an AST hash; this carries the
+    # actual source manifest so a run is reproducible from its own directory even
+    # if the live tree changes. ``None`` for runs dispatched before this existed.
+    source_snapshot: dict[str, JSONValue] | None = None
     submit_cwd: str | None = None
     profile: str | None = None
     config: dict[str, JSONValue] = Field(default_factory=dict)

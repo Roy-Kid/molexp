@@ -43,6 +43,7 @@ from molexp._typing import JSONValue
 from molexp.path import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
+from .library import Library
 from .base import (
     _load_metadata,
     _reconstruct,
@@ -193,6 +194,7 @@ class Experiment(Folder):
         # Entity-specific state
         self._entity_metadata: ExperimentMetadata = meta
         self._data_assets: DataAssetLibrary | None = None
+        self._library: Library | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
@@ -231,6 +233,7 @@ class Experiment(Folder):
         attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
             "_entity_metadata": meta,
             "_data_assets": None,
+            "_library": None,
         }
         return _reconstruct(cls, attrs)
 
@@ -316,6 +319,15 @@ class Experiment(Folder):
                 self.experiment_dir, self.scope, self.project.workspace.catalog
             )
         return self._data_assets
+
+    @property
+    def library(self) -> Library:
+        """Notes + references store for this experiment scope."""
+        if self._library is None:
+            self._library = Library(
+                self.experiment_dir, self.scope, self.project.workspace.catalog
+            )
+        return self._library
 
     def get_seeds(self) -> list[int]:
         """Return replica seeds (length == ``n_replicas``)."""

@@ -22,6 +22,7 @@ from molexp.profile import MolCfg, ProfileConfig, load_molcfg
 from molexp.profile.loader import find_default_config
 from molexp.workflow import WorkflowRuntime, default_binding_registry
 from molexp.workspace.run import RETRYABLE_STATUSES
+from molexp.workspace.source_snapshot import snapshot_sources
 from molexp.workspace.target import LocalTarget, RemoteTarget
 
 if TYPE_CHECKING:
@@ -359,8 +360,15 @@ def _dispatch_runs(
                 submit_cwd_str = str(Path.cwd().resolve())
                 for mol_run, _label_text in selected_runs:
                     if not dry_run:
+                        # Capture the defining script + its first-party import
+                        # closure under run_dir/source/ for reproducibility — the
+                        # path in ``script`` is not enough if the tree later changes.
+                        source_snapshot = snapshot_sources(
+                            script.resolve(), Path(str(mol_run.run_dir))
+                        )
                         mol_run._update_metadata(
                             script=str(script.resolve()),
+                            source_snapshot=source_snapshot,
                             submit_cwd=submit_cwd_str,
                             profile=profile_cfg.name,
                             config=profile_cfg.to_dict(),
@@ -515,8 +523,7 @@ def execute(
             continue
     if run_obj is None or experiment is None:
         rprint(
-            f"[red]Error:[/red] {script} did not define run "
-            f"{project_id}/{experiment_id}/{run_id}."
+            f"[red]Error:[/red] {script} did not define run {project_id}/{experiment_id}/{run_id}."
         )
         raise typer.Exit(1)
 

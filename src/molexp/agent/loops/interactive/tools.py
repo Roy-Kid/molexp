@@ -1,10 +1,15 @@
 """Read-only tool set for the emergent :class:`InteractiveLoop` loop.
 
-Three plain-Python callables — :func:`read_file`, :func:`list_directory`,
-:func:`search_code` — handed verbatim to pydantic-ai's
+Four plain-Python callables — :func:`read_file`, :func:`list_directory`,
+:func:`search_code`, :func:`search_library` — handed verbatim to pydantic-ai's
 ``Agent(tools=[...])``. The model may *inspect* the workspace; it may
 not change it. v1 ships **no** write / edit / shell tool: write-side
 orchestration lives in :mod:`molexp.harness`, not in InteractiveLoop.
+
+:func:`search_library` reads the derived ``library/index.json`` files a
+scope's :class:`~molexp.workspace.library.library.Library` writes, so the
+model can discover notes + literature/references by topic without scanning
+every file — then ``read_file`` the note path the hit points at.
 
 Every tool is confined to one workspace root. A path that is absolute,
 contains a ``..`` component, or otherwise resolves outside the root is
@@ -17,11 +22,16 @@ closes over the workspace root so the model never sees it as an argument.
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
 
 __all__ = ["readonly_tools"]
+
+_LIBRARY_INDEX_FILENAME = "index.json"
+_MAX_LIBRARY_HITS = 40
+"""Cap on ``search_library`` result rows so one call cannot flood context."""
 
 # Directories never walked by ``search_code`` / hidden from ``list_directory``
 # scans — version-control, build, cache, and dependency trees.
@@ -100,8 +110,8 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
         workspace_root: Directory every tool is confined to.
 
     Returns:
-        ``(read_file, list_directory, search_code)`` — exactly three
-        read-only tools, in a stable order.
+        ``(read_file, list_directory, search_code, search_library)`` —
+        exactly four read-only tools, in a stable order.
     """
     root = Path(workspace_root)
 
@@ -173,4 +183,82 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
                         break
         return "\n".join(hits) if hits else f"no matches for {pattern!r}"
 
-    return (read_file, list_directory, search_code)
+    def search_library(query: str = "") -> str:
+        """Search the workspace's notes & literature/references by topic.
+
+        Reads every scope's generated ``library/index.json`` (notes +
+        references) and returns the entries whose title, summary, tags,
+        citation key, or annotation match ``query`` (case-insensitive; any
+        whitespace-separated term matches). An empty ``query`` lists the
+        whole library — the fastest way to learn what knowledge exists.
+
+        Each ``NOTE`` row ends with a workspace-relative path you can pass
+        straight to :func:`read_file`; ``REF`` rows carry the arXiv/DOI id.
+
+        Args:
+            query: Topic terms to match, e.g. ``"quantization effective
+                temperature"``. Empty lists everything.
+        """
+        terms = [t for t in re.split(r"\s+", query.lower()) if t]
+        root_resolved = root.resolve()
+        rows: list[str] = []
+
+        def _matches(*fields: object) -> bool:
+            if not terms:
+                return True
+            hay = " ".join(str(f).lower() for f in fields if f)
+            return any(t in hay for t in terms)
+
+        for index_path in sorted(root_resolved.rglob(_LIBRARY_INDEX_FILENAME)):
+            if index_path.parent.name != "library":
+                continue
+            if any(part in _SKIP_DIRS for part in index_path.relative_to(root_resolved).parts):
+                continue
+            try:
+                data = json.loads(index_path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            scope = data.get("scope", "?")
+            # scope_dir is the parent of library/ — note paths are relative to it.
+            scope_dir = index_path.parent.parent.relative_to(root_resolved).as_posix()
+            prefix = f"{scope_dir}/" if scope_dir not in ("", ".") else ""
+
+            for note in data.get("notes", []):
+                if len(rows) >= _MAX_LIBRARY_HITS:
+                    break
+                if _matches(
+                    note.get("title"), note.get("summary"), note.get("tags"), note.get("refs")
+                ):
+                    gloss = f" — {note['summary']}" if note.get("summary") else ""
+                    rows.append(
+                        f"NOTE [{scope}] {note.get('title', '?')}{gloss} "
+                        f"→ {prefix}{note.get('path', '')}"
+                    )
+            for ref in data.get("references", []):
+                if len(rows) >= _MAX_LIBRARY_HITS:
+                    break
+                if _matches(
+                    ref.get("key"),
+                    ref.get("title"),
+                    ref.get("tags"),
+                    ref.get("note"),
+                    ref.get("authors"),
+                ):
+                    ident = (ref.get("arxiv") and f" arXiv:{ref['arxiv']}") or ""
+                    ident += (ref.get("doi") and f" doi:{ref['doi']}") or ""
+                    rows.append(
+                        f"REF  [{scope}] {ref.get('key', '?')}: {ref.get('title', '')}{ident}"
+                    )
+            if len(rows) >= _MAX_LIBRARY_HITS:
+                rows.append(f"... (truncated at {_MAX_LIBRARY_HITS} entries)")
+                break
+
+        if not rows:
+            return (
+                "no library entries"
+                if not terms
+                else f"no notes or references match {query!r}"
+            )
+        return "\n".join(rows)
+
+    return (read_file, list_directory, search_code, search_library)
