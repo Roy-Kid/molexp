@@ -81,9 +81,11 @@ class TestFileLock:
             t.join(timeout=5.0)
 
     def test_degrades_without_fcntl(self, tmp_path, monkeypatch) -> None:
-        import molexp.workspace._file_lock as fl
+        # _HAS_FCNTL moved to the molexp.atomicio primitive (okf-01-01);
+        # file_lock reads it from there at call time.
+        import molexp.atomicio as atomicio
 
-        monkeypatch.setattr(fl, "_HAS_FCNTL", False)
+        monkeypatch.setattr(atomicio, "_HAS_FCNTL", False)
         with file_lock(tmp_path / "x.lock"):
             pass  # no-op, no error
 

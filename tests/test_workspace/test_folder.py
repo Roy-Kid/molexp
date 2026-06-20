@@ -90,9 +90,9 @@ def test_write_json_persists_atomically(tmp_path: Path, monkeypatch: pytest.Monk
     def _explode(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("simulated mid-write failure")
 
-    # Patch the os.replace symbol in molexp.workspace.base (where
-    # atomic_write_json calls it).
-    monkeypatch.setattr("molexp.workspace.base.os.replace", _explode)
+    # Patch the os.replace symbol in molexp.atomicio (where
+    # atomic_write_json — re-exported by workspace.base — now lives).
+    monkeypatch.setattr("molexp.atomicio.os.replace", _explode)
 
     with pytest.raises(RuntimeError):
         folder.write_json("data.json", {"k": 2})
