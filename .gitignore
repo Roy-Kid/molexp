@@ -217,3 +217,5 @@ src/molexp/dist/*
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .playwright-mcp/
+uv.lock
+package-lock.json
