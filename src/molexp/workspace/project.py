@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary, ImportAction
-from .library import Library
 from .base import (
     _load_metadata,
     _reconstruct,
@@ -40,6 +39,7 @@ from .folder import (
     _validate_target_registered,
 )
 from .fs import PathArg
+from .library import Library
 from .models import FolderMetadata, ProjectMetadata
 from .utils import slugify
 
