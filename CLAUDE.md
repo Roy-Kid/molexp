@@ -107,14 +107,15 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 
 ## On-disk layout
 
-Children indices are local conveniences rebuilt on `add_folder` / `remove_folder`. Per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level. The global asset catalog at `<root>/catalog/index.json` (vended by `ws.catalog`) is authoritative for cross-cutting lineage queries.
+This layout is the **authoritative experiment-directory spec** — the shape any tool restructuring data into a molexp workspace must produce. Children indices are local conveniences rebuilt on `add_folder` / `remove_folder`. Per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level. The global asset catalog at `<root>/catalog/index.sqlite` (vended by `ws.catalog`) is the **derived** indexed read surface for cross-cutting lineage queries — rebuildable from the entity `*.json`, never the only copy (see the One-source-of-truth law).
 
 ```
 workspace_root/
-├── workspace.json                # workspace metadata
-├── project.json                  # children index (auto-derived: cls.__name__ + ".json")
+├── workspace.json                # workspace ENTITY metadata
+├── project.json                  # children INDEX of projects (derived; child cls snake_case + ".json")
 ├── cache/<key>.json              # singleton CacheFolder — ws.cache
-├── catalog/index.sqlite          # ws.catalog (AssetCatalog, SQLite-backed)
+├── catalog/index.sqlite          # ws.catalog (AssetCatalog, SQLite-backed; derived)
+├── assets.json                   # workspace-scoped asset manifest (authoritative)
 ├── library/                      # per-scope notes + literature (attachable at any Folder)
 │   ├── notes/<slug>.md           #   NoteAsset files (registered in assets.json + catalog)
 │   ├── references.json           #   molexp-native bib records (Reference)
@@ -124,24 +125,32 @@ workspace_root/
 # (loose *.md in any scope dir, e.g. README.md, are auto-discovered as in-place notes)
 ├── agent.json / plan.json        # agent-layer mounts (if any)
 ├── agents/<agent_id>/            # Agent Folder; sessions under agent_sessions/
-└── projects/<project_id>/
-    ├── project.json
-    ├── experiment.json
-    └── experiments/<experiment_id>/
-        ├── experiment.json
-        ├── run.json
-        └── runs/<run_id>/
-            ├── run.json          # status, params, execution_history
+└── projects/<project_id>/        # container subdir "projects/", dir name = slug, NO prefix
+    ├── project.json              # project ENTITY metadata
+    ├── experiment.json           # children INDEX of experiments (derived)
+    └── experiments/<experiment_id>/   # container "experiments/", dir name = slug, NO prefix
+        ├── experiment.json       # experiment ENTITY metadata
+        ├── run.json              # children INDEX of runs (derived)
+        └── runs/run-<run_id>/    # container "runs/", dir name = "run-" + run_id  (← prefix is mandatory)
+            ├── run.json          # run ENTITY metadata: status, params, execution_history
             ├── assets.json       # run-scoped asset manifest
             ├── artifacts/        # final products
             ├── cache/            # per-run user-domain cache
-            └── executions/<exec_id>/
+            └── executions/<exec_id>/   # exec_id = "exec-" + run_id + optional "-N"
                 ├── execution.json
                 ├── workflow.json # workflow-layer state + completed node outputs (resume seed source; opaque to workspace EXCEPT one read-only slice: Run.get_result falls back to completed-node outputs)
                 ├── stdout.log / stderr.log / error.txt
                 ├── logs/<name>.log
                 └── jobs/<uuid>/  # molq scheduler manifests
 ```
+
+**Layout naming law (frozen).** Each `Folder` level obeys four derivations, all driven off the class hierarchy `Workspace → Project → Experiment → Run`:
+- **Container subdir** holding a level's children is the child kind pluralized: `projects/`, `experiments/`, `runs/`.
+- **Directory name** within that container is the slugified id (kebab) for Project/Experiment, with **no prefix** — except a **Run dir is always prefixed `run-`** (`runs/run-<run_id>/`); the `run-` prefix is part of the contract, not cosmetic.
+- **Entity metadata filename** at a level is the level's own class name snake_case + `.json` (`workspace.json` / `project.json` / `experiment.json` / `run.json`) — the single authoritative record for that node.
+- **Children-index filename** in a parent dir is the *child* class name snake_case + `.json` (`Folder._index_filename()`), so `<root>/project.json` indexes projects while `<root>/projects/<id>/project.json` is that project's entity file — same basename, different role, never the same directory.
+
+Entity `*.json` and per-scope `assets.json` are **authoritative**; every index (`catalog/index.sqlite`, the children-index `*.json`, `library/index.json`, `library/INDEX.md`) is **derived** and rebuildable. Run ids are 8-char hex or a content-addressed `config_hash`; project/experiment ids are slugs of their names (`add_*` is idempotent on the slug).
 
 Agent-layer mounts (`Agent` / `AgentSession` / `PlanFolder`) can attach at any `Folder` (workspace root, Project, Experiment, or Run). Workspace stays unaware of these subclasses — they flow through generic `add_folder`.
 
