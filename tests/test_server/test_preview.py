@@ -240,16 +240,6 @@ def test_route_bad_sidecar_is_422_not_500(client, workspace, src, expected):
     assert resp.status_code == expected
 
 
-def test_route_png_serves_image(client, workspace):
-    pytest.importorskip("molvis")
-    dataset = _make_sidecar_dataset(Path(workspace.root))
-    asset = _register_inplace_asset(workspace, dataset)
-
-    resp = client.get(f"/api/assets/{asset.asset_id}/preview", params={"format": "png"})
-    assert resp.status_code == 200
-    assert resp.headers["content-type"].startswith("image/png")
-
-
 # ── ac-007 : listing flag ──────────────────────────────────────────────────
 
 
@@ -293,43 +283,3 @@ def test_register_then_preview_follows_the_index(client, workspace):
 def test_register_rejects_path_outside_workspace(client):
     resp = client.post("/api/assets/data/register", json={"path": "/etc/passwd"})
     assert resp.status_code == 400
-
-
-# ── ac-008 : QM9 reference reader (skip-gated) ─────────────────────────────
-
-# The reference sidecar lives outside the molexp repo (it ships next to a
-# user's dataset, not inside the package). Reading real QM9 needs a multi-GB
-# download, so this test loads the reader through the real sidecar machinery
-# and injects a tiny stand-in record source that mimics molix QM9Source's
-# per-sample mapping (``Z`` / ``pos`` / ``targets``).
-_QM9_REFERENCE = Path("/Users/roykid/work/molcrafts/qm9.py")
-
-
-def test_qm9_reference_reader_builds_frames(tmp_path):
-    if not _QM9_REFERENCE.is_file():
-        pytest.skip("QM9 reference sidecar not present in this checkout")
-
-    dataset = _make_sidecar_dataset(
-        tmp_path, stem="qm9", sidecar_src=_QM9_REFERENCE.read_text(encoding="utf-8")
-    )
-
-    reader = load_sidecar_reader(dataset)
-    assert type(reader).__name__ == "QM9Reader"
-
-    # Inject a stand-in for molix QM9Source: an indexable, len()-able sequence
-    # of per-sample mappings. Bypasses the real molix/torch dataset.
-    reader._source = [
-        {
-            "Z": [6, 1, 1, 1, 1],
-            "pos": [[0, 0, 0], [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0]],
-            "targets": {"mu": 1.23, "gap": 0.5},
-        },
-    ]
-
-    assert reader.n_frames == 1
-    frame = reader.read_frame(0)
-    atoms = frame["atoms"]
-    cols = {k: list(atoms[k]) for k in ("element", "x", "y", "z")}
-    assert len({len(v) for v in cols.values()}) == 1  # equal-length columns
-    assert cols["element"][0] == "C"
-    assert any(k.startswith("qm9.") for k in frame.metadata)

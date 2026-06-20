@@ -13,9 +13,6 @@ state) with a temporary working directory; the examples themselves write
 only into ``tempfile.mkdtemp()`` locations. The CLI-driven example
 (``04_cli_and_profiles``) is copied into the temp dir and driven through
 ``molexp run`` exactly as its README documents.
-
-Only examples that need a long-lived server or an external scheduler remain
-skipped, with the reason pinned.
 """
 
 from __future__ import annotations
@@ -56,20 +53,6 @@ STANDALONE_SCRIPTS = [
     *OFFLINE_LLM_SCRIPTS,
 ]
 
-# Examples that cannot run as offline smoke tests, with the reason pinned.
-SKIPPED_SCRIPTS = [
-    pytest.param(
-        EXAMPLES / "operations" / "server_lifecycle.py",
-        marks=pytest.mark.skip(reason="starts a long-lived uvicorn server"),
-        id="operations/server_lifecycle.py",
-    ),
-    pytest.param(
-        EXAMPLES / "operations" / "scheduler_molq.py",
-        marks=pytest.mark.skip(reason="requires a molq scheduler backend"),
-        id="operations/scheduler_molq.py",
-    ),
-]
-
 
 def _run(cmd: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
@@ -91,10 +74,7 @@ def _assert_exit_zero(proc: subprocess.CompletedProcess[str], label: str) -> Non
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "script",
-    [
-        *[pytest.param(s, id=str(s.relative_to(EXAMPLES))) for s in STANDALONE_SCRIPTS],
-        *SKIPPED_SCRIPTS,
-    ],
+    [pytest.param(s, id=str(s.relative_to(EXAMPLES))) for s in STANDALONE_SCRIPTS],
 )
 def test_example_script_runs_clean(script: Path, tmp_path: Path) -> None:
     """Every standalone example must exit 0 when run as ``python <script>``."""
