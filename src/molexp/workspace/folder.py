@@ -18,7 +18,10 @@ from datetime import datetime
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar, cast
 
+import yaml
+
 from molexp._typing import JSONValue
+from molexp.knowledge.types import resolve_concept_type
 from molexp.path import Path
 
 from .base import _load_metadata, _reconstruct, _save_metadata
@@ -50,6 +53,7 @@ _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 # (``index.md``) whose markdown links ARE the knowledge graph. This is additive
 # — it sits alongside the authoritative ``metadata.json`` and never replaces it.
 INDEX_FILENAME = "index.md"
+META_YAML_FILENAME = "meta.yaml"  # OKF unified concept marker (type → registry)
 _MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")  # [text](target)
 
 
@@ -231,6 +235,27 @@ class Folder:
         fpath = self._fs.join(self.path(), name)
         self._fs.atomic_write_json(fpath, data)
         return fpath
+
+    # ── OKF meta.yaml (unified concept marker; type → knowledge registry) ──
+
+    def write_meta(self) -> str:
+        """Write the OKF ``meta.yaml`` marker (``type`` = this Folder's kind).
+
+        Additive — sits alongside the authoritative per-entity metadata json.
+        The ``type`` is the registered concept type, so a bundle can rebuild the
+        right subclass via :func:`concept_from_dir`.
+        """
+        data: dict[str, JSONValue] = {"type": self._kind, "id": self._name}
+        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
+        self._fs.atomic_write_text(fpath, yaml.safe_dump(data, sort_keys=False))
+        return fpath
+
+    def read_meta(self) -> dict[str, JSONValue]:
+        """Read the OKF ``meta.yaml`` marker, or ``{}`` if absent."""
+        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
+        if not self._fs.exists(fpath):
+            return {}
+        return cast("dict[str, JSONValue]", yaml.safe_load(self._fs.read_text(fpath)) or {})
 
     # ── OKF narrative + markdown-link knowledge graph ─────────────────────
 
@@ -428,6 +453,7 @@ class Folder:
         child._root_path = None
         child._fs = self._fs
         child.materialize()
+        child.write_meta()  # OKF marker, additive
         self._children_cache[slug] = child
         self._upsert_index_row(child)
         return child
@@ -692,10 +718,32 @@ class Folder:
         _save_metadata(self._metadata, meta_path, fs=new_parent._fs)
 
 
+def concept_from_dir(child_dir: PathArg, parent: Folder) -> Folder:
+    """Reconstruct *child_dir* as its registered concept subclass via meta.yaml.
+
+    Reads the OKF ``meta.yaml`` ``type`` and resolves it through the knowledge
+    concept-type registry (unknown/absent → base :class:`Folder`), then
+    delegates to that class's ``from_disk``.
+    """
+    fs = parent._fs
+    meta_path = fs.join(child_dir, META_YAML_FILENAME)
+    type_str = ""
+    if fs.exists(meta_path):
+        meta = yaml.safe_load(fs.read_text(meta_path))
+        if isinstance(meta, dict):
+            type_str = str(meta.get("type", ""))
+    cls = resolve_concept_type(type_str, Folder)
+    return cls.from_disk(child_dir, parent)
+
+
 __all__ = [
+    "INDEX_FILENAME",
+    "META_YAML_FILENAME",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",
     "WORKSPACE_RUN_KIND",
     "Folder",
+    "LinkScan",
+    "concept_from_dir",
 ]

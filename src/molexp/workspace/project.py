@@ -21,8 +21,9 @@ if TYPE_CHECKING:
     from .fs import FileSystem
     from .workspace import Workspace
 
+from molexp.knowledge.types import concept_type
+
 from .assets import AssetScope, AssetsView, DataAssetLibrary, ImportAction
-from .library import Library
 from .base import (
     _load_metadata,
     _reconstruct,
@@ -40,10 +41,12 @@ from .folder import (
     _validate_target_registered,
 )
 from .fs import PathArg
+from .library import Library
 from .models import FolderMetadata, ProjectMetadata
 from .utils import slugify
 
 
+@concept_type(WORKSPACE_PROJECT_KIND)
 class Project(Folder):
     """Research project container.
 

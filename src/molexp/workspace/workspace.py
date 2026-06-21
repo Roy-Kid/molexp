@@ -15,10 +15,10 @@ from __future__ import annotations
 from pathlib import Path as _LocalPath
 from typing import cast
 
+from molexp.knowledge.types import concept_type
 from molexp.path import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
-from .library import Library
 from .base import (
     _load_metadata,
     _save_metadata,
@@ -33,6 +33,7 @@ from .folder import (
 )
 from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
+from .library import Library
 from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
@@ -66,6 +67,7 @@ def set_cli_root_override(path: _LocalPath | str | None, *, explicit: bool = Tru
     _cli_root_override = (_LocalPath(path).resolve(), explicit) if path is not None else None
 
 
+@concept_type(WORKSPACE_ROOT_KIND)
 class Workspace(Folder):
     """Top-level workspace with project management and global asset library.
 
@@ -239,6 +241,7 @@ class Workspace(Folder):
         self._fs.mkdir(root_str, parents=True, exist_ok=True)
         meta_path = self._fs.join(root_str, "workspace.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
+        self.write_meta()  # OKF marker for the root, additive
         self._catalog_upsert()
 
     def save(self) -> None:

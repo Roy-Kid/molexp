@@ -40,10 +40,10 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 from molexp._typing import JSONValue
+from molexp.knowledge.types import concept_type
 from molexp.path import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
-from .library import Library
 from .base import (
     _load_metadata,
     _reconstruct,
@@ -57,6 +57,7 @@ from .folder import (
     _validate_target_registered,
 )
 from .fs import PathArg
+from .library import Library
 from .models import ExperimentMetadata, FolderMetadata
 from .run import Run
 from .utils import generate_id
@@ -116,6 +117,7 @@ def _parse_ir_document(source: str | None) -> dict | None:
     return doc if isinstance(doc, dict) else None
 
 
+@concept_type(WORKSPACE_EXPERIMENT_KIND)
 class Experiment(Folder):
     """Repeatable experiment — a parameter-space container.
 
@@ -324,9 +326,7 @@ class Experiment(Folder):
     def library(self) -> Library:
         """Notes + references store for this experiment scope."""
         if self._library is None:
-            self._library = Library(
-                self.experiment_dir, self.scope, self.project.workspace.catalog
-            )
+            self._library = Library(self.experiment_dir, self.scope, self.project.workspace.catalog)
         return self._library
 
     def get_seeds(self) -> list[int]:

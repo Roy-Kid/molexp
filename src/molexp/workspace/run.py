@@ -19,6 +19,7 @@ from molexp._typing import (
     JSONValue,
     TaskOutput,
 )
+from molexp.knowledge.types import concept_type
 from molexp.path import Path as MolexpPath  # workspace-abstraction path (Folder.path() return)
 from molexp.profile import ProfileConfig
 
@@ -33,8 +34,8 @@ from .base import (
 )
 from .errors import RunExistsError, RunNotFoundError
 from .folder import WORKSPACE_RUN_KIND, Folder
-from .library import Library
 from .fs import PathArg
+from .library import Library
 from .models import (
     FolderMetadata,
     RunMetadata,
@@ -65,6 +66,7 @@ RETRYABLE_STATUSES: frozenset[str] = frozenset({RunStatus.FAILED.value, RunStatu
 # ── Run ─────────────────────────────────────────────────────────────────────
 
 
+@concept_type(WORKSPACE_RUN_KIND)
 class Run(Folder):
     """Single execution instance within an experiment.
 

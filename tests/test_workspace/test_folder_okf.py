@@ -11,6 +11,8 @@ import os
 from pathlib import Path
 
 from molexp.workspace import Workspace
+from molexp.workspace.folder import concept_from_dir
+from molexp.workspace.project import Project
 
 
 def test_index_round_trip(tmp_path: Path) -> None:
@@ -44,3 +46,26 @@ def test_out_edges_resolves_in_tree_folders(tmp_path: Path) -> None:
     scan = alpha.links()
     assert any("example.com" in e for e in scan.external)
     assert any("nope" in o for o in scan.other)
+
+
+# ── wsokf-02: meta.yaml concept marker + registry reconstruction ─────────────
+
+
+def test_meta_yaml_marker_written(tmp_path: Path) -> None:
+    ws = Workspace(root=tmp_path / "lab")
+    ws.materialize()
+    proj = ws.add_project("alpha")
+    # both root and child get an OKF meta.yaml (type = concept kind)
+    assert ws.read_meta()["type"] == "workspace.root"
+    pmeta = proj.read_meta()
+    assert pmeta["type"] == "workspace.project"
+    assert pmeta["id"] == "alpha"
+
+
+def test_concept_from_dir_reconstructs_registered_subclass(tmp_path: Path) -> None:
+    ws = Workspace(root=tmp_path / "lab")
+    ws.materialize()
+    proj = ws.add_project("alpha")
+    rebuilt = concept_from_dir(proj.resolve(), ws)
+    assert isinstance(rebuilt, Project)
+    assert rebuilt.name == "alpha"
