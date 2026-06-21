@@ -27,6 +27,7 @@ class FakeFileSystem:
 
     def __init__(self) -> None:
         self.files: dict[Path, str] = {}
+        self.blobs: dict[Path, bytes] = {}
         self.dirs: set[Path] = set()
 
     def _touch_parents(self, path: Path) -> None:
@@ -44,6 +45,17 @@ class FakeFileSystem:
         self.files[path] = self.files.get(path, "") + content
         self._touch_parents(path)
 
+    def read_bytes(self, path: Path) -> bytes:
+        return self.blobs[path]
+
+    def write_bytes(self, path: Path, data: bytes) -> None:
+        self.blobs[path] = data
+        self._touch_parents(path)
+
+    def remove(self, path: Path) -> None:
+        self.files.pop(path, None)
+        self.blobs.pop(path, None)
+
     def read_json(self, path: Path) -> Any:
         return json.loads(self.files[path])
 
@@ -52,10 +64,10 @@ class FakeFileSystem:
         self._touch_parents(path)
 
     def exists(self, path: Path) -> bool:
-        return path in self.files or path in self.dirs
+        return path in self.files or path in self.blobs or path in self.dirs
 
     def is_file(self, path: Path) -> bool:
-        return path in self.files
+        return path in self.files or path in self.blobs
 
     def is_dir(self, path: Path) -> bool:
         return path in self.dirs
@@ -65,11 +77,12 @@ class FakeFileSystem:
         self._touch_parents(path)
 
     def iterdir(self, path: Path) -> list[Path]:
-        seen = {p for p in (*self.files, *self.dirs) if p.parent == path}
+        seen = {p for p in (*self.files, *self.blobs, *self.dirs) if p.parent == path}
         return sorted(seen)
 
     def rmtree(self, path: Path) -> None:
         self.files = {p: c for p, c in self.files.items() if path not in (p, *p.parents)}
+        self.blobs = {p: b for p, b in self.blobs.items() if path not in (p, *p.parents)}
         self.dirs = {p for p in self.dirs if path not in (p, *p.parents)}
 
     def lock(self, path: Path) -> Any:
@@ -104,6 +117,18 @@ def test_local_fs_append_text(tmp_path: Path) -> None:
     assert fs.read_text(log) == "a\n"
     fs.append_text(log, "b\n")  # accumulates, does not overwrite
     assert fs.read_text(log) == "a\nb\n"
+
+
+def test_local_fs_bytes_and_remove(tmp_path: Path) -> None:
+    fs = LocalFileSystem()
+    blob = tmp_path / "sub" / "m.bin"
+    fs.write_bytes(blob, b"\x00\x01\x02")  # creates parent dir
+    assert fs.read_bytes(blob) == b"\x00\x01\x02"
+    fs.write_bytes(blob, b"\x03")  # atomic overwrite
+    assert fs.read_bytes(blob) == b"\x03"
+    fs.remove(blob)
+    assert not fs.exists(blob)
+    fs.remove(blob)  # idempotent — no error on missing
 
 
 # ── Folder routes through injected fs (ac-003 / ac-004) ───────────────────────

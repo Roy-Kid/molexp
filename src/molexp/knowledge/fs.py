@@ -30,6 +30,9 @@ class FileSystem(Protocol):
     def read_text(self, path: Path) -> str: ...
     def write_text(self, path: Path, content: str) -> None: ...
     def append_text(self, path: Path, content: str) -> None: ...
+    def read_bytes(self, path: Path) -> bytes: ...
+    def write_bytes(self, path: Path, data: bytes) -> None: ...
+    def remove(self, path: Path) -> None: ...
     def read_json(self, path: Path) -> object: ...
     def write_json(self, path: Path, data: object) -> None: ...
     def exists(self, path: Path) -> bool: ...
@@ -55,6 +58,19 @@ class LocalFileSystem:
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("a", encoding="utf-8") as handle:
             handle.write(content)
+
+    def read_bytes(self, path: Path) -> bytes:
+        return Path(path).read_bytes()
+
+    def write_bytes(self, path: Path, data: bytes) -> None:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        tmp = target.with_name(f"{target.name}.tmp")
+        tmp.write_bytes(data)
+        tmp.replace(target)
+
+    def remove(self, path: Path) -> None:
+        Path(path).unlink(missing_ok=True)
 
     def read_json(self, path: Path) -> object:
         return json.loads(Path(path).read_text(encoding="utf-8"))
