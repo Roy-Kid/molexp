@@ -3,6 +3,17 @@
 - [okf-05-00-rewire-plan](okf-05-00-rewire-plan.md) — CHAIN PLAN: rewire workflow/agent/harness/server/cli off workspace onto knowledge. ✅ 05-01 charter, 05-02 run-lifecycle, 05-03 verbs, 05-04 fs-seam, 05-05 fs-append (parity done) DONE. Remaining: 05-06 agent rehome (big) → 05-07 workflow rewire → 05-08 server+cli rewire. [in-progress] — okf-05 (next sub-spec drafted at its impl)
 - [okf-06-migration](okf-06-migration.md) — Non-destructive workspace-JSON → OKF bundle converter (`migrate_workspace_to_okf` + `verify_migration` + `MigrationReport`): identity→meta.yaml, runtime→_ops/run.json, dry-run/idempotent/resumable; assets deferred+warned. Depends on okf-05. [draft] — okf-06 (CHECKPOINT — touches real data)
 
+## wsokf chain — workspace OKF-ification (corrected direction: knowledge = registry only; workspace.Folder = OKF-native)
+
+> wsokf-01/02/03 ✅ DONE (committed: index.md graph, meta.yaml + concept-type registry, _ops/ sidecar). Remaining chain below, all [approved].
+
+- [wsokf-04-library](wsokf-04-library.md) — OKF bundle façade `Bundle` (walk/get/put/link/build_index/search → index.json + INDEX.md) over the workspace.Folder concept tree; distinct from the per-scope `Library`. [approved]
+- [wsokf-05-note-reference](wsokf-05-note-reference.md) — `Note` / `Reference` as OKF concepts on workspace.Folder + `ReferenceMeta` + read-only Zotero importer; coexist with legacy NoteAsset/record-Reference. [approved]
+- [wsokf-06-agent-okf](wsokf-06-agent-okf.md) — agent `Agent`/`AgentSession` adopt OKF workspace.Folder (meta.yaml authority + @concept_type registry); only knowledge edge = `knowledge.types`. [approved]
+- [wsokf-07-workflow-server-cli](wsokf-07-workflow-server-cli.md) — workflow resume / server routes / CLI read run status from `_ops/run.json` via `RunOpsState`; identity via `concept_from_dir`. [approved]
+- wsokf-08-meta-migration — **DROPPED** (user: 不需要向后兼容的migrate迁移代码). Greenfield rewrite has no legacy on-disk data to backfill; the in-place migrator is dead scope.
+- [wsokf-09-remove-knowledge-dup](wsokf-09-remove-knowledge-dup.md) — delete the 11 duplicate storage modules from `molexp.knowledge`, leaving `types.py` (registry) + slim `__init__`; gates on wsokf-06. [approved]
+
 
 - [execution-semantics](execution-semantics.md) — Workspace↔workflow execution: `ctx.workdir` (first-class, not `inputs["workdir"]`, content-addressed incl. params), persisted binding via `Experiment.run(workflow, params=)` (seam → `workflow.json` + `source/` copy + entrypoint), workflow-layer batch `Runner`; execution model A (re-import). Surface = option C: `ws.project(p).experiment(e).run(wf, params=)`. [draft] **Supersedes the workdir-in-`inputs` parts of 01/03.**
 - [pure-task-context-01-cache-contract](pure-task-context-01-cache-contract.md) — Solidify + test + document the cache-identity contract (code+config+inputs hash) [code-complete]
