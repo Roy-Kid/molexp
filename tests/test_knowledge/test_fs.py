@@ -40,6 +40,10 @@ class FakeFileSystem:
         self.files[path] = content
         self._touch_parents(path)
 
+    def append_text(self, path: Path, content: str) -> None:
+        self.files[path] = self.files.get(path, "") + content
+        self._touch_parents(path)
+
     def read_json(self, path: Path) -> Any:
         return json.loads(self.files[path])
 
@@ -91,6 +95,15 @@ def test_surface_and_local_fs_round_trips(tmp_path: Path) -> None:
         pass
     fs.rmtree(d)
     assert not fs.exists(d)
+
+
+def test_local_fs_append_text(tmp_path: Path) -> None:
+    fs = LocalFileSystem()
+    log = tmp_path / "sub" / "log.jsonl"
+    fs.append_text(log, "a\n")  # creates file + parent dir
+    assert fs.read_text(log) == "a\n"
+    fs.append_text(log, "b\n")  # accumulates, does not overwrite
+    assert fs.read_text(log) == "a\nb\n"
 
 
 # ── Folder routes through injected fs (ac-003 / ac-004) ───────────────────────
