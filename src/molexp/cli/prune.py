@@ -118,7 +118,7 @@ def _select_many(
 
 def _execution_rows(run: Run) -> list[tuple[str, ...]]:
     rows: list[tuple[str, ...]] = []
-    for rec in run.metadata.execution_history:
+    for rec in run.execution_history:
         finished = rec.finished_at.strftime("%Y-%m-%d %H:%M") if rec.finished_at else "—"
         started = rec.started_at.strftime("%Y-%m-%d %H:%M")
         status = rec.status or "running"
@@ -187,7 +187,7 @@ def prune_runs(
     run_rows: list[tuple[str, ...]] = []
     for r in runs:
         status = str(r.status).lower()
-        n_exec = len(r.metadata.execution_history)
+        n_exec = len(r.execution_history)
         run_rows.append(
             (
                 r.id,
@@ -231,7 +231,8 @@ def prune_runs(
         rprint("[dim]Nothing selected — aborted.[/dim]")
         raise typer.Exit(0)
 
-    targets: list[ExecutionRecord] = [run.metadata.execution_history[i] for i in indices]
+    history = run.execution_history
+    targets: list[ExecutionRecord] = [history[i] for i in indices]
 
     # Refuse to delete a still-running entry unless the run itself is
     # already terminal (zombie cleanup).
@@ -265,9 +266,11 @@ def prune_runs(
         else:
             rprint(f"  [dim]skip[/dim]  {exec_id} (no directory)")
 
-    new_history = [
-        rec for rec in run.metadata.execution_history if rec.execution_id not in removed_ids
-    ]
+    new_history = [rec for rec in run.execution_history if rec.execution_id not in removed_ids]
+    # Source of truth is the OKF ``_ops`` hot-state sidecar (wsokf-07); writing
+    # through ``_update_metadata`` keeps run.json's execution_history
+    # byte-compatible and mirrors the same value into ``_ops``.
+    run.update_ops(lambda state: state.model_copy(update={"executions": tuple(new_history)}))
     run._update_metadata(execution_history=new_history)
     rprint(
         f"[green]Done.[/green] Removed {deleted_dirs} dir(s), "

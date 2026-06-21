@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, cast
 
@@ -37,6 +37,7 @@ from .folder import WORKSPACE_RUN_KIND, Folder
 from .fs import PathArg
 from .library import Library
 from .models import (
+    ExecutionRecord,
     FolderMetadata,
     RunMetadata,
     RunStatus,
@@ -62,6 +63,23 @@ __all__ = ["RETRYABLE_STATUSES", "Run", "RunContext", "RunStatus"]
 #: ``succeeded`` is done, and a live ``running`` run must never get a second
 #: concurrent execution.
 RETRYABLE_STATUSES: frozenset[str] = frozenset({RunStatus.FAILED.value, RunStatus.CANCELLED.value})
+
+
+def _parse_aware_utc(value: str) -> datetime | None:
+    """Parse an ISO timestamp into an aware-UTC datetime, or ``None`` if invalid.
+
+    The legacy ownership ``heartbeat`` label was a naive local ISO string;
+    :class:`RunOpsState` stores an aware-UTC ``heartbeat_at``. A naive value is
+    assumed to be local time and converted to UTC so cross-host staleness
+    comparisons remain correct.
+    """
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone(UTC)
+    return parsed.astimezone(UTC)
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -197,12 +215,34 @@ class Run(Folder):
 
     @property
     def status(self) -> str:
-        return self.metadata.status
+        """Current run status, sourced from the ``_ops/run.json`` hot sidecar.
+
+        Hot machine state (status / ownership / heartbeat / executions) lives
+        in the OKF ``_ops/`` sidecar per the identity-vs-runtime split (wsokf-07).
+        ``RunMetadata.status`` in ``run.json`` is kept byte-compatible as a
+        mirror but is no longer the source of truth.
+        """
+        return self.read_ops().status.value
 
     @property
     def is_retryable(self) -> bool:
         """Whether ``resume`` / ``rerun`` apply (status in :data:`RETRYABLE_STATUSES`)."""
-        return self.status in RETRYABLE_STATUSES
+        return self.read_ops().is_retryable
+
+    @property
+    def execution_history(self) -> list[ExecutionRecord]:
+        """Run-level execution history, read from the ``_ops`` sidecar (wsokf-07)."""
+        return list(self.read_ops().executions)
+
+    @property
+    def finished_at(self) -> datetime | None:
+        """Terminal timestamp, read from the ``_ops`` sidecar (wsokf-07)."""
+        return self.read_ops().finished_at
+
+    @property
+    def current_execution_id(self) -> str | None:
+        """Active/last execution id, read from the ``_ops`` sidecar (wsokf-07)."""
+        return self.read_ops().current_execution_id
 
     # ── OKF _ops/run.json hot-state sidecar (typed; isolated from run.json) ─
 
@@ -500,8 +540,43 @@ class Run(Folder):
         atomic save) runs under :meth:`_metadata_lock` so concurrent
         processes updating different fields cannot drop each other's
         writes (lost-update protection).
+
+        Hot machine-state fields (status / finished_at / execution_history /
+        ownership labels) are additionally mirrored into the OKF ``_ops``
+        sidecar (wsokf-07) so :attr:`status` and friends — which read from
+        ``_ops`` — observe the update. ``run.json`` keeps the same fields for
+        byte-compatibility (the duplicate is removed in a later cleanup spec).
         """
         with self._metadata_lock():
             self._reload_metadata_from_disk()
             self.metadata = self.metadata.model_copy(update=updates)
             self.save()
+        self._mirror_hot_state_to_ops(updates)
+
+    def _mirror_hot_state_to_ops(self, updates: dict[str, object]) -> None:
+        """Reflect hot-state fields from a metadata update into the ``_ops`` sidecar.
+
+        Only the fields that constitute run-level hot machine state are
+        mirrored — identity / provenance fields (params, profile, target,
+        workflow_snapshot, …) never touch ``_ops``. Ownership stamps carried
+        in the ``labels`` dict (``pid`` / ``host``) and the string
+        ``heartbeat`` are translated into the typed :class:`RunOpsState`
+        fields; an empty / stamp-less labels update clears ownership.
+        """
+        ops_updates: dict[str, object] = {}
+        if "status" in updates:
+            ops_updates["status"] = RunStatus(str(self.metadata.status))
+        if "finished_at" in updates:
+            ops_updates["finished_at"] = self.metadata.finished_at
+        if "execution_history" in updates:
+            ops_updates["executions"] = tuple(self.metadata.execution_history)
+        if "labels" in updates:
+            labels = dict(self.metadata.labels)
+            pid_str = labels.get("pid")
+            ops_updates["owner_pid"] = int(pid_str) if pid_str and pid_str.isdigit() else None
+            ops_updates["owner_host"] = labels.get("host")
+            heartbeat = labels.get("heartbeat")
+            ops_updates["heartbeat_at"] = _parse_aware_utc(heartbeat) if heartbeat else None
+        if not ops_updates:
+            return
+        self.update_ops(lambda state: state.model_copy(update=ops_updates))

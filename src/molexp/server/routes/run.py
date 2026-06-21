@@ -237,7 +237,7 @@ def get_run_logs(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    history = run.metadata.execution_history
+    history = run.execution_history
     if not history:
         return RunLogsResponse()
     return _read_execution_logs(run, history[-1].execution_id)
@@ -413,7 +413,7 @@ def get_run_execution(
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
-    history = run.metadata.execution_history
+    history = run.execution_history
     if not history:
         return RunExecutionResponse()
 
@@ -503,7 +503,7 @@ def get_run_files(
 
 def _resumable_execution_id(run) -> str | None:  # noqa: ANN001
     """Return the most recent non-succeeded execution_id, or ``None``."""
-    for record in reversed(run.metadata.execution_history):
+    for record in reversed(run.execution_history):
         if record.status != "succeeded":
             return record.execution_id
     return None
@@ -729,5 +729,5 @@ def update_run_status(
     return RunStatusResponse(
         id=run.id,
         status=run.status,
-        finished=run.metadata.finished_at.isoformat() if run.metadata.finished_at else None,
+        finished=run.finished_at.isoformat() if run.finished_at else None,
     )

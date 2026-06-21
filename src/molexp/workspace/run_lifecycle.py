@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import platform
 import threading
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from mollog import get_logger
@@ -89,6 +89,12 @@ class RunLifecycle:
                 started_at=ctx._start_time,
             )
             ctx.run._update_metadata(execution_history=[*history, new_record])
+        # Record the active execution id in the OKF ``_ops`` hot-state sidecar
+        # (wsokf-07). ``run.json`` (identity) carries no current-execution field.
+        active_execution_id = ctx._execution_id
+        ctx.run.update_ops(
+            lambda state: state.model_copy(update={"current_execution_id": active_execution_id})
+        )
         ctx._executions.write_metadata(
             ExecutionMetadata(
                 execution_id=ctx._execution_id,
@@ -172,7 +178,10 @@ class RunLifecycle:
         labels = dict(ctx.run.metadata.labels)
         labels["pid"] = str(os.getpid())
         labels["host"] = platform.node()
-        labels["heartbeat"] = datetime.now().isoformat()
+        # Aware-UTC heartbeat (wsokf-07) — the same clock the ``_ops`` sidecar's
+        # ``heartbeat_at`` uses, so the mirrored run.json label stays consistent
+        # with the refresh thread (which also stamps aware-UTC).
+        labels["heartbeat"] = datetime.now(UTC).isoformat()
         ctx.run._update_metadata(labels=labels)
 
     def _labels_without_ownership(self) -> dict[str, str]:
@@ -222,27 +231,33 @@ class RunLifecycle:
                 logger.debug(f"heartbeat refresh failed for run {self._ctx.run.id}", exc_info=True)
 
     def refresh_heartbeat(self) -> None:
-        """Re-stamp ``labels['heartbeat']`` in ``run.json``, preserving all other content.
+        """Re-stamp the run's heartbeat in the OKF ``_ops`` sidecar (aware-UTC).
 
-        Surgical read-modify-write under the run's advisory metadata lock:
-        only the heartbeat label is touched, so concurrent status writes
-        and the run.json ``context`` blob written by ``ContextStore`` are
-        never clobbered by the background thread.
+        wsokf-07 moves the live-run heartbeat onto
+        :attr:`RunOpsState.heartbeat_at` (an aware-UTC timestamp) so cross-host
+        staleness comparisons are tz-correct. The legacy ``labels['heartbeat']``
+        string in ``run.json`` is mirrored too (byte-compatibility) via a
+        surgical read-modify-write that preserves the ``context`` blob written
+        by ``ContextStore``.
+
+        A run whose ``run.json`` has not been written yet (first beat before
+        ``materialize``) is left untouched.
         """
         from .schema_version import read_versioned_json, write_versioned_json
 
         run = self._ctx.run
         path = run._fs.join(run.run_dir, "run.json")
-        now_iso = datetime.now().isoformat()
+        now = datetime.now(UTC)
         with run._metadata_lock():
             if not run._fs.exists(path):
                 return
             data = read_versioned_json(path, fs=run._fs)
             labels_raw = data.get("labels")
             labels = dict(labels_raw) if isinstance(labels_raw, dict) else {}
-            labels["heartbeat"] = now_iso
+            labels["heartbeat"] = now.isoformat()
             data["labels"] = labels
             write_versioned_json(path, data, fs=run._fs)
         run.metadata = run.metadata.model_copy(
-            update={"labels": {**run.metadata.labels, "heartbeat": now_iso}}
+            update={"labels": {**run.metadata.labels, "heartbeat": now.isoformat()}}
         )
+        run.update_ops(lambda state: state.model_copy(update={"heartbeat_at": now}))

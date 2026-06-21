@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import os
 import platform
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from rich import print as rprint
@@ -82,74 +82,72 @@ def pid_alive(pid: int) -> bool:
 CROSS_HOST_HEARTBEAT_STALE_SECONDS = 600.0  # 10 minutes
 
 
-def _heartbeat_age_seconds(labels: dict[str, str], now: datetime) -> float | None:
-    """Age of the ``heartbeat`` ownership label, or ``None`` when absent/unparseable."""
-    raw = labels.get("heartbeat")
-    if not raw:
-        return None
-    try:
-        return (now - datetime.fromisoformat(raw)).total_seconds()
-    except ValueError:
-        return None
-
-
 def reap_zombie_run(run: Run) -> bool:
     """Mark a stale ``RUNNING`` run as ``FAILED`` if its owner is dead.
 
-    Same-host runs are probed directly: a recorded pid that no longer
-    exists on this host means the owner died and the run is reaped.
+    Reads the run's hot state from the OKF ``_ops/run.json`` sidecar
+    (:class:`RunOpsState`) per wsokf-07. Same-host runs are pid-probed
+    directly: a recorded ``owner_pid`` that no longer exists on this host
+    means the owner died and the run is reaped.
 
     Cross-host runs (molq / SLURM workers — the normal remote scenario)
     cannot be pid-probed from here, so they are reaped **only** when their
-    ownership heartbeat is stale beyond
-    :data:`CROSS_HOST_HEARTBEAT_STALE_SECONDS`. A fresh heartbeat, or a
-    run.json predating the heartbeat label entirely, leaves the run alone
-    — never kill a possibly-live HPC run on guesswork.
+    ``heartbeat_at`` is stale beyond :data:`CROSS_HOST_HEARTBEAT_STALE_SECONDS`
+    (which equals ``run_ops.HEARTBEAT_STALE_SECONDS``). A fresh heartbeat, or a
+    sidecar with no heartbeat at all, leaves the run alone — never kill a
+    possibly-live HPC run on guesswork.
 
     Returns ``True`` when the run was reaped (status flipped from
     ``running`` to ``failed``), ``False`` when the owner is (or may still
     be) alive.
     """
-    from molexp.workspace.models import ErrorInfo
-    from molexp.workspace.run import RunStatus
+    from molexp.workspace.models import ErrorInfo, RunStatus
 
-    labels = dict(run.metadata.labels)
-    pid_str = labels.get("pid")
-    host = labels.get("host")
+    state = run.read_ops()
+    if state.status is not RunStatus.RUNNING:
+        return False
+
+    host = state.owner_host
     same_host = host == platform.node()
-    now = datetime.now()
+    now = datetime.now(UTC)
 
     if same_host:
-        if pid_str and pid_str.isdigit() and pid_alive(int(pid_str)):
+        if state.owner_pid is not None and pid_alive(state.owner_pid):
             return False  # live owner on this host
         reason = (
             f"Run was left in 'running' state by a prior invocation "
-            f"(pid={pid_str or '?'} host={host or '?'}) whose process is "
+            f"(pid={state.owner_pid or '?'} host={host or '?'}) whose process is "
             "no longer alive.  Automatically marked FAILED."
         )
     else:
-        age = _heartbeat_age_seconds(labels, now)
-        if age is None or age < CROSS_HOST_HEARTBEAT_STALE_SECONDS:
-            # Fresh heartbeat, or no heartbeat info yet (pre-heartbeat
-            # run.json / worker still starting) — assume alive.
+        age = state.heartbeat_age(now)
+        if age is None or age.total_seconds() < CROSS_HOST_HEARTBEAT_STALE_SECONDS:
+            # Fresh heartbeat, or no heartbeat info yet (worker still
+            # starting) — assume alive.
             return False
         reason = (
             f"Run was left in 'running' state on host {host or '?'} "
-            f"(pid={pid_str or '?'}) and its heartbeat is {int(age)}s old "
+            f"(pid={state.owner_pid or '?'}) and its heartbeat is "
+            f"{int(age.total_seconds())}s old "
             f"(threshold {int(CROSS_HOST_HEARTBEAT_STALE_SECONDS)}s).  "
             "Automatically marked FAILED."
         )
 
+    # Reap through the metadata path so run.json (identity) and the error
+    # trace stay byte-compatible; the hot-state mirror flips _ops to FAILED
+    # and clears ownership.
+    labels = dict(run.metadata.labels)
     for key in ("pid", "host", "heartbeat"):
         labels.pop(key, None)
+    naive_now = datetime.now()
     run._update_metadata(
         status=RunStatus.FAILED,
-        finished_at=now,
+        finished_at=naive_now,
         labels=labels,
         error=ErrorInfo(
             type="ZombieRun",
             message=reason,
-            timestamp=now,
+            timestamp=naive_now,
         ),
     )
     return True

@@ -123,9 +123,7 @@ class ExperimentResponse(BaseModel):
                     id=r.id,
                     status=r.status,
                     created=r.metadata.created_at.isoformat(),
-                    finished=(
-                        r.metadata.finished_at.isoformat() if r.metadata.finished_at else None
-                    ),
+                    finished=(r.finished_at.isoformat() if r.finished_at else None),
                     parameters=r.parameters,
                     results=_read_context_results(r),
                 )
@@ -242,7 +240,9 @@ class RunResponse(BaseModel):
                 status=rec.status,
                 schedulerJobId=rec.scheduler_job_id,
             )
-            for rec in run.metadata.execution_history
+            # Execution history + status come from the OKF ``_ops`` sidecar
+            # (wsokf-07), read once via ``run.read_ops()``.
+            for rec in run.read_ops().executions
         ]
         return cls(
             id=run.id,
@@ -250,7 +250,7 @@ class RunResponse(BaseModel):
             experimentId=run.experiment.id,
             status=run.status,
             created=run.metadata.created_at.isoformat(),
-            finished=run.metadata.finished_at.isoformat() if run.metadata.finished_at else None,
+            finished=run.finished_at.isoformat() if run.finished_at else None,
             parameters=run.parameters,
             results=_read_context_results(run),
             workflow=wf_snap,
