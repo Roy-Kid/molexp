@@ -134,9 +134,9 @@ from molexp.harness.store import (
     SQLiteEventLog,
 )
 from molexp.harness.validators import (
+    TestSourceValidator,
     validate_bound_workflow,
     validate_provenance,
-    validate_test_source,
     validate_test_spec,
     validate_workflow_ir,
     validate_workflow_source,
@@ -216,6 +216,7 @@ __all__ = [
     "TestKind",
     "TestResult",
     "TestSource",
+    "TestSourceValidator",
     "TestSpec",
     "TestSpecBundle",
     "TestStatus",
@@ -241,7 +242,6 @@ __all__ = [
     "replay_metadata",
     "validate_bound_workflow",
     "validate_provenance",
-    "validate_test_source",
     "validate_test_spec",
     "validate_workflow_ir",
     "validate_workflow_source",

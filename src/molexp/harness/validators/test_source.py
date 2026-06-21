@@ -26,7 +26,7 @@ from collections.abc import Iterable
 
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
 
-__all__ = ["validate_test_source"]
+__all__ = ["TestSourceValidator"]
 
 _PRIVATE_PREFIX = "molexp.workflow._"
 
@@ -53,98 +53,102 @@ def _normalize_task_id(task_id: str) -> str:
     return re.sub(r"\W", "_", task_id)
 
 
-def validate_test_source(
-    source: str,
-    *,
-    target_id: str = "",
-    required_task_ids: Iterable[str] | None = None,
-) -> ValidationReport:
-    """Run syntax + import + test-presence + byte-compile pre-checks.
+class TestSourceValidator:
+    """Pure structural pre-checks for generated pytest source."""
 
-    Args:
-        source: The generated pytest program text.
-        target_id: The artifact id this source came from (for the report).
-        required_task_ids: When given, every task id must be covered by a
-            ``test_*`` function whose name contains the id's identifier-safe
-            token (``test_<task_id>`` or any ``test_*`` containing it); a
-            missing one yields a ``missing_task_test`` error. When ``None``
-            the legacy "at least one test" check stands alone.
+    @staticmethod
+    def validate(
+        source: str,
+        *,
+        target_id: str = "",
+        required_task_ids: Iterable[str] | None = None,
+    ) -> ValidationReport:
+        """Run syntax + import + test-presence + byte-compile pre-checks.
 
-    Returns:
-        A :class:`ValidationReport` with ``target_kind="test_source"``;
-        ``passed`` is False if any error-severity violation is present.
-    """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
+        Args:
+            source: The generated pytest program text.
+            target_id: The artifact id this source came from (for the report).
+            required_task_ids: When given, every task id must be covered by a
+                ``test_*`` function whose name contains the id's identifier-safe
+                token (``test_<task_id>`` or any ``test_*`` containing it); a
+                missing one yields a ``missing_task_test`` error. When ``None``
+                the legacy "at least one test" check stands alone.
+
+        Returns:
+            A :class:`ValidationReport` with ``target_kind="test_source"``;
+            ``passed`` is False if any error-severity violation is present.
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            return ValidationReport.from_violations(
+                target_kind="test_source",
+                target_id=target_id,
+                violations=[
+                    ValidationViolation(
+                        code="syntax_error",
+                        message=f"generated test source failed to parse: {exc!r}",
+                        severity="error",
+                    )
+                ],
+            )
+
+        violations: list[ValidationViolation] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_private_workflow(alias.name):
+                        violations.append(
+                            ValidationViolation(
+                                code="private_import",
+                                message=f"generated test source imports private module {alias.name!r}",
+                                severity="error",
+                            )
+                        )
+            elif isinstance(node, ast.ImportFrom) and _is_private_workflow(node.module):
+                violations.append(
+                    ValidationViolation(
+                        code="private_import",
+                        message=f"generated test source imports from private module {node.module!r}",
+                        severity="error",
+                    )
+                )
+
+        test_names = _test_function_names(tree)
+        if not test_names:
+            violations.append(
+                ValidationViolation(
+                    code="no_test_functions",
+                    message="generated test source defines no module-level test_* function",
+                    severity="error",
+                )
+            )
+
+        for task_id in required_task_ids or ():
+            token = _normalize_task_id(task_id)
+            if not any(token in name for name in test_names):
+                violations.append(
+                    ValidationViolation(
+                        code="missing_task_test",
+                        message=f"generated test source has no test_* function covering "
+                        f"task {task_id!r} (expected a test name containing {token!r})",
+                        severity="error",
+                    )
+                )
+
+        try:
+            compile(source, "<test_source>", "exec")
+        except (SyntaxError, ValueError) as exc:
+            violations.append(
+                ValidationViolation(
+                    code="compile_error",
+                    message=f"generated test source failed to byte-compile: {exc!r}",
+                    severity="error",
+                )
+            )
+
         return ValidationReport.from_violations(
             target_kind="test_source",
             target_id=target_id,
-            violations=[
-                ValidationViolation(
-                    code="syntax_error",
-                    message=f"generated test source failed to parse: {exc!r}",
-                    severity="error",
-                )
-            ],
+            violations=violations,
         )
-
-    violations: list[ValidationViolation] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if _is_private_workflow(alias.name):
-                    violations.append(
-                        ValidationViolation(
-                            code="private_import",
-                            message=f"generated test source imports private module {alias.name!r}",
-                            severity="error",
-                        )
-                    )
-        elif isinstance(node, ast.ImportFrom) and _is_private_workflow(node.module):
-            violations.append(
-                ValidationViolation(
-                    code="private_import",
-                    message=f"generated test source imports from private module {node.module!r}",
-                    severity="error",
-                )
-            )
-
-    test_names = _test_function_names(tree)
-    if not test_names:
-        violations.append(
-            ValidationViolation(
-                code="no_test_functions",
-                message="generated test source defines no module-level test_* function",
-                severity="error",
-            )
-        )
-
-    for task_id in required_task_ids or ():
-        token = _normalize_task_id(task_id)
-        if not any(token in name for name in test_names):
-            violations.append(
-                ValidationViolation(
-                    code="missing_task_test",
-                    message=f"generated test source has no test_* function covering "
-                    f"task {task_id!r} (expected a test name containing {token!r})",
-                    severity="error",
-                )
-            )
-
-    try:
-        compile(source, "<test_source>", "exec")
-    except (SyntaxError, ValueError) as exc:
-        violations.append(
-            ValidationViolation(
-                code="compile_error",
-                message=f"generated test source failed to byte-compile: {exc!r}",
-                severity="error",
-            )
-        )
-
-    return ValidationReport.from_violations(
-        target_kind="test_source",
-        target_id=target_id,
-        violations=violations,
-    )

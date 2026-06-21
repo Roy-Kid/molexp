@@ -25,7 +25,7 @@ from molexp.harness.schemas import (
     ValidationViolation,
 )
 from molexp.harness.stages._resolve import require_latest
-from molexp.harness.validators.test_source import validate_test_source
+from molexp.harness.validators.test_source import TestSourceValidator
 
 __all__ = ["ValidateTestSource"]
 
@@ -60,7 +60,7 @@ class ValidateTestSource(Stage):
                 ctx, report, f"TestSource parse failed: {exc!r}", target=target
             )
 
-        report = validate_test_source(
+        report = TestSourceValidator.validate(
             ts.source,
             target_id=target,
             required_task_ids=self._required_task_ids(ctx),

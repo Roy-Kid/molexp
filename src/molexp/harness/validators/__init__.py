@@ -20,15 +20,15 @@ from __future__ import annotations
 
 from molexp.harness.validators.bound_workflow import validate_bound_workflow
 from molexp.harness.validators.provenance import validate_provenance
-from molexp.harness.validators.test_source import validate_test_source
+from molexp.harness.validators.test_source import TestSourceValidator
 from molexp.harness.validators.test_spec import validate_test_spec
 from molexp.harness.validators.workflow_ir import validate_workflow_ir
 from molexp.harness.validators.workflow_source import validate_workflow_source
 
 __all__ = [
+    "TestSourceValidator",
     "validate_bound_workflow",
     "validate_provenance",
-    "validate_test_source",
     "validate_test_spec",
     "validate_workflow_ir",
     "validate_workflow_source",
