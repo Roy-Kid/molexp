@@ -1,8 +1,9 @@
 """Agent boundary firewall (rectification spec — Phase 0 / P0-06).
 
-Agent is the top of the three-layer DAG. It may import from both
-``molexp.workspace.*`` and ``molexp.workflow.*`` (those are downstream).
-It MUST NOT import from sibling application layers:
+Agent sits above the bottom storage layers. Its sanctioned downstream edges
+are ``molexp.workspace.*`` and ``molexp.knowledge.*`` (Agent/AgentSession are
+knowledge Concepts after the OKF rehome). It MUST NOT import ``molexp.workflow``
+/ ``molexp.harness`` (sibling/upstream) nor the sibling application layers:
 
 - ``molexp.plugins`` (the agent stays a library, never reaches the
   application's plugin shell)
@@ -232,14 +233,17 @@ def test_importing_mcp_defaults_stays_lazy() -> None:
     assert result.returncode == 0, result.stderr or result.stdout
 
 
-def test_agent_workspace_only_is_allowed() -> None:
-    """Sanity guard: workspace is the ONLY downstream layer agent may reach.
+def test_agent_downstream_layers_are_allowed() -> None:
+    """Sanity guard: agent's permitted downstream edges are workspace + knowledge.
 
     Post spec 03b the charter is reversed — agent sits *below* harness in the
     DAG and no longer drives the workflow engine, so both ``molexp.workflow``
-    and ``molexp.harness`` are forbidden alongside the application shell.
+    and ``molexp.harness`` are forbidden alongside the application shell. The
+    OKF rehome adds ``molexp.knowledge`` (the bottom storage layer) as a
+    sanctioned downstream edge — Agent/AgentSession are knowledge Concepts.
     """
     assert "molexp.workspace" not in FORBIDDEN_PREFIXES
+    assert "molexp.knowledge" not in FORBIDDEN_PREFIXES  # agent→knowledge is legal
     assert "molexp.workflow" in FORBIDDEN_PREFIXES
     assert "molexp.harness" in FORBIDDEN_PREFIXES
 

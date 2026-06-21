@@ -1,18 +1,10 @@
-"""Acceptance test for PR 4: agent layer offloads "local-only" assumption.
+"""Agent folders route ALL I/O through their injectable knowledge FileSystem.
 
-Verifies that :class:`molexp.agent.folders.Agent` and
-:class:`molexp.agent.folders.AgentSession` route ALL I/O through
-``self._fs`` and therefore would work against a non-local
-:class:`FileSystem` implementation (e.g. ``RemoteFileSystem``).  Before
-PR 4 these subclasses bound directly to :meth:`pathlib.Path.exists` /
-``.mkdir`` / ``.read_bytes`` and silently broke when mounted under a
-non-:class:`LocalFileSystem` workspace.
-
-This test instruments :class:`LocalFileSystem` with a spy that records
-every method call, then asserts that all of the agent-layer I/O calls
-went through fs.  A real :class:`RemoteFileSystem` would route the same
-calls through SSH (subject to a richer molq Transport implementation, a
-separate workstream).
+After the OKF rehome, ``Agent`` / ``AgentSession`` are ``knowledge.Folder``
+Concepts (flat layout: ``<agent>/<session>/``). This test instruments a
+knowledge ``LocalFileSystem`` with a call-recording spy and asserts the agent
+layer routes through ``fs`` (so a non-local backend would work) rather than
+touching ``pathlib`` directly.
 """
 
 from __future__ import annotations
@@ -20,28 +12,18 @@ from __future__ import annotations
 import pytest
 
 from molexp.agent.folders import Agent
-from molexp.workspace import Workspace
-from molexp.workspace.fs_local import LocalFileSystem
+from molexp.knowledge import LocalFileSystem
 
 
 class _SpyFileSystem:
-    """Wraps :class:`LocalFileSystem` and records every method call.
-
-    Behaves identically to LocalFileSystem for I/O but exposes
-    ``.calls`` — the list of ``(method_name, path)`` tuples — so tests
-    can assert the agent layer routed through fs instead of touching
-    pathlib directly.
-    """
+    """Wraps knowledge ``LocalFileSystem``, recording every method call."""
 
     def __init__(self) -> None:
         self._real = LocalFileSystem()
         self.calls: list[tuple[str, str]] = []
 
     def _record(self, name: str, path: object) -> None:
-        try:
-            self.calls.append((name, str(path)))
-        except Exception:
-            self.calls.append((name, "<unrepresentable>"))
+        self.calls.append((name, str(path)))
 
     def __getattr__(self, name: str):
         attr = getattr(self._real, name)
@@ -49,106 +31,72 @@ class _SpyFileSystem:
             return attr
 
         def wrapped(*args: object, **kwargs: object) -> object:
-            if args:
-                self._record(name, args[0])
-            else:
-                self._record(name, kwargs.get("path", ""))
+            self._record(name, args[0] if args else kwargs.get("path", ""))
             return attr(*args, **kwargs)
 
         return wrapped
 
 
 @pytest.fixture
-def spy_workspace(tmp_path):
-    """Workspace whose FileSystem is a recording spy over LocalFileSystem."""
+def spy_agent(tmp_path):
+    """An Agent rooted at a tmp bundle, backed by a recording spy fs."""
     fs = _SpyFileSystem()
-    ws = Workspace(root=tmp_path / "lab", fs=fs)
-    ws.materialize()
-    fs.calls.clear()  # ignore the materialize call from this point on
-    return ws, fs
+    agent = Agent(name="reviewer", root=tmp_path / "lab", fs=fs)
+    return agent, fs
 
 
 def _ops_for_path(calls: list[tuple[str, str]], rel: str) -> set[str]:
-    """Set of fs-method names that touched any path containing ``rel``."""
     return {op for op, path in calls if rel in path}
 
 
-def test_agent_mount_routes_through_fs(spy_workspace):
-    """``ws.add_folder(Agent(...))`` should mkdir + write metadata via fs."""
-    ws, fs = spy_workspace
-    ws.add_folder(Agent(name="reviewer"))
-
-    ops = _ops_for_path(fs.calls, "agents/reviewer")
-    assert "mkdir" in ops, (
-        f"Agent mount must mkdir via fs (not pathlib.Path.mkdir); ops were {ops!r}"
-    )
-    # atomic_write_json is how _save_metadata persists agent.json
-    assert any("write" in op or "atomic" in op for op in ops), (
-        f"Agent mount must write metadata via fs; ops were {ops!r}"
-    )
+def test_agent_materialize_routes_through_fs(spy_agent):
+    agent, fs = spy_agent
+    agent.materialize()
+    ops = _ops_for_path(fs.calls, "reviewer")
+    assert "mkdir" in ops, f"materialize must mkdir via fs; ops were {ops!r}"
+    assert "write_text" in ops, f"materialize must write meta.yaml via fs; ops were {ops!r}"
 
 
-def test_agent_session_messages_path_uses_fs_join(spy_workspace):
-    """``session.messages_path`` should be a fs.join'd path under the session dir."""
-    ws, _fs = spy_workspace
-    agent = ws.add_folder(Agent(name="reviewer"))
+def test_session_messages_path_is_flat(spy_agent):
+    agent, _fs = spy_agent
     session = agent.add_session("chat-1")
-
-    expected_tail = "agents/reviewer/agent_sessions/chat-1/messages.jsonl"
-    assert str(session.messages_path).endswith(expected_tail), (
-        f"expected messages_path to end with {expected_tail!r}; got {session.messages_path}"
-    )
+    # flat layout: <agent>/<session>/messages.jsonl (no agents/ + agent_sessions/)
+    assert str(session.messages_path).endswith("reviewer/chat-1/messages.jsonl")
 
 
-def test_agent_session_read_messages_routes_through_fs(spy_workspace):
-    """``read_messages()`` on an empty session must call ``fs.exists``, not pathlib."""
-    ws, fs = spy_workspace
-    agent = ws.add_folder(Agent(name="reviewer"))
+def test_read_messages_routes_through_fs(spy_agent):
+    agent, fs = spy_agent
     session = agent.add_session("chat-1")
     fs.calls.clear()
-
-    result = session.read_messages()
-    assert result == ()
-
+    assert session.read_messages() == ()
     ops = _ops_for_path(fs.calls, "messages.jsonl")
-    assert "exists" in ops, (
-        f"read_messages must call fs.exists (not pathlib.Path.exists); ops were {ops!r}"
-    )
+    assert "exists" in ops, f"read_messages must call fs.exists; ops were {ops!r}"
 
 
-def test_agent_session_write_messages_routes_through_fs(spy_workspace):
-    """``write_messages([])`` removes via fs.remove + fs.exists, not pathlib."""
-    ws, fs = spy_workspace
-    agent = ws.add_folder(Agent(name="reviewer"))
+def test_write_messages_empty_removes_via_fs(spy_agent):
+    agent, fs = spy_agent
     session = agent.add_session("chat-1")
-
-    # Plant a fake messages.jsonl so the empty-write branch hits .remove
     fs.write_bytes(session.messages_path, b"{}\n")
     fs.calls.clear()
-
-    session.write_messages(())  # empty → should remove
-
+    session.write_messages(())  # empty → remove via fs
     ops = _ops_for_path(fs.calls, "messages.jsonl")
-    assert "exists" in ops
     assert "remove" in ops, f"write_messages(empty) must remove via fs.remove; ops were {ops!r}"
 
 
-def test_agent_session_reload_routes_through_fs(spy_workspace, tmp_path):
-    """``from_disk`` (via get_folder on a fresh Workspace) must use fs."""
-    ws, _fs = spy_workspace
-    agent = ws.add_folder(Agent(name="reviewer"))
-    agent.add_session("chat-1")
+def test_sessions_round_trip_via_registry(tmp_path):
+    fs = _SpyFileSystem()
+    agent = Agent(name="reviewer", root=tmp_path / "lab", fs=fs)
+    agent.add_session("chat-1", goal_summary="solve X", status="running")
 
-    # New workspace handle → empty children cache → forces from_disk path.
+    # a fresh Agent handle (empty child cache) reconstructs sessions from disk
     fresh_fs = _SpyFileSystem()
-    fresh_ws = Workspace(root=tmp_path / "lab", fs=fresh_fs)
+    reloaded = Agent(name="reviewer", root=tmp_path / "lab", fs=fresh_fs)
+    assert [s.name for s in reloaded.list_sessions()] == ["chat-1"]
+    assert isinstance(reloaded.get_session("chat-1"), type(agent.get_session("chat-1")))
 
-    reloaded = fresh_ws.get_folder("reviewer", cls=Agent)
-    sessions = reloaded.list_sessions()
-    assert [s.name for s in sessions] == ["chat-1"]
-
-    # Reload must have opened agent.json + agent_session.json via fs
-    agent_meta_ops = _ops_for_path(fresh_fs.calls, "agents/reviewer/agent.json")
-    session_meta_ops = _ops_for_path(fresh_fs.calls, "agent_sessions/chat-1/agent_session.json")
-    assert agent_meta_ops, "from_disk(Agent) must touch agent.json via fs"
-    assert session_meta_ops, "from_disk(AgentSession) must touch agent_session.json via fs"
+    # disk is the source of truth — a reconstructed handle sees persisted state,
+    # not constructor defaults (read-through, no stale in-memory shadow)
+    session = reloaded.get_session("chat-1")
+    assert session.goal_summary == "solve X"
+    assert session.status == "running"
+    assert session.read_session_meta().goal_summary == "solve X"
