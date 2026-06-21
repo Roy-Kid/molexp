@@ -266,7 +266,7 @@ _TEST_SOURCE = {
         "from water_nemd import build_workflow\n"
         "\n"
         "\n"
-        "def test_compiles() -> None:\n"
+        "def test_build_compiles() -> None:\n"
         "    assert build_workflow().compile() is not None\n"
     ),
     "module_name": "test_water_nemd",

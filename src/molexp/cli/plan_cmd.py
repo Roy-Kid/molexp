@@ -66,7 +66,7 @@ def _make_gateway(*, model: str, run: Run) -> AgentGateway:
         ExperimentReport,
         FinalReport,
         TestSource,
-        TestSpec,
+        TestSpecBundle,
         WorkflowIR,
         WorkflowSource,
     )
@@ -82,7 +82,7 @@ def _make_gateway(*, model: str, run: Run) -> AgentGateway:
             "workflow_ir_extractor": WorkflowIR,
             "bound_workflow_binder": BoundWorkflow,
             "workflow_source_writer": WorkflowSource,
-            "test_spec_writer": TestSpec,
+            "test_spec_writer": TestSpecBundle,
             "test_code_writer": TestSource,
             "final_report_writer": FinalReport,
         },

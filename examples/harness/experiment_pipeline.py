@@ -63,6 +63,7 @@ from molexp.harness import (
     TaskIR,
     TestSource,
     TestSpec,
+    TestSpecBundle,
     WorkflowIR,
     WorkflowSource,
 )
@@ -153,14 +154,14 @@ from generated_workflow import (
 )
 
 
-def test_walks_are_deterministic_with_seed():
+def test_generate_walks_are_deterministic_with_seed():
     a = random_walk_displacements(N_WALKERS, N_STEPS, SEED)
     b = random_walk_displacements(N_WALKERS, N_STEPS, SEED)
     assert a == b
     assert len(a) == N_WALKERS
 
 
-def test_msd_is_positive_and_near_n_steps():
+def test_compute_msd_is_positive_and_near_n_steps():
     walks = random_walk_displacements(N_WALKERS, N_STEPS, SEED)
     msd = mean_squared_displacement(walks)
     assert msd > 0
@@ -168,7 +169,7 @@ def test_msd_is_positive_and_near_n_steps():
     assert 0.5 * N_STEPS < msd < 2.0 * N_STEPS
 
 
-def test_diffusion_coefficient_is_positive_and_near_half():
+def test_estimate_d_is_positive_and_near_half():
     walks = random_walk_displacements(N_WALKERS, N_STEPS, SEED)
     msd = mean_squared_displacement(walks)
     d = estimate_diffusion_coefficient(msd, N_STEPS)
@@ -281,12 +282,21 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
         bound_workflow_id=bound.id,
         symbols=("WorkflowCompiler", "TaskContext"),
     )
-    test_spec = TestSpec(
-        id="ts-random-walk",
-        name="random-walk unit tests",
-        kind="unit_test",
-        target_task_id="estimate_d",
-        description="Determinism, MSD sanity, and D = MSD/(2 d t) bounds.",
+    # One TestSpec per IR task (the per-task fan-out); the generated
+    # TEST_SOURCE carries a ``test_*`` covering each task id.
+    test_spec = TestSpecBundle(
+        id="tsb-random-walk",
+        bound_workflow_id=bound.id,
+        specs=[
+            TestSpec(
+                id=f"ts-{tid}",
+                name=f"{tid} unit test",
+                kind="unit_test",
+                target_task_id=tid,
+                description="Determinism, MSD sanity, and D = MSD/(2 d t) bounds.",
+            )
+            for tid in ("generate_walks", "compute_msd", "estimate_d")
+        ],
     )
     test_source = TestSource(
         source=TEST_SOURCE,
@@ -378,7 +388,7 @@ def _live_gateway(store: FileArtifactStore) -> AgentGateway:
         "workflow_ir_extractor": WorkflowIR,
         "bound_workflow_binder": BoundWorkflow,
         "workflow_source_writer": WorkflowSource,
-        "test_spec_writer": TestSpec,
+        "test_spec_writer": TestSpecBundle,
         "test_code_writer": TestSource,
         "final_report_writer": FinalReport,
     }

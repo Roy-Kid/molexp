@@ -199,6 +199,60 @@ def test_validate_test_source_runs_byte_compile_stage() -> None:
     assert len(report.violations) >= 1
 
 
+# ------------------------------------------ per-task coverage (required_task_ids)
+
+
+_TWO_TASK_SOURCE = (
+    "def test_build_ok():\n    assert True\n\n\ndef test_relax_ok():\n    assert True\n"
+)
+
+
+def test_validate_test_source_rejects_module_missing_a_per_task_test() -> None:
+    """ac-005 — a module covering only some required tasks fails with a
+    ``missing_task_test`` error for the uncovered one."""
+    from molexp.harness import validate_test_source
+
+    report = validate_test_source(
+        _TWO_TASK_SOURCE,
+        target_id="ts-art-1",
+        required_task_ids={"build", "relax", "analyze"},
+    )
+    assert report.passed is False
+    missing = [v for v in report.violations if v.code == "missing_task_test"]
+    assert len(missing) == 1
+    assert "analyze" in missing[0].message
+
+
+def test_validate_test_source_accepts_a_test_per_required_task() -> None:
+    """ac-005 — every required task covered by a ``test_*`` → passes."""
+    from molexp.harness import validate_test_source
+
+    report = validate_test_source(
+        _TWO_TASK_SOURCE,
+        target_id="ts-art-1",
+        required_task_ids={"build", "relax"},
+    )
+    assert report.passed is True
+    assert report.violations == []
+
+
+def test_validate_test_source_normalizes_non_identifier_task_ids() -> None:
+    """A hyphenated task id is matched by its identifier-safe token."""
+    from molexp.harness import validate_test_source
+
+    source = "def test_b_build_ok():\n    assert True\n"
+    report = validate_test_source(source, target_id="ts-art-1", required_task_ids={"b-build"})
+    assert report.passed is True
+
+
+def test_validate_test_source_none_required_keeps_legacy_behaviour() -> None:
+    """required_task_ids=None → only the legacy 'at least one test' check."""
+    from molexp.harness import validate_test_source
+
+    report = validate_test_source(VALID_TEST_SOURCE, target_id="ts-art-1")
+    assert report.passed is True
+
+
 # ------------------------------------------------------------ stage shape
 
 

@@ -1,11 +1,15 @@
-"""``ValidateTestSpec`` — structural gate on the generated TestSpec.
+"""``ValidateTestSpec`` — structural gate on the generated TestSpecBundle.
 
-Loads the latest ``test_spec`` artifact, runs the pure
-:func:`validate_test_spec` validator (cross-checked against the run's
-``workflow_ir`` artifact when one exists, shallow otherwise), and persists a
-:class:`ValidationReport` **always** — on failure the stage raises
-:class:`StagePersistedFailureError` after persisting (mirroring
-:class:`ValidateWorkflowSource`).
+Loads the latest ``test_spec`` artifact (a :class:`TestSpecBundle` carrying
+one :class:`TestSpec` per ``BoundTask``), runs the pure
+:func:`validate_test_spec` validator over **every** member spec
+(cross-checked against the run's ``workflow_ir`` artifact when one exists,
+shallow otherwise), merges the violations into one
+:class:`ValidationReport`, and persists it **always** — on failure the stage
+raises :class:`StagePersistedFailureError` after persisting (mirroring
+:class:`ValidateWorkflowSource`). An empty bundle (no specs) is itself a
+violation. For back-compat the loader also accepts a bare ``TestSpec``
+artifact, treating it as a one-element bundle.
 """
 
 from __future__ import annotations
@@ -19,6 +23,7 @@ from molexp.harness.errors import StagePersistedFailureError
 from molexp.harness.schemas import (
     ArtifactRef,
     TestSpec,
+    TestSpecBundle,
     ValidationReport,
     ValidationViolation,
     WorkflowIR,
@@ -27,6 +32,24 @@ from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.test_spec import validate_test_spec
 
 __all__ = ["ValidateTestSpec"]
+
+
+def load_test_spec_bundle(raw: bytes | str) -> TestSpecBundle:
+    """Parse a ``test_spec`` artifact as a :class:`TestSpecBundle`.
+
+    Accepts the current bundle shape; falls back to a bare :class:`TestSpec`
+    (wrapped as a one-element bundle) so single-spec artifacts written before
+    the per-task fan-out still validate. Raises if it is neither.
+    """
+    try:
+        return TestSpecBundle.model_validate_json(raw)
+    except ValueError:
+        spec = TestSpec.model_validate_json(raw)
+        return TestSpecBundle(
+            id=spec.id,
+            bound_workflow_id=spec.target_workflow_id or "",
+            specs=[spec],
+        )
 
 
 class ValidateTestSpec(Stage):
@@ -42,7 +65,7 @@ class ValidateTestSpec(Stage):
         raw = ctx.artifact_store.get(target)
 
         try:
-            spec = TestSpec.model_validate_json(raw)
+            bundle = load_test_spec_bundle(raw)
         except Exception as exc:
             report = ValidationReport.from_violations(
                 target_kind="test_spec",
@@ -59,7 +82,25 @@ class ValidateTestSpec(Stage):
                 ctx, report, f"TestSpec parse failed: {exc!r}", target=target
             )
 
-        report = validate_test_spec(spec, ir=self._load_ir(ctx))
+        ir = self._load_ir(ctx)
+        violations: list[ValidationViolation] = []
+        if not bundle.specs:
+            violations.append(
+                ValidationViolation(
+                    code="empty_test_spec_bundle",
+                    message="TestSpecBundle carries no specs; a bound workflow "
+                    "with tasks must yield at least one TestSpec",
+                    severity="error",
+                )
+            )
+        for spec in bundle.specs:
+            violations.extend(validate_test_spec(spec, ir=ir).violations)
+
+        report = ValidationReport.from_violations(
+            target_kind="test_spec",
+            target_id=target,
+            violations=violations,
+        )
         codes = [v.code for v in report.violations if v.severity == "error"]
         return self._persist_and_maybe_raise(
             ctx, report, f"test spec validation failed: {codes}", target=target

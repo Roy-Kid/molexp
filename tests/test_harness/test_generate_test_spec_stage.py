@@ -104,7 +104,7 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
 
 def test_builds_correct_spec(ctx_with_gw) -> None:
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSpec
+    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSpecBundle
     from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
     bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
@@ -130,7 +130,43 @@ def test_builds_correct_spec(ctx_with_gw) -> None:
     spec = captured[0]
     assert spec.agent_name == "test_spec_writer"
     assert spec.input_artifact_ids == [bw_ref.id]
-    assert spec.output_schema == TestSpec.model_json_schema()
+    # The stage now requests a per-task TestSpecBundle, not a bare TestSpec.
+    assert spec.output_schema == TestSpecBundle.model_json_schema()
+
+
+def test_emits_one_test_spec_per_bound_task(ctx_with_gw) -> None:
+    """ac-002 — the persisted test_spec is a TestSpecBundle with one spec per
+    BoundTask, each naming a distinct target task."""
+    from molexp.harness.schemas import TestSpecBundle
+    from molexp.harness.stages.generate_test_spec import GenerateTestSpec
+
+    _seed_bw_ref(ctx_with_gw.artifact_store)  # ids in the bundle below
+    task_ids = ["b-build", "b-relax"]
+    bundle = {
+        "id": "tsb-x",
+        "bound_workflow_id": "bw-x",
+        "specs": [
+            {
+                "id": f"ts-{tid}",
+                "name": f"dry-run {tid}",
+                "kind": "dry_run_test",
+                "target_task_id": tid,
+                "description": f"verify task {tid} parses",
+            }
+            for tid in task_ids
+        ],
+    }
+    ctx_with_gw.agent_gateway.register(
+        agent_name="test_spec_writer",
+        output=bundle,
+        output_kind="test_spec",
+    )
+
+    ref = asyncio.run(GenerateTestSpec().run(ctx_with_gw))
+    parsed = TestSpecBundle.model_validate_json(ctx_with_gw.artifact_store.get(ref.id))
+    assert len(parsed.specs) == len(task_ids)
+    assert [s.target_task_id for s in parsed.specs] == task_ids
+    assert len({s.target_task_id for s in parsed.specs}) == len(task_ids)
 
 
 def test_returns_test_spec_ref(ctx_with_gw) -> None:

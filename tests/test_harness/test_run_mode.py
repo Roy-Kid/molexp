@@ -74,7 +74,7 @@ _PASSING_TEST_SOURCE = """\
 from generated_workflow import build_workflow
 
 
-def test_compiles() -> None:
+def test_build_compiles() -> None:
     assert build_workflow().compile() is not None
 """
 
@@ -132,12 +132,20 @@ _WORKFLOW_SOURCE = {
     "bound_workflow_id": "bw-water",
     "symbols": ["WorkflowCompiler", "TaskContext"],
 }
+# One TestSpec per BoundTask, bundled into the single test_spec artifact. The
+# lone BoundTask "build" → the generated source must carry a test covering it.
 _TEST_SPEC = {
-    "id": "ts-water",
-    "name": "workflow_compiles",
-    "kind": "unit_test",
-    "target_task_id": "build",
-    "description": "The generated workflow module compiles into a workflow.",
+    "id": "tsb-water",
+    "bound_workflow_id": "bw-water",
+    "specs": [
+        {
+            "id": "ts-water",
+            "name": "workflow_compiles",
+            "kind": "unit_test",
+            "target_task_id": "build",
+            "description": "The generated workflow module compiles into a workflow.",
+        }
+    ],
 }
 _TEST_SOURCE = {
     "source": _PASSING_TEST_SOURCE,
@@ -146,9 +154,11 @@ _TEST_SOURCE = {
     "bound_workflow_id": "bw-water",
     "symbols": ["build_workflow"],
 }
+# Structurally valid (covers task "build") but red at pytest runtime, so the
+# block happens at ExecuteTests, not ValidateTestSource.
 _FAILING_TEST_SOURCE = {
     **_TEST_SOURCE,
-    "source": "def test_fails() -> None:\n    assert False\n",
+    "source": "def test_build_runs() -> None:\n    assert False\n",
 }
 _FINAL_REPORT = {
     "title": "CannedWaterNemdFinalReport",

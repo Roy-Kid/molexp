@@ -27,7 +27,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from molexp.harness.schemas.artifact import ArtifactRef
 from molexp.harness.schemas.parameter import ParameterValue
 
-__all__ = ["TestKind", "TestResult", "TestSpec", "TestStatus"]
+__all__ = ["TestKind", "TestResult", "TestSpec", "TestSpecBundle", "TestStatus"]
 
 
 TestKind = Literal[
@@ -63,6 +63,26 @@ class TestSpec(BaseModel):
     expected_metrics: dict[str, ParameterValue] = Field(default_factory=dict)
     tolerance: dict[str, float] = Field(default_factory=dict)
     required: bool = True
+
+
+class TestSpecBundle(BaseModel):
+    """One ``test_spec`` artifact carrying a per-task list of :class:`TestSpec`.
+
+    The ``GenerateTestSpec`` stage fans test generation out to **one
+    :class:`TestSpec` per ``BoundTask``** of the bound workflow; rather than
+    persist N separate ``test_spec`` artifacts (which would break the
+    single-latest-artifact contract both ``ValidateTestSpec`` and
+    ``GenerateTestCode`` rely on) the specs ride inside this bundle. The
+    artifact *kind* stays ``"test_spec"``; only its JSON shape widens from a
+    bare ``TestSpec`` to this wrapper. Each member's ``target_task_id`` names
+    the ``BoundTask`` it covers.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    bound_workflow_id: str
+    specs: list[TestSpec] = Field(default_factory=list)
 
 
 class TestResult(BaseModel):

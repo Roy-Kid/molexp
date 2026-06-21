@@ -60,11 +60,35 @@ class ValidateTestSource(Stage):
                 ctx, report, f"TestSource parse failed: {exc!r}", target=target
             )
 
-        report = validate_test_source(ts.source, target_id=target)
+        report = validate_test_source(
+            ts.source,
+            target_id=target,
+            required_task_ids=self._required_task_ids(ctx),
+        )
         codes = [v.code for v in report.violations if v.severity == "error"]
         return self._persist_and_maybe_raise(
             ctx, report, f"test source validation failed: {codes}", target=target
         )
+
+    @staticmethod
+    def _required_task_ids(ctx: HarnessRunContext) -> set[str] | None:
+        """Task ids the generated source must cover, from the test_spec bundle.
+
+        Returns the set of non-empty ``target_task_id`` across the latest
+        ``test_spec`` bundle's specs, or ``None`` when no parseable bundle is
+        present (legacy "at least one test" enforcement then stands alone).
+        """
+        from molexp.harness.stages.validate_test_spec import load_test_spec_bundle
+
+        ref = ctx.artifact_store.latest_by_kind("test_spec")
+        if ref is None:
+            return None
+        try:
+            bundle = load_test_spec_bundle(ctx.artifact_store.get(ref.id))
+        except Exception:
+            return None
+        ids = {spec.target_task_id for spec in bundle.specs if spec.target_task_id}
+        return ids or None
 
     def _persist_and_maybe_raise(
         self,

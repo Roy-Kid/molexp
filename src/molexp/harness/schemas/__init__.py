@@ -35,7 +35,13 @@ from molexp.harness.schemas.mode_result import ModeResult
 from molexp.harness.schemas.parameter import ParameterSource, ParameterValue
 from molexp.harness.schemas.policy import ApprovalPolicy, PathPolicy, ToolPolicy
 from molexp.harness.schemas.test_source import TestSource
-from molexp.harness.schemas.test_spec import TestKind, TestResult, TestSpec, TestStatus
+from molexp.harness.schemas.test_spec import (
+    TestKind,
+    TestResult,
+    TestSpec,
+    TestSpecBundle,
+    TestStatus,
+)
 from molexp.harness.schemas.user_plan import UserPlan
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
 from molexp.harness.schemas.workflow_ir import (
@@ -79,6 +85,7 @@ __all__ = [
     "TestResult",
     "TestSource",
     "TestSpec",
+    "TestSpecBundle",
     "TestStatus",
     "ToolCapability",
     "ToolPolicy",

@@ -21,6 +21,8 @@ tests is :class:`ExecuteTests`'s job, through a harness executor.
 from __future__ import annotations
 
 import ast
+import re
+from collections.abc import Iterable
 
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
 
@@ -36,20 +38,37 @@ def _is_private_workflow(module: str | None) -> bool:
     return module == "molexp.workflow._" or module.startswith(_PRIVATE_PREFIX)
 
 
-def _has_test_function(tree: ast.Module) -> bool:
-    """True if the module defines a top-level ``test_*`` (async) function."""
-    return any(
-        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+def _test_function_names(tree: ast.Module) -> list[str]:
+    """Names of the module's top-level ``test_*`` (async) functions."""
+    return [
+        node.name
         for node in tree.body
-    )
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    ]
 
 
-def validate_test_source(source: str, *, target_id: str = "") -> ValidationReport:
+def _normalize_task_id(task_id: str) -> str:
+    """Map a task id to the identifier-safe token a test name must contain."""
+    return re.sub(r"\W", "_", task_id)
+
+
+def validate_test_source(
+    source: str,
+    *,
+    target_id: str = "",
+    required_task_ids: Iterable[str] | None = None,
+) -> ValidationReport:
     """Run syntax + import + test-presence + byte-compile pre-checks.
 
     Args:
         source: The generated pytest program text.
         target_id: The artifact id this source came from (for the report).
+        required_task_ids: When given, every task id must be covered by a
+            ``test_*`` function whose name contains the id's identifier-safe
+            token (``test_<task_id>`` or any ``test_*`` containing it); a
+            missing one yields a ``missing_task_test`` error. When ``None``
+            the legacy "at least one test" check stands alone.
 
     Returns:
         A :class:`ValidationReport` with ``target_kind="test_source"``;
@@ -91,7 +110,8 @@ def validate_test_source(source: str, *, target_id: str = "") -> ValidationRepor
                 )
             )
 
-    if not _has_test_function(tree):
+    test_names = _test_function_names(tree)
+    if not test_names:
         violations.append(
             ValidationViolation(
                 code="no_test_functions",
@@ -99,6 +119,18 @@ def validate_test_source(source: str, *, target_id: str = "") -> ValidationRepor
                 severity="error",
             )
         )
+
+    for task_id in required_task_ids or ():
+        token = _normalize_task_id(task_id)
+        if not any(token in name for name in test_names):
+            violations.append(
+                ValidationViolation(
+                    code="missing_task_test",
+                    message=f"generated test source has no test_* function covering "
+                    f"task {task_id!r} (expected a test name containing {token!r})",
+                    severity="error",
+                )
+            )
 
     try:
         compile(source, "<test_source>", "exec")
