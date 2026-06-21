@@ -126,8 +126,10 @@ workspace_root/
 │   ├── index.json                #   derived machine index
 │   └── INDEX.md                  #   derived human/agent index (search_library reads it)
 # (loose *.md in any scope dir, e.g. README.md, are auto-discovered as in-place notes)
-├── agent.json / plan.json        # agent-layer mounts (if any)
-├── agents/<agent_id>/            # Agent Folder; sessions under agent_sessions/
+├── meta.yaml                     # OKF concept marker (type → registry) — every concept dir has one
+├── index.md                      # OKF narrative; its markdown links ARE the knowledge graph (out_edges)
+├── <agent>/                      # Agent (OKF concept, kind=agent.agent): meta.yaml + flat sessions
+│   └── <session>/                #   AgentSession (kind=agent.session): meta.yaml + messages.jsonl (binary)
 └── projects/<project_id>/
     ├── project.json
     ├── experiment.json
@@ -135,7 +137,9 @@ workspace_root/
         ├── experiment.json
         ├── run.json
         └── runs/<run_id>/
-            ├── run.json          # status, params, execution_history
+            ├── run.json          # identity/provenance: params, config_hash, profile, target (status/history mirrored here, authoritative copy in _ops/)
+            ├── meta.yaml         # OKF concept marker (type=workspace.run)
+            ├── _ops/run.json     # OKF hot-state sidecar (RunOpsState): status, ownership, heartbeat, executions — the read source
             ├── assets.json       # run-scoped asset manifest
             ├── artifacts/        # final products
             ├── cache/            # per-run user-domain cache
@@ -147,7 +151,7 @@ workspace_root/
                 └── jobs/<uuid>/  # molq scheduler manifests
 ```
 
-Agent-layer mounts (`Agent` / `AgentSession` / `PlanFolder`) can attach at any `Folder` (workspace root, Project, Experiment, or Run). Workspace stays unaware of these subclasses — they flow through generic `add_folder`.
+Agent-layer mounts (`Agent` / `AgentSession`) are OKF `workspace.Folder` subclasses (registered via `@concept_type("agent.agent"/"agent.session")` against `molexp.knowledge.types`); they can attach at any `Folder` (workspace root, Project, Experiment, or Run) through generic `add_folder`, and `concept_from_dir` reconstructs them from their `meta.yaml` `type` via the shared registry.
 
 ## Packaging
 
