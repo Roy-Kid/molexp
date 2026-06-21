@@ -106,73 +106,75 @@ def _configured_model() -> str | None:
     return agent_configured_model()
 
 
-def _make_gateway(*, model: str, run: Run) -> AgentGateway:
-    """Build the production gateway for ``run`` from the resolved ``model``.
+class PlanRuntime:
+    @staticmethod
+    def build_gateway(*, model: str, run: Run) -> AgentGateway:
+        """Build the production gateway for ``run`` from the resolved ``model``.
 
-    Wires a :class:`~molexp.agent.PydanticAIRouter` (every tier on the same
-    model id) into a ``RouterBackedAgentGateway`` whose artifact store shares
-    the run's artifact directory with the Mode-built context. A seam: tests
-    monkeypatch this to inject a ``StubAgentGateway`` instead.
-    """
-    from molexp.agent import PydanticAIRouter
-    from molexp.agent.router import ModelTier
-    from molexp.harness import RouterBackedAgentGateway
-    from molexp.harness.prompts import prompts_by_agent
-    from molexp.harness.prompts.workflow_source import (
-        SYSTEM_PROMPT as WORKFLOW_SOURCE_SYSTEM_PROMPT,
-    )
-    from molexp.harness.schemas import (
-        BoundWorkflow,
-        ExperimentReport,
-        FinalReport,
-        TestSource,
-        TestSpecBundle,
-        WorkflowIR,
-        WorkflowSource,
-    )
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+        Wires a :class:`~molexp.agent.PydanticAIRouter` (every tier on the same
+        model id) into a ``RouterBackedAgentGateway`` whose artifact store shares
+        the run's artifact directory with the Mode-built context. A seam: tests
+        monkeypatch this to inject a ``StubAgentGateway`` instead.
+        """
+        from molexp.agent import PydanticAIRouter
+        from molexp.agent.router import ModelTier
+        from molexp.harness import RouterBackedAgentGateway
+        from molexp.harness.prompts import prompts_by_agent
+        from molexp.harness.prompts.workflow_source import (
+            SYSTEM_PROMPT as WORKFLOW_SOURCE_SYSTEM_PROMPT,
+        )
+        from molexp.harness.schemas import (
+            BoundWorkflow,
+            ExperimentReport,
+            FinalReport,
+            TestSource,
+            TestSpecBundle,
+            WorkflowIR,
+            WorkflowSource,
+        )
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
 
-    store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
-    router = PydanticAIRouter(models=dict.fromkeys(ModelTier, model))
-    return RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={
-            "experiment_report_writer": ExperimentReport,
-            "workflow_ir_extractor": WorkflowIR,
-            "bound_workflow_binder": BoundWorkflow,
-            "workflow_source_writer": WorkflowSource,
-            "test_spec_writer": TestSpecBundle,
-            "test_code_writer": TestSource,
-            "final_report_writer": FinalReport,
-        },
-        output_kind_by_agent={
-            "experiment_report_writer": "experiment_report",
-            "workflow_ir_extractor": "workflow_ir",
-            "bound_workflow_binder": "bound_workflow",
-            "workflow_source_writer": "workflow_source",
-            "test_spec_writer": "test_spec",
-            "test_code_writer": "test_source",
-            "final_report_writer": "final_report",
-        },
-        system_prompt_by_agent={
-            **prompts_by_agent(),
-            "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
-        },
-        model=model,
-    )
+        store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
+        router = PydanticAIRouter(models=dict.fromkeys(ModelTier, model))
+        return RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={
+                "experiment_report_writer": ExperimentReport,
+                "workflow_ir_extractor": WorkflowIR,
+                "bound_workflow_binder": BoundWorkflow,
+                "workflow_source_writer": WorkflowSource,
+                "test_spec_writer": TestSpecBundle,
+                "test_code_writer": TestSource,
+                "final_report_writer": FinalReport,
+            },
+            output_kind_by_agent={
+                "experiment_report_writer": "experiment_report",
+                "workflow_ir_extractor": "workflow_ir",
+                "bound_workflow_binder": "bound_workflow",
+                "workflow_source_writer": "workflow_source",
+                "test_spec_writer": "test_spec",
+                "test_code_writer": "test_source",
+                "final_report_writer": "final_report",
+            },
+            system_prompt_by_agent={
+                **prompts_by_agent(),
+                "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
+            },
+            model=model,
+        )
 
+    @staticmethod
+    def build_executor() -> Executor:
+        """Build the executor RunMode drives its subprocesses through.
 
-def _make_executor() -> Executor:
-    """Build the executor RunMode drives its subprocesses through.
+        Defaults to the real :class:`LocalExecutor`. A seam: tests monkeypatch
+        this to inject a ``DryRunExecutor`` so ``--execute`` CLI tests spawn no
+        subprocesses.
+        """
+        from molexp.harness import LocalExecutor
 
-    Defaults to the real :class:`LocalExecutor`. A seam: tests monkeypatch
-    this to inject a ``DryRunExecutor`` so ``--execute`` CLI tests spawn no
-    subprocesses.
-    """
-    from molexp.harness import LocalExecutor
-
-    return LocalExecutor()
+        return LocalExecutor()
 
 
 def _resolve_draft(draft: str | None, file: Path | None) -> str:
@@ -279,7 +281,7 @@ def plan(
     rprint(f"  workspace : {workspace_root}")
     rprint(f"  stages    : {' -> '.join(stage_names)}")
 
-    gateway = _make_gateway(model=resolved_model, run=run)
+    gateway = PlanRuntime.build_gateway(model=resolved_model, run=run)
     try:
         result = asyncio.run(mode.run(run=run, user_input=draft_text, gateway=gateway))
     except StageExecutionError as exc:
@@ -316,7 +318,7 @@ def _execute_run_mode(*, run: Run, draft_text: str, gateway: AgentGateway) -> No
     from molexp.harness import FinalReport, RunMode, StageExecutionError
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
-    mode = RunMode(executor=_make_executor())
+    mode = RunMode(executor=PlanRuntime.build_executor())
     stage_names = [stage.name for stage in mode.stages(draft_text)]
     rprint(
         f"\n[bold]molexp plan --execute[/bold] — chaining RunMode "

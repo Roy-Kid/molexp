@@ -15,7 +15,7 @@ from molexp.harness.schemas.parameter import ParameterValue
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
 from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
 
-__all__ = ["validate_workflow_ir"]
+__all__ = ["WorkflowIRValidator"]
 
 
 # Defense-in-depth deny lists. Defeated trivially by obfuscation; not a
@@ -49,187 +49,189 @@ _BACKEND_DENY = (
 )
 
 
-def validate_workflow_ir(ir: WorkflowIR) -> ValidationReport:
-    violations: list[ValidationViolation] = []
+class WorkflowIRValidator:
+    @staticmethod
+    def validate(ir: WorkflowIR) -> ValidationReport:
+        violations: list[ValidationViolation] = []
 
-    # 1. duplicate_task_id
-    task_ids: list[str] = [t.id for t in ir.tasks]
-    seen: set[str] = set()
-    for tid in task_ids:
-        if tid in seen:
-            violations.append(
-                ValidationViolation(
-                    code="duplicate_task_id",
-                    message=f"task id {tid!r} appears more than once",
-                    path=f"tasks[id={tid}]",
+        # 1. duplicate_task_id
+        task_ids: list[str] = [t.id for t in ir.tasks]
+        seen: set[str] = set()
+        for tid in task_ids:
+            if tid in seen:
+                violations.append(
+                    ValidationViolation(
+                        code="duplicate_task_id",
+                        message=f"task id {tid!r} appears more than once",
+                        path=f"tasks[id={tid}]",
+                    )
                 )
-            )
-        seen.add(tid)
+            seen.add(tid)
 
-    known_ids = set(task_ids)
+        known_ids = set(task_ids)
 
-    # 2. unknown_edge_source / 3. unknown_edge_target
-    for i, edge in enumerate(ir.edges):
-        if edge.source_task_id not in known_ids:
-            violations.append(
-                ValidationViolation(
-                    code="unknown_edge_source",
-                    message=f"edge[{i}].source_task_id={edge.source_task_id!r} not in tasks",
-                    path=f"edges[{i}].source_task_id",
+        # 2. unknown_edge_source / 3. unknown_edge_target
+        for i, edge in enumerate(ir.edges):
+            if edge.source_task_id not in known_ids:
+                violations.append(
+                    ValidationViolation(
+                        code="unknown_edge_source",
+                        message=f"edge[{i}].source_task_id={edge.source_task_id!r} not in tasks",
+                        path=f"edges[{i}].source_task_id",
+                    )
                 )
-            )
-        if edge.target_task_id not in known_ids:
-            violations.append(
-                ValidationViolation(
-                    code="unknown_edge_target",
-                    message=f"edge[{i}].target_task_id={edge.target_task_id!r} not in tasks",
-                    path=f"edges[{i}].target_task_id",
+            if edge.target_task_id not in known_ids:
+                violations.append(
+                    ValidationViolation(
+                        code="unknown_edge_target",
+                        message=f"edge[{i}].target_task_id={edge.target_task_id!r} not in tasks",
+                        path=f"edges[{i}].target_task_id",
+                    )
                 )
-            )
 
-    # 4. cyclic_dependency (Kahn topological sort over valid edges).
-    has_dangling_edge = any(
-        v.code in {"unknown_edge_source", "unknown_edge_target"} for v in violations
-    )
-    if not has_dangling_edge and _has_cycle(
-        task_ids, [(e.source_task_id, e.target_task_id) for e in ir.edges]
-    ):
-        violations.append(
-            ValidationViolation(
-                code="cyclic_dependency",
-                message="task dependency graph is not a DAG",
-                path="edges",
-            )
+        # 4. cyclic_dependency (Kahn topological sort over valid edges).
+        has_dangling_edge = any(
+            v.code in {"unknown_edge_source", "unknown_edge_target"} for v in violations
         )
-
-    # 5. missing_producer (only for required=True ExpectedOutputs).
-    produced_names: set[str] = set()
-    for task in ir.tasks:
-        produced_names.update(task.outputs.keys())
-    for eo in ir.expected_outputs:
-        if eo.required and eo.name not in produced_names:
+        if not has_dangling_edge and _has_cycle(
+            task_ids, [(e.source_task_id, e.target_task_id) for e in ir.edges]
+        ):
             violations.append(
                 ValidationViolation(
-                    code="missing_producer",
-                    message=f"required expected output {eo.name!r} has no producer task",
-                    path=f"expected_outputs[name={eo.name}]",
+                    code="cyclic_dependency",
+                    message="task dependency graph is not a DAG",
+                    path="edges",
                 )
             )
 
-    # 6. unresolved_input — every TaskIR input name must resolve to either
-    # WorkflowIR.inputs or some upstream task's output.
-    ir_input_keys = set(ir.inputs.keys())
-    upstream: dict[str, set[str]] = _build_upstream(task_ids, ir.edges)
-    task_by_id = {t.id: t for t in ir.tasks}
-    for task in ir.tasks:
-        upstream_outputs: set[str] = set()
-        for ancestor_id in upstream.get(task.id, set()):
-            ancestor = task_by_id.get(ancestor_id)
-            if ancestor is not None:
-                upstream_outputs.update(ancestor.outputs.keys())
-        for input_key in task.inputs:
-            if input_key in ir_input_keys or input_key in upstream_outputs:
-                continue
-            violations.append(
-                ValidationViolation(
-                    code="unresolved_input",
-                    message=(
-                        f"task {task.id!r} input {input_key!r} resolves to "
-                        "neither WorkflowIR.inputs nor any upstream task's output"
-                    ),
-                    path=f"tasks[id={task.id}].inputs.{input_key}",
-                )
-            )
-
-    # 7. agent_inferred_not_flagged (warning).
-    for task in ir.tasks:
-        for key, param in task.inputs.items():
-            if (
-                _is_agent_inferred(param)
-                and key not in task.review_flags
-                and key not in ir.review_flags
-            ):
+        # 5. missing_producer (only for required=True ExpectedOutputs).
+        produced_names: set[str] = set()
+        for task in ir.tasks:
+            produced_names.update(task.outputs.keys())
+        for eo in ir.expected_outputs:
+            if eo.required and eo.name not in produced_names:
                 violations.append(
                     ValidationViolation(
-                        code="agent_inferred_not_flagged",
-                        message=(
-                            f"task {task.id!r} input {key!r} is agent_inferred "
-                            "but absent from review_flags"
-                        ),
-                        path=f"tasks[id={task.id}].inputs.{key}",
-                        severity="warning",
+                        code="missing_producer",
+                        message=f"required expected output {eo.name!r} has no producer task",
+                        path=f"expected_outputs[name={eo.name}]",
                     )
                 )
-        for key, param in task.constraints.items():
-            if (
-                _is_agent_inferred(param)
-                and key not in task.review_flags
-                and key not in ir.review_flags
-            ):
+
+        # 6. unresolved_input — every TaskIR input name must resolve to either
+        # WorkflowIR.inputs or some upstream task's output.
+        ir_input_keys = set(ir.inputs.keys())
+        upstream: dict[str, set[str]] = _build_upstream(task_ids, ir.edges)
+        task_by_id = {t.id: t for t in ir.tasks}
+        for task in ir.tasks:
+            upstream_outputs: set[str] = set()
+            for ancestor_id in upstream.get(task.id, set()):
+                ancestor = task_by_id.get(ancestor_id)
+                if ancestor is not None:
+                    upstream_outputs.update(ancestor.outputs.keys())
+            for input_key in task.inputs:
+                if input_key in ir_input_keys or input_key in upstream_outputs:
+                    continue
                 violations.append(
                     ValidationViolation(
-                        code="agent_inferred_not_flagged",
+                        code="unresolved_input",
                         message=(
-                            f"task {task.id!r} constraint {key!r} is agent_inferred "
-                            "but absent from review_flags"
+                            f"task {task.id!r} input {input_key!r} resolves to "
+                            "neither WorkflowIR.inputs nor any upstream task's output"
                         ),
-                        path=f"tasks[id={task.id}].constraints.{key}",
-                        severity="warning",
+                        path=f"tasks[id={task.id}].inputs.{input_key}",
                     )
                 )
-    for key, param in ir.inputs.items():
-        if _is_agent_inferred(param) and key not in ir.review_flags:
-            violations.append(
-                ValidationViolation(
-                    code="agent_inferred_not_flagged",
-                    message=(
-                        f"WorkflowIR input {key!r} is agent_inferred but absent from review_flags"
-                    ),
-                    path=f"inputs.{key}",
-                    severity="warning",
-                )
-            )
 
-    # 8. shell_command_in_ir + 9. backend_leak_in_ir (defense-in-depth grep)
-    for task in ir.tasks:
-        for path, value in _string_fields(task):
-            for needle in _SHELL_DENY:
-                if needle in value:
+        # 7. agent_inferred_not_flagged (warning).
+        for task in ir.tasks:
+            for key, param in task.inputs.items():
+                if (
+                    _is_agent_inferred(param)
+                    and key not in task.review_flags
+                    and key not in ir.review_flags
+                ):
                     violations.append(
                         ValidationViolation(
-                            code="shell_command_in_ir",
-                            message=f"deny-listed shell substring {needle!r} found in {path}",
-                            path=f"tasks[id={task.id}].{path}",
+                            code="agent_inferred_not_flagged",
+                            message=(
+                                f"task {task.id!r} input {key!r} is agent_inferred "
+                                "but absent from review_flags"
+                            ),
+                            path=f"tasks[id={task.id}].inputs.{key}",
+                            severity="warning",
                         )
                     )
-                    break  # one report per field; keep moving
+            for key, param in task.constraints.items():
+                if (
+                    _is_agent_inferred(param)
+                    and key not in task.review_flags
+                    and key not in ir.review_flags
+                ):
+                    violations.append(
+                        ValidationViolation(
+                            code="agent_inferred_not_flagged",
+                            message=(
+                                f"task {task.id!r} constraint {key!r} is agent_inferred "
+                                "but absent from review_flags"
+                            ),
+                            path=f"tasks[id={task.id}].constraints.{key}",
+                            severity="warning",
+                        )
+                    )
+        for key, param in ir.inputs.items():
+            if _is_agent_inferred(param) and key not in ir.review_flags:
+                violations.append(
+                    ValidationViolation(
+                        code="agent_inferred_not_flagged",
+                        message=(
+                            f"WorkflowIR input {key!r} is agent_inferred but absent from review_flags"
+                        ),
+                        path=f"inputs.{key}",
+                        severity="warning",
+                    )
+                )
+
+        # 8. shell_command_in_ir + 9. backend_leak_in_ir (defense-in-depth grep)
+        for task in ir.tasks:
+            for path, value in _string_fields(task):
+                for needle in _SHELL_DENY:
+                    if needle in value:
+                        violations.append(
+                            ValidationViolation(
+                                code="shell_command_in_ir",
+                                message=f"deny-listed shell substring {needle!r} found in {path}",
+                                path=f"tasks[id={task.id}].{path}",
+                            )
+                        )
+                        break  # one report per field; keep moving
+                for needle in _BACKEND_DENY:
+                    if needle in value:
+                        violations.append(
+                            ValidationViolation(
+                                code="backend_leak_in_ir",
+                                message=f"deny-listed backend substring {needle!r} found in {path}",
+                                path=f"tasks[id={task.id}].{path}",
+                            )
+                        )
+                        break
+        for path, value in _string_fields_top_level(ir):
             for needle in _BACKEND_DENY:
                 if needle in value:
                     violations.append(
                         ValidationViolation(
                             code="backend_leak_in_ir",
                             message=f"deny-listed backend substring {needle!r} found in {path}",
-                            path=f"tasks[id={task.id}].{path}",
+                            path=path,
                         )
                     )
                     break
-    for path, value in _string_fields_top_level(ir):
-        for needle in _BACKEND_DENY:
-            if needle in value:
-                violations.append(
-                    ValidationViolation(
-                        code="backend_leak_in_ir",
-                        message=f"deny-listed backend substring {needle!r} found in {path}",
-                        path=path,
-                    )
-                )
-                break
 
-    return ValidationReport.from_violations(
-        target_kind="workflow_ir",
-        target_id=ir.id,
-        violations=violations,
-    )
+        return ValidationReport.from_violations(
+            target_kind="workflow_ir",
+            target_id=ir.id,
+            violations=violations,
+        )
 
 
 # --------------------------------------------------------------- helpers

@@ -125,84 +125,80 @@ def _build_matched_pair():
     return ir, bw
 
 
-def test_clean_pair_validates_clean(tmp_path: Path) -> None:
-    from molexp.harness import validate_bound_workflow, validate_workflow_ir
+class TestPhase03E2EValidators:
+    def test_clean_pair_validates_clean(self, tmp_path: Path) -> None:
+        from molexp.harness import BoundWorkflowValidator, WorkflowIRValidator
 
-    ir, bw = _build_matched_pair()
-    ir_report = validate_workflow_ir(ir)
-    bw_report = validate_bound_workflow(bw, ir, workspace_root=tmp_path)
-    assert ir_report.passed, f"IR violations: {ir_report.violations}"
-    assert bw_report.passed, f"BW violations: {bw_report.violations}"
-    assert ir_report.violations == []
-    assert bw_report.violations == []
+        ir, bw = _build_matched_pair()
+        ir_report = WorkflowIRValidator.validate(ir)
+        bw_report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path)
+        assert ir_report.passed, f"IR violations: {ir_report.violations}"
+        assert bw_report.passed, f"BW violations: {bw_report.violations}"
+        assert ir_report.violations == []
+        assert bw_report.violations == []
 
+    def test_drop_edge_target_triggers_unknown_edge_target(self, tmp_path: Path) -> None:
+        from molexp.harness import DependencyEdge, WorkflowIRValidator
 
-def test_drop_edge_target_triggers_unknown_edge_target(tmp_path: Path) -> None:
-    from molexp.harness import DependencyEdge, validate_workflow_ir
+        ir, _ = _build_matched_pair()
+        # Drop run_md's edge target by repointing it at a ghost.
+        bad_edges = [
+            DependencyEdge(source_task_id="build_system", target_task_id="run_md"),
+            DependencyEdge(source_task_id="run_md", target_task_id="ghost_target"),
+        ]
+        ir_bad = ir.model_copy(update={"edges": bad_edges})
+        report = WorkflowIRValidator.validate(ir_bad)
+        codes = [v.code for v in report.violations]
+        assert "unknown_edge_target" in codes
+        assert report.passed is False
 
-    ir, _ = _build_matched_pair()
-    # Drop run_md's edge target by repointing it at a ghost.
-    bad_edges = [
-        DependencyEdge(source_task_id="build_system", target_task_id="run_md"),
-        DependencyEdge(source_task_id="run_md", target_task_id="ghost_target"),
-    ]
-    ir_bad = ir.model_copy(update={"edges": bad_edges})
-    report = validate_workflow_ir(ir_bad)
-    codes = [v.code for v in report.violations]
-    assert "unknown_edge_target" in codes
-    assert report.passed is False
+    def test_flip_bound_ir_task_id_triggers_unknown_ir_task(self, tmp_path: Path) -> None:
+        from molexp.harness import BoundWorkflowValidator
 
+        ir, bw = _build_matched_pair()
+        bad_run = bw.tasks[1].model_copy(update={"ir_task_id": "ghost_ir_task"})
+        bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bad_run, bw.tasks[2]]})
+        report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path)
+        codes = [v.code for v in report.violations]
+        assert "unknown_ir_task" in codes
 
-def test_flip_bound_ir_task_id_triggers_unknown_ir_task(tmp_path: Path) -> None:
-    from molexp.harness import validate_bound_workflow
+    # ---------------------------------------------- Public-surface invariants
 
-    ir, bw = _build_matched_pair()
-    bad_run = bw.tasks[1].model_copy(update={"ir_task_id": "ghost_ir_task"})
-    bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bad_run, bw.tasks[2]]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path)
-    codes = [v.code for v in report.violations]
-    assert "unknown_ir_task" in codes
+    def test_phase03_public_surface_complete(self) -> None:
+        from molexp.harness import (  # noqa: F401
+            BoundTask,
+            BoundWorkflow,
+            BoundWorkflowValidator,
+            DependencyEdge,
+            ExecutionEnvironment,
+            ExpectedOutput,
+            ResourcePolicy,
+            TaskIR,
+            ValidationReport,
+            ValidationViolation,
+            WorkflowIR,
+            WorkflowIRValidator,
+        )
 
-
-# ---------------------------------------------- Public-surface invariants
-
-
-def test_phase03_public_surface_complete() -> None:
-    from molexp.harness import (  # noqa: F401
-        BoundTask,
-        BoundWorkflow,
-        DependencyEdge,
-        ExecutionEnvironment,
-        ExpectedOutput,
-        ResourcePolicy,
-        TaskIR,
-        ValidationReport,
-        ValidationViolation,
-        WorkflowIR,
-        validate_bound_workflow,
-        validate_workflow_ir,
-    )
-
-
-def test_phase01_and_phase02_surface_still_visible() -> None:
-    """Regression: existing Phase-1+2 exports must still import cleanly."""
-    from molexp.harness import (  # noqa: F401
-        AgentCallResult,
-        AgentCallSpec,
-        AgentGateway,
-        ArtifactKind,
-        ArtifactRef,
-        ArtifactStore,
-        EventLog,
-        EventType,
-        ExperimentReport,
-        FileArtifactStore,
-        GenerateExperimentReport,
-        HarnessError,
-        HarnessRunContext,
-        ParameterValue,
-        SaveUserPlan,
-        Stage,
-        StageRunner,
-        UserPlan,
-    )
+    def test_phase01_and_phase02_surface_still_visible(self) -> None:
+        """Regression: existing Phase-1+2 exports must still import cleanly."""
+        from molexp.harness import (  # noqa: F401
+            AgentCallResult,
+            AgentCallSpec,
+            AgentGateway,
+            ArtifactKind,
+            ArtifactRef,
+            ArtifactStore,
+            EventLog,
+            EventType,
+            ExperimentReport,
+            FileArtifactStore,
+            GenerateExperimentReport,
+            HarnessError,
+            HarnessRunContext,
+            ParameterValue,
+            SaveUserPlan,
+            Stage,
+            StageRunner,
+            UserPlan,
+        )

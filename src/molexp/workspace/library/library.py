@@ -268,7 +268,7 @@ class Library:
         Returns:
             The references imported this pass.
         """
-        refs = read_zotero_references(path)
+        refs = read_zotero_references(Path(path))
         for ref in refs:
             self._references.add(ref)
         self._record_source("zotero", str(Path(path).expanduser()), len(refs))

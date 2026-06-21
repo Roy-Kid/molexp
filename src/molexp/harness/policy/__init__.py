@@ -22,18 +22,10 @@ interactive UX (CLI prompts, async wait) and ``PathPolicy`` /
 
 from __future__ import annotations
 
-from molexp.harness.policy.evaluate import (
-    evaluate_approval_policy,
-    make_final_report_approval_request,
-)
-from molexp.harness.policy.event_log import (
-    record_approval_decision,
-    record_approval_request,
-)
+from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
+from molexp.harness.policy.event_log import ApprovalEventRecorder
 
 __all__ = [
-    "evaluate_approval_policy",
-    "make_final_report_approval_request",
-    "record_approval_decision",
-    "record_approval_request",
+    "ApprovalEventRecorder",
+    "ApprovalPolicyEvaluator",
 ]

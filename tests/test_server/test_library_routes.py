@@ -81,9 +81,12 @@ def test_add_and_delete_reference(client, project):
     index = client.get("/api/library", params={"project_id": project.id}).json()
     assert index["references"][0]["key"] == "so3krates2026"
 
-    assert client.delete(
-        "/api/library/references/so3krates2026", params={"project_id": project.id}
-    ).status_code == 204
+    assert (
+        client.delete(
+            "/api/library/references/so3krates2026", params={"project_id": project.id}
+        ).status_code
+        == 204
+    )
     index = client.get("/api/library", params={"project_id": project.id}).json()
     assert index["references"] == []
 

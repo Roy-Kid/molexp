@@ -93,95 +93,91 @@ def _seed_pair(ctx, ir_dict, bw_dict):
     return ir_ref, bw_ref
 
 
-def test_name_and_stage_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
+class TestValidateBoundWorkflowStage:
+    def test_name_and_stage_subclass(self) -> None:
+        from molexp.harness.core.stage import Stage
+        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
-    assert ValidateBoundWorkflow.name == "validate_bound_workflow"
-    assert issubclass(ValidateBoundWorkflow, Stage)
+        assert ValidateBoundWorkflow.name == "validate_bound_workflow"
+        assert issubclass(ValidateBoundWorkflow, Stage)
 
+    def test_raise_on_failure_is_keyword_only(self) -> None:
+        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
-def test_raise_on_failure_is_keyword_only() -> None:
-    from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
+        with pytest.raises(TypeError):
+            ValidateBoundWorkflow("bw", "ir", True)  # type: ignore[misc]
 
-    with pytest.raises(TypeError):
-        ValidateBoundWorkflow("bw", "ir", True)  # type: ignore[misc]
+    def test_happy_path_persists_report_and_returns_ref(self, ctx) -> None:
+        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
+        ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
+        stage = ValidateBoundWorkflow()
+        report_ref = asyncio.run(stage.run(ctx))
+        assert report_ref.kind == "validation_report"
+        assert bw_ref.id in report_ref.parent_ids
+        assert ir_ref.id in report_ref.parent_ids
 
-def test_happy_path_persists_report_and_returns_ref(ctx) -> None:
-    from molexp.harness.schemas.validation import ValidationReport
-    from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
+        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
+        assert report.passed is True
 
-    ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
-    stage = ValidateBoundWorkflow()
-    report_ref = asyncio.run(stage.run(ctx))
-    assert report_ref.kind == "validation_report"
-    assert bw_ref.id in report_ref.parent_ids
-    assert ir_ref.id in report_ref.parent_ids
+    def test_strict_failure_raises_after_persisting(self, ctx) -> None:
+        """Use missing baseline deny path to trigger a structural error."""
+        from molexp.harness.errors import StageExecutionError
+        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
-    report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
-    assert report.passed is True
+        bad_bw = _valid_bw_dict()
+        bad_bw["resource_policy"]["denied_paths"] = []  # missing baseline deny
+        _seed_pair(ctx, _valid_ir_dict(), bad_bw)
 
+        stage = ValidateBoundWorkflow()
+        with pytest.raises(StageExecutionError) as exc:
+            asyncio.run(stage.run(ctx))
+        assert "missing_baseline_deny" in str(exc.value)
 
-def test_strict_failure_raises_after_persisting(ctx) -> None:
-    """Use missing baseline deny path to trigger a structural error."""
-    from molexp.harness.errors import StageExecutionError
-    from molexp.harness.schemas.validation import ValidationReport
-    from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
+        reports = ctx.artifact_store.list_by_kind("validation_report")
+        assert len(reports) == 1
+        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(reports[0].id)))
+        assert report.passed is False
 
-    bad_bw = _valid_bw_dict()
-    bad_bw["resource_policy"]["denied_paths"] = []  # missing baseline deny
-    _seed_pair(ctx, _valid_ir_dict(), bad_bw)
+    def test_soft_failure_returns_ref(self, ctx) -> None:
+        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
-    stage = ValidateBoundWorkflow()
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(stage.run(ctx))
-    assert "missing_baseline_deny" in str(exc.value)
+        bad_bw = _valid_bw_dict()
+        bad_bw["resource_policy"]["denied_paths"] = []
+        _seed_pair(ctx, _valid_ir_dict(), bad_bw)
 
-    reports = ctx.artifact_store.list_by_kind("validation_report")
-    assert len(reports) == 1
-    report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(reports[0].id)))
-    assert report.passed is False
+        stage = ValidateBoundWorkflow(raise_on_failure=False)
+        ref = asyncio.run(stage.run(ctx))
+        assert ref.kind == "validation_report"
 
+    def test_uses_ctx_capability_registry_when_set(self, tmp_path: Path) -> None:
+        """When registry has no matching capability_id, unknown_capability fires."""
+        from molexp.harness.core.run_context import HarnessRunContext
+        from molexp.harness.errors import StageExecutionError
+        from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
+        from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+        from molexp.harness.store.sqlite_event_log import SQLiteEventLog
+        from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 
-def test_soft_failure_returns_ref(ctx) -> None:
-    from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
-
-    bad_bw = _valid_bw_dict()
-    bad_bw["resource_policy"]["denied_paths"] = []
-    _seed_pair(ctx, _valid_ir_dict(), bad_bw)
-
-    stage = ValidateBoundWorkflow(raise_on_failure=False)
-    ref = asyncio.run(stage.run(ctx))
-    assert ref.kind == "validation_report"
-
-
-def test_uses_ctx_capability_registry_when_set(tmp_path: Path) -> None:
-    """When registry has no matching capability_id, unknown_capability fires."""
-    from molexp.harness.core.run_context import HarnessRunContext
-    from molexp.harness.errors import StageExecutionError
-    from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
-    from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-    from molexp.harness.store.sqlite_event_log import SQLiteEventLog
-    from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
-
-    db = tmp_path / "events.sqlite"
-    a = FileArtifactStore(root=tmp_path / "artifacts")
-    e = SQLiteEventLog(path=db)
-    p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
-    # Empty registry → cap.x is unknown
-    registry = InMemoryCapabilityRegistry()
-    ctx = HarnessRunContext(
-        run_id="run-vbw-reg",
-        workspace_root=tmp_path,
-        artifact_store=a,
-        event_log=e,
-        lineage_store=p,
-        capability_registry=registry,
-    )
-    _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
-    stage = ValidateBoundWorkflow()
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(stage.run(ctx))
-    assert "unknown_capability" in str(exc.value)
+        db = tmp_path / "events.sqlite"
+        a = FileArtifactStore(root=tmp_path / "artifacts")
+        e = SQLiteEventLog(path=db)
+        p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
+        # Empty registry → cap.x is unknown
+        registry = InMemoryCapabilityRegistry()
+        ctx = HarnessRunContext(
+            run_id="run-vbw-reg",
+            workspace_root=tmp_path,
+            artifact_store=a,
+            event_log=e,
+            lineage_store=p,
+            capability_registry=registry,
+        )
+        _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
+        stage = ValidateBoundWorkflow()
+        with pytest.raises(StageExecutionError) as exc:
+            asyncio.run(stage.run(ctx))
+        assert "unknown_capability" in str(exc.value)

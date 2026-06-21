@@ -32,7 +32,7 @@ from typing import ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.policy.event_log import record_approval_decision, record_approval_request
+from molexp.harness.policy.event_log import ApprovalEventRecorder
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ArtifactRef
 
 __all__ = ["ApprovalGate", "Approver", "auto_grant_approver"]
@@ -88,14 +88,14 @@ class ApprovalGate(Stage):
         # even if the gate then aborts on a rejection.
         decisions: list[tuple[ApprovalRequest, ApprovalDecision]] = []
         for request in self._requests:
-            record_approval_request(ctx.event_log, ctx.run_id, request)
+            ApprovalEventRecorder.record_request(ctx.event_log, ctx.run_id, request)
             decision = await self._approve(request)
             if decision.request_id != request.id:
                 raise StageExecutionError(
                     f"ApprovalGate: approver answered request {decision.request_id!r} "
                     f"for request {request.id!r} — refusing the mismatched decision"
                 )
-            record_approval_decision(ctx.event_log, ctx.run_id, request, decision)
+            ApprovalEventRecorder.record_decision(ctx.event_log, ctx.run_id, request, decision)
             decisions.append((request, decision))
 
         rejected = [(req, dec) for req, dec in decisions if not dec.granted]

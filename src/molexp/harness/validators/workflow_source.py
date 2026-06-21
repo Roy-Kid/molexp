@@ -1,4 +1,4 @@
-"""``validate_workflow_source`` — pure structural pre-checks for generated source.
+"""``WorkflowSourceValidator`` — pure structural pre-checks for generated source.
 
 Side-effect-free checks run *before* any compile/exec of LLM-generated code:
 
@@ -19,7 +19,7 @@ import ast
 
 from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
 
-__all__ = ["validate_workflow_source"]
+__all__ = ["WorkflowSourceValidator"]
 
 _PRIVATE_PREFIX = "molexp.workflow._"
 
@@ -31,55 +31,57 @@ def _is_private_workflow(module: str | None) -> bool:
     return module == "molexp.workflow._" or module.startswith(_PRIVATE_PREFIX)
 
 
-def validate_workflow_source(source: str, *, target_id: str = "") -> ValidationReport:
-    """Run syntax + public-surface-import pre-checks on generated source.
+class WorkflowSourceValidator:
+    @staticmethod
+    def validate(source: str, *, target_id: str = "") -> ValidationReport:
+        """Run syntax + public-surface-import pre-checks on generated source.
 
-    Args:
-        source: The generated ``molexp.workflow`` program text.
-        target_id: The artifact id this source came from (for the report).
+        Args:
+            source: The generated ``molexp.workflow`` program text.
+            target_id: The artifact id this source came from (for the report).
 
-    Returns:
-        A :class:`ValidationReport` with ``target_kind="workflow_source"``;
-        ``passed`` is False if any error-severity violation is present.
-    """
-    try:
-        tree = ast.parse(source)
-    except SyntaxError as exc:
+        Returns:
+            A :class:`ValidationReport` with ``target_kind="workflow_source"``;
+            ``passed`` is False if any error-severity violation is present.
+        """
+        try:
+            tree = ast.parse(source)
+        except SyntaxError as exc:
+            return ValidationReport.from_violations(
+                target_kind="workflow_source",
+                target_id=target_id,
+                violations=[
+                    ValidationViolation(
+                        code="syntax_error",
+                        message=f"generated source failed to parse: {exc!r}",
+                        severity="error",
+                    )
+                ],
+            )
+
+        violations: list[ValidationViolation] = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_private_workflow(alias.name):
+                        violations.append(
+                            ValidationViolation(
+                                code="private_import",
+                                message=f"generated source imports private module {alias.name!r}",
+                                severity="error",
+                            )
+                        )
+            elif isinstance(node, ast.ImportFrom) and _is_private_workflow(node.module):
+                violations.append(
+                    ValidationViolation(
+                        code="private_import",
+                        message=f"generated source imports from private module {node.module!r}",
+                        severity="error",
+                    )
+                )
+
         return ValidationReport.from_violations(
             target_kind="workflow_source",
             target_id=target_id,
-            violations=[
-                ValidationViolation(
-                    code="syntax_error",
-                    message=f"generated source failed to parse: {exc!r}",
-                    severity="error",
-                )
-            ],
+            violations=violations,
         )
-
-    violations: list[ValidationViolation] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if _is_private_workflow(alias.name):
-                    violations.append(
-                        ValidationViolation(
-                            code="private_import",
-                            message=f"generated source imports private module {alias.name!r}",
-                            severity="error",
-                        )
-                    )
-        elif isinstance(node, ast.ImportFrom) and _is_private_workflow(node.module):
-            violations.append(
-                ValidationViolation(
-                    code="private_import",
-                    message=f"generated source imports from private module {node.module!r}",
-                    severity="error",
-                )
-            )
-
-    return ValidationReport.from_violations(
-        target_kind="workflow_source",
-        target_id=target_id,
-        violations=violations,
-    )

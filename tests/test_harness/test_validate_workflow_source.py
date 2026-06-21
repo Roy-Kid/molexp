@@ -123,244 +123,222 @@ def _seed_workflow_source(ctx, source: str = VALID_SOURCE):
     )
 
 
-# ----------------------------------------------------------- ac-001 schema
+class TestValidateWorkflowSource:
+    # ----------------------------------------------------------- ac-001 schema
 
+    def test_workflow_source_schema_fields_and_frozen(self) -> None:
+        from molexp.harness.schemas.workflow_source import WorkflowSource
 
-def test_workflow_source_schema_fields_and_frozen() -> None:
-    from molexp.harness.schemas.workflow_source import WorkflowSource
+        ws = WorkflowSource(
+            source=VALID_SOURCE,
+            module_name="generated_workflow",
+            bound_workflow_id="bw-1",
+            symbols=("WorkflowCompiler", "Task"),
+        )
+        assert ws.source == VALID_SOURCE
+        assert ws.module_name == "generated_workflow"
+        assert ws.bound_workflow_id == "bw-1"
+        assert ws.symbols == ("WorkflowCompiler", "Task")
 
-    ws = WorkflowSource(
-        source=VALID_SOURCE,
-        module_name="generated_workflow",
-        bound_workflow_id="bw-1",
-        symbols=("WorkflowCompiler", "Task"),
-    )
-    assert ws.source == VALID_SOURCE
-    assert ws.module_name == "generated_workflow"
-    assert ws.bound_workflow_id == "bw-1"
-    assert ws.symbols == ("WorkflowCompiler", "Task")
+    def test_workflow_source_is_frozen(self) -> None:
+        from pydantic import ValidationError
 
+        from molexp.harness.schemas.workflow_source import WorkflowSource
 
-def test_workflow_source_is_frozen() -> None:
-    from pydantic import ValidationError
+        ws = WorkflowSource(
+            source="x",
+            module_name="m",
+            bound_workflow_id="bw",
+            symbols=(),
+        )
+        with pytest.raises(ValidationError):
+            ws.source = "mutated"  # type: ignore[misc]
 
-    from molexp.harness.schemas.workflow_source import WorkflowSource
+    def test_workflow_source_reexported_from_harness(self) -> None:
+        import molexp.harness as h
+        from molexp.harness.schemas import WorkflowSource as FromSchemas
+        from molexp.harness.schemas.workflow_source import WorkflowSource as Canonical
 
-    ws = WorkflowSource(
-        source="x",
-        module_name="m",
-        bound_workflow_id="bw",
-        symbols=(),
-    )
-    with pytest.raises(ValidationError):
-        ws.source = "mutated"  # type: ignore[misc]
+        assert h.WorkflowSource is Canonical
+        assert FromSchemas is Canonical
 
+    # ------------------------------------------------- ac-002 kind + target kind
 
-def test_workflow_source_reexported_from_harness() -> None:
-    import molexp.harness as h
-    from molexp.harness.schemas import WorkflowSource as FromSchemas
-    from molexp.harness.schemas.workflow_source import WorkflowSource as Canonical
+    def test_workflow_source_in_well_known_artifact_kinds(self) -> None:
+        from molexp.harness.schemas.artifact import WELL_KNOWN_ARTIFACT_KINDS
 
-    assert h.WorkflowSource is Canonical
-    assert FromSchemas is Canonical
+        assert "workflow_source" in WELL_KNOWN_ARTIFACT_KINDS
 
+    def test_validation_report_accepts_workflow_source_target_kind(self) -> None:
+        from molexp.harness.schemas.validation import ValidationReport
 
-# ------------------------------------------------- ac-002 kind + target kind
+        report = ValidationReport.from_violations(
+            target_kind="workflow_source",
+            target_id="ws-1",
+            violations=[],
+        )
+        assert report.target_kind == "workflow_source"
+        assert report.passed is True
 
+    # --------------------------------------------------------- ac-003 prompt
 
-def test_workflow_source_in_well_known_artifact_kinds() -> None:
-    from molexp.harness.schemas.artifact import WELL_KNOWN_ARTIFACT_KINDS
+    def test_system_prompt_names_public_api(self) -> None:
+        from molexp.harness.prompts.workflow_source import SYSTEM_PROMPT
 
-    assert "workflow_source" in WELL_KNOWN_ARTIFACT_KINDS
+        for symbol in ("WorkflowCompiler", "Task", "Actor", "Workflow"):
+            assert symbol in SYSTEM_PROMPT, f"{symbol} missing from SYSTEM_PROMPT"
+        assert "molexp.workflow" in SYSTEM_PROMPT
 
+    # ----------------------------------------------- ac-004 pure validator syntax
 
-def test_validation_report_accepts_workflow_source_target_kind() -> None:
-    from molexp.harness.schemas.validation import ValidationReport
+    def test_validate_workflow_source_flags_syntax_error_without_raising(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-    report = ValidationReport.from_violations(
-        target_kind="workflow_source",
-        target_id="ws-1",
-        violations=[],
-    )
-    assert report.target_kind == "workflow_source"
-    assert report.passed is True
-
-
-# --------------------------------------------------------- ac-003 prompt
-
-
-def test_system_prompt_names_public_api() -> None:
-    from molexp.harness.prompts.workflow_source import SYSTEM_PROMPT
-
-    for symbol in ("WorkflowCompiler", "Task", "Actor", "Workflow"):
-        assert symbol in SYSTEM_PROMPT, f"{symbol} missing from SYSTEM_PROMPT"
-    assert "molexp.workflow" in SYSTEM_PROMPT
-
-
-# ----------------------------------------------- ac-004 pure validator syntax
-
-
-def test_validate_workflow_source_flags_syntax_error_without_raising() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
-
-    report = validate_workflow_source(SYNTAX_ERROR_SOURCE)
-    assert report.passed is False
-    assert report.target_kind == "workflow_source"
-    assert len(report.violations) >= 1
-    # A syntax violation must be reported (code mentions syntax).
-    assert any("syntax" in v.code.lower() for v in report.violations)
-
-
-def test_validate_workflow_source_never_raises_on_garbage() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
-
-    # Total function: even on wildly malformed input no exception escapes.
-    for bad in ("def (:\n", "@@@@", "import", "class :", "\x00\x01"):
-        report = validate_workflow_source(bad)
+        report = WorkflowSourceValidator.validate(SYNTAX_ERROR_SOURCE)
         assert report.passed is False
+        assert report.target_kind == "workflow_source"
+        assert len(report.violations) >= 1
+        # A syntax violation must be reported (code mentions syntax).
+        assert any("syntax" in v.code.lower() for v in report.violations)
 
+    def test_validate_workflow_source_never_raises_on_garbage(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-# ----------------------------------------- ac-005 pure validator private import
+        # Total function: even on wildly malformed input no exception escapes.
+        for bad in ("def (:\n", "@@@@", "import", "class :", "\x00\x01"):
+            report = WorkflowSourceValidator.validate(bad)
+            assert report.passed is False
 
+    # ----------------------------------------- ac-005 pure validator private import
 
-def test_validate_workflow_source_rejects_private_subpackage_import() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
+    def test_validate_workflow_source_rejects_private_subpackage_import(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-    report = validate_workflow_source(PRIVATE_IMPORT_SOURCE)
-    assert report.passed is False
-    # A violation must name the disallowed private import target.
-    assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
+        report = WorkflowSourceValidator.validate(PRIVATE_IMPORT_SOURCE)
+        assert report.passed is False
+        # A violation must name the disallowed private import target.
+        assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
 
+    def test_validate_workflow_source_passes_public_surface_only(self) -> None:
+        from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-def test_validate_workflow_source_passes_public_surface_only() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
+        report = WorkflowSourceValidator.validate(VALID_SOURCE)
+        assert report.passed is True
+        assert report.violations == []
 
-    report = validate_workflow_source(VALID_SOURCE)
-    assert report.passed is True
-    assert report.violations == []
+    # ------------------------------------ ac-007 stage compiles valid → Workflow
 
+    def test_validate_workflow_source_compiles_valid_to_workflow(self, ctx) -> None:
+        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
-# ------------------------------------ ac-007 stage compiles valid → Workflow
+        ws_ref = _seed_workflow_source(ctx, VALID_SOURCE)
+        stage = ValidateWorkflowSource()
+        report_ref = asyncio.run(stage.run(ctx))
 
+        assert report_ref.kind == "validation_report"
+        assert ws_ref.id in report_ref.parent_ids
 
-def test_validate_workflow_source_compiles_valid_to_workflow(ctx) -> None:
-    from molexp.harness.schemas.validation import ValidationReport
-    from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
+        raw = ctx.artifact_store.get(report_ref.id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is True
+        assert report.target_kind == "workflow_source"
 
-    ws_ref = _seed_workflow_source(ctx, VALID_SOURCE)
-    stage = ValidateWorkflowSource()
-    report_ref = asyncio.run(stage.run(ctx))
+    def test_validate_workflow_source_stage_name(self) -> None:
+        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
-    assert report_ref.kind == "validation_report"
-    assert ws_ref.id in report_ref.parent_ids
+        assert ValidateWorkflowSource.name == "validate_workflow_source"
 
-    raw = ctx.artifact_store.get(report_ref.id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is True
-    assert report.target_kind == "workflow_source"
+    def test_validate_workflow_source_is_stage_subclass(self) -> None:
+        from molexp.harness.core.stage import Stage
+        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
+        assert issubclass(ValidateWorkflowSource, Stage)
 
-def test_validate_workflow_source_stage_name() -> None:
-    from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
+    # -------------------------- ac-008 invalid fixtures persist + raise
 
-    assert ValidateWorkflowSource.name == "validate_workflow_source"
+    @pytest.mark.parametrize(
+        "source",
+        [SYNTAX_ERROR_SOURCE, PRIVATE_IMPORT_SOURCE, BUILD_FAILS_SOURCE],
+        ids=["syntax_error", "private_import", "build_fails"],
+    )
+    def test_validate_workflow_source_persists_report_and_raises(self, ctx, source: str) -> None:
+        from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
+        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
-
-def test_validate_workflow_source_is_stage_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
-
-    assert issubclass(ValidateWorkflowSource, Stage)
-
-
-# -------------------------- ac-008 invalid fixtures persist + raise
-
-
-@pytest.mark.parametrize(
-    "source",
-    [SYNTAX_ERROR_SOURCE, PRIVATE_IMPORT_SOURCE, BUILD_FAILS_SOURCE],
-    ids=["syntax_error", "private_import", "build_fails"],
-)
-def test_validate_workflow_source_persists_report_and_raises(ctx, source: str) -> None:
-    from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-    from molexp.harness.schemas.validation import ValidationReport
-    from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
-
-    _seed_workflow_source(ctx, source)
-    stage = ValidateWorkflowSource()
-
-    with pytest.raises(StageExecutionError) as exc_info:
-        asyncio.run(stage.run(ctx))
-    assert isinstance(exc_info.value, StagePersistedFailureError)
-
-    # Report persisted despite the raise (always-persist contract).
-    reports = ctx.artifact_store.list_by_kind("validation_report")
-    assert len(reports) == 1
-    raw = ctx.artifact_store.get(reports[0].id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is False
-    assert report.target_kind == "workflow_source"
-    # persisted_ref points at the persisted failing report.
-    assert exc_info.value.persisted_ref.id == reports[0].id
-
-
-# ---------------------------- ac-009 ast-validated before exec / restricted
-
-
-def test_syntax_and_private_rejected_before_exec(ctx, monkeypatch) -> None:
-    """ac-009: syntax-error and private-import fixtures are rejected at the
-    ast/compile pre-check stage — ``exec`` is never reached for them.
-
-    We trip a sentinel if ``builtins.exec`` were called; the stage must
-    fail validation purely from the AST pre-checks.
-    """
-    import builtins
-
-    from molexp.harness.errors import StagePersistedFailureError
-    from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
-
-    exec_calls: list[object] = []
-    real_exec = builtins.exec
-
-    def _tracking_exec(*args, **kwargs):  # noqa: ANN002, ANN003
-        exec_calls.append(args)
-        return real_exec(*args, **kwargs)
-
-    monkeypatch.setattr(builtins, "exec", _tracking_exec)
-
-    for source in (SYNTAX_ERROR_SOURCE, PRIVATE_IMPORT_SOURCE):
-        exec_calls.clear()
         _seed_workflow_source(ctx, source)
         stage = ValidateWorkflowSource()
-        with pytest.raises(StagePersistedFailureError):
+
+        with pytest.raises(StageExecutionError) as exc_info:
             asyncio.run(stage.run(ctx))
-        assert exec_calls == [], f"exec must not run for ast-rejected source ({source[:20]!r})"
+        assert isinstance(exc_info.value, StagePersistedFailureError)
 
+        # Report persisted despite the raise (always-persist contract).
+        reports = ctx.artifact_store.list_by_kind("validation_report")
+        assert len(reports) == 1
+        raw = ctx.artifact_store.get(reports[0].id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is False
+        assert report.target_kind == "workflow_source"
+        # persisted_ref points at the persisted failing report.
+        assert exc_info.value.persisted_ref.id == reports[0].id
 
-def test_valid_source_exec_uses_restricted_builtins(ctx, monkeypatch) -> None:
-    """ac-009: the valid fixture IS executed, but the exec namespace's
-    ``__builtins__`` is restricted (not the full real builtins module).
-    """
-    import builtins
+    # ---------------------------- ac-009 ast-validated before exec / restricted
 
-    from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
+    def test_syntax_and_private_rejected_before_exec(self, ctx, monkeypatch) -> None:
+        """ac-009: syntax-error and private-import fixtures are rejected at the
+        ast/compile pre-check stage — ``exec`` is never reached for them.
 
-    captured_globals: list[dict] = []
-    real_exec = builtins.exec
+        We trip a sentinel if ``builtins.exec`` were called; the stage must
+        fail validation purely from the AST pre-checks.
+        """
+        import builtins
 
-    def _capturing_exec(code, globals_ns=None, locals_ns=None):
-        captured_globals.append(globals_ns if globals_ns is not None else {})
-        return real_exec(code, globals_ns, locals_ns)
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
-    monkeypatch.setattr(builtins, "exec", _capturing_exec)
+        exec_calls: list[object] = []
+        real_exec = builtins.exec
 
-    _seed_workflow_source(ctx, VALID_SOURCE)
-    stage = ValidateWorkflowSource()
-    asyncio.run(stage.run(ctx))
+        def _tracking_exec(*args, **kwargs):  # noqa: ANN002, ANN003
+            exec_calls.append(args)
+            return real_exec(*args, **kwargs)
 
-    assert captured_globals, "exec was expected to run for the valid fixture"
-    ns = captured_globals[0]
-    assert "__builtins__" in ns, "exec namespace must define __builtins__"
-    # The restricted builtins must NOT be the full real builtins module.
-    assert ns["__builtins__"] is not builtins
-    assert ns["__builtins__"] is not builtins.__dict__
+        monkeypatch.setattr(builtins, "exec", _tracking_exec)
+
+        for source in (SYNTAX_ERROR_SOURCE, PRIVATE_IMPORT_SOURCE):
+            exec_calls.clear()
+            _seed_workflow_source(ctx, source)
+            stage = ValidateWorkflowSource()
+            with pytest.raises(StagePersistedFailureError):
+                asyncio.run(stage.run(ctx))
+            assert exec_calls == [], f"exec must not run for ast-rejected source ({source[:20]!r})"
+
+    def test_valid_source_exec_uses_restricted_builtins(self, ctx, monkeypatch) -> None:
+        """ac-009: the valid fixture IS executed, but the exec namespace's
+        ``__builtins__`` is restricted (not the full real builtins module).
+        """
+        import builtins
+
+        from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
+
+        captured_globals: list[dict] = []
+        real_exec = builtins.exec
+
+        def _capturing_exec(code, globals_ns=None, locals_ns=None):
+            captured_globals.append(globals_ns if globals_ns is not None else {})
+            return real_exec(code, globals_ns, locals_ns)
+
+        monkeypatch.setattr(builtins, "exec", _capturing_exec)
+
+        _seed_workflow_source(ctx, VALID_SOURCE)
+        stage = ValidateWorkflowSource()
+        asyncio.run(stage.run(ctx))
+
+        assert captured_globals, "exec was expected to run for the valid fixture"
+        ns = captured_globals[0]
+        assert "__builtins__" in ns, "exec namespace must define __builtins__"
+        # The restricted builtins must NOT be the full real builtins module.
+        assert ns["__builtins__"] is not builtins
+        assert ns["__builtins__"] is not builtins.__dict__

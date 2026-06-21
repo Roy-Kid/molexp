@@ -172,291 +172,285 @@ class _TinyReport(BaseModel):
 # ── Happy path: structured output persisted + returned ────────────────────
 
 
-@pytest.mark.asyncio
-async def test_call_persists_raw_then_returns_typed_output(tmp_path: Path) -> None:
-    """ac-002 — happy path through the ``complete_structured`` route.
+class TestRouterBackedGateway:
+    @pytest.mark.asyncio
+    async def test_call_persists_raw_then_returns_typed_output(self, tmp_path: Path) -> None:
+        """ac-002 — happy path through the ``complete_structured`` route.
 
-    The gateway must:
+        The gateway must:
 
-    * resolve ``agent_name="tiny_writer"`` to the registered schema +
-      output kind;
-    * persist a ``kind="log"`` raw artifact holding
-      ``instance.model_dump_json()`` through the injected store;
-    * persist a ``kind="experiment_report"`` parsed-output artifact;
-    * wire ``parent_ids = spec.input_artifact_ids`` on both refs so
-      :class:`StageRunner` can emit ``derived_from`` edges;
-    * return an :class:`AgentCallResult` whose ``output_artifact`` and
-      ``raw_response_artifact`` are resolvable via ``get_ref``.
-    """
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.schemas import AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+        * resolve ``agent_name="tiny_writer"`` to the registered schema +
+          output kind;
+        * persist a ``kind="log"`` raw artifact holding
+          ``instance.model_dump_json()`` through the injected store;
+        * persist a ``kind="experiment_report"`` parsed-output artifact;
+        * wire ``parent_ids = spec.input_artifact_ids`` on both refs so
+          :class:`StageRunner` can emit ``derived_from`` edges;
+        * return an :class:`AgentCallResult` whose ``output_artifact`` and
+          ``raw_response_artifact`` are resolvable via ``get_ref``.
+        """
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
 
-    _assert_stub_is_router()
+        _assert_stub_is_router()
 
-    canned_payload = {"title": "ok", "score": 7}
-    canned_json = json.dumps(canned_payload)
+        canned_payload = {"title": "ok", "score": 7}
+        canned_json = json.dumps(canned_payload)
 
-    router = _StubRouter(response_text=canned_json)
-    store = FileArtifactStore(root=tmp_path / "artifacts")
+        router = _StubRouter(response_text=canned_json)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
 
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={"tiny_writer": _TinyReport},
-        output_kind_by_agent={"tiny_writer": "experiment_report"},
-    )
-
-    parent = store.put_text(
-        kind="user_plan",
-        text="run a tiny experiment",
-        created_by="test",
-        parent_ids=[],
-    )
-
-    result = await gateway.call(
-        AgentCallSpec(
-            agent_name="tiny_writer",
-            input_artifact_ids=[parent.id],
-            output_schema=_TinyReport.model_json_schema(),
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
         )
-    )
 
-    # Both refs are resolvable in the store (persisted before return).
-    assert store.get_ref(result.output_artifact.id) == result.output_artifact
-    assert store.get_ref(result.raw_response_artifact.id) == result.raw_response_artifact
-
-    # Kinds match the registry / audit invariant.
-    assert result.output_artifact.kind == "experiment_report"
-    assert result.raw_response_artifact.kind == "log"
-
-    # Parsed output bytes parse back to the canned payload.
-    parsed_output = json.loads(store.get(result.output_artifact.id).decode("utf-8"))
-    assert parsed_output == canned_payload
-
-    # Raw "log" artifact holds the instance's model_dump_json (semantically).
-    raw_bytes = store.get(result.raw_response_artifact.id).decode("utf-8")
-    assert json.loads(raw_bytes) == canned_payload
-
-    # Provenance edges propagated from the spec (input ids retained; the
-    # composed-prompt artifact id is added on top — see the dedicated test).
-    assert parent.id in result.output_artifact.parent_ids
-    assert parent.id in result.raw_response_artifact.parent_ids
-
-    # Result metadata: ``model`` field is non-empty for audit citations.
-    assert result.model
-
-
-# ── ac-001: gateway uses complete_structured, never complete_text ─────────
-
-
-@pytest.mark.asyncio
-async def test_call_invokes_complete_structured_not_complete_text(
-    tmp_path: Path,
-) -> None:
-    """ac-001 — planning agents drive ``complete_structured`` only.
-
-    A recording router whose ``complete_text`` raises proves the gateway
-    no longer touches the text route; ``complete_structured`` is recorded
-    with the registered schema.
-    """
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.schemas import AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    instance = _TinyReport(title="ok", score=3)
-    router = _RecordingRouter(instance=instance)
-    store = FileArtifactStore(root=tmp_path / "artifacts")
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={"tiny_writer": _TinyReport},
-        output_kind_by_agent={"tiny_writer": "experiment_report"},
-    )
-
-    await gateway.call(
-        AgentCallSpec(
-            agent_name="tiny_writer",
-            input_artifact_ids=[],
-            output_schema=_TinyReport.model_json_schema(),
+        parent = store.put_text(
+            kind="user_plan",
+            text="run a tiny experiment",
+            created_by="test",
+            parent_ids=[],
         )
-    )
 
-    assert router.complete_text_calls == 0
-    assert len(router.structured_calls) == 1
-    assert router.structured_calls[0]["schema"] is _TinyReport
-    # node_id is forwarded as the agent_name for traceability.
-    assert router.structured_calls[0]["node_id"] == "tiny_writer"
-
-
-# ── ac-003: prose-wrapped output still yields a schema-valid object ───────
-
-
-@pytest.mark.asyncio
-async def test_prose_wrapped_output_yields_valid_artifact(tmp_path: Path) -> None:
-    """ac-003 — the structured path closes the prose-crash regression.
-
-    A router that returns a valid instance regardless of surrounding prose
-    (as pydantic-ai's ``output_type`` enforcement does) lets ``call``
-    return a resolvable, schema-valid output artifact instead of raising —
-    where the OLD ``complete_text`` + ``model_validate_json`` path crashed
-    on prose.
-    """
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    instance = _TinyReport(title="resilient", score=42)
-    router = _RecordingRouter(instance=instance)
-    store = FileArtifactStore(root=tmp_path / "artifacts")
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={"tiny_writer": _TinyReport},
-        output_kind_by_agent={"tiny_writer": "experiment_report"},
-    )
-
-    result = await gateway.call(
-        AgentCallSpec(
-            agent_name="tiny_writer",
-            input_artifact_ids=[],
-            output_schema=_TinyReport.model_json_schema(),
-        )
-    )
-
-    assert isinstance(result, AgentCallResult)
-    parsed = json.loads(store.get(result.output_artifact.id).decode("utf-8"))
-    assert parsed == {"title": "resilient", "score": 42}
-
-
-# ── ac-004: unknown agent_name still raises ───────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_call_raises_on_unknown_agent_name(tmp_path: Path) -> None:
-    """ac-004 — unregistered ``agent_name`` raises ``AgentResponseNotRegisteredError``.
-
-    Parity with :class:`StubAgentGateway`; the exception is a
-    :class:`HarnessError` subclass so generic handlers catch both backends.
-    """
-    from molexp.harness.errors import AgentResponseNotRegisteredError, HarnessError
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.schemas import AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    router = _StubRouter(response_text='{"title": "x", "score": 1}')
-    store = FileArtifactStore(root=tmp_path / "artifacts")
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={"tiny_writer": _TinyReport},
-        output_kind_by_agent={"tiny_writer": "experiment_report"},
-    )
-
-    with pytest.raises(AgentResponseNotRegisteredError) as exc_info:
-        await gateway.call(
+        result = await gateway.call(
             AgentCallSpec(
-                agent_name="unknown_agent",
-                input_artifact_ids=[],
-                output_schema={},
+                agent_name="tiny_writer",
+                input_artifact_ids=[parent.id],
+                output_schema=_TinyReport.model_json_schema(),
             )
         )
-    assert isinstance(exc_info.value, HarnessError)
 
+        # Both refs are resolvable in the store (persisted before return).
+        assert store.get_ref(result.output_artifact.id) == result.output_artifact
+        assert store.get_ref(result.raw_response_artifact.id) == result.raw_response_artifact
 
-# ── ac-002: raw persisted before parsed (both with parent_ids) ────────────
+        # Kinds match the registry / audit invariant.
+        assert result.output_artifact.kind == "experiment_report"
+        assert result.raw_response_artifact.kind == "log"
 
+        # Parsed output bytes parse back to the canned payload.
+        parsed_output = json.loads(store.get(result.output_artifact.id).decode("utf-8"))
+        assert parsed_output == canned_payload
 
-@pytest.mark.asyncio
-async def test_raw_log_persisted_with_parent_ids_alongside_output(
-    tmp_path: Path,
-) -> None:
-    """ac-002 — kind="log" raw + registered-kind output both carry parent_ids.
+        # Raw "log" artifact holds the instance's model_dump_json (semantically).
+        raw_bytes = store.get(result.raw_response_artifact.id).decode("utf-8")
+        assert json.loads(raw_bytes) == canned_payload
 
-    The §10.2 invariant: the raw record (now ``instance.model_dump_json()``)
-    is persisted as ``kind="log"`` and the parsed output under the
-    registered kind, both with ``parent_ids == spec.input_artifact_ids``.
-    """
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.schemas import AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+        # Provenance edges propagated from the spec (input ids retained; the
+        # composed-prompt artifact id is added on top — see the dedicated test).
+        assert parent.id in result.output_artifact.parent_ids
+        assert parent.id in result.raw_response_artifact.parent_ids
 
-    instance = _TinyReport(title="audited", score=9)
-    router = _RecordingRouter(instance=instance)
-    store = FileArtifactStore(root=tmp_path / "artifacts")
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={"tiny_writer": _TinyReport},
-        output_kind_by_agent={"tiny_writer": "experiment_report"},
-    )
+        # Result metadata: ``model`` field is non-empty for audit citations.
+        assert result.model
 
-    parent = store.put_text(
-        kind="user_plan",
-        text="plan",
-        created_by="test",
-        parent_ids=[],
-    )
+    # ── ac-001: gateway uses complete_structured, never complete_text ─────────
 
-    result = await gateway.call(
-        AgentCallSpec(
-            agent_name="tiny_writer",
-            input_artifact_ids=[parent.id],
-            output_schema=_TinyReport.model_json_schema(),
+    @pytest.mark.asyncio
+    async def test_call_invokes_complete_structured_not_complete_text(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """ac-001 — planning agents drive ``complete_structured`` only.
+
+        A recording router whose ``complete_text`` raises proves the gateway
+        no longer touches the text route; ``complete_structured`` is recorded
+        with the registered schema.
+        """
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        instance = _TinyReport(title="ok", score=3)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
         )
-    )
 
-    # Raw log artifact present, holds the model_dump_json of the instance.
-    log_refs = store.list_by_kind("log")
-    log_payloads = [store.get(ref.id).decode("utf-8") for ref in log_refs]
-    assert json.loads(instance.model_dump_json()) in [json.loads(p) for p in log_payloads]
-
-    # Both refs carry the spec's parent_ids (plus the composed-prompt id).
-    assert result.raw_response_artifact.kind == "log"
-    assert parent.id in result.raw_response_artifact.parent_ids
-    assert parent.id in result.output_artifact.parent_ids
-
-
-# ── ac-007: gateway forwards the per-agent SYSTEM_PROMPT into structured ──
-
-
-@pytest.mark.asyncio
-async def test_gateway_forwards_system_prompt_into_complete_structured(
-    tmp_path: Path,
-) -> None:
-    """ac-007 — a gateway built with ``prompts_by_agent()`` forwards the
-    matching ``SYSTEM_PROMPT`` as the ``system=`` arg into
-    ``complete_structured`` for a known ``agent_name``.
-    """
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.prompts import prompts_by_agent
-    from molexp.harness.schemas import AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    prompts = prompts_by_agent()
-    agent_name = "experiment_report_writer"
-
-    instance = _TinyReport(title="wired", score=1)
-    router = _RecordingRouter(instance=instance)
-    store = FileArtifactStore(root=tmp_path / "artifacts")
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={agent_name: _TinyReport},
-        output_kind_by_agent={agent_name: "experiment_report"},
-        system_prompt_by_agent=prompts,
-    )
-
-    await gateway.call(
-        AgentCallSpec(
-            agent_name=agent_name,
-            input_artifact_ids=[],
-            output_schema=_TinyReport.model_json_schema(),
+        await gateway.call(
+            AgentCallSpec(
+                agent_name="tiny_writer",
+                input_artifact_ids=[],
+                output_schema=_TinyReport.model_json_schema(),
+            )
         )
-    )
 
-    assert len(router.structured_calls) == 1
-    assert router.structured_calls[0]["system"] == prompts[agent_name]
+        assert router.complete_text_calls == 0
+        assert len(router.structured_calls) == 1
+        assert router.structured_calls[0]["schema"] is _TinyReport
+        # node_id is forwarded as the agent_name for traceability.
+        assert router.structured_calls[0]["node_id"] == "tiny_writer"
+
+    # ── ac-003: prose-wrapped output still yields a schema-valid object ───────
+
+    @pytest.mark.asyncio
+    async def test_prose_wrapped_output_yields_valid_artifact(self, tmp_path: Path) -> None:
+        """ac-003 — the structured path closes the prose-crash regression.
+
+        A router that returns a valid instance regardless of surrounding prose
+        (as pydantic-ai's ``output_type`` enforcement does) lets ``call``
+        return a resolvable, schema-valid output artifact instead of raising —
+        where the OLD ``complete_text`` + ``model_validate_json`` path crashed
+        on prose.
+        """
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallResult, AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        instance = _TinyReport(title="resilient", score=42)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
+        )
+
+        result = await gateway.call(
+            AgentCallSpec(
+                agent_name="tiny_writer",
+                input_artifact_ids=[],
+                output_schema=_TinyReport.model_json_schema(),
+            )
+        )
+
+        assert isinstance(result, AgentCallResult)
+        parsed = json.loads(store.get(result.output_artifact.id).decode("utf-8"))
+        assert parsed == {"title": "resilient", "score": 42}
+
+    # ── ac-004: unknown agent_name still raises ───────────────────────────────
+
+    @pytest.mark.asyncio
+    async def test_call_raises_on_unknown_agent_name(self, tmp_path: Path) -> None:
+        """ac-004 — unregistered ``agent_name`` raises ``AgentResponseNotRegisteredError``.
+
+        Parity with :class:`StubAgentGateway`; the exception is a
+        :class:`HarnessError` subclass so generic handlers catch both backends.
+        """
+        from molexp.harness.errors import AgentResponseNotRegisteredError, HarnessError
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        router = _StubRouter(response_text='{"title": "x", "score": 1}')
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
+        )
+
+        with pytest.raises(AgentResponseNotRegisteredError) as exc_info:
+            await gateway.call(
+                AgentCallSpec(
+                    agent_name="unknown_agent",
+                    input_artifact_ids=[],
+                    output_schema={},
+                )
+            )
+        assert isinstance(exc_info.value, HarnessError)
+
+    # ── ac-002: raw persisted before parsed (both with parent_ids) ────────────
+
+    @pytest.mark.asyncio
+    async def test_raw_log_persisted_with_parent_ids_alongside_output(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """ac-002 — kind="log" raw + registered-kind output both carry parent_ids.
+
+        The §10.2 invariant: the raw record (now ``instance.model_dump_json()``)
+        is persisted as ``kind="log"`` and the parsed output under the
+        registered kind, both with ``parent_ids == spec.input_artifact_ids``.
+        """
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        instance = _TinyReport(title="audited", score=9)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
+        )
+
+        parent = store.put_text(
+            kind="user_plan",
+            text="plan",
+            created_by="test",
+            parent_ids=[],
+        )
+
+        result = await gateway.call(
+            AgentCallSpec(
+                agent_name="tiny_writer",
+                input_artifact_ids=[parent.id],
+                output_schema=_TinyReport.model_json_schema(),
+            )
+        )
+
+        # Raw log artifact present, holds the model_dump_json of the instance.
+        log_refs = store.list_by_kind("log")
+        log_payloads = [store.get(ref.id).decode("utf-8") for ref in log_refs]
+        assert json.loads(instance.model_dump_json()) in [json.loads(p) for p in log_payloads]
+
+        # Both refs carry the spec's parent_ids (plus the composed-prompt id).
+        assert result.raw_response_artifact.kind == "log"
+        assert parent.id in result.raw_response_artifact.parent_ids
+        assert parent.id in result.output_artifact.parent_ids
+
+    # ── ac-007: gateway forwards the per-agent SYSTEM_PROMPT into structured ──
+
+    @pytest.mark.asyncio
+    async def test_gateway_forwards_system_prompt_into_complete_structured(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """ac-007 — a gateway built with ``prompts_by_agent()`` forwards the
+        matching ``SYSTEM_PROMPT`` as the ``system=`` arg into
+        ``complete_structured`` for a known ``agent_name``.
+        """
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.prompts import prompts_by_agent
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        prompts = prompts_by_agent()
+        agent_name = "experiment_report_writer"
+
+        instance = _TinyReport(title="wired", score=1)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={agent_name: _TinyReport},
+            output_kind_by_agent={agent_name: "experiment_report"},
+            system_prompt_by_agent=prompts,
+        )
+
+        await gateway.call(
+            AgentCallSpec(
+                agent_name=agent_name,
+                input_artifact_ids=[],
+                output_schema=_TinyReport.model_json_schema(),
+            )
+        )
+
+        assert len(router.structured_calls) == 1
+        assert router.structured_calls[0]["system"] == prompts[agent_name]
 
 
 # ── prompt provenance: composed prompt persisted + wired into lineage ─────

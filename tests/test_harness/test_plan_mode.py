@@ -116,30 +116,92 @@ def _fixture_gateway(run) -> StubAgentGateway:
 # ───────────────────────────────────────────── ac-001 / ac-002: shape
 
 
-def test_plan_mode_is_a_mode_subclass_exported() -> None:
-    import molexp.harness as harness
+class TestPlanMode:
+    def test_plan_mode_is_a_mode_subclass_exported(self) -> None:
+        import molexp.harness as harness
 
-    assert issubclass(PlanMode, Mode)
-    assert "PlanMode" in harness.__all__
+        assert issubclass(PlanMode, Mode)
+        assert "PlanMode" in harness.__all__
 
+    def test_plan_mode_declares_the_ten_stage_sequence(self) -> None:
+        names = [s.name for s in PlanMode().stages("draft")]
+        assert names == [
+            "save_user_plan",
+            "generate_experiment_report",
+            "approve_experiment_spec",  # early review gate, before compilation
+            "extract_workflow_ir",
+            "validate_workflow_ir",
+            "bind_molcrafts_tasks",
+            "validate_bound_workflow",
+            "generate_workflow_source",
+            "validate_workflow_source",
+            "approval_gate",  # terminal final_report gate
+        ]
+        # The review gate sits directly between the report and IR extraction.
+        assert (
+            names.index("approve_experiment_spec") == names.index("generate_experiment_report") + 1
+        )
+        assert names.index("extract_workflow_ir") == names.index("approve_experiment_spec") + 1
 
-def test_plan_mode_declares_the_ten_stage_sequence() -> None:
-    names = [s.name for s in PlanMode().stages("draft")]
-    assert names == [
-        "save_user_plan",
-        "generate_experiment_report",
-        "approve_experiment_spec",  # early review gate, before compilation
-        "extract_workflow_ir",
-        "validate_workflow_ir",
-        "bind_molcrafts_tasks",
-        "validate_bound_workflow",
-        "generate_workflow_source",
-        "validate_workflow_source",
-        "approval_gate",  # terminal final_report gate
-    ]
-    # The review gate sits directly between the report and IR extraction.
-    assert names.index("approve_experiment_spec") == names.index("generate_experiment_report") + 1
-    assert names.index("extract_workflow_ir") == names.index("approve_experiment_spec") + 1
+    # ───────────────────────────────────── ac-003 / ac-004 / ac-006: offline run
+
+    def test_plan_mode_runs_all_stages_offline(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
+
+        result = asyncio.run(
+            PlanMode().run(run=run, user_input="Simulate NEMD ionic mobility", gateway=gateway)
+        )
+
+        assert isinstance(result, ModeResult)
+        assert result.mode_name == "plan"
+        assert result.run_id == run.id
+        kinds = [a.kind for a in result.stage_artifacts]
+        # The codegen artifact is present, and the gate cleared (auto-grant).
+        assert "workflow_source" in kinds
+        assert "analysis_result" in kinds  # ApprovalGate output → ran to completion
+
+    def test_plan_mode_produces_recoverable_workflow_source(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
+        store = FileArtifactStore(root=run.run_dir / "artifacts")
+
+        result = asyncio.run(PlanMode().run(run=run, user_input="draft", gateway=gateway))
+
+        src_refs = [a for a in result.stage_artifacts if a.kind == "workflow_source"]
+        assert len(src_refs) == 1
+        ws_obj = WorkflowSource.model_validate_json(store.get(src_refs[0].id))
+        assert "build_workflow" in ws_obj.source
+
+    # ───────────────────────────────────────────── ac-005: provenance lineage
+
+    def test_workflow_source_lineage_reaches_user_plan(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
+        store = FileArtifactStore(root=run.run_dir / "artifacts")
+
+        result = asyncio.run(PlanMode().run(run=run, user_input="draft", gateway=gateway))
+        src_ref = next(a for a in result.stage_artifacts if a.kind == "workflow_source")
+        user_plan_ref = next(a for a in result.stage_artifacts if a.kind == "user_plan")
+
+        provenance = SQLiteArtifactLineageStore(
+            path=run.run_dir / "harness.sqlite", artifact_store=store
+        )
+        ancestors = {ref.id for ref in provenance.trace_backward(src_ref.id)}
+        assert user_plan_ref.id in ancestors
+
+    # ───────────────────────────────────────── ac-007 / ac-008: live-example guards
+
+    def test_flagship_example_imports_without_network_or_key(self, monkeypatch: Any) -> None:
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        import examples.harness.experiment_pipeline as pipeline
+
+        assert callable(pipeline.main)  # importing it ran nothing (guarded under __main__)
+        assert os.environ.get("DEEPSEEK_API_KEY") is None
+
+    def test_examples_dir_has_no_pytest_tests(self) -> None:
+        examples = Path(__file__).resolve().parents[2] / "examples"
+        assert not list(examples.rglob("test_*.py"))
 
 
 class TestPlanModeReviewCheckpoint:
@@ -210,71 +272,3 @@ class TestPlanModeReviewCheckpoint:
         kinds = [a.kind for a in result.stage_artifacts]
         assert "workflow_source" in kinds
         assert kinds.count("analysis_result") == 2  # both gates ran to completion
-
-
-# ───────────────────────────────────── ac-003 / ac-004 / ac-006: offline run
-
-
-def test_plan_mode_runs_all_stages_offline(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-
-    result = asyncio.run(
-        PlanMode().run(run=run, user_input="Simulate NEMD ionic mobility", gateway=gateway)
-    )
-
-    assert isinstance(result, ModeResult)
-    assert result.mode_name == "plan"
-    assert result.run_id == run.id
-    kinds = [a.kind for a in result.stage_artifacts]
-    # The codegen artifact is present, and the gate cleared (auto-grant).
-    assert "workflow_source" in kinds
-    assert "analysis_result" in kinds  # ApprovalGate output → ran to completion
-
-
-def test_plan_mode_produces_recoverable_workflow_source(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-    store = FileArtifactStore(root=run.run_dir / "artifacts")
-
-    result = asyncio.run(PlanMode().run(run=run, user_input="draft", gateway=gateway))
-
-    src_refs = [a for a in result.stage_artifacts if a.kind == "workflow_source"]
-    assert len(src_refs) == 1
-    ws_obj = WorkflowSource.model_validate_json(store.get(src_refs[0].id))
-    assert "build_workflow" in ws_obj.source
-
-
-# ───────────────────────────────────────────── ac-005: provenance lineage
-
-
-def test_workflow_source_lineage_reaches_user_plan(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-    store = FileArtifactStore(root=run.run_dir / "artifacts")
-
-    result = asyncio.run(PlanMode().run(run=run, user_input="draft", gateway=gateway))
-    src_ref = next(a for a in result.stage_artifacts if a.kind == "workflow_source")
-    user_plan_ref = next(a for a in result.stage_artifacts if a.kind == "user_plan")
-
-    provenance = SQLiteArtifactLineageStore(
-        path=run.run_dir / "harness.sqlite", artifact_store=store
-    )
-    ancestors = {ref.id for ref in provenance.trace_backward(src_ref.id)}
-    assert user_plan_ref.id in ancestors
-
-
-# ───────────────────────────────────────── ac-007 / ac-008: live-example guards
-
-
-def test_flagship_example_imports_without_network_or_key(monkeypatch: Any) -> None:
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-    import examples.harness.experiment_pipeline as pipeline
-
-    assert callable(pipeline.main)  # importing it ran nothing (guarded under __main__)
-    assert os.environ.get("DEEPSEEK_API_KEY") is None
-
-
-def test_examples_dir_has_no_pytest_tests() -> None:
-    examples = Path(__file__).resolve().parents[2] / "examples"
-    assert not list(examples.rglob("test_*.py"))

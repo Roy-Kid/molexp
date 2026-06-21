@@ -43,9 +43,7 @@ def test_add_note_is_idempotent_on_slug(project):
 
 
 def test_update_note_rewrites_body_preserving_metadata(project):
-    note = project.library.add_note(
-        "Editable", "v1 body", summary="keeps", tags=["a"], refs=["r1"]
-    )
+    note = project.library.add_note("Editable", "v1 body", summary="keeps", tags=["a"], refs=["r1"])
     updated = project.library.update_note(note.asset_id, "# v2\n\nnew body")
 
     assert updated.asset_id == note.asset_id

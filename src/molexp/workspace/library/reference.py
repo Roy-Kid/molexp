@@ -13,6 +13,7 @@ go through the workspace atomic-JSON helper.
 
 from __future__ import annotations
 
+import builtins
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
@@ -83,7 +84,7 @@ class ReferenceStore:
 
     # ── Read ────────────────────────────────────────────────────────────────
 
-    def list(self) -> list[Reference]:
+    def list(self) -> builtins.list[Reference]:
         """Return all references in insertion order."""
         if not self.path.exists():
             return []
@@ -119,7 +120,7 @@ class ReferenceStore:
 
     # ── Internal ──────────────────────────────────────────────────────────
 
-    def _save(self, refs: list[Reference]) -> None:
+    def _save(self, refs: builtins.list[Reference]) -> None:
         from ..base import _atomic_write_json
 
         self.path.parent.mkdir(parents=True, exist_ok=True)

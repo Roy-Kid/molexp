@@ -83,55 +83,67 @@ def ctx_with_gw(tmp_path: Path):
     )
 
 
-def test_name_and_subclass() -> None:
-    from molexp.harness.core.stage import Stage
-    from molexp.harness.stages.generate_test_spec import GenerateTestSpec
+class TestGenerateTestSpecStage:
+    def test_name_and_subclass(self) -> None:
+        from molexp.harness.core.stage import Stage
+        from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
-    assert GenerateTestSpec.name == "generate_test_spec"
-    assert issubclass(GenerateTestSpec, Stage)
+        assert GenerateTestSpec.name == "generate_test_spec"
+        assert issubclass(GenerateTestSpec, Stage)
 
+    def test_fail_fast_no_gateway(self, ctx_no_gw) -> None:
+        from molexp.harness.errors import StageExecutionError
+        from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
-def test_fail_fast_no_gateway(ctx_no_gw) -> None:
-    from molexp.harness.errors import StageExecutionError
-    from molexp.harness.stages.generate_test_spec import GenerateTestSpec
+        _seed_bw_ref(ctx_no_gw.artifact_store)
+        stage = GenerateTestSpec()
+        with pytest.raises(StageExecutionError) as exc:
+            asyncio.run(stage.run(ctx_no_gw))
+        assert "agent_gateway" in str(exc.value)
 
-    _seed_bw_ref(ctx_no_gw.artifact_store)
-    stage = GenerateTestSpec()
-    with pytest.raises(StageExecutionError) as exc:
-        asyncio.run(stage.run(ctx_no_gw))
-    assert "agent_gateway" in str(exc.value)
+    def test_builds_correct_spec(self, ctx_with_gw) -> None:
+        from molexp.harness.gateways.gateway import AgentGateway
+        from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSpecBundle
+        from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
+        bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
+        real_gw = ctx_with_gw.agent_gateway
+        real_gw.register(
+            agent_name="test_spec_writer",
+            output=_test_spec_canned(),
+            output_kind="test_spec",
+        )
+        captured: list[AgentCallSpec] = []
 
-def test_builds_correct_spec(ctx_with_gw) -> None:
-    from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSpecBundle
-    from molexp.harness.stages.generate_test_spec import GenerateTestSpec
+        class Cap:
+            async def call(self, spec: AgentCallSpec) -> AgentCallResult:
+                captured.append(spec)
+                return await real_gw.call(spec)
 
-    bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
-    real_gw = ctx_with_gw.agent_gateway
-    real_gw.register(
-        agent_name="test_spec_writer",
-        output=_test_spec_canned(),
-        output_kind="test_spec",
-    )
-    captured: list[AgentCallSpec] = []
+        object.__setattr__(ctx_with_gw, "_frozen", False)
+        ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
+        object.__setattr__(ctx_with_gw, "_frozen", True)
 
-    class Cap:
-        async def call(self, spec: AgentCallSpec) -> AgentCallResult:
-            captured.append(spec)
-            return await real_gw.call(spec)
+        asyncio.run(GenerateTestSpec().run(ctx_with_gw))
+        assert len(captured) == 1
+        spec = captured[0]
+        assert spec.agent_name == "test_spec_writer"
+        assert spec.input_artifact_ids == [bw_ref.id]
+        # The stage now requests a per-task TestSpecBundle, not a bare TestSpec.
+        assert spec.output_schema == TestSpecBundle.model_json_schema()
 
-    object.__setattr__(ctx_with_gw, "_frozen", False)
-    ctx_with_gw.agent_gateway = cast(AgentGateway, Cap())
-    object.__setattr__(ctx_with_gw, "_frozen", True)
+    def test_returns_test_spec_ref(self, ctx_with_gw) -> None:
+        from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 
-    asyncio.run(GenerateTestSpec().run(ctx_with_gw))
-    assert len(captured) == 1
-    spec = captured[0]
-    assert spec.agent_name == "test_spec_writer"
-    assert spec.input_artifact_ids == [bw_ref.id]
-    # The stage now requests a per-task TestSpecBundle, not a bare TestSpec.
-    assert spec.output_schema == TestSpecBundle.model_json_schema()
+        bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
+        ctx_with_gw.agent_gateway.register(
+            agent_name="test_spec_writer",
+            output=_test_spec_canned(),
+            output_kind="test_spec",
+        )
+        ref = asyncio.run(GenerateTestSpec().run(ctx_with_gw))
+        assert ref.kind == "test_spec"
+        assert bw_ref.id in ref.parent_ids
 
 
 class TestGenerateTestSpecFanout:
@@ -170,17 +182,3 @@ class TestGenerateTestSpecFanout:
         assert len(parsed.specs) == len(task_ids)
         assert [s.target_task_id for s in parsed.specs] == task_ids
         assert len({s.target_task_id for s in parsed.specs}) == len(task_ids)
-
-
-def test_returns_test_spec_ref(ctx_with_gw) -> None:
-    from molexp.harness.stages.generate_test_spec import GenerateTestSpec
-
-    bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
-    ctx_with_gw.agent_gateway.register(
-        agent_name="test_spec_writer",
-        output=_test_spec_canned(),
-        output_kind="test_spec",
-    )
-    ref = asyncio.run(GenerateTestSpec().run(ctx_with_gw))
-    assert ref.kind == "test_spec"
-    assert bw_ref.id in ref.parent_ids

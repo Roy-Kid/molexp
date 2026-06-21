@@ -37,7 +37,7 @@ from molexp.harness.schemas import (
     WorkflowIR,
 )
 from molexp.harness.stages._resolve import require_latest
-from molexp.harness.validators.workflow_ir import validate_workflow_ir
+from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
 __all__ = ["ValidateWorkflowIR"]
 
@@ -84,7 +84,7 @@ class ValidateWorkflowIR(Stage):
                 ) from exc
             return report_ref
 
-        report = validate_workflow_ir(ir)
+        report = WorkflowIRValidator.validate(ir)
 
         # Persist the report unconditionally — failed validations stay
         # first-class artifacts in the audit trail.

@@ -100,37 +100,100 @@ def _seed(ctx: HarnessRunContext, kind: str, obj: dict) -> ArtifactRef:
 # ------------------------------------------------------------ stage shape
 
 
-def test_stage_name_and_subclass() -> None:
-    from molexp.harness import ValidateTestSpec
-    from molexp.harness.core.stage import Stage
+class TestValidateTestSpecStage:
+    def test_stage_name_and_subclass(self) -> None:
+        from molexp.harness import ValidateTestSpec
+        from molexp.harness.core.stage import Stage
 
-    assert ValidateTestSpec.name == "validate_test_spec"
-    assert issubclass(ValidateTestSpec, Stage)
+        assert ValidateTestSpec.name == "validate_test_spec"
+        assert issubclass(ValidateTestSpec, Stage)
 
+    def test_ctor_raise_on_failure_is_keyword_only(self) -> None:
+        from molexp.harness import ValidateTestSpec
 
-def test_ctor_raise_on_failure_is_keyword_only() -> None:
-    from molexp.harness import ValidateTestSpec
+        with pytest.raises(TypeError):
+            ValidateTestSpec(False)  # type: ignore[call-arg]
 
-    with pytest.raises(TypeError):
-        ValidateTestSpec(False)  # type: ignore[call-arg]
+    # ------------------------------------------------------------- happy path
 
+    def test_happy_path_persists_passing_report(self, ctx) -> None:
+        from molexp.harness import ValidateTestSpec, ValidationReport
 
-# ------------------------------------------------------------- happy path
+        spec_ref = _seed(ctx, "test_spec", _test_spec_dict())
+        report_ref = asyncio.run(ValidateTestSpec().run(ctx))
 
+        assert report_ref.kind == "validation_report"
+        assert spec_ref.id in report_ref.parent_ids
 
-def test_happy_path_persists_passing_report(ctx) -> None:
-    from molexp.harness import ValidateTestSpec, ValidationReport
+        raw = ctx.artifact_store.get(report_ref.id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is True
+        assert report.target_kind == "test_spec"
 
-    spec_ref = _seed(ctx, "test_spec", _test_spec_dict())
-    report_ref = asyncio.run(ValidateTestSpec().run(ctx))
+    # ----------------------------------------------- workflow_ir cross-check
 
-    assert report_ref.kind == "validation_report"
-    assert spec_ref.id in report_ref.parent_ids
+    def test_cross_check_passes_when_target_task_in_ir(self, ctx) -> None:
+        from molexp.harness import ValidateTestSpec, ValidationReport
 
-    raw = ctx.artifact_store.get(report_ref.id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is True
-    assert report.target_kind == "test_spec"
+        _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-square"))
+        _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
+        report_ref = asyncio.run(ValidateTestSpec().run(ctx))
+
+        raw = ctx.artifact_store.get(report_ref.id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is True
+        assert report.target_kind == "test_spec"
+
+    def test_cross_check_fails_when_target_task_not_in_ir(self, ctx) -> None:
+        from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
+
+        _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-other"))
+        _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
+
+        with pytest.raises(StagePersistedFailureError) as exc_info:
+            asyncio.run(ValidateTestSpec().run(ctx))
+
+        # Report persisted despite the raise (always-persist contract).
+        reports = ctx.artifact_store.list_by_kind("validation_report")
+        assert len(reports) == 1
+        raw = ctx.artifact_store.get(reports[0].id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is False
+        assert any(v.code == "unknown_task_target" for v in report.violations)
+        assert exc_info.value.persisted_ref.id == reports[0].id
+        assert exc_info.value.persisted_ref.kind == "validation_report"
+
+    # ---------------------------------------------- red path: missing target
+
+    def test_missing_target_persists_failing_report_then_raises(self, ctx) -> None:
+        from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
+
+        _seed(ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None))
+
+        with pytest.raises(StagePersistedFailureError) as exc_info:
+            asyncio.run(ValidateTestSpec().run(ctx))
+
+        reports = ctx.artifact_store.list_by_kind("validation_report")
+        assert len(reports) == 1
+        raw = ctx.artifact_store.get(reports[0].id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is False
+        assert any(v.code == "missing_target" for v in report.violations)
+        assert exc_info.value.persisted_ref.id == reports[0].id
+
+    def test_missing_target_returns_failing_ref_when_raise_disabled(self, ctx) -> None:
+        from molexp.harness import ValidateTestSpec, ValidationReport
+
+        spec_ref = _seed(
+            ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None)
+        )
+        report_ref = asyncio.run(ValidateTestSpec(raise_on_failure=False).run(ctx))
+
+        assert report_ref.kind == "validation_report"
+        assert spec_ref.id in report_ref.parent_ids
+        raw = ctx.artifact_store.get(report_ref.id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is False
 
 
 class TestValidateTestSpecBundle:
@@ -163,74 +226,3 @@ class TestValidateTestSpecBundle:
         report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
         assert report.passed is False
         assert any(v.code == "empty_test_spec_bundle" for v in report.violations)
-
-
-# ----------------------------------------------- workflow_ir cross-check
-
-
-def test_cross_check_passes_when_target_task_in_ir(ctx) -> None:
-    from molexp.harness import ValidateTestSpec, ValidationReport
-
-    _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-square"))
-    _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
-    report_ref = asyncio.run(ValidateTestSpec().run(ctx))
-
-    raw = ctx.artifact_store.get(report_ref.id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is True
-    assert report.target_kind == "test_spec"
-
-
-def test_cross_check_fails_when_target_task_not_in_ir(ctx) -> None:
-    from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
-
-    _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-other"))
-    _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
-
-    with pytest.raises(StagePersistedFailureError) as exc_info:
-        asyncio.run(ValidateTestSpec().run(ctx))
-
-    # Report persisted despite the raise (always-persist contract).
-    reports = ctx.artifact_store.list_by_kind("validation_report")
-    assert len(reports) == 1
-    raw = ctx.artifact_store.get(reports[0].id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is False
-    assert any(v.code == "unknown_task_target" for v in report.violations)
-    assert exc_info.value.persisted_ref.id == reports[0].id
-    assert exc_info.value.persisted_ref.kind == "validation_report"
-
-
-# ---------------------------------------------- red path: missing target
-
-
-def test_missing_target_persists_failing_report_then_raises(ctx) -> None:
-    from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
-
-    _seed(ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None))
-
-    with pytest.raises(StagePersistedFailureError) as exc_info:
-        asyncio.run(ValidateTestSpec().run(ctx))
-
-    reports = ctx.artifact_store.list_by_kind("validation_report")
-    assert len(reports) == 1
-    raw = ctx.artifact_store.get(reports[0].id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is False
-    assert any(v.code == "missing_target" for v in report.violations)
-    assert exc_info.value.persisted_ref.id == reports[0].id
-
-
-def test_missing_target_returns_failing_ref_when_raise_disabled(ctx) -> None:
-    from molexp.harness import ValidateTestSpec, ValidationReport
-
-    spec_ref = _seed(
-        ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None)
-    )
-    report_ref = asyncio.run(ValidateTestSpec(raise_on_failure=False).run(ctx))
-
-    assert report_ref.kind == "validation_report"
-    assert spec_ref.id in report_ref.parent_ids
-    raw = ctx.artifact_store.get(report_ref.id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is False

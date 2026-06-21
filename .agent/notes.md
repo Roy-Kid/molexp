@@ -14,6 +14,25 @@ Pure data types → `pydantic.BaseModel(frozen=True)`. Runtime containers (live 
 
 **Status:** stable
 
+## approval-gate-instance-name | 2026-06-21 | impl
+
+`ApprovalGate` takes an optional `name=` kwarg that overrides the stage's
+ledger name on that **instance only** (set via `object.__setattr__(self,
+"name", name)` in `__init__`; class-level `ApprovalGate.name` stays
+`"approval_gate"`). Reason: a harness `Mode` keys its per-run completion
+ledger on `stage.name`, and `stage_fingerprint()` keys on the **class** alone
+(instance config is excluded) — so two same-named `ApprovalGate`s in one mode
+would make the second a false ledger cache-hit and get silently skipped.
+`PlanMode` wires two gates: the early experiment-report review gate is named
+`approve_experiment_spec`, the terminal final-report gate keeps the default
+`approval_gate`.
+
+**Rule**: when a `Mode` wires more than one instance of the same `Stage`
+class, give the extra instances a distinct `name=` so each gets its own
+completion-ledger key.
+
+**Status:** stable
+
 ## three-layer-rectification | 2026-05-09 | impl
 
 The molexp dependency DAG was inverted by the rectification spec:

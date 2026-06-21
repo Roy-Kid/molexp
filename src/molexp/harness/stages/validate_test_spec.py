@@ -28,7 +28,7 @@ from molexp.harness.schemas import (
     WorkflowIR,
 )
 from molexp.harness.stages._resolve import require_latest
-from molexp.harness.validators.test_spec import validate_test_spec
+from molexp.harness.validators.test_spec import TestSpecValidator
 
 __all__ = ["ValidateTestSpec"]
 
@@ -75,7 +75,7 @@ class ValidateTestSpec(Stage):
                 )
             )
         for spec in bundle.specs:
-            violations.extend(validate_test_spec(spec, ir=ir).violations)
+            violations.extend(TestSpecValidator.validate(spec, ir=ir).violations)
 
         report = ValidationReport.from_violations(
             target_kind="test_spec",

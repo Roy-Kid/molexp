@@ -40,7 +40,7 @@ from molexp.harness.core.stage import Stage
 from molexp.harness.errors import ArtifactNotFoundError
 from molexp.harness.executors import Executor, LocalExecutor
 from molexp.harness.mode import Mode
-from molexp.harness.policy import make_final_report_approval_request
+from molexp.harness.policy import ApprovalPolicyEvaluator
 from molexp.harness.schemas import ApprovalPolicy, ApprovalRequest, ModeResult
 from molexp.harness.stages import (
     ApprovalGate,
@@ -116,11 +116,11 @@ class RunMode(Mode):
     def _final_report_request() -> ApprovalRequest:
         """Build the final-report approval request, narrowing the Optional.
 
-        ``make_final_report_approval_request`` returns ``None`` only when the
+        ``ApprovalPolicyEvaluator.make_final_report_request`` returns ``None`` only when the
         policy disables final-report approval; the default ``ApprovalPolicy``
         requires it, so the ``None`` branch is unreachable here.
         """
-        request = make_final_report_approval_request(ApprovalPolicy())
+        request = ApprovalPolicyEvaluator.make_final_report_request(ApprovalPolicy())
         if request is None:  # pragma: no cover — default policy always requires it
             raise AssertionError(
                 "unreachable: default ApprovalPolicy requires final-report approval"
