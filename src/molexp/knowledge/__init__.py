@@ -31,9 +31,15 @@ from .ops import RETRYABLE_STATUSES, ExecutionRecord, RunOpsState, RunStatus
 from .references import ReferenceMeta
 from .run_lifecycle import (
     RunHeartbeat,
+    RunNotRetryableError,
+    cancel_run,
     claim_ownership,
     finish_run,
+    make_execution_id,
     reap_run_if_stale,
+    rerun_run,
+    resumable_execution_id,
+    resume_run,
     should_reap,
 )
 from .types import concept_type, register_concept_type, resolve_concept_type
@@ -57,15 +63,21 @@ __all__ = [
     "ReferenceMeta",
     "Run",
     "RunHeartbeat",
+    "RunNotRetryableError",
     "RunOpsState",
     "RunStatus",
     "Workspace",
     "ZoteroItem",
+    "cancel_run",
     "claim_ownership",
     "concept_type",
     "finish_run",
+    "make_execution_id",
     "reap_run_if_stale",
     "register_concept_type",
+    "rerun_run",
     "resolve_concept_type",
+    "resumable_execution_id",
+    "resume_run",
     "should_reap",
 ]

@@ -18,9 +18,20 @@ from datetime import datetime
 from mollog import get_logger
 
 from .concepts import Run
-from .ops import HEARTBEAT_INTERVAL_SECONDS, RunOpsState, RunStatus, _utcnow
+from .ops import (
+    HEARTBEAT_INTERVAL_SECONDS,
+    RETRYABLE_STATUSES,
+    ExecutionRecord,
+    RunOpsState,
+    RunStatus,
+    _utcnow,
+)
 
 _logger = get_logger(__name__)
+
+
+class RunNotRetryableError(ValueError):
+    """Raised when resume/rerun is attempted on a non-retryable run."""
 
 
 def claim_ownership(
@@ -132,6 +143,104 @@ def reap_run_if_stale(run: Run, *, current_host: str, now: datetime | None = Non
     return False
 
 
+# ── resume / rerun / cancel verbs (okf-05-03) ────────────────────────────────
+
+
+def make_execution_id(run_id: str, n: int) -> str:
+    """Build a human-readable execution id: ``exec-{run_id}`` then ``-2`` / ``-3``…"""
+    return f"exec-{run_id}" if n <= 1 else f"exec-{run_id}-{n}"
+
+
+def resumable_execution_id(state: RunOpsState) -> str | None:
+    """The most recent non-``succeeded`` execution id, or ``None``."""
+    for record in reversed(state.executions):
+        if record.status != RunStatus.SUCCEEDED.value:
+            return record.execution_id
+    return None
+
+
+def _require_retryable(state: RunOpsState) -> None:
+    if state.status not in RETRYABLE_STATUSES:
+        raise RunNotRetryableError(
+            f"run is {state.status.value!r}; resume/rerun apply only to failed or cancelled runs"
+        )
+
+
+def resume_run(run: Run, *, now: datetime | None = None) -> str:
+    """Reopen the last non-succeeded execution on the **same** exec_id.
+
+    Requires the run to be retryable (failed/cancelled). Flips status to
+    RUNNING, clears ``finished_at``, and reopens the chosen ``ExecutionRecord``
+    (or appends a fresh running one if none exists). Returns the exec_id.
+    """
+    state = run.read_ops()
+    _require_retryable(state)
+    ts = now or _utcnow()
+    exec_id = resumable_execution_id(state) or make_execution_id(
+        run.name, len(state.executions) + 1
+    )
+
+    def reopen(s: RunOpsState) -> RunOpsState:
+        update: dict[str, object] = {
+            "status": RunStatus.RUNNING,
+            "finished_at": None,
+            "current_execution_id": exec_id,
+        }
+        if any(r.execution_id == exec_id for r in s.executions):
+            update["executions"] = tuple(
+                r.model_copy(update={"finished_at": None, "status": RunStatus.RUNNING.value})
+                if r.execution_id == exec_id
+                else r
+                for r in s.executions
+            )
+        else:
+            update["executions"] = (
+                *s.executions,
+                ExecutionRecord(execution_id=exec_id, started_at=ts),
+            )
+        return s.model_copy(update=update)
+
+    run.update_ops(reopen)
+    return exec_id
+
+
+def rerun_run(run: Run, *, now: datetime | None = None) -> str:
+    """Open a **fresh** ``exec-{run_id}-N`` execution (no clone, no new Run).
+
+    Requires the run to be retryable. Flips status to RUNNING, clears
+    ``finished_at``, appends a new running ``ExecutionRecord``, and returns the
+    fresh exec_id.
+    """
+    state = run.read_ops()
+    _require_retryable(state)
+    ts = now or _utcnow()
+    exec_id = make_execution_id(run.name, len(state.executions) + 1)
+
+    def fresh(s: RunOpsState) -> RunOpsState:
+        return s.model_copy(
+            update={
+                "status": RunStatus.RUNNING,
+                "finished_at": None,
+                "current_execution_id": exec_id,
+                "executions": (
+                    *s.executions,
+                    ExecutionRecord(execution_id=exec_id, started_at=ts),
+                ),
+            }
+        )
+
+    run.update_ops(fresh)
+    return exec_id
+
+
+def cancel_run(run: Run, *, now: datetime | None = None) -> RunOpsState:
+    """Cancel *run*: terminal CANCELLED + cleared ownership + closed execution.
+
+    The intervention verb — not gated to the retryable domain.
+    """
+    return finish_run(run, RunStatus.CANCELLED, now=now)
+
+
 class RunHeartbeat:
     """Daemon thread that re-stamps *run*'s heartbeat until stopped.
 
@@ -190,8 +299,14 @@ class RunHeartbeat:
 
 __all__ = [
     "RunHeartbeat",
+    "RunNotRetryableError",
+    "cancel_run",
     "claim_ownership",
     "finish_run",
+    "make_execution_id",
     "reap_run_if_stale",
+    "rerun_run",
+    "resumable_execution_id",
+    "resume_run",
     "should_reap",
 ]
