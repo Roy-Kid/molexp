@@ -15,7 +15,8 @@ import os
 import re
 import shutil
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
+from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar, cast
 
 from molexp._typing import JSONValue
 from molexp.path import Path
@@ -43,6 +44,29 @@ _KIND_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]*(?:\.[a-z0-9][a-z0-9_-]*)*$")
 _METADATA_FILENAME = "metadata.json"
 _FORBIDDEN_FILE_NAMES = {".", ".."}
 _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
+
+# ── OKF: narrative index.md + markdown-link knowledge graph ──────────────────
+# The Open Knowledge Format gives every Folder a human-readable narrative
+# (``index.md``) whose markdown links ARE the knowledge graph. This is additive
+# — it sits alongside the authoritative ``metadata.json`` and never replaces it.
+INDEX_FILENAME = "index.md"
+_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")  # [text](target)
+
+
+class LinkScan(NamedTuple):
+    """Resolved out-links of a Folder's ``index.md``.
+
+    Attributes:
+        concepts: Targets resolving to an existing in-tree dir — the
+            knowledge-graph out-edges. (Once OKF ``meta.yaml`` lands as the
+            unified concept marker, this narrows to true Concept dirs.)
+        external: ``http(s)://`` links.
+        other: In-tree targets that don't resolve to a dir.
+    """
+
+    concepts: list[str]
+    external: list[str]
+    other: list[str]
 
 
 def _validate_kind(kind: str) -> None:
@@ -207,6 +231,46 @@ class Folder:
         fpath = self._fs.join(self.path(), name)
         self._fs.atomic_write_json(fpath, data)
         return fpath
+
+    # ── OKF narrative + markdown-link knowledge graph ─────────────────────
+
+    def read_index(self) -> str:
+        """Return the OKF ``index.md`` narrative, or ``""`` if absent."""
+        fpath = self._fs.join(self.resolve(), INDEX_FILENAME)
+        return self._fs.read_text(fpath) if self._fs.exists(fpath) else ""
+
+    def write_index(self, text: str) -> str:
+        """Atomically write the OKF ``index.md`` narrative + markdown links."""
+        fpath = self._fs.join(self.path(), INDEX_FILENAME)
+        self._fs.atomic_write_text(fpath, text)
+        return fpath
+
+    def links(self) -> LinkScan:
+        """Parse ``index.md`` markdown links, classified (see :class:`LinkScan`).
+
+        Targets resolve relative to this Folder's dir; a trailing ``index.md``
+        is stripped to its containing dir. An in-tree target counts as a
+        knowledge-graph edge when it resolves to an existing dir.
+        """
+        base = PurePosixPath(str(self.resolve()))
+        concepts: list[str] = []
+        external: list[str] = []
+        other: list[str] = []
+        for target in _MD_LINK.findall(self.read_index()):
+            if target.startswith(("http://", "https://")):
+                external.append(target)
+                continue
+            norm = PurePosixPath(os.path.normpath(base / target))
+            concept_dir = norm.parent if norm.name == INDEX_FILENAME else norm
+            if self._fs.is_dir(str(concept_dir)):
+                concepts.append(str(concept_dir))
+            else:
+                other.append(target)
+        return LinkScan(concepts=concepts, external=external, other=other)
+
+    def out_edges(self) -> list[str]:
+        """In-tree Folder link targets — the knowledge-graph out-edges."""
+        return self.links().concepts
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
