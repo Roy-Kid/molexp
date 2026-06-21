@@ -13,13 +13,14 @@ sanctioned cross-layer primitives (``molexp.atomicio``, ``molexp.ids``,
 ``molexp.workspace`` or any upstream layer — enforced by
 ``tests/test_knowledge/test_import_guard.py``.
 
-The ``meta.yaml`` model + typed errors (okf-01-02) and the ``Folder``
-Concept-on-disk base (okf-01-03) are in place; ``Library`` (okf-01-04)
-follows.
+The ``meta.yaml`` model + typed errors (okf-01-02), the ``Folder``
+Concept-on-disk base (okf-01-03), and the ``Library`` bundle façade
+(okf-01-04 — ``walk`` / ``get`` / ``put`` / ``link``) are in place.
 """
 
 from .errors import ConceptExistsError, ConceptNotFoundError
 from .folder import Folder, LinkScan
+from .library import Library
 from .models import ConceptMeta
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     "ConceptMeta",
     "ConceptNotFoundError",
     "Folder",
+    "Library",
     "LinkScan",
 ]

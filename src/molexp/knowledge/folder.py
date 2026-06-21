@@ -106,6 +106,11 @@ class Folder:
     def parent(self) -> Folder | None:
         return self._parent
 
+    @property
+    def concept_type(self) -> str:
+        """The Concept's declared ``type`` (the required ``meta.yaml`` field)."""
+        return self._type
+
     def resolve(self) -> Path:
         """Compute the on-disk path without any I/O (no mkdir)."""
         if self._parent is None:
