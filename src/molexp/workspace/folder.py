@@ -757,6 +757,31 @@ class Folder:
         _save_metadata(self._metadata, meta_path, fs=new_parent._fs)
 
 
+def append_link(src: Folder, dst: Folder, *, text: str | None = None) -> None:
+    """Append a relative markdown link ``src → dst`` to ``src``'s ``index.md``.
+
+    Writes a real markdown link (relative to *src*'s dir) so
+    :meth:`Folder.out_edges` resolves it back to *dst*. The graph lives in
+    markdown, never in ``meta.yaml``. Appends unconditionally; link dedup and
+    edge-typing remain a future enhancement.
+
+    Shared helper: :meth:`Bundle.link` and :meth:`Note.cite` both delegate
+    here, so the single source of the markdown-edge format lives in this
+    (lower) module that both import from.
+
+    Args:
+        src: The Concept the edge originates from.
+        dst: The Concept the edge points to.
+        text: Optional link label; defaults to *dst*'s name.
+    """
+    rel = os.path.relpath(str(dst.resolve()), str(src.resolve()))
+    rel_posix = PurePosixPath(rel).as_posix()
+    label = text if text is not None else dst.name
+    existing = src.read_index()
+    prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
+    src.write_index(f"{prefix}- [{label}]({rel_posix})\n")
+
+
 def concept_from_dir(child_dir: PathArg, parent: Folder) -> Folder:
     """Reconstruct *child_dir* as its registered concept subclass via meta.yaml.
 
@@ -784,5 +809,6 @@ __all__ = [
     "WORKSPACE_RUN_KIND",
     "Folder",
     "LinkScan",
+    "append_link",
     "concept_from_dir",
 ]

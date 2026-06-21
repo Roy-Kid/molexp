@@ -30,6 +30,9 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path as _StdPath
 from pathlib import PurePosixPath
+from typing import TYPE_CHECKING, cast
+
+from molexp.ids import slugify
 
 from .bundle_index import (
     INDEX_JSON_FILENAME,
@@ -43,12 +46,21 @@ from .folder import (
     META_YAML_FILENAME,
     OPS_DIR,
     Folder,
+    append_link,
     concept_from_dir,
 )
 from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
+from .reference_meta import ReferenceMeta
+from .zotero_concepts import read_zotero_items
+
+if TYPE_CHECKING:
+    from .concepts import Note, ReferenceConcept
 
 __all__ = ["Bundle"]
+
+REFERENCES_GROUP = "references"
+SOURCES_FILENAME = "sources.json"
 
 
 def _utcnow() -> datetime:
@@ -59,27 +71,6 @@ def _utcnow() -> datetime:
 def _is_concept_dir(path: PathArg, fs: FileSystem) -> bool:
     """Return ``True`` iff *path* is a dir that directly holds ``meta.yaml``."""
     return fs.is_dir(path) and fs.exists(fs.join(path, META_YAML_FILENAME))
-
-
-def append_link(src: Folder, dst: Folder, *, text: str | None = None) -> None:
-    """Append a relative markdown link ``src → dst`` to ``src``'s ``index.md``.
-
-    Writes a real markdown link (relative to *src*'s dir) so
-    :meth:`Folder.out_edges` resolves it back to *dst*. The graph lives in
-    markdown, never in ``meta.yaml``. Appends unconditionally; link dedup and
-    edge-typing remain a future enhancement.
-
-    Args:
-        src: The Concept the edge originates from.
-        dst: The Concept the edge points to.
-        text: Optional link label; defaults to *dst*'s name.
-    """
-    rel = os.path.relpath(str(dst.resolve()), str(src.resolve()))
-    rel_posix = PurePosixPath(rel).as_posix()
-    label = text if text is not None else dst.name
-    existing = src.read_index()
-    prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
-    src.write_index(f"{prefix}- [{label}]({rel_posix})\n")
 
 
 class Bundle:
@@ -238,6 +229,106 @@ class Bundle:
             text: Optional link label; defaults to *dst*'s name.
         """
         append_link(src, dst, text=text)
+
+    # ── typed filtered views + Zotero import (wsokf-05) ──────────────────
+
+    def references(self) -> list[ReferenceConcept]:
+        """Every OKF ``Reference`` Concept in the bundle (typed view of walk)."""
+        from .concepts import ReferenceConcept
+
+        return [c for c in self.walk() if isinstance(c, ReferenceConcept)]
+
+    def notes(self) -> list[Note]:
+        """Every OKF ``Note`` Concept in the bundle (typed view of walk)."""
+        from .concepts import Note
+
+        return [c for c in self.walk() if isinstance(c, Note)]
+
+    def import_zotero(
+        self,
+        path: PathArg,
+        *,
+        under: Folder | None = None,
+        now: datetime | None = None,
+    ) -> list[ReferenceConcept]:
+        """Link a local Zotero library (read-only) as ``Reference`` Concepts.
+
+        Each Zotero item becomes a :class:`ReferenceConcept` under *under*
+        (default: a ``references/`` group at the bundle root); its PDF is
+        *pointed at* via ``ReferenceMeta.pdf_path`` — no bytes are copied.
+        Idempotent on ``source_key``: re-importing an item updates its
+        ``meta.yaml`` in place (the slugified Zotero key is the dir name)
+        rather than duplicating it. Records the link in ``sources.json``.
+
+        Args:
+            path: The ``zotero.sqlite`` to read (opened read-only).
+            under: The Concept to mount references beneath (default: a
+                ``references/`` group materialized at the bundle root).
+            now: Import timestamp; defaults to aware-UTC ``datetime.now``.
+
+        Returns:
+            The :class:`ReferenceConcept` records created or updated.
+        """
+        from .concepts import ReferenceConcept
+
+        host = under if under is not None else self._references_group()
+        items = read_zotero_items(path)
+        refs: list[ReferenceConcept] = []
+        for item in items:
+            slug = slugify(item.key) or item.key
+            ref = cast(
+                "ReferenceConcept",
+                host.add_folder(ReferenceConcept(parent=host, name=slug)),
+            )
+            ref.write_ref_meta(
+                ReferenceMeta(
+                    title=item.title,
+                    authors=item.authors,
+                    year=item.year,
+                    doi=item.doi,
+                    url=item.url,
+                    pdf_path=item.pdf_path,
+                    source="zotero",
+                    source_key=item.key,
+                )
+            )
+            refs.append(ref)
+        self._record_source("zotero", str(path), len(items), now=now)
+        return refs
+
+    def _references_group(self) -> Folder:
+        """Materialize (idempotently) the default ``references/`` host Folder."""
+        group = Folder(
+            name=REFERENCES_GROUP,
+            kind="bundle.references",
+            root_path=str(self._root),
+            fs=self._fs,
+        )
+        if not self._fs.is_dir(group.resolve()):
+            group.materialize()
+            group.write_meta()
+        return group
+
+    def _record_source(self, source: str, path: str, count: int, *, now: datetime | None) -> None:
+        """Append (dedup on source+path) a linked-source row into ``sources.json``."""
+        sources_path = self._fs.join(str(self._root), SOURCES_FILENAME)
+        existing: list[dict[str, object]] = []
+        if self._fs.is_file(sources_path):
+            raw = json.loads(self._fs.read_text(sources_path))
+            if isinstance(raw, list):
+                existing = [e for e in raw if isinstance(e, dict)]
+        existing = [
+            e for e in existing if not (e.get("source") == source and e.get("path") == path)
+        ]
+        existing.append(
+            {
+                "source": source,
+                "path": path,
+                "count": count,
+                "imported_at": (now or _utcnow()).isoformat(),
+            }
+        )
+        self._fs.atomic_write_json(sources_path, existing)
 
     # ── derived index + search ───────────────────────────────────────────
 

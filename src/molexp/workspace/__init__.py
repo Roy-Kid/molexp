@@ -22,6 +22,20 @@ Upstream layers extend the workspace tree by importing the public
 ``Folder`` base class and mounting their own subclasses via the
 generic five-verb CRUD — see ``molexp.agent.folders`` for the
 ``Agent`` / ``AgentSession`` pair.
+
+Two ``Reference`` / note shapes coexist here (wsokf-05) under unambiguous
+names — the OKF Concepts do NOT shadow the legacy storage:
+
+- ``Reference`` (+ ``ReferenceStore``) is the legacy bib *record* — a frozen
+  row in ``library/references.json`` — and ``NoteAsset`` is the legacy *file*
+  (a ``library/notes/<slug>.md`` Asset).
+- ``ReferenceConcept`` (+ its typed ``ReferenceMeta`` ``meta.yaml`` payload)
+  and ``Note`` are the OKF *Concepts* — directories whose path is their
+  identity, reached via ``Bundle`` / ``concept_from_dir``. ``ZoteroItem`` /
+  ``read_zotero_items`` are the read-only Zotero importer that produces
+  ``ReferenceConcept`` records (PDFs pointed at, never copied).
+
+The legacy storage is retired only in the later workspace-storage cleanup.
 """
 
 from .assets import (
@@ -43,6 +57,7 @@ from .base import atomic_write_json, atomic_write_text
 from .bundle import Bundle
 from .bundle_index import BundleIndex, ConceptIndexEntry
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
+from .concepts import Note, ReferenceConcept
 from .context import Context
 from .errors import (
     ConceptNotFoundError,
@@ -75,6 +90,7 @@ from .models import (
 )
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
+from .reference_meta import ReferenceMeta
 from .run import RETRYABLE_STATUSES, Run, RunContext, RunStatus
 from .target import (
     LocalTarget,
@@ -97,6 +113,7 @@ from .targets import (
     to_transport,
 )
 from .workspace import Workspace
+from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
     # Retryable-status domain (resume / rerun verb selection)
@@ -146,6 +163,8 @@ __all__ = [
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
     "LogAsset",
+    # OKF Note Concept (wsokf-05) — a directory; coexists with file-backed NoteAsset
+    "Note",
     "NoteAsset",
     "NoteEntry",
     # Parameters
@@ -156,7 +175,12 @@ __all__ = [
     "ProjectExistsError",
     "ProjectMetadata",
     "ProjectNotFoundError",
+    # Legacy bib-record Reference (a row in references.json) + its store
     "Reference",
+    # OKF Reference Concept (wsokf-05) — a directory; named to NOT shadow the
+    # legacy record Reference above. Its typed meta.yaml payload is ReferenceMeta.
+    "ReferenceConcept",
+    "ReferenceMeta",
     "ReferenceStore",
     "RemoteTarget",
     "Run",
@@ -174,6 +198,8 @@ __all__ = [
     "Workspace",
     # Metadata models
     "WorkspaceMetadata",
+    # OKF read-only Zotero importer (wsokf-05) — produces ReferenceConcepts
+    "ZoteroItem",
     # Compute target helpers
     "add_target",
     # Atomic JSON I/O — used by workflow layer's persistence + agent
@@ -186,6 +212,7 @@ __all__ = [
     "has_target",
     "list_targets",
     "parse_target",
+    "read_zotero_items",
     "remove_target",
     "resolve_target",
     "target_run_dir",
