@@ -55,11 +55,11 @@ def _append_execution(run: Run, execution_id: str) -> None:
         finished_at=now,
         status="succeeded",
     )
-    run._update_metadata(execution_history=[*run.metadata.execution_history, record])
+    run.update_ops(lambda s: s.model_copy(update={"executions": (*s.executions, record)}))
 
 
 def _last_execution_id(run: Run) -> str:
-    return run.metadata.execution_history[-1].execution_id
+    return run.execution_history[-1].execution_id
 
 
 # ── driver-side precedence ──────────────────────────────────────────────────

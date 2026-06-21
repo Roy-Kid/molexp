@@ -45,11 +45,13 @@ def classify(run: Run) -> CancelPlan:
     Pure inspection — reads only metadata.  The returned plan tells the
     caller exactly what to do (or why it can't).
     """
-    status = str(run.metadata.status).lower()
+    status = str(run.status).lower()
     if status in _TERMINAL_STATUSES:
         return CancelPlan(kind="none", detail="already terminal")
 
-    info = normalize_executor_info(run.metadata.executor_info, run.metadata.labels)
+    # Ownership (pid/host) lives in the OKF ``_ops`` sidecar (wsokf-10);
+    # executor_info (scheduler/job ids) stays on run.json metadata.
+    info = normalize_executor_info(run.metadata.executor_info, {})
     if info.get("backend") == "molq" and info.get("job_id"):
         return CancelPlan(
             kind="molq",
@@ -57,16 +59,16 @@ def classify(run: Run) -> CancelPlan:
             job_id=info["job_id"],
         )
 
-    labels = dict(run.metadata.labels)
-    pid_str = labels.get("pid")
-    host = labels.get("host")
-    if pid_str and pid_str.isdigit() and host == platform.node():
-        return CancelPlan(kind="local", detail=pid_str)
+    ops = run.read_ops()
+    pid = ops.owner_pid
+    host = ops.owner_host
+    if pid is not None and host == platform.node():
+        return CancelPlan(kind="local", detail=str(pid))
 
     reason = "no molq job id"
-    if pid_str and host and host != platform.node():
+    if pid is not None and host and host != platform.node():
         reason = f"pid on different host ({host!r})"
-    elif not pid_str:
+    elif pid is None:
         reason = "no pid / scheduler info recorded"
     return CancelPlan(kind="none", detail=reason)
 

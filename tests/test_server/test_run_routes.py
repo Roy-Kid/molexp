@@ -213,7 +213,7 @@ class TestRunSubmissionWiring:
         with pytest.raises(RuntimeError, match="boom"), run.start():
             raise RuntimeError("boom")
 
-        history = run.metadata.execution_history
+        history = run.execution_history
         assert history, "the failed run should have one execution record"
         last_exec_id = history[-1].execution_id
         history_len = len(history)
@@ -224,7 +224,7 @@ class TestRunSubmissionWiring:
         assert body["runId"] == run.id
         assert body["executionId"] == last_exec_id
         # No new execution appended by resume (it reopened the existing one).
-        assert len(run.metadata.execution_history) == history_len
+        assert len(run.execution_history) == history_len
 
     def test_resume_on_pending_run_returns_409(self, client, project, experiment, run):
         """A pending run is plain run's job, not resume's — resume 409s on it
@@ -248,7 +248,7 @@ class TestRunSubmissionWiring:
         with pytest.raises(RuntimeError, match="boom"), src_run.start():
             raise RuntimeError("boom")
         captured_submits.clear()
-        last_exec_id = src_run.metadata.execution_history[-1].execution_id
+        last_exec_id = src_run.execution_history[-1].execution_id
 
         resp = client.post(
             f"{self._prefix(project, experiment_with_entrypoint)}/{src_run.id}/resume"

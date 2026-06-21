@@ -34,7 +34,7 @@ class TestRunContextLifecycle:
     def test_finished_at_set(self, run):
         with run.start():
             pass
-        assert run.metadata.finished_at is not None
+        assert run.finished_at is not None
 
     def test_creates_work_dir(self, run):
         with run.start() as ctx:

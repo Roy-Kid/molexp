@@ -15,10 +15,15 @@ class TestRunCancel:
         assert run.status == RunStatus.CANCELLED
         assert run.status == "cancelled"
 
-    def test_cancel_writes_run_json(self, run):
+    def test_cancel_writes_ops_not_run_json(self, run):
+        run.materialize()
         run.cancel()
+        # Hot state lives in the OKF _ops sidecar (wsokf-10); run.json carries
+        # no status.
+        ops = json.loads((Path(run.run_dir) / "_ops" / "run.json").read_text())
+        assert ops["status"] == "cancelled"
         data = json.loads((Path(run.run_dir) / "run.json").read_text())
-        assert data["status"] == "cancelled"
+        assert "status" not in data
 
     def test_cancel_running_run(self, run):
         run._set_status(RunStatus.RUNNING)

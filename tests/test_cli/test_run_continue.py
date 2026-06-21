@@ -29,7 +29,7 @@ from typer.testing import CliRunner
 import molexp as me
 from molexp.cli import app
 from molexp.workspace import Workspace
-from molexp.workspace.models import ExecutionRecord
+from molexp.workspace.models import ExecutionRecord, RunStatus
 
 if TYPE_CHECKING:
     from molexp.workspace.run import Run
@@ -124,7 +124,7 @@ def _only_run(workspace_root: Path) -> Run:
 
 
 def _history(workspace_root: Path) -> list[ExecutionRecord]:
-    return list(_only_run(workspace_root).metadata.execution_history)
+    return list(_only_run(workspace_root).execution_history)
 
 
 class _ExecuteRecorder:
@@ -194,7 +194,9 @@ def _seed_failed_execution(
         finished_at=datetime(2026, 6, 1, 12, 1, 0),
         status="failed",
     )
-    run._update_metadata(status="failed", execution_history=[rec])
+    run.update_ops(
+        lambda s: s.model_copy(update={"status": RunStatus.FAILED, "executions": (rec,)})
+    )
 
     exec_dir = Path(run.run_dir) / "executions" / exec_id
     exec_dir.mkdir(parents=True, exist_ok=True)
@@ -217,18 +219,24 @@ class TestLastResumableExecutionId:
 
         ws = me.Workspace(tmp_path / "ws")
         run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
-        run._update_metadata(
-            execution_history=[
-                ExecutionRecord(
-                    execution_id="exec-1", started_at=datetime(2026, 1, 1), status="failed"
-                ),
-                ExecutionRecord(
-                    execution_id="exec-2", started_at=datetime(2026, 1, 2), status="succeeded"
-                ),
-                ExecutionRecord(
-                    execution_id="exec-3", started_at=datetime(2026, 1, 3), status="failed"
-                ),
-            ]
+        run.update_ops(
+            lambda s: s.model_copy(
+                update={
+                    "executions": (
+                        ExecutionRecord(
+                            execution_id="exec-1", started_at=datetime(2026, 1, 1), status="failed"
+                        ),
+                        ExecutionRecord(
+                            execution_id="exec-2",
+                            started_at=datetime(2026, 1, 2),
+                            status="succeeded",
+                        ),
+                        ExecutionRecord(
+                            execution_id="exec-3", started_at=datetime(2026, 1, 3), status="failed"
+                        ),
+                    )
+                }
+            )
         )
         assert last_resumable_execution_id(run) == "exec-3"
 
@@ -237,15 +245,21 @@ class TestLastResumableExecutionId:
 
         ws = me.Workspace(tmp_path / "ws")
         run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
-        run._update_metadata(
-            execution_history=[
-                ExecutionRecord(
-                    execution_id="exec-1", started_at=datetime(2026, 1, 1), status="failed"
-                ),
-                ExecutionRecord(
-                    execution_id="exec-2", started_at=datetime(2026, 1, 2), status="cancelled"
-                ),
-            ]
+        run.update_ops(
+            lambda s: s.model_copy(
+                update={
+                    "executions": (
+                        ExecutionRecord(
+                            execution_id="exec-1", started_at=datetime(2026, 1, 1), status="failed"
+                        ),
+                        ExecutionRecord(
+                            execution_id="exec-2",
+                            started_at=datetime(2026, 1, 2),
+                            status="cancelled",
+                        ),
+                    )
+                }
+            )
         )
         # Most recent non-succeeded is exec-2.
         assert last_resumable_execution_id(run) == "exec-2"
@@ -255,7 +269,7 @@ class TestLastResumableExecutionId:
 
         ws = me.Workspace(tmp_path / "ws")
         run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
-        assert run.metadata.execution_history == []
+        assert run.execution_history == []
         assert last_resumable_execution_id(run) is None
 
 
@@ -454,7 +468,7 @@ class TestResumeSkipsPendingRun:
         exp = ws.add_project("demo").add_experiment("train")
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
         run = exp.add_run(params=run_params, id=_replica_run_id(run_params))
-        run._update_metadata(profile=None, execution_history=[])
+        run._update_metadata(profile=None)
         assert run.status == "pending"
 
         recorder = _patch_execute(monkeypatch)
@@ -595,14 +609,19 @@ class TestSharedSelectionRules:
         exp = ws.add_project("demo").add_experiment("train")
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
         run = exp.add_run(params=run_params, id=_replica_run_id(run_params))
-        run._update_metadata(
-            status="running",
-            profile=None,
-            labels={
-                "pid": str(os.getpid()),
-                "host": platform.node(),
-                "heartbeat": datetime.now().isoformat(),
-            },
+        run._update_metadata(profile=None)
+        # Hot state (status + ownership/heartbeat) → the OKF _ops sidecar.
+        from datetime import UTC
+
+        run.update_ops(
+            lambda s: s.model_copy(
+                update={
+                    "status": RunStatus.RUNNING,
+                    "owner_pid": os.getpid(),
+                    "owner_host": platform.node(),
+                    "heartbeat_at": datetime.now(UTC),
+                }
+            )
         )
 
         recorder = _patch_execute(monkeypatch)
@@ -641,14 +660,18 @@ class TestSharedSelectionRules:
         # run with a different profile so the mismatch guard skips it.
         run_params = {**exp.params, "seed": exp.get_seeds()[0], "replica": 0}
         run = exp.add_run(params=run_params, id=_replica_run_id(run_params, profile_name="smoke"))
-        run._update_metadata(
-            status="failed",
-            profile="dry_run",
-            execution_history=[
-                ExecutionRecord(
-                    execution_id="exec-x", started_at=datetime(2026, 1, 1), status="failed"
-                )
-            ],
+        run._update_metadata(profile="dry_run")
+        run.update_ops(
+            lambda s: s.model_copy(
+                update={
+                    "status": RunStatus.FAILED,
+                    "executions": (
+                        ExecutionRecord(
+                            execution_id="exec-x", started_at=datetime(2026, 1, 1), status="failed"
+                        ),
+                    ),
+                }
+            )
         )
 
         recorder = _patch_execute(monkeypatch)

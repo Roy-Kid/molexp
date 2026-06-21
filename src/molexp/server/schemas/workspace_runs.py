@@ -70,9 +70,10 @@ class WorkspaceRunRow(BaseModel):
         cluster = executor.get("cluster_name")
         scheduler = executor.get("scheduler")
 
-        executions = [
-            _build_execution_row(run.id, rec, executor) for rec in run.metadata.execution_history
-        ]
+        # Execution history + finished_at are hot state → the OKF ``_ops``
+        # sidecar (wsokf-10); read once via ``run.read_ops()``.
+        ops = run.read_ops()
+        executions = [_build_execution_row(run.id, rec, executor) for rec in ops.executions]
         latest_sched_id: str | None = None
         for rec in reversed(executions):
             if rec.schedulerJobId:
@@ -94,7 +95,7 @@ class WorkspaceRunRow(BaseModel):
             profile=run.metadata.profile,
             parameters=dict(run.parameters),
             createdAt=run.metadata.created_at.isoformat(),
-            finishedAt=(run.metadata.finished_at.isoformat() if run.metadata.finished_at else None),
+            finishedAt=(ops.finished_at.isoformat() if ops.finished_at else None),
             executionCount=len(executions),
             latestSchedulerJobId=latest_sched_id,
             executions=executions,

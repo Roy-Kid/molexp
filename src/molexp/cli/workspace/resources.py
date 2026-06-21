@@ -274,7 +274,7 @@ def run_list(
         status = str(r.status).lower()
         color = status_color(status)
         profile_display = r.metadata.profile or "—"
-        finished = r.metadata.finished_at.isoformat() if r.metadata.finished_at else None
+        finished = r.finished_at.isoformat() if r.finished_at else None
         duration = elapsed(r.metadata.created_at.isoformat(), finished)
         table.add_row(
             r.id,
@@ -500,8 +500,8 @@ def run_info(
     rprint(f"[bold]Run:[/bold] {r.id}")
     rprint(f"  Status: {r.status}")
     rprint(f"  Created: {r.metadata.created_at}")
-    if r.metadata.finished_at:
-        rprint(f"  Finished: {r.metadata.finished_at}")
+    if r.finished_at:
+        rprint(f"  Finished: {r.finished_at}")
     if r.metadata.profile:
         rprint(f"  Profile: [cyan]{r.metadata.profile}[/cyan]")
         if r.metadata.config_hash:

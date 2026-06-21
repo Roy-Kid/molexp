@@ -173,7 +173,7 @@ class TestRunCommand:
         # it as the task's workflow output (no RunContext.set_result).
         from molexp.workflow import read_node_outputs
 
-        exec_id = run.metadata.execution_history[-1].execution_id
+        exec_id = run.execution_history[-1].execution_id
         outputs = read_node_outputs(run.run_dir, exec_id)
         assert outputs["train"] == 1
 

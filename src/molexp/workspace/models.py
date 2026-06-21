@@ -244,19 +244,31 @@ class ExecutionMetadata(BaseModel, frozen=True):
 
 
 class RunMetadata(BaseModel, frozen=True):
-    """Single execution instance metadata.
+    """Single execution instance — identity / provenance only.
 
-    ``profile`` is the activated molcfg profile name (normalized,
-    ``-`` → ``_``) or ``None`` when no profile was selected.  ``config``
-    is the frozen merged configuration dict that the run executed
-    against; ``config_hash`` is its sha256 digest, duplicated for fast
-    queryability.  The framework treats profile contents as opaque
-    user data — it persists them for reproducibility but never
-    interprets them.
+    ``RunMetadata`` (persisted to ``run.json``) carries the settled,
+    human-meaningful identity of a run: its parameters, frozen config +
+    hash, activated profile, workflow snapshot/version, source snapshot,
+    intended compute target, executor info, and the terminal ``error``
+    diagnostic. The framework treats profile/config contents as opaque
+    user data — it persists them for reproducibility but never interprets
+    them.
 
-    ``execution_history`` indexes every attempt to execute this run,
-    newest last.  Each entry points to the corresponding sub-directory
-    under ``run_dir/executions/``.
+    Hot machine state — ``status`` / ``finished_at`` / execution history /
+    ownership (pid/host/heartbeat) — does **not** live here. It is owned
+    by the OKF ``_ops/run.json`` sidecar (:class:`RunOpsState`), the sole
+    source of truth (the OKF identity-vs-runtime split; wsokf-07/wsokf-10).
+    Read it through the ops-backed :class:`~molexp.workspace.run.Run`
+    accessors (``run.status`` / ``run.finished_at`` / ``run.execution_history``)
+    or :meth:`~molexp.workspace.run.Run.read_ops`.
+
+    ``model_config`` uses ``extra="ignore"`` so a ``run.json`` written by
+    an older molexp version (which still carried ``status`` / ``finished_at`` /
+    ``execution_history`` / ``labels``) loads cleanly — the relocated keys
+    are dropped on read (greenfield; no backfill migration).
+
+    ``error`` remains here as a terminal failure diagnostic — it is not
+    modelled by :class:`RunOpsState`.
 
     ``submit_cwd`` is the absolute working directory at the moment
     ``molexp run`` submitted this run.  The cluster worker chdirs here
@@ -266,11 +278,11 @@ class RunMetadata(BaseModel, frozen=True):
     workspaces under ``run_dir/``.
     """
 
+    model_config = ConfigDict(extra="ignore", frozen=True)
+
     id: str
-    status: str = "pending"
     parameters: dict[str, JSONValue] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)
-    finished_at: datetime | None = None
     error: ErrorInfo | None = None
     # Opaque workflow-snapshot payload — the canonical type lives in
     # ``molexp.workflow.snapshot_ref.WorkflowSnapshotRef``; workspace
@@ -288,9 +300,7 @@ class RunMetadata(BaseModel, frozen=True):
     profile: str | None = None
     config: dict[str, JSONValue] = Field(default_factory=dict)
     config_hash: str | None = None
-    labels: dict[str, str] = Field(default_factory=dict)
     executor_info: dict[str, JSONValue] = Field(default_factory=dict)
-    execution_history: list[ExecutionRecord] = Field(default_factory=list)
 
     # Intended compute target name (matches a ComputeTarget in the workspace
     # registry).  Captured at run-creation time so the UI can filter and the

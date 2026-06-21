@@ -25,7 +25,6 @@ from molexp.cli.tui.rendering import _DeleteDialog  # noqa: F401
 from molexp.cli.tui.tree_model import (  # noqa: F401
     _as_dict,
     _as_str,
-    _as_str_dict,
     _short_exec_label,
     _short_id,
 )

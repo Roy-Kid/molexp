@@ -2,8 +2,8 @@
 
 Walks project → experiment → run → execution step-by-step, letting the user
 manually pick what to delete at each layer.  Removes the chosen
-``execution/{exec_id}/`` directories and rewrites
-``run.metadata.execution_history``.
+``execution/{exec_id}/`` directories and rewrites the run's execution history
+in the OKF ``_ops/run.json`` sidecar (wsokf-10).
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def prune_runs(
 
     Descends project → experiment → run → executions, letting the user
     pick at each step.  Only the ``execution/{exec_id}/`` directories and
-    matching ``execution_history`` entries are touched; run status /
+    matching ``_ops`` execution-history entries are touched; run status /
     parameters / artifacts are left alone.
     """
     from . import _common
@@ -267,11 +267,9 @@ def prune_runs(
             rprint(f"  [dim]skip[/dim]  {exec_id} (no directory)")
 
     new_history = [rec for rec in run.execution_history if rec.execution_id not in removed_ids]
-    # Source of truth is the OKF ``_ops`` hot-state sidecar (wsokf-07); writing
-    # through ``_update_metadata`` keeps run.json's execution_history
-    # byte-compatible and mirrors the same value into ``_ops``.
+    # Execution history lives solely in the OKF ``_ops`` hot-state sidecar
+    # (wsokf-10) — write it there; run.json carries no history.
     run.update_ops(lambda state: state.model_copy(update={"executions": tuple(new_history)}))
-    run._update_metadata(execution_history=new_history)
     rprint(
         f"[green]Done.[/green] Removed {deleted_dirs} dir(s), "
         f"pruned {len(targets)} history entry/entries.  "

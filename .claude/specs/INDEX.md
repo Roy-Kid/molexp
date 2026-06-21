@@ -12,7 +12,9 @@
 - [wsokf-06-agent-okf](wsokf-06-agent-okf.md) — agent `Agent`/`AgentSession` adopt OKF workspace.Folder (meta.yaml authority + @concept_type registry); only knowledge edge = `knowledge.types`. [approved]
 - [wsokf-07-workflow-server-cli](wsokf-07-workflow-server-cli.md) — workflow resume / server routes / CLI read run status from `_ops/run.json` via `RunOpsState`; identity via `concept_from_dir`. [approved]
 - wsokf-08-meta-migration — **DROPPED** (user: 不需要向后兼容的migrate迁移代码). Greenfield rewrite has no legacy on-disk data to backfill; the in-place migrator is dead scope.
-- [wsokf-09-remove-knowledge-dup](wsokf-09-remove-knowledge-dup.md) — delete the 11 duplicate storage modules from `molexp.knowledge`, leaving `types.py` (registry) + slim `__init__`; gates on wsokf-06. [approved]
+- [wsokf-09-remove-knowledge-dup](wsokf-09-remove-knowledge-dup.md) — delete the 11 duplicate storage modules from `molexp.knowledge`, leaving `types.py` (registry) + slim `__init__`; gates on wsokf-06. [done]
+- [wsokf-10-runmeta-single-source](wsokf-10-runmeta-single-source.md) — remove redundant hot-state fields (status/finished_at/execution_history/labels) from `RunMetadata`/run.json so `_ops/run.json` is the sole source; delete the wsokf-07 mirror. [in-progress]
+- [wsokf-11-remove-legacy-library](wsokf-11-remove-legacy-library.md) — delete the legacy per-scope `Library`/`NoteAsset`/record-`Reference`/`ReferenceStore` + `/api/library` routes + `search_library` tool + UI Library page (OKF Note/Reference/Bundle replace them). [approved]
 
 
 - [execution-semantics](execution-semantics.md) — Workspace↔workflow execution: `ctx.workdir` (first-class, not `inputs["workdir"]`, content-addressed incl. params), persisted binding via `Experiment.run(workflow, params=)` (seam → `workflow.json` + `source/` copy + entrypoint), workflow-layer batch `Runner`; execution model A (re-import). Surface = option C: `ws.project(p).experiment(e).run(wf, params=)`. [draft] **Supersedes the workdir-in-`inputs` parts of 01/03.**

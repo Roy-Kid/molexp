@@ -66,7 +66,7 @@ class RunLifecycle:
         # (no id, or an id matching no record) appends a fresh record (rerun /
         # first attempt).
         explicit = ctx._explicit_execution_id
-        history = ctx.run.metadata.execution_history
+        history = ctx.run.read_ops().executions
         reopened = (
             next((r for r in history if r.execution_id == explicit), None)
             if explicit is not None
@@ -77,10 +77,8 @@ class RunLifecycle:
             running = reopened.model_copy(
                 update={"status": RunStatus.RUNNING.value, "finished_at": None}
             )
-            ctx.run._update_metadata(
-                execution_history=[
-                    running if r.execution_id == reopened.execution_id else r for r in history
-                ]
+            new_executions = tuple(
+                running if r.execution_id == reopened.execution_id else r for r in history
             )
         else:
             ctx._execution_id = explicit or ctx._executions.next_execution_id()
@@ -88,12 +86,17 @@ class RunLifecycle:
                 execution_id=ctx._execution_id,
                 started_at=ctx._start_time,
             )
-            ctx.run._update_metadata(execution_history=[*history, new_record])
-        # Record the active execution id in the OKF ``_ops`` hot-state sidecar
-        # (wsokf-07). ``run.json`` (identity) carries no current-execution field.
+            new_executions = (*history, new_record)
+        # Record the active execution id + history in the OKF ``_ops`` hot-state
+        # sidecar (wsokf-10). ``run.json`` (identity) carries no hot-state field.
         active_execution_id = ctx._execution_id
         ctx.run.update_ops(
-            lambda state: state.model_copy(update={"current_execution_id": active_execution_id})
+            lambda state: state.model_copy(
+                update={
+                    "current_execution_id": active_execution_id,
+                    "executions": new_executions,
+                }
+            )
         )
         ctx._executions.write_metadata(
             ExecutionMetadata(
@@ -117,17 +120,10 @@ class RunLifecycle:
         execution_id = ctx._execution_id
         assert execution_id is not None
         now = datetime.now()
-        labels = self._labels_without_ownership()
         error_info: ErrorInfo | None = None
         if exc_type is None:
             workflow_status = ctx._ctx_store.context.status.get("run")
             final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
-            ctx.run._update_metadata(
-                status=final,
-                finished_at=now,
-                labels=labels,
-                execution_history=ctx._executions.close_record(execution_id, final.value, now),
-            )
         else:
             final = RunStatus.FAILED
             error_info = ErrorInfo(
@@ -135,14 +131,24 @@ class RunLifecycle:
                 message=str(exc_val),
                 timestamp=now,
             )
-            ctx.run._update_metadata(
-                status=final,
-                finished_at=now,
-                labels=labels,
-                error=error_info,
-                execution_history=ctx._executions.close_record(execution_id, final.value, now),
-            )
+            # ``error`` is identity/diagnostic — it stays in run.json (wsokf-10).
+            ctx.run._update_metadata(error=error_info)
             ctx._assets.save_error_details(exc_type, exc_val, exc_tb)
+        # Terminal hot-state — status / finished_at / closed executions / cleared
+        # ownership — is written solely to the OKF ``_ops`` sidecar (wsokf-10).
+        closed_executions = tuple(ctx._executions.close_record(execution_id, final.value, now))
+        ctx.run.update_ops(
+            lambda state: state.model_copy(
+                update={
+                    "status": final,
+                    "finished_at": now,
+                    "executions": closed_executions,
+                    "owner_pid": None,
+                    "owner_host": None,
+                    "heartbeat_at": None,
+                }
+            )
+        )
         ctx._executions.update_metadata(
             execution_id,
             finished_at=now,
@@ -164,43 +170,40 @@ class RunLifecycle:
             profile=cfg.name,
             config=cfg.to_dict(),
             config_hash=cfg.content_hash() if len(cfg) > 0 or cfg.name else None,
-            labels=dict(ctx.run.metadata.labels),
         )
 
     def _claim_ownership(self) -> None:
-        """Stamp the run with the current process identity.
+        """Stamp the run with the current process identity in the ``_ops`` sidecar.
 
-        Stored in ``labels`` as ``pid`` / ``host`` / ``heartbeat``.  A later
-        ``molexp run`` invocation can consult these to tell a live run from a
-        zombie left behind by a crashed process.
+        Stored as ``owner_pid`` / ``owner_host`` / ``heartbeat_at`` (aware-UTC)
+        on :class:`RunOpsState` (wsokf-10).  A later ``molexp run`` invocation
+        can consult these to tell a live run from a zombie left behind by a
+        crashed process.
         """
         ctx = self._ctx
-        labels = dict(ctx.run.metadata.labels)
-        labels["pid"] = str(os.getpid())
-        labels["host"] = platform.node()
-        # Aware-UTC heartbeat (wsokf-07) — the same clock the ``_ops`` sidecar's
-        # ``heartbeat_at`` uses, so the mirrored run.json label stays consistent
-        # with the refresh thread (which also stamps aware-UTC).
-        labels["heartbeat"] = datetime.now(UTC).isoformat()
-        ctx.run._update_metadata(labels=labels)
-
-    def _labels_without_ownership(self) -> dict[str, str]:
-        """Return labels with the ownership stamp removed."""
-        labels = dict(self._ctx.run.metadata.labels)
-        for key in ("pid", "host", "heartbeat"):
-            labels.pop(key, None)
-        return labels
+        now = datetime.now(UTC)
+        pid = os.getpid()
+        host = platform.node()
+        ctx.run.update_ops(
+            lambda state: state.model_copy(
+                update={
+                    "owner_pid": pid,
+                    "owner_host": host,
+                    "heartbeat_at": now,
+                }
+            )
+        )
 
     # ── Heartbeat ────────────────────────────────────────────────────────
     #
     # The ownership stamp written by ``_claim_ownership`` includes a
-    # ``heartbeat`` label. Same-host reapers can check the pid directly,
+    # ``heartbeat_at`` timestamp. Same-host reapers can check the pid directly,
     # but cross-host observers (molq / SLURM submissions are the core
     # scenario) have only this timestamp to tell a live remote run from a
     # zombie — so it must be refreshed while the run executes.
 
     def _start_heartbeat(self) -> None:
-        """Spawn the daemon thread that re-stamps ``labels['heartbeat']``."""
+        """Spawn the daemon thread that re-stamps ``heartbeat_at``."""
         stop = threading.Event()
         thread = threading.Thread(
             target=self._heartbeat_loop,
@@ -233,31 +236,17 @@ class RunLifecycle:
     def refresh_heartbeat(self) -> None:
         """Re-stamp the run's heartbeat in the OKF ``_ops`` sidecar (aware-UTC).
 
-        wsokf-07 moves the live-run heartbeat onto
-        :attr:`RunOpsState.heartbeat_at` (an aware-UTC timestamp) so cross-host
-        staleness comparisons are tz-correct. The legacy ``labels['heartbeat']``
-        string in ``run.json`` is mirrored too (byte-compatibility) via a
-        surgical read-modify-write that preserves the ``context`` blob written
-        by ``ContextStore``.
+        The live-run heartbeat lives on :attr:`RunOpsState.heartbeat_at` (an
+        aware-UTC timestamp) so cross-host staleness comparisons are tz-correct
+        (wsokf-07/wsokf-10) — a single ``update_ops`` read-modify-write of
+        ``_ops/run.json``. ``run.json`` (identity) is never touched.
 
-        A run whose ``run.json`` has not been written yet (first beat before
-        ``materialize``) is left untouched.
+        A run whose ``_ops/run.json`` has not been written yet (first beat
+        before the lifecycle claimed ownership) is left untouched.
         """
-        from .schema_version import read_versioned_json, write_versioned_json
-
         run = self._ctx.run
-        path = run._fs.join(run.run_dir, "run.json")
+        ops_path = run._fs.join(run.run_dir, "_ops", "run.json")
+        if not run._fs.exists(ops_path):
+            return
         now = datetime.now(UTC)
-        with run._metadata_lock():
-            if not run._fs.exists(path):
-                return
-            data = read_versioned_json(path, fs=run._fs)
-            labels_raw = data.get("labels")
-            labels = dict(labels_raw) if isinstance(labels_raw, dict) else {}
-            labels["heartbeat"] = now.isoformat()
-            data["labels"] = labels
-            write_versioned_json(path, data, fs=run._fs)
-        run.metadata = run.metadata.model_copy(
-            update={"labels": {**run.metadata.labels, "heartbeat": now.isoformat()}}
-        )
         run.update_ops(lambda state: state.model_copy(update={"heartbeat_at": now}))

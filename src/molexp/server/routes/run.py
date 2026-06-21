@@ -720,11 +720,17 @@ def update_run_status(
     except ValueError:
         raise InvalidStatusError(run.status, new_status_str)  # noqa: B904
 
-    updates: dict = {"status": new_status.value}
-    if new_status_str in ("succeeded", "failed", "cancelled"):
-        updates["finished_at"] = datetime.now()
-
-    run._update_metadata(**updates)
+    # Status / finished_at are hot state → the OKF ``_ops`` sidecar (wsokf-10).
+    finished = datetime.now() if new_status_str in ("succeeded", "failed", "cancelled") else None
+    run.update_ops(
+        lambda s: s.model_copy(
+            update=(
+                {"status": new_status, "finished_at": finished}
+                if finished is not None
+                else {"status": new_status}
+            )
+        )
+    )
 
     return RunStatusResponse(
         id=run.id,

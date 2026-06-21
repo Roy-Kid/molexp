@@ -78,7 +78,6 @@ def test_run_scheduler_uses_generic_molq_backend(monkeypatch, tmp_path):
 def test_run_cancel_uses_molq_handle(monkeypatch, tmp_path):
     workspace, experiment, run = _make_workspace(tmp_path)
     run._update_metadata(
-        status="pending",
         executor_info={
             "backend": "molq",
             "scheduler": "slurm",

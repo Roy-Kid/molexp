@@ -35,21 +35,21 @@ def _build(tmp_path):
                 status=status,
             )
         )
-    r._update_metadata(execution_history=hist)
+    r.update_ops(lambda s: s.model_copy(update={"executions": tuple(hist)}))
     return ws, p, e, r
 
 
 class TestDeleteExecution:
     def test_removes_dir_and_history_entry(self, tmp_path):
         _ws, _p, _e, r = _build(tmp_path)
-        first_exec = r.metadata.execution_history[0].execution_id
+        first_exec = r.execution_history[0].execution_id
         r.delete_execution(first_exec)
         assert not (Path(r.run_dir) / "executions" / first_exec).exists()
-        assert all(rec.execution_id != first_exec for rec in r.metadata.execution_history)
+        assert all(rec.execution_id != first_exec for rec in r.execution_history)
 
     def test_catalog_row_removed(self, tmp_path):
         ws, _p, _e, r = _build(tmp_path)
-        first_exec = r.metadata.execution_history[0].execution_id
+        first_exec = r.execution_history[0].execution_id
         # Run materialization populates catalog executions too
         r.save()
         assert any(

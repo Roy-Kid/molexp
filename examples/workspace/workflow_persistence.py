@@ -67,8 +67,8 @@ async def main() -> None:
     print(f"  profile:      {run.metadata.profile}")
     print(f"  config_hash:  {run.metadata.config_hash}")
     print(f"  config:       {run.metadata.config}")
-    print(f"  attempts:     {len(run.metadata.execution_history)}")
-    for i, entry in enumerate(run.metadata.execution_history):
+    print(f"  attempts:     {len(run.execution_history)}")
+    for i, entry in enumerate(run.execution_history):
         print(
             f"    #{i + 1}: status={entry.status}, "
             f"started={entry.started_at}, finished={entry.finished_at}"

@@ -52,7 +52,7 @@ async def main() -> None:
     print(f"  status:          {run.status}")
     print(f"  parameters:      {run.parameters}")
     print(f"  profile:         {run.metadata.profile}")
-    print(f"  execution count: {len(run.metadata.execution_history)}")
+    print(f"  execution count: {len(run.execution_history)}")
     print(f"  score:           {run.get_result('score')}")
 
 

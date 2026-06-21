@@ -54,13 +54,13 @@ class TestStatusReadsFromOps:
         assert run.read_ops().status is RunStatus.RUNNING
         assert _read_ops_json(run)["status"] == "running"
 
-    def test_cancel_writes_ops_and_keeps_run_json(self, run) -> None:
+    def test_cancel_writes_ops_only(self, run) -> None:
         run.materialize()
         run.cancel()
         assert run.status == "cancelled"
         assert run.read_ops().status is RunStatus.CANCELLED
-        # run.json (identity) stays byte-compatible — status mirrored.
-        assert _read_run_json(run)["status"] == "cancelled"
+        # run.json (identity) carries no status field (wsokf-10).
+        assert "status" not in _read_run_json(run)
 
     def test_execution_history_accessor_reads_ops(self, run) -> None:
         run.materialize()

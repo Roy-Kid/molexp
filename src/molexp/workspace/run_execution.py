@@ -69,8 +69,12 @@ class ExecutionStore:
     def close_record(
         self, execution_id: str, status: str, finished_at: datetime
     ) -> list[ExecutionRecord]:
-        """Return execution_history with *execution_id*'s record closed."""
-        history = list(self._run.metadata.execution_history)
+        """Return execution history with *execution_id*'s record closed.
+
+        Sourced from the OKF ``_ops`` sidecar (wsokf-10) — the sole home of a
+        run's execution history.
+        """
+        history = list(self._run.read_ops().executions)
         for i, entry in enumerate(history):
             if entry.execution_id == execution_id:
                 history[i] = entry.model_copy(update={"finished_at": finished_at, "status": status})

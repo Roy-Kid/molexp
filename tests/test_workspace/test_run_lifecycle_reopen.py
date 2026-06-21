@@ -17,7 +17,7 @@ from pathlib import Path
 
 
 def _last_exec_id(run) -> str:
-    return run.metadata.execution_history[-1].execution_id
+    return run.execution_history[-1].execution_id
 
 
 def test_reopen_does_not_append_record(run) -> None:
@@ -25,10 +25,10 @@ def test_reopen_does_not_append_record(run) -> None:
     with run.start():
         pass
     exec1 = _last_exec_id(run)
-    assert len(run.metadata.execution_history) == 1
+    assert len(run.execution_history) == 1
 
     with run.start(execution_id=exec1):
-        assert len(run.metadata.execution_history) == 1  # not appended
+        assert len(run.execution_history) == 1  # not appended
 
 
 def test_reopen_flips_record_to_running(run) -> None:
@@ -38,7 +38,7 @@ def test_reopen_flips_record_to_running(run) -> None:
     exec1 = _last_exec_id(run)
 
     with run.start(execution_id=exec1):
-        hist = run.metadata.execution_history
+        hist = run.execution_history
         rec = next(r for r in hist if r.execution_id == exec1)
         assert rec.status == "running"
 
@@ -48,11 +48,11 @@ def test_reopen_clears_finished_at(run) -> None:
     with run.start():
         pass
     exec1 = _last_exec_id(run)
-    closed = next(r for r in run.metadata.execution_history if r.execution_id == exec1)
+    closed = next(r for r in run.execution_history if r.execution_id == exec1)
     assert closed.finished_at is not None  # was closed by the first exit
 
     with run.start(execution_id=exec1):
-        rec = next(r for r in run.metadata.execution_history if r.execution_id == exec1)
+        rec = next(r for r in run.execution_history if r.execution_id == exec1)
         assert rec.finished_at is None
 
 
@@ -69,24 +69,24 @@ def test_reopen_rewrites_execution_json_status_running(run) -> None:
         payload = json.loads(exec_json.read_text())
         assert payload["status"] == "running"
         # … and this is a genuine reopen, not a fresh append onto the same dir.
-        assert len(run.metadata.execution_history) == 1
+        assert len(run.execution_history) == 1
 
 
 def test_start_without_execution_id_appends(run) -> None:
     """A plain ``start()`` keeps appending a fresh record (current behaviour)."""
     with run.start():
         pass
-    assert len(run.metadata.execution_history) == 1
+    assert len(run.execution_history) == 1
 
     with run.start():
-        assert len(run.metadata.execution_history) == 2
+        assert len(run.execution_history) == 2
 
 
 def test_unknown_execution_id_appends(run) -> None:
     """An exec id matching no record appends rather than reopening."""
     with run.start():
         pass
-    assert len(run.metadata.execution_history) == 1
+    assert len(run.execution_history) == 1
 
     with run.start(execution_id="exec-does-not-exist"):
-        assert len(run.metadata.execution_history) == 2
+        assert len(run.execution_history) == 2

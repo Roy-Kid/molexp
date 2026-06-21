@@ -91,18 +91,22 @@ class TestRunMetadata:
         m = RunMetadata(id="run-1", workflow_snapshot=snap)
         assert m.workflow_snapshot is not None
         assert m.workflow_snapshot["source"] == "train.py"
-        assert m.status == "pending"
 
     def test_error_info(self):
         err = ErrorInfo(type="ValueError", message="bad", timestamp=datetime.now())
         m = RunMetadata(id="run-1", error=err)
         assert m.error.type == "ValueError"
 
-    def test_frozen_status_update_via_copy(self):
-        m = RunMetadata(id="run-1")
-        m2 = m.model_copy(update={"status": "running"})
-        assert m.status == "pending"
-        assert m2.status == "running"
+    def test_hot_state_keys_relocated_to_ops(self):
+        # status / finished_at / execution_history / labels moved to the OKF
+        # _ops/run.json sidecar (wsokf-10); a legacy run.json carrying them
+        # loads (extra="ignore") but exposes none.
+        m = RunMetadata.model_validate(
+            {"id": "run-1", "status": "running", "finished_at": None, "labels": {}}
+        )
+        assert m.id == "run-1"
+        for removed in ("status", "finished_at", "execution_history", "labels"):
+            assert not hasattr(m, removed)
 
     def test_legacy_last_step_key_ignored(self):
         # Old run.json files written before the walltime-chunking removal

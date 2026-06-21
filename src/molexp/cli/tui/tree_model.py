@@ -17,6 +17,7 @@ from molexp._run_display import elapsed, read_run_json
 from molexp._typing import JSONValue
 from molexp.plugins.submit_molq.metadata import normalize_executor_info
 from molexp.workspace import Experiment, Project, Run, Workspace
+from molexp.workspace.models import ExecutionRecord
 
 # Per-node back-pointer used by the delete / detail flows. Each kind of
 # tree node carries a different concrete type — workspace nodes hold a
@@ -61,13 +62,6 @@ def _as_str(value: JSONValue) -> str | None:
 def _as_dict(value: JSONValue) -> dict[str, JSONValue] | None:
     """Narrow a ``JSONValue`` cell to a JSON-shaped dict (or ``None``)."""
     return value if isinstance(value, dict) else None
-
-
-def _as_str_dict(value: JSONValue) -> dict[str, str] | None:
-    """Narrow a ``JSONValue`` cell to ``dict[str, str]`` (label / tag maps)."""
-    if not isinstance(value, dict):
-        return None
-    return {str(k): v for k, v in value.items() if isinstance(v, str)}
 
 
 def _short_id(full: str) -> str:
@@ -161,51 +155,50 @@ def _build_experiment_node(exp: Experiment, project_id: str) -> TreeNode:
 
 def _build_run_node(run: Run, project_id: str, exp_id: str) -> TreeNode:
     data = read_run_json(run.run_dir)
-    status_raw = data.get("status")
-    status = status_raw if isinstance(status_raw, str) else (run.metadata.status or "pending")
-    info = normalize_executor_info(
-        _as_dict(data.get("executor_info")), _as_str_dict(data.get("labels"))
-    )
+    # Hot state (status / finished_at / execution history) lives solely in the
+    # OKF ``_ops`` sidecar (wsokf-10) — read it through the ops-backed Run
+    # accessors. Identity (created_at, executor_info, error) stays in run.json.
+    ops = run.read_ops()
+    status = ops.status.value
+    info = normalize_executor_info(_as_dict(data.get("executor_info")), {})
     note: str | None = None
     err = data.get("error")
     if isinstance(err, dict):
         note_raw = err.get("message")
         note = note_raw if isinstance(note_raw, str) else None
 
+    finished = ops.finished_at.isoformat() if ops.finished_at else None
     node = TreeNode(
         kind="run",
         node_id=("project", project_id, "experiment", exp_id, "run", run.id),
         display_label=_short_id(run.id),
         status=status,
-        elapsed=elapsed(_as_str(data.get("created_at")), _as_str(data.get("finished_at"))),
+        elapsed=elapsed(_as_str(data.get("created_at")), finished),
         note=note,
         ref=run,
     )
 
-    history_raw = data.get("execution_history")
-    history = history_raw if isinstance(history_raw, list) else []
-    attempts = len(history)
-    node.count_hint = f"{attempts} attempts" if attempts else None
+    history = ops.executions
+    node.count_hint = f"{len(history)} attempts" if history else None
     for rec in history:
-        if isinstance(rec, dict):
-            node.children.append(_build_execution_node(rec, project_id, exp_id, run, info))
+        node.children.append(_build_execution_node(rec, project_id, exp_id, run, info))
     return node
 
 
 def _build_execution_node(
-    rec: dict[str, JSONValue],
+    rec: ExecutionRecord,
     project_id: str,
     exp_id: str,
     run: Run,
     run_executor_info: dict[str, str],
 ) -> TreeNode:
-    exec_id_raw = rec.get("execution_id")
-    exec_id = exec_id_raw if isinstance(exec_id_raw, str) else ""
-    status_raw = rec.get("status")
-    status = status_raw if isinstance(status_raw, str) else "unknown"
-    duration = elapsed(_as_str(rec.get("started_at")), _as_str(rec.get("finished_at")))
-    sched_raw = rec.get("scheduler_job_id")
-    sched = sched_raw if isinstance(sched_raw, str) else run_executor_info.get("scheduler_job_id")
+    exec_id = rec.execution_id or ""
+    status = rec.status or "unknown"
+    duration = elapsed(
+        rec.started_at.isoformat() if rec.started_at else None,
+        rec.finished_at.isoformat() if rec.finished_at else None,
+    )
+    sched = rec.scheduler_job_id or run_executor_info.get("scheduler_job_id")
     note = f"sched={sched}" if sched else None
     return TreeNode(
         kind="execution",

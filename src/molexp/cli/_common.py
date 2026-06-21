@@ -133,17 +133,21 @@ def reap_zombie_run(run: Run) -> bool:
             "Automatically marked FAILED."
         )
 
-    # Reap through the metadata path so run.json (identity) and the error
-    # trace stay byte-compatible; the hot-state mirror flips _ops to FAILED
-    # and clears ownership.
-    labels = dict(run.metadata.labels)
-    for key in ("pid", "host", "heartbeat"):
-        labels.pop(key, None)
+    # Status / finished / cleared-ownership are hot state → the OKF ``_ops``
+    # sidecar (wsokf-10). The ``error`` diagnostic stays in run.json (identity).
     naive_now = datetime.now()
+    run.update_ops(
+        lambda s: s.model_copy(
+            update={
+                "status": RunStatus.FAILED,
+                "finished_at": naive_now,
+                "owner_pid": None,
+                "owner_host": None,
+                "heartbeat_at": None,
+            }
+        )
+    )
     run._update_metadata(
-        status=RunStatus.FAILED,
-        finished_at=naive_now,
-        labels=labels,
         error=ErrorInfo(
             type="ZombieRun",
             message=reason,
@@ -154,8 +158,14 @@ def reap_zombie_run(run: Run) -> bool:
 
 
 def run_executor_info(run: Run) -> dict[str, str]:
-    """Return normalized executor metadata for a workspace run."""
-    return normalize_executor_info(run.metadata.executor_info, run.metadata.labels)
+    """Return normalized executor metadata for a workspace run.
+
+    Ownership (pid/host) now lives in the OKF ``_ops`` sidecar (wsokf-10); it
+    is surfaced as label fallbacks for ``normalize_executor_info``, which only
+    consults scheduler-shaped keys (never pid/host), so an empty labels map is
+    sufficient here.
+    """
+    return normalize_executor_info(run.metadata.executor_info, {})
 
 
 __all__ = [

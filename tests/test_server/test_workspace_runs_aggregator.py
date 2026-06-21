@@ -6,7 +6,7 @@ including filter handling, embedded execution rows, and stats counts.
 
 from datetime import datetime, timedelta
 
-from molexp.workspace.models import ExecutionRecord
+from molexp.workspace.models import ExecutionRecord, RunStatus
 
 
 def _seed_run(
@@ -17,10 +17,10 @@ def _seed_run(
         experiment_id, workflow_source="train.py", params=parameters
     )
     run = experiment.add_run(params=parameters)
-    updates = {"status": status}
+    # Status is hot state → the OKF _ops sidecar; executor_info is identity.
+    run.update_ops(lambda s: s.model_copy(update={"status": RunStatus(status)}))
     if executor_info is not None:
-        updates["executor_info"] = executor_info
-    run._update_metadata(**updates)
+        run._update_metadata(executor_info=executor_info)
     return run
 
 
@@ -36,9 +36,7 @@ def _append_execution(
         status=status,
         scheduler_job_id=scheduler_job_id,
     )
-    history = list(run.metadata.execution_history)
-    history.append(record)
-    run._update_metadata(execution_history=history)
+    run.update_ops(lambda s: s.model_copy(update={"executions": (*s.executions, record)}))
 
 
 class TestWorkspaceRunsAggregator:

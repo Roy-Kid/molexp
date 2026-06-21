@@ -10,7 +10,7 @@ from typer.testing import CliRunner
 
 from molexp.cli import app
 from molexp.workspace import Workspace
-from molexp.workspace.models import ExecutionRecord
+from molexp.workspace.models import ExecutionRecord, RunStatus
 
 runner = CliRunner()
 
@@ -37,7 +37,9 @@ def seeded_workspace(tmp_path):
                 status=status,
             )
         )
-    run._update_metadata(execution_history=history, status="succeeded")
+    run.update_ops(
+        lambda s: s.model_copy(update={"executions": tuple(history), "status": RunStatus.SUCCEEDED})
+    )
     return tmp_path, run
 
 
@@ -63,7 +65,7 @@ def test_prune_deletes_failed_executions(seeded_workspace):
     from molexp.workspace import Workspace as _WS
 
     reloaded = _WS.load(ws_path).get_project("proj-a").get_experiment("exp-x").get_run(run.id)
-    assert [e.execution_id for e in reloaded.metadata.execution_history] == [f"exec-{run.id}"]
+    assert [e.execution_id for e in reloaded.execution_history] == [f"exec-{run.id}"]
 
 
 def test_prune_abort_on_empty_selection(seeded_workspace):
@@ -105,15 +107,19 @@ def test_prune_refuses_live_running_record(tmp_path):
 
     exec_id = f"exec-{run.id}"
     Path(run.run_dir / "executions" / exec_id).mkdir(parents=True)
-    run._update_metadata(
-        status="running",
-        execution_history=[
-            ExecutionRecord(
-                execution_id=exec_id,
-                started_at=datetime.now(),
-                status="running",
-            )
-        ],
+    run.update_ops(
+        lambda s: s.model_copy(
+            update={
+                "status": RunStatus.RUNNING,
+                "executions": (
+                    ExecutionRecord(
+                        execution_id=exec_id,
+                        started_at=datetime.now(),
+                        status="running",
+                    ),
+                ),
+            }
+        )
     )
 
     result = runner.invoke(

@@ -8,6 +8,7 @@ import pytest
 
 from molexp.plugins.submit_molq.cancel import classify
 from molexp.workspace import Workspace
+from molexp.workspace.models import RunStatus
 
 
 @pytest.fixture
@@ -16,7 +17,8 @@ def running_run(tmp_path):
     ws.materialize()
     e = ws.add_project("p").add_experiment("e", workflow_source="s.py", params={})
     r = e.add_run(params={"seed": 1})
-    r._update_metadata(status="running")
+    # Hot state (status / ownership) lives in the OKF _ops sidecar (wsokf-10).
+    r.update_ops(lambda s: s.model_copy(update={"status": RunStatus.RUNNING}))
     return r
 
 
@@ -37,21 +39,25 @@ def test_molq_backend_uses_job_id(running_run):
 
 
 def test_local_same_host_uses_pid(running_run):
-    running_run._update_metadata(labels={"pid": "12345", "host": platform.node()})
+    running_run.update_ops(
+        lambda s: s.model_copy(update={"owner_pid": 12345, "owner_host": platform.node()})
+    )
     plan = classify(running_run)
     assert plan.kind == "local"
     assert plan.detail == "12345"
 
 
 def test_local_different_host_is_uncancellable(running_run):
-    running_run._update_metadata(labels={"pid": "12345", "host": "some-other-host.example"})
+    running_run.update_ops(
+        lambda s: s.model_copy(update={"owner_pid": 12345, "owner_host": "some-other-host.example"})
+    )
     plan = classify(running_run)
     assert plan.kind == "none"
     assert "different host" in plan.detail
 
 
 def test_terminal_status_is_uncancellable(running_run):
-    running_run._update_metadata(status="succeeded")
+    running_run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.SUCCEEDED}))
     plan = classify(running_run)
     assert plan.kind == "none"
     assert plan.detail == "already terminal"

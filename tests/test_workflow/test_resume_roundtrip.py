@@ -57,7 +57,7 @@ async def test_resume_roundtrip_seeds_and_reopens(tmp_path) -> None:
     assert res1.status == "failed"
     assert good_runs["n"] == 1
 
-    exec1 = run.metadata.execution_history[-1].execution_id
+    exec1 = run.execution_history[-1].execution_id
 
     # Read the seed BEFORE re-executing (execute() overwrites workflow.json).
     seed = read_node_outputs(run.run_dir, exec1)
@@ -81,4 +81,4 @@ async def test_resume_roundtrip_seeds_and_reopens(tmp_path) -> None:
     assert res2.status == "completed"
     assert res2.outputs["boom"] == "boom-fixed"
     assert good_runs["n"] == 1  # seeded on resume, body skipped
-    assert len(run.metadata.execution_history) == 1  # reopened, not appended
+    assert len(run.execution_history) == 1  # reopened, not appended

@@ -30,7 +30,6 @@ from .tree_model import (
     VisibleRow,
     _as_dict,
     _as_str,
-    _as_str_dict,
     node_path_str,
 )
 
@@ -241,9 +240,12 @@ def _detail_run(node: TreeNode) -> list[RenderableType]:
     assert isinstance(node.ref, Run), "run-kind node must hold a Run"
     run = node.ref
     data = read_run_json(run.run_dir)
+    # Hot state (status / finished_at / executions) lives solely in the OKF
+    # _ops sidecar (wsokf-10); identity (profile/config/script/error) in run.json.
+    ops = run.read_ops()
     kv = _kv_table()
     kv.add_row("id", str(run.id))
-    status_str = _as_str(data.get("status")) or node.status or ""
+    status_str = ops.status.value or node.status or ""
     kv.add_row("status", status_str.upper())
     if profile := _as_str(data.get("profile")):
         kv.add_row("profile", profile)
@@ -254,9 +256,8 @@ def _detail_run(node: TreeNode) -> list[RenderableType]:
     created_at = data.get("created_at")
     if created_at:
         kv.add_row("created_at", _fmt_iso(created_at))
-    finished_at = data.get("finished_at")
-    if finished_at:
-        kv.add_row("finished_at", _fmt_iso(finished_at))
+    if ops.finished_at:
+        kv.add_row("finished_at", _fmt_iso(ops.finished_at.isoformat()))
     if node.elapsed:
         kv.add_row("elapsed", node.elapsed)
     err = data.get("error")
@@ -266,14 +267,12 @@ def _detail_run(node: TreeNode) -> list[RenderableType]:
             kv.add_row("error", str(msg))
     exec_info_dict = _as_dict(data.get("executor_info"))
     if exec_info_dict:
-        norm = normalize_executor_info(exec_info_dict, _as_str_dict(data.get("labels")))
+        norm = normalize_executor_info(exec_info_dict, {})
         for key in ("backend", "scheduler", "cluster", "job_id", "scheduler_job_id"):
             if norm.get(key):
                 kv.add_row(key, str(norm[key]))
-    history_raw = data.get("execution_history")
-    history = history_raw if isinstance(history_raw, list) else []
-    if history:
-        kv.add_row("attempts", str(len(history)))
+    if ops.executions:
+        kv.add_row("attempts", str(len(ops.executions)))
     kv.add_row("run_dir", str(run.run_dir))
 
     cfg = _as_dict(data.get("config"))
@@ -293,25 +292,19 @@ def _detail_execution(node: TreeNode) -> list[RenderableType]:
     ), "execution-kind node must hold a (Run, exec_id) tuple"
     run = node.ref[0]
     exec_id = node.ref[1]
-    data = read_run_json(run.run_dir)
-    rec: dict[str, JSONValue] | None = None
-    history = data.get("execution_history")
-    if isinstance(history, list):
-        for item in history:
-            if isinstance(item, dict) and item.get("execution_id") == exec_id:
-                rec = item
-                break
+    # Execution history lives solely in the OKF _ops sidecar (wsokf-10).
+    rec = next((r for r in run.read_ops().executions if r.execution_id == exec_id), None)
     kv = _kv_table()
     kv.add_row("execution_id", str(exec_id))
     kv.add_row("run_id", str(run.id))
     if rec is not None:
-        kv.add_row("status", str(rec.get("status", node.status or "")).upper())
-        if rec.get("started_at"):
-            kv.add_row("started_at", _fmt_iso(rec["started_at"]))
-        if rec.get("finished_at"):
-            kv.add_row("finished_at", _fmt_iso(rec["finished_at"]))
-        if rec.get("scheduler_job_id"):
-            kv.add_row("scheduler_job_id", str(rec["scheduler_job_id"]))
+        kv.add_row("status", str(rec.status or node.status or "").upper())
+        if rec.started_at:
+            kv.add_row("started_at", _fmt_iso(rec.started_at.isoformat()))
+        if rec.finished_at:
+            kv.add_row("finished_at", _fmt_iso(rec.finished_at.isoformat()))
+        if rec.scheduler_job_id:
+            kv.add_row("scheduler_job_id", str(rec.scheduler_job_id))
     if node.elapsed:
         kv.add_row("elapsed", node.elapsed)
     exec_dir = run.run_dir / "executions" / exec_id

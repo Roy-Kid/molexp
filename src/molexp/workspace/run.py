@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, cast
 
@@ -63,23 +63,6 @@ __all__ = ["RETRYABLE_STATUSES", "Run", "RunContext", "RunStatus"]
 #: ``succeeded`` is done, and a live ``running`` run must never get a second
 #: concurrent execution.
 RETRYABLE_STATUSES: frozenset[str] = frozenset({RunStatus.FAILED.value, RunStatus.CANCELLED.value})
-
-
-def _parse_aware_utc(value: str) -> datetime | None:
-    """Parse an ISO timestamp into an aware-UTC datetime, or ``None`` if invalid.
-
-    The legacy ownership ``heartbeat`` label was a naive local ISO string;
-    :class:`RunOpsState` stores an aware-UTC ``heartbeat_at``. A naive value is
-    assumed to be local time and converted to UTC so cross-host staleness
-    comparisons remain correct.
-    """
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.astimezone(UTC)
-    return parsed.astimezone(UTC)
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -218,9 +201,8 @@ class Run(Folder):
         """Current run status, sourced from the ``_ops/run.json`` hot sidecar.
 
         Hot machine state (status / ownership / heartbeat / executions) lives
-        in the OKF ``_ops/`` sidecar per the identity-vs-runtime split (wsokf-07).
-        ``RunMetadata.status`` in ``run.json`` is kept byte-compatible as a
-        mirror but is no longer the source of truth.
+        solely in the OKF ``_ops/`` sidecar per the identity-vs-runtime split
+        (wsokf-07/wsokf-10); ``run.json`` carries no status field.
         """
         return self.read_ops().status.value
 
@@ -323,23 +305,20 @@ class Run(Folder):
         results = data.get("context", {}).get("results", {})
         if isinstance(results, dict) and key in results:
             return results[key]
-        return self._latest_execution_node_output(data, key)
+        return self._latest_execution_node_output(key)
 
-    def _latest_execution_node_output(self, run_data: dict[str, JSONValue], key: str) -> TaskOutput:
+    def _latest_execution_node_output(self, key: str) -> TaskOutput:
         """Fallback for :meth:`get_result` — read *key* from the latest execution.
 
-        *run_data* is the already-parsed ``run.json`` payload; its
-        ``execution_history`` (newest last) names the most recent attempt.
-        Read-only: nothing is written back to ``run.json``.
+        The execution history (newest last) is sourced from the OKF ``_ops``
+        sidecar (wsokf-10); its last entry names the most recent attempt.
+        Read-only: nothing is written back to disk.
         """
-        history = run_data.get("execution_history")
-        if not isinstance(history, list) or not history:
+        history = self.read_ops().executions
+        if not history:
             return None
-        latest = history[-1]
-        if not isinstance(latest, dict):
-            return None
-        execution_id = latest.get("execution_id")
-        if not isinstance(execution_id, str) or not execution_id:
+        execution_id = history[-1].execution_id
+        if not execution_id:
             return None
         from .execution_results import read_completed_node_outputs
 
@@ -371,19 +350,28 @@ class Run(Folder):
         self._catalog_upsert()
 
     def _write_catalog_row(self, catalog: AssetCatalog) -> None:
+        # The catalog is a derived index, never the source of truth: hot
+        # state (status / finished_at / ownership / executions) is read from
+        # the OKF ``_ops`` sidecar (wsokf-10), identity from ``run.json``.
+        ops = self.read_ops()
+        labels: dict[str, str] = {}
+        if ops.owner_pid is not None:
+            labels["pid"] = str(ops.owner_pid)
+        if ops.owner_host is not None:
+            labels["host"] = ops.owner_host
+        if ops.heartbeat_at is not None:
+            labels["heartbeat"] = ops.heartbeat_at.isoformat()
         record = {
             "run_id": self.metadata.id,
             "experiment_id": self.experiment.id,
-            "status": self.metadata.status,
+            "status": ops.status.value,
             "parameters": dict(self.metadata.parameters),
             "profile": self.metadata.profile,
             "config_hash": self.metadata.config_hash,
-            "labels": dict(self.metadata.labels),
+            "labels": labels,
             "path": f"runs/run-{self.id}",
             "created_at": self.metadata.created_at.isoformat(),
-            "finished_at": (
-                self.metadata.finished_at.isoformat() if self.metadata.finished_at else None
-            ),
+            "finished_at": (ops.finished_at.isoformat() if ops.finished_at else None),
             "workflow_snapshot": (
                 dict(self.metadata.workflow_snapshot) if self.metadata.workflow_snapshot else None
             ),
@@ -399,7 +387,7 @@ class Run(Folder):
                 "finished_at": (rec.finished_at.isoformat() if rec.finished_at else None),
                 "scheduler_job_id": rec.scheduler_job_id,
             }
-            for rec in self.metadata.execution_history
+            for rec in ops.executions
         ]
         catalog.upsert_run_with_executions(record, execution_records)
 
@@ -455,14 +443,23 @@ class Run(Folder):
         return await ctx.__aexit__(exc_type, exc_val, exc_tb)
 
     def cancel(self) -> None:
-        """Mark the run as cancelled in workspace metadata."""
-        labels = dict(self.metadata.labels)
-        for key in ("pid", "host", "heartbeat"):
-            labels.pop(key, None)
-        self._update_metadata(
-            status=RunStatus.CANCELLED,
-            finished_at=datetime.now(),
-            labels=labels,
+        """Mark the run as cancelled in the OKF ``_ops`` hot-state sidecar.
+
+        Sets ``status=cancelled`` + ``finished_at`` and clears the ownership
+        stamp (pid/host/heartbeat) in one read-modify-write of ``_ops/run.json``;
+        ``run.json`` (identity/provenance) is untouched (wsokf-10).
+        """
+        now = datetime.now()
+        self.update_ops(
+            lambda state: state.model_copy(
+                update={
+                    "status": RunStatus.CANCELLED,
+                    "finished_at": now,
+                    "owner_pid": None,
+                    "owner_host": None,
+                    "heartbeat_at": None,
+                }
+            )
         )
 
     def delete_execution(self, execution_id: str) -> None:
@@ -478,7 +475,7 @@ class Run(Folder):
         import shutil
 
         exec_dir = Path(self.run_dir / "executions" / execution_id)
-        history = list(self.metadata.execution_history)
+        history = list(self.read_ops().executions)
         matched_idx = next(
             (i for i, rec in enumerate(history) if rec.execution_id == execution_id),
             None,
@@ -489,13 +486,13 @@ class Run(Folder):
             shutil.rmtree(exec_dir)
         if matched_idx is not None:
             history.pop(matched_idx)
-            self._update_metadata(execution_history=history)
+            self.update_ops(lambda state: state.model_copy(update={"executions": tuple(history)}))
         self.experiment.project.workspace.catalog.remove_execution(execution_id)
 
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 
     def _set_status(self, status: RunStatus) -> None:
-        self._update_metadata(status=status.value)
+        self.update_ops(lambda state: state.model_copy(update={"status": status}))
 
     @contextlib.contextmanager
     def _metadata_lock(self) -> Iterator[None]:
@@ -528,8 +525,16 @@ class Run(Folder):
         except Exception:
             _logger.debug(f"run {self.id}: could not reload run.json; keeping in-memory copy")
 
+    #: Hot machine-state fields that left ``RunMetadata`` in wsokf-10 — they
+    #: now live solely in the OKF ``_ops/run.json`` sidecar
+    #: (:class:`RunOpsState`). Writers must route them through
+    #: :meth:`update_ops`, never :meth:`_update_metadata`.
+    _OPS_ONLY_KEYS: frozenset[str] = frozenset(
+        {"status", "finished_at", "execution_history", "labels"}
+    )
+
     def _update_metadata(self, **updates: object) -> None:
-        """Forward partial-field updates into ``RunMetadata.model_copy``.
+        """Forward identity/provenance updates into ``RunMetadata.model_copy``.
 
         Values flow through pydantic's per-field validators; the parameter
         type is the true Python top-type ``object`` (not ``Any`` — the
@@ -541,42 +546,22 @@ class Run(Folder):
         processes updating different fields cannot drop each other's
         writes (lost-update protection).
 
-        Hot machine-state fields (status / finished_at / execution_history /
-        ownership labels) are additionally mirrored into the OKF ``_ops``
-        sidecar (wsokf-07) so :attr:`status` and friends — which read from
-        ``_ops`` — observe the update. ``run.json`` keeps the same fields for
-        byte-compatibility (the duplicate is removed in a later cleanup spec).
+        ``run.json`` holds identity / provenance only (wsokf-10). Hot
+        machine state — ``status`` / ``finished_at`` / ``execution_history`` /
+        ownership ``labels`` — lives in the ``_ops`` sidecar and must be
+        written through :meth:`update_ops`; passing one of those keys here is
+        a programming error and raises :class:`ValueError`.
+
+        Raises:
+            ValueError: If an ops-only hot-state key is passed.
         """
+        offending = self._OPS_ONLY_KEYS & updates.keys()
+        if offending:
+            raise ValueError(
+                f"_update_metadata received hot-state key(s) {sorted(offending)!r}; "
+                "these live in the _ops/run.json sidecar — write them via update_ops()"
+            )
         with self._metadata_lock():
             self._reload_metadata_from_disk()
             self.metadata = self.metadata.model_copy(update=updates)
             self.save()
-        self._mirror_hot_state_to_ops(updates)
-
-    def _mirror_hot_state_to_ops(self, updates: dict[str, object]) -> None:
-        """Reflect hot-state fields from a metadata update into the ``_ops`` sidecar.
-
-        Only the fields that constitute run-level hot machine state are
-        mirrored — identity / provenance fields (params, profile, target,
-        workflow_snapshot, …) never touch ``_ops``. Ownership stamps carried
-        in the ``labels`` dict (``pid`` / ``host``) and the string
-        ``heartbeat`` are translated into the typed :class:`RunOpsState`
-        fields; an empty / stamp-less labels update clears ownership.
-        """
-        ops_updates: dict[str, object] = {}
-        if "status" in updates:
-            ops_updates["status"] = RunStatus(str(self.metadata.status))
-        if "finished_at" in updates:
-            ops_updates["finished_at"] = self.metadata.finished_at
-        if "execution_history" in updates:
-            ops_updates["executions"] = tuple(self.metadata.execution_history)
-        if "labels" in updates:
-            labels = dict(self.metadata.labels)
-            pid_str = labels.get("pid")
-            ops_updates["owner_pid"] = int(pid_str) if pid_str and pid_str.isdigit() else None
-            ops_updates["owner_host"] = labels.get("host")
-            heartbeat = labels.get("heartbeat")
-            ops_updates["heartbeat_at"] = _parse_aware_utc(heartbeat) if heartbeat else None
-        if not ops_updates:
-            return
-        self.update_ops(lambda state: state.model_copy(update=ops_updates))
