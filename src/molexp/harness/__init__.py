@@ -53,12 +53,7 @@ from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.mode import Mode
 from molexp.harness.modes import PlanMode, RunMode
-from molexp.harness.policy import (
-    evaluate_approval_policy,
-    make_final_report_approval_request,
-    record_approval_decision,
-    record_approval_request,
-)
+from molexp.harness.policy import ApprovalEventRecorder, ApprovalPolicyEvaluator
 from molexp.harness.registry import CapabilityRegistry, InMemoryCapabilityRegistry
 from molexp.harness.schemas import (
     WELL_KNOWN_ARTIFACT_KINDS,
@@ -134,12 +129,12 @@ from molexp.harness.store import (
     SQLiteEventLog,
 )
 from molexp.harness.validators import (
+    BoundWorkflowValidator,
+    ProvenanceValidator,
     TestSourceValidator,
-    validate_bound_workflow,
-    validate_provenance,
-    validate_test_spec,
-    validate_workflow_ir,
-    validate_workflow_source,
+    TestSpecValidator,
+    WorkflowIRValidator,
+    WorkflowSourceValidator,
 )
 
 __all__ = [
@@ -149,9 +144,11 @@ __all__ = [
     "AgentGateway",
     "AgentResponseNotRegisteredError",
     "ApprovalDecision",
+    "ApprovalEventRecorder",
     "ApprovalGate",
     "ApprovalIntent",
     "ApprovalPolicy",
+    "ApprovalPolicyEvaluator",
     "ApprovalRequest",
     "Approver",
     "ArtifactKind",
@@ -163,6 +160,7 @@ __all__ = [
     "BindMolcraftsTasks",
     "BoundTask",
     "BoundWorkflow",
+    "BoundWorkflowValidator",
     "CapabilityAlreadyRegisteredError",
     "CapabilityCallValidationError",
     "CapabilityNotFoundError",
@@ -202,6 +200,7 @@ __all__ = [
     "ParameterValue",
     "PathPolicy",
     "PlanMode",
+    "ProvenanceValidator",
     "ResourcePolicy",
     "RouterBackedAgentGateway",
     "RunMode",
@@ -219,6 +218,7 @@ __all__ = [
     "TestSourceValidator",
     "TestSpec",
     "TestSpecBundle",
+    "TestSpecValidator",
     "TestStatus",
     "ToolCapability",
     "ToolPolicy",
@@ -231,18 +231,11 @@ __all__ = [
     "ValidationReport",
     "ValidationViolation",
     "WorkflowIR",
+    "WorkflowIRValidator",
     "WorkflowSource",
+    "WorkflowSourceValidator",
     "auto_grant_approver",
-    "evaluate_approval_policy",
     "find_last_successful_stage",
     "generate_audit_report",
-    "make_final_report_approval_request",
-    "record_approval_decision",
-    "record_approval_request",
     "replay_metadata",
-    "validate_bound_workflow",
-    "validate_provenance",
-    "validate_test_spec",
-    "validate_workflow_ir",
-    "validate_workflow_source",
 ]

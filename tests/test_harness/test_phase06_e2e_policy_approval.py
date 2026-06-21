@@ -55,16 +55,15 @@ def _dangerous_workflow():
 def test_dangerous_workflow_triggers_multiple_intents(tmp_path: Path) -> None:
     from molexp.harness import (
         ApprovalDecision,
+        ApprovalEventRecorder,
         ApprovalPolicy,
+        ApprovalPolicyEvaluator,
         SQLiteEventLog,
-        evaluate_approval_policy,
-        record_approval_decision,
-        record_approval_request,
     )
 
     bw = _dangerous_workflow()
     policy = ApprovalPolicy()  # all six require_for_* default True
-    requests = evaluate_approval_policy(policy, bw=bw)
+    requests = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
 
     # Should hit hpc_submission + full_execution + large_resource_request
     # + overwrite + agent_inferred_scientific_parameters = 5 intents.
@@ -82,7 +81,7 @@ def test_dangerous_workflow_triggers_multiple_intents(tmp_path: Path) -> None:
     event_log = SQLiteEventLog(path=tmp_path / "events.sqlite")
     run_id = "run-p6-e2e"
     for req in requests:
-        record_approval_request(event_log, run_id, req)
+        ApprovalEventRecorder.record_request(event_log, run_id, req)
 
     granted_decision = ApprovalDecision(
         request_id=requests[0].id,
@@ -98,8 +97,8 @@ def test_dangerous_workflow_triggers_multiple_intents(tmp_path: Path) -> None:
         decided_at=datetime(2026, 5, 26, tzinfo=UTC),
         reason="Postpone full run",
     )
-    record_approval_decision(event_log, run_id, requests[0], granted_decision)
-    record_approval_decision(event_log, run_id, requests[1], rejected_decision)
+    ApprovalEventRecorder.record_decision(event_log, run_id, requests[0], granted_decision)
+    ApprovalEventRecorder.record_decision(event_log, run_id, requests[1], rejected_decision)
 
     # Verify event log carries the full sequence.
     timeline = event_log.get_timeline(run_id)
@@ -128,15 +127,13 @@ def test_dangerous_workflow_triggers_multiple_intents(tmp_path: Path) -> None:
 def test_phase06_public_symbols_importable_from_top_level() -> None:
     from molexp.harness import (  # noqa: F401
         ApprovalDecision,
+        ApprovalEventRecorder,
         ApprovalIntent,
         ApprovalPolicy,
+        ApprovalPolicyEvaluator,
         ApprovalRequest,
         PathPolicy,
         ToolPolicy,
-        evaluate_approval_policy,
-        make_final_report_approval_request,
-        record_approval_decision,
-        record_approval_request,
     )
 
 
@@ -145,15 +142,15 @@ def test_phase01_to_phase05_surface_still_intact() -> None:
     from molexp.harness import (  # noqa: F401
         ArtifactRef,
         BoundWorkflow,
+        BoundWorkflowValidator,
         CapabilityRegistry,
         ExperimentReport,
+        ProvenanceValidator,
         SaveUserPlan,
         TestSpec,
+        TestSpecValidator,
         ToolCapability,
         UserPlan,
         WorkflowIR,
-        validate_bound_workflow,
-        validate_provenance,
-        validate_test_spec,
-        validate_workflow_ir,
+        WorkflowIRValidator,
     )

@@ -187,32 +187,32 @@ def _codes(report) -> list[str]:
 
 
 def test_three_capability_pipeline_validates_clean(tmp_path: Path) -> None:
-    from molexp.harness import validate_bound_workflow
+    from molexp.harness import BoundWorkflowValidator
 
     ir, bw, registry = _build_matched_pair()
-    report = validate_bound_workflow(bw, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path, registry=registry)
     assert report.passed is True, f"unexpected violations: {report.violations}"
     assert report.violations == []
 
 
 def test_flipping_to_ghost_capability_triggers_unknown_capability(tmp_path: Path) -> None:
-    from molexp.harness import validate_bound_workflow
+    from molexp.harness import BoundWorkflowValidator
 
     ir, bw, registry = _build_matched_pair()
     bad_run = bw.tasks[1].model_copy(update={"capability_id": "ghost.capability"})
     bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bad_run, bw.tasks[2]]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "unknown_capability" in _codes(report)
 
 
 def test_undeclared_side_effect_fires(tmp_path: Path) -> None:
-    from molexp.harness import validate_bound_workflow
+    from molexp.harness import BoundWorkflowValidator
 
     ir, bw, registry = _build_matched_pair()
     # MobilityKernel only declares ["fs_write"]; add "network" which it didn't.
     bad_analyze = bw.tasks[2].model_copy(update={"side_effects": ["fs_write", "network"]})
     bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bw.tasks[1], bad_analyze]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "undeclared_side_effect" in _codes(report)
 
 
@@ -237,6 +237,7 @@ def test_phase01_to_phase03_surface_still_intact() -> None:
         ArtifactRef,
         BoundTask,
         BoundWorkflow,
+        BoundWorkflowValidator,
         DependencyEdge,
         ExperimentReport,
         FileArtifactStore,
@@ -250,6 +251,5 @@ def test_phase01_to_phase03_surface_still_intact() -> None:
         ValidationReport,
         ValidationViolation,
         WorkflowIR,
-        validate_bound_workflow,
-        validate_workflow_ir,
+        WorkflowIRValidator,
     )

@@ -105,10 +105,10 @@ def _codes(report) -> list[str]:
 
 
 def test_baseline_with_registry_clean(tmp_path: Path) -> None:
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
-    report = validate_bound_workflow(bw, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path, registry=registry)
     assert report.passed is True
     assert report.violations == []
 
@@ -119,12 +119,12 @@ def test_baseline_with_registry_clean(tmp_path: Path) -> None:
 def test_registry_none_yields_phase3_behavior(tmp_path: Path) -> None:
     """When registry=None, no capability-aware checks fire even if the
     capability_id is nonsense."""
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, _, _ = _baseline_with_registry()
     nonsense = bw.tasks[0].model_copy(update={"capability_id": "ghost"})
     bw_bad = bw.model_copy(update={"tasks": [nonsense]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path)
     # The four new codes must NOT appear.
     new_codes = {
         "unknown_capability",
@@ -139,12 +139,12 @@ def test_registry_none_yields_phase3_behavior(tmp_path: Path) -> None:
 
 
 def test_unknown_capability(tmp_path: Path) -> None:
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     nonsense = bw.tasks[0].model_copy(update={"capability_id": "ghost.capability"})
     bw_bad = bw.model_copy(update={"tasks": [nonsense]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "unknown_capability" in _codes(report)
     assert report.passed is False
 
@@ -154,12 +154,12 @@ def test_unknown_capability_suppresses_other_capability_checks_for_that_task(
 ) -> None:
     """When a task's capability is unknown, the other three checks for
     THAT task are skipped (we can't check what we don't have)."""
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     nonsense = bw.tasks[0].model_copy(update={"capability_id": "ghost.capability"})
     bw_bad = bw.model_copy(update={"tasks": [nonsense]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     codes = _codes(report)
     assert "unknown_capability" in codes
     # The other three must NOT fire (we can't reason about a ghost).
@@ -170,7 +170,7 @@ def test_unknown_capability_suppresses_other_capability_checks_for_that_task(
 
 def test_capability_call_invalid_extra_key(tmp_path: Path) -> None:
     from molexp.harness.schemas.parameter import ParameterValue
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     # IR + bound input keys must match (Phase-3 input_key_mismatch check).
@@ -182,7 +182,7 @@ def test_capability_call_invalid_extra_key(tmp_path: Path) -> None:
     }
     bad_task = bw.tasks[0].model_copy(update={"parameters": bad_params})
     bw_bad = bw.model_copy(update={"tasks": [bad_task]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "capability_call_invalid" in _codes(report)
 
 
@@ -191,44 +191,44 @@ def test_capability_call_invalid_missing_required(tmp_path: Path) -> None:
     The IR task input key 'n_chains' still resolves so input_key_mismatch
     doesn't fire — we drop only from BoundTask.parameters.
     """
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     bad_task = bw.tasks[0].model_copy(update={"parameters": {}})
     bw_bad = bw.model_copy(update={"tasks": [bad_task]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "capability_call_invalid" in _codes(report)
 
 
 def test_backend_not_supported(tmp_path: Path) -> None:
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     bw_bad = bw.model_copy(update={"execution_backend": "slurm"})  # cap only supports "local"
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "backend_not_supported" in _codes(report)
 
 
 def test_undeclared_side_effect(tmp_path: Path) -> None:
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     # cap.side_effects = ["fs_write", "network"]; task claims "gpu" which is undeclared.
     bad_task = bw.tasks[0].model_copy(update={"side_effects": ["fs_write", "gpu"]})
     bw_bad = bw.model_copy(update={"tasks": [bad_task]})
-    report = validate_bound_workflow(bw_bad, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
     assert "undeclared_side_effect" in _codes(report)
 
 
 def test_task_side_effects_subset_of_capability_is_clean(tmp_path: Path) -> None:
     """BoundTask declares a subset of capability.side_effects → no violation."""
-    from molexp.harness.validators.bound_workflow import validate_bound_workflow
+    from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
     ir, bw, registry, _ = _baseline_with_registry()
     # cap declares ["fs_write", "network"]; task declares ["fs_write"] only.
     bad_task = bw.tasks[0].model_copy(update={"side_effects": ["fs_write"]})
     bw_ok = bw.model_copy(update={"tasks": [bad_task]})
-    report = validate_bound_workflow(bw_ok, ir, workspace_root=tmp_path, registry=registry)
+    report = BoundWorkflowValidator.validate(bw_ok, ir, workspace_root=tmp_path, registry=registry)
     assert "undeclared_side_effect" not in _codes(report)
 
 

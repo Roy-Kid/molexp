@@ -63,10 +63,10 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
 
 def test_phase05_validate_provenance_on_pipeline_output(tmp_path: Path) -> None:
     """The Phase-2 e2e experiment_report must trace back to user_plan."""
-    from molexp.harness import validate_provenance
+    from molexp.harness import ProvenanceValidator
 
     ctx, _user_plan_ref, report_ref = _run_pipeline_and_return_refs(tmp_path)
-    report = validate_provenance(
+    report = ProvenanceValidator.validate(
         report_ref.id,
         artifact_store=ctx.artifact_store,
         lineage_store=ctx.lineage_store,
@@ -78,11 +78,11 @@ def test_phase05_validate_provenance_on_pipeline_output(tmp_path: Path) -> None:
 
 def test_phase05_validate_provenance_with_custom_root_kind(tmp_path: Path) -> None:
     """root_kind override: report should also trace to itself (the experiment_report)."""
-    from molexp.harness import validate_provenance
+    from molexp.harness import ProvenanceValidator
 
     ctx, _user_plan_ref, report_ref = _run_pipeline_and_return_refs(tmp_path)
     # The artifact IS an experiment_report → it counts as root_kind.
-    result = validate_provenance(
+    result = ProvenanceValidator.validate(
         report_ref.id,
         artifact_store=ctx.artifact_store,
         lineage_store=ctx.lineage_store,
@@ -103,8 +103,8 @@ def test_phase05_validate_test_spec_against_hand_built_ir(tmp_path: Path) -> Non
         ParameterValue,
         TaskIR,
         TestSpec,
+        TestSpecValidator,
         WorkflowIR,
-        validate_test_spec,
     )
 
     _ctx, _user_plan_ref, _report_ref = _run_pipeline_and_return_refs(tmp_path)
@@ -147,7 +147,7 @@ def test_phase05_validate_test_spec_against_hand_built_ir(tmp_path: Path) -> Non
         description="run_md must produce traj.dcd",
         expected_artifacts=["traj.dcd"],
     )
-    report = validate_test_spec(spec, ir=ir)
+    report = TestSpecValidator.validate(spec, ir=ir)
     assert report.passed is True, f"unexpected violations: {report.violations}"
     assert report.violations == []
 
@@ -157,12 +157,12 @@ def test_phase05_validate_test_spec_against_hand_built_ir(tmp_path: Path) -> Non
 
 def test_phase05_public_symbols_importable_from_top_level() -> None:
     from molexp.harness import (  # noqa: F401
+        ProvenanceValidator,
         TestKind,
         TestResult,
         TestSpec,
+        TestSpecValidator,
         TestStatus,
-        validate_provenance,
-        validate_test_spec,
     )
 
 
@@ -176,11 +176,11 @@ def test_phase01_to_phase04_surface_still_intact() -> None:
         ArtifactRef,
         BoundTask,
         BoundWorkflow,
+        BoundWorkflowValidator,
         CapabilityRegistry,
         ExperimentReport,
         InMemoryCapabilityRegistry,
         ToolCapability,
         UserPlan,
-        validate_bound_workflow,
-        validate_workflow_ir,
+        WorkflowIRValidator,
     )

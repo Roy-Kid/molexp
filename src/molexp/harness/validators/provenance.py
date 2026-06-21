@@ -34,79 +34,81 @@ from molexp.harness.schemas.validation import ValidationReport, ValidationViolat
 from molexp.harness.store.artifact_store import ArtifactStore
 from molexp.harness.store.lineage_store import ArtifactLineageStore
 
-__all__ = ["validate_provenance"]
+__all__ = ["ProvenanceValidator"]
 
 
-def validate_provenance(
-    artifact_id: str,
-    *,
-    artifact_store: ArtifactStore,
-    lineage_store: ArtifactLineageStore,
-    root_kind: ArtifactKind = "user_plan",
-) -> ValidationReport:
-    violations: list[ValidationViolation] = []
+class ProvenanceValidator:
+    @staticmethod
+    def validate(
+        artifact_id: str,
+        *,
+        artifact_store: ArtifactStore,
+        lineage_store: ArtifactLineageStore,
+        root_kind: ArtifactKind = "user_plan",
+    ) -> ValidationReport:
+        violations: list[ValidationViolation] = []
 
-    # 1. artifact_not_found — catch the typed error rather than bubbling it.
-    try:
-        ref = artifact_store.get_ref(artifact_id)
-    except ArtifactNotFoundError as exc:
-        violations.append(
-            ValidationViolation(
-                code="artifact_not_found",
-                message=f"artifact id {artifact_id!r} not found in artifact_store ({exc})",
-                path="artifact_id",
+        # 1. artifact_not_found — catch the typed error rather than bubbling it.
+        try:
+            ref = artifact_store.get_ref(artifact_id)
+        except ArtifactNotFoundError as exc:
+            violations.append(
+                ValidationViolation(
+                    code="artifact_not_found",
+                    message=f"artifact id {artifact_id!r} not found in artifact_store ({exc})",
+                    path="artifact_id",
+                )
             )
-        )
+            return ValidationReport.from_violations(
+                target_kind="provenance",
+                target_id=artifact_id,
+                violations=violations,
+            )
+
+        # If the artifact itself IS the root_kind, no ancestors required.
+        if ref.kind == root_kind:
+            return ValidationReport.from_violations(
+                target_kind="provenance",
+                target_id=artifact_id,
+                violations=violations,
+            )
+
+        ancestors = lineage_store.trace_backward(artifact_id)
+
+        # 3. orphan_artifact (warning) — no ancestors AND not the root itself.
+        if not ancestors:
+            violations.append(
+                ValidationViolation(
+                    code="orphan_artifact",
+                    message=(
+                        f"artifact {artifact_id!r} (kind={ref.kind!r}) has no ancestors "
+                        f"and is not of root kind {root_kind!r}"
+                    ),
+                    path="artifact_id",
+                    severity="warning",
+                )
+            )
+            return ValidationReport.from_violations(
+                target_kind="provenance",
+                target_id=artifact_id,
+                violations=violations,
+            )
+
+        # 2. unreachable_root — has ancestors but none matches root_kind.
+        if not any(ancestor.kind == root_kind for ancestor in ancestors):
+            violations.append(
+                ValidationViolation(
+                    code="unreachable_root",
+                    message=(
+                        f"artifact {artifact_id!r} (kind={ref.kind!r}) has "
+                        f"{len(ancestors)} ancestor(s) but none of kind {root_kind!r}"
+                    ),
+                    path="provenance.lineage",
+                )
+            )
+
         return ValidationReport.from_violations(
             target_kind="provenance",
             target_id=artifact_id,
             violations=violations,
         )
-
-    # If the artifact itself IS the root_kind, no ancestors required.
-    if ref.kind == root_kind:
-        return ValidationReport.from_violations(
-            target_kind="provenance",
-            target_id=artifact_id,
-            violations=violations,
-        )
-
-    ancestors = lineage_store.trace_backward(artifact_id)
-
-    # 3. orphan_artifact (warning) — no ancestors AND not the root itself.
-    if not ancestors:
-        violations.append(
-            ValidationViolation(
-                code="orphan_artifact",
-                message=(
-                    f"artifact {artifact_id!r} (kind={ref.kind!r}) has no ancestors "
-                    f"and is not of root kind {root_kind!r}"
-                ),
-                path="artifact_id",
-                severity="warning",
-            )
-        )
-        return ValidationReport.from_violations(
-            target_kind="provenance",
-            target_id=artifact_id,
-            violations=violations,
-        )
-
-    # 2. unreachable_root — has ancestors but none matches root_kind.
-    if not any(ancestor.kind == root_kind for ancestor in ancestors):
-        violations.append(
-            ValidationViolation(
-                code="unreachable_root",
-                message=(
-                    f"artifact {artifact_id!r} (kind={ref.kind!r}) has "
-                    f"{len(ancestors)} ancestor(s) but none of kind {root_kind!r}"
-                ),
-                path="provenance.lineage",
-            )
-        )
-
-    return ValidationReport.from_violations(
-        target_kind="provenance",
-        target_id=artifact_id,
-        violations=violations,
-    )

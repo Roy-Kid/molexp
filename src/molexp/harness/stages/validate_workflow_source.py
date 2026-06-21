@@ -40,7 +40,7 @@ from molexp.harness.schemas import (
     WorkflowSource,
 )
 from molexp.harness.stages._resolve import require_latest
-from molexp.harness.validators.workflow_source import validate_workflow_source
+from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
 __all__ = ["ValidateWorkflowSource"]
 
@@ -98,7 +98,7 @@ class ValidateWorkflowSource(Stage):
 
         # Pure pre-checks first — reject syntax errors + private imports BEFORE
         # any compile/exec of the untrusted source.
-        report = validate_workflow_source(ws.source, target_id=target)
+        report = WorkflowSourceValidator.validate(ws.source, target_id=target)
         if not report.passed:
             return self._persist_report_and_maybe_raise(ctx, report, target=target)
 

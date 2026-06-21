@@ -201,9 +201,9 @@ def test_system_prompt_names_public_api() -> None:
 
 
 def test_validate_workflow_source_flags_syntax_error_without_raising() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
+    from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-    report = validate_workflow_source(SYNTAX_ERROR_SOURCE)
+    report = WorkflowSourceValidator.validate(SYNTAX_ERROR_SOURCE)
     assert report.passed is False
     assert report.target_kind == "workflow_source"
     assert len(report.violations) >= 1
@@ -212,11 +212,11 @@ def test_validate_workflow_source_flags_syntax_error_without_raising() -> None:
 
 
 def test_validate_workflow_source_never_raises_on_garbage() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
+    from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
     # Total function: even on wildly malformed input no exception escapes.
     for bad in ("def (:\n", "@@@@", "import", "class :", "\x00\x01"):
-        report = validate_workflow_source(bad)
+        report = WorkflowSourceValidator.validate(bad)
         assert report.passed is False
 
 
@@ -224,18 +224,18 @@ def test_validate_workflow_source_never_raises_on_garbage() -> None:
 
 
 def test_validate_workflow_source_rejects_private_subpackage_import() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
+    from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-    report = validate_workflow_source(PRIVATE_IMPORT_SOURCE)
+    report = WorkflowSourceValidator.validate(PRIVATE_IMPORT_SOURCE)
     assert report.passed is False
     # A violation must name the disallowed private import target.
     assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
 
 
 def test_validate_workflow_source_passes_public_surface_only() -> None:
-    from molexp.harness.validators.workflow_source import validate_workflow_source
+    from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
-    report = validate_workflow_source(VALID_SOURCE)
+    report = WorkflowSourceValidator.validate(VALID_SOURCE)
     assert report.passed is True
     assert report.violations == []
 

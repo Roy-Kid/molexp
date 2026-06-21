@@ -62,18 +62,18 @@ def _empty_policy():
 
 def test_baseline_no_triggers() -> None:
     """Clean workflow + all-False policy → zero requests."""
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
-    result = evaluate_approval_policy(_empty_policy(), bw=_clean_bound_workflow())
+    result = ApprovalPolicyEvaluator.evaluate(_empty_policy(), bw=_clean_bound_workflow())
     assert result == []
 
 
 def test_bw_none_only_emits_via_helper() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.policy import ApprovalPolicy
 
     # All-True policy but bw is None → no auto-intents.
-    result = evaluate_approval_policy(ApprovalPolicy())
+    result = ApprovalPolicyEvaluator.evaluate(ApprovalPolicy())
     assert result == []
 
 
@@ -81,45 +81,45 @@ def test_bw_none_only_emits_via_helper() -> None:
 
 
 def test_hpc_submission_slurm() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_hpc_submission": True})
     bw = _clean_bound_workflow(backend="slurm")
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     intents = [r.intent for r in result]
     assert intents == ["hpc_submission"]
 
 
 def test_hpc_submission_pbs_and_lsf() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_hpc_submission": True})
     for backend in ("pbs", "lsf"):
         bw = _clean_bound_workflow(backend=backend)
-        result = evaluate_approval_policy(policy, bw=bw)
+        result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
         assert [r.intent for r in result] == ["hpc_submission"]
 
 
 def test_hpc_submission_local_does_not_fire() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_hpc_submission": True})
     bw = _clean_bound_workflow(backend="local")
-    assert evaluate_approval_policy(policy, bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
 
 
 def test_hpc_submission_policy_off_suppresses() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     bw = _clean_bound_workflow(backend="slurm")
-    assert evaluate_approval_policy(_empty_policy(), bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(_empty_policy(), bw=bw) == []
 
 
 # ----------------------------- agent_inferred_scientific_parameters
 
 
 def test_agent_inferred_one_request_per_task() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.bound_workflow import (
         BoundTask,
         BoundWorkflow,
@@ -176,7 +176,7 @@ def test_agent_inferred_one_request_per_task() -> None:
     policy = _empty_policy().model_copy(
         update={"require_for_agent_inferred_scientific_parameters": True}
     )
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     inferred = [r for r in result if r.intent == "agent_inferred_scientific_parameters"]
     assert len(inferred) == 2
     bt_ids = {r.metadata.get("bound_task_id") for r in inferred}
@@ -185,7 +185,7 @@ def test_agent_inferred_one_request_per_task() -> None:
 
 def test_agent_inferred_policy_off_suppresses() -> None:
     """Even with agent_inferred params, no request when policy flag off."""
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.bound_workflow import (
         BoundTask,
         BoundWorkflow,
@@ -215,73 +215,73 @@ def test_agent_inferred_policy_off_suppresses() -> None:
             backend="local", max_runtime_s=3600, denied_paths=["/", "~/.ssh"]
         ),
     )
-    assert evaluate_approval_policy(_empty_policy(), bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(_empty_policy(), bw=bw) == []
 
 
 # ----------------------------------------- large_resource_request
 
 
 def test_large_resource_runtime_just_above_24h() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
     bw = _clean_bound_workflow()
     bad = bw.resource_policy.model_copy(update={"max_runtime_s": 86401})
     bw = bw.model_copy(update={"resource_policy": bad})
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     assert [r.intent for r in result] == ["large_resource_request"]
 
 
 def test_large_resource_runtime_at_24h_does_not_fire() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
     bw = _clean_bound_workflow()
     ok = bw.resource_policy.model_copy(update={"max_runtime_s": 86400})
     bw = bw.model_copy(update={"resource_policy": ok})
-    assert evaluate_approval_policy(policy, bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
 
 
 def test_large_resource_memory_just_above_256() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
     bw = _clean_bound_workflow()
     bad = bw.resource_policy.model_copy(update={"max_memory_gb": 257.0})
     bw = bw.model_copy(update={"resource_policy": bad})
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     assert [r.intent for r in result] == ["large_resource_request"]
 
 
 def test_large_resource_memory_at_256_does_not_fire() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
     bw = _clean_bound_workflow()
     ok = bw.resource_policy.model_copy(update={"max_memory_gb": 256.0})
     bw = bw.model_copy(update={"resource_policy": ok})
-    assert evaluate_approval_policy(policy, bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
 
 
 def test_large_resource_none_memory_does_not_npe() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
     bw = _clean_bound_workflow()  # memory=8, runtime=3600
     # Set memory to None explicitly
     rp = bw.resource_policy.model_copy(update={"max_memory_gb": None})
     bw = bw.model_copy(update={"resource_policy": rp})
-    assert evaluate_approval_policy(policy, bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
 
 
 def test_large_resource_both_breaches_one_request() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_large_resource_request": True})
     bw = _clean_bound_workflow()
     bad = bw.resource_policy.model_copy(update={"max_runtime_s": 90000, "max_memory_gb": 500.0})
     bw = bw.model_copy(update={"resource_policy": bad})
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     inferred = [r for r in result if r.intent == "large_resource_request"]
     assert len(inferred) == 1
 
@@ -290,21 +290,21 @@ def test_large_resource_both_breaches_one_request() -> None:
 
 
 def test_full_execution_emits_with_bw_present() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_full_execution": True})
-    result = evaluate_approval_policy(policy, bw=_clean_bound_workflow())
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=_clean_bound_workflow())
     assert [r.intent for r in result] == ["full_execution"]
 
 
 def test_full_execution_policy_off_suppresses() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
-    assert evaluate_approval_policy(_empty_policy(), bw=_clean_bound_workflow()) == []
+    assert ApprovalPolicyEvaluator.evaluate(_empty_policy(), bw=_clean_bound_workflow()) == []
 
 
 def test_full_execution_with_no_bw_skips() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.policy import ApprovalPolicy
 
     # Only full_execution=True; bw=None → no request.
@@ -316,23 +316,23 @@ def test_full_execution_with_no_bw_skips() -> None:
         require_for_overwrite=False,
         require_for_final_report=False,
     )
-    assert evaluate_approval_policy(p) == []
+    assert ApprovalPolicyEvaluator.evaluate(p) == []
 
 
 # ----------------------------------------- overwrite
 
 
 def test_overwrite_from_bw_review_flags() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_overwrite": True})
     bw = _clean_bound_workflow().model_copy(update={"review_flags": ["overwrite"]})
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     assert [r.intent for r in result] == ["overwrite"]
 
 
 def test_overwrite_from_ir_task_review_flags() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.parameter import ParameterValue
     from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
 
@@ -356,20 +356,20 @@ def test_overwrite_from_ir_task_review_flags() -> None:
         edges=[],
         expected_outputs=[],
     )
-    result = evaluate_approval_policy(policy, bw=bw, ir=ir)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw, ir=ir)
     assert [r.intent for r in result] == ["overwrite"]
 
 
 def test_overwrite_neither_flag_suppresses() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 
     policy = _empty_policy().model_copy(update={"require_for_overwrite": True})
     bw = _clean_bound_workflow()
-    assert evaluate_approval_policy(policy, bw=bw) == []
+    assert ApprovalPolicyEvaluator.evaluate(policy, bw=bw) == []
 
 
 def test_overwrite_both_flags_dedupe() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.parameter import ParameterValue
     from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
 
@@ -393,7 +393,7 @@ def test_overwrite_both_flags_dedupe() -> None:
         edges=[],
         expected_outputs=[],
     )
-    result = evaluate_approval_policy(policy, bw=bw, ir=ir)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw, ir=ir)
     inferred = [r for r in result if r.intent == "overwrite"]
     assert len(inferred) == 1
 
@@ -403,7 +403,7 @@ def test_overwrite_both_flags_dedupe() -> None:
 
 def test_evaluate_never_emits_final_report() -> None:
     """final_report MUST NOT auto-trigger, even with require_for_final_report=True."""
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.policy import ApprovalPolicy
 
     policy = ApprovalPolicy(
@@ -415,25 +415,29 @@ def test_evaluate_never_emits_final_report() -> None:
         require_for_final_report=True,
     )
     bw = _clean_bound_workflow().model_copy(update={"review_flags": ["overwrite"]})
-    result = evaluate_approval_policy(policy, bw=bw)
+    result = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     assert "final_report" not in {r.intent for r in result}
 
 
 def test_make_final_report_returns_request_when_policy_demands() -> None:
-    from molexp.harness.policy.evaluate import make_final_report_approval_request
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.policy import ApprovalPolicy
 
-    req = make_final_report_approval_request(ApprovalPolicy(require_for_final_report=True))
+    req = ApprovalPolicyEvaluator.make_final_report_request(
+        ApprovalPolicy(require_for_final_report=True)
+    )
     assert req is not None
     assert req.intent == "final_report"
     assert req.id  # non-empty
 
 
 def test_make_final_report_returns_none_when_policy_off() -> None:
-    from molexp.harness.policy.evaluate import make_final_report_approval_request
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.policy import ApprovalPolicy
 
-    req = make_final_report_approval_request(ApprovalPolicy(require_for_final_report=False))
+    req = ApprovalPolicyEvaluator.make_final_report_request(
+        ApprovalPolicy(require_for_final_report=False)
+    )
     assert req is None
 
 
@@ -441,7 +445,7 @@ def test_make_final_report_returns_none_when_policy_off() -> None:
 
 
 def test_result_ordering_is_deterministic() -> None:
-    from molexp.harness.policy.evaluate import evaluate_approval_policy
+    from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
     from molexp.harness.schemas.bound_workflow import (
         BoundTask,
         BoundWorkflow,
@@ -478,8 +482,8 @@ def test_result_ordering_is_deterministic() -> None:
     )
     policy = ApprovalPolicy()  # all True
 
-    r1 = evaluate_approval_policy(policy, bw=bw)
-    r2 = evaluate_approval_policy(policy, bw=bw)
+    r1 = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
+    r2 = ApprovalPolicyEvaluator.evaluate(policy, bw=bw)
     intents_1 = [r.intent for r in r1]
     intents_2 = [r.intent for r in r2]
     assert intents_1 == intents_2
@@ -498,16 +502,16 @@ def test_result_ordering_is_deterministic() -> None:
 
 def test_evaluate_re_exported() -> None:
     from molexp.harness import (
-        evaluate_approval_policy as top_eval,
+        ApprovalPolicyEvaluator as top_eval,
     )
     from molexp.harness import (
-        make_final_report_approval_request as top_final,
+        ApprovalPolicyEvaluator as top_final,
     )
     from molexp.harness.policy import (
-        evaluate_approval_policy as pkg_eval,
+        ApprovalPolicyEvaluator as pkg_eval,
     )
     from molexp.harness.policy import (
-        make_final_report_approval_request as pkg_final,
+        ApprovalPolicyEvaluator as pkg_final,
     )
 
     assert top_eval is pkg_eval

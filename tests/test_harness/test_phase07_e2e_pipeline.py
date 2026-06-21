@@ -172,17 +172,17 @@ def test_phase01_to_phase06_surface_still_intact() -> None:
     """Regression: every Phase-1..6 export still resolves."""
     from molexp.harness import (  # noqa: F401
         ApprovalPolicy,
+        ApprovalPolicyEvaluator,
         BoundWorkflow,
+        BoundWorkflowValidator,
         CapabilityRegistry,
         ExperimentReport,
         GenerateExperimentReport,
         InMemoryCapabilityRegistry,
+        ProvenanceValidator,
         SaveUserPlan,
+        TestSpecValidator,
         ToolCapability,
         WorkflowIR,
-        evaluate_approval_policy,
-        validate_bound_workflow,
-        validate_provenance,
-        validate_test_spec,
-        validate_workflow_ir,
+        WorkflowIRValidator,
     )

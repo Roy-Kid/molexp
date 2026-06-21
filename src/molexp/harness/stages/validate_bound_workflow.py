@@ -27,7 +27,7 @@ from molexp.harness.schemas import (
     WorkflowIR,
 )
 from molexp.harness.stages._resolve import require_latest
-from molexp.harness.validators.bound_workflow import validate_bound_workflow
+from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
 __all__ = ["ValidateBoundWorkflow"]
 
@@ -76,7 +76,7 @@ class ValidateBoundWorkflow(Stage):
                 ) from exc
             return report_ref
 
-        report = validate_bound_workflow(
+        report = BoundWorkflowValidator.validate(
             bw,
             ir,
             workspace_root=ctx.workspace_root,
