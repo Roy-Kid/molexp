@@ -18,7 +18,6 @@ from typing import cast
 from molexp.path import Path
 
 from .assets import AssetScope, AssetsView, DataAssetLibrary
-from .library import Library
 from .base import (
     _load_metadata,
     _save_metadata,
@@ -33,6 +32,7 @@ from .folder import (
 )
 from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
+from .library import Library
 from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify

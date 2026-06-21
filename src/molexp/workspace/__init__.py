@@ -39,7 +39,6 @@ from .assets import (
     NoteAsset,
     Producer,
 )
-from .library import Library, LibraryIndex, NoteEntry, Reference, ReferenceStore
 from .base import atomic_write_json, atomic_write_text
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .context import Context
@@ -60,6 +59,7 @@ from .folder import (
     WORKSPACE_RUN_KIND,
     Folder,
 )
+from .library import Library, LibraryIndex, NoteEntry, Reference, ReferenceStore
 from .models import (
     ComputeTarget,
     ErrorInfo,
@@ -146,10 +146,10 @@ __all__ = [
     "Producer",
     "Project",
     "ProjectExistsError",
-    "Reference",
-    "ReferenceStore",
     "ProjectMetadata",
     "ProjectNotFoundError",
+    "Reference",
+    "ReferenceStore",
     "RemoteTarget",
     "Run",
     "RunContext",

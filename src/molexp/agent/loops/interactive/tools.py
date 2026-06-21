@@ -254,11 +254,7 @@ def readonly_tools(workspace_root: Path) -> tuple[Callable[..., str], ...]:
                 break
 
         if not rows:
-            return (
-                "no library entries"
-                if not terms
-                else f"no notes or references match {query!r}"
-            )
+            return "no library entries" if not terms else f"no notes or references match {query!r}"
         return "\n".join(rows)
 
     return (read_file, list_directory, search_code, search_library)
