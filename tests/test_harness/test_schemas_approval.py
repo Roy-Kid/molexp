@@ -2,7 +2,7 @@
 
 Locks:
 - frozen pydantic round-trip
-- ApprovalIntent carries exactly six values
+- ApprovalIntent carries exactly seven values
 - ApprovalRequest defaults (metadata={}, etc.)
 - ApprovalDecision defaults (reason=None)
 """
@@ -18,7 +18,7 @@ from pydantic import ValidationError
 # ---------------------------------------------------------- ApprovalIntent
 
 
-def test_approval_intent_carries_six_values() -> None:
+def test_approval_intent_carries_seven_values() -> None:
     from typing import Literal
 
     from molexp.harness.schemas.approval import ApprovalIntent
@@ -31,6 +31,7 @@ def test_approval_intent_carries_six_values() -> None:
         "large_resource_request",
         "overwrite",
         "final_report",
+        "experiment_spec",
     }
     assert set(get_args(ApprovalIntent)) == expected
 

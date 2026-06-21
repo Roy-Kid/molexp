@@ -68,10 +68,19 @@ class ApprovalGate(Stage):
         *,
         approve: Approver | None = None,
         subject_artifact_ids: list[str] | None = None,
+        name: str | None = None,
     ) -> None:
         self._requests = list(requests)
         self._approve = approve if approve is not None else auto_grant_approver
         self._subject_artifact_ids = list(subject_artifact_ids or [])
+        # A Mode keys its completion ledger on ``stage.name``; when a single
+        # mode wires more than one gate (e.g. PlanMode's experiment-spec
+        # checkpoint plus the terminal final-report gate) each needs a
+        # distinct name. We shadow the ``name`` ClassVar on this instance only
+        # (class-level ``ApprovalGate.name`` stays "approval_gate"); the
+        # ``object.__setattr__`` keeps that explicit and type-checker-clean.
+        if name is not None:
+            object.__setattr__(self, "name", name)
 
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
         # Record request THEN decision for each ask, before the gate

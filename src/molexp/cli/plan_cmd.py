@@ -28,11 +28,58 @@ if TYPE_CHECKING:
     from molexp._typing import JSONValue
     from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.stages import Approver
     from molexp.workspace.run import Run
 
 __all__ = ["plan"]
 
 _DRAFT_PREVIEW_CHARS = 80
+
+
+def _make_approver(*, assume_yes: bool, run: Run) -> Approver | None:
+    """Build the experiment-report review approver, or ``None`` for auto-grant.
+
+    Returns ``None`` — letting the gate use its auto-grant default — when
+    ``assume_yes`` is set or stdin is not a TTY (CI, pipes, the test runner),
+    so non-interactive pipelines never block. On an interactive terminal it
+    returns an async approver that prints the latest ``experiment_report`` and
+    prompts ``[y/N]`` before the plan compiles. A seam: tests monkeypatch this.
+    """
+    import sys
+
+    if assume_yes or not sys.stdin.isatty():
+        return None
+
+    from datetime import UTC, datetime
+
+    from molexp.cli._common import rprint
+    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ExperimentReport
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
+
+    async def approver(request: ApprovalRequest) -> ApprovalDecision:
+        ref = store.latest_by_kind("experiment_report")
+        if ref is not None:
+            report = ExperimentReport.model_validate_json(store.get(ref.id))
+            rprint("\n[bold]Review the experiment report before compiling:[/bold]")
+            rprint(f"  title      : {report.title}")
+            rprint(f"  objective  : {report.objective}")
+            rprint(f"  system     : {report.system_description}")
+            rprint(f"  design     : {report.experimental_design}")
+            if report.assumptions:
+                rprint(f"  assumptions: {'; '.join(report.assumptions)}")
+        answer = input(f"Approve this experiment report? [{request.intent}] [y/N] ").strip().lower()
+        granted = answer in ("y", "yes")
+        return ApprovalDecision(
+            request_id=request.id,
+            granted=granted,
+            decided_by="cli-interactive",
+            decided_at=datetime.now(tz=UTC),
+            reason=f"operator answered {answer!r}",
+        )
+
+    return approver
 
 
 def _configured_model() -> str | None:
@@ -173,6 +220,15 @@ def plan(
             "tests, execute the workflow, and produce the final report.",
         ),
     ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes/--non-interactive",
+            "-y",
+            help="Auto-approve the experiment-report review checkpoint. The "
+            "default already auto-approves when stdin is not a TTY (CI/pipes).",
+        ),
+    ] = False,
 ) -> None:
     """Turn an experiment draft into validated molexp.workflow source (PlanMode)."""
     from molexp.cli._common import deterministic_run_id, rprint
@@ -201,7 +257,7 @@ def plan(
         .add_run(params, id=deterministic_run_id(params))
     )
 
-    mode = PlanMode()
+    mode = PlanMode(approver=_make_approver(assume_yes=yes, run=run))
     stage_names = [stage.name for stage in mode.stages(draft_text)]
     preview = draft_text.strip().splitlines()[0][:_DRAFT_PREVIEW_CHARS]
     rprint(f"[bold]molexp plan[/bold] — {len(stage_names)} stages on run [bold]{run.id}[/bold]")

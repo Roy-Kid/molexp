@@ -2,8 +2,9 @@
 
 Three pydantic types:
 
-- :data:`ApprovalIntent` — Literal of the six scenarios that can require
-  approval per ``harness-goal.md`` §7.5.
+- :data:`ApprovalIntent` — Literal of the seven scenarios that can require
+  approval per ``harness-goal.md`` §7.5 (``experiment_spec`` gates the
+  human review of the ExperimentReport before the plan compiles).
 - :class:`ApprovalRequest` — what the harness asks a human (or auto-approver)
   to decide on.
 - :class:`ApprovalDecision` — the answer.
@@ -33,6 +34,7 @@ ApprovalIntent = Literal[
     "large_resource_request",
     "overwrite",
     "final_report",
+    "experiment_spec",
 ]
 
 
