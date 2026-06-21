@@ -150,6 +150,19 @@ class Workspace(Folder):
         """Workspace IS its own on-disk dir; no parent nesting."""
         return self._root_path
 
+    @classmethod
+    def from_disk(cls, child_dir: PathArg, parent: Folder) -> Workspace:
+        """Reconstruct a Workspace rooted at *child_dir* (OKF concept rebuild).
+
+        A Workspace is its own root and persists ``workspace.json`` (not the
+        base ``metadata.json``), so the generic :meth:`Folder.from_disk` cannot
+        rebuild it. ``concept_from_dir`` reaches here when a ``meta.yaml`` typed
+        ``workspace.root`` is found; the constructor reloads ``workspace.json``
+        from *child_dir* and ignores the synthetic *parent* (a Workspace has
+        none). See the Folder.from_disk hook docs.
+        """
+        return cls(root=child_dir, fs=parent._fs)
+
     def _ensure_materialized(self) -> None:
         meta_path = self._fs.join(self.resolve(), "workspace.json")
         if not self._fs.exists(meta_path):

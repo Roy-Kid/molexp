@@ -81,6 +81,18 @@ class RunExistsError(_WorkspaceConflictError):
     _entity_kind = "run"
 
 
+class ConceptNotFoundError(_WorkspaceLookupError):
+    """Raised by ``Bundle.get(rel_path)`` when no Concept lives at that path.
+
+    A *Concept* is a directory that directly holds ``meta.yaml`` (the OKF
+    marker). A path that does not exist, or that exists but lacks ``meta.yaml``,
+    is not a Concept and raises this error. The bundle-relative path is carried
+    in the message so callers need not re-resolve it.
+    """
+
+    _entity_kind = "concept"
+
+
 class FolderMoveCollisionError(ValueError):
     """Raised by ``Folder.move_to`` when the destination already exists.
 
@@ -97,6 +109,7 @@ class FolderMoveCollisionError(ValueError):
 
 
 __all__ = [
+    "ConceptNotFoundError",
     "ExperimentExistsError",
     "ExperimentNotFoundError",
     "FolderMoveCollisionError",

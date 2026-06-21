@@ -40,9 +40,12 @@ from .assets import (
     Producer,
 )
 from .base import atomic_write_json, atomic_write_text
+from .bundle import Bundle
+from .bundle_index import BundleIndex, ConceptIndexEntry
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .context import Context
 from .errors import (
+    ConceptNotFoundError,
     ExperimentExistsError,
     ExperimentNotFoundError,
     FolderMoveCollisionError,
@@ -111,10 +114,15 @@ __all__ = [
     "AssetManifest",
     "AssetScope",
     "AssetsView",
+    # OKF bundle façade (wsokf-04) — distinct from the per-scope Library
+    "Bundle",
+    "BundleIndex",
     # System folders (unify-folder-abstraction-03)
     "CacheFolder",
     "CheckpointAsset",
     "ComputeTarget",
+    "ConceptIndexEntry",
+    "ConceptNotFoundError",
     # Context
     "Context",
     "DataAsset",
@@ -146,10 +154,10 @@ __all__ = [
     "Producer",
     "Project",
     "ProjectExistsError",
-    "Reference",
-    "ReferenceStore",
     "ProjectMetadata",
     "ProjectNotFoundError",
+    "Reference",
+    "ReferenceStore",
     "RemoteTarget",
     "Run",
     "RunContext",
