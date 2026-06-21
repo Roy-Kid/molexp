@@ -14,20 +14,32 @@ sanctioned cross-layer primitives (``molexp.atomicio``, ``molexp.ids``,
 ``tests/test_knowledge/test_import_guard.py``.
 
 The ``meta.yaml`` model + typed errors (okf-01-02), the ``Folder``
-Concept-on-disk base (okf-01-03), and the ``Library`` bundle façade
-(okf-01-04 — ``walk`` / ``get`` / ``put`` / ``link``) are in place.
+Concept-on-disk base (okf-01-03), the ``Library`` bundle façade
+(okf-01-04 — ``walk`` / ``get`` / ``put`` / ``link``), and the typed
+storage hierarchy ``Workspace`` / ``Project`` / ``Experiment`` / ``Run`` over
+an open concept-type registry (okf-02 — ``@concept_type`` reconstructs the
+right subclass from each Concept's ``meta.yaml`` ``type``) are in place.
 """
 
+from .concepts import Experiment, Project, Run, Workspace
 from .errors import ConceptExistsError, ConceptNotFoundError
 from .folder import Folder, LinkScan
 from .library import Library
 from .models import ConceptMeta
+from .types import concept_type, register_concept_type, resolve_concept_type
 
 __all__ = [
     "ConceptExistsError",
     "ConceptMeta",
     "ConceptNotFoundError",
+    "Experiment",
     "Folder",
     "Library",
     "LinkScan",
+    "Project",
+    "Run",
+    "Workspace",
+    "concept_type",
+    "register_concept_type",
+    "resolve_concept_type",
 ]

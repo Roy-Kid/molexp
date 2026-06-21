@@ -145,3 +145,32 @@ def test_link_to_nested_concept_round_trips(bundle: Path) -> None:
 
     edges = {Path(p) for p in lib.get("delta").out_edges()}
     assert Path(dst.resolve()) in edges
+
+
+# ── typed walk / get via the registry (okf-02) ───────────────────────────────
+
+
+def test_walk_yields_typed_concepts(tmp_path: Path) -> None:
+    from molexp.knowledge import Experiment, Project, Run, Workspace
+
+    ws = Workspace(name="lab", root=tmp_path)
+    ws.add_project("p").add_experiment("e").add_run("r")
+
+    lib = Library(tmp_path)  # bundle root sits above the workspace concept
+    by_rel = {lib.rel_path(f): f for f in lib.walk()}
+
+    assert isinstance(by_rel["lab"], Workspace)
+    assert isinstance(by_rel["lab/p"], Project)
+    assert isinstance(by_rel["lab/p/e"], Experiment)
+    assert isinstance(by_rel["lab/p/e/r"], Run)
+
+
+def test_get_returns_typed_concept(tmp_path: Path) -> None:
+    from molexp.knowledge import Project, Workspace
+
+    ws = Workspace(name="lab", root=tmp_path)
+    ws.add_project("p")
+
+    lib = Library(tmp_path)
+    assert isinstance(lib.get("lab"), Workspace)
+    assert isinstance(lib.get("lab/p"), Project)

@@ -35,6 +35,7 @@ from molexp.ids import slugify
 
 from .errors import ConceptExistsError, ConceptNotFoundError
 from .models import ConceptMeta
+from .types import concept_type, resolve_concept_type
 
 META_FILE = "meta.yaml"
 INDEX_FILE = "index.md"
@@ -65,6 +66,7 @@ def _is_concept_dir(path: Path) -> bool:
     return (path / META_FILE).is_file()
 
 
+@concept_type(DEFAULT_CONCEPT_TYPE)
 class Folder:
     """Base class for every OKF Concept directory.
 
@@ -187,28 +189,45 @@ class Folder:
 
     # ── Five-verb CRUD (child concept = subdir with meta.yaml) ────────────
 
+    def _ensure_materialized(self) -> None:
+        """Write this Concept's ``meta.yaml`` (with its own type) if absent.
+
+        Adding a child promotes the parent to a real Concept, so a
+        programmatically-built tree is fully walkable. (A dir created by hand —
+        plain ``mkdir`` — stays an organizational non-Concept until written.)
+        """
+        if not _is_concept_dir(self.resolve()):
+            self.write_meta(ConceptMeta(type=self._type))
+
     def add_folder(self, name: str, *, concept_type: str = DEFAULT_CONCEPT_TYPE) -> Folder:
-        """Create (or return existing) child Concept; idempotent on slug."""
+        """Create (or return existing) child Concept; idempotent on slug.
+
+        The returned instance is the registry-resolved subclass for
+        *concept_type* (unknown types fall back to base :class:`Folder`).
+        """
+        self._ensure_materialized()
         slug = slugify(name) or name
         cached = self._children.get(slug)
         if cached is not None:
             return cached
-        child = Folder(name=name, parent=self, concept_type=concept_type)
+        cls = resolve_concept_type(concept_type, Folder)
+        child = cls(name=name, parent=self, concept_type=concept_type)
         if not _is_concept_dir(child.resolve()):
             child.write_meta(ConceptMeta(type=concept_type))
         self._children[slug] = child
         return child
 
     def get_folder(self, name: str) -> Folder:
-        """Return the child Concept named *name* (raw or slug)."""
+        """Return the child Concept named *name* (raw or slug), correctly typed."""
         for candidate in (name, slugify(name)):
             if not candidate:
                 continue
             cached = self._children.get(candidate)
             if cached is not None:
                 return cached
-            child = Folder(name=candidate, parent=self)
-            if _is_concept_dir(child.resolve()):
+            child_dir = self.resolve() / candidate
+            if _is_concept_dir(child_dir):
+                child = concept_from_dir(child_dir, parent=self)
                 self._children[child.name] = child
                 return child
         raise self._not_found_error_cls(name)
@@ -235,7 +254,7 @@ class Folder:
                 continue
             if not _is_concept_dir(entry):
                 continue
-            child = self._children.get(entry.name) or Folder(name=entry.name, parent=self)
+            child = self._children.get(entry.name) or concept_from_dir(entry, parent=self)
             self._children[entry.name] = child
             out.append(child)
         return out
@@ -284,4 +303,27 @@ class Folder:
         return updated
 
 
-__all__ = ["Folder", "LinkScan"]
+def concept_from_dir(
+    directory: Path,
+    *,
+    parent: Folder | None = None,
+    root: str | os.PathLike[str] | None = None,
+) -> Folder:
+    """Reconstruct *directory* as its registry-resolved Concept subclass.
+
+    Reads ``directory/meta.yaml``'s ``type`` and instantiates the matching
+    class (unknown / unreadable type → base :class:`Folder`, forward-compat),
+    carrying the on-disk type through. Pass exactly one of *parent* / *root*.
+    """
+    meta_type = DEFAULT_CONCEPT_TYPE
+    meta_path = directory / META_FILE
+    if meta_path.is_file():
+        try:
+            meta_type = ConceptMeta.from_yaml(meta_path.read_text(encoding="utf-8")).type
+        except Exception:  # malformed meta degrades to base Folder (forward-compat)
+            meta_type = DEFAULT_CONCEPT_TYPE
+    cls = resolve_concept_type(meta_type, Folder)
+    return cls(name=directory.name, parent=parent, root=root, concept_type=meta_type)
+
+
+__all__ = ["Folder", "LinkScan", "concept_from_dir"]

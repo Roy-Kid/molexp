@@ -26,7 +26,7 @@ from collections.abc import Iterator
 from pathlib import Path, PurePosixPath
 
 from .errors import ConceptNotFoundError
-from .folder import OPS_DIR, Folder, _is_concept_dir
+from .folder import OPS_DIR, Folder, _is_concept_dir, concept_from_dir
 from .models import ConceptMeta
 
 __all__ = ["Library"]
@@ -51,8 +51,8 @@ class Library:
         return Path(concept.resolve()).relative_to(self._root).as_posix()
 
     def _folder_for(self, path: Path) -> Folder:
-        """Build the :class:`Folder` whose identity is the Concept dir *path*."""
-        return Folder(name=path.name, root=path.parent)
+        """Build the typed Concept whose identity is the Concept dir *path*."""
+        return concept_from_dir(path, root=path.parent)
 
     # ── walk / get / put / link ──────────────────────────────────────────
 

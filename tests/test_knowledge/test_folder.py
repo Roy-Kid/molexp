@@ -236,3 +236,40 @@ def test_ops_dir_lazy_mkdir(tmp_path: Path) -> None:
     d = f.ops_dir()
     assert Path(d).is_dir()
     assert Path(d).name == "_ops"
+
+
+# ── type-aware reconstruction via the registry (okf-02) ───────────────────────
+
+
+def test_get_folder_reconstructs_registered_subclass(tmp_path: Path) -> None:
+    from molexp.knowledge import Project
+
+    root = Folder(name="bundle", root=tmp_path)
+    root.add_folder("proj", concept_type="project")
+    # a fresh, uncached Folder must reconstruct the typed subclass from disk
+    fresh = Folder(name="bundle", root=tmp_path)
+    child = fresh.get_folder("proj")
+    assert isinstance(child, Project)
+    assert child.read_meta().type == "project"
+
+
+def test_list_folders_reconstructs_types_unknown_falls_back(tmp_path: Path) -> None:
+    from molexp.knowledge import Project
+
+    root = Folder(name="bundle", root=tmp_path)
+    root.add_folder("proj", concept_type="project")
+    root.add_folder("weird", concept_type="totally-unknown-type")
+
+    fresh = Folder(name="bundle", root=tmp_path)
+    by_name = {f.name: f for f in fresh.list_folders()}
+    assert isinstance(by_name["proj"], Project)
+    # unknown type → base Folder (forward-compatible), not a subclass
+    assert type(by_name["weird"]) is Folder
+
+
+def test_add_folder_returns_typed_instance(tmp_path: Path) -> None:
+    from molexp.knowledge import Experiment
+
+    root = Folder(name="bundle", root=tmp_path)
+    child = root.add_folder("exp", concept_type="experiment")
+    assert isinstance(child, Experiment)
