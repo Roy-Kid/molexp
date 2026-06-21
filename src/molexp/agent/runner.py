@@ -258,11 +258,11 @@ class AgentRunner:
         try:
             from molexp.agent.folders import Agent as AgentFolder
 
-            # The agent is a knowledge Concept rooted at the workspace path;
+            # The agent is a workspace Concept rooted at the workspace path;
             # construction is I/O-free and idempotent (same path → same dir),
             # and add_session lazily materializes it.
             agent_name = getattr(self.loop, "name", "") or "default"
-            self._agent_folder = AgentFolder(name=agent_name, root=Path(self.workspace))
+            self._agent_folder = AgentFolder(name=agent_name, root_path=Path(self.workspace))
         except OSError as exc:
             _LOG.warning(
                 f"[runner] could not open Agent folder for {self.workspace!r}: "

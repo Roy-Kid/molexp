@@ -1,8 +1,8 @@
-"""Agent folders route ALL I/O through their injectable knowledge FileSystem.
+"""Agent folders route ALL I/O through their injectable workspace FileSystem.
 
-After the OKF rehome, ``Agent`` / ``AgentSession`` are ``knowledge.Folder``
+After the OKF rehome, ``Agent`` / ``AgentSession`` are ``molexp.workspace.Folder``
 Concepts (flat layout: ``<agent>/<session>/``). This test instruments a
-knowledge ``LocalFileSystem`` with a call-recording spy and asserts the agent
+workspace ``LocalFileSystem`` with a call-recording spy and asserts the agent
 layer routes through ``fs`` (so a non-local backend would work) rather than
 touching ``pathlib`` directly.
 """
@@ -12,11 +12,11 @@ from __future__ import annotations
 import pytest
 
 from molexp.agent.folders import Agent
-from molexp.knowledge import LocalFileSystem
+from molexp.workspace.fs_local import LocalFileSystem
 
 
 class _SpyFileSystem:
-    """Wraps knowledge ``LocalFileSystem``, recording every method call."""
+    """Wraps workspace ``LocalFileSystem``, recording every method call."""
 
     def __init__(self) -> None:
         self._real = LocalFileSystem()
@@ -41,7 +41,7 @@ class _SpyFileSystem:
 def spy_agent(tmp_path):
     """An Agent rooted at a tmp bundle, backed by a recording spy fs."""
     fs = _SpyFileSystem()
-    agent = Agent(name="reviewer", root=tmp_path / "lab", fs=fs)
+    agent = Agent(name="reviewer", root_path=tmp_path / "lab", fs=fs)
     return agent, fs
 
 
@@ -54,7 +54,7 @@ def test_agent_materialize_routes_through_fs(spy_agent):
     agent.materialize()
     ops = _ops_for_path(fs.calls, "reviewer")
     assert "mkdir" in ops, f"materialize must mkdir via fs; ops were {ops!r}"
-    assert "write_text" in ops, f"materialize must write meta.yaml via fs; ops were {ops!r}"
+    assert "atomic_write_text" in ops, f"materialize must write meta.yaml via fs; ops were {ops!r}"
 
 
 def test_session_messages_path_is_flat(spy_agent):
@@ -85,12 +85,12 @@ def test_write_messages_empty_removes_via_fs(spy_agent):
 
 def test_sessions_round_trip_via_registry(tmp_path):
     fs = _SpyFileSystem()
-    agent = Agent(name="reviewer", root=tmp_path / "lab", fs=fs)
+    agent = Agent(name="reviewer", root_path=tmp_path / "lab", fs=fs)
     agent.add_session("chat-1", goal_summary="solve X", status="running")
 
     # a fresh Agent handle (empty child cache) reconstructs sessions from disk
     fresh_fs = _SpyFileSystem()
-    reloaded = Agent(name="reviewer", root=tmp_path / "lab", fs=fresh_fs)
+    reloaded = Agent(name="reviewer", root_path=tmp_path / "lab", fs=fresh_fs)
     assert [s.name for s in reloaded.list_sessions()] == ["chat-1"]
     assert isinstance(reloaded.get_session("chat-1"), type(agent.get_session("chat-1")))
 
