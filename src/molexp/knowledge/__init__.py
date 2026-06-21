@@ -29,6 +29,13 @@ from .library import Library
 from .models import ConceptMeta
 from .ops import RETRYABLE_STATUSES, ExecutionRecord, RunOpsState, RunStatus
 from .references import ReferenceMeta
+from .run_lifecycle import (
+    RunHeartbeat,
+    claim_ownership,
+    finish_run,
+    reap_run_if_stale,
+    should_reap,
+)
 from .types import concept_type, register_concept_type, resolve_concept_type
 from .zotero import ZoteroItem
 
@@ -49,11 +56,16 @@ __all__ = [
     "Reference",
     "ReferenceMeta",
     "Run",
+    "RunHeartbeat",
     "RunOpsState",
     "RunStatus",
     "Workspace",
     "ZoteroItem",
+    "claim_ownership",
     "concept_type",
+    "finish_run",
+    "reap_run_if_stale",
     "register_concept_type",
     "resolve_concept_type",
+    "should_reap",
 ]
