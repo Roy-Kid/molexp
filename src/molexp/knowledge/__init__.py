@@ -30,6 +30,7 @@ from .models import ConceptMeta
 from .ops import RETRYABLE_STATUSES, ExecutionRecord, RunOpsState, RunStatus
 from .references import ReferenceMeta
 from .types import concept_type, register_concept_type, resolve_concept_type
+from .zotero import ZoteroItem
 
 __all__ = [
     "RETRYABLE_STATUSES",
@@ -51,6 +52,7 @@ __all__ = [
     "RunOpsState",
     "RunStatus",
     "Workspace",
+    "ZoteroItem",
     "concept_type",
     "register_concept_type",
     "resolve_concept_type",

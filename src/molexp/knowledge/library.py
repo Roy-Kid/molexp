@@ -27,8 +27,10 @@ import os
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path, PurePosixPath
+from typing import cast
 
 import molexp.atomicio as atomicio
+from molexp.ids import slugify
 
 from .concepts import Note, Reference
 from .errors import ConceptNotFoundError
@@ -42,8 +44,13 @@ from .index import (
 )
 from .models import ConceptMeta
 from .ops import _utcnow
+from .references import ReferenceMeta
+from .zotero import read_zotero_items
 
 __all__ = ["Library"]
+
+REFERENCES_GROUP = "references"
+SOURCES_FILENAME = "sources.json"
 
 
 class Library:
@@ -124,6 +131,65 @@ class Library:
     def notes(self) -> list[Note]:
         """Every Note Concept in the bundle (typed view of :meth:`walk`)."""
         return [c for c in self.walk() if isinstance(c, Note)]
+
+    # ── Zotero import (okf-07-02) ────────────────────────────────────────
+
+    def import_zotero(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        under: Folder | None = None,
+        now: datetime | None = None,
+    ) -> list[Reference]:
+        """Link a local Zotero library (read-only) as ``Reference`` Concepts.
+
+        Each Zotero item becomes a ``Reference`` under *under* (default: a
+        ``references/`` group at the bundle root); its PDF is *pointed at* via
+        ``ReferenceMeta.pdf_path`` (no bytes copied). Idempotent on
+        ``source_key`` — re-importing updates a reference's ``meta.yaml`` in
+        place rather than duplicating it. Records the link in ``sources.json``.
+        """
+        host = under if under is not None else Folder(name=REFERENCES_GROUP, root=self._root)
+        refs: list[Reference] = []
+        items = read_zotero_items(path)
+        for item in items:
+            ref = cast(
+                Reference,
+                host.add_folder(slugify(item.key) or item.key, concept_type="reference"),
+            )
+            ref.write_ref_meta(
+                ReferenceMeta(
+                    title=item.title,
+                    authors=item.authors,
+                    year=item.year,
+                    doi=item.doi,
+                    url=item.url,
+                    pdf_path=item.pdf_path,
+                    source="zotero",
+                    source_key=item.key,
+                )
+            )
+            refs.append(ref)
+        self._record_source("zotero", str(path), len(items), now=now)
+        return refs
+
+    def _record_source(self, source: str, path: str, count: int, *, now: datetime | None) -> None:
+        sources_path = self._root / SOURCES_FILENAME
+        existing: list[dict] = []
+        if sources_path.is_file():
+            existing = json.loads(sources_path.read_text(encoding="utf-8"))
+        existing = [
+            e for e in existing if not (e.get("source") == source and e.get("path") == path)
+        ]
+        existing.append(
+            {
+                "source": source,
+                "path": path,
+                "count": count,
+                "imported_at": (now or _utcnow()).isoformat(),
+            }
+        )
+        atomicio.atomic_write_json(sources_path, existing)
 
     # ── derived index + search (okf-03) ──────────────────────────────────
 
