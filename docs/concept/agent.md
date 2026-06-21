@@ -1,112 +1,133 @@
 # Agent
 
-The agent layer turns natural-language research intent into structured
-molexp artifacts. It is a *library* — it does not own the application
-shell (no FastAPI routes, no CLI command tree); it sits between
-`molexp.workflow` and the application that drives it.
+The agent layer is molexp's **pydantic-ai facade**: it turns a model
+configuration plus an *agent loop* into a driven LLM conversation that
+streams typed events. It is a *library* — it owns no application shell
+(no FastAPI routes, no CLI command tree) and it does **not** orchestrate
+experiment pipelines. Multi-stage orchestration (`PlanMode` / `RunMode`)
+lives one layer up in `molexp.harness`; see the bottom of this page.
 
 ## Public surface
 
-The agent exposes exactly four user-visible names:
+`molexp.agent` exposes exactly five user-visible names
+(`src/molexp/agent/__init__.py.__all__`):
 
 ```python
 from molexp.agent import (
     AgentRunner,
-    AgentMode,
+    AgentLoop,
     AgentRunResult,
+    AgentRuntime,
     AgentSession,
 )
 ```
 
-- `AgentRunner` — orchestration entry point. Takes a mode + a model
-  string, lazily constructs a private `PydanticAIHarness` on first
-  `.run()`, and injects it into the mode.
-- `AgentMode` — abstract base. Subclasses implement
-  `async def run(*, harness, session, user_input) -> AgentRunResult`.
-  User code never constructs the harness.
-- `AgentSession` — opaque per-conversation state. Holds the message
-  history, mode-specific scratch state, and the session ID.
-- `AgentRunResult` — frozen pydantic model returned by every
-  `AgentRunner.run` call. Contains `text`, `usage`, optional
-  `loop_state`, optional `failure`.
+- `AgentRunner` — orchestration entry point. Constructed with a **loop**
+  plus a model configuration; it lazily builds the private pydantic-ai
+  router on the first `run`, assembles an `AgentRuntime`, injects it into
+  the loop, drains the loop's event stream, and returns the terminal
+  `AgentRunResult`.
+- `AgentLoop` — abstract base for one LLM conversation. A loop is a plain
+  `async def run(*, runtime, sink, user_input) -> None`; every
+  `AgentEvent` it produces flows through the injected sink. User code
+  never constructs the router or the runtime.
+- `AgentRuntime` — the frozen bundle a loop receives at run time:
+  `session` + `router` + `execution_env`.
+- `AgentSession` / `Session` — per-conversation state (message history +
+  session id), backed on disk by `JsonlSessionStorage` when a workspace
+  is configured, otherwise `InMemorySessionStorage`.
+- `AgentRunResult` — frozen pydantic result returned by `AgentRunner.run`
+  (carries `text` and the accumulated `events` stream).
 
-Concrete modes live in `molexp.agent.modes`:
+Two concrete loops ship under `molexp.agent.loops`:
 
-- `ChatMode` — single-turn LLM round-trip via the harness.
-- `PlanMode` — workflow-backed; drives a private multi-step plan
-  graph through the public `molexp.workflow` API. Returns an
-  `AgentRunResult` whose `loop_state["plan"]` carries the structured
-  plan.
-- `ReviewMode` — phase-2 placeholder.
+- `ChatLoop` — a single LLM round-trip.
+- `InteractiveLoop` — the emergent tool loop, driving
+  `Router.stream_agentic` until the model stops requesting tools.
 
 ```python
-from molexp.agent import AgentRunner, AgentSession
-from molexp.agent.modes import ChatMode, ChatModeConfig
+from molexp.agent import AgentRunner
+from molexp.agent.loops.chat import ChatLoop
 
-mode = ChatMode(config=ChatModeConfig(system_prompt="…"))
-runner = AgentRunner(mode=mode, model="openai:gpt-5.2")
-result = await runner.run(AgentSession(), "summarize this dataset")
+runner = AgentRunner(loop=ChatLoop(), model="openai:gpt-5.2")
+session = runner.session("demo")
+result = await runner.run(session, "summarize this dataset")
 print(result.text)
 ```
 
+### Model configuration
+
+The model is given exactly one of three mutually-exclusive ways
+(supplying zero or two-or-more raises `AgentRunnerConfigError`):
+
+- `model="provider:id"` — one string applied to every tier
+  (`CHEAP` / `DEFAULT` / `HEAVY`).
+- `models={ModelTier.CHEAP: …, ModelTier.DEFAULT: …, ModelTier.HEAVY: …}`
+  — explicit per-tier mapping (string tier keys are coerced).
+- `router=<custom Router>` — escape hatch for tests and fakes.
+
+`AgentRunner` performs no network IO at construction time.
+
 ## Layer position
 
-`agent` is the top of the molexp dependency DAG. It depends on both
-downstream layers:
+`agent` is a **sibling of `workflow`**, sitting above `workspace`; both
+are below `harness`. It depends downward only:
 
 - **workspace** — `Workspace`, `Run`, `RunContext`, `AssetCatalog`,
-  `SubsystemStore`. Sessions live under
-  `<workspace_root>/.subsystems/agent.sessions/` via workspace's
-  generic subsystem storage.
-- **workflow** — `Workflow`, `Workflow`, `Task`, `TaskContext`,
-  `default_registry`, `Runnable`. PlanMode builds workflow specs and
-  runs them through the standard `Workflow.execute(run=run)` API.
+  `Folder`, … for on-disk session storage.
 
-The agent does not import any sibling application layer
-(`plugins` / `server` / `cli` / `sweep`). The agent stays a library.
+The agent does **not** import `molexp.workflow` or `molexp.harness` (they
+are a sibling and an upstream layer); it never imports any application
+layer (`plugins` / `server` / `cli` / `sweep`). These rules are
+mechanically enforced by `tests/test_agent/test_import_guard.py`.
 
 ## SDK isolation
 
 Two third-party SDKs sit behind import-boundary firewalls:
 
-- `pydantic_ai` is a private implementation detail confined to
-  `src/molexp/agent/_pydanticai/`. `import molexp.agent` does **not**
-  eagerly load it; the harness is constructed lazily on first
-  `AgentRunner.run()`. This keeps the agent layer's import time
-  light and lets call sites that don't actually need the LLM stay
-  cold.
-- `pydantic_graph` is **not** imported anywhere under `agent/`.
-  Multi-step modes drive their workflows through the public
-  `molexp.workflow` API, the sole sanctioned pg site in the project.
+- `pydantic_ai` is confined to `src/molexp/agent/_pydanticai/` (the sole
+  sanctioned `import pydantic_ai` site — `router.py`, `mcp.py`,
+  `messages_codec.py`, …). `import molexp.agent` does **not** eagerly load
+  it; the router is constructed lazily on the first `AgentRunner.run`, so
+  call sites that never reach the LLM stay cold.
+- `pydantic_graph` is **not** imported anywhere under `agent/`. The
+  workflow graph engine is owned by `molexp.workflow`.
 
-Import-boundary tests (`tests/test_agent/test_import_guard.py`)
-mechanically enforce both rules.
+`tests/test_agent/test_import_guard.py` mechanically enforces both rules
+(plus the public surface in `tests/test_agent/test_public_surface.py`).
 
 ## Sessions
 
-`AgentSession` is the in-memory handle. Persistence to disk happens
-through `SessionStore` (per-workspace `session.json` /
-`messages.jsonl` / events) and `SessionCatalog` (the flat row index
-under `<workspace_root>/.subsystems/agent.sessions/_index.json`).
-`SessionCatalog.create / list / get / delete` keeps the on-disk
-metadata file and the index row in sync.
+A `Session` is the in-memory conversation handle. With a workspace,
+`AgentRunner.session(id)` anchors it to an `AgentSession` `Folder` under
+an `Agent` folder named after the loop, and backs it with a
+`JsonlSessionStorage` writing `entries.jsonl` in that directory — so a
+conversation survives across processes. Without a workspace, an
+`InMemorySessionStorage` is used.
 
-The session catalog used to live under workspace as the workspace-side
-session library; the 2026-05-09 rectification moved it up to the
-agent layer because its schema (goal-summary projection, agent
-status strings) is inherently agent-shaped. Workspace just vends the
-`.subsystems/agent.sessions/` directory; the catalog interprets what
-goes inside.
+## Relationship to the harness
 
-## What's not here
+Pipeline orchestration is **not** in this layer. It moved up to
+`molexp.harness` and is reached through the `agent.router.Router`
+Protocol — the single sanctioned `harness → agent` import edge.
 
-- **Tool execution semantics** — those live in
-  `molexp.agent.tools.dispatcher`. The dispatcher decodes
-  `ModelToolCall` requests from the harness and produces normalized
-  `ToolResult` objects; both shapes are agent-internal data
-  contracts in `molexp.agent.tools.spec`.
-- **The LLM provider matrix** — pydantic-ai handles provider
-  routing inside `_pydanticai/harness.py`. The agent layer's public
-  API stays provider-neutral (a model string is the only handle).
-- **Workflow execution** — owned by `molexp.workflow`. PlanMode is a
-  *consumer* of that layer, not an alternate scheduler.
+- `PlanMode` and `RunMode` are `molexp.harness.modes` `Mode` pipelines,
+  not agent loops. `PlanMode()` constructs with **no** config object and
+  runs as:
+
+  ```python
+  from molexp.harness.modes.plan import PlanMode
+
+  result = await PlanMode().run(run=run, user_input=draft, gateway=gateway)
+  ```
+
+- The production entry point is the **`molexp plan [--execute]`** CLI
+  (`src/molexp/cli/plan_cmd.py`): it drives `PlanMode` against a
+  content-addressed `Run`, and with `--execute` chains `RunMode` on the
+  same Run.
+
+The harness reaches LLM reasoning through an `AgentGateway` whose
+production implementation (`RouterBackedAgentGateway`) drives an
+`agent.router.Router`. Workflow execution itself is owned by
+`molexp.workflow`; the harness is a *consumer* of both layers, never an
+alternate scheduler.
