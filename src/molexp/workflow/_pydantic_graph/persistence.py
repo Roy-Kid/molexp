@@ -21,9 +21,11 @@ those by design) — never the terminal state. Callers that never open the
 document (standalone tooling/tests) keep the legacy synchronous
 read-modify-write semantics.
 
-Atomic writes route through workspace's
-:func:`molexp.workspace.atomic_write_json` so the atomicity guarantee is
-workspace's, not a workflow-layer reinvention (workspace <- workflow direction).
+Atomic writes route through the cross-layer
+:func:`molexp.atomicio.atomic_write_json` primitive (the source that
+``workspace.atomic_write_json`` itself re-exports), so the atomicity guarantee
+is shared infra, not a workflow-layer reinvention — and the workflow layer no
+longer needs a runtime import of ``workspace`` for it.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ from typing import TYPE_CHECKING, Any
 
 from mollog import get_logger
 
-from molexp.workspace import atomic_write_json
+from molexp.atomicio import atomic_write_json
 
 from ..._typing import JSONValue
 
