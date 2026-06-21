@@ -30,15 +30,18 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
    :class:`AgentResponseNotRegisteredError` on miss (parity with stub).
 2. Compose the user prompt from the contents of
    ``spec.input_artifact_ids`` plus the optional
-   ``spec.prompt_artifact_id``.
+   ``spec.prompt_artifact_id``, and persist that exact composed prompt as
+   a ``kind="prompt"`` artifact (deriving from the inputs it was composed
+   from) so audit replay can reconstruct the LLM *input*, not just its
+   response. Its id is threaded into the raw + output lineage below.
 3. Drive ``router.complete_structured(schema=...)`` — pydantic-ai native
    ``output_type`` + ``output_retries`` — to obtain a parsed ``schema``
    instance. Unlike ``complete_text`` + ``model_validate_json``, a model
    wrapping its answer in prose/markdown does not crash the harness; the
    SDK enforces the schema.
 4. Persist the instance's ``model_dump_json()`` as a ``kind="log"`` raw
-   artifact whose ``parent_ids`` mirror ``spec.input_artifact_ids`` —
-   the §10.2 raw-before-parsed audit invariant.
+   artifact whose ``parent_ids`` are ``spec.input_artifact_ids`` plus the
+   composed-prompt artifact — the §10.2 raw-before-parsed audit invariant.
 5. Persist the parsed output (``model_dump(mode="json")``) as the
    registered ``ArtifactKind`` with the same ``parent_ids``.
 6. Return an :class:`AgentCallResult` carrying both refs + the gateway's
@@ -108,6 +111,24 @@ class RouterBackedAgentGateway:
         # the event loop stays responsive (matches the StageRunner boundary).
         prompt = await asyncio.to_thread(self._compose_prompt, spec)
 
+        # Persist the exact composed prompt as a first-class `prompt` artifact
+        # so audit replay can reconstruct the LLM *input* (not just its
+        # response). It derives from the input artifacts (and the optional
+        # per-agent prompt template) it was composed from; its id is then
+        # threaded into the raw + output lineage below.
+        prompt_parents = list(spec.input_artifact_ids)
+        if spec.prompt_artifact_id:
+            prompt_parents.append(spec.prompt_artifact_id)
+        prompt_ref: ArtifactRef = await asyncio.to_thread(
+            self._artifacts.put_text,
+            kind="prompt",
+            text=prompt,
+            created_by=f"agent:{spec.agent_name}",
+            parent_ids=prompt_parents,
+        )
+        # Output/raw lineage keeps the input ids and adds the prompt artifact.
+        lineage_parents = [*spec.input_artifact_ids, prompt_ref.id]
+
         # Use pydantic-ai native structured output (output_type=schema +
         # output_retries) rather than complete_text + manual model_validate_json:
         # a real model wrapping its answer in prose/markdown no longer crashes
@@ -128,7 +149,7 @@ class RouterBackedAgentGateway:
             kind="log",
             text=instance.model_dump_json(),
             created_by=f"agent:{spec.agent_name}",
-            parent_ids=list(spec.input_artifact_ids),
+            parent_ids=lineage_parents,
         )
 
         output_ref: ArtifactRef = await asyncio.to_thread(
@@ -136,7 +157,7 @@ class RouterBackedAgentGateway:
             kind=output_kind,
             obj=instance.model_dump(mode="json"),
             created_by=f"agent:{spec.agent_name}",
-            parent_ids=list(spec.input_artifact_ids),
+            parent_ids=lineage_parents,
         )
 
         return AgentCallResult(

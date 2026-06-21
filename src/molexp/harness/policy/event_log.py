@@ -74,6 +74,7 @@ def record_approval_decision(
             "intent": request.intent,
             "decided_by": decision.decided_by,
             "reason": decision.reason,
+            "decided_at": decision.decided_at.isoformat(),
         },
         artifact_ids=[],
     )

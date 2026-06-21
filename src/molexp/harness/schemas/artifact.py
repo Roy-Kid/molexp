@@ -50,6 +50,7 @@ WELL_KNOWN_ARTIFACT_KINDS: tuple[str, ...] = (
     "stdout",
     "stderr",
     "log",
+    "prompt",
     "input_file",
     "output_file",
     "plot",

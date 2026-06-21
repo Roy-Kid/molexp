@@ -238,9 +238,10 @@ async def test_call_persists_raw_then_returns_typed_output(tmp_path: Path) -> No
     raw_bytes = store.get(result.raw_response_artifact.id).decode("utf-8")
     assert json.loads(raw_bytes) == canned_payload
 
-    # Provenance edges propagated from the spec.
-    assert result.output_artifact.parent_ids == [parent.id]
-    assert result.raw_response_artifact.parent_ids == [parent.id]
+    # Provenance edges propagated from the spec (input ids retained; the
+    # composed-prompt artifact id is added on top — see the dedicated test).
+    assert parent.id in result.output_artifact.parent_ids
+    assert parent.id in result.raw_response_artifact.parent_ids
 
     # Result metadata: ``model`` field is non-empty for audit citations.
     assert result.model
@@ -410,10 +411,10 @@ async def test_raw_log_persisted_with_parent_ids_alongside_output(
     log_payloads = [store.get(ref.id).decode("utf-8") for ref in log_refs]
     assert json.loads(instance.model_dump_json()) in [json.loads(p) for p in log_payloads]
 
-    # Both refs carry the spec's parent_ids.
+    # Both refs carry the spec's parent_ids (plus the composed-prompt id).
     assert result.raw_response_artifact.kind == "log"
-    assert result.raw_response_artifact.parent_ids == [parent.id]
-    assert result.output_artifact.parent_ids == [parent.id]
+    assert parent.id in result.raw_response_artifact.parent_ids
+    assert parent.id in result.output_artifact.parent_ids
 
 
 # ── ac-007: gateway forwards the per-agent SYSTEM_PROMPT into structured ──
@@ -456,3 +457,63 @@ async def test_gateway_forwards_system_prompt_into_complete_structured(
 
     assert len(router.structured_calls) == 1
     assert router.structured_calls[0]["system"] == prompts[agent_name]
+
+
+# ── prompt provenance: composed prompt persisted + wired into lineage ─────
+
+
+@pytest.mark.asyncio
+async def test_call_persists_composed_prompt_artifact_with_lineage(
+    tmp_path: Path,
+) -> None:
+    """The composed prompt is persisted as a ``kind="prompt"`` artifact and
+    threaded into the output + raw lineage — without dropping the input ids.
+
+    Audit replay can then reconstruct the exact LLM *input*, not just its
+    response. The prompt artifact itself derives from the input artifacts.
+    """
+    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+    from molexp.harness.schemas import AgentCallSpec
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    instance = _TinyReport(title="audited", score=9)
+    router = _RecordingRouter(instance=instance)
+    store = FileArtifactStore(root=tmp_path / "artifacts")
+    gateway = RouterBackedAgentGateway(
+        router=router,
+        artifact_store=store,
+        agent_responses={"tiny_writer": _TinyReport},
+        output_kind_by_agent={"tiny_writer": "experiment_report"},
+    )
+
+    parent = store.put_text(
+        kind="user_plan",
+        text="run a tiny experiment",
+        created_by="test",
+        parent_ids=[],
+    )
+
+    result = await gateway.call(
+        AgentCallSpec(
+            agent_name="tiny_writer",
+            input_artifact_ids=[parent.id],
+            output_schema=_TinyReport.model_json_schema(),
+        )
+    )
+
+    prompt_refs = store.list_by_kind("prompt")
+    assert len(prompt_refs) == 1
+    prompt_ref = prompt_refs[0]
+
+    # The persisted prompt is the exact composed prompt (here, the single
+    # input artifact's text).
+    assert store.get(prompt_ref.id).decode("utf-8") == "run a tiny experiment"
+
+    # Output + raw lineage include BOTH the input id and the prompt id.
+    assert parent.id in result.output_artifact.parent_ids
+    assert prompt_ref.id in result.output_artifact.parent_ids
+    assert parent.id in result.raw_response_artifact.parent_ids
+    assert prompt_ref.id in result.raw_response_artifact.parent_ids
+
+    # The prompt artifact derives from the input it was composed from.
+    assert parent.id in prompt_ref.parent_ids
