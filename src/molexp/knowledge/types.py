@@ -1,32 +1,39 @@
-"""Generic concept-type registry — the sole content of ``molexp.knowledge``.
+"""Concept-type registry for ``molexp.knowledge``.
 
-``molexp.knowledge`` owns **only** this mechanism: an open, forward-compatible
-registry mapping a Concept's ``type`` string to its Python class. A storage
-layer (``molexp.workspace``) uses it to reconstruct typed Concepts from disk;
-upstream layers register their own types via ``@concept_type`` /
-``register_concept_type`` without ``knowledge`` importing them. An unknown type
-resolves to a caller-supplied default.
+Maps a Concept's ``meta.yaml`` ``type`` string to its Python class so that
+reading a bundle reconstructs *typed* Concepts (a ``project`` dir becomes a
+:class:`~molexp.knowledge.Project`, not a bare ``Folder``). The registry is:
 
-``Folder``, the concept hierarchy, ``Library`` and all storage live in
-``molexp.workspace`` — knowledge is just the registry, so it stays a tiny,
-dependency-free, cross-cutting utility with no duplicate of workspace's storage.
+* **open** — upstream layers register their own Concept types
+  (``register_concept_type`` / ``@concept_type``) without ``molexp.knowledge``
+  ever importing them, keeping this the bottom layer of the DAG;
+* **forward-compatible** — an unknown ``type`` resolves to a caller-supplied
+  default (the base ``Folder``), so a bundle written by a newer version still
+  walks rather than crashing.
+
+This module imports nothing from ``.folder`` at runtime (the default class is
+passed in by the caller), so it carries no import cycle. ``Folder`` is
+referenced only for type-checking.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
-_REGISTRY: dict[str, type] = {}
+if TYPE_CHECKING:
+    from .folder import Folder
 
-_C = TypeVar("_C", bound=type)
+_REGISTRY: dict[str, type[Folder]] = {}
+
+_C = TypeVar("_C", bound="type[Folder]")
 
 
-def register_concept_type(type_str: str, cls: type) -> None:
+def register_concept_type(type_str: str, cls: type[Folder]) -> None:
     """Register *cls* as the class for Concept ``type`` *type_str*.
 
-    Re-registering the *same* class is a no-op; registering a *different* class
-    for an already-claimed type raises, to surface collisions.
+    Re-registering the *same* class is a no-op; registering a *different*
+    class for an already-claimed type raises, to surface collisions.
 
     Raises:
         ValueError: if *type_str* is already bound to a different class.
@@ -50,9 +57,6 @@ def concept_type(type_str: str) -> Callable[[_C], _C]:
     return register
 
 
-def resolve_concept_type(type_str: str, default: type) -> type:
+def resolve_concept_type(type_str: str, default: type[Folder]) -> type[Folder]:
     """Return the class registered for *type_str*, or *default* if unknown."""
     return _REGISTRY.get(type_str, default)
-
-
-__all__ = ["concept_type", "register_concept_type", "resolve_concept_type"]
