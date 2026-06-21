@@ -1,6 +1,6 @@
 """``molexp plan`` — end-to-end via Typer CliRunner, no LLM.
 
-The production gateway factory (``molexp.cli.plan_cmd._make_gateway``) is
+The production gateway factory (``molexp.cli.plan_cmd.PlanRuntime.build_gateway``) is
 monkeypatched to return a :class:`StubAgentGateway` loaded with canned valid
 outputs per planning agent, so the full 9-stage PlanMode pipeline runs
 offline against a tmp workspace. Asserts the CLI wiring end-to-end: command
@@ -116,7 +116,7 @@ def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
         gw.register("workflow_source_writer", _WORKFLOW_SOURCE, output_kind="workflow_source")
         return gw
 
-    monkeypatch.setattr("molexp.cli.plan_cmd._make_gateway", _fake_make_gateway)
+    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _fake_make_gateway)
 
 
 @pytest.mark.integration
@@ -288,7 +288,7 @@ def test_plan_rerun_skips_completed_stages_via_ledger(
 
         return StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
 
-    monkeypatch.setattr("molexp.cli.plan_cmd._make_gateway", _empty_gateway)
+    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _empty_gateway)
     second = runner.invoke(app, args)
     assert second.exit_code == 0, second.output
     assert "all stages completed" in second.output
@@ -365,7 +365,7 @@ def _patch_full_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
         gw.register("final_report_writer", _FINAL_REPORT, output_kind="final_report")
         return gw
 
-    monkeypatch.setattr("molexp.cli.plan_cmd._make_gateway", _fake_make_gateway)
+    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _fake_make_gateway)
 
 
 def _patch_executor(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -376,14 +376,14 @@ def _patch_executor(monkeypatch: pytest.MonkeyPatch) -> None:
 
         return DryRunExecutor()
 
-    monkeypatch.setattr("molexp.cli.plan_cmd._make_executor", _fake_make_executor)
+    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_executor", _fake_make_executor)
 
 
 def test_make_executor_seam_defaults_to_local_executor() -> None:
     from molexp.cli import plan_cmd
     from molexp.harness import LocalExecutor
 
-    assert isinstance(plan_cmd._make_executor(), LocalExecutor)
+    assert isinstance(plan_cmd.PlanRuntime.build_executor(), LocalExecutor)
 
 
 @pytest.mark.integration
