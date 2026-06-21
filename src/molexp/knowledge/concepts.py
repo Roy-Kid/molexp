@@ -22,6 +22,7 @@ from datetime import datetime
 from typing import ClassVar, cast
 
 from .folder import META_FILE, Folder, append_link
+from .fs import FileSystem
 from .ops import (
     RUN_OPS_NAME,
     TERMINAL_STATUSES,
@@ -47,12 +48,14 @@ class Run(Folder):
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         super().__init__(
             name=name,
             parent=parent,
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
+            fs=fs,
         )
 
     # ── operational state (_ops/run.json — hot, never in meta.yaml) ───────
@@ -125,12 +128,14 @@ class Experiment(Folder):
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         super().__init__(
             name=name,
             parent=parent,
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
+            fs=fs,
         )
 
     def add_run(self, name: str) -> Run:
@@ -167,12 +172,14 @@ class Project(Folder):
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         super().__init__(
             name=name,
             parent=parent,
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
+            fs=fs,
         )
 
     def add_experiment(self, name: str) -> Experiment:
@@ -209,12 +216,14 @@ class Workspace(Folder):
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         super().__init__(
             name=name,
             parent=parent,
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
+            fs=fs,
         )
 
     def add_project(self, name: str) -> Project:
@@ -256,12 +265,14 @@ class Note(Folder):
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         super().__init__(
             name=name,
             parent=parent,
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
+            fs=fs,
         )
 
     def body(self) -> str:
@@ -295,17 +306,19 @@ class Reference(Folder):
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str | None = None,
+        fs: FileSystem | None = None,
     ) -> None:
         super().__init__(
             name=name,
             parent=parent,
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
+            fs=fs,
         )
 
     def read_ref_meta(self) -> ReferenceMeta:
-        """Load this reference's typed bib ``meta.yaml``."""
-        text = (self.resolve() / META_FILE).read_text(encoding="utf-8")
+        """Load this reference's typed bib ``meta.yaml`` (via the Concept's fs)."""
+        text = self._fs.read_text(self.resolve() / META_FILE)
         return cast(ReferenceMeta, ReferenceMeta.from_yaml(text))
 
     def write_ref_meta(self, meta: ReferenceMeta) -> None:

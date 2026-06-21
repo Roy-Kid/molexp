@@ -22,19 +22,18 @@ the generic Concept machinery.
 
 from __future__ import annotations
 
-import json
 import os
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import cast
 
-import molexp.atomicio as atomicio
 from molexp.ids import slugify
 
 from .concepts import Note, Reference
 from .errors import ConceptNotFoundError
 from .folder import OPS_DIR, Folder, _is_concept_dir, append_link, concept_from_dir
+from .fs import FileSystem, LocalFileSystem
 from .index import (
     INDEX_JSON_FILENAME,
     INDEX_MD_FILENAME,
@@ -56,14 +55,20 @@ SOURCES_FILENAME = "sources.json"
 class Library:
     """A management façade over an OKF bundle (a Concept-directory tree)."""
 
-    def __init__(self, root: str | os.PathLike[str]) -> None:
-        """Record the bundle *root*; perform no disk I/O (lazy)."""
+    def __init__(self, root: str | os.PathLike[str], *, fs: FileSystem | None = None) -> None:
+        """Record the bundle *root* + filesystem; perform no disk I/O (lazy)."""
         self._root = Path(root)
+        self._fs: FileSystem = fs if fs is not None else LocalFileSystem()
 
     @property
     def root(self) -> Path:
         """The bundle root directory."""
         return self._root
+
+    @property
+    def fs(self) -> FileSystem:
+        """The filesystem backing this bundle's I/O."""
+        return self._fs
 
     # ── identity helpers ─────────────────────────────────────────────────
 
@@ -73,7 +78,7 @@ class Library:
 
     def _folder_for(self, path: Path) -> Folder:
         """Build the typed Concept whose identity is the Concept dir *path*."""
-        return concept_from_dir(path, root=path.parent)
+        return concept_from_dir(path, root=path.parent, fs=self._fs)
 
     # ── walk / get / put / link ──────────────────────────────────────────
 
@@ -87,12 +92,12 @@ class Library:
         yield from self._walk_dir(self._root)
 
     def _walk_dir(self, directory: Path) -> Iterator[Folder]:
-        if not directory.is_dir():
+        if not self._fs.is_dir(directory):
             return
-        for entry in sorted(directory.iterdir()):
-            if not entry.is_dir() or entry.name == OPS_DIR:
+        for entry in sorted(self._fs.iterdir(directory)):
+            if not self._fs.is_dir(entry) or entry.name == OPS_DIR:
                 continue
-            if _is_concept_dir(entry):
+            if _is_concept_dir(entry, self._fs):
                 yield self._folder_for(entry)
             yield from self._walk_dir(entry)
 
@@ -104,13 +109,13 @@ class Library:
         """
         rel = PurePosixPath(os.fspath(rel_path))
         target = self._root.joinpath(*rel.parts)
-        if not _is_concept_dir(target):
+        if not _is_concept_dir(target, self._fs):
             raise ConceptNotFoundError(str(rel_path))
         return self._folder_for(target)
 
     def put(self, concept: Folder) -> Folder:
         """Idempotently materialize *concept* (write ``meta.yaml`` if absent)."""
-        if not _is_concept_dir(concept.resolve()):
+        if not _is_concept_dir(concept.resolve(), self._fs):
             concept.write_meta(ConceptMeta(type=concept.concept_type))
         return concept
 
@@ -149,7 +154,11 @@ class Library:
         ``source_key`` — re-importing updates a reference's ``meta.yaml`` in
         place rather than duplicating it. Records the link in ``sources.json``.
         """
-        host = under if under is not None else Folder(name=REFERENCES_GROUP, root=self._root)
+        host = (
+            under
+            if under is not None
+            else Folder(name=REFERENCES_GROUP, root=self._root, fs=self._fs)
+        )
         refs: list[Reference] = []
         items = read_zotero_items(path)
         for item in items:
@@ -176,8 +185,8 @@ class Library:
     def _record_source(self, source: str, path: str, count: int, *, now: datetime | None) -> None:
         sources_path = self._root / SOURCES_FILENAME
         existing: list[dict] = []
-        if sources_path.is_file():
-            existing = json.loads(sources_path.read_text(encoding="utf-8"))
+        if self._fs.is_file(sources_path):
+            existing = cast("list[dict]", self._fs.read_json(sources_path))
         existing = [
             e for e in existing if not (e.get("source") == source and e.get("path") == path)
         ]
@@ -189,7 +198,7 @@ class Library:
                 "imported_at": (now or _utcnow()).isoformat(),
             }
         )
-        atomicio.atomic_write_json(sources_path, existing)
+        self._fs.write_json(sources_path, existing)
 
     # ── derived index + search (okf-03) ──────────────────────────────────
 
@@ -219,15 +228,15 @@ class Library:
             generated_at=now or _utcnow(),
             entries=tuple(self._entry_for(c) for c in self.walk()),
         )
-        atomicio.atomic_write_json(self._root / INDEX_JSON_FILENAME, index.model_dump(mode="json"))
-        atomicio.atomic_write_text(self._root / INDEX_MD_FILENAME, index.to_markdown())
+        self._fs.write_json(self._root / INDEX_JSON_FILENAME, index.model_dump(mode="json"))
+        self._fs.write_text(self._root / INDEX_MD_FILENAME, index.to_markdown())
         return index
 
     def _load_index(self) -> LibraryIndex:
         path = self._root / INDEX_JSON_FILENAME
-        if not path.is_file():
+        if not self._fs.is_file(path):
             return self.build_index()
-        return LibraryIndex.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        return LibraryIndex.model_validate(self._fs.read_json(path))
 
     def search(
         self,

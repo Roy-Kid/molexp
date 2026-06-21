@@ -24,6 +24,7 @@ right subclass from each Concept's ``meta.yaml`` ``type``) are in place.
 from .concepts import Experiment, Note, Project, Reference, Run, Workspace
 from .errors import ConceptExistsError, ConceptNotFoundError
 from .folder import Folder, LinkScan
+from .fs import FileSystem, LocalFileSystem
 from .index import ConceptIndexEntry, LibraryIndex
 from .library import Library
 from .models import ConceptMeta
@@ -53,10 +54,12 @@ __all__ = [
     "ConceptNotFoundError",
     "ExecutionRecord",
     "Experiment",
+    "FileSystem",
     "Folder",
     "Library",
     "LibraryIndex",
     "LinkScan",
+    "LocalFileSystem",
     "Note",
     "Project",
     "Reference",

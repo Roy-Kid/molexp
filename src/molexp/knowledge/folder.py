@@ -11,29 +11,26 @@ physically split into three files (never a frontmatter blob):
         └── <name>.json
 
 ``Folder`` mirrors the method shapes of ``molexp.workspace.folder.Folder``
-(side-effect-free :meth:`resolve`, lazy :meth:`path`, five-verb CRUD) but is
-``meta.yaml``-authoritative and local-only — the ``FileSystem`` Protocol /
-remote backends are deliberately out of scope for okf-01-03, so I/O uses
-stdlib :class:`pathlib.Path`. All file writes route through the cross-layer
-:mod:`molexp.atomicio` primitives (referenced via the module so spies that
-patch ``molexp.atomicio.*`` intercept them).
+(side-effect-free :meth:`resolve`, lazy :meth:`path`, five-verb CRUD) and is
+``meta.yaml``-authoritative. All disk I/O routes through an injectable
+:class:`FileSystem` (okf-05-04) so a bundle can live on a remote backend; the
+default :class:`LocalFileSystem` reproduces the prior stdlib + ``atomicio``
+behavior. A child inherits its parent's filesystem.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
-import shutil
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, NamedTuple
+from typing import ClassVar, NamedTuple, cast
 
-import molexp.atomicio as atomicio
 from molexp.ids import slugify
 
 from .errors import ConceptExistsError, ConceptNotFoundError
+from .fs import FileSystem, LocalFileSystem
 from .models import ConceptMeta
 from .types import concept_type, resolve_concept_type
 
@@ -62,8 +59,8 @@ class LinkScan(NamedTuple):
     other: list[str]
 
 
-def _is_concept_dir(path: Path) -> bool:
-    return (path / META_FILE).is_file()
+def _is_concept_dir(path: Path, fs: FileSystem) -> bool:
+    return fs.is_file(path / META_FILE)
 
 
 @concept_type(DEFAULT_CONCEPT_TYPE)
@@ -73,7 +70,8 @@ class Folder:
     Construct with either ``root`` (a root Concept anchored at ``root/<id>``)
     or ``parent`` (a child Concept), never both. ``__init__`` performs no
     disk I/O; the directory is materialized lazily by :meth:`path` or any
-    ``write_*`` call. The on-disk identity is ``slugify(name)``.
+    ``write_*`` call. The on-disk identity is ``slugify(name)``. A root folder
+    defaults to a :class:`LocalFileSystem`; a child inherits its parent's.
     """
 
     _not_found_error_cls: ClassVar[type[Exception]] = ConceptNotFoundError
@@ -86,6 +84,7 @@ class Folder:
         parent: Folder | None = None,
         root: str | os.PathLike[str] | None = None,
         concept_type: str = DEFAULT_CONCEPT_TYPE,
+        fs: FileSystem | None = None,
     ) -> None:
         if parent is None and root is None:
             raise ValueError("Folder requires either parent or root")
@@ -96,6 +95,12 @@ class Folder:
         self._root = Path(root) if root is not None else None
         self._type = concept_type
         self._children: dict[str, Folder] = {}
+        if fs is not None:
+            self._fs: FileSystem = fs
+        elif parent is not None:
+            self._fs = parent._fs
+        else:
+            self._fs = LocalFileSystem()
 
     # ── Identity / path ──────────────────────────────────────────────────
 
@@ -107,6 +112,11 @@ class Folder:
     @property
     def parent(self) -> Folder | None:
         return self._parent
+
+    @property
+    def fs(self) -> FileSystem:
+        """The filesystem backing this Concept's I/O."""
+        return self._fs
 
     @property
     def concept_type(self) -> str:
@@ -123,41 +133,40 @@ class Folder:
     def path(self) -> Path:
         """Return the on-disk path, creating the directory if absent (lazy)."""
         target = self.resolve()
-        target.mkdir(parents=True, exist_ok=True)
+        self._fs.mkdir(target)
         return target
 
     # ── meta.yaml ────────────────────────────────────────────────────────
 
     def read_meta(self) -> ConceptMeta:
         """Load and validate this Concept's ``meta.yaml``."""
-        text = (self.resolve() / META_FILE).read_text(encoding="utf-8")
-        return ConceptMeta.from_yaml(text)
+        return ConceptMeta.from_yaml(self._fs.read_text(self.resolve() / META_FILE))
 
     def write_meta(self, meta: ConceptMeta) -> None:
         """Atomically write this Concept's ``meta.yaml``."""
-        atomicio.atomic_write_text(self.path() / META_FILE, meta.to_yaml())
+        self._fs.write_text(self.path() / META_FILE, meta.to_yaml())
 
     # ── index.md / log.md ────────────────────────────────────────────────
 
     def read_index(self) -> str:
         """Return ``index.md`` body, or ``""`` if absent."""
         p = self.resolve() / INDEX_FILE
-        return p.read_text(encoding="utf-8") if p.is_file() else ""
+        return self._fs.read_text(p) if self._fs.is_file(p) else ""
 
     def write_index(self, text: str) -> None:
         """Atomically write ``index.md`` (narrative + markdown links)."""
-        atomicio.atomic_write_text(self.path() / INDEX_FILE, text)
+        self._fs.write_text(self.path() / INDEX_FILE, text)
 
     def read_log(self) -> str:
         """Return ``log.md`` body, or ``""`` if absent."""
         p = self.resolve() / LOG_FILE
-        return p.read_text(encoding="utf-8") if p.is_file() else ""
+        return self._fs.read_text(p) if self._fs.is_file(p) else ""
 
     def append_log(self, entry: str, *, timestamp: datetime | None = None) -> None:
         """Append a timestamped line to ``log.md`` (atomic rewrite)."""
         ts = (timestamp or datetime.now()).isoformat(timespec="seconds")
         line = f"- {ts} {entry}\n"
-        atomicio.atomic_write_text(self.path() / LOG_FILE, self.read_log() + line)
+        self._fs.write_text(self.path() / LOG_FILE, self.read_log() + line)
 
     # ── Markdown-link knowledge graph ────────────────────────────────────
 
@@ -177,7 +186,7 @@ class Folder:
                 continue
             norm = Path(os.path.normpath(base / target))
             concept_dir = norm.parent if norm.name == INDEX_FILE else norm
-            if _is_concept_dir(concept_dir):
+            if _is_concept_dir(concept_dir, self._fs):
                 concepts.append(concept_dir)
             else:
                 other.append(target)
@@ -196,7 +205,7 @@ class Folder:
         programmatically-built tree is fully walkable. (A dir created by hand —
         plain ``mkdir`` — stays an organizational non-Concept until written.)
         """
-        if not _is_concept_dir(self.resolve()):
+        if not _is_concept_dir(self.resolve(), self._fs):
             self.write_meta(ConceptMeta(type=self._type))
 
     def add_folder(self, name: str, *, concept_type: str = DEFAULT_CONCEPT_TYPE) -> Folder:
@@ -212,7 +221,7 @@ class Folder:
             return cached
         cls = resolve_concept_type(concept_type, Folder)
         child = cls(name=name, parent=self, concept_type=concept_type)
-        if not _is_concept_dir(child.resolve()):
+        if not _is_concept_dir(child.resolve(), self._fs):
             child.write_meta(ConceptMeta(type=concept_type))
         self._children[slug] = child
         return child
@@ -226,7 +235,7 @@ class Folder:
             if cached is not None:
                 return cached
             child_dir = self.resolve() / candidate
-            if _is_concept_dir(child_dir):
+            if _is_concept_dir(child_dir, self._fs):
                 child = concept_from_dir(child_dir, parent=self)
                 self._children[child.name] = child
                 return child
@@ -239,20 +248,20 @@ class Folder:
                 continue
             if candidate in self._children:
                 return True
-            if _is_concept_dir(self.resolve() / candidate):
+            if _is_concept_dir(self.resolve() / candidate, self._fs):
                 return True
         return False
 
     def list_folders(self) -> list[Folder]:
         """All child Concepts (subdirs holding ``meta.yaml``), sorted by id."""
         base = self.resolve()
-        if not base.is_dir():
+        if not self._fs.is_dir(base):
             return []
         out: list[Folder] = []
-        for entry in sorted(base.iterdir()):
-            if entry.name == OPS_DIR or not entry.is_dir():
+        for entry in sorted(self._fs.iterdir(base)):
+            if entry.name == OPS_DIR or not self._fs.is_dir(entry):
                 continue
-            if not _is_concept_dir(entry):
+            if not _is_concept_dir(entry, self._fs):
                 continue
             child = self._children.get(entry.name) or concept_from_dir(entry, parent=self)
             self._children[entry.name] = child
@@ -265,8 +274,8 @@ class Folder:
             if not candidate:
                 continue
             child_dir = self.resolve() / candidate
-            if _is_concept_dir(child_dir):
-                shutil.rmtree(child_dir)
+            if _is_concept_dir(child_dir, self._fs):
+                self._fs.rmtree(child_dir)
                 self._children.pop(candidate, None)
                 return
             if candidate in self._children:
@@ -279,27 +288,25 @@ class Folder:
     def ops_dir(self) -> Path:
         """Return the per-Concept ``_ops/`` dir, creating it if absent."""
         d = self.resolve() / OPS_DIR
-        d.mkdir(parents=True, exist_ok=True)
+        self._fs.mkdir(d)
         return d
 
     def read_ops_json(self, name: str) -> dict | None:
         """Read ``_ops/<name>.json``, or ``None`` if absent."""
         p = self.resolve() / OPS_DIR / f"{name}.json"
-        if not p.is_file():
-            return None
-        return json.loads(p.read_text(encoding="utf-8"))
+        return cast("dict", self._fs.read_json(p)) if self._fs.is_file(p) else None
 
     def write_ops_json(self, name: str, data: object) -> None:
         """Atomically write ``_ops/<name>.json`` (operational state)."""
-        atomicio.atomic_write_json(self.ops_dir() / f"{name}.json", data)
+        self._fs.write_json(self.ops_dir() / f"{name}.json", data)
 
     def update_ops_json(self, name: str, fn: Callable[[dict], dict]) -> dict:
         """Read-modify-write ``_ops/<name>.json`` under an advisory file lock."""
         ops = self.ops_dir()
-        with atomicio.file_lock(ops / f"{name}.json.lock"):
+        with self._fs.lock(ops / f"{name}.json.lock"):
             current = self.read_ops_json(name) or {}
             updated = fn(current)
-            atomicio.atomic_write_json(ops / f"{name}.json", updated)
+            self._fs.write_json(ops / f"{name}.json", updated)
         return updated
 
 
@@ -320,22 +327,27 @@ def concept_from_dir(
     *,
     parent: Folder | None = None,
     root: str | os.PathLike[str] | None = None,
+    fs: FileSystem | None = None,
 ) -> Folder:
     """Reconstruct *directory* as its registry-resolved Concept subclass.
 
     Reads ``directory/meta.yaml``'s ``type`` and instantiates the matching
     class (unknown / unreadable type → base :class:`Folder`, forward-compat),
-    carrying the on-disk type through. Pass exactly one of *parent* / *root*.
+    carrying the on-disk type + filesystem through. Pass exactly one of
+    *parent* / *root*; a child inherits *parent*'s fs, a root takes *fs*.
     """
+    effective_fs = fs or (parent._fs if parent is not None else LocalFileSystem())
     meta_type = DEFAULT_CONCEPT_TYPE
     meta_path = directory / META_FILE
-    if meta_path.is_file():
+    if effective_fs.is_file(meta_path):
         try:
-            meta_type = ConceptMeta.from_yaml(meta_path.read_text(encoding="utf-8")).type
+            meta_type = ConceptMeta.from_yaml(effective_fs.read_text(meta_path)).type
         except Exception:  # malformed meta degrades to base Folder (forward-compat)
             meta_type = DEFAULT_CONCEPT_TYPE
     cls = resolve_concept_type(meta_type, Folder)
-    return cls(name=directory.name, parent=parent, root=root, concept_type=meta_type)
+    return cls(
+        name=directory.name, parent=parent, root=root, concept_type=meta_type, fs=effective_fs
+    )
 
 
 __all__ = ["Folder", "LinkScan", "append_link", "concept_from_dir"]
