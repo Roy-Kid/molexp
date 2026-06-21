@@ -8,7 +8,7 @@ checkpoints, and asset access during execution.
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
 from typing import TYPE_CHECKING, cast
@@ -41,6 +41,7 @@ from .models import (
     RunMetadata,
     RunStatus,
 )
+from .run_ops import RUN_OPS_NAME, RunOpsState
 from .utils import generate_id
 
 if TYPE_CHECKING:
@@ -202,6 +203,24 @@ class Run(Folder):
     def is_retryable(self) -> bool:
         """Whether ``resume`` / ``rerun`` apply (status in :data:`RETRYABLE_STATUSES`)."""
         return self.status in RETRYABLE_STATUSES
+
+    # ── OKF _ops/run.json hot-state sidecar (typed; isolated from run.json) ─
+
+    def read_ops(self) -> RunOpsState:
+        """Load the typed Run ops state from ``_ops/run.json`` (default if none)."""
+        return RunOpsState.model_validate(self.read_ops_json(RUN_OPS_NAME) or {})
+
+    def write_ops(self, state: RunOpsState) -> None:
+        """Persist the typed Run ops state to ``_ops/run.json`` (atomic)."""
+        self.write_ops_json(RUN_OPS_NAME, state.model_dump(mode="json"))
+
+    def update_ops(self, fn: Callable[[RunOpsState], RunOpsState]) -> RunOpsState:
+        """Read-modify-write the typed Run ops state under an advisory lock."""
+
+        def apply(raw: dict[str, JSONValue]) -> dict[str, JSONValue]:
+            return fn(RunOpsState.model_validate(raw or {})).model_dump(mode="json")
+
+        return RunOpsState.model_validate(self.update_ops_json(RUN_OPS_NAME, apply))
 
     @property
     def run_dir(self) -> MolexpPath:

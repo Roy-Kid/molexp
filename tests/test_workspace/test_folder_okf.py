@@ -69,3 +69,34 @@ def test_concept_from_dir_reconstructs_registered_subclass(tmp_path: Path) -> No
     rebuilt = concept_from_dir(proj.resolve(), ws)
     assert isinstance(rebuilt, Project)
     assert rebuilt.name == "alpha"
+
+
+# ── wsokf-03: _ops/ operational sidecar on Run (RunOpsState) ─────────────────
+
+
+def test_run_ops_sidecar_round_trip(tmp_path: Path) -> None:
+    from molexp.workspace.models import RunStatus
+    from molexp.workspace.run_ops import RunOpsState
+
+    ws = Workspace(root=tmp_path / "lab")
+    ws.materialize()
+    run = ws.add_project("p").add_experiment("e").add_run()
+    assert run.read_ops().status == RunStatus.PENDING  # default when absent
+    run.write_ops(RunOpsState(status=RunStatus.RUNNING, owner_pid=7))
+    assert run.read_ops().status == RunStatus.RUNNING
+    assert run.read_ops().owner_pid == 7
+    # hot state lands in _ops/run.json, isolated from run.json
+    assert (Path(run.resolve()) / "_ops" / "run.json").exists()
+
+
+def test_run_update_ops_rmw(tmp_path: Path) -> None:
+    from molexp.workspace.models import RunStatus
+    from molexp.workspace.run_ops import RunOpsState
+
+    ws = Workspace(root=tmp_path / "lab")
+    ws.materialize()
+    run = ws.add_project("p").add_experiment("e").add_run()
+    run.write_ops(RunOpsState(status=RunStatus.PENDING))
+    out = run.update_ops(lambda s: s.model_copy(update={"status": RunStatus.RUNNING}))
+    assert out.status == RunStatus.RUNNING
+    assert run.read_ops().status == RunStatus.RUNNING

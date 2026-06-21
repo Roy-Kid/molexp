@@ -14,13 +14,16 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Callable
 from datetime import datetime
+from pathlib import Path as _StdPath
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING, ClassVar, NamedTuple, TypeVar, cast
 
 import yaml
 
 from molexp._typing import JSONValue
+from molexp.atomicio import file_lock
 from molexp.knowledge.types import resolve_concept_type
 from molexp.path import Path
 
@@ -54,6 +57,7 @@ _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 # — it sits alongside the authoritative ``metadata.json`` and never replaces it.
 INDEX_FILENAME = "index.md"
 META_YAML_FILENAME = "meta.yaml"  # OKF unified concept marker (type → registry)
+OPS_DIR = "_ops"  # OKF operational sidecar — hot machine state, NOT knowledge
 _MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")  # [text](target)
 
 
@@ -296,6 +300,41 @@ class Folder:
     def out_edges(self) -> list[str]:
         """In-tree Folder link targets — the knowledge-graph out-edges."""
         return self.links().concepts
+
+    # ── OKF _ops/ operational sidecar (hot machine state, never in meta.yaml) ─
+
+    def ops_dir(self) -> str:
+        """Return the per-Folder ``_ops/`` sidecar dir, creating it if absent."""
+        d = self._fs.join(self.path(), OPS_DIR)
+        self._fs.mkdir(d, parents=True, exist_ok=True)
+        return d
+
+    def read_ops_json(self, name: str) -> dict[str, JSONValue] | None:
+        """Read ``_ops/<name>.json``, or ``None`` if absent."""
+        fpath = self._fs.join(self.resolve(), OPS_DIR, f"{name}.json")
+        if not self._fs.exists(fpath):
+            return None
+        with self._fs.open(fpath) as fh:
+            return cast("dict[str, JSONValue]", json.load(fh))
+
+    def write_ops_json(self, name: str, data: object) -> None:
+        """Atomically write ``_ops/<name>.json`` (operational state)."""
+        self._fs.atomic_write_json(self._fs.join(self.ops_dir(), f"{name}.json"), data)
+
+    def update_ops_json(
+        self, name: str, fn: Callable[[dict[str, JSONValue]], dict[str, JSONValue]]
+    ) -> dict[str, JSONValue]:
+        """Read-modify-write ``_ops/<name>.json`` under an advisory file lock.
+
+        The lock is a local file lock (``molexp.atomicio.file_lock``); concurrent
+        same-host RMW is safe. (Remote-backend locking is a future refinement.)
+        """
+        ops = self.ops_dir()
+        with file_lock(_StdPath(self._fs.join(ops, f"{name}.json.lock"))):
+            current = self.read_ops_json(name) or {}
+            updated = fn(current)
+            self._fs.atomic_write_json(self._fs.join(ops, f"{name}.json"), updated)
+        return updated
 
     # ── Lifecycle ────────────────────────────────────────────────────────
 
