@@ -1,11 +1,11 @@
-"""Layer firewall for the OKF ``molexp.knowledge`` bottom layer.
+"""Layer firewall for the registry-only ``molexp.knowledge`` bottom layer.
 
-``molexp.knowledge`` sits at the bottom of the dependency DAG. Its source
-must not import ``molexp.workspace`` (a sibling bottom layer) nor any
-upstream layer (``workflow`` / ``agent`` / ``harness`` / ``server`` /
-``cli`` / ``plugins`` / ``sweep``). Only stdlib, pydantic, pyyaml, and the
-sanctioned cross-layer primitives (``molexp.atomicio`` / ``molexp.ids`` /
-``molexp.path`` / ``mollog`` / ``molcfg``) are allowed.
+``molexp.knowledge`` is now the open concept-type registry (``types.py`` +
+a slim ``__init__.py``); the OKF storage substrate lives in
+``molexp.workspace``. Its source must not import ``molexp.workspace`` (a
+sibling bottom layer) nor any upstream layer (``workflow`` / ``agent`` /
+``harness`` / ``server`` / ``cli`` / ``plugins`` / ``sweep``). Only stdlib
+and pydantic are needed.
 
 This is an **AST static scan** of the package source — not a runtime
 ``sys.modules`` probe. A runtime probe is unsatisfiable: importing any
