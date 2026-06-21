@@ -6,8 +6,8 @@ a single management entry point: ``walk`` (depth-first Concept enumeration),
 ``link`` (a semantic edge written as a markdown link into ``index.md``, so it
 round-trips through :meth:`Folder.out_edges`).
 
-It is a NEW, distinct surface from the per-scope ``workspace.Library`` (notes +
-literature); the two share only the loose word "library" in the reference tree.
+It is the OKF Concept-bundle surface for notes + literature, reached via
+path-as-identity resolution.
 """
 
 from __future__ import annotations
@@ -74,8 +74,8 @@ def test_exported_and_distinct() -> None:
 
     assert "Bundle" in workspace.__all__
     assert workspace.Bundle is Bundle
-    # Bundle is NOT the per-scope notes+literature Library.
-    assert Bundle is not workspace.Library
+    # The legacy per-scope Library surface is gone (wsokf-11).
+    assert not hasattr(workspace, "Library")
 
 
 # ── walk() depth-first concept enumeration (ac-002 / ac-003) ──────────────────

@@ -68,7 +68,6 @@ export const SECTION_PATH = {
   runs: "/runs",
   workflows: "/workflows",
   assets: "/assets",
-  library: "/library",
   agents: "/agent-tasks",
   settings: "/settings",
 } as const;

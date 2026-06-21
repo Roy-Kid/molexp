@@ -15,10 +15,9 @@ from .checkpoint import CheckpointAsset
 from .data import DataAsset
 from .error import ErrorTraceAsset
 from .log import LogAsset
-from .note import NoteAsset
 
 AnyAsset = Annotated[
-    DataAsset | ArtifactAsset | LogAsset | ErrorTraceAsset | CheckpointAsset | NoteAsset,
+    DataAsset | ArtifactAsset | LogAsset | ErrorTraceAsset | CheckpointAsset,
     Field(discriminator="kind"),
 ]
 
@@ -27,7 +26,7 @@ ASSET_ADAPTER: TypeAdapter = TypeAdapter(AnyAsset)
 
 def parse_asset(
     data: dict,
-) -> DataAsset | ArtifactAsset | LogAsset | ErrorTraceAsset | CheckpointAsset | NoteAsset:
+) -> DataAsset | ArtifactAsset | LogAsset | ErrorTraceAsset | CheckpointAsset:
     """Deserialize a raw asset dict into the correct subclass."""
     return ASSET_ADAPTER.validate_python(data)
 

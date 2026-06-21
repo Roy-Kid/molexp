@@ -33,7 +33,6 @@ from .folder import (
 )
 from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
-from .library import Library
 from .models import FolderMetadata, WorkspaceMetadata
 from .project import Project
 from .utils import slugify
@@ -140,7 +139,6 @@ class Workspace(Folder):
         self.root: Path = self._root_path
         self._entity_metadata: WorkspaceMetadata = entity_meta
         self._data_assets: DataAssetLibrary | None = None
-        self._library: Library | None = None
         self._catalog: AssetCatalog | None = None
         self._cache_folder: CacheFolder | None = None
 
@@ -210,13 +208,6 @@ class Workspace(Folder):
         if self._data_assets is None:
             self._data_assets = DataAssetLibrary(self.root, self.scope, self.catalog)
         return self._data_assets
-
-    @property
-    def library(self) -> Library:
-        """Notes + references store for the workspace scope."""
-        if self._library is None:
-            self._library = Library(self.root, self.scope, self.catalog)
-        return self._library
 
     @property
     def catalog(self) -> AssetCatalog:

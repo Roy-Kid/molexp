@@ -1,4 +1,3 @@
-import { LibraryPage } from "@/app/library/LibraryPage";
 import {
   buildRendererKeyFromSelection,
   renderPlanByObjectType,
@@ -45,9 +44,6 @@ export const CenterPanel = ({
     }
     if (leftPanelView === "workflow") {
       return <WorkflowsPage snapshot={snapshot} onRefresh={onRefresh} />;
-    }
-    if (leftPanelView === "library") {
-      return <LibraryPage snapshot={snapshot} />;
     }
     if (leftPanelView === "settings") {
       return <SettingsPage />;

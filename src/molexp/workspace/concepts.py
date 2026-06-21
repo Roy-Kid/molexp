@@ -19,10 +19,8 @@ The constructors match the workspace :class:`Folder` keyword contract
 consistent with the existing ``workspace.root`` / ``workspace.project`` family.
 
 These OKF concepts are a port of ``molexp.knowledge.concepts`` (Note +
-Reference). They **coexist** with — and never replace — the legacy file-backed
-``molexp.workspace.assets.NoteAsset`` and the legacy bib-record
-``molexp.workspace.library.Reference``; the duplicates disappear in the later
-workspace-storage cleanup.
+Reference). They are the going-forward home for notes + literature, reached
+via the :class:`~molexp.workspace.bundle.Bundle` façade.
 """
 
 from __future__ import annotations
@@ -82,8 +80,8 @@ class ReferenceConcept(Folder):
     human-readable citation text lives in ``index.md``. PDFs are pointed at via
     ``ReferenceMeta.pdf_path`` / ``pdf_asset_id`` — never copied.
 
-    Named ``ReferenceConcept`` (not ``Reference``) so it never shadows the
-    legacy bib-record ``molexp.workspace.library.Reference`` in one namespace.
+    Named ``ReferenceConcept`` (not ``Reference``) to keep the concept type
+    name unambiguous in the workspace namespace.
     """
 
     DEFAULT_KIND: ClassVar[str] = REFERENCE_KIND

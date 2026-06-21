@@ -8,6 +8,34 @@ import pytest
 from molexp.workspace import Workspace
 
 
+class TestLegacyLibraryRemoved:
+    """wsokf-11: the legacy per-scope Library stack is gone."""
+
+    def test_no_library_property_on_folders(self, workspace):
+        project = workspace.add_project("p")
+        experiment = project.add_experiment("e")
+        run = experiment.add_run({"x": 1})
+        for scope in (workspace, project, experiment, run):
+            assert not hasattr(scope, "library")
+
+    def test_legacy_symbols_not_importable_from_workspace(self):
+        import molexp.workspace as ws
+
+        for name in ("Library", "LibraryIndex", "NoteEntry", "NoteAsset", "ReferenceStore"):
+            assert not hasattr(ws, name)
+            assert name not in ws.__all__
+
+    def test_library_subpackage_gone(self):
+        with pytest.raises(ModuleNotFoundError):
+            import molexp.workspace.library  # noqa: F401
+
+    def test_note_kind_no_longer_parses(self):
+        from molexp.workspace.assets import parse_asset
+
+        with pytest.raises(Exception):  # noqa: B017 - pydantic ValidationError
+            parse_asset({"kind": "note", "asset_id": "x", "name": "n", "path": "p.md"})
+
+
 class TestWorkspace:
     def test_creation_no_side_effects(self, tmp_path):
         Workspace(root=tmp_path / "new", name="Lab")

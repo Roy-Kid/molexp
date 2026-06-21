@@ -5,9 +5,6 @@ Notes and references are ``Folder`` subclasses (concept types, mountable
 anywhere). A note's body lives in ``index.md`` and its citations are markdown
 links (resolved by ``out_edges``); a reference's structured bib fields live in
 ``meta.yaml`` (``ReferenceMeta``). Each ref/note is its own Concept directory.
-
-These OKF concepts coexist with — and never shadow — the legacy bib-record
-``workspace.library.Reference`` / file-backed ``workspace.assets.NoteAsset``.
 """
 
 from __future__ import annotations
@@ -132,10 +129,10 @@ def test_reference_typed_meta_and_citation(tmp_path: Path) -> None:
     assert ref.citation() == "Smith et al. 2024"
 
 
-# ── exports without shadowing legacy (ac-008 / ac-009) ───────────────────────
+# ── OKF concept exports (ac-008 / ac-009) ────────────────────────────────────
 
 
-def test_exports_do_not_shadow_legacy() -> None:
+def test_okf_concepts_exported() -> None:
     import molexp.workspace as workspace
 
     # OKF concepts exported under unambiguous names
@@ -143,16 +140,7 @@ def test_exports_do_not_shadow_legacy() -> None:
     assert "ReferenceConcept" in workspace.__all__
     assert "ReferenceMeta" in workspace.__all__
 
-    # legacy bib-record Reference + ReferenceStore stay resolvable + unshadowed
-    from molexp.workspace.library.reference import Reference as RecordReference
-    from molexp.workspace.library.reference import ReferenceStore
-
-    assert workspace.Reference is RecordReference
-    assert workspace.Reference is not workspace.ReferenceConcept
-    assert ReferenceStore is workspace.ReferenceStore
-
-    # legacy NoteAsset stays resolvable + distinct from the OKF Note concept
-    from molexp.workspace.assets.note import NoteAsset
-
-    assert workspace.NoteAsset is NoteAsset
-    assert workspace.NoteAsset is not workspace.Note
+    # The legacy library surface is gone (wsokf-11).
+    for legacy in ("Library", "LibraryIndex", "NoteEntry", "NoteAsset", "ReferenceStore"):
+        assert legacy not in workspace.__all__
+        assert not hasattr(workspace, legacy)

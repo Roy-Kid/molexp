@@ -57,7 +57,6 @@ from .folder import (
     _validate_target_registered,
 )
 from .fs import PathArg
-from .library import Library
 from .models import ExperimentMetadata, FolderMetadata
 from .run import Run
 from .utils import generate_id
@@ -196,7 +195,6 @@ class Experiment(Folder):
         # Entity-specific state
         self._entity_metadata: ExperimentMetadata = meta
         self._data_assets: DataAssetLibrary | None = None
-        self._library: Library | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
 
@@ -235,7 +233,6 @@ class Experiment(Folder):
         attrs = cls.base_from_disk_attrs(parent, folder_meta) | {
             "_entity_metadata": meta,
             "_data_assets": None,
-            "_library": None,
         }
         return _reconstruct(cls, attrs)
 
@@ -321,13 +318,6 @@ class Experiment(Folder):
                 self.experiment_dir, self.scope, self.project.workspace.catalog
             )
         return self._data_assets
-
-    @property
-    def library(self) -> Library:
-        """Notes + references store for this experiment scope."""
-        if self._library is None:
-            self._library = Library(self.experiment_dir, self.scope, self.project.workspace.catalog)
-        return self._library
 
     def get_seeds(self) -> list[int]:
         """Return replica seeds (length == ``n_replicas``)."""

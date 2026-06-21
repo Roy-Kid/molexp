@@ -11,6 +11,13 @@ Cross-layer payloads are stored as opaque JSON dicts here; the
 upstream layers own the typed shape and own the typed parsing on
 read-back.
 
+Notes + literature are owned by the OKF Concepts (``Note`` /
+``ReferenceConcept`` + its typed ``ReferenceMeta``), reached via the
+``Bundle`` façade / ``concept_from_dir`` — directories whose path is
+their identity. ``ZoteroItem`` / ``read_zotero_items`` are the
+read-only Zotero importer that produces ``ReferenceConcept`` records
+(PDFs pointed at, never copied).
+
 Each scope exposes:
 
 - ``{scope}.assets``       — read-only catalog view (typed Asset queries)
@@ -22,20 +29,6 @@ Upstream layers extend the workspace tree by importing the public
 ``Folder`` base class and mounting their own subclasses via the
 generic five-verb CRUD — see ``molexp.agent.folders`` for the
 ``Agent`` / ``AgentSession`` pair.
-
-Two ``Reference`` / note shapes coexist here (wsokf-05) under unambiguous
-names — the OKF Concepts do NOT shadow the legacy storage:
-
-- ``Reference`` (+ ``ReferenceStore``) is the legacy bib *record* — a frozen
-  row in ``library/references.json`` — and ``NoteAsset`` is the legacy *file*
-  (a ``library/notes/<slug>.md`` Asset).
-- ``ReferenceConcept`` (+ its typed ``ReferenceMeta`` ``meta.yaml`` payload)
-  and ``Note`` are the OKF *Concepts* — directories whose path is their
-  identity, reached via ``Bundle`` / ``concept_from_dir``. ``ZoteroItem`` /
-  ``read_zotero_items`` are the read-only Zotero importer that produces
-  ``ReferenceConcept`` records (PDFs pointed at, never copied).
-
-The legacy storage is retired only in the later workspace-storage cleanup.
 """
 
 from .assets import (
@@ -50,7 +43,6 @@ from .assets import (
     DataAssetLibrary,
     ErrorTraceAsset,
     LogAsset,
-    NoteAsset,
     Producer,
 )
 from .base import atomic_write_json, atomic_write_text
@@ -77,7 +69,6 @@ from .folder import (
     WORKSPACE_RUN_KIND,
     Folder,
 )
-from .library import Library, LibraryIndex, NoteEntry, Reference, ReferenceStore
 from .models import (
     ComputeTarget,
     ErrorInfo,
@@ -157,16 +148,11 @@ __all__ = [
     "FolderMetadata",
     "FolderMoveCollisionError",
     "GridSpace",
-    # Library — notes + references per scope
-    "Library",
-    "LibraryIndex",
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
     "LogAsset",
-    # OKF Note Concept (wsokf-05) — a directory; coexists with file-backed NoteAsset
+    # OKF Note Concept (wsokf-05) — a directory whose path is its identity
     "Note",
-    "NoteAsset",
-    "NoteEntry",
     # Parameters
     "ParamSpace",
     "Params",
@@ -175,13 +161,10 @@ __all__ = [
     "ProjectExistsError",
     "ProjectMetadata",
     "ProjectNotFoundError",
-    # Legacy bib-record Reference (a row in references.json) + its store
-    "Reference",
-    # OKF Reference Concept (wsokf-05) — a directory; named to NOT shadow the
-    # legacy record Reference above. Its typed meta.yaml payload is ReferenceMeta.
+    # OKF Reference Concept (wsokf-05) — a directory whose path is its
+    # identity. Its typed meta.yaml payload is ReferenceMeta.
     "ReferenceConcept",
     "ReferenceMeta",
-    "ReferenceStore",
     "RemoteTarget",
     "Run",
     "RunContext",

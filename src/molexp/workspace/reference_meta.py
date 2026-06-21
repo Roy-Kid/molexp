@@ -3,8 +3,7 @@
 A :class:`molexp.workspace.concepts.ReferenceConcept` stores its bibliographic
 record in ``meta.yaml`` via this :class:`ConceptMeta` subtype; the narrative
 citation text lives in its ``index.md``. PDFs are *pointed at* (``pdf_path`` /
-``pdf_asset_id``), never copied — mirroring the legacy bib-record
-``molexp.workspace.library.Reference``.
+``pdf_asset_id``), never copied.
 
 This is a port of ``molexp.knowledge.references.ReferenceMeta`` onto the
 workspace surface, subclassing the workspace-local

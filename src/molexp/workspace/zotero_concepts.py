@@ -7,9 +7,7 @@ turns these into :class:`molexp.workspace.concepts.ReferenceConcept` Concepts
 whose ``ReferenceMeta.pdf_path`` points at (never copies) the original file.
 
 This is a port of ``molexp.knowledge.zotero`` onto the workspace surface; it is
-the *concept-producing* importer and is distinct from the legacy record-path
-``molexp.workspace.library.zotero`` (which yields bib-record ``Reference`` rows).
-The two coexist until the post-migration cleanup.
+the *concept-producing* importer that yields ``ReferenceConcept`` directories.
 """
 
 from __future__ import annotations

@@ -8,9 +8,7 @@ spirit as ``.claude/specs/INDEX.md``). Both are rebuilt on demand from the
 authoritative ``meta.yaml`` + ``index.md`` graph — never a source of truth (the
 workspace "one source of truth" law).
 
-This is a NEW model distinct from the per-scope ``workspace.LibraryIndex`` (an
-index *of notes and references inside one scope*); ``BundleIndex`` is an index
-*of every Concept in a directory subtree*.
+``BundleIndex`` is an index *of every Concept in a directory subtree*.
 """
 
 from __future__ import annotations

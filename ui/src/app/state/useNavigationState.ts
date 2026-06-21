@@ -8,7 +8,6 @@ const sectionRootByView: Record<LeftPanelView, string> = {
   runs: "/runs",
   workflow: "/workflows",
   asset: "/assets",
-  library: "/library",
   agent: "/agent-tasks",
   settings: "/settings",
 };
@@ -52,9 +51,6 @@ export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   }
   if (pathname.startsWith("/assets")) {
     return "asset";
-  }
-  if (pathname.startsWith("/library")) {
-    return "library";
   }
   if (pathname.startsWith("/agent-tasks")) {
     return "agent";

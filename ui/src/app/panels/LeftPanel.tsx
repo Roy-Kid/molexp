@@ -14,7 +14,6 @@ import {
   FolderPlus,
   FolderTree,
   HardDrive,
-  Library as LibraryIcon,
   PlayCircle,
   Plus,
   RefreshCw,
@@ -96,7 +95,6 @@ const viewOptions: ViewOption[] = [
   { id: "workflow", label: "Workflow", icon: Workflow },
   { id: "workspace", label: "Workspace", icon: FolderTree },
   { id: "asset", label: "Asset", icon: Archive },
-  { id: "library", label: "Library", icon: LibraryIcon },
   { id: "agent", label: "Agent Tasks", icon: Bot },
 ];
 
@@ -106,7 +104,6 @@ const listHeaderByView: Record<LeftPanelView, string> = {
   runs: "Runs",
   asset: "Assets",
   workflow: "Workflows",
-  library: "Library",
   agent: "Agent Tasks",
   settings: "Settings",
 };
@@ -1055,18 +1052,6 @@ export const LeftPanel = ({
     ),
     workflow: (
       <TreeView nodes={workflowNodes} activeId={activeId} emptyTitle={EMPTY_COPY.entries.title} />
-    ),
-    library: (
-      <nav className="space-y-2 px-1 pb-4 text-xs text-muted-foreground">
-        <p className="leading-relaxed">
-          Notes &amp; literature for the workspace and each project. Open the Library to preview
-          markdown notes and manage references.
-        </p>
-        <p className="leading-relaxed">
-          Every scope's <code className="rounded bg-muted px-1">library/INDEX.md</code> is what the
-          agent reads to find what you know.
-        </p>
-      </nav>
     ),
     agent: (
       <TreeView
