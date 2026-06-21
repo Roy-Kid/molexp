@@ -21,7 +21,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import ClassVar, cast
 
-from .folder import Folder
+from .folder import META_FILE, Folder, append_link
 from .ops import (
     RUN_OPS_NAME,
     TERMINAL_STATUSES,
@@ -30,6 +30,7 @@ from .ops import (
     RunStatus,
     _utcnow,
 )
+from .references import ReferenceMeta
 from .types import concept_type
 
 
@@ -237,4 +238,87 @@ class Workspace(Folder):
         self.remove_folder(name)
 
 
-__all__ = ["Experiment", "Project", "Run", "Workspace"]
+@concept_type("note")
+class Note(Folder):
+    """A note Concept — narrative in ``index.md``, citations as markdown links.
+
+    Mountable anywhere (default convention: under a project). Its body is the
+    ``index.md`` text; :meth:`cite` records a reference as a markdown link so
+    :meth:`out_edges` resolves it back.
+    """
+
+    DEFAULT_TYPE: ClassVar[str] = "note"
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        parent: Folder | None = None,
+        root: str | os.PathLike[str] | None = None,
+        concept_type: str | None = None,
+    ) -> None:
+        super().__init__(
+            name=name,
+            parent=parent,
+            root=root,
+            concept_type=concept_type or self.DEFAULT_TYPE,
+        )
+
+    def body(self) -> str:
+        """Return the note body (its ``index.md``)."""
+        return self.read_index()
+
+    def set_body(self, text: str) -> None:
+        """Set the note body (its ``index.md``)."""
+        self.write_index(text)
+
+    def cite(self, ref: Folder, *, text: str | None = None) -> None:
+        """Cite *ref* — append a markdown link resolvable via :meth:`out_edges`."""
+        append_link(self, ref, text=text)
+
+
+@concept_type("reference")
+class Reference(Folder):
+    """A reference Concept — a bibliographic record (one Concept per ref).
+
+    Structured bib fields live in ``meta.yaml`` (:class:`ReferenceMeta`); the
+    human-readable citation text lives in ``index.md``. PDFs are pointed at via
+    ``ReferenceMeta.pdf_path`` / ``pdf_asset_id`` — never copied.
+    """
+
+    DEFAULT_TYPE: ClassVar[str] = "reference"
+
+    def __init__(
+        self,
+        *,
+        name: str,
+        parent: Folder | None = None,
+        root: str | os.PathLike[str] | None = None,
+        concept_type: str | None = None,
+    ) -> None:
+        super().__init__(
+            name=name,
+            parent=parent,
+            root=root,
+            concept_type=concept_type or self.DEFAULT_TYPE,
+        )
+
+    def read_ref_meta(self) -> ReferenceMeta:
+        """Load this reference's typed bib ``meta.yaml``."""
+        text = (self.resolve() / META_FILE).read_text(encoding="utf-8")
+        return cast(ReferenceMeta, ReferenceMeta.from_yaml(text))
+
+    def write_ref_meta(self, meta: ReferenceMeta) -> None:
+        """Atomically write this reference's typed bib ``meta.yaml``."""
+        self.write_meta(meta)
+
+    def citation(self) -> str:
+        """Return the human-readable citation text (its ``index.md``)."""
+        return self.read_index()
+
+    def set_citation(self, text: str) -> None:
+        """Set the human-readable citation text (its ``index.md``)."""
+        self.write_index(text)
+
+
+__all__ = ["Experiment", "Note", "Project", "Reference", "Run", "Workspace"]

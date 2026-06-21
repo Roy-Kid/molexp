@@ -303,6 +303,18 @@ class Folder:
         return updated
 
 
+def append_link(src: Folder, dst: Folder, *, text: str | None = None) -> None:
+    """Append a markdown link ``src → dst`` to ``src``'s ``index.md``.
+
+    The link is written relative to *src* so :meth:`Folder.out_edges` resolves
+    it back to *dst*. The semantic graph lives in markdown, never in
+    ``meta.yaml``. Shared by ``Library.link`` and ``Note.cite``.
+    """
+    rel = os.path.relpath(Path(dst.resolve()), Path(src.resolve()))
+    label = text or dst.name
+    src.write_index(src.read_index() + f"- [{label}]({rel})\n")
+
+
 def concept_from_dir(
     directory: Path,
     *,
@@ -326,4 +338,4 @@ def concept_from_dir(
     return cls(name=directory.name, parent=parent, root=root, concept_type=meta_type)
 
 
-__all__ = ["Folder", "LinkScan", "concept_from_dir"]
+__all__ = ["Folder", "LinkScan", "append_link", "concept_from_dir"]

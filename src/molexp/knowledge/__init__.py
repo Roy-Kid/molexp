@@ -21,13 +21,14 @@ an open concept-type registry (okf-02 — ``@concept_type`` reconstructs the
 right subclass from each Concept's ``meta.yaml`` ``type``) are in place.
 """
 
-from .concepts import Experiment, Project, Run, Workspace
+from .concepts import Experiment, Note, Project, Reference, Run, Workspace
 from .errors import ConceptExistsError, ConceptNotFoundError
 from .folder import Folder, LinkScan
 from .index import ConceptIndexEntry, LibraryIndex
 from .library import Library
 from .models import ConceptMeta
 from .ops import RETRYABLE_STATUSES, ExecutionRecord, RunOpsState, RunStatus
+from .references import ReferenceMeta
 from .types import concept_type, register_concept_type, resolve_concept_type
 
 __all__ = [
@@ -42,7 +43,10 @@ __all__ = [
     "Library",
     "LibraryIndex",
     "LinkScan",
+    "Note",
     "Project",
+    "Reference",
+    "ReferenceMeta",
     "Run",
     "RunOpsState",
     "RunStatus",

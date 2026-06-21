@@ -30,8 +30,9 @@ from pathlib import Path, PurePosixPath
 
 import molexp.atomicio as atomicio
 
+from .concepts import Note, Reference
 from .errors import ConceptNotFoundError
-from .folder import OPS_DIR, Folder, _is_concept_dir, concept_from_dir
+from .folder import OPS_DIR, Folder, _is_concept_dir, append_link, concept_from_dir
 from .index import (
     INDEX_JSON_FILENAME,
     INDEX_MD_FILENAME,
@@ -114,10 +115,15 @@ class Library:
         in markdown, never in ``meta.yaml``. Appends unconditionally; link
         dedup/edge-typing remain a future enhancement.
         """
-        rel = os.path.relpath(Path(dst.resolve()), Path(src.resolve()))
-        label = text or dst.name
-        line = f"- [{label}]({rel})\n"
-        src.write_index(src.read_index() + line)
+        append_link(src, dst, text=text)
+
+    def references(self) -> list[Reference]:
+        """Every Reference Concept in the bundle (typed view of :meth:`walk`)."""
+        return [c for c in self.walk() if isinstance(c, Reference)]
+
+    def notes(self) -> list[Note]:
+        """Every Note Concept in the bundle (typed view of :meth:`walk`)."""
+        return [c for c in self.walk() if isinstance(c, Note)]
 
     # ── derived index + search (okf-03) ──────────────────────────────────
 
