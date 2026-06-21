@@ -22,7 +22,6 @@ from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StagePersistedFailureError
 from molexp.harness.schemas import (
     ArtifactRef,
-    TestSpec,
     TestSpecBundle,
     ValidationReport,
     ValidationViolation,
@@ -32,24 +31,6 @@ from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.test_spec import validate_test_spec
 
 __all__ = ["ValidateTestSpec"]
-
-
-def load_test_spec_bundle(raw: bytes | str) -> TestSpecBundle:
-    """Parse a ``test_spec`` artifact as a :class:`TestSpecBundle`.
-
-    Accepts the current bundle shape; falls back to a bare :class:`TestSpec`
-    (wrapped as a one-element bundle) so single-spec artifacts written before
-    the per-task fan-out still validate. Raises if it is neither.
-    """
-    try:
-        return TestSpecBundle.model_validate_json(raw)
-    except ValueError:
-        spec = TestSpec.model_validate_json(raw)
-        return TestSpecBundle(
-            id=spec.id,
-            bound_workflow_id=spec.target_workflow_id or "",
-            specs=[spec],
-        )
 
 
 class ValidateTestSpec(Stage):
@@ -65,7 +46,7 @@ class ValidateTestSpec(Stage):
         raw = ctx.artifact_store.get(target)
 
         try:
-            bundle = load_test_spec_bundle(raw)
+            bundle = TestSpecBundle.from_artifact(raw)
         except Exception as exc:
             report = ValidationReport.from_violations(
                 target_kind="test_spec",

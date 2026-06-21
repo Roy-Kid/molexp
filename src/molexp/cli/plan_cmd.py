@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from molexp._typing import JSONValue
     from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.stages import Approver
+    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
     from molexp.workspace.run import Run
 
 __all__ = ["plan"]
@@ -36,29 +36,45 @@ __all__ = ["plan"]
 _DRAFT_PREVIEW_CHARS = 80
 
 
-def _make_approver(*, assume_yes: bool, run: Run) -> Approver | None:
-    """Build the experiment-report review approver, or ``None`` for auto-grant.
+class InteractiveApprover:
+    """``Approver`` for ``molexp plan``'s experiment-report review checkpoint.
 
-    Returns ``None`` — letting the gate use its auto-grant default — when
-    ``assume_yes`` is set or stdin is not a TTY (CI, pipes, the test runner),
-    so non-interactive pipelines never block. On an interactive terminal it
-    returns an async approver that prints the latest ``experiment_report`` and
-    prompts ``[y/N]`` before the plan compiles. A seam: tests monkeypatch this.
+    A callable approver (mirrors the ``Approver`` protocol via
+    :meth:`__call__`). It **auto-grants without prompting** when ``assume_yes``
+    is set or stdin is not a TTY (CI, pipes, the test runner) — so
+    non-interactive pipelines never block; on an interactive terminal it prints
+    the latest ``experiment_report`` and prompts ``[y/N]`` before the plan
+    compiles. ``PlanMode(approver=InteractiveApprover(...))`` wires it in.
     """
-    import sys
 
-    if assume_yes or not sys.stdin.isatty():
-        return None
+    def __init__(self, *, run: Run, assume_yes: bool = False) -> None:
+        self._run = run
+        self._assume_yes = assume_yes
 
-    from datetime import UTC, datetime
+    def _interactive(self) -> bool:
+        import sys
 
-    from molexp.cli._common import rprint
-    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ExperimentReport
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+        return not self._assume_yes and sys.stdin.isatty()
 
-    store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
+    async def __call__(self, request: ApprovalRequest) -> ApprovalDecision:
+        from datetime import UTC, datetime
 
-    async def approver(request: ApprovalRequest) -> ApprovalDecision:
+        from molexp.harness.schemas import ApprovalDecision
+
+        if not self._interactive():
+            return ApprovalDecision(
+                request_id=request.id,
+                granted=True,
+                decided_by="cli-non-interactive",
+                decided_at=datetime.now(tz=UTC),
+                reason="auto-granted (non-interactive: --yes or no TTY)",
+            )
+
+        from molexp.cli._common import rprint
+        from molexp.harness.schemas import ExperimentReport
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        store = FileArtifactStore(root=Path(self._run.run_dir / "artifacts"))
         ref = store.latest_by_kind("experiment_report")
         if ref is not None:
             report = ExperimentReport.model_validate_json(store.get(ref.id))
@@ -70,16 +86,13 @@ def _make_approver(*, assume_yes: bool, run: Run) -> Approver | None:
             if report.assumptions:
                 rprint(f"  assumptions: {'; '.join(report.assumptions)}")
         answer = input(f"Approve this experiment report? [{request.intent}] [y/N] ").strip().lower()
-        granted = answer in ("y", "yes")
         return ApprovalDecision(
             request_id=request.id,
-            granted=granted,
+            granted=answer in ("y", "yes"),
             decided_by="cli-interactive",
             decided_at=datetime.now(tz=UTC),
             reason=f"operator answered {answer!r}",
         )
-
-    return approver
 
 
 def _configured_model() -> str | None:
@@ -257,7 +270,7 @@ def plan(
         .add_run(params, id=deterministic_run_id(params))
     )
 
-    mode = PlanMode(approver=_make_approver(assume_yes=yes, run=run))
+    mode = PlanMode(approver=InteractiveApprover(run=run, assume_yes=yes))
     stage_names = [stage.name for stage in mode.stages(draft_text)]
     preview = draft_text.strip().splitlines()[0][:_DRAFT_PREVIEW_CHARS]
     rprint(f"[bold]molexp plan[/bold] — {len(stage_names)} stages on run [bold]{run.id}[/bold]")

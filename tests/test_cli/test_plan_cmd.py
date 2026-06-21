@@ -162,32 +162,48 @@ def test_plan_runs_all_stages_against_a_workspace(
     assert (run_dir / ".mode_ledger").is_dir(), "per-run completion ledger written"
 
 
-def test_plan_non_interactive_default_auto_grants(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """ac-007 — under CliRunner (stdin is not a TTY) the experiment-spec
-    review checkpoint auto-grants, with and without --yes; neither blocks."""
-    _patch_gateway(monkeypatch)
-    base = ["plan", "Simulate NEMD", "--workspace", str(tmp_path), "--model", "stub-model"]
+class TestInteractiveApprover:
+    """The experiment-report review checkpoint on ``molexp plan``."""
 
-    default_run = runner.invoke(app, base)
-    assert default_run.exit_code == 0, default_run.output
-    assert "all stages completed" in default_run.output
+    def test_plan_non_interactive_default_auto_grants(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """ac-007 — under CliRunner (stdin is not a TTY) the experiment-spec
+        review checkpoint auto-grants, with and without --yes; neither blocks."""
+        _patch_gateway(monkeypatch)
+        base = ["plan", "Simulate NEMD", "--workspace", str(tmp_path), "--model", "stub-model"]
 
-    yes_run = runner.invoke(app, [*base, "--yes"])
-    assert yes_run.exit_code == 0, yes_run.output
-    assert "all stages completed" in yes_run.output
+        default_run = runner.invoke(app, base)
+        assert default_run.exit_code == 0, default_run.output
+        assert "all stages completed" in default_run.output
 
+        yes_run = runner.invoke(app, [*base, "--yes"])
+        assert yes_run.exit_code == 0, yes_run.output
+        assert "all stages completed" in yes_run.output
 
-def test_make_approver_returns_none_when_assume_yes(tmp_path: Path) -> None:
-    """ac-006 — the seam yields auto-grant (None) when --yes is set."""
-    from molexp.cli.plan_cmd import _make_approver
-    from molexp.workspace import Workspace
+    def test_auto_grants_when_assume_yes(self, tmp_path: Path) -> None:
+        """ac-006 — InteractiveApprover auto-grants (no prompt) when --yes is set."""
+        import asyncio
+        from datetime import UTC, datetime
 
-    ws = Workspace(tmp_path / "lab", name="lab")
-    ws.materialize()
-    run = ws.add_project("p").add_experiment("e").add_run(params={})
-    assert _make_approver(assume_yes=True, run=run) is None
+        from molexp.cli.plan_cmd import InteractiveApprover
+        from molexp.harness.schemas import ApprovalRequest
+        from molexp.workspace import Workspace
+
+        ws = Workspace(tmp_path / "lab", name="lab")
+        ws.materialize()
+        run = ws.add_project("p").add_experiment("e").add_run(params={})
+        approver = InteractiveApprover(run=run, assume_yes=True)
+        request = ApprovalRequest(
+            id="r",
+            intent="experiment_spec",
+            reason="x",
+            triggered_by_policy="t",
+            created_at=datetime.now(tz=UTC),
+        )
+        decision = asyncio.run(approver(request))
+        assert decision.granted is True
+        assert decision.decided_by == "cli-non-interactive"
 
 
 @pytest.mark.integration

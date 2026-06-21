@@ -84,6 +84,21 @@ class TestSpecBundle(BaseModel):
     bound_workflow_id: str
     specs: list[TestSpec] = Field(default_factory=list)
 
+    @classmethod
+    def from_artifact(cls, raw: bytes | str) -> TestSpecBundle:
+        """Parse a ``test_spec`` artifact body as a bundle.
+
+        Accepts the current bundle shape; falls back to a bare
+        :class:`TestSpec` (wrapped as a one-element bundle) so single-spec
+        artifacts written before the per-task fan-out still load. Raises if
+        the bytes are neither a bundle nor a TestSpec.
+        """
+        try:
+            return cls.model_validate_json(raw)
+        except ValueError:
+            spec = TestSpec.model_validate_json(raw)
+            return cls(id=spec.id, bound_workflow_id=spec.target_workflow_id or "", specs=[spec])
+
 
 class TestResult(BaseModel):
     """Outcome of running one :class:`TestSpec`."""

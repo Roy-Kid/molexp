@@ -37,13 +37,15 @@ def _doc_text() -> str:
     return _DOC.read_text(encoding="utf-8")
 
 
-def test_agent_doc_has_no_stale_symbols() -> None:
-    text = _doc_text()
-    present = [token for token in _FORBIDDEN if token in text]
-    assert not present, f"docs/concept/agent.md carries stale API spellings: {present}"
+class TestAgentDocTruth:
+    """Guards the prose of ``docs/concept/agent.md`` against API drift."""
 
+    def test_has_no_stale_symbols(self) -> None:
+        text = _doc_text()
+        present = [token for token in _FORBIDDEN if token in text]
+        assert not present, f"docs/concept/agent.md carries stale API spellings: {present}"
 
-def test_agent_doc_documents_current_call_shapes() -> None:
-    text = _doc_text()
-    missing = [token for token in _REQUIRED if token not in text]
-    assert not missing, f"docs/concept/agent.md is missing current call shapes: {missing}"
+    def test_documents_current_call_shapes(self) -> None:
+        text = _doc_text()
+        missing = [token for token in _REQUIRED if token not in text]
+        assert not missing, f"docs/concept/agent.md is missing current call shapes: {missing}"

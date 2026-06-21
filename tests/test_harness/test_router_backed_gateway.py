@@ -462,58 +462,62 @@ async def test_gateway_forwards_system_prompt_into_complete_structured(
 # ── prompt provenance: composed prompt persisted + wired into lineage ─────
 
 
-@pytest.mark.asyncio
-async def test_call_persists_composed_prompt_artifact_with_lineage(
-    tmp_path: Path,
-) -> None:
-    """The composed prompt is persisted as a ``kind="prompt"`` artifact and
-    threaded into the output + raw lineage — without dropping the input ids.
+class TestRouterBackedAgentGatewayPromptProvenance:
+    """The gateway persists the composed prompt as a first-class artifact."""
 
-    Audit replay can then reconstruct the exact LLM *input*, not just its
-    response. The prompt artifact itself derives from the input artifacts.
-    """
-    from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
-    from molexp.harness.schemas import AgentCallSpec
-    from molexp.harness.store.file_artifact_store import FileArtifactStore
+    @pytest.mark.asyncio
+    async def test_call_persists_composed_prompt_artifact_with_lineage(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """The composed prompt is persisted as a ``kind="prompt"`` artifact and
+        threaded into the output + raw lineage — without dropping the input ids.
 
-    instance = _TinyReport(title="audited", score=9)
-    router = _RecordingRouter(instance=instance)
-    store = FileArtifactStore(root=tmp_path / "artifacts")
-    gateway = RouterBackedAgentGateway(
-        router=router,
-        artifact_store=store,
-        agent_responses={"tiny_writer": _TinyReport},
-        output_kind_by_agent={"tiny_writer": "experiment_report"},
-    )
+        Audit replay can then reconstruct the exact LLM *input*, not just its
+        response. The prompt artifact itself derives from the input artifacts.
+        """
+        from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
+        from molexp.harness.schemas import AgentCallSpec
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
 
-    parent = store.put_text(
-        kind="user_plan",
-        text="run a tiny experiment",
-        created_by="test",
-        parent_ids=[],
-    )
-
-    result = await gateway.call(
-        AgentCallSpec(
-            agent_name="tiny_writer",
-            input_artifact_ids=[parent.id],
-            output_schema=_TinyReport.model_json_schema(),
+        instance = _TinyReport(title="audited", score=9)
+        router = _RecordingRouter(instance=instance)
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = RouterBackedAgentGateway(
+            router=router,
+            artifact_store=store,
+            agent_responses={"tiny_writer": _TinyReport},
+            output_kind_by_agent={"tiny_writer": "experiment_report"},
         )
-    )
 
-    prompt_refs = store.list_by_kind("prompt")
-    assert len(prompt_refs) == 1
-    prompt_ref = prompt_refs[0]
+        parent = store.put_text(
+            kind="user_plan",
+            text="run a tiny experiment",
+            created_by="test",
+            parent_ids=[],
+        )
 
-    # The persisted prompt is the exact composed prompt (here, the single
-    # input artifact's text).
-    assert store.get(prompt_ref.id).decode("utf-8") == "run a tiny experiment"
+        result = await gateway.call(
+            AgentCallSpec(
+                agent_name="tiny_writer",
+                input_artifact_ids=[parent.id],
+                output_schema=_TinyReport.model_json_schema(),
+            )
+        )
 
-    # Output + raw lineage include BOTH the input id and the prompt id.
-    assert parent.id in result.output_artifact.parent_ids
-    assert prompt_ref.id in result.output_artifact.parent_ids
-    assert parent.id in result.raw_response_artifact.parent_ids
-    assert prompt_ref.id in result.raw_response_artifact.parent_ids
+        prompt_refs = store.list_by_kind("prompt")
+        assert len(prompt_refs) == 1
+        prompt_ref = prompt_refs[0]
 
-    # The prompt artifact derives from the input it was composed from.
-    assert parent.id in prompt_ref.parent_ids
+        # The persisted prompt is the exact composed prompt (here, the single
+        # input artifact's text).
+        assert store.get(prompt_ref.id).decode("utf-8") == "run a tiny experiment"
+
+        # Output + raw lineage include BOTH the input id and the prompt id.
+        assert parent.id in result.output_artifact.parent_ids
+        assert prompt_ref.id in result.output_artifact.parent_ids
+        assert parent.id in result.raw_response_artifact.parent_ids
+        assert prompt_ref.id in result.raw_response_artifact.parent_ids
+
+        # The prompt artifact derives from the input it was composed from.
+        assert parent.id in prompt_ref.parent_ids

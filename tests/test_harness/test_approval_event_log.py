@@ -114,27 +114,30 @@ def test_record_approval_decision_rejected(event_log) -> None:
     assert event.type == "approval_rejected"
 
 
-def test_record_approval_decision_serializes_decided_at(event_log) -> None:
-    """decided_at reaches the persisted event payload as an ISO string for
-    both granted and rejected decisions, without dropping existing keys."""
-    from molexp.harness.policy.event_log import record_approval_decision
-    from molexp.harness.schemas.approval import ApprovalDecision
+class TestRecordApprovalDecisionTimestamp:
+    """record_approval_decision serializes decided_at into the event payload."""
 
-    req = _request()
-    decided_at = datetime(2026, 5, 26, 14, 30, tzinfo=UTC)
-    for granted in (True, False):
-        decision = ApprovalDecision(
-            request_id=req.id,
-            granted=granted,
-            decided_by="alice",
-            decided_at=decided_at,
-            reason="r",
-        )
-        event = record_approval_decision(event_log, "run-001", req, decision)
-        assert event.payload["decided_at"] == decided_at.isoformat()
-        # Existing keys remain present.
-        for key in ("request_id", "intent", "decided_by", "reason"):
-            assert key in event.payload
+    def test_serializes_decided_at_for_granted_and_rejected(self, event_log) -> None:
+        """decided_at reaches the persisted event payload as an ISO string for
+        both granted and rejected decisions, without dropping existing keys."""
+        from molexp.harness.policy.event_log import record_approval_decision
+        from molexp.harness.schemas.approval import ApprovalDecision
+
+        req = _request()
+        decided_at = datetime(2026, 5, 26, 14, 30, tzinfo=UTC)
+        for granted in (True, False):
+            decision = ApprovalDecision(
+                request_id=req.id,
+                granted=granted,
+                decided_by="alice",
+                decided_at=decided_at,
+                reason="r",
+            )
+            event = record_approval_decision(event_log, "run-001", req, decision)
+            assert event.payload["decided_at"] == decided_at.isoformat()
+            # Existing keys remain present.
+            for key in ("request_id", "intent", "decided_by", "reason"):
+                assert key in event.payload
 
 
 def test_record_approval_decision_actor_override(event_log) -> None:

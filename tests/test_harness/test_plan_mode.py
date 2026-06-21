@@ -142,73 +142,74 @@ def test_plan_mode_declares_the_ten_stage_sequence() -> None:
     assert names.index("extract_workflow_ir") == names.index("approve_experiment_spec") + 1
 
 
-def test_experiment_spec_is_a_valid_approval_intent() -> None:
-    """ac-001 — the new intent validates; the prior intents still do."""
-    from datetime import UTC, datetime
+class TestPlanModeReviewCheckpoint:
+    """The early experiment_spec review gate and its injected approver."""
 
-    from molexp.harness.schemas import ApprovalRequest
+    def test_experiment_spec_is_a_valid_approval_intent(self) -> None:
+        """ac-001 — the new intent validates; the prior intents still do."""
+        from datetime import UTC, datetime
 
-    for intent in (
-        "experiment_spec",
-        "final_report",
-        "hpc_submission",
-        "agent_inferred_scientific_parameters",
-        "full_execution",
-        "large_resource_request",
-        "overwrite",
-    ):
-        req = ApprovalRequest(
-            id="x",
-            intent=intent,
-            reason="r",
-            triggered_by_policy="t",
-            created_at=datetime.now(tz=UTC),
-        )
-        assert req.intent == intent
+        from molexp.harness.schemas import ApprovalRequest
 
+        for intent in (
+            "experiment_spec",
+            "final_report",
+            "hpc_submission",
+            "agent_inferred_scientific_parameters",
+            "full_execution",
+            "large_resource_request",
+            "overwrite",
+        ):
+            req = ApprovalRequest(
+                id="x",
+                intent=intent,
+                reason="r",
+                triggered_by_policy="t",
+                created_at=datetime.now(tz=UTC),
+            )
+            assert req.intent == intent
 
-def test_rejecting_approver_aborts_before_workflow_ir(tmp_path: Path) -> None:
-    """ac-005 — a rejecting review approver raises before ExtractWorkflowIR, so
-    no workflow_ir artifact is ever produced (the report does exist)."""
-    from datetime import UTC, datetime
+    def test_rejecting_approver_aborts_before_workflow_ir(self, tmp_path: Path) -> None:
+        """ac-005 — a rejecting review approver raises before ExtractWorkflowIR,
+        so no workflow_ir artifact is ever produced (the report does exist)."""
+        from datetime import UTC, datetime
 
-    from molexp.harness import StageExecutionError
-    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
+        from molexp.harness import StageExecutionError
+        from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
 
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-    store = FileArtifactStore(root=run.run_dir / "artifacts")
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
+        store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-    async def reject(request: ApprovalRequest) -> ApprovalDecision:
-        return ApprovalDecision(
-            request_id=request.id,
-            granted=False,
-            decided_by="test",
-            decided_at=datetime.now(tz=UTC),
-            reason="nope",
-        )
+        async def reject(request: ApprovalRequest) -> ApprovalDecision:
+            return ApprovalDecision(
+                request_id=request.id,
+                granted=False,
+                decided_by="test",
+                decided_at=datetime.now(tz=UTC),
+                reason="nope",
+            )
 
-    try:
-        asyncio.run(PlanMode(approver=reject).run(run=run, user_input="draft", gateway=gateway))
-    except StageExecutionError:
-        pass
-    else:  # pragma: no cover - the gate must abort
-        raise AssertionError("rejecting approver must raise StageExecutionError")
+        try:
+            asyncio.run(PlanMode(approver=reject).run(run=run, user_input="draft", gateway=gateway))
+        except StageExecutionError:
+            pass
+        else:  # pragma: no cover - the gate must abort
+            raise AssertionError("rejecting approver must raise StageExecutionError")
 
-    assert store.latest_by_kind("experiment_report") is not None
-    assert store.latest_by_kind("workflow_ir") is None
+        assert store.latest_by_kind("experiment_report") is not None
+        assert store.latest_by_kind("workflow_ir") is None
 
+    def test_default_approver_completes_all_ten_stages(self, tmp_path: Path) -> None:
+        """ac-004 — PlanMode() (auto-grant) runs all ten stages offline."""
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
 
-def test_default_approver_completes_all_ten_stages(tmp_path: Path) -> None:
-    """ac-004 — PlanMode() (auto-grant) runs all ten stages offline."""
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-
-    result = asyncio.run(PlanMode().run(run=run, user_input="draft", gateway=gateway))
-    assert len(result.stage_artifacts) == 10
-    kinds = [a.kind for a in result.stage_artifacts]
-    assert "workflow_source" in kinds
-    assert kinds.count("analysis_result") == 2  # both gates ran to completion
+        result = asyncio.run(PlanMode().run(run=run, user_input="draft", gateway=gateway))
+        assert len(result.stage_artifacts) == 10
+        kinds = [a.kind for a in result.stage_artifacts]
+        assert "workflow_source" in kinds
+        assert kinds.count("analysis_result") == 2  # both gates ran to completion
 
 
 # ───────────────────────────────────── ac-003 / ac-004 / ac-006: offline run

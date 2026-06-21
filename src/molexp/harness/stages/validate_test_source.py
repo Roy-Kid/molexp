@@ -78,13 +78,13 @@ class ValidateTestSource(Stage):
         ``test_spec`` bundle's specs, or ``None`` when no parseable bundle is
         present (legacy "at least one test" enforcement then stands alone).
         """
-        from molexp.harness.stages.validate_test_spec import load_test_spec_bundle
+        from molexp.harness.schemas import TestSpecBundle
 
         ref = ctx.artifact_store.latest_by_kind("test_spec")
         if ref is None:
             return None
         try:
-            bundle = load_test_spec_bundle(ctx.artifact_store.get(ref.id))
+            bundle = TestSpecBundle.from_artifact(ctx.artifact_store.get(ref.id))
         except Exception:
             return None
         ids = {spec.target_task_id for spec in bundle.specs if spec.target_task_id}

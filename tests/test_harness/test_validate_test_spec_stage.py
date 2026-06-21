@@ -133,34 +133,36 @@ def test_happy_path_persists_passing_report(ctx) -> None:
     assert report.target_kind == "test_spec"
 
 
-def test_bundle_validates_every_member_spec(ctx) -> None:
-    """ac-004 — a TestSpecBundle is validated per-member into one report."""
-    from molexp.harness import ValidateTestSpec, ValidationReport
+class TestValidateTestSpecBundle:
+    """ValidateTestSpec validates every member of a TestSpecBundle."""
 
-    bundle = {
-        "id": "tsb-1",
-        "bound_workflow_id": "wf",
-        "specs": [_test_spec_dict(), _test_spec_dict()],
-    }
-    _seed(ctx, "test_spec", bundle)
-    report_ref = asyncio.run(ValidateTestSpec().run(ctx))
-    report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
-    assert report.passed is True
-    assert report.target_kind == "test_spec"
+    def test_bundle_validates_every_member_spec(self, ctx) -> None:
+        """ac-004 — a TestSpecBundle is validated per-member into one report."""
+        from molexp.harness import ValidateTestSpec, ValidationReport
 
+        bundle = {
+            "id": "tsb-1",
+            "bound_workflow_id": "wf",
+            "specs": [_test_spec_dict(), _test_spec_dict()],
+        }
+        _seed(ctx, "test_spec", bundle)
+        report_ref = asyncio.run(ValidateTestSpec().run(ctx))
+        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
+        assert report.passed is True
+        assert report.target_kind == "test_spec"
 
-def test_empty_bundle_fails_validation(ctx) -> None:
-    """ac-004 — a bundle with no specs is itself a violation."""
-    from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
+    def test_empty_bundle_fails_validation(self, ctx) -> None:
+        """ac-004 — a bundle with no specs is itself a violation."""
+        from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
 
-    _seed(ctx, "test_spec", {"id": "tsb-empty", "bound_workflow_id": "wf", "specs": []})
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(ValidateTestSpec().run(ctx))
+        _seed(ctx, "test_spec", {"id": "tsb-empty", "bound_workflow_id": "wf", "specs": []})
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(ValidateTestSpec().run(ctx))
 
-    report_ref = ctx.artifact_store.latest_by_kind("validation_report")
-    report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
-    assert report.passed is False
-    assert any(v.code == "empty_test_spec_bundle" for v in report.violations)
+        report_ref = ctx.artifact_store.latest_by_kind("validation_report")
+        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
+        assert report.passed is False
+        assert any(v.code == "empty_test_spec_bundle" for v in report.violations)
 
 
 # ----------------------------------------------- workflow_ir cross-check
