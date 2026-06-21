@@ -7,13 +7,14 @@ citation text lives in its ``index.md``. PDFs are *pointed at* (``pdf_path`` /
 ``molexp.workspace.library.Reference``.
 
 This is a port of ``molexp.knowledge.references.ReferenceMeta`` onto the
-workspace surface; the two coexist until the post-migration cleanup removes the
-duplicate knowledge storage modules.
+workspace surface, subclassing the workspace-local
+:class:`molexp.workspace.concept_meta.ConceptMeta` (no ``molexp.knowledge``
+storage dependency).
 """
 
 from __future__ import annotations
 
-from molexp.knowledge.models import ConceptMeta
+from .concept_meta import ConceptMeta
 
 
 class ReferenceMeta(ConceptMeta):
