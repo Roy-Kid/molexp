@@ -6,7 +6,7 @@ import shlex
 import sys
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypedDict
 
 from molexp._typing import JSONValue
 
@@ -18,7 +18,18 @@ from .metadata import build_executor_info
 type MolqEventPayload = "object"
 
 if TYPE_CHECKING:
-    from molq import Duration, JobExecution, Memory, Submitor
+    from molq import Duration, JobExecution, Memory, Script, Submitor
+
+    class _CmdKwargs(TypedDict, total=False):
+        """The mutually-exclusive command channel passed to ``submit_job``.
+
+        Matches molq's ``argv: list[str] | None`` / ``script: Script | None``
+        parameter types so the ``**`` spread type-checks against the exact
+        keyword each branch fills (a plain ``dict`` would widen every keyword).
+        """
+
+        argv: list[str]
+        script: Script
 
     from molexp.workspace import ComputeTarget
     from molexp.workspace.experiment import Experiment
@@ -232,10 +243,13 @@ class SubmitHandler:
             # With a preamble (module load / source venv / …) the worker can't
             # be a bare argv: wrap it in an inline script so the setup lines run
             # first, then ``exec`` the worker so it inherits the job's PID.
+            # A TypedDict (not a plain dict) so the ``**cmd_kwargs`` spread maps
+            # each key to molq's exact parameter type (``argv`` / ``script``).
+            cmd_kwargs: _CmdKwargs
             if self._preamble:
                 worker_cmd = " ".join(shlex.quote(a) for a in worker_argv)
                 script_text = "\n".join([*self._preamble, f"exec {worker_cmd}"])
-                cmd_kwargs: dict[str, object] = {"script": Script.inline(script_text)}
+                cmd_kwargs = {"script": Script.inline(script_text)}
             else:
                 cmd_kwargs = {"argv": worker_argv}
 

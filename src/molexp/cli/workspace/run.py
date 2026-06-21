@@ -483,8 +483,16 @@ def execute(
     if not meta:
         rprint(f"[red]Error:[/red] no readable run.json under {run_dir}")
         raise typer.Exit(1)
-    ctx_meta = meta.get("context") or {}
-    run_id = meta.get("id") or ctx_meta.get("run_id") or run_dir.name.removeprefix("run-")
+    # run.json values are typed as the loose JSONValue union, but the id/context
+    # fields are written by molexp as a string-keyed/string-valued mapping. Narrow
+    # to dict[str, str] so the ids below type as ``str`` for Path()/get_project/…
+    # (runtime shape is unchanged; this is a typing-only narrowing).
+    ctx_meta = cast("dict[str, str]", meta.get("context") or {})
+    run_id = (
+        cast("str | None", meta.get("id"))
+        or ctx_meta.get("run_id")
+        or run_dir.name.removeprefix("run-")
+    )
     # project/experiment ids are not stored in run.json; derive them from the
     # canonical layout …/projects/<P>/experiments/<E>/runs/run-<id>. The run
     # context only carries them once a run has executed, so a fresh run relies on
@@ -496,7 +504,7 @@ def execute(
         project_id = project_id or run_dir.parent.parent.parent.parent.name
     except (IndexError, AttributeError):
         pass
-    script = meta.get("script")
+    script = cast("str | None", meta.get("script"))
     if not script:
         rprint(
             "[red]Error:[/red] run.json has no 'script' field; a worker cannot "

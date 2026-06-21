@@ -24,7 +24,11 @@ class RemoteFileSystem:
     """
 
     def __init__(self, transport: Transport) -> None:
-        self._t = transport
+        # molq.transport.Transport is a narrow Protocol; this class also uses
+        # filesystem ops (is_dir/listdir/rename/copy/stat/…) that the concrete
+        # transports provide but the Protocol doesn't statically declare. Widen
+        # to Any so the dynamic surface resolves without changing runtime behavior.
+        self._t: Any = transport
 
     # ── Path ops (static — string manipulation only) ────────────────────
 
