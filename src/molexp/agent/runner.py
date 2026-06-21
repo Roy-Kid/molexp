@@ -47,7 +47,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncIterator, Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mollog import get_logger
 
@@ -257,12 +257,14 @@ class AgentRunner:
             return None
         try:
             from molexp.agent.folders import Agent as AgentFolder
+            from molexp.workspace import Workspace
 
-            # The agent is a knowledge Concept rooted at the workspace path;
-            # construction is I/O-free and idempotent (same path → same dir),
-            # and add_session lazily materializes it.
+            ws = Workspace(self.workspace)
             agent_name = getattr(self.loop, "name", "") or "default"
-            self._agent_folder = AgentFolder(name=agent_name, root=Path(self.workspace))
+            if ws.has_folder(agent_name, cls=AgentFolder):
+                self._agent_folder = ws.get_folder(agent_name, cls=AgentFolder)
+            else:
+                self._agent_folder = cast(AgentFolder, ws.add_folder(AgentFolder(name=agent_name)))
         except OSError as exc:
             _LOG.warning(
                 f"[runner] could not open Agent folder for {self.workspace!r}: "
