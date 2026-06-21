@@ -14,20 +14,33 @@ is an okf-01-03 :class:`Folder`; the semantic graph lives in markdown
 (``index.md`` links), so :meth:`link` round-trips through
 :meth:`Folder.out_edges`.
 
-This is the okf-01-04 skeleton: ``walk`` / ``get`` / ``put`` / ``link`` only.
-``build_index()``, ``search()``, Concept subtypes, references/notes and Zotero
-import are deferred to later specs.
+Beyond the okf-01-04 core (``walk`` / ``get`` / ``put`` / ``link``), it derives
+a bundle rollup via ``build_index()`` (→ ``index.json`` + ``INDEX.md``) and
+filters it via ``search()`` (okf-03). references/notes (okf-07) surface through
+the generic Concept machinery.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Iterator
+from datetime import datetime
 from pathlib import Path, PurePosixPath
+
+import molexp.atomicio as atomicio
 
 from .errors import ConceptNotFoundError
 from .folder import OPS_DIR, Folder, _is_concept_dir, concept_from_dir
+from .index import (
+    INDEX_JSON_FILENAME,
+    INDEX_MD_FILENAME,
+    ConceptIndexEntry,
+    LibraryIndex,
+    extract_title,
+)
 from .models import ConceptMeta
+from .ops import _utcnow
 
 __all__ = ["Library"]
 
@@ -98,10 +111,79 @@ class Library:
 
         Appends a real markdown link (relative to ``src``) to ``src/index.md``
         so :meth:`Folder.out_edges` resolves it back to *dst*. The graph lives
-        in markdown, never in ``meta.yaml``. This skeleton appends
-        unconditionally; dedup/edge-typing are deferred to okf-03.
+        in markdown, never in ``meta.yaml``. Appends unconditionally; link
+        dedup/edge-typing remain a future enhancement.
         """
         rel = os.path.relpath(Path(dst.resolve()), Path(src.resolve()))
         label = text or dst.name
         line = f"- [{label}]({rel})\n"
         src.write_index(src.read_index() + line)
+
+    # ── derived index + search (okf-03) ──────────────────────────────────
+
+    def _entry_for(self, concept: Folder) -> ConceptIndexEntry:
+        meta = concept.read_meta()
+        title = extract_title(concept.read_index()) or concept.name
+        links = tuple(
+            Path(target).relative_to(self._root).as_posix() for target in concept.out_edges()
+        )
+        return ConceptIndexEntry(
+            path=self.rel_path(concept),
+            type=meta.type,
+            id=meta.id,
+            title=title,
+            tags=tuple(meta.tags),
+            links=links,
+        )
+
+    def build_index(self, *, now: datetime | None = None) -> LibraryIndex:
+        """Rebuild the derived bundle index and write its two sibling files.
+
+        Walks every Concept, rolls its identity into a :class:`LibraryIndex`,
+        and atomically writes ``index.json`` (machine) + ``INDEX.md`` (human)
+        at the bundle root. Always a fresh, full rebuild — never authoritative.
+        """
+        index = LibraryIndex(
+            generated_at=now or _utcnow(),
+            entries=tuple(self._entry_for(c) for c in self.walk()),
+        )
+        atomicio.atomic_write_json(self._root / INDEX_JSON_FILENAME, index.model_dump(mode="json"))
+        atomicio.atomic_write_text(self._root / INDEX_MD_FILENAME, index.to_markdown())
+        return index
+
+    def _load_index(self) -> LibraryIndex:
+        path = self._root / INDEX_JSON_FILENAME
+        if not path.is_file():
+            return self.build_index()
+        return LibraryIndex.model_validate(json.loads(path.read_text(encoding="utf-8")))
+
+    def search(
+        self,
+        text: str | None = None,
+        *,
+        concept_type: str | None = None,
+        tag: str | None = None,
+        rebuild: bool = True,
+    ) -> list[ConceptIndexEntry]:
+        """Filter the index by *concept_type* / *tag* / *text* (AND semantics).
+
+        *text* matches a case-insensitive substring of ``path`` or ``title``.
+        ``rebuild`` (default) refreshes the index first; otherwise the last
+        written ``index.json`` is used (built on demand if absent).
+        """
+        index = self.build_index() if rebuild else self._load_index()
+        needle = text.lower() if text else None
+        matches: list[ConceptIndexEntry] = []
+        for entry in index.entries:
+            if concept_type is not None and entry.type != concept_type:
+                continue
+            if tag is not None and tag not in entry.tags:
+                continue
+            if (
+                needle is not None
+                and needle not in entry.path.lower()
+                and needle not in entry.title.lower()
+            ):
+                continue
+            matches.append(entry)
+        return matches

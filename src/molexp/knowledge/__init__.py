@@ -24,6 +24,7 @@ right subclass from each Concept's ``meta.yaml`` ``type``) are in place.
 from .concepts import Experiment, Project, Run, Workspace
 from .errors import ConceptExistsError, ConceptNotFoundError
 from .folder import Folder, LinkScan
+from .index import ConceptIndexEntry, LibraryIndex
 from .library import Library
 from .models import ConceptMeta
 from .ops import RETRYABLE_STATUSES, ExecutionRecord, RunOpsState, RunStatus
@@ -32,12 +33,14 @@ from .types import concept_type, register_concept_type, resolve_concept_type
 __all__ = [
     "RETRYABLE_STATUSES",
     "ConceptExistsError",
+    "ConceptIndexEntry",
     "ConceptMeta",
     "ConceptNotFoundError",
     "ExecutionRecord",
     "Experiment",
     "Folder",
     "Library",
+    "LibraryIndex",
     "LinkScan",
     "Project",
     "Run",
