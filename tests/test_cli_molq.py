@@ -171,6 +171,11 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
         def submit_job(self, **_kwargs):
             return SimpleNamespace(job_id="molq-job-123", scheduler_job_id="sched-456")
 
+    class DummyScript:
+        @staticmethod
+        def inline(text: str) -> SimpleNamespace:
+            return SimpleNamespace(text=text)
+
     fake_molq = ModuleType("molq")
     fake_molq.Cluster = DummyCluster
     fake_molq.Duration = DummyDuration
@@ -178,6 +183,7 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
     fake_molq.JobResources = DummyJobResources
     fake_molq.JobScheduling = DummyJobScheduling
     fake_molq.Memory = DummyMemory
+    fake_molq.Script = DummyScript
     fake_molq.Submitor = DummySubmitor
     monkeypatch.setitem(sys.modules, "molq", fake_molq)
 

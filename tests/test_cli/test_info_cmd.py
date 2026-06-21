@@ -8,6 +8,7 @@ healthy-looking empty workspace for any directory; now a missing
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -17,11 +18,22 @@ from molexp.cli import app
 runner = CliRunner()
 
 
+def _plain(output: str) -> str:
+    """Strip ANSI codes and collapse whitespace.
+
+    Rich wraps long lines at the (narrow) CliRunner terminal width, so a
+    phrase like ``molexp init`` can land split across a newline; normalizing
+    whitespace makes the substring assertions wrap-insensitive.
+    """
+    return re.sub(r"\s+", " ", re.sub(r"\x1b\[[0-9;]*m", "", output))
+
+
 def test_info_errors_on_non_workspace_path(tmp_path: Path):
     result = runner.invoke(app, ["info", "-t", str(tmp_path)])
     assert result.exit_code == 1
-    assert "No workspace found at" in result.output
-    assert "molexp init" in result.output
+    plain = _plain(result.output)
+    assert "No workspace found at" in plain
+    assert "molexp init" in plain
 
 
 def test_info_errors_in_non_workspace_cwd(tmp_path: Path):
