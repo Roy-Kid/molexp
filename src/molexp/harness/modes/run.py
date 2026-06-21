@@ -116,7 +116,7 @@ class RunMode(Mode):
     def _final_report_request() -> ApprovalRequest:
         """Build the final-report approval request, narrowing the Optional.
 
-        ``make_final_report_approval_request`` returns ``None`` only when the
+        ``ApprovalPolicyEvaluator.make_final_report_request`` returns ``None`` only when the
         policy disables final-report approval; the default ``ApprovalPolicy``
         requires it, so the ``None`` branch is unreachable here.
         """
