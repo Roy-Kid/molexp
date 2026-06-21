@@ -26,18 +26,23 @@ from .errors import ConceptExistsError, ConceptNotFoundError
 from .folder import Folder, LinkScan
 from .library import Library
 from .models import ConceptMeta
+from .ops import RETRYABLE_STATUSES, ExecutionRecord, RunOpsState, RunStatus
 from .types import concept_type, register_concept_type, resolve_concept_type
 
 __all__ = [
+    "RETRYABLE_STATUSES",
     "ConceptExistsError",
     "ConceptMeta",
     "ConceptNotFoundError",
+    "ExecutionRecord",
     "Experiment",
     "Folder",
     "Library",
     "LinkScan",
     "Project",
     "Run",
+    "RunOpsState",
+    "RunStatus",
     "Workspace",
     "concept_type",
     "register_concept_type",

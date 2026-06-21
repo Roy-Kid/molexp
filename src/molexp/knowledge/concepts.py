@@ -17,9 +17,19 @@ its hot operational state (status / heartbeat / executions) lives in the
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
+from datetime import datetime
 from typing import ClassVar, cast
 
 from .folder import Folder
+from .ops import (
+    RUN_OPS_NAME,
+    TERMINAL_STATUSES,
+    ExecutionRecord,
+    RunOpsState,
+    RunStatus,
+    _utcnow,
+)
 from .types import concept_type
 
 
@@ -43,6 +53,62 @@ class Run(Folder):
             root=root,
             concept_type=concept_type or self.DEFAULT_TYPE,
         )
+
+    # ── operational state (_ops/run.json — hot, never in meta.yaml) ───────
+
+    def read_ops(self) -> RunOpsState:
+        """Load the typed Run ops state, or the default if not yet written."""
+        return RunOpsState.model_validate(self.read_ops_json(RUN_OPS_NAME) or {})
+
+    def write_ops(self, state: RunOpsState) -> None:
+        """Persist the Run ops state to ``_ops/run.json`` (atomic)."""
+        self.write_ops_json(RUN_OPS_NAME, state.model_dump(mode="json"))
+
+    def update_ops(self, fn: Callable[[RunOpsState], RunOpsState]) -> RunOpsState:
+        """Read-modify-write the typed Run ops state under an advisory lock."""
+
+        def apply(raw: dict) -> dict:
+            return fn(RunOpsState.model_validate(raw or {})).model_dump(mode="json")
+
+        return RunOpsState.model_validate(self.update_ops_json(RUN_OPS_NAME, apply))
+
+    def set_status(self, status: RunStatus, *, now: datetime | None = None) -> RunOpsState:
+        """Transition the run status; stamp ``finished_at`` / ``started_at``.
+
+        Terminal statuses set ``finished_at``; a non-terminal status clears it.
+        Entering ``running`` stamps ``started_at`` if not already set. This
+        records state — it does not police transition legality (okf-05).
+        """
+        ts = now or _utcnow()
+
+        def transition(state: RunOpsState) -> RunOpsState:
+            update: dict[str, object] = {"status": status}
+            update["finished_at"] = ts if status in TERMINAL_STATUSES else None
+            if status == RunStatus.RUNNING and state.started_at is None:
+                update["started_at"] = ts
+            return state.model_copy(update=update)
+
+        return self.update_ops(transition)
+
+    def beat(self, *, now: datetime | None = None) -> RunOpsState:
+        """Refresh the ownership heartbeat timestamp (aware-UTC)."""
+        ts = now or _utcnow()
+        return self.update_ops(lambda s: s.model_copy(update={"heartbeat_at": ts}))
+
+    def record_execution(self, record: ExecutionRecord) -> RunOpsState:
+        """Append an execution attempt and make it the current execution."""
+        return self.update_ops(
+            lambda s: s.model_copy(
+                update={
+                    "executions": (*s.executions, record),
+                    "current_execution_id": record.execution_id,
+                }
+            )
+        )
+
+    def is_retryable(self) -> bool:
+        """Whether ``resume`` / ``rerun`` apply to this run's current status."""
+        return self.read_ops().is_retryable
 
 
 @concept_type("experiment")
