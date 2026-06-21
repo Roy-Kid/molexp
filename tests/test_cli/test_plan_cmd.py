@@ -119,47 +119,166 @@ def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _fake_make_gateway)
 
 
-@pytest.mark.integration
-def test_plan_command_is_registered(runner: CliRunner) -> None:
-    result = runner.invoke(app, ["--help"])
-    assert result.exit_code == 0
-    assert "plan" in result.output
+class TestPlanCmd:
+    @pytest.mark.integration
+    def test_plan_command_is_registered(self, runner: CliRunner) -> None:
+        result = runner.invoke(app, ["--help"])
+        assert result.exit_code == 0
+        assert "plan" in result.output
 
+    @pytest.mark.integration
+    def test_plan_runs_all_stages_against_a_workspace(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_gateway(monkeypatch)
 
-@pytest.mark.integration
-def test_plan_runs_all_stages_against_a_workspace(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_gateway(monkeypatch)
+        result = runner.invoke(
+            app,
+            [
+                "plan",
+                "Simulate NEMD ionic mobility of an SPC/E water box",
+                "--workspace",
+                str(tmp_path),
+                "--model",
+                "stub-model",
+            ],
+        )
 
-    result = runner.invoke(
-        app,
-        [
+        assert result.exit_code == 0, result.output
+        # Stage progress + artifact report rendered.
+        assert "save_user_plan" in result.output
+        assert "approval_gate" in result.output
+        assert "workflow_source" in result.output
+        assert "all stages completed" in result.output
+        # Artifacts + audit records landed where the CLI says they do.
+        run_dirs = list(tmp_path.rglob("harness.sqlite"))
+        assert len(run_dirs) == 1, "expected exactly one plan run with an audit db"
+        run_dir = run_dirs[0].parent
+        artifacts = run_dir / "artifacts"
+        assert artifacts.is_dir() and any(artifacts.iterdir())
+        # Rich wraps long lines and emits ANSI codes; strip both to compare.
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert str(artifacts) in "".join(plain.split())
+        assert (run_dir / ".mode_ledger").is_dir(), "per-run completion ledger written"
+
+    @pytest.mark.integration
+    def test_plan_reads_draft_from_file(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_gateway(monkeypatch)
+        draft = tmp_path / "draft.md"
+        draft.write_text("Simulate a polymer melt equilibration", encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            [
+                "plan",
+                "--file",
+                str(draft),
+                "--workspace",
+                str(tmp_path / "lab"),
+                "--model",
+                "stub-model",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "polymer melt" in result.output
+        assert "all stages completed" in result.output
+
+    @pytest.mark.integration
+    def test_plan_without_model_exits_with_actionable_error(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("molexp.cli.plan_cmd._configured_model", lambda: None)
+        result = runner.invoke(app, ["plan", "a draft", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "No model configured" in result.output
+        assert "molexp config set agent.model" in result.output
+
+    @pytest.mark.integration
+    def test_plan_requires_exactly_one_draft_source(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("molexp.cli.plan_cmd._configured_model", lambda: "stub-model")
+        # Neither argument nor file.
+        result = runner.invoke(app, ["plan", "--workspace", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "exactly one way" in result.output
+        # Both at once.
+        draft = tmp_path / "d.md"
+        draft.write_text("x", encoding="utf-8")
+        result = runner.invoke(
+            app, ["plan", "inline draft", "--file", str(draft), "--workspace", str(tmp_path)]
+        )
+        assert result.exit_code == 1
+        assert "exactly one way" in result.output
+
+    @pytest.mark.integration
+    def test_plan_rerun_skips_completed_stages_via_ledger(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Same draft twice → same run, second invocation resumes from the ledger."""
+        _patch_gateway(monkeypatch)
+        args = [
             "plan",
-            "Simulate NEMD ionic mobility of an SPC/E water box",
+            "Simulate NEMD ionic mobility",
             "--workspace",
             str(tmp_path),
             "--model",
             "stub-model",
-        ],
-    )
+        ]
 
-    assert result.exit_code == 0, result.output
-    # Stage progress + artifact report rendered.
-    assert "save_user_plan" in result.output
-    assert "approval_gate" in result.output
-    assert "workflow_source" in result.output
-    assert "all stages completed" in result.output
-    # Artifacts + audit records landed where the CLI says they do.
-    run_dirs = list(tmp_path.rglob("harness.sqlite"))
-    assert len(run_dirs) == 1, "expected exactly one plan run with an audit db"
-    run_dir = run_dirs[0].parent
-    artifacts = run_dir / "artifacts"
-    assert artifacts.is_dir() and any(artifacts.iterdir())
-    # Rich wraps long lines and emits ANSI codes; strip both to compare.
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-    assert str(artifacts) in "".join(plain.split())
-    assert (run_dir / ".mode_ledger").is_dir(), "per-run completion ledger written"
+        first = runner.invoke(app, args)
+        assert first.exit_code == 0, first.output
+
+        # Second run: stage bodies are skipped (ledger hit), so even an
+        # unregistered gateway (would raise on any LLM stage) completes.
+        def _empty_gateway(*, model: str, run: Any) -> Any:
+            from molexp.harness.gateways.stub import StubAgentGateway
+            from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+            return StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
+
+        monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _empty_gateway)
+        second = runner.invoke(app, args)
+        assert second.exit_code == 0, second.output
+        assert "all stages completed" in second.output
+
+    def test_make_executor_seam_defaults_to_local_executor(self) -> None:
+        from molexp.cli import plan_cmd
+        from molexp.harness import LocalExecutor
+
+        assert isinstance(plan_cmd.PlanRuntime.build_executor(), LocalExecutor)
+
+    @pytest.mark.integration
+    def test_plan_execute_chains_run_mode_on_the_same_run(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_full_gateway(monkeypatch)
+        _patch_executor(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            [
+                "plan",
+                "Simulate NEMD ionic mobility of an SPC/E water box",
+                "--workspace",
+                str(tmp_path),
+                "--model",
+                "stub-model",
+                "--execute",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        # Every RunMode stage row rendered, plus the plan stages as before.
+        assert "save_user_plan" in plain
+        for stage_name in _RUN_STAGE_NAMES:
+            assert stage_name in plain, f"missing RunMode stage {stage_name!r} in output"
+        # The canned FinalReport is surfaced (single token: survives rich wrapping).
+        assert "CannedWaterNemdFinalReport" in plain
 
 
 class TestInteractiveApprover:
@@ -204,94 +323,6 @@ class TestInteractiveApprover:
         decision = asyncio.run(approver(request))
         assert decision.granted is True
         assert decision.decided_by == "cli-non-interactive"
-
-
-@pytest.mark.integration
-def test_plan_reads_draft_from_file(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_gateway(monkeypatch)
-    draft = tmp_path / "draft.md"
-    draft.write_text("Simulate a polymer melt equilibration", encoding="utf-8")
-
-    result = runner.invoke(
-        app,
-        [
-            "plan",
-            "--file",
-            str(draft),
-            "--workspace",
-            str(tmp_path / "lab"),
-            "--model",
-            "stub-model",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    assert "polymer melt" in result.output
-    assert "all stages completed" in result.output
-
-
-@pytest.mark.integration
-def test_plan_without_model_exits_with_actionable_error(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("molexp.cli.plan_cmd._configured_model", lambda: None)
-    result = runner.invoke(app, ["plan", "a draft", "--workspace", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "No model configured" in result.output
-    assert "molexp config set agent.model" in result.output
-
-
-@pytest.mark.integration
-def test_plan_requires_exactly_one_draft_source(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr("molexp.cli.plan_cmd._configured_model", lambda: "stub-model")
-    # Neither argument nor file.
-    result = runner.invoke(app, ["plan", "--workspace", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "exactly one way" in result.output
-    # Both at once.
-    draft = tmp_path / "d.md"
-    draft.write_text("x", encoding="utf-8")
-    result = runner.invoke(
-        app, ["plan", "inline draft", "--file", str(draft), "--workspace", str(tmp_path)]
-    )
-    assert result.exit_code == 1
-    assert "exactly one way" in result.output
-
-
-@pytest.mark.integration
-def test_plan_rerun_skips_completed_stages_via_ledger(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Same draft twice → same run, second invocation resumes from the ledger."""
-    _patch_gateway(monkeypatch)
-    args = [
-        "plan",
-        "Simulate NEMD ionic mobility",
-        "--workspace",
-        str(tmp_path),
-        "--model",
-        "stub-model",
-    ]
-
-    first = runner.invoke(app, args)
-    assert first.exit_code == 0, first.output
-
-    # Second run: stage bodies are skipped (ledger hit), so even an
-    # unregistered gateway (would raise on any LLM stage) completes.
-    def _empty_gateway(*, model: str, run: Any) -> Any:
-        from molexp.harness.gateways.stub import StubAgentGateway
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-        return StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
-
-    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _empty_gateway)
-    second = runner.invoke(app, args)
-    assert second.exit_code == 0, second.output
-    assert "all stages completed" in second.output
 
 
 # Run-side canned outputs for `molexp plan --execute` (harness-run-mode-02
@@ -377,40 +408,3 @@ def _patch_executor(monkeypatch: pytest.MonkeyPatch) -> None:
         return DryRunExecutor()
 
     monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_executor", _fake_make_executor)
-
-
-def test_make_executor_seam_defaults_to_local_executor() -> None:
-    from molexp.cli import plan_cmd
-    from molexp.harness import LocalExecutor
-
-    assert isinstance(plan_cmd.PlanRuntime.build_executor(), LocalExecutor)
-
-
-@pytest.mark.integration
-def test_plan_execute_chains_run_mode_on_the_same_run(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _patch_full_gateway(monkeypatch)
-    _patch_executor(monkeypatch)
-
-    result = runner.invoke(
-        app,
-        [
-            "plan",
-            "Simulate NEMD ionic mobility of an SPC/E water box",
-            "--workspace",
-            str(tmp_path),
-            "--model",
-            "stub-model",
-            "--execute",
-        ],
-    )
-
-    assert result.exit_code == 0, result.output
-    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-    # Every RunMode stage row rendered, plus the plan stages as before.
-    assert "save_user_plan" in plain
-    for stage_name in _RUN_STAGE_NAMES:
-        assert stage_name in plain, f"missing RunMode stage {stage_name!r} in output"
-    # The canned FinalReport is surfaced (single token: survives rich wrapping).
-    assert "CannedWaterNemdFinalReport" in plain

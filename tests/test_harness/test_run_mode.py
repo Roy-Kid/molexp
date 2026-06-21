@@ -194,135 +194,125 @@ def _fixture_gateway(run, *, test_source: Mapping[str, object] | None = None) ->
     return gw
 
 
-# ──────────────────────────────────────────── T01: shape / ctor / sequence
+class TestRunMode:
+    # ──────────────────────────────────────────── T01: shape / ctor / sequence
 
+    def test_run_mode_is_a_mode_subclass_exported(self) -> None:
+        import molexp.harness as harness
 
-def test_run_mode_is_a_mode_subclass_exported() -> None:
-    import molexp.harness as harness
+        assert issubclass(RunMode, Mode)
+        assert RunMode.name == "run"
+        assert "RunMode" in harness.__all__
 
-    assert issubclass(RunMode, Mode)
-    assert RunMode.name == "run"
-    assert "RunMode" in harness.__all__
+    def test_run_mode_constructs_with_default_and_injected_executor(self) -> None:
+        assert isinstance(RunMode(), RunMode)  # default executor: LocalExecutor()
+        assert isinstance(RunMode(executor=DryRunExecutor()), RunMode)
 
+    def test_run_mode_declares_the_ten_stage_class_sequence(self) -> None:
+        stage_types = [type(stage) for stage in RunMode().stages("draft")]
+        assert stage_types == [
+            GenerateTestSpec,
+            ValidateTestSpec,
+            GenerateTestCode,
+            ValidateTestSource,
+            MaterializeExecution,
+            ExecuteTests,
+            ExecuteWorkflow,
+            GenerateFinalReport,
+            ApprovalGate,
+            GenerateAuditReport,
+        ]
 
-def test_run_mode_constructs_with_default_and_injected_executor() -> None:
-    assert isinstance(RunMode(), RunMode)  # default executor: LocalExecutor()
-    assert isinstance(RunMode(executor=DryRunExecutor()), RunMode)
+    # ──────────────────────────────────────────── T01: offline e2e happy path
 
+    @pytest.mark.integration
+    def test_run_mode_executes_planned_workflow_end_to_end(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
+        store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-def test_run_mode_declares_the_ten_stage_class_sequence() -> None:
-    stage_types = [type(stage) for stage in RunMode().stages("draft")]
-    assert stage_types == [
-        GenerateTestSpec,
-        ValidateTestSpec,
-        GenerateTestCode,
-        ValidateTestSource,
-        MaterializeExecution,
-        ExecuteTests,
-        ExecuteWorkflow,
-        GenerateFinalReport,
-        ApprovalGate,
-        GenerateAuditReport,
-    ]
+        plan_result = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        result = asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
 
+        assert isinstance(result, ModeResult)
+        assert result.mode_name == "run"
+        assert result.run_id == run.id
+        kinds = {a.kind for a in result.stage_artifacts}
+        assert kinds >= {
+            "test_spec",
+            "validation_report",
+            "test_source",
+            "test_result",
+            "execution_result",
+            "final_report",
+            "analysis_result",
+            "audit_report",
+        }
 
-# ──────────────────────────────────────────── T01: offline e2e happy path
+        # The driver really ran the canned workflow: outputs.json round-trips.
+        exec_ref = next(a for a in result.stage_artifacts if a.kind == "execution_result")
+        execution = ExecutionResult.model_validate_json(store.get(exec_ref.id))
+        assert execution.status == "succeeded"
+        assert execution.outputs["summarize"]["total"] == 6
 
+        # Cross-mode lineage: the final report's ancestry reaches plan artifacts.
+        final_ref = next(a for a in result.stage_artifacts if a.kind == "final_report")
+        provenance = SQLiteArtifactLineageStore(
+            path=run.run_dir / "harness.sqlite", artifact_store=store
+        )
+        ancestors = {ref.id for ref in provenance.trace_backward(final_ref.id)}
+        plan_ids = {
+            a.id
+            for a in plan_result.stage_artifacts
+            if a.kind in {"experiment_report", "workflow_source"}
+        }
+        assert ancestors & plan_ids, "final_report ancestry must reach plan-mode artifacts"
 
-@pytest.mark.integration
-def test_run_mode_executes_planned_workflow_end_to_end(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-    store = FileArtifactStore(root=run.run_dir / "artifacts")
+    # ──────────────────────────────────────── T02: red tests block execution
 
-    plan_result = asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
-    result = asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+    @pytest.mark.integration
+    def test_failing_generated_tests_block_workflow_execution(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run, test_source=_FAILING_TEST_SOURCE)
+        store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-    assert isinstance(result, ModeResult)
-    assert result.mode_name == "run"
-    assert result.run_id == run.id
-    kinds = {a.kind for a in result.stage_artifacts}
-    assert kinds >= {
-        "test_spec",
-        "validation_report",
-        "test_source",
-        "test_result",
-        "execution_result",
-        "final_report",
-        "analysis_result",
-        "audit_report",
-    }
+        asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        with pytest.raises(StagePersistedFailureError):
+            asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
 
-    # The driver really ran the canned workflow: outputs.json round-trips.
-    exec_ref = next(a for a in result.stage_artifacts if a.kind == "execution_result")
-    execution = ExecutionResult.model_validate_json(store.get(exec_ref.id))
-    assert execution.status == "succeeded"
-    assert execution.outputs["summarize"]["total"] == 6
+        # In-function import: a module-level `TestResult` would be collected by
+        # pytest as a test class (house pattern for Test*-named schemas).
+        from molexp.harness import TestResult
 
-    # Cross-mode lineage: the final report's ancestry reaches plan artifacts.
-    final_ref = next(a for a in result.stage_artifacts if a.kind == "final_report")
-    provenance = SQLiteArtifactLineageStore(
-        path=run.run_dir / "harness.sqlite", artifact_store=store
-    )
-    ancestors = {ref.id for ref in provenance.trace_backward(final_ref.id)}
-    plan_ids = {
-        a.id
-        for a in plan_result.stage_artifacts
-        if a.kind in {"experiment_report", "workflow_source"}
-    }
-    assert ancestors & plan_ids, "final_report ancestry must reach plan-mode artifacts"
+        test_ref = store.latest_by_kind("test_result")
+        assert test_ref is not None, "TestResult must be persisted before the stage raises"
+        test_result = TestResult.model_validate_json(store.get(test_ref.id))
+        assert test_result.status == "failed"
+        assert store.latest_by_kind("execution_result") is None
 
+    # ──────────────────────────────────────────── T02: plan-less Run pre-guard
 
-# ──────────────────────────────────────── T02: red tests block execution
+    def test_run_mode_without_plan_artifacts_names_the_remedy(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
 
+        with pytest.raises(ArtifactNotFoundError, match="molexp plan"):
+            asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
 
-@pytest.mark.integration
-def test_failing_generated_tests_block_workflow_execution(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run, test_source=_FAILING_TEST_SOURCE)
-    store = FileArtifactStore(root=run.run_dir / "artifacts")
+    # ──────────────────────────────────────────────── T02: ledger resume
 
-    asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
-    with pytest.raises(StagePersistedFailureError):
-        asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+    @pytest.mark.integration
+    def test_second_run_reuses_ledger_with_unregistered_gateway(self, tmp_path: Path) -> None:
+        run = _make_run(tmp_path)
+        gateway = _fixture_gateway(run)
 
-    # In-function import: a module-level `TestResult` would be collected by
-    # pytest as a test class (house pattern for Test*-named schemas).
-    from molexp.harness import TestResult
+        asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
+        first = asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
 
-    test_ref = store.latest_by_kind("test_result")
-    assert test_ref is not None, "TestResult must be persisted before the stage raises"
-    test_result = TestResult.model_validate_json(store.get(test_ref.id))
-    assert test_result.status == "failed"
-    assert store.latest_by_kind("execution_result") is None
+        # Nothing registered: any re-run of an LLM stage body would raise
+        # AgentResponseNotRegisteredError, so completing proves every stage
+        # was skipped via the per-run completion ledger.
+        empty_gateway = StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
+        second = asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=empty_gateway))
 
-
-# ──────────────────────────────────────────── T02: plan-less Run pre-guard
-
-
-def test_run_mode_without_plan_artifacts_names_the_remedy(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
-
-    with pytest.raises(ArtifactNotFoundError, match="molexp plan"):
-        asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
-
-
-# ──────────────────────────────────────────────── T02: ledger resume
-
-
-@pytest.mark.integration
-def test_second_run_reuses_ledger_with_unregistered_gateway(tmp_path: Path) -> None:
-    run = _make_run(tmp_path)
-    gateway = _fixture_gateway(run)
-
-    asyncio.run(PlanMode().run(run=run, user_input=_DRAFT, gateway=gateway))
-    first = asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=gateway))
-
-    # Nothing registered: any re-run of an LLM stage body would raise
-    # AgentResponseNotRegisteredError, so completing proves every stage
-    # was skipped via the per-run completion ledger.
-    empty_gateway = StubAgentGateway(FileArtifactStore(root=run.run_dir / "artifacts"))
-    second = asyncio.run(RunMode().run(run=run, user_input=_DRAFT, gateway=empty_gateway))
-
-    assert [a.id for a in second.stage_artifacts] == [a.id for a in first.stage_artifacts]
+        assert [a.id for a in second.stage_artifacts] == [a.id for a in first.stage_artifacts]

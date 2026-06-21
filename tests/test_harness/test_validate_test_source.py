@@ -126,77 +126,126 @@ def _seed_test_source(ctx: HarnessRunContext, source: str) -> ArtifactRef:
     )
 
 
-# ------------------------------------------------- pure validator: happy
+class TestValidateTestSource:
+    # ------------------------------------------------- pure validator: happy
 
+    def test_validate_test_source_passes_valid_pytest_source(self) -> None:
+        from molexp.harness import TestSourceValidator
 
-def test_validate_test_source_passes_valid_pytest_source() -> None:
-    from molexp.harness import TestSourceValidator
+        report = TestSourceValidator.validate(VALID_TEST_SOURCE, target_id="ts-art-1")
+        assert report.passed is True
+        assert report.violations == []
+        assert report.target_kind == "test_source"
+        assert report.target_id == "ts-art-1"
 
-    report = TestSourceValidator.validate(VALID_TEST_SOURCE, target_id="ts-art-1")
-    assert report.passed is True
-    assert report.violations == []
-    assert report.target_kind == "test_source"
-    assert report.target_id == "ts-art-1"
+    # --------------------------------------------------- pure validator: red
 
+    def test_validate_test_source_flags_syntax_error_without_raising(self) -> None:
+        from molexp.harness import TestSourceValidator
 
-# --------------------------------------------------- pure validator: red
-
-
-def test_validate_test_source_flags_syntax_error_without_raising() -> None:
-    from molexp.harness import TestSourceValidator
-
-    report = TestSourceValidator.validate(SYNTAX_ERROR_SOURCE, target_id="ts-art-1")
-    assert report.passed is False
-    assert report.target_kind == "test_source"
-    assert any("syntax" in v.code.lower() for v in report.violations)
-
-
-def test_validate_test_source_never_raises_on_garbage() -> None:
-    from molexp.harness import TestSourceValidator
-
-    # Total function: even on wildly malformed input no exception escapes.
-    for bad in ("def (:\n", "@@@@", "import", "class :", "\x00\x01"):
-        report = TestSourceValidator.validate(bad, target_id="ts-art-1")
+        report = TestSourceValidator.validate(SYNTAX_ERROR_SOURCE, target_id="ts-art-1")
         assert report.passed is False
+        assert report.target_kind == "test_source"
+        assert any("syntax" in v.code.lower() for v in report.violations)
 
+    def test_validate_test_source_never_raises_on_garbage(self) -> None:
+        from molexp.harness import TestSourceValidator
 
-def test_validate_test_source_rejects_private_workflow_import() -> None:
-    from molexp.harness import TestSourceValidator
+        # Total function: even on wildly malformed input no exception escapes.
+        for bad in ("def (:\n", "@@@@", "import", "class :", "\x00\x01"):
+            report = TestSourceValidator.validate(bad, target_id="ts-art-1")
+            assert report.passed is False
 
-    report = TestSourceValidator.validate(PRIVATE_IMPORT_SOURCE, target_id="ts-art-1")
-    assert report.passed is False
-    # A violation must name the disallowed private import target.
-    assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
+    def test_validate_test_source_rejects_private_workflow_import(self) -> None:
+        from molexp.harness import TestSourceValidator
 
+        report = TestSourceValidator.validate(PRIVATE_IMPORT_SOURCE, target_id="ts-art-1")
+        assert report.passed is False
+        # A violation must name the disallowed private import target.
+        assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
 
-def test_validate_test_source_requires_a_test_function() -> None:
-    from molexp.harness import TestSourceValidator
+    def test_validate_test_source_requires_a_test_function(self) -> None:
+        from molexp.harness import TestSourceValidator
 
-    report = TestSourceValidator.validate(NO_TEST_FUNCTION_SOURCE, target_id="ts-art-1")
-    assert report.passed is False
-    assert any("test" in v.code.lower() for v in report.violations)
+        report = TestSourceValidator.validate(NO_TEST_FUNCTION_SOURCE, target_id="ts-art-1")
+        assert report.passed is False
+        assert any("test" in v.code.lower() for v in report.violations)
 
+    # ------------------------------------------ pure validator: no-exec proof
 
-# ------------------------------------------ pure validator: no-exec proof
+    def test_validate_test_source_never_executes_module_code(self) -> None:
+        """Parse + compile ONLY: a module-level ``raise`` must not fire."""
+        from molexp.harness import TestSourceValidator
 
+        report = TestSourceValidator.validate(MODULE_RAISE_SOURCE, target_id="ts-art-1")
+        assert report.passed is True
+        assert report.violations == []
 
-def test_validate_test_source_never_executes_module_code() -> None:
-    """Parse + compile ONLY: a module-level ``raise`` must not fire."""
-    from molexp.harness import TestSourceValidator
+    def test_validate_test_source_runs_byte_compile_stage(self) -> None:
+        """'break' outside a loop passes ast.parse but fails compile() — a
+        failing report proves the byte-compile pre-check actually runs."""
+        from molexp.harness import TestSourceValidator
 
-    report = TestSourceValidator.validate(MODULE_RAISE_SOURCE, target_id="ts-art-1")
-    assert report.passed is True
-    assert report.violations == []
+        report = TestSourceValidator.validate(COMPILE_STAGE_ERROR_SOURCE, target_id="ts-art-1")
+        assert report.passed is False
+        assert len(report.violations) >= 1
 
+    # ------------------------------------------------------------ stage shape
 
-def test_validate_test_source_runs_byte_compile_stage() -> None:
-    """'break' outside a loop passes ast.parse but fails compile() — a
-    failing report proves the byte-compile pre-check actually runs."""
-    from molexp.harness import TestSourceValidator
+    def test_stage_name_and_subclass(self) -> None:
+        from molexp.harness import ValidateTestSource
+        from molexp.harness.core.stage import Stage
 
-    report = TestSourceValidator.validate(COMPILE_STAGE_ERROR_SOURCE, target_id="ts-art-1")
-    assert report.passed is False
-    assert len(report.violations) >= 1
+        assert ValidateTestSource.name == "validate_test_source"
+        assert issubclass(ValidateTestSource, Stage)
+
+    # ------------------------------------------------------- stage happy path
+
+    def test_stage_persists_passing_report_for_good_source(self, ctx) -> None:
+        from molexp.harness import ValidateTestSource, ValidationReport
+
+        ts_ref = _seed_test_source(ctx, VALID_TEST_SOURCE)
+        report_ref = asyncio.run(ValidateTestSource().run(ctx))
+
+        assert report_ref.kind == "validation_report"
+        assert ts_ref.id in report_ref.parent_ids
+
+        raw = ctx.artifact_store.get(report_ref.id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is True
+        assert report.target_kind == "test_source"
+
+    # --------------------------------------------------------- stage red path
+
+    def test_stage_persists_failing_report_then_raises(self, ctx) -> None:
+        from molexp.harness import StagePersistedFailureError, ValidateTestSource, ValidationReport
+
+        _seed_test_source(ctx, SYNTAX_ERROR_SOURCE)
+
+        with pytest.raises(StagePersistedFailureError) as exc_info:
+            asyncio.run(ValidateTestSource().run(ctx))
+
+        # Report persisted despite the raise (always-persist contract).
+        reports = ctx.artifact_store.list_by_kind("validation_report")
+        assert len(reports) == 1
+        raw = ctx.artifact_store.get(reports[0].id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is False
+        assert report.target_kind == "test_source"
+        assert exc_info.value.persisted_ref.id == reports[0].id
+        assert exc_info.value.persisted_ref.kind == "validation_report"
+
+    def test_stage_returns_failing_ref_when_raise_disabled(self, ctx) -> None:
+        from molexp.harness import ValidateTestSource, ValidationReport
+
+        ts_ref = _seed_test_source(ctx, SYNTAX_ERROR_SOURCE)
+        report_ref = asyncio.run(ValidateTestSource(raise_on_failure=False).run(ctx))
+
+        assert report_ref.kind == "validation_report"
+        assert ts_ref.id in report_ref.parent_ids
+        raw = ctx.artifact_store.get(report_ref.id)
+        report = ValidationReport.model_validate(json.loads(raw))
+        assert report.passed is False
 
 
 # ------------------------------------------ per-task coverage (required_task_ids)
@@ -242,7 +291,9 @@ class TestValidateTestSourcePerTask:
         from molexp.harness import TestSourceValidator
 
         source = "def test_b_build_ok():\n    assert True\n"
-        report = TestSourceValidator.validate(source, target_id="ts-art-1", required_task_ids={"b-build"})
+        report = TestSourceValidator.validate(
+            source, target_id="ts-art-1", required_task_ids={"b-build"}
+        )
         assert report.passed is True
 
     def test_none_required_keeps_legacy_behaviour(self) -> None:
@@ -251,67 +302,3 @@ class TestValidateTestSourcePerTask:
 
         report = TestSourceValidator.validate(VALID_TEST_SOURCE, target_id="ts-art-1")
         assert report.passed is True
-
-
-# ------------------------------------------------------------ stage shape
-
-
-def test_stage_name_and_subclass() -> None:
-    from molexp.harness import ValidateTestSource
-    from molexp.harness.core.stage import Stage
-
-    assert ValidateTestSource.name == "validate_test_source"
-    assert issubclass(ValidateTestSource, Stage)
-
-
-# ------------------------------------------------------- stage happy path
-
-
-def test_stage_persists_passing_report_for_good_source(ctx) -> None:
-    from molexp.harness import ValidateTestSource, ValidationReport
-
-    ts_ref = _seed_test_source(ctx, VALID_TEST_SOURCE)
-    report_ref = asyncio.run(ValidateTestSource().run(ctx))
-
-    assert report_ref.kind == "validation_report"
-    assert ts_ref.id in report_ref.parent_ids
-
-    raw = ctx.artifact_store.get(report_ref.id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is True
-    assert report.target_kind == "test_source"
-
-
-# --------------------------------------------------------- stage red path
-
-
-def test_stage_persists_failing_report_then_raises(ctx) -> None:
-    from molexp.harness import StagePersistedFailureError, ValidateTestSource, ValidationReport
-
-    _seed_test_source(ctx, SYNTAX_ERROR_SOURCE)
-
-    with pytest.raises(StagePersistedFailureError) as exc_info:
-        asyncio.run(ValidateTestSource().run(ctx))
-
-    # Report persisted despite the raise (always-persist contract).
-    reports = ctx.artifact_store.list_by_kind("validation_report")
-    assert len(reports) == 1
-    raw = ctx.artifact_store.get(reports[0].id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is False
-    assert report.target_kind == "test_source"
-    assert exc_info.value.persisted_ref.id == reports[0].id
-    assert exc_info.value.persisted_ref.kind == "validation_report"
-
-
-def test_stage_returns_failing_ref_when_raise_disabled(ctx) -> None:
-    from molexp.harness import ValidateTestSource, ValidationReport
-
-    ts_ref = _seed_test_source(ctx, SYNTAX_ERROR_SOURCE)
-    report_ref = asyncio.run(ValidateTestSource(raise_on_failure=False).run(ctx))
-
-    assert report_ref.kind == "validation_report"
-    assert ts_ref.id in report_ref.parent_ids
-    raw = ctx.artifact_store.get(report_ref.id)
-    report = ValidationReport.model_validate(json.loads(raw))
-    assert report.passed is False

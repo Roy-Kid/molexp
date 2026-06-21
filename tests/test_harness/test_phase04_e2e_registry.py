@@ -186,70 +186,71 @@ def _codes(report) -> list[str]:
     return [v.code for v in report.violations]
 
 
-def test_three_capability_pipeline_validates_clean(tmp_path: Path) -> None:
-    from molexp.harness import BoundWorkflowValidator
+class TestPhase04E2ERegistry:
+    def test_three_capability_pipeline_validates_clean(self, tmp_path: Path) -> None:
+        from molexp.harness import BoundWorkflowValidator
 
-    ir, bw, registry = _build_matched_pair()
-    report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path, registry=registry)
-    assert report.passed is True, f"unexpected violations: {report.violations}"
-    assert report.violations == []
+        ir, bw, registry = _build_matched_pair()
+        report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path, registry=registry)
+        assert report.passed is True, f"unexpected violations: {report.violations}"
+        assert report.violations == []
 
+    def test_flipping_to_ghost_capability_triggers_unknown_capability(self, tmp_path: Path) -> None:
+        from molexp.harness import BoundWorkflowValidator
 
-def test_flipping_to_ghost_capability_triggers_unknown_capability(tmp_path: Path) -> None:
-    from molexp.harness import BoundWorkflowValidator
+        ir, bw, registry = _build_matched_pair()
+        bad_run = bw.tasks[1].model_copy(update={"capability_id": "ghost.capability"})
+        bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bad_run, bw.tasks[2]]})
+        report = BoundWorkflowValidator.validate(
+            bw_bad, ir, workspace_root=tmp_path, registry=registry
+        )
+        assert "unknown_capability" in _codes(report)
 
-    ir, bw, registry = _build_matched_pair()
-    bad_run = bw.tasks[1].model_copy(update={"capability_id": "ghost.capability"})
-    bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bad_run, bw.tasks[2]]})
-    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
-    assert "unknown_capability" in _codes(report)
+    def test_undeclared_side_effect_fires(self, tmp_path: Path) -> None:
+        from molexp.harness import BoundWorkflowValidator
 
+        ir, bw, registry = _build_matched_pair()
+        # MobilityKernel only declares ["fs_write"]; add "network" which it didn't.
+        bad_analyze = bw.tasks[2].model_copy(update={"side_effects": ["fs_write", "network"]})
+        bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bw.tasks[1], bad_analyze]})
+        report = BoundWorkflowValidator.validate(
+            bw_bad, ir, workspace_root=tmp_path, registry=registry
+        )
+        assert "undeclared_side_effect" in _codes(report)
 
-def test_undeclared_side_effect_fires(tmp_path: Path) -> None:
-    from molexp.harness import BoundWorkflowValidator
+    def test_phase04_public_surface_complete(self) -> None:
+        from molexp.harness import (  # noqa: F401
+            CapabilityAlreadyRegisteredError,
+            CapabilityCallValidationError,
+            CapabilityNotFoundError,
+            CapabilityRegistry,
+            InMemoryCapabilityRegistry,
+            ToolCapability,
+        )
 
-    ir, bw, registry = _build_matched_pair()
-    # MobilityKernel only declares ["fs_write"]; add "network" which it didn't.
-    bad_analyze = bw.tasks[2].model_copy(update={"side_effects": ["fs_write", "network"]})
-    bw_bad = bw.model_copy(update={"tasks": [bw.tasks[0], bw.tasks[1], bad_analyze]})
-    report = BoundWorkflowValidator.validate(bw_bad, ir, workspace_root=tmp_path, registry=registry)
-    assert "undeclared_side_effect" in _codes(report)
-
-
-def test_phase04_public_surface_complete() -> None:
-    from molexp.harness import (  # noqa: F401
-        CapabilityAlreadyRegisteredError,
-        CapabilityCallValidationError,
-        CapabilityNotFoundError,
-        CapabilityRegistry,
-        InMemoryCapabilityRegistry,
-        ToolCapability,
-    )
-
-
-def test_phase01_to_phase03_surface_still_intact() -> None:
-    """Regression: every Phase-1/2/3 export must still import."""
-    from molexp.harness import (  # noqa: F401
-        AgentCallResult,
-        AgentCallSpec,
-        AgentGateway,
-        ArtifactKind,
-        ArtifactRef,
-        BoundTask,
-        BoundWorkflow,
-        BoundWorkflowValidator,
-        DependencyEdge,
-        ExperimentReport,
-        FileArtifactStore,
-        GenerateExperimentReport,
-        HarnessRunContext,
-        SaveUserPlan,
-        Stage,
-        StageRunner,
-        TaskIR,
-        UserPlan,
-        ValidationReport,
-        ValidationViolation,
-        WorkflowIR,
-        WorkflowIRValidator,
-    )
+    def test_phase01_to_phase03_surface_still_intact(self) -> None:
+        """Regression: every Phase-1/2/3 export must still import."""
+        from molexp.harness import (  # noqa: F401
+            AgentCallResult,
+            AgentCallSpec,
+            AgentGateway,
+            ArtifactKind,
+            ArtifactRef,
+            BoundTask,
+            BoundWorkflow,
+            BoundWorkflowValidator,
+            DependencyEdge,
+            ExperimentReport,
+            FileArtifactStore,
+            GenerateExperimentReport,
+            HarnessRunContext,
+            SaveUserPlan,
+            Stage,
+            StageRunner,
+            TaskIR,
+            UserPlan,
+            ValidationReport,
+            ValidationViolation,
+            WorkflowIR,
+            WorkflowIRValidator,
+        )
