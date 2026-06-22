@@ -39,6 +39,13 @@ class PlanTaskCreateRequest(BaseModel):
 
     draft: str = Field(..., description="Natural-language experiment draft for PlanMode.")
     model: str | None = Field(None, description="Model id; defaults to the configured agent.model.")
+    ground: bool = Field(
+        True,
+        description=(
+            "Ground task binding against the molcrafts toolchain via the configured "
+            "molmcp MCP server. Skips with a notice when molmcp is unavailable."
+        ),
+    )
 
 
 class PlanTaskResponse(BaseModel):
@@ -140,6 +147,7 @@ async def create_plan_task(
         model=model,
         created_at=datetime.now(tz=UTC).isoformat(),
         gateway=gateway,
+        ground=request.ground,
     )
     return _to_response(task, project_id=project_id, experiment_id=experiment_id)
 

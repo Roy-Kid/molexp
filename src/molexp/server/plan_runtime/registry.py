@@ -38,6 +38,7 @@ class PlanTaskRegistry:
         model: str,
         created_at: str,
         gateway: AgentGateway,
+        ground: bool = True,
     ) -> PlanTask:
         """Build, start, and register a background plan task."""
         from molexp.server.plan_runtime.task import PlanTask
@@ -50,6 +51,8 @@ class PlanTaskRegistry:
             model=model,
             created_at=created_at,
             gateway=gateway,
+            ground=ground,
+            workspace_root=workspace_root,
         )
         self._by_workspace.setdefault(workspace_root, {})[task_id] = task
         return task

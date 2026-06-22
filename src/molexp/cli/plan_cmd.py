@@ -116,7 +116,7 @@ def _resolve_grounding(workspace_root: Path, *, ground: bool) -> CapabilityRegis
     if not ground:
         return None
     from molexp.cli._common import rprint
-    from molexp.cli.mcp_capabilities import resolve_capability_registry
+    from molexp.mcp_capabilities import resolve_capability_registry
 
     return resolve_capability_registry(
         workspace_root, notify=lambda message: rprint(f"[dim]{message}[/dim]")

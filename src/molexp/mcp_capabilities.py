@@ -1,19 +1,27 @@
 """Prefetch a harness ``CapabilityRegistry`` from the molmcp MCP server.
 
-App-layer (CLI) bridge between the externally-provisioned **molmcp** MCP server
-and the harness capability-grounding contract. It opens a stdio MCP session to
-the configured ``molmcp`` server, enumerates the relevant molcrafts packages'
-symbols via molmcp's ``find_capability`` discovery tool, and maps each returned
-node into a harness :class:`~molexp.harness.schemas.ToolCapability`. The
-resulting :class:`~molexp.harness.registry.in_memory.InMemoryCapabilityRegistry`
-snapshot is handed to ``Mode.run(capability_registry=…)`` so the **harness stays
-MCP-free** (it imports only ``agent.router``); every line of MCP I/O lives here,
-at the application layer.
+An application-tier bridge (shared by the ``molexp plan`` CLI and the server's
+plan-task route) between the externally-provisioned **molmcp** MCP server and the
+harness capability-grounding contract. It opens a stdio MCP session to the
+configured ``molmcp`` server, enumerates the relevant molcrafts packages' symbols
+via molmcp's ``find_capability`` discovery tool, and maps each returned node into
+a harness :class:`~molexp.harness.schemas.ToolCapability`. The resulting
+:class:`~molexp.harness.registry.in_memory.InMemoryCapabilityRegistry` snapshot is
+handed to ``Mode.run(capability_registry=…)`` so the **harness stays MCP-free**
+(it imports only ``agent.router``); every line of MCP I/O lives here.
+
+It lives at the package root (alongside ``git`` / ``ids`` / ``atomicio``) rather
+than under ``cli`` or ``server``: both application shells import it, and a sibling
+``server → cli`` edge would be a layer smell. Every business-layer import is
+deferred into a function body, so module load pulls only ``mollog`` + stdlib —
+``import molexp`` stays light.
 
 molmcp is *externally provisioned* — never a molexp dependency. When it is not
-configured, :func:`resolve_capability_registry` returns ``None`` (grounding off)
-after a visible notice, and the harness skips capability-aware validation. That
-downgrade is loud and explicit — never a silent fallback.
+configured, the resolvers return ``None`` (grounding off) after a visible notice,
+and the harness skips capability-aware validation. That downgrade is loud and
+explicit — never a silent fallback. Two resolvers share the mapping + notice
+logic: :func:`resolve_capability_registry` (sync, for the CLI) and
+:func:`aresolve_capability_registry` (async, for the server's async route).
 
 The catalog is built from a fixed set of domain-spanning ``find_capability``
 queries (the union, deduped by symbol id). Phase 1b feeds the *same* catalog to
@@ -323,6 +331,27 @@ def _log_notice(message: str) -> None:
     _LOG.warning(message)
 
 
+def _registry_from_caps(
+    caps: list[ToolCapability], *, server_name: str, say: Callable[[str], None]
+) -> CapabilityRegistry | None:
+    """Build the snapshot registry from prefetched caps (loud on empty)."""
+    from molexp.harness import InMemoryCapabilityRegistry
+
+    if not caps:
+        say("capability grounding off — molmcp returned no capabilities")
+        return None
+    say(f"capability grounding on — {len(caps)} molcrafts capabilities via {server_name}")
+    return InMemoryCapabilityRegistry(caps)
+
+
+def _notice_for_prefetch_error(exc: Exception, say: Callable[[str], None]) -> None:
+    """Emit the loud, explicit ground-off notice for a prefetch failure."""
+    if isinstance(exc, LookupError):
+        say(f"capability grounding off — {exc} (binding will not be validated against molpy)")
+    else:
+        say(f"capability grounding off — molmcp prefetch failed: {exc}")
+
+
 def resolve_capability_registry(
     workspace_root: str | Path,
     *,
@@ -332,28 +361,43 @@ def resolve_capability_registry(
 ) -> CapabilityRegistry | None:
     """Build a grounded ``CapabilityRegistry`` from molmcp, or ``None`` (loud).
 
-    Synchronous entry for the CLI. Runs the async prefetch; on any miss (molmcp
+    Synchronous entry (for the CLI). Runs the async prefetch; on any miss (molmcp
     unconfigured / unreachable / empty) it emits a visible notice via ``notify``
     (default: a logger warning) and returns ``None`` so the caller proceeds
     ungrounded — an explicit, never-silent downgrade.
     """
     import asyncio
 
-    from molexp.harness import InMemoryCapabilityRegistry
-
     say = notify if notify is not None else _log_notice
     try:
         caps = asyncio.run(
             fetch_molmcp_capabilities(workspace_root, server_name=server_name, queries=queries)
         )
-    except LookupError as exc:
-        say(f"capability grounding off — {exc} (binding will not be validated against molpy)")
-        return None
     except Exception as exc:  # prefetch is best-effort: report and proceed ungrounded
-        say(f"capability grounding off — molmcp prefetch failed: {exc}")
+        _notice_for_prefetch_error(exc, say)
         return None
-    if not caps:
-        say("capability grounding off — molmcp returned no capabilities")
+    return _registry_from_caps(caps, server_name=server_name, say=say)
+
+
+async def aresolve_capability_registry(
+    workspace_root: str | Path,
+    *,
+    server_name: str = DEFAULT_SERVER_NAME,
+    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    notify: Callable[[str], None] | None = None,
+) -> CapabilityRegistry | None:
+    """Async sibling of :func:`resolve_capability_registry` for an async caller.
+
+    Awaits the prefetch directly (rather than ``asyncio.run``), so it is safe to
+    call from inside a running event loop — e.g. the server's async plan-task
+    route. Same loud-on-miss / never-silent contract.
+    """
+    say = notify if notify is not None else _log_notice
+    try:
+        caps = await fetch_molmcp_capabilities(
+            workspace_root, server_name=server_name, queries=queries
+        )
+    except Exception as exc:  # prefetch is best-effort: report and proceed ungrounded
+        _notice_for_prefetch_error(exc, say)
         return None
-    say(f"capability grounding on — {len(caps)} molcrafts capabilities via {server_name}")
-    return InMemoryCapabilityRegistry(caps)
+    return _registry_from_caps(caps, server_name=server_name, say=say)

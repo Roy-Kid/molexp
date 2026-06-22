@@ -147,7 +147,10 @@ def _await_terminal(client: TestClient, task_id: str, tries: int = 100) -> dict[
 
 
 def test_create_plan_task_runs_pipeline_and_persists_workflow(plan_client: TestClient) -> None:
-    resp = plan_client.post(_BASE, json={"draft": "screen solvent ratios", "model": "stub-model"})
+    # ground=false keeps the test offline (no molmcp spawn).
+    resp = plan_client.post(
+        _BASE, json={"draft": "screen solvent ratios", "model": "stub-model", "ground": False}
+    )
     assert resp.status_code == 201, resp.text
     started = resp.json()
     assert started["status"] == "running"
@@ -169,7 +172,7 @@ def test_create_plan_task_runs_pipeline_and_persists_workflow(plan_client: TestC
 
 
 def test_create_plan_task_is_idempotent_on_same_draft(plan_client: TestClient) -> None:
-    payload = {"draft": "same draft text", "model": "stub-model"}
+    payload = {"draft": "same draft text", "model": "stub-model", "ground": False}
     first = plan_client.post(_BASE, json=payload).json()
     _await_terminal(plan_client, first["taskId"])
     second = plan_client.post(_BASE, json=payload).json()
@@ -179,3 +182,45 @@ def test_create_plan_task_is_idempotent_on_same_draft(plan_client: TestClient) -
 
 def test_get_unknown_plan_task_returns_404(plan_client: TestClient) -> None:
     assert plan_client.get(f"{_BASE}/plan-does-not-exist").status_code == 404
+
+
+def test_grounded_plan_task_threads_capability_registry(
+    plan_client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ground=true resolves a registry and threads it into PlanMode/validation.
+
+    The stub binds ``molpy.builder.water.SPCEBuilder``; a registry that knows it
+    makes ValidateBoundWorkflow's capability checks fire and pass — proving the
+    grounding path runs end to end without spawning molmcp.
+    """
+    called: list[str] = []
+
+    async def _fake_aresolve(workspace_root: str, **_: Any) -> Any:
+        from molexp.harness import InMemoryCapabilityRegistry
+        from molexp.harness.schemas import ToolCapability
+
+        called.append(workspace_root)
+        return InMemoryCapabilityRegistry(
+            [
+                ToolCapability(
+                    id="molpy.builder.water.SPCEBuilder",
+                    package="molpy",
+                    name="SPCEBuilder",
+                    description="Build an SPC/E water box.",
+                    input_schema={"type": "object"},
+                    output_schema={},
+                    callable_path="molpy.builder.water.SPCEBuilder",
+                    supported_backends=["local"],
+                    tags=["class"],
+                )
+            ]
+        )
+
+    monkeypatch.setattr("molexp.mcp_capabilities.aresolve_capability_registry", _fake_aresolve)
+
+    resp = plan_client.post(_BASE, json={"draft": "grounded run", "model": "stub-model"})
+    assert resp.status_code == 201, resp.text
+    final = _await_terminal(plan_client, resp.json()["taskId"])
+    assert final["status"] == "completed", final
+    assert final["workflowPersisted"] is True
+    assert called, "grounding resolver was not invoked for ground=true"

@@ -41,6 +41,8 @@ class PlanTask:
         draft: str,
         model: str,
         created_at: str,
+        ground: bool = True,
+        workspace_root: str = "",
     ) -> None:
         self.task_id = task_id
         self.run = run
@@ -48,6 +50,8 @@ class PlanTask:
         self.draft = draft
         self.model = model
         self.created_at = created_at
+        self.ground = ground
+        self.workspace_root = workspace_root
         self.status: PlanTaskStatus = "running"
         self.error: BaseException | None = None
         self.workflow_persisted = False
@@ -65,6 +69,8 @@ class PlanTask:
         model: str,
         created_at: str,
         gateway: AgentGateway,
+        ground: bool = True,
+        workspace_root: str = "",
     ) -> PlanTask:
         """Build a task and spawn its background PlanMode run."""
         task = cls(
@@ -74,6 +80,8 @@ class PlanTask:
             draft=draft,
             model=model,
             created_at=created_at,
+            ground=ground,
+            workspace_root=workspace_root,
         )
         task._task = asyncio.create_task(task._drive(gateway))
         return task
@@ -84,7 +92,19 @@ class PlanTask:
         from .persist import persist_plan_workflow_to_experiment
 
         try:
-            self.result = await PlanMode().run(run=self.run, user_input=self.draft, gateway=gateway)
+            # Resolve molmcp grounding first (loud on miss, never silent) so the
+            # binder picks real capabilities and ValidateBoundWorkflow checks them.
+            capability_registry = None
+            if self.ground:
+                from molexp.mcp_capabilities import aresolve_capability_registry
+
+                capability_registry = await aresolve_capability_registry(self.workspace_root)
+            self.result = await PlanMode().run(
+                run=self.run,
+                user_input=self.draft,
+                gateway=gateway,
+                capability_registry=capability_registry,
+            )
             # Compile + persist is blocking (exec + file write) — offload it.
             self.workflow_persisted = await asyncio.to_thread(
                 persist_plan_workflow_to_experiment, self.run, self.experiment
