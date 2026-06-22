@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from molexp._typing import JSONValue
     from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
     from molexp.workspace.run import Run
 
@@ -104,6 +105,22 @@ def _configured_model() -> str | None:
     from molexp.cli.agent_cmd import _configured_model as agent_configured_model
 
     return agent_configured_model()
+
+
+def _resolve_grounding(workspace_root: Path, *, ground: bool) -> CapabilityRegistry | None:
+    """Build a molmcp-backed ``CapabilityRegistry`` when ``--ground`` is set.
+
+    Returns ``None`` when grounding is off or molmcp is unavailable (the helper
+    prints a visible notice in the latter case — never a silent downgrade).
+    """
+    if not ground:
+        return None
+    from molexp.cli._common import rprint
+    from molexp.cli.mcp_capabilities import resolve_capability_registry
+
+    return resolve_capability_registry(
+        workspace_root, notify=lambda message: rprint(f"[dim]{message}[/dim]")
+    )
 
 
 class PlanRuntime:
@@ -244,6 +261,18 @@ def plan(
             "default already auto-approves when stdin is not a TTY (CI/pipes).",
         ),
     ] = False,
+    ground: Annotated[
+        bool,
+        typer.Option(
+            "--ground/--no-ground",
+            help="Ground task binding against the molcrafts toolchain via the "
+            "configured `molmcp` MCP server: the binder picks capabilities from "
+            "the live catalog and ValidateBoundWorkflow checks each bound "
+            "capability exists, its call shape, and its backend. On by default; "
+            "skips with a notice when molmcp is not available. Use --no-ground "
+            "to disable.",
+        ),
+    ] = True,
 ) -> None:
     """Turn an experiment draft into validated molexp.workflow source (PlanMode)."""
     from molexp.cli._common import deterministic_run_id, rprint
@@ -282,8 +311,16 @@ def plan(
     rprint(f"  stages    : {' -> '.join(stage_names)}")
 
     gateway = PlanRuntime.build_gateway(model=resolved_model, run=run)
+    capability_registry = _resolve_grounding(workspace_root, ground=ground)
     try:
-        result = asyncio.run(mode.run(run=run, user_input=draft_text, gateway=gateway))
+        result = asyncio.run(
+            mode.run(
+                run=run,
+                user_input=draft_text,
+                gateway=gateway,
+                capability_registry=capability_registry,
+            )
+        )
     except StageExecutionError as exc:
         rprint(f"[red]Plan pipeline failed:[/red] {exc}")
         rprint(
@@ -297,7 +334,12 @@ def plan(
         rprint(f"  {name:<26} {ref.kind:<20} {ref.id}")
 
     if execute:
-        _execute_run_mode(run=run, draft_text=draft_text, gateway=gateway)
+        _execute_run_mode(
+            run=run,
+            draft_text=draft_text,
+            gateway=gateway,
+            capability_registry=capability_registry,
+        )
 
     rprint(f"\n  artifacts : {run.run_dir / 'artifacts'}")
     rprint(f"  audit db  : {run.run_dir / 'harness.sqlite'}  (events + artifact lineage)")
@@ -307,7 +349,13 @@ def plan(
     )
 
 
-def _execute_run_mode(*, run: Run, draft_text: str, gateway: AgentGateway) -> None:
+def _execute_run_mode(
+    *,
+    run: Run,
+    draft_text: str,
+    gateway: AgentGateway,
+    capability_registry: CapabilityRegistry | None = None,
+) -> None:
     """Chain RunMode after PlanMode on the same content-addressed Run.
 
     The generated tests gate the real execution; stage failures surface with
@@ -327,7 +375,14 @@ def _execute_run_mode(*, run: Run, draft_text: str, gateway: AgentGateway) -> No
     rprint(f"  stages    : {' -> '.join(stage_names)}")
 
     try:
-        result = asyncio.run(mode.run(run=run, user_input=draft_text, gateway=gateway))
+        result = asyncio.run(
+            mode.run(
+                run=run,
+                user_input=draft_text,
+                gateway=gateway,
+                capability_registry=capability_registry,
+            )
+        )
     except StageExecutionError as exc:
         rprint(f"[red]Run pipeline failed:[/red] {exc}")
         rprint(

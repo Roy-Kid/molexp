@@ -57,6 +57,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.registry.capability_registry import CapabilityRegistry
 
 __all__ = ["Mode"]
 
@@ -95,6 +96,7 @@ class Mode(ABC):
         run: Any,  # noqa: ANN401 — workspace.Run (imported lazily-free; duck-typed run_dir/id)
         user_input: Any,  # noqa: ANN401
         gateway: AgentGateway | None = None,
+        capability_registry: CapabilityRegistry | None = None,
     ) -> ModeResult:
         """Run the declared stages eagerly on ``run`` and return a :class:`ModeResult`.
 
@@ -105,6 +107,10 @@ class Mode(ABC):
                 of the completion-ledger cache key.
             gateway: Optional :class:`AgentGateway` wired into the
                 ``HarnessRunContext`` for LLM-backed stages.
+            capability_registry: Optional :class:`CapabilityRegistry` wired into
+                the ``HarnessRunContext``. When present, ``ValidateBoundWorkflow``
+                grounds binding against it (unknown-capability / call-shape /
+                backend checks); when ``None`` those checks are skipped.
 
         Returns:
             A :class:`ModeResult` carrying the per-stage artifacts + the final.
@@ -118,7 +124,7 @@ class Mode(ABC):
         if not stages:
             raise ValueError(f"Mode[{self.name!r}].stages returned no stages")
 
-        ctx = self._build_ctx(run, gateway)
+        ctx = self._build_ctx(run, gateway, capability_registry)
         ledger_path = self._ledger_path(run, user_input)
         completed: dict[str, _LedgerEntry] = self._load_ledger(ledger_path)
 
@@ -184,7 +190,12 @@ class Mode(ABC):
             return False
         return True
 
-    def _build_ctx(self, run: Any, gateway: AgentGateway | None) -> HarnessRunContext:  # noqa: ANN401
+    def _build_ctx(
+        self,
+        run: Any,  # noqa: ANN401
+        gateway: AgentGateway | None,
+        capability_registry: CapabilityRegistry | None = None,
+    ) -> HarnessRunContext:
         artifact_store = FileArtifactStore(root=run.run_dir / "artifacts")
         db_path = run.run_dir / "harness.sqlite"
         return HarnessRunContext(
@@ -194,6 +205,7 @@ class Mode(ABC):
             event_log=SQLiteEventLog(path=db_path),
             lineage_store=SQLiteArtifactLineageStore(path=db_path, artifact_store=artifact_store),
             agent_gateway=gateway,
+            capability_registry=capability_registry,
         )
 
     def _ledger_path(self, run: Any, user_input: Any) -> Path:  # noqa: ANN401

@@ -100,6 +100,17 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def _disable_grounding(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep ``molexp plan`` offline: never spawn the molmcp server in CLI tests.
+
+    ``--ground`` is on by default, so without this the StubAgentGateway path
+    would reach out to the user-scope ``molmcp`` config. Tests that exercise
+    grounding do so against the registry/catalog units directly.
+    """
+    monkeypatch.setattr("molexp.cli.plan_cmd._resolve_grounding", lambda *_a, **_k: None)
+
+
 def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``molexp plan`` build a StubAgentGateway instead of a live router."""
 

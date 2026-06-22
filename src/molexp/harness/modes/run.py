@@ -58,6 +58,7 @@ from molexp.harness.store.file_artifact_store import FileArtifactStore
 
 if TYPE_CHECKING:
     from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.registry.capability_registry import CapabilityRegistry
 
 __all__ = ["RunMode"]
 
@@ -94,6 +95,7 @@ class RunMode(Mode):
         run: Any,  # noqa: ANN401 — workspace.Run (duck-typed run_dir/id, as in Mode)
         user_input: Any,  # noqa: ANN401
         gateway: AgentGateway | None = None,
+        capability_registry: CapabilityRegistry | None = None,
     ) -> ModeResult:
         """Guard for PlanMode artifacts, then run the stage sequence.
 
@@ -110,7 +112,12 @@ class RunMode(Mode):
                 "run PlanMode first (molexp plan) to produce the planning artifacts "
                 "RunMode executes"
             )
-        return await super().run(run=run, user_input=user_input, gateway=gateway)
+        return await super().run(
+            run=run,
+            user_input=user_input,
+            gateway=gateway,
+            capability_registry=capability_registry,
+        )
 
     @staticmethod
     def _final_report_request() -> ApprovalRequest:
