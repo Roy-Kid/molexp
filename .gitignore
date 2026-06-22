@@ -8,6 +8,17 @@ __pycache__/
 examples/**/_workspace/
 examples/agent/smoke_runs/
 
+# molexp workspace artifacts accidentally materialised at the repo root
+# (running `molexp run` from the repo root writes a whole workspace here)
+/workspace.json
+/project.json
+/catalog/
+/projects/
+/cache/
+# SQLite WAL/SHM sidecars (transient — never commit)
+*.sqlite-shm
+*.sqlite-wal
+
 # C extensions
 *.so
 
@@ -206,3 +217,5 @@ src/molexp/dist/*
 .claude/worktrees/
 .claude/scheduled_tasks.lock
 .playwright-mcp/
+uv.lock
+package-lock.json

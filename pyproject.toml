@@ -22,6 +22,7 @@ dependencies = [
     "molcrafts-mollog>=1.0.0",
     "molcrafts-molcfg>=1.2.0",
     "molcrafts-molq>=0.2.0",
+    "tidewave[fastapi]",
 ]
 
 [project.optional-dependencies]

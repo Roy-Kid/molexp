@@ -172,8 +172,8 @@ def test_submit_handler_persists_executor_info(monkeypatch, tmp_path):
 
     class DummyScript:
         @staticmethod
-        def inline(text: str) -> SimpleNamespace:
-            return SimpleNamespace(text=text)
+        def inline(text: str) -> str:
+            return text
 
     fake_molq = ModuleType("molq")
     fake_molq.Cluster = DummyCluster

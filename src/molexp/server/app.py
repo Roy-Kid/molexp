@@ -8,6 +8,7 @@ It strictly adheres to the standard pattern:
 
 from __future__ import annotations
 
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -201,6 +202,14 @@ def create_app(
             workspace_available=True,
             capabilities={cap.value: registry.is_available(cap) for cap in Capability},
         )
+
+    is_dev = os.environ.get("RUN_MODE", None) == "development"
+
+    if is_dev:
+        from tidewave.fastapi import Tidewave
+
+        tidewave = Tidewave()
+        tidewave.install(app)
 
     # 5. Static file serving (production) or root fallback (dev / no build)
     webapp_path: Path | None = None

@@ -8,7 +8,9 @@ This boundary protects the core workflow and workspace model. Local authoring, l
 
 ## The Plugins in This Repository
 
-Two optional integrations ship with the repository today. `submit_molq` is the scheduler bridge used when `molexp run` needs to submit work to Slurm, PBS, LSF, or another `molq`-backed scheduler. `agent_pydanticai` is the agent integration layer for goal-driven execution built on top of PydanticAI. In both cases the core package can remain unaware of those dependencies until the user reaches for them.
+A small registry of optional capabilities ships today. `submit_molq` is the scheduler bridge used when `molexp run` needs to submit work to Slurm, PBS, LSF, or another `molq`-backed scheduler. `gh` is a lazy GitHub client. `tensorboard` (installed via `molexp[tensorboard]`) parses tfevents into typed Python. In every case the core package stays unaware of those dependencies until the user reaches for the capability.
+
+The **agent is not a plugin** — it is a first-class layer (`molexp.agent`) gated behind the `molexp[agent]` extra, the same way the rest of the core stays light without it. Beyond this registry, molexp also exposes two **third-party** extension channels — CLI subcommands (`molexp.cli_plugins`) and dynamically-imported UI bundles (`molexp.ui_plugins`) — so a downstream package can extend molexp without forking it. See [Writing a Plugin](../plugins.md) for those channels.
 
 ## Scheduler Transport Is Not a Second Runtime
 
@@ -16,8 +18,8 @@ The most important example is `submit_molq`, because it can easily look larger t
 
 That design is why local and remote execution remain conceptually aligned. The workflow is still the same workflow. The workspace record is still the same workspace record. Only the transport layer changes.
 
-## Agent Integration Follows the Same Rule
+## The Agent Layer Follows the Same Rule
 
-The agent plugin follows the same philosophy. It adds a public surface for goal-driven sessions and tool orchestration, but it still stores its durable state in the same workspace hierarchy. Sessions, approvals, tool calls, and observations remain inspectable through the same API and UI because the plugin extends the persistent model instead of bypassing it.
+The agent layer is not a plugin, but it honours the same boundary. It adds a public surface for goal-driven sessions and tool orchestration, yet it stores its durable state in the same workspace hierarchy. Sessions, approvals, tool calls, and observations remain inspectable through the same API and UI because the layer extends the persistent model instead of bypassing it — and `import molexp` stays light because none of pydantic-ai loads until you actually run an agent. See the [Agent concept](agent.md) for that layer in full.
 
 If you need the operational detail behind scheduler submission, continue with [Molq Plugin](../guide/molq.md). If you need the server surface that exposes plugin-backed state to the UI, continue with [Server Lifecycle](../guide/server-lifecycle.md).

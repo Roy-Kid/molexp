@@ -1,155 +1,122 @@
 # Plan Mode Architecture
 
-PlanMode turns an experimental report or natural-language scientific
-request into a reviewable, Python-native molexp workspace. It authors
-and validates a workspace; it does not execute experiments.
+PlanMode turns a natural-language experiment draft into validated,
+Python-native `molexp.workflow` source. It authors and validates; it
+does not run the experiment. RunMode is its sibling: it generates and
+runs tests, executes the workflow, and produces a final report. Both
+are **`Mode` pipelines in `molexp.harness`** — the top layer of the
+dependency DAG.
 
-PlanMode is implemented as a `molexp.workflow.Workflow`. The agent
-layer owns the prompts, model policy, review gate, and handoff contract.
-The workflow layer owns workflow/task abstractions and generic
-`WorkflowContract` validation. The workspace layer owns generic storage
-primitives such as subsystem directories and atomic writes.
+> PlanMode and RunMode used to be `molexp.agent` modes built on
+> `molexp.workflow`. They now live in the harness as ordered lists of
+> `Stage` objects. The harness reaches the LLM only through the agent's
+> `Router` Protocol (`RouterBackedAgentGateway`), and it never loads the
+> workflow engine in-process — pytest and the materialized workflow
+> driver run as executor subprocesses.
 
-## Flow
+## A Mode is a stage ledger
+
+A `Mode` is an ordered list of `Stage`s run against one
+content-addressed `Run`. `Mode.stages(user_input)` returns the
+sequence; the runner executes each `Stage.run(ctx) -> ArtifactRef`,
+brackets it with `stage_started` / `artifact_created` / `stage_completed`
+events, and auto-wires `derived_from` lineage between artifacts. Each
+completed stage is recorded in a ledger keyed by the Run's fingerprint,
+so re-running the **same draft** resumes on the same Run and skips
+already-completed stages.
+
+Run-level provenance (params, config hash, code/script identity) is
+owned by **workspace** (`RunMetadata` / `AssetCatalog`). Harness lineage
+covers only the agent-pipeline artifacts and stamps each edge with its
+stage plus the workspace `run_id`.
+
+## PlanMode flow (9 stages)
 
 ```mermaid
 flowchart TD
-    A["Experiment Report / User Request"] --> B["IngestReport"]
-    B --> C["DraftReportDigest"]
-    C --> D["DraftImplementationPlan"]
-    D --> E["CompileWorkflowIR"]
-    E --> F["CompileTaskIR"]
-    F --> CN["DraftCapabilityNeeds"]
-    CN --> CD["DiscoverCapabilities"]
-    CD --> G["GenerateWorkflowSkeleton"]
-    F --> H["GenerateTaskTests"]
-    CD --> H
-    G --> I["GenerateTaskImplementations"]
-    CD --> I
-    H --> I
-    I --> J["ValidateWorkspace"]
-    J --> K["HumanReview"]
-    K --> X["FinalHandoffCheck"]
-    X --> L["PlanMode Result"]
-    L --> M["RunMode"]
+    A["Experiment draft"] --> S1["SaveUserPlan"]
+    S1 --> S2["GenerateExperimentReport"]
+    S2 --> S3["ExtractWorkflowIR"]
+    S3 --> S4["ValidateWorkflowIR"]
+    S4 --> S5["BindMolcraftsTasks"]
+    S5 --> S6["ValidateBoundWorkflow"]
+    S6 --> S7["GenerateWorkflowSource"]
+    S7 --> S8["ValidateWorkflowSource"]
+    S8 --> S9["ApprovalGate"]
+    S9 --> R["RunMode (optional, --execute)"]
 ```
 
-## Planning Nodes
+- `SaveUserPlan`, `GenerateExperimentReport` — capture the request and
+  draft an experiment report.
+- `ExtractWorkflowIR` / `ValidateWorkflowIR` — lift the report into a
+  workflow IR and check it structurally.
+- `BindMolcraftsTasks` / `ValidateBoundWorkflow` — bind IR nodes to
+  concrete tasks and re-validate the bound graph.
+- `GenerateWorkflowSource` / `ValidateWorkflowSource` — emit
+  `molexp.workflow` Python source and validate it.
+- `ApprovalGate` — human (or auto-grant) approval before any execution.
 
-The current PlanMode workflow uses these 13 node names:
+## RunMode flow (10 stages)
 
-- `IngestReport`
-- `DraftReportDigest`
-- `DraftImplementationPlan`
-- `CompileWorkflowIR`
-- `CompileTaskIR`
-- `DraftCapabilityNeeds`
-- `DiscoverCapabilities`
-- `GenerateWorkflowSkeleton`
-- `GenerateTaskTests`
-- `GenerateTaskImplementations`
-- `ValidateWorkspace`
-- `HumanReview`
-- `FinalHandoffCheck`
+RunMode consumes PlanMode's artifacts on the **same Run**.
+`RunMode(executor=…)` defaults to `LocalExecutor`; inject
+`DryRunExecutor` for a dry run.
 
-The two capability nodes (Phase 4-5 of `agent-pydanticai-rectification`)
-sit between IR compilation and the codegen fan-out so each codegen
-node can refuse unevidenced Molcrafts API references. See
-[`agent.md`](agent.md#capability-discovery-gate) for the full gate
-contract.
-
-Code, tests, and documentation should use these names for the current
-pipeline.
-
-## Artifacts
-
-PlanMode materializes a plan workspace under the agent-owned subsystem
-store:
-
-```text
-<workspace>/.subsystems/agent.plan-experiments/<plan_id>/
+```mermaid
+flowchart TD
+    T1["GenerateTestSpec"] --> T2["ValidateTestSpec"]
+    T2 --> T3["GenerateTestCode"]
+    T3 --> T4["ValidateTestSource"]
+    T4 --> T5["MaterializeExecution"]
+    T5 --> T6["ExecuteTests"]
+    T6 --> T7["ExecuteWorkflow"]
+    T7 --> T8["GenerateFinalReport"]
+    T8 --> T9["ApprovalGate"]
+    T9 --> T10["GenerateAuditReport"]
 ```
 
-The workspace contains:
-
-- `report/original.md`
-- `report/digest.md`
-- `plan/implementation_plan.md`
-- `ir/workflow.yaml`
-- `ir/tasks/*.yaml`
-- `capability/needs.yaml`
-- `capability/evidence.yaml`
-- `capability/missing.md`
-- `src/experiment/workflow.py`
-- `src/experiment/tasks/*.py`
-- `tests/test_*.py`
-- `manifest.yaml`
-- `validation_report.md`
-- `validation_report.yaml`
-
-Generated experiment code is Python-native and uses
-`molexp.workflow.WorkflowCompiler`. The generated workflow module exposes
-`create_workflow`, which returns the compiled
-`molexp.workflow.CompiledWorkflow` object that RunMode will load.
+Generated tests **gate execution**: red tests block `ExecuteWorkflow`.
+Both `ExecuteTests` (pytest) and `ExecuteWorkflow` (the materialized
+`run_workflow.py` driver) run as **executor subprocesses**, so the
+`molexp.workflow` engine never loads inside the harness process.
 
 ## Validation
 
-Validation has two levels:
+Validators under `harness/validators/` are pure, synchronous, and
+deterministic. They return a `ValidationReport` and **never raise** —
+the owning stage decides whether a report's violations should lift to a
+`StageExecutionError`. Each `Validate*` stage pairs with its `Generate*`
+predecessor (`ValidateWorkflowIR`, `ValidateBoundWorkflow`,
+`ValidateWorkflowSource`, `ValidateTestSpec`, `ValidateTestSource`).
 
-- `ValidateWorkspace` checks materialized files, task IR files, generated
-  source, RunMode-style entrypoint importability, and delegates generic
-  workflow contract rules to `molexp.workflow.validate_workflow_contract`.
-- `FinalHandoffCheck` repeats the RunMode-facing import and contract
-  validation after human review so final edits cannot bypass handoff
-  checks.
+## Artifacts and stores
 
-Syntax compilation is only a preliminary check. A workspace is runnable
-only if RunMode can import the generated entrypoint and the loaded
-workflow passes generic contract validation.
-
-## Review And Readiness
-
-Human approval and runnable readiness are separate:
+PlanMode and RunMode write under the Run directory:
 
 ```text
-human approval of the plan
-machine validation of the handoff
-ready_for_run status
+runs/<run_id>/
+├── artifacts/        # stage outputs (reports, IR, generated source, tests, …)
+└── harness.sqlite    # event log + artifact lineage (SQLite-backed)
 ```
 
-Default auto-approval may approve the design direction, but failed
-machine validation cannot produce `ready_for_run`. The manifest records
-both the approval result and the final machine-readable status under the
-`plan_mode` block.
+`FileArtifactStore` holds the artifact blobs; `SQLiteEventLog` and
+`SQLiteArtifactLineageStore` share the run-local `harness.sqlite` and
+enforce `UNIQUE(run_id, seq)`. The audit report (`GenerateAuditReport`)
+and `replay_metadata` reconstruct the pipeline from those records.
 
-Current status values are:
+## Production entry point
 
-- `draft`
-- `validated`
-- `validation_failed`
-- `ready_for_review`
-- `approved`
-- `approved_with_override`
-- `ready_for_run`
-- `pending_review`
+```bash
+# Plan only — generate + validate workflow source, stop at the gate
+molexp plan "screen solvent conditions for electrolyte X"
 
-## Handoff
-
-PlanMode ends with a `PlanRunHandoff`. The manifest includes the
-entrypoint metadata RunMode needs:
-
-```yaml
-plan_mode:
-  status: ready_for_run
-  validation_passed: true
-  ready_for_run: true
-  handoff:
-    source_root: src
-    module: experiment.workflow
-    symbol: create_workflow
-  override: false
+# Plan, then chain RunMode on the same Run
+molexp plan -f draft.md --execute
 ```
 
-RunMode owns dispatch, monitoring, resume, logging, backend execution,
-failure tracking, and artifact collection. It should not have to
-rediscover basic PlanMode generation errors.
+`molexp plan` (`cli/plan_cmd.py`) injects the agent gateway and the
+executor, derives a content-addressed Run from the draft, and drives
+PlanMode (and, with `--execute`, RunMode). Because the Run is
+content-addressed, re-issuing the same draft resumes the stage ledger
+rather than starting over. The model defaults to the operator's
+`agent.model` config (`~/.molexp/config.json`).

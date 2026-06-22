@@ -57,7 +57,7 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 pip install molexp
 ```
 
-Requires Python >= 3.12. Core depends on `pydantic`, `pydantic-graph`, `typer`, `rich`, `fastapi`, `uvicorn`, and the MolCrafts libraries `mollog`, `molcfg`, and `molq`. Optional extras: `molexp[agent]` adds the PydanticAI LLM harness; `molexp[all]` and `molexp[dev]` pull everything for development.
+Requires Python >= 3.12. Core depends on `pydantic`, `pydantic-graph`, `typer`, `rich`, `fastapi`, `uvicorn`, and the MolCrafts libraries `mollog`, `molcfg`, and `molq`. Optional extras: `molexp[agent]` adds the PydanticAI LLM layer; `molexp[tensorboard]` adds the TensorBoard scalar reader; `molexp[all]` bundles both, and `molexp[dev]` pulls everything for development.
 
 ## Quick start
 

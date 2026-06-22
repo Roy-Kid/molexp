@@ -15,11 +15,9 @@ the root path + filesystem and does **no** disk I/O on construction. The
 semantic graph lives in markdown (``index.md`` links), so :meth:`link`
 round-trips through :meth:`Folder.out_edges`.
 
-``Bundle`` is a NEW, DISTINCT class from the per-scope ``workspace.Library``
-(notes + literature). ``Library`` indexes documents inside one scope; ``Bundle``
-indexes the Concept tree itself. They share only the loose word "library" in the
-reference tree; conflating them would overload one name with two unrelated
-surfaces and break the four ``Folder.library`` callers.
+``Bundle`` indexes the OKF Concept tree itself (``Note`` / ``ReferenceConcept``
+directories whose path is their identity), superseding the legacy per-scope
+``Library`` that was removed in wsokf-11.
 """
 
 from __future__ import annotations

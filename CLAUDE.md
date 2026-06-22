@@ -61,7 +61,7 @@ molexp is an agent-assisted scientific-workflow platform for FAIR research — P
        harness          (experiment orchestrator — artifact lineage, audit,
          │                stages, executors, approval gates)
          │
-         ├─ uses ─→ agent     (pydantic-ai facade + LLM-only modes)
+         ├─ uses ─→ agent     (pydantic-ai facade + LLM-only loops)
          ├─ uses ─→ workflow  (graph engine, content-addressed cache)
          └─ uses ─→ workspace (pure storage)
 
@@ -97,7 +97,7 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 - **resume is task-granular, caller-driven, and self-validating.** A failed run preserves completed outputs in `WorkflowResult.outputs`; the caller (CLI/server) re-seeds them via `runtime.execute(..., seed_outputs=…)`, sourced from the *existing* execution's persisted node-level state. Node state is persisted **incrementally** to `executions/<exec_id>/workflow.json` (per-task status + outputs + `snapshot_key` + `outputs_lossy` flag — not per-frame engine checkpoints; within-task checkpointing belongs to `ctx.workdir`). At seed time the engine drops (warn, recompute — never error) any seed whose recomputed `TaskSnapshot.key` differs (code changed), whose outputs were lossy-truncated, or which cannot be verified (pre-flag documents). Seeded nodes are recorded in `WorkflowState.seeded` and skip their body (`from_seed`); unknown seed names fail-fast. `rerun` simply calls `execute` with no seed (new `exec_id`). SubWorkflow inner runs execute with persistence off — `executions/<exec_id>/workflow.json` always describes the **outer** graph only.
 - MUST NOT: import `agent` / `plugins` / `server` / `cli` / `sweep`. MUST NOT import `pydantic_graph` outside `_pydantic_graph/`. No second `End` sentinel, no per-task `BaseNode` codegen. `Next` is public (the `wf.branch` / `wf.loop` routing return value, in `molexp.workflow.__all__`) but stays out of the frozen top-level `molexp.__all__` / lazy re-exports.
 
-**`molexp.agent`** — sibling of workflow above workspace; pydantic-ai facade + LLM-only modes.
+**`molexp.agent`** — sibling of workflow above workspace; pydantic-ai facade + LLM-only loops.
 - Owns: the public surface (`AgentRunner`, `AgentLoop`, `AgentRunResult`, `AgentRuntime`, `AgentSession`). `AgentRuntime` is the frozen-dataclass bundle (`session` + `router` + `execution_env`) a loop receives at run time. Flat module list — `loop.py` / `runtime.py` / `session.py` / `session_storage.py` / `session_entry.py` / `events.py` (`AgentEvent` discriminated union + `AsyncIteratorEventSink`) / `compaction.py` / `execution_env.py` / `router.py` (Protocol) / `runner.py` / `folders.py`. Two concrete loops under `loops/`: `ChatLoop` (one round-trip) and `InteractiveLoop` (emergent tool loop driving `Router.stream_agentic`). Private `_pydanticai/` is the **sole** sanctioned `import pydantic_ai` site (`router.py`, `mcp.py`, `messages_codec.py`, …).
 - Uses workspace only (`Folder`, `Workspace`, `Run`, `RunContext`, `AssetCatalog`, …) for on-disk session storage. **MUST NOT** import `molexp.workflow` or `molexp.harness` — those layers are siblings (workflow) and one layer above (harness); pipeline orchestration that used to live in agent (PlanMode / AuthorMode / RunMode / ReviewMode) moved to harness, reached through the `AgentGateway` Protocol.
 - MUST NOT: import `molexp.workflow`, `molexp.harness`, `plugins`, `server`, `cli`, `sweep`. MUST NOT import `pydantic_ai` outside `_pydanticai/`. MUST NOT import `pydantic_graph` anywhere under `agent/`.
@@ -111,38 +111,46 @@ Server + CLI sit on top of harness/agent/workflow/workspace; UI is downstream of
 
 ## On-disk layout
 
-Children indices are local conveniences rebuilt on `add_folder` / `remove_folder`. Per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level. The global asset catalog at `<root>/catalog/index.json` (vended by `ws.catalog`) is authoritative for cross-cutting lineage queries.
+This layout is the **authoritative experiment-directory spec** — the shape any tool restructuring data into a molexp workspace must produce. Children indices are local conveniences rebuilt on `add_folder` / `remove_folder`. Per-attempt artifacts live under `executions/<exec_id>/`; cross-attempt state stays at the run level. The global asset catalog at `<root>/catalog/index.sqlite` (vended by `ws.catalog`) is the **derived** indexed read surface for cross-cutting lineage queries — rebuildable from the entity `*.json`, never the only copy (see the One-source-of-truth law).
 
 ```
 workspace_root/
-├── workspace.json                # workspace metadata
-├── project.json                  # children index (auto-derived: cls.__name__ + ".json")
+├── workspace.json                # workspace ENTITY metadata
+├── project.json                  # children INDEX of projects (derived; child cls snake_case + ".json")
 ├── cache/<key>.json              # singleton CacheFolder — ws.cache
-├── catalog/index.sqlite          # ws.catalog (AssetCatalog, SQLite-backed)
+├── catalog/index.sqlite          # ws.catalog (AssetCatalog, SQLite-backed; derived)
 ├── meta.yaml                     # OKF concept marker (type → registry) — every concept dir has one
 ├── index.md                      # OKF narrative; its markdown links ARE the knowledge graph (out_edges)
 ├── <agent>/                      # Agent (OKF concept, kind=agent.agent): meta.yaml + flat sessions
 │   └── <session>/                #   AgentSession (kind=agent.session): meta.yaml + messages.jsonl (binary)
-└── projects/<project_id>/
-    ├── project.json
-    ├── experiment.json
-    └── experiments/<experiment_id>/
-        ├── experiment.json
-        ├── run.json
-        └── runs/<run_id>/
-            ├── run.json          # identity/provenance: params, config_hash, profile, target (status/history mirrored here, authoritative copy in _ops/)
+└── projects/<project_id>/        # container subdir "projects/", dir name = slug, NO prefix
+    ├── project.json              # project ENTITY metadata
+    ├── experiment.json           # children INDEX of experiments (derived)
+    └── experiments/<experiment_id>/   # container "experiments/", dir name = slug, NO prefix
+        ├── experiment.json       # experiment ENTITY metadata
+        ├── run.json              # children INDEX of runs (derived)
+        └── runs/run-<run_id>/    # container "runs/", dir name = "run-" + run_id  (← prefix is mandatory)
+            ├── run.json          # identity/provenance: params, config_hash, profile, target (NO status/history — those live in _ops/)
             ├── meta.yaml         # OKF concept marker (type=workspace.run)
             ├── _ops/run.json     # OKF hot-state sidecar (RunOpsState): status, ownership, heartbeat, executions — the read source
             ├── assets.json       # run-scoped asset manifest
             ├── artifacts/        # final products
             ├── cache/            # per-run user-domain cache
-            └── executions/<exec_id>/
+            └── executions/<exec_id>/   # exec_id = "exec-" + run_id + optional "-N"
                 ├── execution.json
                 ├── workflow.json # workflow-layer state + completed node outputs (resume seed source; opaque to workspace EXCEPT one read-only slice: Run.get_result falls back to completed-node outputs)
                 ├── stdout.log / stderr.log / error.txt
                 ├── logs/<name>.log
                 └── jobs/<uuid>/  # molq scheduler manifests
 ```
+
+**Layout naming law (frozen).** Each `Folder` level obeys four derivations, all driven off the class hierarchy `Workspace → Project → Experiment → Run`:
+- **Container subdir** holding a level's children is the child kind pluralized: `projects/`, `experiments/`, `runs/`.
+- **Directory name** within that container is the slugified id (kebab) for Project/Experiment, with **no prefix** — except a **Run dir is always prefixed `run-`** (`runs/run-<run_id>/`); the `run-` prefix is part of the contract, not cosmetic.
+- **Entity metadata filename** at a level is the level's own class name snake_case + `.json` (`workspace.json` / `project.json` / `experiment.json` / `run.json`) — the single authoritative record for that node.
+- **Children-index filename** in a parent dir is the *child* class name snake_case + `.json` (`Folder._index_filename()`), so `<root>/project.json` indexes projects while `<root>/projects/<id>/project.json` is that project's entity file — same basename, different role, never the same directory.
+
+Entity `*.json` and per-scope `assets.json` are **authoritative**; every index (`catalog/index.sqlite`, the children-index `*.json`) is **derived** and rebuildable. A Run's hot operational state (status / ownership / heartbeat / executions) lives in its `_ops/run.json` sidecar — the read source — not in the `run.json` entity file. Run ids are 8-char hex or a content-addressed `config_hash`; project/experiment ids are slugs of their names (`add_*` is idempotent on the slug).
 
 Agent-layer mounts (`Agent` / `AgentSession`) are OKF `workspace.Folder` subclasses (registered via `@concept_type("agent.agent"/"agent.session")` against `molexp.knowledge.types`); they can attach at any `Folder` (workspace root, Project, Experiment, or Run) through generic `add_folder`, and `concept_from_dir` reconstructs them from their `meta.yaml` `type` via the shared registry.
 
