@@ -1,6 +1,9 @@
+import type { PlanTaskCreateRequest } from "@/api/generated/models/PlanTaskCreateRequest";
+import type { PlanTaskResponse } from "@/api/generated/models/PlanTaskResponse";
 import { AssetsService } from "@/api/generated/services/AssetsService";
 import { ExecutionService } from "@/api/generated/services/ExecutionService";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
+import { PlanTasksService } from "@/api/generated/services/PlanTasksService";
 import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
 import { WorkflowService } from "@/api/generated/services/WorkflowService";
@@ -333,6 +336,28 @@ export const workspaceApi = {
       projectId,
       experimentId,
       data,
+    );
+  },
+  createPlanTask: async (
+    projectId: string,
+    experimentId: string,
+    data: PlanTaskCreateRequest,
+  ): Promise<PlanTaskResponse> => {
+    return PlanTasksService.createPlanTaskApiProjectsProjectIdExperimentsExperimentIdPlanTasksPost(
+      projectId,
+      experimentId,
+      data,
+    );
+  },
+  getPlanTask: async (
+    projectId: string,
+    experimentId: string,
+    taskId: string,
+  ): Promise<PlanTaskResponse> => {
+    return PlanTasksService.getPlanTaskApiProjectsProjectIdExperimentsExperimentIdPlanTasksTaskIdGet(
+      projectId,
+      experimentId,
+      taskId,
     );
   },
   updateRunStatus: async (
