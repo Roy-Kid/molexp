@@ -197,3 +197,73 @@ class TestCapabilitiesFromPayloads:
     def test_unknown_capability_is_absent_from_registry(self) -> None:
         registry = InMemoryCapabilityRegistry(capabilities_from_payloads([_CG_PAYLOAD]))
         assert not registry.has("molpy.does.not.Exist")
+
+
+class TestCurationMerge:
+    """The curation-merge resolvers seed science caps + the curation built-ins.
+
+    Stubs the science half (``resolve_capability_registry`` /
+    ``aresolve_capability_registry``) so no live molmcp is needed.
+    """
+
+    @staticmethod
+    def _science_cap() -> object:
+        from molexp.harness.schemas.capability import ToolCapability
+
+        return ToolCapability(
+            id="molpy.builder.make",
+            package="molpy",
+            name="make",
+            description="a science tool",
+            input_schema={"type": "object"},
+            output_schema={},
+            callable_path="molpy.builder.make",
+        )
+
+    def test_sync_merge_holds_both_science_and_curation(self, monkeypatch, tmp_path) -> None:
+        from molexp.harness.capabilities import curation_capabilities
+        from molexp.mcp_capabilities import resolve_curation_capability_registry
+
+        science = InMemoryCapabilityRegistry([self._science_cap()])
+        monkeypatch.setattr(
+            "molexp.mcp_capabilities.resolve_capability_registry",
+            lambda *_a, **_k: science,
+        )
+        merged = resolve_curation_capability_registry(tmp_path)
+
+        assert merged.has("molpy.builder.make")
+        for cap in curation_capabilities():
+            assert merged.has(cap.id)
+
+    def test_sync_merge_keeps_curation_when_science_is_none(self, monkeypatch, tmp_path) -> None:
+        from molexp.harness.capabilities import curation_capabilities
+        from molexp.mcp_capabilities import resolve_curation_capability_registry
+
+        monkeypatch.setattr(
+            "molexp.mcp_capabilities.resolve_capability_registry",
+            lambda *_a, **_k: None,
+        )
+        merged = resolve_curation_capability_registry(tmp_path)
+
+        assert not merged.has("molpy.builder.make")
+        built_ins = curation_capabilities()
+        assert built_ins  # non-empty
+        for cap in built_ins:
+            assert merged.has(cap.id)
+
+    @pytest.mark.asyncio
+    async def test_async_merge_holds_both(self, monkeypatch, tmp_path) -> None:
+        from molexp.harness.capabilities import curation_capabilities
+        from molexp.mcp_capabilities import aresolve_curation_capability_registry
+
+        science = InMemoryCapabilityRegistry([self._science_cap()])
+
+        async def _fake_aresolve(*_a, **_k):
+            return science
+
+        monkeypatch.setattr("molexp.mcp_capabilities.aresolve_capability_registry", _fake_aresolve)
+        merged = await aresolve_curation_capability_registry(tmp_path)
+
+        assert merged.has("molpy.builder.make")
+        for cap in curation_capabilities():
+            assert merged.has(cap.id)

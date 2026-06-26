@@ -37,6 +37,10 @@ from molexp.cli.plan_cmd import plan as _plan_cmd  # noqa: E402
 
 app.command(name="plan")(_plan_cmd)
 
+from molexp.cli.curate_cmd import curate as _curate_cmd  # noqa: E402
+
+app.command(name="curate")(_curate_cmd)
+
 # ── Noun groups (resource CRUD) — flat at top level ──────────────────────────
 from molexp.cli.prune import register as _register_prune  # noqa: E402
 from molexp.cli.target_cmd import target_app  # noqa: E402

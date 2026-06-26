@@ -401,3 +401,63 @@ async def aresolve_capability_registry(
         _notice_for_prefetch_error(exc, say)
         return None
     return _registry_from_caps(caps, server_name=server_name, say=say)
+
+
+def _merge_curation_built_ins(science: CapabilityRegistry | None) -> CapabilityRegistry:
+    """Seed a concrete registry with the grounded science caps + curation built-ins.
+
+    ``register`` is concrete-only (not on the ``CapabilityRegistry`` Protocol), so
+    the merge holds a fresh ``InMemoryCapabilityRegistry`` rather than mutating the
+    Protocol-typed science return. Curation ids are ``molexp.curation.*`` and never
+    collide with molmcp science ids.
+    """
+    from molexp.harness import InMemoryCapabilityRegistry
+    from molexp.harness.capabilities import curation_capabilities
+
+    merged = InMemoryCapabilityRegistry()
+    if science is not None:
+        for cap in science.list_capabilities():
+            merged.register(cap)
+    for cap in curation_capabilities():
+        merged.register(cap)
+    return merged
+
+
+def resolve_curation_capability_registry(
+    workspace_root: str | Path,
+    *,
+    server_name: str = DEFAULT_SERVER_NAME,
+    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    notify: Callable[[str], None] | None = None,
+) -> CapabilityRegistry:
+    """Merge the built-in curation catalog onto the molmcp-grounded science registry.
+
+    Synchronous entry (for the CLI). Grounds science via
+    :func:`resolve_capability_registry` (loud, may be ``None`` when molmcp is off),
+    then registers every ``curation_capabilities()`` built-in. **Unlike the science
+    resolver this never returns ``None``** — the ``molexp.curation.*`` built-ins are
+    always present even with science grounding off.
+    """
+    science = resolve_capability_registry(
+        workspace_root, server_name=server_name, queries=queries, notify=notify
+    )
+    return _merge_curation_built_ins(science)
+
+
+async def aresolve_curation_capability_registry(
+    workspace_root: str | Path,
+    *,
+    server_name: str = DEFAULT_SERVER_NAME,
+    queries: Sequence[str] = DEFAULT_CAPABILITY_QUERIES,
+    notify: Callable[[str], None] | None = None,
+) -> CapabilityRegistry:
+    """Async sibling of :func:`resolve_curation_capability_registry`.
+
+    Awaits :func:`aresolve_capability_registry` for the science half (safe inside a
+    running event loop — e.g. the curate-tasks route), then merges the curation
+    built-ins. Never returns ``None``.
+    """
+    science = await aresolve_capability_registry(
+        workspace_root, server_name=server_name, queries=queries, notify=notify
+    )
+    return _merge_curation_built_ins(science)
