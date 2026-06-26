@@ -1,14 +1,14 @@
 """Concrete :class:`molexp.harness.Mode` subclasses.
 
-Ships :class:`PlanMode` — the idea→experiment-plan→WorkflowIR→runnable
-``molexp.workflow`` source pipeline — and :class:`RunMode`, its back half:
-generated tests gate a real (executor-subprocess) workflow execution, ending
-in a final report + audit on the same ``workspace.Run``.
+Ships the single :class:`PlanMode` — the idea → verified plan → execution
+report pipeline (9 steps). Real scientific execution is its opt-in
+``execute=True`` tail (the folded-in former RunMode back half), gated by the
+step-8 review; it runs the workflow as executor subprocesses and writes the
+final + audit reports on the same ``workspace.Run``.
 """
 
 from __future__ import annotations
 
 from molexp.harness.modes.plan import PlanMode
-from molexp.harness.modes.run import RunMode
 
-__all__ = ["PlanMode", "RunMode"]
+__all__ = ["PlanMode"]

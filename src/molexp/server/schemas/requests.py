@@ -99,6 +99,30 @@ class RunCreateRequest(BaseModel):
     )
 
 
+class RunStartRequest(BaseModel):
+    """Body for the ``run`` (start) verb on a pending run.
+
+    A pending run is target-less (the create+dispatch contract dispatches a
+    targeted run immediately), so Start must supply the compute target to
+    execute on. ``None`` falls back to any target already recorded on the run;
+    when neither resolves, the route 422s (target-less runs are started with
+    ``molexp run`` on the host).
+    """
+
+    target: str | None = Field(
+        default=None,
+        description="Compute target name to start the run on (must exist in the workspace registry)",
+    )
+    parameters: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Run inputs to apply before starting (the workflow's root inputs). "
+            "None keeps the run's existing parameters; a pending run has not been "
+            "hashed yet, so editing inputs here is safe."
+        ),
+    )
+
+
 class RunStatusUpdateRequest(BaseModel):
     status: str = Field(..., description="New status value")
 

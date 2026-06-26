@@ -89,7 +89,7 @@ class PlanTask:
     async def _drive(self, gateway: AgentGateway) -> None:
         from molexp.harness import PlanMode
 
-        from .persist import persist_plan_workflow_to_experiment
+        from .materialize import materialize_plan_records
 
         try:
             # Resolve molmcp grounding first (loud on miss, never silent) so the
@@ -105,9 +105,18 @@ class PlanTask:
                 gateway=gateway,
                 capability_registry=capability_registry,
             )
-            # Compile + persist is blocking (exec + file write) — offload it.
+            # Persist the workflow IR + record the Agents-tab session and
+            # Knowledge note. Shared with `molexp plan` (CLI) so the Python and
+            # UI paths land identical workspace state. Blocking I/O — offloaded.
             self.workflow_persisted = await asyncio.to_thread(
-                persist_plan_workflow_to_experiment, self.run, self.experiment
+                lambda: materialize_plan_records(
+                    run=self.run,
+                    experiment=self.experiment,
+                    workspace_root=self.workspace_root,
+                    task_id=self.task_id,
+                    draft=self.draft,
+                    model=self.model,
+                )
             )
             self.status = "completed"
         except asyncio.CancelledError:

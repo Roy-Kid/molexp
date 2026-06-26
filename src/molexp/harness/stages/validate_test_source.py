@@ -60,8 +60,11 @@ class ValidateTestSource(Stage):
                 ctx, report, f"TestSource parse failed: {exc!r}", target=target
             )
 
+        # Multi-file: validate the concatenation of every per-task test file so
+        # the syntax / public-import / per-task-coverage checks see all of them.
+        source = "\n\n".join(f.source for f in ts.files) if ts.files else ts.source
         report = TestSourceValidator.validate(
-            ts.source,
+            source,
             target_id=target,
             required_task_ids=self._required_task_ids(ctx),
         )

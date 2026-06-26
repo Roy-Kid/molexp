@@ -1,6 +1,6 @@
-import { ArrowRight, GitBranch } from "lucide-react";
+import { AlertTriangle, ArrowRight, GitBranch } from "lucide-react";
 import { type JSX, useEffect, useMemo, useState } from "react";
-import { DashboardCard, EmptyState, StatusIcon } from "@/app/components/entity";
+import { DashboardCard, EmptyState, StatusIcon, statusKey } from "@/app/components/entity";
 import { formatDuration } from "@/app/renderers/dashboardData";
 import { workspaceApi } from "@/app/state/api";
 import type { RunSummary, WorkflowSummary } from "@/app/types";
@@ -95,6 +95,15 @@ export const RunExecutionsPanel = ({
 
   const staticWorkflowIr = useMemo(() => parseWorkflowIr(run.workflowSource), [run.workflowSource]);
   const workflowIr = executionGraph ?? staticWorkflowIr;
+  // Which task node(s) actually broke this attempt — drives the failure banner
+  // and tells the user, at a glance, which node to look at in the graph below.
+  // Only meaningful when we have the EXECUTION graph (the static template is all
+  // `pending`); falls back to the run-level error when a failure left no graph.
+  const failedTasks = executionGraph
+    ? executionGraph.task_configs.filter((t) => statusKey(t.status) === "failed")
+    : [];
+  const attemptFailed =
+    statusKey(effectiveExecution?.status) === "failed" || statusKey(run.status) === "failed";
   const edgeStatusSummary = workflowIr
     ? workflowIr.links.reduce<Record<string, number>>((acc, link) => {
         const status = link.status ?? "pending";
@@ -236,6 +245,48 @@ export const RunExecutionsPanel = ({
       >
         {workflowIr ? (
           <>
+            {failedTasks.length > 0 ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
+                <div className="flex items-center gap-1.5 font-medium text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  Failed at{" "}
+                  {failedTasks.map((t, i) => (
+                    <span key={t.id}>
+                      {i > 0 && ", "}
+                      <button
+                        type="button"
+                        className="font-mono underline-offset-2 hover:underline"
+                        onClick={() => onInspectTask(t.id, run.id)}
+                      >
+                        {t.id}
+                      </button>
+                    </span>
+                  ))}
+                </div>
+                {failedTasks.map((t) =>
+                  t.error ? (
+                    <pre
+                      key={t.id}
+                      className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-tight text-destructive/90"
+                    >
+                      {t.error}
+                    </pre>
+                  ) : null,
+                )}
+              </div>
+            ) : attemptFailed && !executionGraph ? (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs">
+                <div className="flex items-center gap-1.5 font-medium text-destructive">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  This attempt failed before any task ran — no per-node state was recorded.
+                </div>
+                {run.errorMessage && (
+                  <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-[11px] leading-tight text-destructive/90">
+                    {run.errorMessage}
+                  </pre>
+                )}
+              </div>
+            ) : null}
             <WorkflowGraph
               ir={workflowIr}
               height={420}

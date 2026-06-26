@@ -1,15 +1,14 @@
-"""Tests for the pure-task-context TaskContext.
+"""Tests for the dataflow-by-name TaskContext.
 
-After pure-task-context-02, TaskContext is a frozen plain class exposing
-``inputs`` + ``config``. ``run_context`` and ``deps`` are removed (accessing
-them raises ``AttributeError``). ``config`` is a plain ``Mapping[str, Any]``,
-not a ``ProfileConfig``.
+After the dataflow-by-name refactor, ``ctx.inputs`` and ``ctx.config`` are GONE
+from the public surface: a task body receives its inputs as typed parameters
+bound by name (see ``node._bind_call_args``). The only data surface left on
+``ctx`` is ``workdir`` (a content-addressed scratch ``Path``). ``run_context``
+and ``deps`` were already removed (accessing them raises ``AttributeError``).
 
-``state`` is in staged removal (pure-task-context state-elimination): the
-engine now delivers loop-back / branch-routed values via ``ctx.inputs``
-(values-on-edges), so ``ctx.state`` emits a ``DeprecationWarning`` on access
-and returns a READ-ONLY snapshot — user code can no longer mutate engine state
-through it. See :class:`TestDeprecatedStateChannel`.
+``state`` is in staged removal: ``ctx.state`` emits a ``DeprecationWarning`` on
+access and returns a READ-ONLY snapshot — user code can no longer mutate engine
+state through it. See :class:`TestDeprecatedStateChannel`.
 """
 
 from __future__ import annotations
@@ -20,12 +19,22 @@ from molexp.workflow.context import TaskContext
 
 
 class TestPureTaskContext:
-    def test_public_attributes(self):
-        ctx = TaskContext(inputs=42, config={"k": "v"}, state={"x": 1})
-        assert ctx.inputs == 42
-        assert ctx.config == {"k": "v"}
-        with pytest.warns(DeprecationWarning):
-            assert ctx.state == {"x": 1}
+    def test_inputs_and_config_are_not_public(self):
+        # The engine still constructs the context with the data internally, but
+        # a task body cannot read it off ``ctx`` — inputs bind to parameters.
+        ctx = TaskContext(inputs=42, config={"k": "v"})
+        for name in ("inputs", "config"):
+            assert not hasattr(ctx, name), (
+                f"TaskContext.{name} must be absent from the public surface; "
+                f"inputs bind to the task body's typed parameters by name."
+            )
+
+    def test_workdir_is_the_only_data_surface(self):
+        from pathlib import Path
+
+        ctx = TaskContext(inputs=None, workdir=Path("/tmp/wd"))
+        assert ctx.workdir == Path("/tmp/wd")
+        assert TaskContext(inputs=None).workdir is None
 
     def test_run_context_and_deps_removed(self):
         ctx = TaskContext(inputs=None)
@@ -35,28 +44,25 @@ class TestPureTaskContext:
 
     def test_workspace_plumbing_removed(self):
         ctx = TaskContext(inputs=None)
-        for name in ("artifact", "log", "find_asset", "checkpoint", "set_result", "get_result"):
+        for name in (
+            "inputs",
+            "config",
+            "artifact",
+            "log",
+            "find_asset",
+            "checkpoint",
+            "set_result",
+            "get_result",
+        ):
             assert not hasattr(ctx, name), (
-                f"TaskContext.{name} must be absent; capabilities flow as inputs "
-                f"or via the engine's materialization layer."
+                f"TaskContext.{name} must be absent; inputs bind to parameters and "
+                f"capabilities flow via the engine's materialization layer."
             )
 
     def test_frozen_cannot_assign(self):
         ctx = TaskContext(inputs=1)
         with pytest.raises(AttributeError):
-            ctx.inputs = 2  # type: ignore[misc]
-
-    def test_config_is_plain_mapping_not_profile_config(self):
-        from collections.abc import Mapping
-
-        ctx = TaskContext(inputs=None, config={"epochs": 5, "dataset": "md17"})
-        assert isinstance(ctx.config, Mapping)
-        assert ctx.config["epochs"] == 5
-        assert ctx.config["dataset"] == "md17"
-        assert isinstance(ctx.config, (dict, Mapping))
-
-    def test_default_config_is_empty_mapping(self):
-        assert TaskContext(inputs=None).config == {}
+            ctx.workdir = object()  # type: ignore[misc]
 
     def test_state_default_none_still_warns(self):
         # state defaults to None; access warns even then (the ATTRIBUTE is deprecated).

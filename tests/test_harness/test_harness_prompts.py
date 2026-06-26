@@ -28,6 +28,7 @@ _AGENT_NAMES = {
     "experiment_report_writer",
     "workflow_ir_extractor",
     "bound_workflow_binder",
+    "plan_reviewer",
     "test_spec_writer",
 }
 
@@ -35,6 +36,13 @@ _AGENT_NAMES = {
 _RUN_AGENT_NAMES = {
     "test_code_writer",
     "final_report_writer",
+}
+
+# The agent_names added by the 9-step plan-pipeline redesign.
+_V2_AGENT_NAMES = {
+    "experiment_spec_generator",
+    "capability_selector",
+    "input_set_generator",
 }
 
 
@@ -118,7 +126,7 @@ def test_prompts_by_agent_keys_exactly_the_canonical_agent_names() -> None:
     from molexp.harness.prompts import prompts_by_agent
 
     mapping = prompts_by_agent()
-    assert set(mapping) == _AGENT_NAMES | _RUN_AGENT_NAMES
+    assert set(mapping) == _AGENT_NAMES | _RUN_AGENT_NAMES | _V2_AGENT_NAMES
 
 
 def test_prompts_by_agent_values_are_non_empty_strings() -> None:

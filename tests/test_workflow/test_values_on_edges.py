@@ -35,15 +35,16 @@ async def test_loop_back_value_delivered_via_inputs() -> None:
     wf = WorkflowCompiler(name="loop-values", entry="head")
 
     @wf.task
-    async def head(ctx) -> int:
-        seen_inputs.append(ctx.inputs)
-        prev = ctx.inputs if isinstance(ctx.inputs, int) else 0
+    async def head(value: int | None = None) -> int:
+        # Dep-less loop head: the previous iteration's routed output binds
+        # positionally to this sole free parameter (None on the first pass).
+        seen_inputs.append(value)
+        prev = value if isinstance(value, int) else 0
         return prev + 1
 
     @wf.task(depends_on=["head"])
-    async def check(ctx) -> tuple[int, Next]:
-        n = ctx.inputs
-        return n, Next("exit" if n >= 3 else "continue")
+    async def check(value: int) -> tuple[int, Next]:
+        return value, Next("exit" if value >= 3 else "continue")
 
     wf.loop(body=["head"], until="check", max_iters=10)
 
@@ -65,9 +66,11 @@ async def test_self_loop_value_delivered_via_inputs() -> None:
     wf = WorkflowCompiler(name="self-loop-values", entry="tick")
 
     @wf.task(routes={"again": "tick", "done": "_end"})
-    async def tick(ctx) -> tuple[int, Next]:
-        seen_inputs.append(ctx.inputs)
-        n = (ctx.inputs or 0) + 1
+    async def tick(value: int | None = None) -> tuple[int, Next]:
+        # Self-looping branch: its own previous output binds positionally to
+        # this sole free parameter on re-entry (None on the first pass).
+        seen_inputs.append(value)
+        n = (value or 0) + 1
         return n, Next("again" if n < 3 else "done")
 
     result = await WorkflowRuntime().execute(wf.compile())
@@ -86,18 +89,20 @@ async def test_branch_routed_value_delivered_via_inputs() -> None:
     wf = WorkflowCompiler(name="branch-values", entry="route")
 
     @wf.task(routes={"go": "dst", "stop": "_end"})
-    async def route(ctx) -> tuple[dict, Next]:
+    async def route() -> tuple[dict, Next]:
         return {"payload": 42}, Next("go")
 
     @wf.task
-    async def dst(ctx) -> object:
-        seen["inputs"] = ctx.inputs
-        return ctx.inputs
+    async def dst(**delivered: object) -> object:
+        # Dep-less branch target: the routed dict binds by name, absorbed here
+        # by **delivered (the task(**upstream) shape).
+        seen["inputs"] = dict(delivered)
+        return delivered
 
     result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
     assert seen["inputs"] == {"payload": 42}, (
-        "a branch-routed (value, Next(label)) must arrive at the dep-less target as ctx.inputs"
+        "a branch-routed (value, Next(label)) must arrive at the dep-less target by-name"
     )
 
 
@@ -113,17 +118,19 @@ async def test_declared_depends_on_wins_over_delivered_value() -> None:
     wf = WorkflowCompiler(name="deps-win", entry="src")
 
     @wf.task
-    async def base(ctx) -> str:
+    async def base() -> str:
         return "base-out"
 
     @wf.task(routes={"go": "consumer"})
-    async def src(ctx) -> tuple[str, Next]:
+    async def src() -> tuple[str, Next]:
         return "routed-out", Next("go")
 
     @wf.task(depends_on=["base"])
-    async def consumer(ctx) -> object:
-        seen["inputs"] = ctx.inputs
-        return ctx.inputs
+    async def consumer(value: object) -> object:
+        # Declared depends_on wins: ``value`` binds to base's output, NOT the
+        # trigger-carried routed value from src.
+        seen["inputs"] = value
+        return value
 
     wf.entry("base")  # both src (constructor) and base are entries
 
@@ -152,14 +159,24 @@ async def test_loop_back_merges_with_root_inputs(tmp_path) -> None:
     wf = WorkflowCompiler(name="loop-root-merge", entry="head")
 
     @wf.task
-    async def head(ctx) -> dict:
-        seen_inputs.append(dict(ctx.inputs))
-        n = ctx.inputs.get("n", 0) + 1
-        return {"n": n}
+    async def head(n: int | None = None, **rest: object) -> dict:
+        # Loop head that is also a workspace ROOT: ``n`` is the loop-delivered
+        # key; ``**rest`` absorbs the engine-injected envelope. On the first
+        # iteration the {params, workdir} envelope is unwrapped to the bare run
+        # params (so rest IS params); from the second on, the loop-delivered key
+        # blocks the unwrap, so the full {params, workdir} envelope arrives in
+        # rest. Reconstruct the merged view the test asserts on either way.
+        if "params" in rest:
+            envelope: dict[str, object] = dict(rest)
+        else:
+            envelope = {"params": dict(rest)}
+        if n is not None:
+            envelope["n"] = n
+        seen_inputs.append(envelope)
+        return {"n": (n or 0) + 1}
 
     @wf.task(depends_on=["head"])
-    async def check(ctx) -> tuple[dict, Next]:
-        n = ctx.inputs["n"]
+    async def check(n: int) -> tuple[dict, Next]:
         return {"n": n}, Next("exit" if n >= 2 else "continue")
 
     wf.loop(body=["head"], until="check", max_iters=5)

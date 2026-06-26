@@ -215,12 +215,19 @@ describe("mapAssets", () => {
     expect(result.updatedAt).toBe("2026-03-01T16:00:00Z");
   });
 
-  it("forwards optional projectId", () => {
-    const [withProject] = mapAssets([fixtureAsset], "proj-alpha");
-    expect(withProject.projectId).toBe("proj-alpha");
+  it("derives project/experiment/run scope from scope_ids", () => {
+    const [result] = mapAssets([fixtureAsset]);
+    expect(result.projectId).toBe("proj-alpha");
+    expect(result.experimentId).toBe("exp-001");
+    expect(result.runId).toBe("run-abc");
+    expect(result.scopeKind).toBe("run");
+  });
 
-    const [withoutProject] = mapAssets([fixtureAsset]);
-    expect(withoutProject.projectId).toBeUndefined();
+  it("falls back to the projectId arg when the asset has no scope ids", () => {
+    const [result] = mapAssets([{ ...fixtureAsset, scope_ids: [] }], "proj-fallback");
+    expect(result.projectId).toBe("proj-fallback");
+    expect(result.experimentId).toBeUndefined();
+    expect(result.runId).toBeUndefined();
   });
 });
 

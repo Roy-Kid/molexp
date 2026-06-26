@@ -35,6 +35,11 @@ export default defineConfig(({ command }) => {
         },
       },
       rspack: {
+        // ``@molcrafts/molrs`` is a wasm-pack *bundler*-target package: its JS
+        // does ``import * as wasm from "./molrs_bg.wasm"``. Without WebAssembly
+        // module support rspack leaves that import undefined, so molvis-core's
+        // ``Frame.frame_new`` is missing and trajectory rendering crashes.
+        experiments: { asyncWebAssembly: true },
         resolve: {
           // Workaround for the published @molcrafts/molvis-core@0.0.7 tarball:
           // its trajectory worker is spawned via

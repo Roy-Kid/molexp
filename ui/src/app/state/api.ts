@@ -1,8 +1,15 @@
+import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeListResponse";
+import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
+import type { PlanDetailResponse } from "@/api/generated/models/PlanDetailResponse";
+import type { PlanListResponse } from "@/api/generated/models/PlanListResponse";
 import type { PlanTaskCreateRequest } from "@/api/generated/models/PlanTaskCreateRequest";
 import type { PlanTaskResponse } from "@/api/generated/models/PlanTaskResponse";
+import type { WorkspacePlanListResponse } from "@/api/generated/models/WorkspacePlanListResponse";
 import { AssetsService } from "@/api/generated/services/AssetsService";
 import { ExecutionService } from "@/api/generated/services/ExecutionService";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
+import { KnowledgeService } from "@/api/generated/services/KnowledgeService";
+import { PlansService } from "@/api/generated/services/PlansService";
 import { PlanTasksService } from "@/api/generated/services/PlanTasksService";
 import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
@@ -360,6 +367,35 @@ export const workspaceApi = {
       taskId,
     );
   },
+  // Generated (durable) plans: the persisted PlanMode result for an experiment.
+  listPlans: async (projectId: string, experimentId: string): Promise<PlanListResponse> => {
+    return PlansService.listPlansApiProjectsProjectIdExperimentsExperimentIdPlansGet(
+      projectId,
+      experimentId,
+    );
+  },
+  // Every generated plan in the active workspace (the Agents hub's unified list).
+  listAllPlans: async (): Promise<WorkspacePlanListResponse> => {
+    return PlansService.listAllPlansApiPlansGet();
+  },
+  getPlan: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+  ): Promise<PlanDetailResponse> => {
+    return PlansService.getPlanApiProjectsProjectIdExperimentsExperimentIdPlansRunIdGet(
+      projectId,
+      experimentId,
+      runId,
+    );
+  },
+  // OKF knowledge concepts (Notes + References) for the active workspace.
+  listKnowledge: async (): Promise<KnowledgeListResponse> => {
+    return KnowledgeService.listKnowledgeApiKnowledgeGet();
+  },
+  getNote: async (path: string): Promise<NoteDetailResponse> => {
+    return KnowledgeService.getNoteApiKnowledgeNoteGet(path);
+  },
   updateRunStatus: async (
     projectId: string,
     experimentId: string,
@@ -521,6 +557,25 @@ export const workspaceApi = {
       projectId,
       experimentId,
       runId,
+    ) as unknown as Promise<RunContinueResponse>;
+  },
+
+  /**
+   * Start a pending run by dispatching it to a compute target (the `run` verb).
+   * Target-less runs 422 — those execute via `molexp run` on the host.
+   */
+  startRun: async (
+    projectId: string,
+    experimentId: string,
+    runId: string,
+    target: string,
+    parameters?: Record<string, unknown>,
+  ): Promise<RunContinueResponse> => {
+    return RunsService.startRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdRunPost(
+      projectId,
+      experimentId,
+      runId,
+      { target, parameters: parameters ?? null },
     ) as unknown as Promise<RunContinueResponse>;
   },
 
@@ -719,16 +774,25 @@ const assetSummary = (asset: ApiAssetResponse): string => {
 };
 
 export const mapAssets = (assets: ApiAssetResponse[], projectId?: string): AssetSummary[] => {
-  return assets.map((asset) => ({
-    id: asset.id,
-    name: asset.name,
-    kind: asset.kind,
-    status: "active",
-    summary: assetSummary(asset),
-    updatedAt: asset.updated_at,
-    sizeBytes: assetSize(asset),
-    projectId,
-  }));
+  return assets.map((asset) => {
+    // ``scope_ids`` is the parent chain ending at the leaf scope: a run-scoped
+    // asset is ``[projectId, experimentId, runId]``, an experiment-scoped one
+    // ``[projectId, experimentId]``, etc. This drives the Assets nav grouping.
+    const ids = asset.scope_ids ?? [];
+    return {
+      id: asset.id,
+      name: asset.name,
+      kind: asset.kind,
+      status: "active",
+      summary: assetSummary(asset),
+      updatedAt: asset.updated_at,
+      sizeBytes: assetSize(asset),
+      scopeKind: asset.scope_kind,
+      projectId: ids[0] ?? projectId,
+      experimentId: ids[1],
+      runId: ids[2],
+    };
+  });
 };
 
 /**

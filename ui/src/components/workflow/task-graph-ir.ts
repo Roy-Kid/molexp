@@ -26,6 +26,18 @@ export interface TaskNodeJson {
   config?: Record<string, unknown>;
   /** Execution status (`pending` / `running` / `completed` / `failed` / `skipped`). */
   status?: string;
+  /**
+   * The failure message recorded when this node's `status` is `failed` (the
+   * exception's `type: message`, persisted to the execution's workflow.json).
+   * Absent for non-failed nodes. Lets the canvas show WHY a node broke.
+   */
+  error?: string;
+  /**
+   * The task's own source code (the `@wf.task`-decorated function body), carried
+   * from the IR so the inspector can show what this node actually runs. Absent
+   * when the IR was produced without per-task source capture.
+   */
+  source?: string;
   /** Runtime parameters (if any). */
   params?: Record<string, unknown>;
   /** Free-form per-node metadata. */

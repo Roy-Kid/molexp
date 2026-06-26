@@ -35,14 +35,15 @@ export const FlowgramCanvasToolbar = ({
   saving = false,
   dirty = false,
 }: FlowgramCanvasToolbarProps): JSX.Element => (
-  <div className="flex items-center gap-2">
+  <div className="flex items-center gap-1">
     {dirty && (
       <span
         role="status"
-        className="flex items-center gap-1.5 text-xs font-medium text-warning-foreground"
+        aria-label="Unsaved changes"
+        title="Unsaved changes"
+        className="mr-0.5 flex items-center"
       >
         <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-warning" />
-        Unsaved changes
       </span>
     )}
 
@@ -50,13 +51,14 @@ export const FlowgramCanvasToolbar = ({
       <AlertDialogTrigger asChild>
         <Button
           type="button"
-          size="sm"
-          variant="outline"
+          size="icon"
+          variant="ghost"
           disabled={saving || !dirty}
           aria-label="Discard changes"
+          title="Discard changes"
+          className="h-7 w-7"
         >
-          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-          Discard
+          <RotateCcw className="h-4 w-4" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent>
@@ -80,13 +82,14 @@ export const FlowgramCanvasToolbar = ({
 
     <Button
       type="button"
-      size="sm"
+      size="icon"
       onClick={onSave}
       disabled={saving || !dirty}
       aria-label="Save workflow"
+      title="Save workflow"
+      className="h-7 w-7"
     >
-      <Save className="mr-1.5 h-3.5 w-3.5" />
-      {saving ? "Saving…" : "Save"}
+      <Save className="h-4 w-4" />
     </Button>
   </div>
 );

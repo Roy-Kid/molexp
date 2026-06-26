@@ -21,8 +21,9 @@ from molexp.server.app import create_app
 from molexp.server.dependencies import get_workspace
 from molexp.server.plan_runtime import gateway as plan_gateway
 
-# A WorkflowSource program that compiles to a real Workflow — ValidateWorkflowSource
-# (and the route's display-persist step) actually compile it.
+# A WorkflowSource program that compiles to a real Workflow — ValidateWorkflowSource,
+# the route's display-persist step, AND step-7 CompileWorkflow (--compile-only) all
+# compile it for real.
 _VALID_SOURCE = """\
 from molexp.workflow import TaskContext, WorkflowCompiler
 
@@ -39,6 +40,15 @@ def build_workflow() -> WorkflowCompiler:
         return {"trajectory": "traj.dcd"}
 
     return wf
+"""
+
+# Passes under step-7 ExecuteTests (real pytest) in the materialized layout.
+_PASSING_TEST_SOURCE = """\
+from generated_workflow import build_workflow
+
+
+def test_build_compiles() -> None:
+    assert build_workflow().compile() is not None
 """
 
 _EXPERIMENT_REPORT = {
@@ -91,9 +101,47 @@ _BOUND_WORKFLOW = {
 }
 _WORKFLOW_SOURCE = {
     "source": _VALID_SOURCE,
-    "module_name": "water_nemd",
+    "module_name": "generated_workflow",
     "bound_workflow_id": "bw-water",
     "symbols": ["WorkflowCompiler", "TaskContext"],
+}
+_EXPERIMENT_SPEC = {
+    "id": "spec-water",
+    "experiment_report_id": "rep-water",
+    "title": "Water NEMD",
+    "objective": "Measure ionic mobility",
+    "variables": [],
+    "controlled_conditions": [],
+    "resolved_questions": [],
+    "assumptions": [],
+}
+_INPUT_SET = {
+    "id": "is-water",
+    "experiment_spec_id": "spec-water",
+    "title": "single-cell sweep",
+    "sweep_axes": [],
+    "strategy": "grid",
+    "total_runs": 1,
+}
+_TEST_SPEC = {
+    "id": "tsb-water",
+    "bound_workflow_id": "bw-water",
+    "specs": [
+        {
+            "id": "ts-water",
+            "name": "workflow_compiles",
+            "kind": "unit_test",
+            "target_task_id": "build",
+            "description": "The generated workflow module compiles into a workflow.",
+        }
+    ],
+}
+_TEST_SOURCE = {
+    "source": _PASSING_TEST_SOURCE,
+    "module_name": "test_generated_workflow",
+    "test_spec_id": "ts-water",
+    "bound_workflow_id": "bw-water",
+    "symbols": ["build_workflow"],
 }
 
 
@@ -108,6 +156,11 @@ def _stub_factory(run: Any, model: str) -> Any:
         output=_EXPERIMENT_REPORT,
         output_kind="experiment_report",
     )
+    gw.register(
+        agent_name="experiment_spec_generator",
+        output=_EXPERIMENT_SPEC,
+        output_kind="experiment_spec",
+    )
     gw.register(agent_name="workflow_ir_extractor", output=_WORKFLOW_IR, output_kind="workflow_ir")
     gw.register(
         agent_name="bound_workflow_binder", output=_BOUND_WORKFLOW, output_kind="bound_workflow"
@@ -117,6 +170,14 @@ def _stub_factory(run: Any, model: str) -> Any:
         output=_WORKFLOW_SOURCE,
         output_kind="workflow_source",
     )
+    gw.register(
+        agent_name="plan_reviewer",
+        output={"passed": True, "findings": [], "summary": "faithful"},
+        output_kind="plan_review",
+    )
+    gw.register(agent_name="test_spec_writer", output=_TEST_SPEC, output_kind="test_spec")
+    gw.register(agent_name="test_code_writer", output=_TEST_SOURCE, output_kind="test_source")
+    gw.register(agent_name="input_set_generator", output=_INPUT_SET, output_kind="input_set")
     return gw
 
 
@@ -134,8 +195,12 @@ def plan_client(workspace: Any, project: Any) -> Iterator[TestClient]:
 _BASE = "/api/projects/test-project/experiments/plan-exp/plan-tasks"
 
 
-def _await_terminal(client: TestClient, task_id: str, tries: int = 100) -> dict[str, Any]:
-    """Poll the task until it leaves ``running`` (gives the bg loop time to run)."""
+def _await_terminal(client: TestClient, task_id: str, tries: int = 400) -> dict[str, Any]:
+    """Poll the task until it leaves ``running`` (gives the bg loop time to run).
+
+    The 9-step pipeline now spawns real pytest + compile subprocesses at step 7,
+    so allow a generous budget (≈20s) before giving up.
+    """
     url = f"{_BASE}/{task_id}"
     body: dict[str, Any] = client.get(url).json()
     for _ in range(tries):

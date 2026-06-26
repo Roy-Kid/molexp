@@ -239,6 +239,91 @@ export const groupEventsIntoTurns = (
   return turns;
 };
 
+const _payload = (event: ApiSessionEvent): Record<string, unknown> =>
+  (event.payload ?? {}) as Record<string, unknown>;
+
+const _str = (value: unknown): string => (typeof value === "string" ? value : "");
+
+/**
+ * Locator for a structured PlanMode deliverable, lifted off the terminal
+ * `loop_completed` event's open payload (`payload.plan`, written by the server's
+ * plan-record synthesizer). Present only on PlanMode sessions; chat sessions
+ * return null. Drives the Deliverables panel, which fetches the full plan via
+ * `GET /projects/{projectId}/experiments/{experimentId}/plans/{runId}`.
+ */
+export interface PlanRef {
+  runId: string;
+  projectId: string;
+  experimentId: string;
+  title: string;
+  stepCount: number;
+  hasWorkflow: boolean;
+}
+
+/**
+ * Walk events backward for the terminal `loop_completed` carrying a `plan`
+ * locator. Returns null unless all three ids are present (a partial locator
+ * can't address a plan, so the panel falls back to the chat-artifact view).
+ */
+export const derivePlanRef = (events: ApiSessionEvent[]): PlanRef | null => {
+  for (let i = events.length - 1; i >= 0; i--) {
+    const ev = events[i];
+    if (ev.type !== "loop_completed") continue;
+    const plan = (_payload(ev).plan ?? null) as Record<string, unknown> | null;
+    if (!plan || typeof plan !== "object") continue;
+    const runId = _str(plan.run_id);
+    const projectId = _str(plan.project_id);
+    const experimentId = _str(plan.experiment_id);
+    if (!runId || !projectId || !experimentId) return null;
+    return {
+      runId,
+      projectId,
+      experimentId,
+      title: _str(plan.title),
+      stepCount: typeof plan.step_count === "number" ? plan.step_count : 0,
+      hasWorkflow: plan.has_workflow === true,
+    };
+  }
+  return null;
+};
+
+/**
+ * Gather every inline artifact (plot/table/text) a chat session emitted via
+ * `tool_call_completed` payloads, in stream order. Used by the Deliverables
+ * panel for non-plan sessions; plan sessions surface structured deliverables
+ * through {@link derivePlanRef} instead.
+ */
+export const collectArtifacts = (events: ApiSessionEvent[]): Record<string, unknown>[] => {
+  const out: Record<string, unknown>[] = [];
+  for (const ev of events) {
+    if (ev.type !== "tool_call_completed") continue;
+    const p = _payload(ev);
+    const result = (p.result as Record<string, unknown> | undefined) ?? p;
+    const artifacts = Array.isArray(result.artifacts) ? result.artifacts : [];
+    for (const a of artifacts) {
+      if (a && typeof a === "object") out.push(a as Record<string, unknown>);
+    }
+  }
+  return out;
+};
+
+/**
+ * The set of PlanMode artifact kinds a session has completed, read off the
+ * synthesized stage steps (each `tool_call_completed` carries the produced kind
+ * at `payload.result.artifact`). Drives the vertical progress rail's per-stage
+ * state. Empty for chat sessions.
+ */
+export const completedStageKinds = (events: ApiSessionEvent[]): Set<string> => {
+  const kinds = new Set<string>();
+  for (const ev of events) {
+    if (ev.type !== "tool_call_completed") continue;
+    const result = (_payload(ev).result ?? {}) as Record<string, unknown>;
+    const kind = _str(result.artifact);
+    if (kind) kinds.add(kind);
+  }
+  return kinds;
+};
+
 /** One tool call's live state, folded from its started/completed delta pair. */
 export interface ToolCallState {
   id: string;
@@ -271,11 +356,6 @@ export interface StreamedTurn {
   /** One entry per `tool_call_started`, upgraded in place on completion. */
   toolCalls: ToolCallState[];
 }
-
-const _payload = (event: ApiSessionEvent): Record<string, unknown> =>
-  (event.payload ?? {}) as Record<string, unknown>;
-
-const _str = (value: unknown): string => (typeof value === "string" ? value : "");
 
 /**
  * Fold a turn's events into render-ready streamed state.

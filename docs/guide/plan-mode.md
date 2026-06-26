@@ -1,12 +1,14 @@
 # Plan & Run with the Agent Harness
 
-`molexp plan` turns a natural-language experiment draft into validated,
-runnable `molexp.workflow` source. With `--execute` it goes further:
-it generates tests, runs them, executes the workflow, and writes a final
-report — all on a single content-addressed run.
+`molexp plan` turns a natural-language experiment draft into a fully
+verified, reviewed plan plus an execution report — in nine steps:
+proposal → concrete spec → resolved capabilities → workflow IR →
+tasks + per-task tests → input set → compile/dry-run → review →
+execution report. With `--execute` it goes further: it runs the workflow
+for real and writes a final report — all on a single content-addressed run.
 
-This is the production entry point to the harness pipelines (`PlanMode`
-and `RunMode`). For the stage-by-stage internals, see
+This is the production entry point to the harness `PlanMode` pipeline. For
+the stage-by-stage internals, see
 [Plan Mode Architecture](../architecture/plan-mode.md).
 
 ## Prerequisites
@@ -32,12 +34,13 @@ molexp plan "screen three solvent ratios for electrolyte X and report conductivi
 molexp plan --file draft.md
 ```
 
-PlanMode runs nine stages — from saving the draft, through workflow-IR
-extraction and task binding, to generating and validating
-`molexp.workflow` Python source — and stops at an approval gate. It
-**does not execute** the experiment. The run is filed under the
-`plans` / `plan` project / experiment by default (override with
-`--project` / `--experiment`).
+PlanMode runs nine steps — from saving the draft, through a concrete
+spec, resolved capabilities, workflow-IR extraction, task binding +
+per-task tests, the parameter-space input set, and a compile/dry-run, to
+a single review gate — and stops at an **execution report** describing
+where and how the workflow *would* run. It **does not execute** the
+experiment. The run is filed under the `plans` / `plan` project /
+experiment by default (override with `--project` / `--experiment`).
 
 ## Plan, then run
 
@@ -45,12 +48,12 @@ extraction and task binding, to generating and validating
 molexp plan --file draft.md --execute
 ```
 
-With `--execute`, RunMode chains onto the **same run**: it generates a
-test spec and test code, materializes the execution, runs the tests,
-and only then executes the workflow. Generated tests gate execution —
-red tests block the workflow run. Tests and the workflow both run in
-**executor subprocesses**, so a generation bug can never crash the
-planning process.
+`--execute` appends the real-execution tail onto the **same run**: after
+the review gate it executes the workflow for real, then writes the final
+report and audit. (The compile/dry-run and per-task tests in step 7
+already gate the plan — red tests block the review gate.) Tests and the
+workflow both run in **executor subprocesses**, so a generation bug can
+never crash the planning process.
 
 ## What it produces
 
@@ -68,10 +71,11 @@ repeated. Change the draft and you get a new run.
 
 ## Approval gates
 
-Both modes end at an `ApprovalGate`. In non-interactive use an
+The plan ends at a review `ApprovalGate` (step 8); the `--execute` tail
+adds a second gate over the final report. In non-interactive use an
 auto-grant approver lets the pipeline proceed; in an interactive or
-server-driven flow a human approves the generated plan (and, in
-RunMode, the final report) before the pipeline continues. Approval is
+server-driven flow a human approves the verified plan (and, with
+`--execute`, the final report) before the pipeline continues. Approval is
 recorded in the run's event log alongside the machine-validation result,
 so "a human approved it" and "machine validation passed" stay distinct.
 

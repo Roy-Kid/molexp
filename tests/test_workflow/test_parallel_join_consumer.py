@@ -55,21 +55,21 @@ async def test_join_consumer_sees_real_join_output_alongside_sibling() -> None:
         return [1, 2, 3]
 
     @wf.task
-    async def B(ctx) -> int:
-        return ctx.inputs * ctx.inputs
+    async def B(value: int) -> int:
+        return value * value
 
     @wf.task
-    async def J(ctx) -> int:
+    async def J(values: list[int]) -> int:
         # J reads the collected list of B's per-element outputs.
-        return sum(ctx.inputs)
+        return sum(values)
 
     @wf.task
     async def X(ctx) -> str:
         return "x-out"
 
     @wf.task(depends_on=["J", "X"])
-    async def D(ctx) -> dict[str, object]:
-        observed: dict[str, object] = dict(ctx.inputs)
+    async def D(**inputs: object) -> dict[str, object]:
+        observed: dict[str, object] = dict(inputs)
         captured["inputs"] = observed
         return observed
 

@@ -39,3 +39,14 @@ def require_latest(ctx: HarnessRunContext, kind: str, *, stage: str) -> Artifact
             f"stage {stage!r} requires an upstream {kind!r} artifact, but none exists in the run"
         )
     return ref
+
+
+def feedback_inputs(ctx: HarnessRunContext, feedback_kind: str) -> list[str]:
+    """Return ``[feedback_ref.id]`` if a repair-feedback artifact exists, else ``[]``.
+
+    A generator includes this so that, on a :class:`RepairLoop` retry, it sees the
+    previous attempt's validation violations (persisted under ``feedback_kind`` by
+    the loop) and can fix them. Absent on the first attempt — the list is empty.
+    """
+    ref = ctx.artifact_store.latest_by_kind(feedback_kind)
+    return [ref.id] if ref is not None else []

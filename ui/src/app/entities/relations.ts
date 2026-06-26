@@ -143,9 +143,10 @@ export const resolveRelations = (ref: EntityRef, snapshot: WorkspaceSnapshot): R
     }
 
     case "agent":
+    case "knowledge":
     case "workspace-file":
-      // Agent sessions and raw files have no snapshot-level edges; their
-      // viewers resolve producer/origin links asynchronously.
+      // Agent sessions, OKF concepts, and raw files have no snapshot-level
+      // edges; their viewers resolve producer/origin links asynchronously.
       return [];
   }
 };

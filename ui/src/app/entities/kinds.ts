@@ -9,6 +9,7 @@
 import {
   Archive,
   Blocks,
+  BookOpen,
   Bot,
   Box,
   FileText,
@@ -100,6 +101,13 @@ export const ENTITY_META: Record<EntityKind, EntityKindMeta> = {
     plural: "Files",
     icon: FileText,
     accent: "text-muted-foreground",
+  },
+  knowledge: {
+    kind: "knowledge",
+    label: "Knowledge",
+    plural: "Knowledge",
+    icon: BookOpen,
+    accent: "text-amber-500",
   },
 };
 

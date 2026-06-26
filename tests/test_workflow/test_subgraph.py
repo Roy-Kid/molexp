@@ -188,9 +188,9 @@ async def test_seed_outputs_lets_subgraph_observe_upstream_value() -> None:
             return "REAL"
 
     class _ConsumerTask(Task):
-        async def execute(self, ctx: TaskContext) -> str:  # type: ignore[override]
-            captured["inputs"] = ctx.inputs
-            return f"consumed:{ctx.inputs}"
+        async def execute(self, ctx: TaskContext, value: object) -> str:  # type: ignore[override]
+            captured["inputs"] = value
+            return f"consumed:{value}"
 
     wf = WorkflowCompiler(name="ab")
     wf.add(_ProducerTask(), name="a")

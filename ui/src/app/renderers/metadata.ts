@@ -165,6 +165,10 @@ export const buildMetadataFields = (
         { label: "Run", value: selection.runId },
       ];
     },
+    knowledge: () => [
+      { label: "Concept", value: selection.objectId || "(all)" },
+      { label: "Kind", value: "OKF concept" },
+    ],
   };
 
   const buildFields = lookupByType[selection.objectType];

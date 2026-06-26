@@ -17,15 +17,15 @@ from typing import cast
 import pytest
 
 
-def _seed_experiment_report_ref(artifact_store):
-    """Seed an experiment_report artifact the stage will reference."""
+def _seed_experiment_spec_ref(artifact_store):
+    """Seed an experiment_spec artifact the stage will reference (its new input)."""
     return artifact_store.put_json(
-        kind="experiment_report",
+        kind="experiment_spec",
         obj={
+            "id": "spec-x",
+            "experiment_report_id": "rep-x",
             "title": "t",
             "objective": "o",
-            "system_description": "s",
-            "experimental_design": "e",
         },
         created_by="seed",
         parent_ids=[],
@@ -92,7 +92,7 @@ def test_extract_fail_fast_when_gateway_missing(ctx_no_gateway) -> None:
     from molexp.harness.errors import StageExecutionError
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 
-    _seed_experiment_report_ref(ctx_no_gateway.artifact_store)
+    _seed_experiment_spec_ref(ctx_no_gateway.artifact_store)
     stage = ExtractWorkflowIR()
     with pytest.raises(StageExecutionError) as exc:
         asyncio.run(stage.run(ctx_no_gateway))
@@ -126,7 +126,7 @@ def test_extract_builds_correct_spec(ctx_with_gateway) -> None:
     from molexp.harness.schemas import AgentCallResult, AgentCallSpec, WorkflowIR
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 
-    er_ref = _seed_experiment_report_ref(ctx_with_gateway.artifact_store)
+    spec_ref = _seed_experiment_spec_ref(ctx_with_gateway.artifact_store)
     real_gateway = ctx_with_gateway.agent_gateway
     real_gateway.register(
         agent_name="workflow_ir_extractor",
@@ -149,14 +149,14 @@ def test_extract_builds_correct_spec(ctx_with_gateway) -> None:
     assert len(captured) == 1
     spec = captured[0]
     assert spec.agent_name == "workflow_ir_extractor"
-    assert spec.input_artifact_ids == [er_ref.id]
+    assert spec.input_artifact_ids == [spec_ref.id]
     assert spec.output_schema == WorkflowIR.model_json_schema()
 
 
 def test_extract_returns_workflow_ir_ref_with_parent_ids(ctx_with_gateway) -> None:
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 
-    er_ref = _seed_experiment_report_ref(ctx_with_gateway.artifact_store)
+    spec_ref = _seed_experiment_spec_ref(ctx_with_gateway.artifact_store)
     ctx_with_gateway.agent_gateway.register(
         agent_name="workflow_ir_extractor",
         output=_make_workflow_ir_canned_response(),
@@ -165,4 +165,4 @@ def test_extract_returns_workflow_ir_ref_with_parent_ids(ctx_with_gateway) -> No
     stage = ExtractWorkflowIR()
     result_ref = asyncio.run(stage.run(ctx_with_gateway))
     assert result_ref.kind == "workflow_ir"
-    assert er_ref.id in result_ref.parent_ids
+    assert spec_ref.id in result_ref.parent_ids

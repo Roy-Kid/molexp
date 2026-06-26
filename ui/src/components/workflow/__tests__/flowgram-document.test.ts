@@ -161,3 +161,41 @@ describe("parseTaskGraphIr — full-graph IR + subworkflow", () => {
     expect(items?.data.subworkflow).toBeUndefined();
   });
 });
+
+describe("execution status + error propagation", () => {
+  // The backend execution workflow.json shape: tasks keyed by `task_id`, each
+  // carrying a runtime `status` and (on failure) an `error` message.
+  const execWorkflowJson = JSON.stringify({
+    task_configs: [
+      { task_id: "task_a", task_type: "fn", status: "completed" },
+      {
+        task_id: "task_b",
+        task_type: "fn",
+        status: "failed",
+        error: "RuntimeError: boom in task_b: x=1",
+      },
+      { task_id: "task_c", task_type: "fn", status: "pending" },
+    ],
+    links: [
+      { source: "task_a", target: "task_b", status: "failed" },
+      { source: "task_b", target: "task_c", status: "failed" },
+    ],
+  });
+
+  it("carries per-task status + failure error from the execution IR to the node data", () => {
+    const ir = parseTaskGraphIr(execWorkflowJson) as TaskGraphJson;
+    const b = ir.task_configs.find((t) => t.id === "task_b");
+    expect(b?.status).toBe("failed");
+    expect(b?.error).toBe("RuntimeError: boom in task_b: x=1");
+
+    const doc = buildFlowgramDocument(ir);
+    const byId = new Map(doc.nodes.map((n) => [n.id, n]));
+    expect(byId.get("task_a")?.data.status).toBe("completed");
+    expect(byId.get("task_b")?.data.status).toBe("failed");
+    expect(byId.get("task_b")?.data.error).toBe("RuntimeError: boom in task_b: x=1");
+    expect(byId.get("task_c")?.data.status).toBe("pending");
+    // A succeeded/pending node carries no error.
+    expect(byId.get("task_a")?.data.error).toBeUndefined();
+    expect(byId.get("task_c")?.data.error).toBeUndefined();
+  });
+});

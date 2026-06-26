@@ -103,8 +103,9 @@ up.
 The agent layer used to host its own multi-step pipelines (PlanMode,
 AuthorMode, RunMode, ReviewMode) built on `molexp.workflow`. That
 orchestration moved out: `molexp.harness` now owns the `Mode` ledger
-and the canonical `PlanMode` (9 stages) and `RunMode` (10 stages)
-pipelines. The harness drives the LLM through the agent's
+and the single canonical `PlanMode` (9 steps + an opt-in `--execute`
+tail; the former separate RunMode is retired/folded in). The harness
+drives the LLM through the agent's
 `Router` Protocol via `RouterBackedAgentGateway` — the single sanctioned
 `harness → agent` edge. See [Plan Mode Architecture](plan-mode.md) for
 the stage list and artifact layout.

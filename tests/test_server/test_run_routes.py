@@ -295,6 +295,91 @@ class TestRunSubmissionWiring:
         assert captured_submits == []
 
 
+class TestRunStart:
+    """The ``run`` (start) verb: dispatch a *pending* run onto a chosen target."""
+
+    def _prefix(self, project, experiment):
+        return f"/api/projects/{project.id}/experiments/{experiment.id}/runs"
+
+    def test_start_pending_run_with_target_dispatches(
+        self, client, project, experiment_with_entrypoint, local_target, captured_submits
+    ):
+        """A pending run + a registered target → one molq dispatch on a fresh exec id."""
+        run = experiment_with_entrypoint.add_run(params={"lr": 1e-4})  # pending, target-less
+        assert run.status == "pending"
+
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{run.id}/run",
+            json={"target": local_target},
+        )
+        assert resp.status_code == 201, resp.text
+        body = resp.json()
+        assert body["runId"] == run.id
+        assert body["executionId"].startswith(f"exec-{run.id}")
+        assert len(captured_submits) == 1
+        _handler, _args, kwargs = captured_submits[0]
+        assert kwargs.get("execution_id") == body["executionId"]
+
+    def test_start_defaults_to_builtin_local(
+        self, client, project, experiment_with_entrypoint, captured_submits
+    ):
+        """No target given → the built-in ``local`` target dispatches on this machine."""
+        run = experiment_with_entrypoint.add_run(params={})  # pending, target-less
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{run.id}/run", json={}
+        )
+        assert resp.status_code == 201, resp.text
+        assert len(captured_submits) == 1
+        handler, _args, _kwargs = captured_submits[0]
+        assert handler._scheduler == "local"
+
+    def test_start_local_without_entrypoint_returns_422(
+        self, client, project, experiment, captured_submits
+    ):
+        """Even on the built-in local target, a run with no workflow entrypoint 422s."""
+        run = experiment.add_run(params={})  # pending, no bound workflow
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/run", json={})
+        assert resp.status_code == 422, resp.text
+        assert "entrypoint" in resp.json()["detail"].lower()
+        assert captured_submits == []
+
+    def test_start_applies_parameters_before_dispatch(
+        self, client, project, experiment_with_entrypoint, local_target, captured_submits
+    ):
+        """Inputs supplied at Start replace the pending run's parameters, then dispatch."""
+        run = experiment_with_entrypoint.add_run(params={"sigma": 1.0})
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{run.id}/run",
+            json={"target": local_target, "parameters": {"sigma": 2.0, "N": 10}},
+        )
+        assert resp.status_code == 201, resp.text
+        assert len(captured_submits) == 1
+        got = client.get(f"{self._prefix(project, experiment_with_entrypoint)}/{run.id}").json()
+        assert got["parameters"] == {"sigma": 2.0, "N": 10}
+
+    def test_start_non_pending_returns_409(self, client, project, experiment, run):
+        """Start owns only pending runs — a failed run is resume/rerun's job → 409."""
+        with pytest.raises(RuntimeError, match="boom"), run.start():
+            raise RuntimeError("boom")
+        assert run.status in ("failed", "cancelled")
+
+        resp = client.post(f"{self._prefix(project, experiment)}/{run.id}/run", json={})
+        assert resp.status_code == 409, resp.text
+        assert "pending" in resp.json()["detail"].lower()
+
+    def test_start_with_unregistered_target_returns_422(
+        self, client, project, experiment_with_entrypoint
+    ):
+        """A target the workspace doesn't know → 422 (mirrors create/continue)."""
+        run = experiment_with_entrypoint.add_run(params={})
+        resp = client.post(
+            f"{self._prefix(project, experiment_with_entrypoint)}/{run.id}/run",
+            json={"target": "ghost"},
+        )
+        assert resp.status_code == 422, resp.text
+        assert "not registered" in resp.json()["detail"].lower()
+
+
 class TestRunContinuationSchemaAndOpenAPI:
     """ac-001 + ac-006: the schema swap and OpenAPI surface change."""
 

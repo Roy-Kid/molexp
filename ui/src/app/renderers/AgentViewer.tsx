@@ -1,22 +1,19 @@
 import {
   Bot,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
-  CircleUser,
-  ClipboardList,
   Cpu,
   HelpCircle,
   Loader2,
   Send,
   Settings,
   ShieldAlert,
-  Target,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CommandPalette, useCommandPalette } from "@/app/components/CommandPalette";
 import { EntityHeader, StatusBadge } from "@/app/components/entity";
+import { NewExperimentPlan } from "@/app/components/NewExperimentPlan";
 import {
   AgentNotConfiguredError,
   type ApiAgentHealth,
@@ -27,24 +24,20 @@ import {
 } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAgentSession, ApiSessionEvent, RendererProps } from "@/app/types";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { MarkdownContent } from "@/components/ui/markdown";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ThinkingBlock } from "@/components/ui/thinking-block";
-import { ToolCallRow } from "@/components/ui/tool-call-row";
-import { formatDurationCompact } from "@/lib/format-time";
-import { MolplotRawChart } from "@/plugins/molplot";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
+import { ConversationTurnView } from "./agent/conversation";
+import { DeliverablesPanel, hasDeliverables } from "./agent/DeliverablesPanel";
+import { PlanProgressRail } from "./agent/PlanProgressRail";
+import { DEFAULT_PLAN_STAGE } from "./agent/planStages";
 import {
-  type ConversationTurn,
   derivePendingUserRequest,
-  EVENT_META,
-  foldStreamedTurn,
+  derivePlanRef,
   groupEventsIntoTurns,
   normalizeStreamFrame,
-  turnDurationSeconds,
 } from "./agentEvents";
 
 // ---------------------------------------------------------------------------
@@ -65,386 +58,7 @@ const TEXTAREA_CLASS =
   "max-h-48 min-h-[24px] flex-1 resize-none bg-transparent px-1 py-1 text-sm leading-6 " +
   "placeholder:text-muted-foreground focus:outline-none disabled:opacity-60";
 
-// ---------------------------------------------------------------------------
-// Event row
-// ---------------------------------------------------------------------------
-
-const formatTs = (ts: string): string => {
-  try {
-    return new Date(ts).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return ts;
-  }
-};
-
-const formatTokens = (count: number): string => {
-  if (count < 1_000) return String(count);
-  if (count < 1_000_000) return `${(count / 1_000).toFixed(1)}k`;
-  return `${(count / 1_000_000).toFixed(1)}M`;
-};
-
 const getAgentTaskId = (session: ApiAgentSession): string => session.taskId ?? session.sessionId;
-
-const EventRow = ({ event }: { event: ApiSessionEvent }): JSX.Element => {
-  const [expanded, setExpanded] = useState(false);
-  const meta = EVENT_META[event.type] ?? {
-    icon: Bot,
-    label: event.type,
-    colorClass: "text-muted-foreground",
-  };
-  const Icon = meta.icon;
-  const payload: Record<string, unknown> = event.payload ?? {};
-  const hasDetail = Object.keys(payload).length > 0;
-
-  return (
-    <div className="group flex gap-3 py-2">
-      <div className={`mt-0.5 flex-none ${meta.colorClass}`}>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0 flex-1 space-y-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium">{meta.label}</span>
-          {(event.type === "tool_call_started" || event.type === "tool_call_completed") &&
-            Boolean(payload.tool_name) && (
-              <Badge variant="secondary" className="h-4 px-1 font-mono text-[10px]">
-                {String(payload.tool_name)}
-              </Badge>
-            )}
-          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
-            {formatTs(event.ts)}
-          </span>
-          {hasDetail && (
-            <button
-              type="button"
-              className="text-muted-foreground transition-colors hover:text-foreground"
-              onClick={() => setExpanded((v) => !v)}
-              aria-label={expanded ? "Collapse event detail" : "Expand event detail"}
-            >
-              {expanded ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-            </button>
-          )}
-        </div>
-
-        {/* Inline content for common event types */}
-        {event.type === "loop_completed" && Boolean(payload.text) && (
-          <div className="rounded-md border border-success/25 bg-success-soft px-3 py-2">
-            <p className="text-xs text-success-foreground">{String(payload.text)}</p>
-          </div>
-        )}
-
-        {event.type === "tool_call_completed" && <ToolResultArtifacts payload={payload} />}
-
-        {event.type === "clarification_required" && Boolean(payload.questions) && (
-          <div className="rounded-md border border-warning/25 bg-warning-soft px-3 py-2">
-            <p className="text-xs text-warning-foreground">{String(payload.questions)}</p>
-          </div>
-        )}
-
-        {expanded && hasDetail && (
-          <pre className="overflow-x-auto rounded-md bg-muted/60 px-3 py-2 font-mono text-[11px] text-muted-foreground">
-            {JSON.stringify(payload, null, 2)}
-          </pre>
-        )}
-      </div>
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Artifact body (inline plot/table/text)
-// ---------------------------------------------------------------------------
-
-const ArtifactBody = ({ payload }: { payload: Record<string, unknown> }): JSX.Element | null => {
-  const kind = String(payload.kind ?? "");
-  const title = typeof payload.title === "string" ? payload.title : "";
-  const inner = (payload.payload as Record<string, unknown> | undefined) ?? payload;
-
-  if (kind === "plot") {
-    // Agent-emitted specs are untyped — we accept whatever they emit
-    // and let plotly validate at runtime via MolplotRawChart.
-    const data = Array.isArray(inner.data) ? (inner.data as unknown[]) : [];
-    const layout = (inner.layout as Record<string, unknown> | undefined) ?? {};
-    return (
-      <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
-        {title && <p className="text-xs font-medium text-foreground">{title}</p>}
-        <MolplotRawChart
-          spec={{
-            data,
-            layout: { autosize: true, margin: { l: 48, r: 16, t: 16, b: 40 }, ...layout },
-            config: { displayModeBar: false, responsive: true },
-          }}
-          style={{ width: "100%", height: 300 }}
-        />
-      </div>
-    );
-  }
-
-  if (kind === "table") {
-    const columns = Array.isArray(inner.columns) ? (inner.columns as string[]) : [];
-    const rows = Array.isArray(inner.rows) ? (inner.rows as unknown[][]) : [];
-    if (columns.length === 0 || rows.length === 0) return null;
-    return (
-      <div className="overflow-x-auto rounded-md border border-border/60">
-        {title && (
-          <p className="border-b border-border/60 bg-muted/40 px-3 py-1 text-xs font-medium">
-            {title}
-          </p>
-        )}
-        <table className="w-full text-xs">
-          <thead className="bg-muted/30">
-            <tr>
-              {columns.map((c) => (
-                <th key={`col-${c}`} className="px-3 py-1.5 text-left font-medium">
-                  {c}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.slice(0, 50).map((row) => {
-              const rowKey = row.map((value) => String(value ?? "")).join("|");
-              return (
-                <tr key={`row-${rowKey}`} className="border-t border-border/40">
-                  {columns.map((column, colIdx) => (
-                    <td key={`cell-${column}`} className="px-3 py-1 tabular-nums">
-                      {String(row[colIdx] ?? "")}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        {rows.length > 50 && (
-          <p className="border-t border-border/40 bg-muted/20 px-3 py-1 text-[10px] text-muted-foreground">
-            Showing 50 of {rows.length} rows
-          </p>
-        )}
-      </div>
-    );
-  }
-
-  if (kind === "text" && typeof inner.body === "string") {
-    return (
-      <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border border-border/60 bg-muted/40 px-3 py-2 text-[11px] text-foreground">
-        {inner.body}
-      </pre>
-    );
-  }
-
-  return null;
-};
-
-/**
- * Renders artifacts folded inside a ToolCallCompleted payload (§6.5).
- *
- * Reads `result.artifacts` (canonical) or `payload.artifacts` (loose mock)
- * and dispatches each entry to ArtifactBody. Falls back silently when the
- * tool call carried no inline artifacts.
- */
-const ToolResultArtifacts = ({
-  payload,
-}: {
-  payload: Record<string, unknown>;
-}): JSX.Element | null => {
-  const result = (payload.result as Record<string, unknown> | undefined) ?? payload;
-  const artifacts = Array.isArray(result.artifacts)
-    ? (result.artifacts as Record<string, unknown>[])
-    : [];
-  if (artifacts.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      {artifacts.map((artifact) => {
-        // Artifacts inside a single ToolCallCompleted are append-only —
-        // identity is `kind:title`, falling back to a JSON fingerprint
-        // so two identical-kind artifacts still get distinct keys.
-        const title = typeof artifact.title === "string" && artifact.title ? artifact.title : "";
-        const fingerprint = title || JSON.stringify(artifact.payload ?? artifact);
-        const key = `${String(artifact.kind ?? "?")}:${fingerprint}`;
-        return <ArtifactBody key={key} payload={artifact} />;
-      })}
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Turn card — one conversational round-trip (question → answer)
-// ---------------------------------------------------------------------------
-
-const TurnAnswer = ({
-  result,
-  inProgress,
-}: {
-  result: ApiSessionEvent | null;
-  inProgress: boolean;
-}): JSX.Element => {
-  if (!result) {
-    if (inProgress) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-3.5 w-3.5 animate-spin text-info" />
-          <span>Working…</span>
-        </div>
-      );
-    }
-    return (
-      <p className="text-sm italic text-muted-foreground">
-        No final answer recorded for this turn.
-      </p>
-    );
-  }
-
-  const payload = (result.payload ?? {}) as Record<string, unknown>;
-
-  if (result.type === "loop_completed") {
-    const summary = typeof payload.text === "string" ? payload.text : "";
-    return summary ? (
-      <MarkdownContent text={summary} />
-    ) : (
-      <p className="text-sm italic text-muted-foreground">Session ended without a summary.</p>
-    );
-  }
-
-  if (result.type === "plan_emitted") {
-    const planId = typeof payload.plan_id === "string" ? payload.plan_id : "plan";
-    const stepCount = typeof payload.step_count === "number" ? payload.step_count : 0;
-    return (
-      <div className="flex items-center gap-2 rounded-md border border-info/25 bg-info-soft px-3 py-2 text-xs text-info-foreground">
-        <ClipboardList className="h-3.5 w-3.5 flex-none" />
-        <span className="font-mono font-medium">{planId}</span>
-        <span>
-          · {stepCount} {stepCount === 1 ? "step" : "steps"} — review the plan to continue
-        </span>
-      </div>
-    );
-  }
-
-  if (result.type === "tool_call_completed") {
-    return <ToolResultArtifacts payload={payload} />;
-  }
-
-  return (
-    <pre className="overflow-x-auto rounded-md bg-muted/40 px-3 py-2 text-xs">
-      {JSON.stringify(payload, null, 2)}
-    </pre>
-  );
-};
-
-/** Dim provenance footer: outcome · duration · token usage (CLI parity). */
-const TurnFooter = ({ turn }: { turn: ConversationTurn }): JSX.Element | null => {
-  if (!turn.result) return null;
-  const payload = (turn.result.payload ?? {}) as Record<string, unknown>;
-  const resultDump = (payload.result as Record<string, unknown> | undefined) ?? {};
-  const usage = (resultDump.usage as Record<string, unknown> | undefined) ?? {};
-  const tokensIn = typeof usage.input_tokens === "number" ? usage.input_tokens : 0;
-  const tokensOut = typeof usage.output_tokens === "number" ? usage.output_tokens : 0;
-  const duration = formatDurationCompact(turnDurationSeconds(turn));
-  const isPlan = turn.result.type === "plan_emitted";
-
-  return (
-    <div className="flex items-center gap-1.5 border-t border-border/50 pt-2 text-[11px] text-muted-foreground">
-      <CheckCircle2 className={`h-3 w-3 ${isPlan ? "text-info" : "text-success"}`} />
-      <span>{isPlan ? "plan ready" : "done"}</span>
-      {duration && <span className="tabular-nums">· {duration}</span>}
-      {(tokensIn > 0 || tokensOut > 0) && (
-        <span className="tabular-nums">
-          · ↑{formatTokens(tokensIn)} ↓{formatTokens(tokensOut)} tok
-        </span>
-      )}
-    </div>
-  );
-};
-
-const TurnCard = ({ turn }: { turn: ConversationTurn }): JSX.Element => {
-  const [stepsOpen, setStepsOpen] = useState(false);
-  const stepCount = turn.steps.length;
-
-  // Streamed render state for this turn: token answer, reasoning, tool calls.
-  const streamed = useMemo(
-    () => foldStreamedTurn(turn.result ? [...turn.steps, turn.result] : turn.steps),
-    [turn.steps, turn.result],
-  );
-
-  const QuestionIcon = turn.source === "goal" ? Target : CircleUser;
-
-  return (
-    <article className="overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs">
-      <header className="flex items-start gap-2.5 border-b border-border/60 bg-muted/30 px-4 py-2.5">
-        <QuestionIcon
-          className="mt-0.5 h-3.5 w-3.5 flex-none text-muted-foreground"
-          aria-label={turn.source === "goal" ? "Task goal" : "Your message"}
-        />
-        <p
-          className="min-w-0 flex-1 whitespace-pre-wrap text-sm font-medium leading-snug text-foreground [overflow-wrap:anywhere]"
-          title={turn.question}
-        >
-          {turn.question || <span className="italic text-muted-foreground">(no question)</span>}
-        </p>
-        {turn.inProgress && <StatusBadge status="running" size="sm" dot />}
-      </header>
-
-      <div className="space-y-2.5 px-4 py-3">
-        {streamed.thinking && (
-          <ThinkingBlock thinking={streamed.thinking} streaming={turn.inProgress} />
-        )}
-
-        {streamed.toolCalls.length > 0 && (
-          <div className="-mx-1.5">
-            {streamed.toolCalls.map((call) => (
-              <ToolCallRow key={call.id} call={call} />
-            ))}
-          </div>
-        )}
-
-        {turn.inProgress && !turn.result && streamed.answer ? (
-          // Token-by-token streaming answer before a terminal result lands —
-          // rendered as markdown so structure appears as it streams.
-          <MarkdownContent text={streamed.answer} />
-        ) : (
-          <TurnAnswer result={turn.result} inProgress={turn.inProgress} />
-        )}
-
-        {stepCount > 0 && (
-          <div>
-            <button
-              type="button"
-              onClick={() => setStepsOpen((v) => !v)}
-              className="flex items-center gap-1.5 rounded-md text-xs text-muted-foreground transition-colors hover:text-foreground"
-              aria-expanded={stepsOpen}
-            >
-              {stepsOpen ? (
-                <ChevronDown className="h-3 w-3" />
-              ) : (
-                <ChevronRight className="h-3 w-3" />
-              )}
-              <span>
-                {stepsOpen ? "Hide" : "Show"} {stepCount} {stepCount === 1 ? "step" : "steps"}
-              </span>
-            </button>
-            {stepsOpen && (
-              <div className="mt-2 rounded-md border border-border/50 bg-muted/20 px-3 py-1">
-                {turn.steps.map((event, stepIdx) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: the event log is append-only, so the position is a stable identity even when two events share a timestamp
-                  <EventRow key={`${turn.key}-step-${stepIdx}-${event.type}`} event={event} />
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <TurnFooter turn={turn} />
-      </div>
-    </article>
-  );
-};
 
 // ---------------------------------------------------------------------------
 // Chat box (mid-session messages)
@@ -962,6 +576,10 @@ const AgentSessionViewer = ({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [health, setHealth] = useState<ApiAgentHealth | null>(null);
+  // New-task surface: a plain chat goal, or an experiment plan (PlanMode).
+  const [newMode, setNewMode] = useState<"chat" | "plan">("chat");
+  // Which PlanMode stage the progress rail has selected; drives the right panel.
+  const [selectedStage, setSelectedStage] = useState<string>(DEFAULT_PLAN_STAGE);
   const scrollRef = useRef<HTMLDivElement>(null);
   const esRef = useRef<EventSource | null>(null);
 
@@ -1177,41 +795,68 @@ const AgentSessionViewer = ({
               </div>
             )}
 
-            <div className="flex flex-col items-center gap-2 pt-10 text-center">
-              <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-card">
-                <Bot className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
-              <p className="max-w-md text-sm text-muted-foreground">
-                Describe a goal. The agent plans the steps, calls molexp tools, and reports results
-                with artifacts.
-              </p>
-            </div>
-
-            {recent.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
-                {recent.map((s) => (
+            <div className="flex justify-center">
+              <div className="inline-flex rounded-md border border-border/60 bg-card p-0.5 text-xs font-medium">
+                {(["chat", "plan"] as const).map((mode) => (
                   <button
-                    key={s.id}
+                    key={mode}
                     type="button"
-                    onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
-                    className="flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
+                    onClick={() => setNewMode(mode)}
+                    className={`rounded px-3 py-1 transition-colors ${
+                      newMode === mode
+                        ? "bg-muted text-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
                   >
-                    <Bot className="h-4 w-4 flex-none text-muted-foreground" />
-                    <p className="flex-1 truncate text-sm">{s.goal}</p>
-                    <StatusBadge status={s.status} size="sm" />
+                    {mode === "chat" ? "Chat task" : "Experiment plan"}
                   </button>
                 ))}
               </div>
+            </div>
+
+            {newMode === "plan" ? (
+              <NewExperimentPlan snapshot={snapshot} onRefresh={onRefresh} />
+            ) : (
+              <>
+                <div className="flex flex-col items-center gap-2 pt-4 text-center">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border/60 bg-card">
+                    <Bot className="h-5 w-5 text-muted-foreground" />
+                  </div>
+                  <h2 className="text-base font-semibold text-foreground">Start an agent task</h2>
+                  <p className="max-w-md text-sm text-muted-foreground">
+                    Describe a goal. The agent plans the steps, calls molexp tools, and reports
+                    results with artifacts.
+                  </p>
+                </div>
+
+                {recent.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="px-1 text-xs font-medium text-muted-foreground">Recent tasks</p>
+                    {recent.map((s) => (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => nav.setSelection({ objectType: "agent", objectId: s.id })}
+                        className="flex w-full items-center gap-3 rounded-md border border-border/60 bg-card px-3 py-2 text-left transition-colors hover:bg-muted/40"
+                      >
+                        <Bot className="h-4 w-4 flex-none text-muted-foreground" />
+                        <p className="flex-1 truncate text-sm">{s.goal}</p>
+                        <StatusBadge status={s.status} size="sm" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>
-        <GoalInput
-          onSubmit={handleLaunchIntent}
-          disabled={submitting || notReady}
-          onOpenSettings={openSettings}
-        />
+        {newMode === "chat" && (
+          <GoalInput
+            onSubmit={handleLaunchIntent}
+            disabled={submitting || notReady}
+            onOpenSettings={openSettings}
+          />
+        )}
       </div>
     );
   }
@@ -1240,15 +885,19 @@ const AgentSessionViewer = ({
 
   const isRunning = session.status === "running";
   const turns = groupEventsIntoTurns(events, session.goal);
+  // Pull the agent's products (plan/spec/script, or chat artifacts) into a
+  // dedicated panel; a session with no products stays a single conversation
+  // column rather than being squeezed into a half-width view.
+  const showSplit = hasDeliverables(events);
+  // A PlanMode session also gets a left progress rail tracking its pipeline.
+  const planRef = derivePlanRef(events);
 
-  return (
-    <div className="flex h-full flex-col bg-background">
-      <SessionHeader session={session} />
-
-      <ScrollArea className="flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
-        <div className={`${COLUMN} flex flex-col gap-4 px-4 pb-6 pt-4 md:px-8`}>
+  const conversation = (
+    <div className="flex h-full min-h-0 flex-col">
+      <ScrollArea className="min-h-0 flex-1" ref={scrollRef as React.RefObject<HTMLDivElement>}>
+        <div className={`${COLUMN} flex flex-col gap-5 px-4 pb-6 pt-4 md:px-6`}>
           {turns.map((turn) => (
-            <TurnCard key={turn.key} turn={turn} />
+            <ConversationTurnView key={turn.key} turn={turn} />
           ))}
         </div>
       </ScrollArea>
@@ -1267,6 +916,40 @@ const AgentSessionViewer = ({
           onOpenSettings={openSettings}
           placeholder="Send a follow-up message..."
         />
+      )}
+    </div>
+  );
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <SessionHeader session={session} />
+
+      {showSplit ? (
+        <div className="flex min-h-0 flex-1">
+          {planRef && (
+            <PlanProgressRail
+              events={events}
+              status={session.status}
+              selectedKind={selectedStage}
+              onSelectStage={setSelectedStage}
+            />
+          )}
+          <ResizablePanelGroup
+            direction="horizontal"
+            autoSaveId="agent-session-split"
+            className="min-h-0 flex-1"
+          >
+            <ResizablePanel defaultSize={58} minSize={38}>
+              {conversation}
+            </ResizablePanel>
+            <ResizableHandle withHandle />
+            <ResizablePanel defaultSize={42} minSize={26}>
+              <DeliverablesPanel events={events} activeStageKind={selectedStage} />
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">{conversation}</div>
       )}
     </div>
   );

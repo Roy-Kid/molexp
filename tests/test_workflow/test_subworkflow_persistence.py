@@ -19,7 +19,6 @@ import pytest
 
 from molexp.workflow import (
     SubWorkflow,
-    TaskContext,
     WorkflowCompiler,
     WorkflowRuntime,
     read_node_outputs,
@@ -41,17 +40,17 @@ def _build_inner() -> WorkflowCompiler:
     wf = WorkflowCompiler(name="inner-multi")
 
     @wf.task
-    async def load(ctx: TaskContext) -> list[float]:
+    async def load() -> list[float]:
         return [2.0, 4.0, 8.0]
 
     @wf.task(depends_on=["load"])
-    async def normalize(ctx: TaskContext) -> list[float]:
-        top = max(ctx.inputs)
-        return [x / top for x in ctx.inputs]
+    async def normalize(values: list[float]) -> list[float]:
+        top = max(values)
+        return [x / top for x in values]
 
     @wf.task(depends_on=["normalize"])
-    async def scale(ctx: TaskContext) -> float:
-        return sum(ctx.inputs)
+    async def scale(values: list[float]) -> float:
+        return sum(values)
 
     return wf
 
@@ -60,7 +59,7 @@ def _build_failing_inner() -> WorkflowCompiler:
     wf = WorkflowCompiler(name="inner-fail")
 
     @wf.task
-    async def boom(ctx: TaskContext) -> None:
+    async def boom() -> None:
         raise ValueError("inner exploded")
 
     return wf
@@ -140,14 +139,14 @@ async def test_parallel_subworkflow_fanout_does_not_corrupt_parent_doc(
     wf = WorkflowCompiler(name="outer-doc-parallel", entry="enumerate")
 
     @wf.task
-    async def enumerate(ctx: TaskContext) -> list[int]:
+    async def enumerate() -> list[int]:
         return [0, 1, 2, 3]
 
     wf.add(SubWorkflow(_build_inner()), name="sub")
 
     @wf.task
-    async def collect(ctx: TaskContext) -> list[float]:
-        return list(ctx.inputs)
+    async def collect(values: list[float]) -> list[float]:
+        return list(values)
 
     wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=4)
 

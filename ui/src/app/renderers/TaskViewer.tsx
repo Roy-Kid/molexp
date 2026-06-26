@@ -137,6 +137,20 @@ export const TaskViewer = ({ selection, snapshot }: RendererProps): JSX.Element 
           )}
         </Section>
 
+        {node?.source ? (
+          <Section title="Source">
+            <pre className="max-h-80 overflow-auto rounded-md border border-border/60 bg-muted/30 p-2.5 font-mono text-[11px] leading-relaxed text-foreground">
+              <code>{node.source}</code>
+            </pre>
+          </Section>
+        ) : (
+          <Section title="Source">
+            <p className="text-xs italic text-muted-foreground">
+              No source captured for this node.
+            </p>
+          </Section>
+        )}
+
         {node?.config && Object.keys(node.config).length > 0 && (
           <Section title="Inputs">
             <dl className="space-y-1">

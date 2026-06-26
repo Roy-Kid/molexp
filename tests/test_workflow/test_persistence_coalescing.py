@@ -53,12 +53,12 @@ def _build_parallel_workflow(n: int):
         return list(range(n))
 
     @wf.task
-    async def double(ctx: TaskContext) -> int:
-        return ctx.inputs * 2
+    async def double(element: int) -> int:
+        return element * 2
 
     @wf.task
-    async def total(ctx: TaskContext) -> int:
-        return sum(ctx.inputs)
+    async def total(results: list[int]) -> int:
+        return sum(results)
 
     wf.parallel(map_over="emit", body="double", join="total", max_concurrency=8)
     return wf.compile()
@@ -181,8 +181,8 @@ async def test_execution_success_lands_on_disk_mid_interval(tmp_path, monkeypatc
         return 41
 
     @wf.task(depends_on=["a"])
-    async def b(ctx: TaskContext) -> int:
-        return ctx.inputs + 1
+    async def b(value: int) -> int:
+        return value + 1
 
     result = await WorkflowRuntime().execute(wf.compile(), run_dir=tmp_path, execution_id="exec-s")
     assert result.status == "completed"

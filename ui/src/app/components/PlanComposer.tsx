@@ -10,9 +10,9 @@ const POLL_INTERVAL_MS = 1000;
 interface PlanComposerProps {
   projectId: string;
   experimentId: string;
-  /** Called once a plan completes — refreshes the snapshot so the generated
-   * workflow graph appears on the experiment. */
-  onPlanComplete: () => void;
+  /** Called once a plan completes, with the finished task — so the caller can
+   * open the plan's session (its `taskId`) and/or refresh the snapshot. */
+  onPlanComplete: (task: PlanTaskResponse) => void;
 }
 
 /**
@@ -39,7 +39,7 @@ export function PlanComposer({ projectId, experimentId, onPlanComplete }: PlanCo
         if (cancelled) return;
         setTask(next);
         if (next.status === "completed") {
-          onPlanComplete();
+          onPlanComplete(next);
         } else if (next.status === "failed" || next.status === "cancelled") {
           setError(next.error ?? `Plan ${next.status}.`);
         }

@@ -200,10 +200,11 @@ async def test_sweep_runs_with_different_params_never_share_root_cache(
     counters = {"root": 0}
     wf = WorkflowCompiler(name="sweep")
 
+    # Root task binds the run param ``ratio`` by name (engine-injected).
     @wf.task
-    async def root(ctx: TaskContext) -> str:
+    async def root(ratio: str) -> str:
         counters["root"] += 1
-        return ctx.inputs["params"]["ratio"]
+        return ratio
 
     compiled = wf.compile()
     cache = Caching(store_dir=tmp_path / "shared-cache")
@@ -228,10 +229,11 @@ async def test_same_params_different_workdir_and_exec_hits(tmp_path: Path) -> No
     counters = {"root": 0}
     wf = WorkflowCompiler(name="sweep-hit")
 
+    # Root task binds the run param ``ratio`` by name (engine-injected).
     @wf.task
-    async def root(ctx: TaskContext) -> str:
+    async def root(ratio: str) -> str:
         counters["root"] += 1
-        return ctx.inputs["params"]["ratio"]
+        return ratio
 
     compiled = wf.compile()
     cache = Caching(store_dir=tmp_path / "shared-cache")

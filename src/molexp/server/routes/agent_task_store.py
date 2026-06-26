@@ -11,6 +11,7 @@ from typing import Any
 
 AGENT_TASKS_DIR_NAME = "agent_tasks"
 METADATA_FILE = "metadata.json"
+EVENTS_FILE = "events.json"
 
 
 @dataclass(frozen=True)
@@ -95,6 +96,39 @@ def write_agent_task_metadata(
     tmp = path.with_suffix(".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
     os.replace(tmp, path)  # noqa: PTH105
+
+
+def write_agent_task_events(
+    workspace_root: str | Path,
+    task_id: str,
+    events: list[dict[str, Any]],
+) -> None:
+    """Persist a task's session events (``{type, ts, payload}`` records).
+
+    Used to record a synthesized transcript (e.g. a PlanMode run) so the session
+    view shows the whole flow even though no live runtime session exists.
+    """
+    target_dir = Path(workspace_root) / AGENT_TASKS_DIR_NAME / task_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    path = target_dir / EVENTS_FILE
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(events, indent=2, ensure_ascii=False))
+    os.replace(tmp, path)  # noqa: PTH105
+
+
+def read_agent_task_events(
+    workspace_root: str | Path,
+    task_id: str,
+) -> list[dict[str, Any]]:
+    """Read a task's persisted session events, or ``[]`` when none."""
+    path = Path(workspace_root) / AGENT_TASKS_DIR_NAME / task_id / EVENTS_FILE
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return []
+    return data if isinstance(data, list) else []
 
 
 def _now_iso() -> str:

@@ -86,8 +86,11 @@ export const AppShell = ({
     inspectedTask !== null &&
     ((selection?.objectType === "run" && selection.objectId === inspectedTask.runId) ||
       // Preview (compiled, un-run) workflows are inspected from the workflow
-      // entity's Graph tab — there is no run to scope the pin to.
-      selection?.objectType === "workflow");
+      // entity's Graph tab — there is no run to scope the pin to. The same graph
+      // is also reachable from an experiment's Workflow tab (page selection stays
+      // ``experiment``), so a node clicked there pins to the task inspector too.
+      selection?.objectType === "workflow" ||
+      selection?.objectType === "experiment");
 
   // The right inspector shows the pinned task when one is active, otherwise the
   // page's own object. The synthetic `task` Selection is never routed to the

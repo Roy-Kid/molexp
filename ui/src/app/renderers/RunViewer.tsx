@@ -6,6 +6,7 @@ import { RunExecutionsPanel } from "@/app/renderers/RunExecutionsPanel";
 import { RunLogsPanel } from "@/app/renderers/RunLogsPanel";
 import { useRunViewer } from "@/app/renderers/useRunViewer";
 import { RunMetricsView } from "@/app/runs/metrics/RunMetricsView";
+import { RunActions } from "@/app/runs/RunActions";
 import { workspaceApi } from "@/app/state/api";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
 import type { ApiAssetResponse, RendererProps } from "@/app/types";
@@ -256,7 +257,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     attemptLabel = "latest attempt";
   }
   const logsContent = (
-    <div className="flex h-full flex-1 flex-col overflow-hidden bg-zinc-950 text-zinc-50 dark:bg-black">
+    <div className="flex h-full flex-1 flex-col overflow-hidden bg-background text-foreground">
       <RunLogsPanel
         logs={logs}
         logsError={logsError}
@@ -267,6 +268,9 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
     </div>
   );
 
+  // Only surface the Logs tab when there is actually something to show — a run
+  // that captured no stdout/stderr/run.log shouldn't carry an empty tab.
+  const hasLogs = Boolean(logs?.stdout || logs?.stderr);
   const tabs = [
     { value: "overview", label: "Overview", content: overviewContent },
     {
@@ -274,7 +278,7 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
       label: `Executions${attemptCount ? ` (${attemptCount})` : ""}`,
       content: executionsContent,
     },
-    { value: "logs", label: "Logs", content: logsContent },
+    ...(hasLogs ? [{ value: "logs", label: "Logs", content: logsContent }] : []),
     {
       // First-class Metrics tab — render the molplot metrics view from the
       // resolved run's coords directly (run is non-null past the not-found
@@ -325,6 +329,14 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
         subtitle={run.summary || undefined}
         actions={
           <>
+            <RunActions
+              projectId={run.projectId}
+              experimentId={run.experimentId}
+              runId={run.id}
+              status={run.status}
+              params={run.parameters ?? {}}
+              onChanged={props.onRefresh}
+            />
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCopyRunId}>
               <Copy className="h-4 w-4" />
             </Button>

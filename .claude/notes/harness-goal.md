@@ -197,6 +197,16 @@ regression behavior
 
 ## 3. 端到端流程
 
+> **Shipped (reconciled):** the implemented pipeline is the **single 9-step
+> `PlanMode`** — idea → (1) draft proposal → (2) concrete spec → (3) resolve
+> capabilities → (4) workflow IR → (5) tasks + per-task tests → (6) input set →
+> (7) compile/dry-run → (8) review → (9) execution report. The nine steps end
+> at a descriptive execution report (never submits); real scientific execution
+> is the **opt-in `--execute` tail** (`ExecuteWorkflow → GenerateFinalReport →
+> ApprovalGate → GenerateAuditReport`). The earlier separate `RunMode` is
+> retired/folded into that tail. The conceptual pipeline below still holds; the
+> shipped stage names + the spec/capabilities/input-set steps refine it.
+
 完整 pipeline：
 
 ```text

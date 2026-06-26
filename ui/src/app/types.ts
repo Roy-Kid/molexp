@@ -7,6 +7,7 @@ export type LeftPanelView =
   | "asset"
   | "workflow"
   | "agent"
+  | "knowledge"
   | "settings";
 
 export type SemanticObjectType =
@@ -17,7 +18,8 @@ export type SemanticObjectType =
   | "workflow"
   | "workspace-file"
   | "agent"
-  | "task";
+  | "task"
+  | "knowledge";
 
 export type BaseObjectType = "project" | "experiment" | "run" | "asset";
 
@@ -162,7 +164,13 @@ export interface AssetSummary {
   summary: string;
   updatedAt: string;
   sizeBytes: number | null;
+  /** Scope owner chain, derived from the asset's `scope_ids`. Drives the
+   *  Project → Experiment → Run grouping in the Assets nav. */
   projectId?: string;
+  experimentId?: string;
+  runId?: string;
+  /** Scope leaf kind: `workspace` / `project` / `experiment` / `run`. */
+  scopeKind?: string;
 }
 
 export interface WorkflowSummary {
@@ -270,12 +278,18 @@ export interface TaskSelection {
   objectId: string; // === taskId, for RendererProps compatibility
 }
 
+export interface KnowledgeSelection {
+  objectType: "knowledge";
+  objectId: string; // the concept's bundle-relative path, or "" for the browse overview
+}
+
 export type Selection =
   | ObjectSelection
   | WorkflowSelection
   | WorkspaceFileSelection
   | AgentSelection
-  | TaskSelection;
+  | TaskSelection
+  | KnowledgeSelection;
 
 export type InspectorTarget =
   | {

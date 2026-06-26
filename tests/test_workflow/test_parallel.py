@@ -52,12 +52,12 @@ def test_no_per_element_node_growth() -> None:
         return [10, 20, 30, 40]  # 4 elements
 
     @wf.task
-    async def square(ctx) -> int:
-        return ctx.inputs * ctx.inputs
+    async def square(value: int) -> int:
+        return value * value
 
     @wf.task
-    async def sum_results(ctx) -> int:
-        return sum(ctx.inputs)
+    async def sum_results(values: list[int]) -> int:
+        return sum(values)
 
     wf.parallel(map_over="enumerate", body="square", join="sum_results", max_concurrency=2)
 
@@ -82,12 +82,12 @@ async def test_parallel_happy_path() -> None:
         return [1, 2, 3]
 
     @wf.task
-    async def body(ctx) -> int:
-        return ctx.inputs * ctx.inputs
+    async def body(value: int) -> int:
+        return value * value
 
     @wf.task
-    async def join(ctx) -> int:
-        return sum(ctx.inputs)
+    async def join(values: list[int]) -> int:
+        return sum(values)
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
@@ -112,13 +112,13 @@ async def test_parallel_preserves_iteration_order() -> None:
         return [0.05, 0.04, 0.03, 0.02, 0.01]
 
     @wf.task
-    async def body(ctx) -> float:
-        await asyncio.sleep(ctx.inputs)
-        return ctx.inputs
+    async def body(delay: float) -> float:
+        await asyncio.sleep(delay)
+        return delay
 
     @wf.task
-    async def join(ctx) -> list[float]:
-        return list(ctx.inputs)
+    async def join(values: list[float]) -> list[float]:
+        return list(values)
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=5)
 
@@ -151,21 +151,21 @@ async def test_max_concurrency_throttle() -> None:
         return [0, 1, 2, 3, 4]
 
     @wf.task
-    async def body(ctx) -> int:
+    async def body(value: int) -> int:
         nonlocal inflight, observed_max
         async with lock:
             inflight += 1
             observed_max = max(observed_max, inflight)
         try:
             await asyncio.sleep(0.05)
-            return ctx.inputs
+            return value
         finally:
             async with lock:
                 inflight -= 1
 
     @wf.task
-    async def join(ctx) -> int:
-        return len(ctx.inputs)
+    async def join(values: list[int]) -> int:
+        return len(values)
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=2)
 
@@ -191,15 +191,15 @@ async def test_parallel_failure_capture() -> None:
         return [0, 1, 2]
 
     @wf.task
-    async def body(ctx) -> int:
-        if ctx.inputs == 1:
+    async def body(value: int) -> int:
+        if value == 1:
             raise ValueError("boom")
-        sibling_completions.append(ctx.inputs)
-        return ctx.inputs * 10
+        sibling_completions.append(value)
+        return value * 10
 
     @wf.task
-    async def join(ctx) -> int:
-        return sum(x for x in ctx.inputs if x is not None)
+    async def join(values: list[int]) -> int:
+        return sum(x for x in values if x is not None)
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
@@ -230,12 +230,12 @@ async def test_parallel_records_run_count_for_observability() -> None:
         return [10, 20, 30, 40]
 
     @wf.task
-    async def body(ctx) -> int:
-        return ctx.inputs
+    async def body(value: int) -> int:
+        return value
 
     @wf.task
-    async def join(ctx) -> int:
-        return len(ctx.inputs)
+    async def join(values: list[int]) -> int:
+        return len(values)
 
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=4)
 

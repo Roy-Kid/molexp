@@ -93,6 +93,24 @@ _WORKFLOW_SOURCE = {
     "bound_workflow_id": "bw-water",
     "symbols": ["WorkflowCompiler", "TaskContext"],
 }
+_EXPERIMENT_SPEC = {
+    "id": "spec-water",
+    "experiment_report_id": "rep-water",
+    "title": "Water NEMD",
+    "objective": "Measure ionic mobility",
+    "variables": [],
+    "controlled_conditions": [],
+    "resolved_questions": [],
+    "assumptions": [],
+}
+_INPUT_SET = {
+    "id": "is-water",
+    "experiment_spec_id": "spec-water",
+    "title": "single-cell sweep",
+    "sweep_axes": [],
+    "strategy": "grid",
+    "total_runs": 1,
+}
 
 
 @pytest.fixture
@@ -112,7 +130,14 @@ def _disable_grounding(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make ``molexp plan`` build a StubAgentGateway instead of a live router."""
+    """Stub every plan agent + a DryRunExecutor, so ``molexp plan`` runs offline.
+
+    The 9-step pipeline includes the spec, input-set, and per-task test stages
+    (plus the optional execute tail), so the stub registers all of them. The
+    executor seam is patched to a ``DryRunExecutor`` so step-7 ExecuteTests /
+    CompileWorkflow (and the tail) spawn no real subprocesses — the real
+    compile + pytest path is covered by the harness integration tests.
+    """
 
     def _fake_make_gateway(*, model: str, run: Any) -> Any:
         from molexp.harness.gateways.stub import StubAgentGateway
@@ -122,12 +147,23 @@ def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
         store = FileArtifactStore(root=run.run_dir / "artifacts")
         gw = StubAgentGateway(store)
         gw.register("experiment_report_writer", _EXPERIMENT_REPORT, output_kind="experiment_report")
+        gw.register("experiment_spec_generator", _EXPERIMENT_SPEC, output_kind="experiment_spec")
         gw.register("workflow_ir_extractor", _WORKFLOW_IR, output_kind="workflow_ir")
         gw.register("bound_workflow_binder", _BOUND_WORKFLOW, output_kind="bound_workflow")
         gw.register("workflow_source_writer", _WORKFLOW_SOURCE, output_kind="workflow_source")
+        gw.register(
+            "plan_reviewer",
+            {"passed": True, "findings": [], "summary": "faithful"},
+            output_kind="plan_review",
+        )
+        gw.register("test_spec_writer", _TEST_SPEC, output_kind="test_spec")
+        gw.register("test_code_writer", _TEST_SOURCE, output_kind="test_source")
+        gw.register("input_set_generator", _INPUT_SET, output_kind="input_set")
+        gw.register("final_report_writer", _FINAL_REPORT, output_kind="final_report")
         return gw
 
     monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _fake_make_gateway)
+    _patch_executor(monkeypatch)
 
 
 class TestPlanCmd:
@@ -156,10 +192,11 @@ class TestPlanCmd:
         )
 
         assert result.exit_code == 0, result.output
-        # Stage progress + artifact report rendered.
+        # Stage progress + artifact report rendered (the nine-step pipeline).
         assert "save_user_plan" in result.output
-        assert "approval_gate" in result.output
-        assert "workflow_source" in result.output
+        assert "generate_experiment_spec" in result.output
+        assert "approve_plan" in result.output
+        assert "generate_execution_report" in result.output
         assert "all stages completed" in result.output
         # Artifacts + audit records landed where the CLI says they do.
         run_dirs = list(tmp_path.rglob("harness.sqlite"))
@@ -263,11 +300,10 @@ class TestPlanCmd:
         assert isinstance(plan_cmd.PlanRuntime.build_executor(), LocalExecutor)
 
     @pytest.mark.integration
-    def test_plan_execute_chains_run_mode_on_the_same_run(
+    def test_plan_execute_runs_the_real_execution_tail(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _patch_full_gateway(monkeypatch)
-        _patch_executor(monkeypatch)
+        _patch_gateway(monkeypatch)  # registers final_report_writer + DryRunExecutor
 
         result = runner.invoke(
             app,
@@ -284,12 +320,102 @@ class TestPlanCmd:
 
         assert result.exit_code == 0, result.output
         plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
-        # Every RunMode stage row rendered, plus the plan stages as before.
+        # The plan stages plus the opt-in real-execution tail all render.
         assert "save_user_plan" in plain
-        for stage_name in _RUN_STAGE_NAMES:
-            assert stage_name in plain, f"missing RunMode stage {stage_name!r} in output"
+        for stage_name in _EXECUTE_TAIL_STAGES:
+            assert stage_name in plain, f"missing execute-tail stage {stage_name!r} in output"
         # The canned FinalReport is surfaced (single token: survives rich wrapping).
         assert "CannedWaterNemdFinalReport" in plain
+
+
+class TestPlanUiParity:
+    """`molexp plan` (Python) lands the SAME records the UI reads.
+
+    The invariant the user requires: a plan produced from the CLI must be
+    indistinguishable, through the server's UI-facing routes, from one generated
+    in the web app. Both paths now funnel through
+    ``plan_runtime.materialize_plan_records``; this test drives the CLI, then
+    queries the very endpoints the UI calls against the same workspace.
+    """
+
+    @pytest.mark.integration
+    def test_cli_plan_is_visible_through_ui_routes(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from fastapi.testclient import TestClient
+
+        from molexp.cli._common import deterministic_run_id
+        from molexp.server.app import create_app
+        from molexp.server.dependencies import get_workspace
+        from molexp.workspace import Workspace
+
+        _patch_gateway(monkeypatch)
+        draft = "Simulate NEMD ionic mobility of an SPC/E water box"
+        result = runner.invoke(
+            app,
+            [
+                "plan",
+                draft,
+                "--workspace",
+                str(tmp_path),
+                "--model",
+                "stub-model",
+                "--project",
+                "lab",
+                "--experiment",
+                "nemd",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        run_id = deterministic_run_id({"mode": "plan", "draft": draft})
+        task_id = f"plan-{run_id}"
+
+        # Serve the SAME workspace the CLI wrote to, exactly as `molexp serve` would.
+        ws = Workspace(tmp_path)
+        app_ = create_app()
+        app_.dependency_overrides[get_workspace] = lambda: ws
+        client = TestClient(app_)
+
+        # 1) The plan shows in the Agents hub session list (planMode flag set).
+        listed = client.get("/api/agent-tasks").json()
+        match = next((t for t in listed["tasks"] if t["taskId"] == task_id), None)
+        assert match is not None, listed
+        assert match["planMode"] is True
+
+        # 2) The session transcript carries the deliverables locator the
+        #    progress rail + Deliverables panel read off `loop_completed.payload.plan`.
+        task = client.get(f"/api/agent-tasks/{task_id}").json()
+        events = task["events"]
+        assert events[-1]["type"] == "loop_completed"
+        plan = events[-1]["payload"]["plan"]
+        assert plan["run_id"] == run_id
+        assert plan["project_id"] == "lab"
+        assert plan["experiment_id"] == "nemd"
+        # Stage steps are present (drive the rail's progress states): the
+        # transcript keys each of the nine steps on its representative artifact.
+        kinds = {
+            e["payload"]["result"]["artifact"] for e in events if e["type"] == "tool_call_completed"
+        }
+        assert {
+            "experiment_report",
+            "experiment_spec",
+            "workflow_source",
+            "execution_report",
+        } <= kinds
+
+        # 3) The structured deliverables the right panel renders are all there —
+        #    every 9-step deliverable surfaces through the same route the UI calls.
+        detail = client.get(f"/api/projects/lab/experiments/nemd/plans/{run_id}").json()
+        assert detail["experimentReport"]["title"] == "Water NEMD"
+        assert detail["experimentSpec"] is not None
+        assert detail["experimentSpecYaml"]
+        assert detail["capabilities"] is not None  # the resolved (or "no registry") catalog
+        assert detail["workflowSource"]
+        task_ids = {t["id"] for t in detail["tasks"]}
+        assert {"build_system", "simulate"} <= task_ids
+        assert detail["inputSet"] is not None
+        assert detail["executionReport"]["target_name"] == "local"
 
 
 class TestInteractiveApprover:
@@ -336,16 +462,22 @@ class TestInteractiveApprover:
         assert decision.decided_by == "cli-non-interactive"
 
 
-# Run-side canned outputs for `molexp plan --execute` (harness-run-mode-02
-# T05). The TestSpec targets the canned IR task "build"; the test source
-# imports from the canned WorkflowSource module ("water_nemd") — it is never
-# executed here because the executor seam returns a DryRunExecutor.
+# Canned per-task test outputs (step 5) + the execute-tail final report. The
+# TestSpec targets the canned IR task "build"; the test source imports from the
+# canned WorkflowSource module ("water_nemd") — never actually executed here
+# because the executor seam returns a DryRunExecutor.
 _TEST_SPEC = {
-    "id": "ts-water",
-    "name": "workflow_compiles",
-    "kind": "unit_test",
-    "target_task_id": "build",
-    "description": "The generated workflow module compiles into a workflow.",
+    "id": "tsb-water",
+    "bound_workflow_id": "bw-water",
+    "specs": [
+        {
+            "id": "ts-water",
+            "name": "workflow_compiles",
+            "kind": "unit_test",
+            "target_task_id": "build",
+            "description": "The generated workflow module compiles into a workflow.",
+        }
+    ],
 }
 _TEST_SOURCE = {
     "source": (
@@ -372,46 +504,18 @@ _FINAL_REPORT = {
     "next_steps": ["re-run with the default LocalExecutor"],
 }
 
-# The 10 RunMode stage names the `--execute` output table must show
-# (ApprovalGate.name is "approval_gate" per stages/approval_gate.py).
-_RUN_STAGE_NAMES = (
-    "generate_test_spec",
-    "validate_test_spec",
-    "generate_test_code",
-    "validate_test_source",
-    "materialize_execution",
-    "execute_tests",
+# The four execute-tail stage names the `--execute` output table must show
+# (the gate is named "approve_execution" in PlanMode's tail).
+_EXECUTE_TAIL_STAGES = (
     "execute_workflow",
     "generate_final_report",
-    "approval_gate",
+    "approve_execution",
     "generate_audit_report",
 )
 
 
-def _patch_full_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Stub gateway with canned outputs for all 7 agents (plan + run)."""
-
-    def _fake_make_gateway(*, model: str, run: Any) -> Any:
-        from molexp.harness.gateways.stub import StubAgentGateway
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-        # Share the run's artifact dir with the Mode-built ctx store.
-        store = FileArtifactStore(root=run.run_dir / "artifacts")
-        gw = StubAgentGateway(store)
-        gw.register("experiment_report_writer", _EXPERIMENT_REPORT, output_kind="experiment_report")
-        gw.register("workflow_ir_extractor", _WORKFLOW_IR, output_kind="workflow_ir")
-        gw.register("bound_workflow_binder", _BOUND_WORKFLOW, output_kind="bound_workflow")
-        gw.register("workflow_source_writer", _WORKFLOW_SOURCE, output_kind="workflow_source")
-        gw.register("test_spec_writer", _TEST_SPEC, output_kind="test_spec")
-        gw.register("test_code_writer", _TEST_SOURCE, output_kind="test_source")
-        gw.register("final_report_writer", _FINAL_REPORT, output_kind="final_report")
-        return gw
-
-    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _fake_make_gateway)
-
-
 def _patch_executor(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make `--execute` drive RunMode stages through a DryRunExecutor."""
+    """Make step-7 ExecuteTests/CompileWorkflow (+ the tail) use a DryRunExecutor."""
 
     def _fake_make_executor() -> Any:
         from molexp.harness import DryRunExecutor

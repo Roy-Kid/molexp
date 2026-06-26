@@ -5,7 +5,7 @@ backend-path = ["."]
 
 [project]
 name = "molexp"
-version = "0.0.1"
+version = "0.0.2"
 description = "Agent-assisted scientific-workflow platform for FAIR research"
 authors = [{name = "molcrafts"}]
 license = {text = "BSD-3-Clause"}

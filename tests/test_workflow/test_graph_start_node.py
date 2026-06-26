@@ -59,8 +59,8 @@ def test_two_task_chain_workflow_executes(tmp_path):
         return 1
 
     @builder.task(depends_on=["first"])
-    async def second(ctx: TaskContext) -> int:
-        return ctx.inputs + 1
+    async def second(value: int) -> int:
+        return value + 1
 
     spec = builder.compile()
 

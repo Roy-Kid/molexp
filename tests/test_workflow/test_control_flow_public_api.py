@@ -63,9 +63,9 @@ async def test_branch_workflow_from_public_imports() -> None:
         return {"score": 0.9}, Next("accept")
 
     @wf.task
-    async def accepted(ctx: TaskContext) -> dict:
-        seen["inputs"] = ctx.inputs
-        return ctx.inputs
+    async def accepted(**inputs: object) -> dict:
+        seen["inputs"] = inputs
+        return inputs
 
     @wf.task
     async def rejected(ctx: TaskContext) -> None:
@@ -91,8 +91,8 @@ async def test_branch_single_edge_form() -> None:
         return "payload", Next("go")
 
     @wf.task
-    async def dst(ctx: TaskContext) -> str:
-        return f"got:{ctx.inputs}"
+    async def dst(value: str) -> str:
+        return f"got:{value}"
 
     wf.branch("src", "go", "dst")
 
@@ -115,19 +115,19 @@ async def test_loop_workflow_from_public_imports() -> None:
     wf = WorkflowCompiler(name="public-loop", entry="step")
 
     @wf.task
-    async def step(ctx: TaskContext) -> int:
-        head_inputs.append(ctx.inputs)
-        prev = ctx.inputs if isinstance(ctx.inputs, int) else 0
+    async def step(value: int | None = None) -> int:
+        head_inputs.append(value)
+        prev = value if isinstance(value, int) else 0
         return prev + 1
 
     @wf.task(depends_on=["step"])
-    async def check(ctx: TaskContext) -> tuple[int, Next]:
-        n = ctx.inputs
+    async def check(step: int) -> tuple[int, Next]:
+        n = step
         return n, Next("exit" if n >= 3 else "continue")
 
     @wf.task
-    async def report(ctx: TaskContext) -> str:
-        return f"final:{ctx.inputs}"
+    async def report(value: int) -> str:
+        return f"final:{value}"
 
     wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 

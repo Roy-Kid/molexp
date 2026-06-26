@@ -51,17 +51,17 @@ def _build_multi_step_inner() -> WorkflowCompiler:
     wf = WorkflowCompiler(name="inner-multi")
 
     @wf.task
-    async def load(ctx: TaskContext) -> list[float]:
+    async def load() -> list[float]:
         return [2.0, 4.0, 8.0]
 
     @wf.task(depends_on=["load"])
-    async def normalize(ctx: TaskContext) -> list[float]:
-        top = max(ctx.inputs)
-        return [x / top for x in ctx.inputs]
+    async def normalize(values: list[float]) -> list[float]:
+        top = max(values)
+        return [x / top for x in values]
 
     @wf.task(depends_on=["normalize"])
-    async def scale(ctx: TaskContext) -> float:
-        return sum(ctx.inputs)
+    async def scale(values: list[float]) -> float:
+        return sum(values)
 
     return wf
 
@@ -71,7 +71,7 @@ def _build_single_step_inner() -> WorkflowCompiler:
     wf = WorkflowCompiler(name="inner-single")
 
     @wf.task
-    async def embed(ctx: TaskContext) -> int:
+    async def embed() -> int:
         return 42
 
     return wf
@@ -86,12 +86,12 @@ def _build_input_consuming_inner() -> WorkflowCompiler:
     wf = WorkflowCompiler(name="inner-consume")
 
     @wf.task
-    async def seed(ctx: TaskContext) -> int:
-        return ctx.inputs
+    async def seed(x: int) -> int:
+        return x
 
     @wf.task(depends_on=["seed"])
-    async def scale(ctx: TaskContext) -> int:
-        return ctx.inputs * 10
+    async def scale(x: int) -> int:
+        return x * 10
 
     return wf
 
@@ -158,8 +158,8 @@ async def test_subworkflow_feeds_downstream_task() -> None:
     """ac-002 — add(SubWorkflow) → add(downstream) makes the inner result flow."""
 
     class Double(Task):
-        async def execute(self, ctx: TaskContext) -> float:
-            return ctx.inputs * 2
+        async def execute(self, ctx: TaskContext, value: float) -> float:
+            return value * 2
 
     outer = (
         WorkflowCompiler(name="outer-downstream")
@@ -177,16 +177,16 @@ def test_subworkflow_ambiguous_leaf_raises() -> None:
     inner = WorkflowCompiler(name="inner-two-leaves")
 
     @inner.task
-    async def seed(ctx: TaskContext) -> int:
+    async def seed() -> int:
         return 1
 
     @inner.task(depends_on=["seed"])
-    async def leaf_a(ctx: TaskContext) -> int:
-        return ctx.inputs + 1
+    async def leaf_a(value: int) -> int:
+        return value + 1
 
     @inner.task(depends_on=["seed"])
-    async def leaf_b(ctx: TaskContext) -> int:
-        return ctx.inputs + 2
+    async def leaf_b(value: int) -> int:
+        return value + 2
 
     node = SubWorkflow(inner)
     with pytest.raises(ValueError, match="leaf"):
@@ -236,7 +236,7 @@ async def test_subworkflow_as_parallel_body() -> None:
     wf = WorkflowCompiler(name="outer-parallel", entry="enumerate")
 
     @wf.task
-    async def enumerate(ctx: TaskContext) -> list[int]:
+    async def enumerate() -> list[int]:
         return [0, 1, 2, 3]  # 4 elements
 
     # The body is a SubWorkflow over a >=2-task inner chain. It runs the full
@@ -244,8 +244,8 @@ async def test_subworkflow_as_parallel_body() -> None:
     wf.add(SubWorkflow(_build_multi_step_inner()), name="sub")
 
     @wf.task
-    async def collect(ctx: TaskContext) -> list[float]:
-        return list(ctx.inputs)
+    async def collect(values: list[float]) -> list[float]:
+        return list(values)
 
     wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=2)
 
@@ -267,14 +267,14 @@ async def test_subworkflow_parallel_body_single_task_inner() -> None:
     wf = WorkflowCompiler(name="outer-parallel-single", entry="enumerate")
 
     @wf.task
-    async def enumerate(ctx: TaskContext) -> list[int]:
+    async def enumerate() -> list[int]:
         return [0, 1, 2]
 
     wf.add(SubWorkflow(_build_single_step_inner()), name="sub")
 
     @wf.task
-    async def collect(ctx: TaskContext) -> list[int]:
-        return list(ctx.inputs)
+    async def collect(values: list[int]) -> list[int]:
+        return list(values)
 
     wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=3)
 
@@ -300,7 +300,7 @@ async def test_subworkflow_parallel_element_failure_surfaces() -> None:
     inner = WorkflowCompiler(name="inner-maybe-fail")
 
     @inner.task
-    async def step(ctx: TaskContext) -> int:
+    async def step() -> int:
         idx = state["n"]
         state["n"] += 1
         if idx == 1:
@@ -311,14 +311,14 @@ async def test_subworkflow_parallel_element_failure_surfaces() -> None:
     wf = WorkflowCompiler(name="outer-parallel-fail", entry="enumerate")
 
     @wf.task
-    async def enumerate(ctx: TaskContext) -> list[int]:
+    async def enumerate() -> list[int]:
         return [0, 1, 2]
 
     wf.add(SubWorkflow(inner), name="sub")
 
     @wf.task
-    async def collect(ctx: TaskContext) -> int:
-        return len(ctx.inputs)
+    async def collect(values: list[int]) -> int:
+        return len(values)
 
     wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=1)
 
@@ -340,14 +340,14 @@ async def test_subworkflow_parallel_body_forwards_element() -> None:
     wf = WorkflowCompiler(name="outer-forward", entry="enumerate")
 
     @wf.task
-    async def enumerate(ctx: TaskContext) -> list[int]:
+    async def enumerate() -> list[int]:
         return [1, 2, 3]
 
     wf.add(SubWorkflow(_build_input_consuming_inner()), name="sub")
 
     @wf.task
-    async def collect(ctx: TaskContext) -> list[int]:
-        return list(ctx.inputs)
+    async def collect(values: list[int]) -> list[int]:
+        return list(values)
 
     wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=2)
 
@@ -385,16 +385,16 @@ async def test_subworkflow_bare_root_runs_inner_unchanged() -> None:
     inner = WorkflowCompiler(name="inner-two-roots")
 
     @inner.task
-    async def root_a(ctx: TaskContext) -> int:
-        return 1
+    async def root_a() -> dict:
+        return {"root_a": 1}
 
     @inner.task
-    async def root_b(ctx: TaskContext) -> int:
-        return 2
+    async def root_b() -> dict:
+        return {"root_b": 2}
 
     @inner.task(depends_on=["root_a", "root_b"])
-    async def merge(ctx: TaskContext) -> int:
-        return ctx.inputs["root_a"] + ctx.inputs["root_b"]
+    async def merge(root_a: int, root_b: int) -> int:
+        return root_a + root_b
 
     outer = WorkflowCompiler(name="outer-two-roots").add(SubWorkflow(inner), name="sub").compile()
     result = await WorkflowRuntime().execute(outer)
@@ -410,11 +410,11 @@ def test_resolve_single_root_ambiguous_raises() -> None:
     inner = WorkflowCompiler(name="inner-ambiguous-roots")
 
     @inner.task
-    async def root_a(ctx: TaskContext) -> int:
+    async def root_a() -> int:
         return 1
 
     @inner.task
-    async def root_b(ctx: TaskContext) -> int:
+    async def root_b() -> int:
         return 2
 
     with pytest.raises(ValueError, match="single entry"):
@@ -429,11 +429,11 @@ def test_resolve_single_root_honors_explicit_entry() -> None:
     inner = WorkflowCompiler(name="inner-explicit-entry", entry="head")
 
     @inner.task
-    async def head(ctx: TaskContext) -> int:
-        return ctx.inputs
+    async def head(x: int) -> int:
+        return x
 
     @inner.task(depends_on=["head"])
-    async def tail(ctx: TaskContext) -> int:
-        return ctx.inputs + 1
+    async def tail(x: int) -> int:
+        return x + 1
 
     assert _resolve_single_root(inner.compile()) == "head"

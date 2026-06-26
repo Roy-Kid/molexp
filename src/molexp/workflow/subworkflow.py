@@ -15,7 +15,7 @@ end-to-end through the engine.
 run_context-forwarding contract
 -------------------------------
 ``SubWorkflow.execute`` runs the inner spec via
-a ``sub_runner`` closure that the engine injects as ``ctx.inputs`` (see
+a ``sub_runner`` closure that the engine injects as ``ctx._inputs`` (see
 ``_pydantic_graph.node._make_sub_runner``). ``SubWorkflow`` is a pure
 ``{inputs, config}`` task — it never touches a ``run_context``. The injected
 closure runs the inner spec through the engine bound, via the engine's PRIVATE
@@ -57,7 +57,7 @@ class SubWorkflow(Task):
     The inner reference is owned by this instance and never mutated.
     """
 
-    # Engine contract: inject a ``sub_runner`` closure as ``ctx.inputs``.
+    # Engine contract: inject a ``sub_runner`` closure as ``ctx._inputs``.
     __wf_capability__ = "sub_runner"
 
     def __init__(
@@ -100,14 +100,14 @@ class SubWorkflow(Task):
     async def execute(self, ctx: TaskContext) -> object:
         """Run the inner workflow through the engine and return its terminal output.
 
-        Uses the engine-injected ``sub_runner`` capability (``ctx.inputs``) to run
-        the inner spec with ``ctx.config``. On a non-``"completed"`` inner status,
+        Uses the engine-injected ``sub_runner`` capability (``ctx._inputs``) to run
+        the inner spec with ``ctx._config``. On a non-``"completed"`` inner status,
         raises a :class:`RuntimeError` so the failure propagates (under
         ``wf.parallel`` the engine's ``ParallelExecutionError`` aggregation wraps
         it).
 
         Args:
-            ctx: The outer :class:`TaskContext`; ``ctx.inputs`` is the injected
+            ctx: The outer :class:`TaskContext`; ``ctx._inputs`` is the injected
                 ``sub_runner`` closure.
 
         Returns:
@@ -115,13 +115,13 @@ class SubWorkflow(Task):
             spec's single dependency-leaf output.
         """
         output_name = self._resolve_output_name()
-        sub_runner = ctx.inputs
+        sub_runner = ctx._inputs
         if not callable(sub_runner):
             raise RuntimeError(
                 "SubWorkflow requires the engine-injected 'sub_runner' capability; "
                 "it must be executed through WorkflowRuntime, not called directly."
             )
-        result = await sub_runner(self._inner, ctx.config)
+        result = await sub_runner(self._inner, ctx._config)
         if result.status != "completed":
             raise RuntimeError(
                 f"SubWorkflow inner workflow {self._inner.name!r} ended with "

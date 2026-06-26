@@ -27,6 +27,7 @@ concern (harness executors).
 
 from __future__ import annotations
 
+import ast
 import json
 from typing import Any, ClassVar
 
@@ -68,6 +69,18 @@ _SAFE_BUILTINS: dict[str, Any] = {
 }
 
 
+def _defines_build_workflow(source: str) -> bool:
+    """True if ``source`` defines a top-level ``build_workflow`` function."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return False
+    return any(
+        isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == "build_workflow"
+        for node in tree.body
+    )
+
+
 class ValidateWorkflowSource(Stage):
     """Compile a WorkflowSource artifact through molexp.workflow; persist a report."""
 
@@ -96,8 +109,34 @@ class ValidateWorkflowSource(Stage):
                 target=target,
             )
 
-        # Pure pre-checks first — reject syntax errors + private imports BEFORE
-        # any compile/exec of the untrusted source.
+        # Multi-file (per-task modules + assembly): static per-file pre-checks
+        # only — syntax + public-surface imports on EACH file, and the assembly
+        # must define build_workflow(). The real build/compile of the assembled
+        # package runs in CompileWorkflow (a subprocess), so the harness never
+        # execs the multi-module program in-process.
+        if ws.files:
+            violations: list[ValidationViolation] = []
+            for f in ws.files:
+                violations.extend(
+                    WorkflowSourceValidator.validate(f.source, target_id=target).violations
+                )
+            if not _defines_build_workflow(ws.source):
+                violations.append(
+                    ValidationViolation(
+                        code="missing_build_workflow",
+                        message="the workflow assembly defines no callable build_workflow()",
+                        severity="error",
+                    )
+                )
+            return self._persist_and_maybe_raise(
+                ctx,
+                violations,
+                f"generated workflow files did not validate: {[v.code for v in violations]}",
+                target=target,
+            )
+
+        # Single-file: pure pre-checks first — reject syntax errors + private
+        # imports BEFORE any compile/exec of the untrusted source.
         report = WorkflowSourceValidator.validate(ws.source, target_id=target)
         if not report.passed:
             return self._persist_report_and_maybe_raise(ctx, report, target=target)

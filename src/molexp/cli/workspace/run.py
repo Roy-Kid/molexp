@@ -504,41 +504,54 @@ def execute(
         project_id = project_id or run_dir.parent.parent.parent.parent.name
     except (IndexError, AttributeError):
         pass
-    script = cast("str | None", meta.get("script"))
-    if not script:
-        rprint(
-            "[red]Error:[/red] run.json has no 'script' field; a worker cannot "
-            "rebuild the workflow without the defining script. Submit via "
-            "`molexp run <script> --scheduler …` so the path is recorded."
-        )
-        raise typer.Exit(1)
     if not (run_id and project_id and experiment_id):
         rprint(f"[red]Error:[/red] run.json under {run_dir} is missing project/experiment/run ids.")
         raise typer.Exit(1)
 
-    # Import the defining script in this fresh process: its module-level
-    # ``me.entry()`` + ``exp.run()`` register the workspaces and the
-    # experiment→workflow binding the runtime resolves below.
-    workspaces = load_workspaces(Path(script))
+    script = cast("str | None", meta.get("script"))
     run_obj: Run | None = None
     experiment: Experiment | None = None
-    for ws in workspaces:
-        try:
-            run_obj = ws.get_project(project_id).get_experiment(experiment_id).get_run(run_id)
-            experiment = ws.get_project(project_id).get_experiment(experiment_id)
-            break
-        except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError):
-            continue
-    if run_obj is None or experiment is None:
-        rprint(
-            f"[red]Error:[/red] {script} did not define run {project_id}/{experiment_id}/{run_id}."
-        )
-        raise typer.Exit(1)
-
-    spec = default_binding_registry.for_experiment(experiment)
-    if spec is None:
-        rprint(f"[red]Error:[/red] experiment {experiment_id!r} has no workflow attached.")
-        raise typer.Exit(1)
+    if script:
+        # Defining-script path (``molexp run <script>``): import the script in
+        # this fresh process — its module-level ``me.entry()`` + ``exp.run()``
+        # register the workspaces and the experiment→workflow binding.
+        workspaces = load_workspaces(Path(script))
+        for ws in workspaces:
+            try:
+                run_obj = ws.get_project(project_id).get_experiment(experiment_id).get_run(run_id)
+                experiment = ws.get_project(project_id).get_experiment(experiment_id)
+                break
+            except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError):
+                continue
+        if run_obj is None or experiment is None:
+            rprint(
+                f"[red]Error:[/red] {script} did not define run "
+                f"{project_id}/{experiment_id}/{run_id}."
+            )
+            raise typer.Exit(1)
+        spec = default_binding_registry.for_experiment(experiment)
+        if spec is None:
+            rprint(f"[red]Error:[/red] experiment {experiment_id!r} has no workflow attached.")
+            raise typer.Exit(1)
+    else:
+        # Plan-generated workflow: no defining script. Open the workspace from
+        # the run dir and compile the generated ``build_workflow()`` program
+        # recorded in the run's harness artifacts, then bind it for execution.
+        run_obj, experiment = _open_plan_run(run_dir, project_id, experiment_id, run_id)
+        if run_obj is None or experiment is None:
+            rprint(
+                f"[red]Error:[/red] could not locate run "
+                f"{project_id}/{experiment_id}/{run_id} under {run_dir}."
+            )
+            raise typer.Exit(1)
+        spec = _compile_plan_workflow_spec(run_obj)
+        if spec is None:
+            rprint(
+                "[red]Error:[/red] run has no defining 'script' and no generated "
+                "'workflow_source' artifact; nothing to execute."
+            )
+            raise typer.Exit(1)
+        default_binding_registry.bind(experiment, spec)
 
     seed_outputs = read_node_outputs(run_obj.run_dir, execution_id) if execution_id else None
     # Seed the profile config with the run's persisted config + its own dir so
@@ -561,6 +574,52 @@ def execute(
             )
         )
     rprint(f"[green]OK[/green] execute complete run={run_id} status={run_obj.status}")
+
+
+def _open_plan_run(run_dir: Path, project_id: str, experiment_id: str, run_id: str):
+    """Open (run, experiment) for a plan-generated workflow (no defining script).
+
+    The workspace root is the canonical run-dir layout
+    ``…/projects/<P>/experiments/<E>/runs/run-<id>`` → ``run_dir.parents[5]``.
+    """
+    from molexp.workspace import (
+        ExperimentNotFoundError,
+        ProjectNotFoundError,
+        RunNotFoundError,
+        Workspace,
+    )
+
+    ws_root = run_dir.parents[5]
+    ws = Workspace(root=ws_root, name=ws_root.name)
+    try:
+        experiment = ws.get_project(project_id).get_experiment(experiment_id)
+        return experiment.get_run(run_id), experiment
+    except (ProjectNotFoundError, ExperimentNotFoundError, RunNotFoundError):
+        return None, None
+
+
+def _compile_plan_workflow_spec(run_obj):  # noqa: ANN001
+    """Compile the generated ``build_workflow()`` program from the run's artifacts.
+
+    Returns the compiled spec, or ``None`` when the run carries no
+    ``workflow_source`` artifact. Run with full builtins (the source was already
+    validated by the harness pipeline); molcrafts imports inside the task bodies
+    resolve at task execution, not at ``compile()``.
+    """
+    from molexp.harness.schemas import WorkflowSource
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    store = FileArtifactStore(root=Path(run_obj.run_dir) / "artifacts")
+    ref = store.latest_by_kind("workflow_source")
+    if ref is None:
+        return None
+    source = WorkflowSource.model_validate_json(store.get(ref.id)).source
+    namespace: dict[str, object] = {}
+    exec(compile(source, "<plan_workflow_source>", "exec"), namespace)
+    builder = namespace.get("build_workflow")
+    if builder is None:
+        return None
+    return builder().compile()
 
 
 def _spawn_background_local_run(

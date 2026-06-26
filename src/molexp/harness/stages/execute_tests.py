@@ -43,8 +43,12 @@ class ExecuteTests(Stage):
         ts_ref = require_latest(ctx, "test_source", stage=self.name)
         ts = self._parse_test_source(ctx, ts_ref.id)
 
+        # Multi-file: collect every per-task test file (e.g. tests/test_*.py);
+        # single-file: the one module. ``python -m pytest`` puts cwd (generated/)
+        # on sys.path so the tests' ``from workflow import …`` resolves either way.
+        targets = [f.path for f in ts.files] or [f"{ts.module_name}.py"]
         spec = CommandSpec(
-            cmd=[sys.executable, "-m", "pytest", f"{ts.module_name}.py", "-q"],
+            cmd=[sys.executable, "-m", "pytest", *targets, "-q"],
             cwd=str(ctx.workspace_root / "generated"),
             timeout_s=self._timeout_s,
         )

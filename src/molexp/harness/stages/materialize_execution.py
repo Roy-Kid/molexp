@@ -15,13 +15,22 @@ engine loads in the executor's child process, never in the harness process.
 
 Sentinel rendering uses ``str.replace`` on ``__MODULE_NAME__`` /
 ``__PARAMS_JSON__`` (not ``str.format``) so the template needs no
-brace-escaping. The params payload is ``{name: ParameterValue.value}`` from
-``WorkflowIR.inputs``, embedded as canonical ``json.dumps(..., sort_keys=True)``.
+brace-escaping. The params payload is the WorkflowIR root-input defaults
+overlaid with the **first cell** of the latest ``input_set`` (the
+parameter-space sweep from plan step 6); absent an input set it is just
+``{name: ParameterValue.value}`` from ``WorkflowIR.inputs``. Embedded as
+canonical ``json.dumps(..., sort_keys=True)``.
+
+The driver honors a ``--compile-only`` flag: it builds + compiles the
+workflow (proving the generated source and DAG are valid) and exits without
+executing any task body — the plan-step-7 dry run. Without the flag it runs
+the real workflow (the ``--execute`` tail / RunMode-equivalent).
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import ClassVar, TypeVar
 
 from pydantic import BaseModel
@@ -29,7 +38,14 @@ from pydantic import BaseModel
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import ArtifactRef, TestSource, WorkflowIR, WorkflowSource
+from molexp.harness.schemas import (
+    ArtifactRef,
+    GeneratedFile,
+    InputSet,
+    TestSource,
+    WorkflowIR,
+    WorkflowSource,
+)
 from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["MaterializeExecution"]
@@ -52,6 +68,12 @@ PARAMS = json.loads(r"""__PARAMS_JSON__""")
 
 def main() -> int:
     compiled = build_workflow().compile()
+    if "--compile-only" in sys.argv:
+        # Plan-step-7 dry run: the source compiled and the DAG built. Do not
+        # execute any task body — no real compute runs in the plan flow.
+        assert compiled is not None
+        print(f"compiled OK; params={sorted(PARAMS)}")
+        return 0
     result = asyncio.run(WorkflowRuntime().execute(compiled, config=PARAMS or None))
     with open("outputs.json", "w", encoding="utf-8") as fh:
         json.dump(result.outputs, fh, default=str)
@@ -80,36 +102,88 @@ class MaterializeExecution(Stage):
         generated = ctx.workspace_root / "generated"
         generated.mkdir(parents=True, exist_ok=True)
 
-        workflow_path = generated / f"{ws.module_name}.py"
-        workflow_path.write_text(ws.source, encoding="utf-8")
-        test_path = generated / f"{ts.module_name}.py"
-        test_path.write_text(ts.source, encoding="utf-8")
+        # Workflow + tests: multi-file (one module per task under workflow/,
+        # one test per task under tests/) when the source carries `files`,
+        # else the single-module fallback (`{module_name}.py`).
+        self._write_program(
+            ctx, generated, files=ws.files, name=ws.module_name, source=ws.source, parent=ws_ref.id
+        )
+        self._write_program(
+            ctx, generated, files=ts.files, name=ts.module_name, source=ts.source, parent=ts_ref.id
+        )
 
         params = {name: pv.value for name, pv in ir.inputs.items()}
+        params.update(self._first_input_cell(ctx))
         driver_text = _DRIVER_TEMPLATE.replace("__MODULE_NAME__", ws.module_name).replace(
-            "__PARAMS_JSON__", json.dumps(params, sort_keys=True)
+            "__PARAMS_JSON__", json.dumps(params, sort_keys=True, default=str)
         )
         driver_path = generated / "run_workflow.py"
         driver_path.write_text(driver_text, encoding="utf-8")
 
-        ctx.artifact_store.put_file(
-            kind="input_file",
-            path=workflow_path,
-            created_by="MaterializeExecution",
-            parent_ids=[ws_ref.id],
-        )
-        ctx.artifact_store.put_file(
-            kind="input_file",
-            path=test_path,
-            created_by="MaterializeExecution",
-            parent_ids=[ts_ref.id],
-        )
         return ctx.artifact_store.put_file(
             kind="input_file",
             path=driver_path,
             created_by="MaterializeExecution",
             parent_ids=[ws_ref.id, ir_ref.id, ts_ref.id],
         )
+
+    def _write_program(
+        self,
+        ctx: HarnessRunContext,
+        generated: Path,
+        *,
+        files: list[GeneratedFile],
+        name: str,
+        source: str,
+        parent: str,
+    ) -> None:
+        """Materialize a program — its per-task `files`, or the single fallback.
+
+        Each file lands at its relative path under ``generated/`` (creating
+        ``workflow/`` and ``tests/`` subdirs) and is registered as an
+        ``input_file`` artifact. Paths are confined to ``generated/`` — a path
+        escaping it (``..``, absolute) is rejected, since the source is
+        agent-generated.
+        """
+        targets = files or [GeneratedFile(path=f"{name}.py", source=source)]
+        root = generated.resolve()
+        for f in targets:
+            path = (generated / f.path).resolve()
+            if not str(path).startswith(str(root) + "/") and path != root:
+                raise StageExecutionError(
+                    f"stage {self.name!r}: generated file path {f.path!r} escapes the run's "
+                    "generated/ directory; refusing to write outside the sandbox"
+                )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f.source, encoding="utf-8")
+            ctx.artifact_store.put_file(
+                kind="input_file",
+                path=path,
+                created_by="MaterializeExecution",
+                parent_ids=[parent],
+            )
+
+    def _first_input_cell(self, ctx: HarnessRunContext) -> dict[str, object]:
+        """Return the first cell of the latest ``input_set`` sweep, or ``{}``.
+
+        The cell overlays the WorkflowIR root-input defaults so the
+        materialized driver runs against the parameter-space sweep's first
+        point. Expansion is delegated to workspace ``GridSpace`` — the harness
+        never reimplements it. Absent or unparseable input set → no overlay.
+        """
+        ref = ctx.artifact_store.latest_by_kind("input_set")
+        if ref is None:
+            return {}
+        try:
+            iset = InputSet.model_validate_json(ctx.artifact_store.get(ref.id))
+        except Exception:
+            return {}
+        if not iset.sweep_axes:
+            return {}
+        from molexp.workspace.param import GridSpace
+
+        grid = GridSpace({axis.name: list(axis.values) for axis in iset.sweep_axes})
+        return next(iter(grid), {})
 
     def _parse(
         self,

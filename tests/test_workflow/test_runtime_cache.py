@@ -295,9 +295,9 @@ async def test_failing_cache_put_warns_once_per_task(
         return 1
 
     @wf.task(depends_on=["first"])
-    async def second(ctx: TaskContext) -> int:
+    async def second(first: int) -> int:
         _bump("second")
-        return ctx.inputs + 1
+        return first + 1
 
     compiled = wf.compile()
     cache = Caching(store=_FailingPutStore())

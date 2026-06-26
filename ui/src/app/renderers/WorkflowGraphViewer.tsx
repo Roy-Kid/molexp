@@ -159,54 +159,52 @@ export const WorkflowGraphViewer = ({ selection, snapshot }: RendererProps): JSX
   }
 
   const isEmpty = !document || document.nodes.length === 0;
-  const experiment = workflow
-    ? snapshot.experiments.find((item) => item.id === workflow.experimentId)
-    : null;
   const taskCount = graph?.task_configs.length ?? 0;
   const linkCount = graph?.links.length ?? 0;
   const parallelCount = graph?.links.filter((link) => link.kind === "parallel").length ?? 0;
 
   return (
-    <Card className="flex h-full flex-col">
-      <CardHeader className="pb-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Badge variant="outline">{taskCount} tasks</Badge>
-            <Badge variant="outline">{linkCount} links</Badge>
-            <Badge variant="outline">{parallelCount} parallel</Badge>
-            {experiment && <Badge variant="outline">{experiment.name}</Badge>}
-          </div>
-          <div className="flex items-center gap-2">
-            {workflow.name && <Badge variant="outline">{workflow.name}</Badge>}
-            <FlowgramCanvasToolbar
-              onSave={handleSave}
-              onDiscard={handleDiscard}
-              saving={saving}
-              dirty={dirty}
-            />
-          </div>
-        </div>
-      </CardHeader>
-
-      {error && (
-        <div
-          role="alert"
-          className="mx-6 mb-2 flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-        >
-          <span>{error}</span>
-          <button
-            type="button"
-            onClick={() => setError(null)}
-            aria-label="Dismiss error"
-            className="-mr-1 shrink-0 rounded-sm p-0.5 text-destructive/80 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
+    <Card className="flex h-full flex-col overflow-hidden border-0 shadow-none">
       <CardContent className="flex-1 p-0">
-        <div className="h-full w-full">
+        {/* The canvas wrapper is the positioning context: controls float over the
+            canvas (no dedicated header row) — count tags left, icon-only
+            save/discard right. */}
+        <div className="relative h-full w-full">
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-50 flex flex-col gap-2 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="pointer-events-auto flex flex-wrap items-center gap-1.5 rounded-md border border-border/50 bg-background/75 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
+                <Badge variant="outline">{taskCount} tasks</Badge>
+                <Badge variant="outline">{linkCount} links</Badge>
+                <Badge variant="outline">{parallelCount} parallel</Badge>
+              </div>
+              <div className="pointer-events-auto flex items-center rounded-md border border-border/50 bg-background/75 px-1 py-0.5 shadow-sm backdrop-blur">
+                <FlowgramCanvasToolbar
+                  onSave={handleSave}
+                  onDiscard={handleDiscard}
+                  saving={saving}
+                  dirty={dirty}
+                />
+              </div>
+            </div>
+
+            {error && (
+              <div
+                role="alert"
+                className="pointer-events-auto flex items-start justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive shadow-sm backdrop-blur"
+              >
+                <span>{error}</span>
+                <button
+                  type="button"
+                  onClick={() => setError(null)}
+                  aria-label="Dismiss error"
+                  className="-mr-1 shrink-0 rounded-sm p-0.5 text-destructive/80 transition-colors hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
+
           {isEmpty ? (
             <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
               <p className="text-sm font-medium text-foreground">No tasks in this workflow yet</p>

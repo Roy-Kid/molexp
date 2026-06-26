@@ -113,6 +113,10 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
   const parallel = data.parallel ?? false;
   const subworkflow = data.subworkflow;
   const visual = STATUS_VISUAL[statusKey(status)];
+  // Show WHY a node broke: when it failed, surface the recorded error both in
+  // the hover tooltip and as a truncated inline line on the (red) card.
+  const failed = statusKey(status) === "failed";
+  const error = failed ? data.error : undefined;
   // Fake stacked cards behind the node = UML expansion-region multiplicity.
   const stack = parallel ? "shadow-[5px_5px_0_-2px] shadow-violet-300 dark:shadow-violet-800" : "";
   // A subworkflow node also reads as a (UML rake-glyph) composite — render the
@@ -121,7 +125,7 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
     <div className="relative">
       <button
         type="button"
-        title={`${taskId} · ${role}${parallel ? " · parallel ×N" : ""}${subworkflow ? " · subworkflow" : ""} · ${status}`}
+        title={`${taskId} · ${role}${parallel ? " · parallel ×N" : ""}${subworkflow ? " · subworkflow" : ""} · ${status}${error ? `\n${error}` : ""}`}
         className={`relative flex min-w-[150px] max-w-[260px] cursor-pointer flex-col px-3 py-2 text-left transition-[filter] hover:brightness-95 ${ROLE_SHAPE[role]} ${visual} ${stack}`}
         onClick={() => onNodeClick?.(taskId)}
       >
@@ -153,6 +157,11 @@ const NodeCard = ({ onNodeClick }: { onNodeClick?: (taskId: string) => void }): 
         <span className="truncate font-mono text-[10px] opacity-70">
           [{data.taskType ?? data.subtitle ?? ""}]
         </span>
+        {error && (
+          <span className="mt-1 line-clamp-2 border-t border-destructive/30 pt-1 font-mono text-[10px] leading-tight text-destructive">
+            {error}
+          </span>
+        )}
       </button>
       {subworkflow && expandSubworkflow && (
         <button

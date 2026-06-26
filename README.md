@@ -44,7 +44,7 @@ What that unlocks is a research workflow you can trust and revisit: experiments 
 | `molexp.config`     | In-code process-global config — a live `molcfg.Config` for runtime values such as LLM API keys, registered in code (never from env) |
 | `molexp.profile`    | File-based per-run config — `molcfg.yaml` loading and named profiles; resolves `defaults` + `profiles` into an immutable, content-hashed `ProfileConfig` |
 | `molexp.agent`      | Optional LLM layer — `AgentRunner` / `AgentLoop` (`ChatLoop` one round-trip, `InteractiveLoop` emergent tool loop) with persisted `AgentSession`s, built on PydanticAI (lazy-loaded) |
-| `molexp.harness`    | Experiment orchestrator — audited `PlanMode` / `RunMode` stage pipelines (artifact lineage, approval gates, executors) over a content-addressed Run; the production `molexp plan [--execute]` entry point that lets an LLM agent plan, generate, and drive a workflow |
+| `molexp.harness`    | Experiment orchestrator — one audited `PlanMode` stage pipeline (artifact lineage, approval gates, executors) over a content-addressed Run, with an opt-in `--execute` real-execution tail; the production `molexp plan [--execute]` entry point that lets an LLM agent plan, generate, and drive a workflow |
 | `molexp.server`     | FastAPI app — REST routes for workspace, projects, experiments, runs, assets, execution, plus SSE streaming and bundled-SPA serving |
 | `molexp.cli`        | `molexp` command-line entry point — workspace init/info, run/execute, project / experiment / run / asset / target / session subcommands |
 | `molexp.plugins`    | On-demand capability registry — `submit_molq` scheduler bridge (SLURM / PBS / LSF) and `gh` GitHub client; core stays dependency-light |

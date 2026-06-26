@@ -203,3 +203,116 @@ def test_returns_the_driver_artifact_ref(ctx) -> None:
     driver = _find_by_parents(refs, [ws_ref.id, ir_ref.id, ts_ref.id])
     assert ref.kind == "input_file"
     assert ref.id == driver.id
+
+
+# ------------------------------------------------- compile-only + input_set
+
+
+def test_driver_supports_compile_only(ctx) -> None:
+    """The driver branches on --compile-only (plan-step-7 dry run)."""
+    _seed_all(ctx.artifact_store)
+    _run(ctx)
+    assert "--compile-only" in _driver_text(ctx)
+
+
+def _seed_input_set(store):
+    return store.put_json(
+        kind="input_set",
+        obj={
+            "id": "is-1",
+            "experiment_spec_id": "spec-1",
+            "title": "sweep",
+            "sweep_axes": [{"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}],
+            "strategy": "grid",
+            "total_runs": 2,
+        },
+        created_by="seed",
+        parent_ids=[],
+    )
+
+
+def test_input_set_first_cell_overlays_params(ctx) -> None:
+    """With an input_set, the driver params use the sweep's first cell."""
+    _seed_all(ctx.artifact_store)
+    _seed_input_set(ctx.artifact_store)
+    _run(ctx)
+    # First grid cell of n_steps=[1000,2000] is 1000, overlaying the IR default 500.
+    assert json.dumps({"n_steps": 1000}, sort_keys=True) in _driver_text(ctx)
+
+
+# --------------------------------------------------- multi-file (per-task) layout
+
+
+def _seed_multifile(store):
+    """Seed a multi-file workflow_source (package) + per-task test files."""
+    assembly = "from molexp.workflow import WorkflowCompiler\nfrom workflow.a import a\n\n\ndef build_workflow():\n    wf = WorkflowCompiler(name='m')\n    wf.task(a)\n    return wf\n"
+    store.put_json(
+        kind="workflow_source",
+        obj={
+            "source": assembly,
+            "module_name": "workflow",
+            "bound_workflow_id": "bw-1",
+            "symbols": [],
+            "files": [
+                {"path": "workflow/__init__.py", "source": assembly},
+                {"path": "workflow/a.py", "source": "async def a() -> dict:\n    return {}\n"},
+            ],
+        },
+        created_by="seed",
+        parent_ids=[],
+    )
+    store.put_json(
+        kind="test_source",
+        obj={
+            "source": "from workflow import build_workflow\n\n\ndef test_a():\n    assert build_workflow().compile() is not None\n",
+            "module_name": "test_a",
+            "test_spec_id": "ts-1",
+            "bound_workflow_id": "bw-1",
+            "symbols": [],
+            "files": [
+                {
+                    "path": "tests/test_a.py",
+                    "source": "from workflow import build_workflow\n\n\ndef test_a():\n    assert build_workflow().compile() is not None\n",
+                }
+            ],
+        },
+        created_by="seed",
+        parent_ids=[],
+    )
+    _seed_workflow_ir(store)
+
+
+def test_multifile_writes_package_and_tests_dir(ctx) -> None:
+    _seed_multifile(ctx.artifact_store)
+    _run(ctx)
+    g = ctx.workspace_root / "generated"
+    assert (g / "workflow" / "__init__.py").is_file()
+    assert (g / "workflow" / "a.py").is_file()
+    assert (g / "tests" / "test_a.py").is_file()
+    # Driver imports the package entrypoint (module_name="workflow").
+    assert "from workflow import build_workflow" in _driver_text(ctx)
+    # An input_file artifact per written file (2 workflow + 1 test) + the driver.
+    assert len(ctx.artifact_store.list_by_kind("input_file")) == 4
+
+
+def test_multifile_rejects_path_escaping_generated(ctx) -> None:
+    from molexp.harness.errors import StageExecutionError
+
+    store = ctx.artifact_store
+    store.put_json(
+        kind="workflow_source",
+        obj={
+            "source": "x",
+            "module_name": "workflow",
+            "bound_workflow_id": "bw-1",
+            "symbols": [],
+            "files": [{"path": "../escape.py", "source": "x = 1\n"}],
+        },
+        created_by="seed",
+        parent_ids=[],
+    )
+    _seed_test_source(store)
+    _seed_workflow_ir(store)
+    with pytest.raises(StageExecutionError, match="escapes"):
+        _run(ctx)
+    assert not (ctx.workspace_root.parent / "escape.py").exists()

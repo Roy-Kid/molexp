@@ -69,10 +69,16 @@ class ApprovalGate(Stage):
         approve: Approver | None = None,
         subject_artifact_ids: list[str] | None = None,
         name: str | None = None,
+        result_kind: str = "analysis_result",
     ) -> None:
         self._requests = list(requests)
         self._approve = approve if approve is not None else auto_grant_approver
         self._subject_artifact_ids = list(subject_artifact_ids or [])
+        # The kind of the summary artifact this gate persists on grant. Defaults
+        # to ``analysis_result``; an EARLY gate (e.g. PlanMode's spec-approval
+        # checkpoint) overrides it so it does not collide with the terminal
+        # gate's ``analysis_result`` (which keys the UI's "Review" rail step).
+        self._result_kind = result_kind
         # A Mode keys its completion ledger on ``stage.name``; when a single
         # mode wires more than one gate (e.g. PlanMode's experiment-spec
         # checkpoint plus the terminal final-report gate) each needs a
@@ -111,7 +117,7 @@ class ApprovalGate(Stage):
             "decision_count": len(decisions),
         }
         return ctx.artifact_store.put_json(
-            kind="analysis_result",
+            kind=self._result_kind,
             obj=summary,
             created_by="ApprovalGate",
             parent_ids=list(self._subject_artifact_ids),

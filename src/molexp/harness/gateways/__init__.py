@@ -13,6 +13,17 @@ will fail loudly.
 from __future__ import annotations
 
 from molexp.harness.gateways.gateway import AgentGateway
+from molexp.harness.gateways.plan_agents import (
+    plan_agent_responses,
+    plan_output_kinds,
+    plan_system_prompts,
+)
 from molexp.harness.gateways.router_backed import RouterBackedAgentGateway
 
-__all__ = ["AgentGateway", "RouterBackedAgentGateway"]
+__all__ = [
+    "AgentGateway",
+    "RouterBackedAgentGateway",
+    "plan_agent_responses",
+    "plan_output_kinds",
+    "plan_system_prompts",
+]

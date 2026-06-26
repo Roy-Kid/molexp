@@ -12,6 +12,7 @@ import type { RunFileTextResponse } from '../models/RunFileTextResponse';
 import type { RunLogsResponse } from '../models/RunLogsResponse';
 import type { RunMetricsResponse } from '../models/RunMetricsResponse';
 import type { RunResponse } from '../models/RunResponse';
+import type { RunStartRequest } from '../models/RunStartRequest';
 import type { RunStatusResponse } from '../models/RunStatusResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -473,6 +474,45 @@ export class RunsService {
                 'experiment_id': experimentId,
                 'run_id': runId,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Start Run
+     * Start a pending run by dispatching it to a compute target (the ``run`` verb).
+     *
+     * The disjoint counterpart to resume/rerun: ``run`` owns ``pending`` runs only
+     * (409 otherwise — retrying a failed/cancelled run is resume/rerun's job, and a
+     * live ``running`` run must not get a second execution). A pending run is
+     * target-less (the create+dispatch contract dispatches a targeted run on
+     * create), so Start supplies the target to execute on; a target-less Start
+     * (no body target, none recorded) 422s — those run via ``molexp run`` on the
+     * host, since the server never executes a workflow in-process.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param requestBody
+     * @returns RunContinueResponse Successful Response
+     * @throws ApiError
+     */
+    public static startRunApiProjectsProjectIdExperimentsExperimentIdRunsRunIdRunPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        requestBody: RunStartRequest,
+    ): CancelablePromise<RunContinueResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/run',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
@@ -1009,6 +1049,48 @@ export class RunsService {
                 'run_id': runId,
                 'ws': ws,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Start Run
+     * Start a pending run by dispatching it to a compute target (the ``run`` verb).
+     *
+     * The disjoint counterpart to resume/rerun: ``run`` owns ``pending`` runs only
+     * (409 otherwise — retrying a failed/cancelled run is resume/rerun's job, and a
+     * live ``running`` run must not get a second execution). A pending run is
+     * target-less (the create+dispatch contract dispatches a targeted run on
+     * create), so Start supplies the target to execute on; a target-less Start
+     * (no body target, none recorded) 422s — those run via ``molexp run`` on the
+     * host, since the server never executes a workflow in-process.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @param requestBody
+     * @returns RunContinueResponse Successful Response
+     * @throws ApiError
+     */
+    public static startRunApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdRunPost(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+        requestBody: RunStartRequest,
+    ): CancelablePromise<RunContinueResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/run',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },

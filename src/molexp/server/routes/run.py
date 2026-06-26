@@ -52,8 +52,10 @@ from ..schemas import (
     RunLogsResponse,
     RunMetricsResponse,
     RunResponse,
+    RunStartRequest,
     RunStatusResponse,
 )
+from ..target_defaults import LOCAL_TARGET_NAME, resolve_target
 
 router = APIRouter(
     prefix="/projects/{project_id}/experiments/{experiment_id}/runs",
@@ -115,6 +117,18 @@ def _synthesize_snapshot(experiment: Experiment) -> dict | None:
     return snap.model_dump(mode="json")
 
 
+def _run_has_workflow_source(run) -> bool:  # noqa: ANN001
+    """True if the run carries a generated ``workflow_source`` harness artifact
+    the worker can compile + execute in place (the PlanMode flow)."""
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    try:
+        store = FileArtifactStore(root=Path(run.run_dir) / "artifacts")
+        return store.latest_by_kind("workflow_source") is not None
+    except Exception:
+        return False
+
+
 def _dispatch_to_molq(target, run, execution_id: str | None = None) -> None:  # noqa: ANN001
     """Submit *run* through molq onto *target*.
 
@@ -125,13 +139,16 @@ def _dispatch_to_molq(target, run, execution_id: str | None = None) -> None:  # 
     """
     snapshot = run.metadata.workflow_snapshot
     entrypoint = snapshot.get("entrypoint") if isinstance(snapshot, dict) else None
-    if not entrypoint:
+    # A run is executable either via an importable entrypoint (``molexp run``
+    # script flow) OR a generated ``build_workflow()`` source the worker compiles
+    # in place (the PlanMode flow — the experiment has no importable module).
+    if not entrypoint and not _run_has_workflow_source(run):
         raise HTTPException(
             status_code=422,
             detail=(
-                f"experiment {run.experiment.id!r} has no workflow entrypoint; "
-                "bind a Python Workflow or callable on the experiment "
-                "before submitting via the API"
+                f"experiment {run.experiment.id!r} has no workflow entrypoint and no "
+                "generated workflow source; bind a Python Workflow/callable on the "
+                "experiment, or generate one via `molexp plan`, before submitting."
             ),
         )
 
@@ -219,6 +236,13 @@ def _read_execution_logs(run, execution_id: str) -> RunLogsResponse:  # noqa: AN
         stdout = out_file.read_text(errors="replace")
     if err_file.exists():
         stderr = err_file.read_text(errors="replace")
+    # Fall back to the workflow runtime log when stdout wasn't captured (e.g. an
+    # in-process / non-molq execution writes only ``logs/run.log``), so the Logs
+    # panel still shows what the run did rather than "No stdout captured."
+    if not stdout:
+        run_log = exec_dir / "logs" / "run.log"
+        if run_log.exists():
+            stdout = run_log.read_text(errors="replace")
     return RunLogsResponse(execution_id=execution_id, stdout=stdout, stderr=stderr)
 
 
@@ -552,6 +576,72 @@ def _dispatch_continuation(workspace, run, execution_id: str) -> None:  # noqa: 
         if synthesized is not None:
             run._update_metadata(workflow_snapshot=synthesized)
     _dispatch_to_molq(target, run, execution_id=execution_id)
+
+
+@router.post("/{run_id}/run", response_model=RunContinueResponse, status_code=201)
+def start_run(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    start_req: RunStartRequest,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> RunContinueResponse:
+    """Start a pending run by dispatching it to a compute target (the ``run`` verb).
+
+    The disjoint counterpart to resume/rerun: ``run`` owns ``pending`` runs only
+    (409 otherwise — retrying a failed/cancelled run is resume/rerun's job, and a
+    live ``running`` run must not get a second execution). A pending run is
+    target-less (the create+dispatch contract dispatches a targeted run on
+    create), so Start supplies the target to execute on; a target-less Start
+    (no body target, none recorded) 422s — those run via ``molexp run`` on the
+    host, since the server never executes a workflow in-process.
+    """
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = _get_run_or_none(experiment, run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    if run.status != "pending":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"run {run_id!r} is {run.status!r}; Start (run) applies only to pending runs — "
+                "use resume/rerun for failed/cancelled, or cancel a running run first"
+            ),
+        )
+    # Default to the built-in `local` target — a run can always start on this
+    # machine without registering anything first.
+    target_name = start_req.target or run.metadata.target or LOCAL_TARGET_NAME
+    try:
+        target = resolve_target(workspace, target_name)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"compute target {target_name!r} is not registered on this workspace",
+        ) from exc
+    # Apply edited inputs before dispatch — a pending run is not yet hashed, so
+    # its config_hash (computed at execution start) picks up the new parameters.
+    if start_req.parameters is not None:
+        run._update_metadata(parameters=dict(start_req.parameters))
+    # Record a newly-chosen target so any later resume/rerun inherits it.
+    if start_req.target and start_req.target != run.metadata.target:
+        run._update_metadata(target=start_req.target)
+    # Ensure the run carries a re-importable workflow entrypoint (mirrors continuation).
+    snapshot = run.metadata.workflow_snapshot
+    if not (isinstance(snapshot, dict) and snapshot.get("entrypoint")):
+        synthesized = _synthesize_snapshot(run.experiment)
+        if synthesized is not None:
+            run._update_metadata(workflow_snapshot=synthesized)
+    execution_id = make_execution_id(run.id, Path(run.run_dir))
+    _dispatch_to_molq(target, run, execution_id=execution_id)
+    return RunContinueResponse(
+        runId=run.id,
+        executionId=execution_id,
+        projectId=project_id,
+        experimentId=experiment_id,
+        status=run.status,
+    )
 
 
 @router.post("/{run_id}/resume", response_model=RunContinueResponse, status_code=201)

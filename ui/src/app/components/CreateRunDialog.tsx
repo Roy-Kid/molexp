@@ -1,9 +1,16 @@
-import { Play } from "lucide-react";
+import { Plus } from "lucide-react";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import type { TargetResponse } from "@/api/generated/models/TargetResponse";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
 import { TargetsService } from "@/api/generated/services/TargetsService";
+import { ParametersForm } from "@/app/runs/ParametersForm";
+import {
+  type InputField,
+  parseInputSchema,
+  SchemaForm,
+  schemaDefaults,
+} from "@/app/runs/SchemaForm";
 import { AddTargetDialog } from "@/app/settings/AddTargetDialog";
 import { workspaceApi } from "@/app/state/api";
 import { Button } from "@/components/ui/button";
@@ -25,7 +32,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 
 const NO_TARGET_VALUE = "__none__";
 
@@ -49,7 +55,8 @@ export function CreateRunDialog({
   trigger,
 }: CreateRunDialogProps) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const [parameters, setParameters] = useState("{}");
+  const [parameters, setParameters] = useState<Record<string, unknown>>({});
+  const [inputSchema, setInputSchema] = useState<InputField[] | null>(null);
   const [target, setTarget] = useState<string>(NO_TARGET_VALUE);
   const [targets, setTargets] = useState<TargetResponse[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -75,6 +82,9 @@ export function CreateRunDialog({
     )
       .then((exp) => {
         if (exp.defaultTarget) setTarget(exp.defaultTarget);
+        const schema = parseInputSchema(exp.workflow);
+        setInputSchema(schema);
+        if (schema) setParameters(schemaDefaults(schema));
       })
       .catch(() => {
         // experiment may not yet be readable; ignore
@@ -88,12 +98,12 @@ export function CreateRunDialog({
 
     try {
       await workspaceApi.createRun(projectId, experimentId, {
-        parameters: JSON.parse(parameters),
+        parameters,
         target: target === NO_TARGET_VALUE ? null : target,
       });
 
       setOpen(false);
-      setParameters("{}");
+      setParameters({});
       setTarget(NO_TARGET_VALUE);
       onRunCreated();
     } catch (err) {
@@ -108,8 +118,8 @@ export function CreateRunDialog({
       {trigger === undefined ? (
         <DialogTrigger asChild>
           <Button size="sm" className="gap-1">
-            <Play className="h-3.5 w-3.5" />
-            Run
+            <Plus className="h-3.5 w-3.5" />
+            New run
           </Button>
         </DialogTrigger>
       ) : (
@@ -117,8 +127,12 @@ export function CreateRunDialog({
       )}
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
-          <DialogTitle>Launch Run</DialogTitle>
-          <DialogDescription>Execute workflow for experiment {experimentId}.</DialogDescription>
+          <DialogTitle>New run</DialogTitle>
+          <DialogDescription>
+            Create a run for experiment {experimentId}. With a compute target it starts immediately;
+            without one it is created <span className="font-medium">pending</span> and started via{" "}
+            <code className="font-mono">molexp run</code> (or the run's Start action).
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
@@ -133,17 +147,17 @@ export function CreateRunDialog({
                 className="col-span-3 bg-muted"
               />
             </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-center sm:gap-4">
-              <Label htmlFor="run-params" className="text-left sm:text-right">
-                Parameters (JSON)
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
+              <Label className="pt-2 text-left sm:text-right">
+                {inputSchema ? "Inputs" : "Parameters"}
               </Label>
-              <Textarea
-                id="run-params"
-                value={parameters}
-                onChange={(e) => setParameters(e.target.value)}
-                className="col-span-3 font-mono text-xs"
-                rows={6}
-              />
+              <div className="col-span-3">
+                {inputSchema ? (
+                  <SchemaForm schema={inputSchema} value={parameters} onChange={setParameters} />
+                ) : (
+                  <ParametersForm value={parameters} onChange={setParameters} />
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4 sm:items-start sm:gap-4">
               <Label htmlFor="run-target" className="pt-2 text-left sm:text-right">
@@ -188,7 +202,7 @@ export function CreateRunDialog({
           </div>
           <DialogFooter>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Launching..." : "Launch Run"}
+              {isLoading ? "Creating..." : "Create run"}
             </Button>
           </DialogFooter>
         </form>

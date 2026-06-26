@@ -29,18 +29,28 @@ re-export on :mod:`molexp.agent`; never import it from the private
 from __future__ import annotations
 
 from molexp.harness.prompts.bound_workflow import SYSTEM_PROMPT as BOUND_WORKFLOW_SYSTEM_PROMPT
+from molexp.harness.prompts.capability_selection import (
+    SYSTEM_PROMPT as CAPABILITY_SELECTION_SYSTEM_PROMPT,
+)
 from molexp.harness.prompts.experiment_report import (
     SYSTEM_PROMPT as EXPERIMENT_REPORT_SYSTEM_PROMPT,
 )
+from molexp.harness.prompts.experiment_spec import SYSTEM_PROMPT as EXPERIMENT_SPEC_SYSTEM_PROMPT
 from molexp.harness.prompts.final_report import SYSTEM_PROMPT as FINAL_REPORT_SYSTEM_PROMPT
+from molexp.harness.prompts.input_set import SYSTEM_PROMPT as INPUT_SET_SYSTEM_PROMPT
+from molexp.harness.prompts.plan_review import SYSTEM_PROMPT as PLAN_REVIEW_SYSTEM_PROMPT
 from molexp.harness.prompts.test_code import SYSTEM_PROMPT as TEST_CODE_SYSTEM_PROMPT
 from molexp.harness.prompts.test_spec import SYSTEM_PROMPT as TEST_SPEC_SYSTEM_PROMPT
 from molexp.harness.prompts.workflow_ir import SYSTEM_PROMPT as WORKFLOW_IR_SYSTEM_PROMPT
 
 __all__ = [
     "BOUND_WORKFLOW_SYSTEM_PROMPT",
+    "CAPABILITY_SELECTION_SYSTEM_PROMPT",
     "EXPERIMENT_REPORT_SYSTEM_PROMPT",
+    "EXPERIMENT_SPEC_SYSTEM_PROMPT",
     "FINAL_REPORT_SYSTEM_PROMPT",
+    "INPUT_SET_SYSTEM_PROMPT",
+    "PLAN_REVIEW_SYSTEM_PROMPT",
     "TEST_CODE_SYSTEM_PROMPT",
     "TEST_SPEC_SYSTEM_PROMPT",
     "WORKFLOW_IR_SYSTEM_PROMPT",
@@ -57,8 +67,12 @@ def prompts_by_agent() -> dict[str, str]:
     """
     return {
         "experiment_report_writer": EXPERIMENT_REPORT_SYSTEM_PROMPT,
+        "experiment_spec_generator": EXPERIMENT_SPEC_SYSTEM_PROMPT,
+        "capability_selector": CAPABILITY_SELECTION_SYSTEM_PROMPT,
         "workflow_ir_extractor": WORKFLOW_IR_SYSTEM_PROMPT,
         "bound_workflow_binder": BOUND_WORKFLOW_SYSTEM_PROMPT,
+        "input_set_generator": INPUT_SET_SYSTEM_PROMPT,
+        "plan_reviewer": PLAN_REVIEW_SYSTEM_PROMPT,
         "test_spec_writer": TEST_SPEC_SYSTEM_PROMPT,
         "test_code_writer": TEST_CODE_SYSTEM_PROMPT,
         "final_report_writer": FINAL_REPORT_SYSTEM_PROMPT,

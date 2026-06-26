@@ -20,12 +20,14 @@ from ..schemas import (
     AgentTaskResponse,
     GoalCreateRequest,
     MessageResponse,
+    SessionEventResponse,
     UserMessageCreateRequest,
 )
 from . import agent as agent_routes
 from .agent_task_store import (
     PersistedAgentTask,
     list_agent_task_metadata,
+    read_agent_task_events,
     read_agent_task_metadata,
     write_agent_task_metadata,
 )
@@ -190,7 +192,25 @@ def get_agent_task(
         if root is not None:
             persisted = read_agent_task_metadata(root, task_id)
             if persisted is not None:
-                return _task_from_metadata(persisted)
+                task = _task_from_metadata(persisted)
+                # A persisted task (e.g. a PlanMode run) carries a synthesized
+                # transcript so the session view shows the whole flow.
+                raw_events = read_agent_task_events(root, task_id)
+                if raw_events:
+                    task = task.model_copy(
+                        update={
+                            "events": [
+                                SessionEventResponse(
+                                    type=str(e.get("type", "")),
+                                    ts=str(e.get("ts", "")),
+                                    payload=e.get("payload") or {},
+                                )
+                                for e in raw_events
+                                if isinstance(e, dict)
+                            ]
+                        }
+                    )
+                return task
         raise
     task = _task_from_session(
         session,

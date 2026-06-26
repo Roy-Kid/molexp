@@ -108,8 +108,8 @@ def test_compiled_graph_is_execution_plan() -> None:
         return 1
 
     @wf.task(depends_on=["a"])
-    async def b(ctx: TaskContext) -> int:
-        return ctx.inputs + 1
+    async def b(value: int) -> int:
+        return value + 1
 
     compiled = wf.compile()
     assert isinstance(compiled.graph, ExecutionPlan)
@@ -131,12 +131,12 @@ def test_parallel_lowering_carries_fanout_maps() -> None:
         return [1, 2, 3]
 
     @wf.task
-    async def body(ctx: TaskContext) -> int:
-        return ctx.inputs * 2
+    async def body(element: int) -> int:
+        return element * 2
 
     @wf.task
-    async def gather(ctx: TaskContext) -> int:
-        return sum(ctx.inputs)
+    async def gather(results: list[int]) -> int:
+        return sum(results)
 
     wf.parallel(map_over="seed", body="body", join="gather", max_concurrency=2)
     plan = wf.compile().graph
@@ -240,17 +240,22 @@ def test_diamond_outputs_preserved() -> None:
         return 1
 
     @wf.task(depends_on=["root"])
-    async def left(ctx: TaskContext) -> int:
-        return ctx.inputs + 10
+    async def left(value: int) -> dict:
+        return {"left": value + 10}
 
     @wf.task(depends_on=["root"])
-    async def right(ctx: TaskContext) -> int:
-        return ctx.inputs + 20
+    async def right(value: int) -> dict:
+        return {"right": value + 20}
 
     @wf.task(depends_on=["left", "right"])
-    async def sink(ctx: TaskContext) -> int:
-        return ctx.inputs["left"] + ctx.inputs["right"]
+    async def sink(left: int, right: int) -> int:
+        return left + right
 
     result = asyncio.run(WorkflowRuntime().execute(wf.compile()))
     assert result.status == "completed"
-    assert result.outputs == {"root": 1, "left": 11, "right": 21, "sink": 32}
+    assert result.outputs == {
+        "root": 1,
+        "left": {"left": 11},
+        "right": {"right": 21},
+        "sink": 32,
+    }

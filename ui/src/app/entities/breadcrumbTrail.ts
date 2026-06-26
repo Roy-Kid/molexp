@@ -17,6 +17,7 @@ const SECTION_ROOT: Record<LeftPanelView, BreadcrumbItem> = {
   workflow: { label: "Workflows", to: SECTION_PATH.workflows },
   asset: { label: "Assets", to: SECTION_PATH.assets },
   agent: { label: "Agent Tasks", to: SECTION_PATH.agents },
+  knowledge: { label: "Knowledge", to: SECTION_PATH.knowledge },
   settings: { label: "Settings", to: SECTION_PATH.settings },
 };
 
@@ -89,6 +90,11 @@ export const buildTrail = (
       if (selection.objectId === "settings") return [root, crumb("Settings")];
       const session = snapshot.agentSessions.find((s) => s.id === selection.objectId);
       return [root, crumb(session?.goal ?? selection.objectId)];
+    }
+    case "knowledge": {
+      if (!selection.objectId) return [crumb(root.label)];
+      const name = selection.objectId.split("/").pop() ?? selection.objectId;
+      return [root, crumb(name)];
     }
     case "workspace-file":
       return [root, crumb(selection.filePath.split("/").pop() ?? selection.filePath)];

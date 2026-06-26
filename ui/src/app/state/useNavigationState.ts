@@ -9,6 +9,7 @@ const sectionRootByView: Record<LeftPanelView, string> = {
   workflow: "/workflows",
   asset: "/assets",
   agent: "/agent-tasks",
+  knowledge: "/knowledge",
   settings: "/settings",
 };
 
@@ -54,6 +55,9 @@ export const getLeftPanelViewFromPath = (pathname: string): LeftPanelView => {
   }
   if (pathname.startsWith("/agent-tasks")) {
     return "agent";
+  }
+  if (pathname.startsWith("/knowledge")) {
+    return "knowledge";
   }
   if (pathname.startsWith("/settings")) {
     return "settings";
@@ -145,6 +149,13 @@ const buildSelectionFromLocation = (
     };
   }
 
+  if (pathname === "/knowledge" || pathname.startsWith("/knowledge/")) {
+    // The concept's bundle-relative path (which may contain "/") is the rest
+    // after "/knowledge/"; bare "/knowledge" is the browse overview.
+    const rest = pathname === "/knowledge" ? "" : pathname.slice("/knowledge/".length);
+    return { objectType: "knowledge", objectId: decodeURIComponent(rest) };
+  }
+
   if (pathname.startsWith("/workspace")) {
     return buildWorkspaceFileSelection(searchParams);
   }
@@ -194,6 +205,12 @@ const getSelectionPath = (selection: Selection | null, snapshot: WorkspaceSnapsh
       return selection.objectId === "new"
         ? "/agent-tasks/new"
         : `/agent-tasks/${encodeURIComponent(selection.objectId)}`;
+    case "knowledge":
+      // objectId is a bundle-relative path (may contain "/"); keep the slashes
+      // readable in the URL by encoding each segment, not the whole string.
+      return selection.objectId
+        ? `/knowledge/${selection.objectId.split("/").map(encodeURIComponent).join("/")}`
+        : "/knowledge";
     case "workspace-file": {
       const params = new URLSearchParams({
         file: selection.filePath,

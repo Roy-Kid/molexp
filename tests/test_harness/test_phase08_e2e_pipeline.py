@@ -15,6 +15,15 @@ def _experiment_report_canned() -> dict:
     }
 
 
+def _experiment_spec_canned() -> dict:
+    return {
+        "id": "spec-water",
+        "experiment_report_id": "rep-water",
+        "title": "Water NEMD",
+        "objective": "Measure mobility",
+    }
+
+
 def _workflow_ir_canned() -> dict:
     return {
         "id": "wf-water",
@@ -80,6 +89,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
         ExtractWorkflowIR,
         FileArtifactStore,
         GenerateExperimentReport,
+        GenerateExperimentSpec,
         GenerateTestSpec,
         HarnessRunContext,
         SaveUserPlan,
@@ -97,6 +107,9 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
     p = SQLiteArtifactLineageStore(path=db, artifact_store=a)
     stub = StubAgentGateway(artifact_store=a)
     stub.register("experiment_report_writer", _experiment_report_canned())
+    stub.register(
+        "experiment_spec_generator", _experiment_spec_canned(), output_kind="experiment_spec"
+    )
     stub.register("workflow_ir_extractor", _workflow_ir_canned(), output_kind="workflow_ir")
     stub.register("bound_workflow_binder", _bound_workflow_canned(), output_kind="bound_workflow")
     stub.register("test_spec_writer", _test_spec_canned(), output_kind="test_spec")
@@ -113,6 +126,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
 
     user_plan = asyncio.run(runner.run_stage(SaveUserPlan(user_text="Simulate water")))
     report = asyncio.run(runner.run_stage(GenerateExperimentReport()))
+    asyncio.run(runner.run_stage(GenerateExperimentSpec()))
     workflow_ir = asyncio.run(runner.run_stage(ExtractWorkflowIR()))
     ir_validation = asyncio.run(runner.run_stage(ValidateWorkflowIR()))
     bound_wf = asyncio.run(runner.run_stage(BindMolcraftsTasks()))

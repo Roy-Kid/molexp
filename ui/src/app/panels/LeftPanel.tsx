@@ -2,6 +2,7 @@ import {
   Archive,
   Ban,
   Blocks,
+  BookOpen,
   Bot,
   CloudOff,
   Copy,
@@ -40,6 +41,7 @@ import type { WorkspaceRunsFilters } from "@/app/runs/types";
 import { useWorkspaceRuns } from "@/app/runs/useWorkspaceRuns";
 import { workspaceApi } from "@/app/state/api";
 import type {
+  AssetSummary,
   ExperimentSummary,
   FileKind,
   LeftPanelView,
@@ -95,7 +97,8 @@ const viewOptions: ViewOption[] = [
   { id: "workflow", label: "Workflow", icon: Workflow },
   { id: "workspace", label: "Workspace", icon: FolderTree },
   { id: "asset", label: "Asset", icon: Archive },
-  { id: "agent", label: "Agent Tasks", icon: Bot },
+  { id: "agent", label: "Agents", icon: Bot },
+  { id: "knowledge", label: "Knowledge", icon: BookOpen },
 ];
 
 const listHeaderByView: Record<LeftPanelView, string> = {
@@ -104,7 +107,8 @@ const listHeaderByView: Record<LeftPanelView, string> = {
   runs: "Runs",
   asset: "Assets",
   workflow: "Workflows",
-  agent: "Agent Tasks",
+  agent: "Agents",
+  knowledge: "Knowledge",
   settings: "Settings",
 };
 
@@ -605,13 +609,28 @@ const filterBySearch = <T extends { name: string; summary?: string }>(
   );
 };
 
+// Group assets under their owning scope: Project → Experiment → Run. An asset's
+// scope chain comes from its `scope_ids` (projectId / experimentId / runId);
+// assets with no project fall under a "Workspace" group. Container nodes show
+// the asset count and open their entity; leaves open the asset.
 const buildAssetNodes = (
   snapshot: WorkspaceSnapshot,
   onSelect: (selection: Selection) => void,
   onCopyText: (text: string) => void,
   searchQuery: string,
 ): TreeNode[] => {
-  return filterBySearch(snapshot.assets, searchQuery).map((asset) => ({
+  // Dedup by id (the catalog + per-project fetches can overlap).
+  const byId = new Map<string, AssetSummary>();
+  for (const asset of filterBySearch(snapshot.assets, searchQuery)) {
+    if (!byId.has(asset.id)) byId.set(asset.id, asset);
+  }
+  const assets = [...byId.values()];
+
+  const projName = (id: string): string => snapshot.projects.find((p) => p.id === id)?.name ?? id;
+  const expName = (id: string): string => snapshot.experiments.find((e) => e.id === id)?.name ?? id;
+  const runName = (id: string): string => snapshot.runs.find((r) => r.id === id)?.name ?? id;
+
+  const assetLeaf = (asset: AssetSummary): TreeNode => ({
     id: asset.id,
     label: asset.name,
     icon: Archive,
@@ -632,7 +651,78 @@ const buildAssetNodes = (
         onSelect: () => onCopyText(asset.id),
       },
     ],
-  }));
+  });
+
+  // Bucket by (project, experiment, run); a missing id means the scope stops there.
+  const groupBy = <T,>(rows: AssetSummary[], key: (a: AssetSummary) => T | undefined) => {
+    const direct: AssetSummary[] = [];
+    const groups = new Map<T, AssetSummary[]>();
+    for (const a of rows) {
+      const k = key(a);
+      if (k === undefined) direct.push(a);
+      else groups.set(k, [...(groups.get(k) ?? []), a]);
+    }
+    return { direct, groups };
+  };
+  const byLabel = (a: TreeNode, b: TreeNode): number => a.label.localeCompare(b.label);
+
+  const { direct: workspaceAssets, groups: byProject } = groupBy(assets, (a) => a.projectId);
+
+  const projectNodes: TreeNode[] = [...byProject.entries()]
+    .map(([projectId, projAssets]): TreeNode => {
+      const { direct: projDirect, groups: byExp } = groupBy(projAssets, (a) => a.experimentId);
+      const expNodes: TreeNode[] = [...byExp.entries()]
+        .map(([expId, expAssets]): TreeNode => {
+          const { direct: expDirect, groups: byRun } = groupBy(expAssets, (a) => a.runId);
+          const runNodes: TreeNode[] = [...byRun.entries()]
+            .map(
+              ([runId, runAssets]): TreeNode => ({
+                id: `asset-run-${runId}`,
+                label: runName(runId),
+                icon: PlayCircle,
+                iconClassName: "text-emerald-500",
+                right: <CompactCount>{runAssets.length}</CompactCount>,
+                onSelect: () => onSelect({ objectType: "run", objectId: runId }),
+                children: [...runAssets]
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .map(assetLeaf),
+              }),
+            )
+            .sort(byLabel);
+          return {
+            id: `asset-exp-${expId}`,
+            label: expName(expId),
+            icon: FlaskConical,
+            iconClassName: "text-purple-500",
+            right: <CompactCount>{expAssets.length}</CompactCount>,
+            onSelect: () => onSelect({ objectType: "experiment", objectId: expId }),
+            children: [...expDirect.map(assetLeaf), ...runNodes],
+          };
+        })
+        .sort(byLabel);
+      return {
+        id: `asset-proj-${projectId}`,
+        label: projName(projectId),
+        icon: Blocks,
+        iconClassName: "text-blue-500",
+        right: <CompactCount>{projAssets.length}</CompactCount>,
+        onSelect: () => onSelect({ objectType: "project", objectId: projectId }),
+        children: [...projDirect.map(assetLeaf), ...expNodes],
+      };
+    })
+    .sort(byLabel);
+
+  if (workspaceAssets.length > 0) {
+    projectNodes.push({
+      id: "asset-workspace",
+      label: "Workspace",
+      icon: FolderTree,
+      iconClassName: "text-muted-foreground",
+      right: <CompactCount>{workspaceAssets.length}</CompactCount>,
+      children: workspaceAssets.map(assetLeaf),
+    });
+  }
+  return projectNodes;
 };
 
 const buildWorkflowNodes = (
@@ -1062,6 +1152,17 @@ export const LeftPanel = ({
         emptyDescription={EMPTY_COPY.agentSessions.description}
       />
     ),
+    knowledge: (
+      <nav className="space-y-0.5 px-1 pb-4 text-xs">
+        <button
+          type="button"
+          onClick={() => onSelect({ objectType: "knowledge", objectId: "" })}
+          className="w-full rounded-sm px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted/40"
+        >
+          All notes &amp; references
+        </button>
+      </nav>
+    ),
     settings: (
       <nav className="space-y-0.5 px-1 pb-4 text-xs">
         <div className="rounded-sm bg-muted/30 px-2 py-1.5 font-medium text-foreground">
@@ -1196,7 +1297,7 @@ export const LeftPanel = ({
                   size="icon"
                   className="h-7 w-7"
                   onClick={() => onSelect({ objectType: "agent", objectId: "new" })}
-                  aria-label="New goal"
+                  aria-label="New task"
                 >
                   <Plus className="h-4 w-4" />
                 </Button>

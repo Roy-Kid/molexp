@@ -17,9 +17,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from molexp.harness.schemas import ToolCapability
+    from molexp.harness.registry.capability_registry import CapabilityRegistry
+    from molexp.harness.schemas import CapabilitySelection, ToolCapability
 
-__all__ = ["render_capability_catalog"]
+__all__ = ["render_capability_catalog", "render_selected_capability_catalog"]
 
 _MAX_DESC_CHARS = 120
 
@@ -63,4 +64,46 @@ def render_capability_catalog(capabilities: Iterable[ToolCapability]) -> str:
             desc = desc[: _MAX_DESC_CHARS - 1] + "…"
         suffix = f" — {desc}" if desc else ""
         lines.append(f"- {cap.id}{_render_params(cap)}{suffix}")
+    return "\n".join(lines)
+
+
+def render_selected_capability_catalog(
+    registry: CapabilityRegistry, selection: CapabilitySelection
+) -> str:
+    """Render only the LLM-selected capabilities, each with its rationale.
+
+    Unlike :func:`render_capability_catalog` (which dumps the whole grounded
+    toolchain), this renders the narrowed set ``ResolveCapabilities`` chose for
+    *this* experiment — one ``- id(params) — description`` line per capability
+    followed by a ``↳ needed:`` line carrying the selector's reason. Selected
+    ids the registry doesn't recognize are dropped (the registry is the source
+    of truth for what binds) and listed in a trailing note.
+    """
+    lines = [
+        "## Selected molcrafts capabilities",
+        "",
+        "These capabilities were chosen for THIS experiment from the grounded "
+        "molcrafts toolchain. Bind each WorkflowIR task to exactly ONE "
+        "`capability_id` from this list (a trailing `*` marks a required "
+        "parameter). Do NOT invent capability_ids that are not listed here.",
+        "",
+    ]
+    dropped: list[str] = []
+    for sel in selection.selected:
+        if not registry.has(sel.id):
+            dropped.append(sel.id)
+            continue
+        cap = registry.get(sel.id)
+        desc = " ".join(cap.description.split())
+        if len(desc) > _MAX_DESC_CHARS:
+            desc = desc[: _MAX_DESC_CHARS - 1] + "…"
+        suffix = f" — {desc}" if desc else ""
+        lines.append(f"- {cap.id}{_render_params(cap)}{suffix}")
+        reason = " ".join(sel.reason.split())
+        if reason:
+            lines.append(f"  ↳ needed: {reason}")
+    if selection.notes.strip():
+        lines += ["", f"_Note: {' '.join(selection.notes.split())}_"]
+    if dropped:
+        lines += ["", "_Dropped (not in the grounded toolchain): " + ", ".join(dropped) + "_"]
     return "\n".join(lines)

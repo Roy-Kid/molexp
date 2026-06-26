@@ -236,6 +236,21 @@ const MetricPanel = ({
   const [showToolbar, setShowToolbar] = useState(false);
   const [enlarged, setEnlarged] = useState(false);
 
+  // A one-shot scalar (a single recorded point, no step progression) is a VALUE,
+  // not a time series — show the number, not an empty one-point chart.
+  if (series.points.length <= 1) {
+    return (
+      <section className="min-w-0 rounded-md border border-border bg-background p-3">
+        <div className="truncate text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+          {series.key}
+        </div>
+        <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+          {formatValue(series.latest)}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="min-w-0 rounded-md border border-border bg-background p-3">
       <div className="flex items-baseline justify-between gap-3">

@@ -83,7 +83,7 @@ class _EntryTask(Task):
     """Wraps a bare ``fn(inputs, config) -> object`` into a workflow Task.
 
     Module-private; users get to it through :func:`promote_callable`. The
-    pure-task-context contract delivers data via ``ctx.inputs`` / ``ctx.config``
+    pure-task-context contract delivers data via ``ctx._inputs`` / ``ctx._config``
     (no ``run_context``); the promoted callable receives those two arguments.
 
     Accepts either the live callable or a ``"module:qualname"`` entrypoint ref
@@ -128,12 +128,12 @@ class _EntryTask(Task):
 
     async def execute(self, ctx: TaskContext) -> object:
         if asyncio.iscoroutinefunction(self._fn):
-            return await self._fn(ctx.inputs, ctx.config)
+            return await self._fn(ctx._inputs, ctx._config)
         # Run sync bodies in a worker thread so blocking I/O (e.g.
         # ``time.sleep``) does not stall sibling replicas in the
         # same event loop. Preserve the original semantics where a
         # sync callable that returns an awaitable is still awaited.
-        result = await asyncio.to_thread(self._fn, ctx.inputs, ctx.config)
+        result = await asyncio.to_thread(self._fn, ctx._inputs, ctx._config)
         if asyncio.iscoroutine(result) or inspect.isawaitable(result):
             return await result
         return result

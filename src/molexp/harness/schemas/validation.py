@@ -22,7 +22,14 @@ __all__ = ["ValidationReport", "ValidationViolation"]
 
 
 _TARGET_KINDS = Literal[
-    "workflow_ir", "bound_workflow", "workflow_source", "test_spec", "test_source", "provenance"
+    "experiment_spec",
+    "workflow_ir",
+    "bound_workflow",
+    "workflow_source",
+    "test_spec",
+    "test_source",
+    "input_set",
+    "provenance",
 ]
 _SEVERITIES = Literal["error", "warning"]
 

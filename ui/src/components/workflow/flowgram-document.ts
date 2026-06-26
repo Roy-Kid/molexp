@@ -34,6 +34,8 @@ export interface FlowgramNodeData extends Record<string, unknown> {
   role: "input" | "output" | "task";
   /** Execution status carried from the IR (`pending` by default). */
   status: string;
+  /** Failure message when `status` is `failed` (shown on the node). Absent otherwise. */
+  error?: string;
   /**
    * True when this node is the body of a parallel fan-out (the target of a
    * `kind="parallel"` edge) — i.e. a UML expansion region run once per element
@@ -158,6 +160,8 @@ export const normalizeTaskGraph = (raw: Record<string, unknown>): TaskGraphJson 
       position,
       config: isRecord(item.config) ? item.config : undefined,
       status: typeof item.status === "string" ? item.status : undefined,
+      error: typeof item.error === "string" ? item.error : undefined,
+      source: typeof item.source === "string" ? item.source : undefined,
       subworkflow,
     });
   }
@@ -289,6 +293,7 @@ export const buildFlowgramDocument = (ir: TaskGraphJson): FlowgramDocument => {
         config: task.config,
         role: roleOf(id),
         status: task.status ?? "pending",
+        error: task.error,
         parallel: parallelBodies.has(id),
         subworkflow: task.subworkflow,
       },

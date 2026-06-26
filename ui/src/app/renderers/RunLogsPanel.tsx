@@ -25,43 +25,47 @@ export const RunLogsPanel = ({
   onViewLatest,
 }: RunLogsPanelProps): JSX.Element => (
   <>
-    <div className="flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900 px-3 py-1 font-mono text-[11px] text-zinc-400">
+    <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/40 px-3 py-1 font-mono text-[11px] text-muted-foreground">
       <div className="flex items-center gap-2">
         <Terminal className="h-3 w-3" />
         <span>stdout/stderr</span>
-        <span className="text-zinc-500">·</span>
-        <span className="text-zinc-300">{attemptLabel}</span>
+        <span className="text-muted-foreground/60">·</span>
+        <span className="text-foreground">{attemptLabel}</span>
       </div>
       {selectedExecutionId && (
         <button
           type="button"
-          className="text-zinc-400 underline-offset-2 hover:text-zinc-100 hover:underline"
+          className="text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
           onClick={onViewLatest}
         >
           view latest
         </button>
       )}
     </div>
-    <div className="flex-1 overflow-auto p-3 font-mono text-xs">
+    <div className="flex-1 overflow-auto bg-muted/20 p-3 font-mono text-xs">
       {logsError ? (
-        <div className="text-rose-300">{logsError}</div>
+        <div className="text-destructive">{logsError}</div>
       ) : logs ? (
         <div className="space-y-4">
           <section>
-            <div className="mb-1 text-[11px] uppercase text-zinc-500">stdout</div>
-            <pre className="whitespace-pre-wrap text-zinc-100">
+            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+              stdout
+            </div>
+            <pre className="whitespace-pre-wrap text-foreground">
               {logs.stdout || "No stdout captured."}
             </pre>
           </section>
           <section>
-            <div className="mb-1 text-[11px] uppercase text-zinc-500">stderr</div>
-            <pre className="whitespace-pre-wrap text-rose-100">
+            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
+              stderr
+            </div>
+            <pre className="whitespace-pre-wrap text-destructive/90">
               {logs.stderr || "No stderr captured."}
             </pre>
           </section>
         </div>
       ) : (
-        <div className="italic opacity-60">Loading logs...</div>
+        <div className="italic text-muted-foreground">Loading logs...</div>
       )}
     </div>
   </>

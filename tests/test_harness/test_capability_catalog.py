@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from molexp.harness.prompts.capability_catalog import render_capability_catalog
-from molexp.harness.schemas import ToolCapability
+from molexp.harness.prompts.capability_catalog import (
+    render_capability_catalog,
+    render_selected_capability_catalog,
+)
+from molexp.harness.registry.in_memory import InMemoryCapabilityRegistry
+from molexp.harness.schemas import CapabilitySelection, ToolCapability
+from molexp.harness.schemas.capability_selection import SelectedCapability
 
 
 def _cap(
@@ -77,3 +82,41 @@ def test_long_description_is_truncated() -> None:
     # The single rendered bullet line stays bounded.
     bullet = next(line for line in out.splitlines() if line.startswith("- p.x.Y"))
     assert len(bullet) < 200
+
+
+# ----------------------------------------------- render_selected_capability_catalog
+
+
+def test_renders_only_selected_with_reasons() -> None:
+    registry = InMemoryCapabilityRegistry(
+        [
+            _cap("molpy.core.cg.CoarseGrain", kind="class", desc="CG structure."),
+            _cap("molpy.io.writers.write_gromacs", desc="Write a GROMACS topology."),
+        ]
+    )
+    selection = CapabilitySelection(
+        selected=[SelectedCapability(id="molpy.core.cg.CoarseGrain", reason="builds the CG beads")]
+    )
+    out = render_selected_capability_catalog(registry, selection)
+
+    assert "## Selected molcrafts capabilities" in out
+    assert "- molpy.core.cg.CoarseGrain(…) — CG structure." in out
+    assert "↳ needed: builds the CG beads" in out
+    assert "write_gromacs" not in out  # un-selected capability is omitted
+
+
+def test_selected_renderer_drops_unknown_ids_with_note() -> None:
+    registry = InMemoryCapabilityRegistry(
+        [_cap("molpy.core.cg.CoarseGrain", kind="class", desc="CG structure.")]
+    )
+    selection = CapabilitySelection(
+        selected=[
+            SelectedCapability(id="molpy.core.cg.CoarseGrain", reason="real"),
+            SelectedCapability(id="made.up.Capability", reason="hallucinated"),
+        ]
+    )
+    out = render_selected_capability_catalog(registry, selection)
+
+    assert "- molpy.core.cg.CoarseGrain(…) — CG structure." in out
+    assert "made.up.Capability" in out  # surfaced in the dropped note
+    assert "Dropped (not in the grounded toolchain): made.up.Capability" in out

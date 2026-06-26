@@ -20,7 +20,7 @@ Register a task type::
 
     class Add(Task):
         async def execute(self, ctx) -> float:
-            inputs = ctx.inputs or {}
+            inputs = ctx._inputs or {}
             return sum(float(v) for v in inputs.values())
 
 
@@ -208,7 +208,7 @@ class _Add(Task):
     """
 
     async def execute(self, ctx: TaskContext) -> float:
-        return _coerce_sum(ctx.inputs)
+        return _coerce_sum(ctx._inputs)
 
 
 class _Multiply(Task):
@@ -218,9 +218,9 @@ class _Multiply(Task):
         self.factor = float(factor)
 
     async def execute(self, ctx: TaskContext) -> float:
-        if ctx.inputs is None:
+        if ctx._inputs is None:
             return 0.0
-        return float(ctx.inputs) * self.factor
+        return float(ctx._inputs) * self.factor
 
 
 def _coerce_sum(inputs: TaskInput) -> float:

@@ -4,6 +4,7 @@ import { AgentViewer } from "@/app/renderers/AgentViewer";
 import { AssetViewer } from "@/app/renderers/AssetViewer";
 import { ExperimentViewer } from "@/app/renderers/ExperimentViewer";
 import { ImageViewer } from "@/app/renderers/ImageViewer";
+import { KnowledgeViewer } from "@/app/renderers/KnowledgeViewer";
 import { MetadataInspector } from "@/app/renderers/MetadataInspector";
 import { ProjectViewer } from "@/app/renderers/ProjectViewer";
 import { RunViewer } from "@/app/renderers/RunViewer";
@@ -229,5 +230,29 @@ export const registerDefaultRenderers = (): void => {
     title: "Task Inspector",
     panelSlot: "right",
     Component: TaskViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "knowledge",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "viewer",
+    },
+    title: "Knowledge",
+    panelSlot: "center",
+    Component: KnowledgeViewer,
+  });
+
+  registerRenderer({
+    key: {
+      objectType: "knowledge",
+      fileKind: "json",
+      contentType: "metadata",
+      panelKind: "inspector",
+    },
+    title: "Knowledge",
+    panelSlot: "right",
+    Component: KnowledgeViewer,
   });
 };

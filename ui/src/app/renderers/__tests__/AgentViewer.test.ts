@@ -1,8 +1,12 @@
 import { describe, expect, it } from "@rstest/core";
 
 import type { ApiSessionEvent } from "@/app/types";
+import { DEFAULT_PLAN_STAGE, PLAN_STAGES, planStage } from "../agent/planStages";
 import {
+  collectArtifacts,
+  completedStageKinds,
   derivePendingUserRequest,
+  derivePlanRef,
   EVENT_META,
   groupEventsIntoTurns,
   normalizeStreamFrame,
@@ -207,5 +211,111 @@ describe("groupEventsIntoTurns", () => {
     expect(turns).toHaveLength(1);
     expect(turns[0].result?.type).toBe("loop_completed");
     expect(turns[0].steps.some((s) => s.type === "plan_emitted")).toBe(true);
+  });
+});
+
+describe("derivePlanRef", () => {
+  it("returns null for a chat session with no plan locator", () => {
+    expect(derivePlanRef([ev("loop_completed", { text: "done" })])).toBeNull();
+  });
+
+  it("lifts the plan locator off a terminal loop_completed", () => {
+    const events: ApiSessionEvent[] = [
+      ev("tool_call_completed", { tool_name: "Saved the experiment draft" }),
+      ev("loop_completed", {
+        text: "**Melt plan** — ready.",
+        plan: {
+          run_id: "run-1",
+          project_id: "proj",
+          experiment_id: "exp",
+          title: "Melt plan",
+          step_count: 2,
+          has_workflow: true,
+        },
+      }),
+    ];
+    expect(derivePlanRef(events)).toEqual({
+      runId: "run-1",
+      projectId: "proj",
+      experimentId: "exp",
+      title: "Melt plan",
+      stepCount: 2,
+      hasWorkflow: true,
+    });
+  });
+
+  it("returns null when the locator is missing an id", () => {
+    const events: ApiSessionEvent[] = [
+      ev("loop_completed", { plan: { run_id: "run-1", project_id: "", experiment_id: "exp" } }),
+    ];
+    expect(derivePlanRef(events)).toBeNull();
+  });
+});
+
+describe("collectArtifacts", () => {
+  it("returns an empty array when no tool result carried artifacts", () => {
+    expect(collectArtifacts([ev("loop_completed", { text: "done" })])).toEqual([]);
+  });
+
+  it("gathers artifacts from tool_call_completed payloads in stream order", () => {
+    const events: ApiSessionEvent[] = [
+      ev("tool_call_completed", {
+        result: { artifacts: [{ kind: "plot", title: "A" }] },
+      }),
+      ev("tool_call_completed", {
+        result: { artifacts: [{ kind: "table", title: "B" }] },
+      }),
+    ];
+    const artifacts = collectArtifacts(events);
+    expect(artifacts.map((a) => a.title)).toEqual(["A", "B"]);
+  });
+});
+
+describe("completedStageKinds", () => {
+  it("reads the produced artifact kind off each synthesized stage step", () => {
+    const events: ApiSessionEvent[] = [
+      ev("tool_call_completed", {
+        tool_name: "Saved the draft",
+        result: { artifact: "user_plan" },
+      }),
+      ev("tool_call_completed", {
+        tool_name: "Drafted the spec",
+        result: { artifact: "experiment_report" },
+      }),
+      ev("loop_completed", { text: "done" }),
+    ];
+    const kinds = completedStageKinds(events);
+    expect([...kinds].sort()).toEqual(["experiment_report", "user_plan"]);
+  });
+
+  it("returns an empty set when no stage step carried a kind", () => {
+    expect(completedStageKinds([ev("loop_completed", { text: "done" })]).size).toBe(0);
+  });
+});
+
+describe("PLAN_STAGES", () => {
+  it("declares the nine PlanMode steps in order, keyed on the server's artifact kinds", () => {
+    // Mirrors server/plan_runtime/record.py:_STAGE_LABELS — the rail + the
+    // deliverables panel both read these kinds, so they must stay aligned.
+    expect(PLAN_STAGES.map((s) => s.kind)).toEqual([
+      "experiment_report",
+      "experiment_spec",
+      "capability_catalog",
+      "workflow_ir",
+      "workflow_source",
+      "input_set",
+      "execution_result",
+      "analysis_result",
+      "execution_report",
+    ]);
+  });
+
+  it("defaults to the proposal step and maps kinds to deliverable views", () => {
+    expect(DEFAULT_PLAN_STAGE).toBe("experiment_report");
+    expect(planStage("experiment_spec")?.view).toBe("spec");
+    expect(planStage("input_set")?.view).toBe("inputs");
+    expect(planStage("execution_report")?.view).toBe("execution");
+    expect(planStage("analysis_result")?.view).toBe("review");
+    expect(planStage("nope")).toBeUndefined();
   });
 });

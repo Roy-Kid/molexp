@@ -55,11 +55,14 @@ from molexp.harness import (
     ExecutionResult,
     ExpectedOutput,
     ExperimentReport,
+    ExperimentSpec,
     FinalReport,
+    InputSet,
     ParameterValue,
     PlanMode,
     ResourcePolicy,
-    RunMode,
+    SpecVariable,
+    SweepAxis,
     TaskIR,
     TestSource,
     TestSpec,
@@ -126,16 +129,15 @@ def build_workflow() -> WorkflowCompiler:
         return {"displacements": finals, "n_steps": N_STEPS}
 
     @wf.task(depends_on=["generate_walks"])
-    async def compute_msd(ctx: TaskContext) -> dict:
-        walks = ctx.inputs  # single upstream → its output arrives directly
-        msd = mean_squared_displacement(walks["displacements"])
-        return {"msd": msd, "n_steps": walks["n_steps"]}
+    async def compute_msd(displacements, n_steps) -> dict:
+        # Dataflow-by-name: generate_walks' returned keys arrive as parameters.
+        msd = mean_squared_displacement(displacements)
+        return {"msd": msd, "n_steps": n_steps}
 
     @wf.task(depends_on=["compute_msd"])
-    async def estimate_d(ctx: TaskContext) -> dict:
-        upstream = ctx.inputs
-        d = estimate_diffusion_coefficient(upstream["msd"], upstream["n_steps"])
-        return {"diffusion_coefficient": d, "msd": upstream["msd"]}
+    async def estimate_d(msd, n_steps) -> dict:
+        d = estimate_diffusion_coefficient(msd, n_steps)
+        return {"diffusion_coefficient": d, "msd": msd}
 
     return wf
 '''
@@ -202,6 +204,24 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
             "and estimate D via Einstein's relation D = MSD/(2 d t)."
         ),
         expected_outputs=["diffusion_coefficient"],
+    )
+    spec = ExperimentSpec(
+        id="spec-random-walk",
+        experiment_report_id="rep-random-walk",
+        title=report.title,
+        objective=GOAL,
+        variables=[
+            SpecVariable(
+                name="n_walkers",
+                value=ParameterValue(value=200, source="agent_inferred"),
+                description="ensemble size",
+            ),
+            SpecVariable(
+                name="n_steps",
+                value=ParameterValue(value=400, source="agent_inferred"),
+                unit="steps",
+            ),
+        ],
     )
     ir = WorkflowIR(
         id="wf-random-walk",
@@ -282,6 +302,14 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
         bound_workflow_id=bound.id,
         symbols=("WorkflowCompiler", "TaskContext"),
     )
+    input_set = InputSet(
+        id="is-random-walk",
+        experiment_spec_id=spec.id,
+        title="seed sweep (single cell)",
+        sweep_axes=[SweepAxis(name="seed", values=[20260610], source="agent_inferred")],
+        strategy="grid",
+        total_runs=1,
+    )
     # One TestSpec per IR task (the per-task fan-out); the generated
     # TEST_SOURCE carries a ``test_*`` covering each task id.
     test_spec = TestSpecBundle(
@@ -318,9 +346,19 @@ def _canned_responses() -> dict[str, tuple[str, dict]]:
     )
     return {
         "experiment_report_writer": ("experiment_report", report.model_dump(mode="json")),
+        "experiment_spec_generator": ("experiment_spec", spec.model_dump(mode="json")),
         "workflow_ir_extractor": ("workflow_ir", ir.model_dump(mode="json")),
         "bound_workflow_binder": ("bound_workflow", bound.model_dump(mode="json")),
         "workflow_source_writer": ("workflow_source", workflow_source.model_dump(mode="json")),
+        "plan_reviewer": (
+            "plan_review",
+            {
+                "passed": True,
+                "findings": [],
+                "summary": "Workflow faithfully implements the report.",
+            },
+        ),
+        "input_set_generator": ("input_set", input_set.model_dump(mode="json")),
         "test_spec_writer": ("test_spec", test_spec.model_dump(mode="json")),
         "test_code_writer": ("test_source", test_source.model_dump(mode="json")),
         "final_report_writer": ("final_report", final_report.model_dump(mode="json")),
@@ -377,31 +415,19 @@ def _live_gateway(store: FileArtifactStore) -> AgentGateway:
     from molexp.agent import PydanticAIRouter  # public lazy re-export, never _pydanticai
     from molexp.agent.router import ModelTier
     from molexp.harness import RouterBackedAgentGateway
-    from molexp.harness.prompts import prompts_by_agent
-    from molexp.harness.prompts.workflow_source import (
-        SYSTEM_PROMPT as WORKFLOW_SOURCE_SYSTEM_PROMPT,
+    from molexp.harness.gateways import (
+        plan_agent_responses,
+        plan_output_kinds,
+        plan_system_prompts,
     )
 
     molexp.config["deepseek_api_key"] = API_KEY
-    schemas = {
-        "experiment_report_writer": ExperimentReport,
-        "workflow_ir_extractor": WorkflowIR,
-        "bound_workflow_binder": BoundWorkflow,
-        "workflow_source_writer": WorkflowSource,
-        "test_spec_writer": TestSpecBundle,
-        "test_code_writer": TestSource,
-        "final_report_writer": FinalReport,
-    }
-    kinds = {name: kind for name, (kind, _payload) in _canned_responses().items()}
     return RouterBackedAgentGateway(
         router=PydanticAIRouter(models=dict.fromkeys(ModelTier, MODEL)),
         artifact_store=store,
-        agent_responses=schemas,
-        output_kind_by_agent=kinds,
-        system_prompt_by_agent={
-            **prompts_by_agent(),
-            "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
-        },
+        agent_responses=plan_agent_responses(),
+        output_kind_by_agent=plan_output_kinds(),
+        system_prompt_by_agent=plan_system_prompts(),
         model=MODEL,
     )
 
@@ -437,27 +463,27 @@ def main() -> int:
         print(f"mode    : {'offline (canned LLM, real engine)' if offline else f'live ({MODEL})'}")
         print(f"run     : {run.id}")
 
-        plan = PlanMode()
-        plan_names = [s.name for s in plan.stages(GOAL)]
-        plan_result = asyncio.run(plan.run(run=run, user_input=GOAL, gateway=gateway))
-        _print_stage_table("PlanMode stage artifacts:", plan_names, plan_result.stage_artifacts)
+        # One end-to-end mode: the 9-step plan + the opt-in real-execution tail.
+        # Default LocalExecutor → real pytest + real engine for steps 7 and the tail.
+        mode = PlanMode(execute=True)
+        names = [s.name for s in mode.stages(GOAL)]
+        result = asyncio.run(mode.run(run=run, user_input=GOAL, gateway=gateway))
+        _print_stage_table(
+            "PlanMode stage artifacts (execute=True):", names, result.stage_artifacts
+        )
         if isinstance(gateway, CannedGateway):
             _assert_gateway_contract(gateway)
 
-        run_mode = RunMode()  # default LocalExecutor → real pytest + real engine
-        run_names = [s.name for s in run_mode.stages(GOAL)]
-        run_result = asyncio.run(run_mode.run(run=run, user_input=GOAL, gateway=gateway))
-        _print_stage_table("RunMode stage artifacts:", run_names, run_result.stage_artifacts)
-
         # The generated tests really ran — show pytest's own summary.
-        test_ref = next(a for a in run_result.stage_artifacts if a.kind == "test_result")
+        test_ref = next(a for a in result.stage_artifacts if a.kind == "test_result")
         test_payload = json.loads(store.get(test_ref.id))
         pytest_stdout = store.get(test_payload["stdout"]["id"]).decode("utf-8")
         print(f"\npytest  : {pytest_stdout.strip().splitlines()[-1]}")
 
-        # The workflow really executed — pull D out of the engine's outputs.
-        exec_ref = next(a for a in run_result.stage_artifacts if a.kind == "execution_result")
-        execution = ExecutionResult.model_validate_json(store.get(exec_ref.id))
+        # Step 7 produced a compile dry run (metadata.mode == "compile"); the
+        # tail produced the REAL run — the last execution_result is the real one.
+        exec_refs = [a for a in result.stage_artifacts if a.kind == "execution_result"]
+        execution = ExecutionResult.model_validate_json(store.get(exec_refs[-1].id))
         assert execution.status == "succeeded"
         d_value = float(execution.outputs["estimate_d"]["diffusion_coefficient"])
         assert d_value > 0, "Einstein relation must give a positive D"
@@ -465,7 +491,7 @@ def main() -> int:
         print(f"D       : {d_value:.4f} (lattice units; expectation ≈ 0.5)")
 
         # The final report is a real artifact written from those results.
-        report_ref = next(a for a in run_result.stage_artifacts if a.kind == "final_report")
+        report_ref = next(a for a in result.stage_artifacts if a.kind == "final_report")
         report = FinalReport.model_validate_json(store.get(report_ref.id))
         print(f"\nFinal report — {report.title}")
         print(f"  objective   : {report.objective}")

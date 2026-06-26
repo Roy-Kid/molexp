@@ -103,17 +103,16 @@ async def test_counter_loop_via_control_edge():
     wf = WorkflowCompiler(name="counter", entry="tick")
 
     @wf.task(routes={"again": "tick", "done": "emit"})
-    async def tick(ctx) -> tuple[_Counter, Next]:
+    async def tick(prev: _Counter | None = None) -> tuple[_Counter, Next]:
         # Values-on-edges: the self-loop delivers the previous iteration's
-        # recorded output as ctx.inputs (None on first entry).
-        prev: _Counter | None = ctx.inputs
+        # recorded output as the bound `prev` parameter (None on first entry).
         n = (prev.n + 1) if prev else 1
         return _Counter(n=n), Next("again" if n < 3 else "done")
 
     @wf.task
-    async def emit(ctx) -> int:
+    async def emit(counter: _Counter) -> int:
         # The "done" route carries tick's recorded value to the dep-less target.
-        return ctx.inputs.n
+        return counter.n
 
     result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"
@@ -127,9 +126,8 @@ async def test_self_loop_entry_accepted():
     wf = WorkflowCompiler(name="self-loop-entry", entry="counter")
 
     @wf.task(routes={"again": "counter", "done": "_end"})
-    async def counter(ctx) -> tuple[_Counter, Next | End]:
-        # Self-loop re-entry receives the previous output via ctx.inputs.
-        prev: _Counter | None = ctx.inputs
+    async def counter(prev: _Counter | None = None) -> tuple[_Counter, Next | End]:
+        # Self-loop re-entry receives the previous output as the bound `prev`.
         n = (prev.n + 1) if prev else 1
         if n < 2:
             return _Counter(n=n), Next("again")
@@ -150,23 +148,22 @@ async def test_loop_back_to_entry_accepted():
     wf = WorkflowCompiler(name="rework-loop", entry="plan")
 
     @wf.task
-    async def plan(ctx) -> str:
+    async def plan(prev: str | None = None) -> str:
         # Values-on-edges: the rework loop-back delivers the previous plan
-        # (forwarded by wait_approval) as ctx.inputs; None on first entry.
-        prev = ctx.inputs
+        # (forwarded by wait_approval) as the bound `prev`; None on first entry.
         return f"plan-v{(int(prev.split('v')[-1]) + 1) if prev else 1}"
 
     decisions = ["rework", "approve"]
 
     @wf.task(depends_on=["plan"], routes={"approve": "implement", "rework": "plan"})
-    async def wait_approval(ctx) -> tuple[str, Next]:
+    async def wait_approval(plan_value: str) -> tuple[str, Next]:
         d = decisions.pop(0)
         # Forward the plan value on the routed edge so a rework loop-back
-        # re-delivers it to the dep-less entry task via ctx.inputs.
-        return ctx.inputs, Next(d)
+        # re-delivers it to the dep-less entry task as its `prev` parameter.
+        return plan_value, Next(d)
 
     @wf.task(depends_on=["wait_approval"])
-    async def implement(ctx) -> str:
+    async def implement(approved_plan: str) -> str:
         return "implemented"
 
     result = await WorkflowRuntime().execute(wf.compile())
@@ -353,18 +350,20 @@ async def test_join_waits_for_all_data_deps():
         return 1
 
     @wf.task(depends_on=["seed"])
-    async def left(ctx) -> int:
-        return ctx.inputs * 10
+    async def left(seed: int) -> dict:
+        # Return a dict so the join binds the value by name (the task(**a, **b)
+        # shape): a multi-dep consumer merges its upstreams' dict outputs.
+        return {"left": seed * 10}
 
     @wf.task(depends_on=["seed"])
-    async def right(ctx) -> int:
-        return ctx.inputs * 100
+    async def right(seed: int) -> dict:
+        return {"right": seed * 100}
 
     # collect joins: must wait for BOTH left and right.
     @wf.task(depends_on=["left", "right"])
-    async def collect(ctx) -> int:
-        # Multi-dep inputs come as dict[name → value].
-        return ctx.inputs["left"] + ctx.inputs["right"]
+    async def collect(left: int, right: int) -> int:
+        # Multi-dep inputs merge by name into the body's typed parameters.
+        return left + right
 
     result = await WorkflowRuntime().execute(wf.compile())
     assert result.outputs["collect"] == 110
@@ -386,8 +385,8 @@ async def test_loop_overwrites_results():
         return counter[0]
 
     @wf.task(depends_on=["compute"])
-    async def check(ctx) -> Next:
-        return Next("exit") if ctx.inputs >= 3 else Next("continue")
+    async def check(count: int) -> Next:
+        return Next("exit") if count >= 3 else Next("continue")
 
     wf.loop(body=["compute"], until="check", max_iters=10)
 

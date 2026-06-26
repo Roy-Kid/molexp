@@ -12,7 +12,7 @@ import { request as __request } from '../core/request';
 export class TargetsService {
     /**
      * List Targets Endpoint
-     * List every compute target registered on the workspace.
+     * List compute targets — the registered ones plus the built-in ``local``.
      * @returns TargetListResponse Successful Response
      * @throws ApiError
      */

@@ -86,6 +86,7 @@ from .ir import (
     build_workflow_graph_ir,
 )
 from .mermaid import render_workflow_mermaid
+from .outputs import RegisterArtifact, RegisterMetric
 from .promote import promote_callable, resolve_callable_entrypoint, resolve_spec_entrypoint
 from .protocols import Runnable, Streamable
 from .registry import TaskTypeRegistry, default_registry
@@ -148,6 +149,8 @@ __all__ = [
     "Next",
     "OutEdges",
     "ParallelExecutionError",
+    "RegisterArtifact",
+    "RegisterMetric",
     "Runnable",
     "Severity",
     "Streamable",

@@ -50,18 +50,10 @@ def build_plan_gateway(*, model: str, run: Run) -> AgentGateway:
     from molexp.agent import PydanticAIRouter
     from molexp.agent.router import ModelTier
     from molexp.harness import RouterBackedAgentGateway
-    from molexp.harness.prompts import prompts_by_agent
-    from molexp.harness.prompts.workflow_source import (
-        SYSTEM_PROMPT as WORKFLOW_SOURCE_SYSTEM_PROMPT,
-    )
-    from molexp.harness.schemas import (
-        BoundWorkflow,
-        ExperimentReport,
-        FinalReport,
-        TestSource,
-        TestSpecBundle,
-        WorkflowIR,
-        WorkflowSource,
+    from molexp.harness.gateways import (
+        plan_agent_responses,
+        plan_output_kinds,
+        plan_system_prompts,
     )
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
@@ -70,27 +62,8 @@ def build_plan_gateway(*, model: str, run: Run) -> AgentGateway:
     return RouterBackedAgentGateway(
         router=router,
         artifact_store=store,
-        agent_responses={
-            "experiment_report_writer": ExperimentReport,
-            "workflow_ir_extractor": WorkflowIR,
-            "bound_workflow_binder": BoundWorkflow,
-            "workflow_source_writer": WorkflowSource,
-            "test_spec_writer": TestSpecBundle,
-            "test_code_writer": TestSource,
-            "final_report_writer": FinalReport,
-        },
-        output_kind_by_agent={
-            "experiment_report_writer": "experiment_report",
-            "workflow_ir_extractor": "workflow_ir",
-            "bound_workflow_binder": "bound_workflow",
-            "workflow_source_writer": "workflow_source",
-            "test_spec_writer": "test_spec",
-            "test_code_writer": "test_source",
-            "final_report_writer": "final_report",
-        },
-        system_prompt_by_agent={
-            **prompts_by_agent(),
-            "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
-        },
+        agent_responses=plan_agent_responses(),
+        output_kind_by_agent=plan_output_kinds(),
+        system_prompt_by_agent=plan_system_prompts(),
         model=model,
     )

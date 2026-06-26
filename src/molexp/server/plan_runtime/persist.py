@@ -14,7 +14,9 @@ boundary; a compile failure is logged and skipped, never raised.
 
 from __future__ import annotations
 
+import ast
 import json
+import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -52,6 +54,115 @@ _SAFE_BUILTINS: dict[str, Any] = {
 }
 
 
+def _attach_task_sources(ir: dict[str, JSONValue], source: str) -> None:
+    """Annotate each ``task_config`` with its own source code (in place).
+
+    The generated program defines one ``@wf.task``-decorated function per task,
+    its name equal to the task id. We AST-split *source*, slice each matching
+    function (decorators included), dedent it, and stash it on the node as
+    ``source`` so the graph inspector can show exactly what a node runs. A
+    parse failure or a name with no function is skipped silently — the source
+    annotation is observability sugar, never load-bearing.
+    """
+    task_configs = ir.get("task_configs")
+    if not isinstance(task_configs, list):
+        return
+    wanted = {
+        tc["task_id"]
+        for tc in task_configs
+        if isinstance(tc, dict) and isinstance(tc.get("task_id"), str)
+    }
+    if not wanted:
+        return
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+    lines = source.splitlines()
+    by_name: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name not in wanted or node.end_lineno is None:
+            continue
+        # Span from the first decorator (or the def line) through the body end,
+        # then dedent away the nesting inside ``build_workflow``.
+        start = min([d.lineno for d in node.decorator_list] + [node.lineno])
+        segment = "\n".join(lines[start - 1 : node.end_lineno])
+        by_name[node.name] = textwrap.dedent(segment).strip("\n")
+    for tc in task_configs:
+        if isinstance(tc, dict) and tc.get("task_id") in by_name:
+            tc["source"] = by_name[tc["task_id"]]
+
+
+def _annotation_to_ui_type(ann: ast.expr | None) -> tuple[str, list | None]:
+    """Map a parameter annotation to a UI field type (+ enum options)."""
+    if isinstance(ann, ast.Name):
+        return {"float": "number", "int": "integer", "str": "text", "bool": "boolean"}.get(
+            ann.id, "text"
+        ), None
+    if isinstance(ann, ast.Subscript):
+        base = ann.value
+        base_name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", None)
+        if base_name == "Literal":
+            elts = ann.slice.elts if isinstance(ann.slice, ast.Tuple) else [ann.slice]
+            options = [e.value for e in elts if isinstance(e, ast.Constant)]
+            return "enum", options
+    return "text", None
+
+
+def _extract_input_schema(ir: dict[str, JSONValue], source: str) -> None:
+    """Derive the workflow's editable inputs from the tasks' typed parameters.
+
+    A task parameter that carries a DEFAULT is a configuration knob the
+    scientist sets (``sigma: float = 1.0``); dataflow parameters (bound from
+    upstream outputs) have no default and are skipped. The deduped union becomes
+    ``ir["input_schema"]`` — ``[{name, type, default, options?}]`` — which the UI
+    renders as a typed form (number / text / boolean / enum-dropdown).
+    """
+    task_configs = ir.get("task_configs")
+    if not isinstance(task_configs, list):
+        return
+    wanted = {
+        tc["task_id"]
+        for tc in task_configs
+        if isinstance(tc, dict) and isinstance(tc.get("task_id"), str)
+    }
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return
+    fields: dict[str, dict] = {}
+
+    def _record(arg: ast.arg, default: ast.expr | None) -> None:
+        name = arg.arg
+        if default is None or name in ("ctx", "self") or name in fields:
+            return
+        ftype, options = _annotation_to_ui_type(arg.annotation)
+        try:
+            default_value = ast.literal_eval(default)
+        except (ValueError, SyntaxError):
+            default_value = None
+        field: dict = {"name": name, "type": ftype, "default": default_value}
+        if options is not None:
+            field["options"] = options
+        fields[name] = field
+
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name not in wanted:
+            continue
+        pos = node.args.args
+        for arg, default in zip(
+            pos[len(pos) - len(node.args.defaults) :], node.args.defaults, strict=False
+        ):
+            _record(arg, default)
+        for arg, default in zip(node.args.kwonlyargs, node.args.kw_defaults, strict=False):
+            _record(arg, default)
+
+    if fields:
+        ir["input_schema"] = list(fields.values())
+
+
 def _compile_source_to_ir(source: str) -> dict[str, JSONValue] | None:
     """Compile a ``build_workflow()`` program to a UI-renderable IR document."""
     import molexp.workflow as workflow
@@ -64,7 +175,10 @@ def _compile_source_to_ir(source: str) -> dict[str, JSONValue] | None:
         # strict=False: this is observability (the displayed graph), not a
         # round-trip — slug-less tasks serialize as task_type=None rather than
         # raising, mirroring the live workflow.json graph the UI already renders.
-        return dict(workflow.default_codec.spec_to_ir(compiled, strict=False))
+        ir = dict(workflow.default_codec.spec_to_ir(compiled, strict=False))
+        _attach_task_sources(ir, source)
+        _extract_input_schema(ir, source)
+        return ir
     except Exception as exc:
         _LOG.warning(f"plan workflow source did not compile for display: {exc!r}")
         return None

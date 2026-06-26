@@ -32,8 +32,13 @@ async def test_root_task_receives_params_via_ctx_inputs(tmp_path: pathlib.Path) 
     wf = WorkflowCompiler(name="rootinj")
 
     @wf.task
-    async def root(ctx: TaskContext) -> str:
-        captured["inputs"] = ctx.inputs
+    async def root(ctx: TaskContext, mode: str, n_litfsi: int, **params: object) -> str:
+        # The engine binds a root task's run params by name (the
+        # ``{"params": ..., "workdir": ...}`` envelope is unwrapped to the
+        # run params before binding); ``**params`` absorbs the rest.
+        captured["mode"] = mode
+        captured["n_litfsi"] = n_litfsi
+        captured["params"] = params
         return "ok"
 
     compiled = wf.compile()
@@ -41,10 +46,10 @@ async def test_root_task_receives_params_via_ctx_inputs(tmp_path: pathlib.Path) 
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 
     assert result.status == "completed"
-    injected = captured["inputs"]
-    assert isinstance(injected, dict)
-    assert injected["params"]["mode"] == "block"
-    assert injected["params"]["n_litfsi"] == 54
+    assert captured["mode"] == "block"
+    assert captured["n_litfsi"] == 54
+    # The remaining run params are absorbed by **params.
+    assert captured["params"]["ratio"] == "r1"
 
 
 @pytest.mark.asyncio
@@ -56,7 +61,9 @@ async def test_injected_workdir_is_non_navigable_path(tmp_path: pathlib.Path) ->
 
     @wf.task
     async def root(ctx: TaskContext) -> str:
-        captured["workdir"] = ctx.inputs["workdir"]
+        # The engine-injected workdir reaches the body through ctx.workdir
+        # (the former ctx.inputs["workdir"] surface is gone).
+        captured["workdir"] = ctx.workdir
         return "ok"
 
     compiled = wf.compile()
@@ -84,11 +91,10 @@ async def test_every_task_gets_ctx_workdir(tmp_path: pathlib.Path) -> None:
     @wf.task
     async def root(ctx: TaskContext) -> int:
         captured["root_workdir"] = ctx.workdir
-        captured["root_inputs_workdir"] = ctx.inputs["workdir"]
         return 1
 
     @wf.task(depends_on=["root"])
-    async def child(ctx: TaskContext) -> int:
+    async def child(ctx: TaskContext, root: int) -> int:
         captured["child_workdir"] = ctx.workdir
         return 2
 
@@ -100,8 +106,6 @@ async def test_every_task_gets_ctx_workdir(tmp_path: pathlib.Path) -> None:
     # Non-root tasks now also receive a workdir (the whole point of ctx.workdir).
     assert isinstance(captured["root_workdir"], pathlib.Path)
     assert isinstance(captured["child_workdir"], pathlib.Path)
-    # Root's ctx.workdir is consistent with the legacy ctx.inputs['workdir'].
-    assert captured["root_workdir"] == captured["root_inputs_workdir"]
     # Content-addressed → distinct per task.
     assert captured["root_workdir"] != captured["child_workdir"]
 
@@ -121,8 +125,16 @@ async def test_subworkflow_entry_merges_element_with_params_and_workdir(
     inner = WorkflowCompiler(name="inner-merge")
 
     @inner.task
-    async def entry(ctx: TaskContext) -> str:
-        captured["entry_inputs"] = ctx.inputs
+    async def entry(ctx: TaskContext, label: str, smiles: str, params: dict, **rest: object) -> str:
+        # The forwarded element keys (label/smiles) merge with the engine-injected
+        # {params, workdir} envelope; bind them by name and let **rest absorb
+        # the injected workdir. Reconstruct the merged view the test asserts on.
+        captured["entry_inputs"] = {
+            "label": label,
+            "smiles": smiles,
+            "params": params,
+            **rest,
+        }
         captured["entry_workdir"] = ctx.workdir
         return "ok"
 
@@ -135,8 +147,8 @@ async def test_subworkflow_entry_merges_element_with_params_and_workdir(
     outer.add(SubWorkflow(inner), name="sub")
 
     @outer.task
-    async def collect(ctx: TaskContext) -> list[str]:
-        return list(ctx.inputs)
+    async def collect(items: list[str]) -> list[str]:
+        return list(items)
 
     outer.parallel(map_over="emit", body="sub", join="collect", max_concurrency=1)
 

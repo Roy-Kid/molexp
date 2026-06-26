@@ -6,11 +6,17 @@ import pytest
 
 
 @pytest.mark.unit
-def test_list_targets_empty(client):
+def test_list_targets_includes_builtin_local(client):
+    """An empty workspace still exposes the built-in ``local`` target so a run
+    can always be started on this machine from the UI."""
     resp = client.get("/api/targets")
     assert resp.status_code == 200
     body = resp.json()
-    assert body == {"targets": [], "total": 0}
+    assert body["total"] == 1
+    (local,) = body["targets"]
+    assert local["name"] == "local"
+    assert local["isRemote"] is False
+    assert local["scheduler"] == "local"
 
 
 @pytest.mark.unit
@@ -92,14 +98,16 @@ def test_list_then_delete(client):
         "/api/targets",
         json={"name": "tmp", "scratchRoot": "/tmp/x", "scheduler": "local"},
     )
+    # The list carries the registered "tmp" plus the always-present built-in "local".
     listed = client.get("/api/targets").json()
-    assert listed["total"] == 1
+    assert {t["name"] for t in listed["targets"]} == {"local", "tmp"}
 
     resp = client.delete("/api/targets/tmp")
     assert resp.status_code == 204
 
+    # The built-in "local" remains after deleting the only registered target.
     listed = client.get("/api/targets").json()
-    assert listed["total"] == 0
+    assert {t["name"] for t in listed["targets"]} == {"local"}
 
 
 @pytest.mark.unit

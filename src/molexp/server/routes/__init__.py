@@ -14,8 +14,10 @@ from . import (
     catalog,
     execution,
     experiment,
+    knowledge,
     molq,
     plan_tasks,
+    plans,
     preview,
     project,
     registry,
@@ -78,7 +80,10 @@ def create_api_router() -> APIRouter:
     api_router.include_router(agent.router)
     api_router.include_router(agent_admin.router)
     api_router.include_router(agent_tasks.router)
+    api_router.include_router(knowledge.router)
     api_router.include_router(plan_tasks.router)
+    api_router.include_router(plans.router)
+    api_router.include_router(plans.flat_router)
     api_router.include_router(project.router)
     api_router.include_router(experiment.router)
     api_router.include_router(run.router)

@@ -25,7 +25,6 @@ import {
   EntityPage,
   StatusIcon,
 } from "@/app/components/entity";
-import { PlanComposer } from "@/app/components/PlanComposer";
 import { countRunStatuses, formatDuration, formatScalar } from "@/app/renderers/dashboardData";
 import { ExperimentCompare } from "@/app/renderers/ExperimentCompare";
 import { buildExperimentWorkbenchData } from "@/app/renderers/entityWorkbenchData";
@@ -408,13 +407,6 @@ export const ExperimentViewer = ({
 
   const overviewContent = (
     <DashboardGrid>
-      <DashboardCard title="Generate plan with AI" className="lg:col-span-12">
-        <PlanComposer
-          projectId={projectId}
-          experimentId={experimentId}
-          onPlanComplete={onRefresh}
-        />
-      </DashboardCard>
       <DashboardCard title="Experiment details" className="lg:col-span-8">
         <dl className="grid gap-x-6 gap-y-3 md:grid-cols-2">
           <div className="min-w-0">

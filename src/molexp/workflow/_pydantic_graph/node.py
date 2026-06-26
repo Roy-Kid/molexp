@@ -23,13 +23,16 @@ Module surface:
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+import inspect
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 from pydantic_graph import End
 
 from ..context import TaskContext
+from ..outputs import RegisterArtifact, RegisterMetric
 from ..protocols import (
     Runnable,
     Streamable,
@@ -286,16 +289,187 @@ async def run_task_body(
         if remote_executor is not None:
             return await remote_executor.execute_remote(
                 entry=registration,
-                inputs=task_ctx.inputs,
+                inputs=inputs,
                 run_dir=getattr(deps, "run_dir", None),
             )
 
-    return await _invoke_body_with_ctx(registration, task_ctx)
+    raw = await _invoke_body_with_ctx(registration, task_ctx, inputs, effective_config)
+    return _promote_outputs(raw, deps.run_context)
+
+
+def _promote_outputs(output: TaskOutput, run_context: object) -> TaskOutput:
+    """Resolve ``RegisterArtifact`` / ``RegisterMetric`` markers in a task output.
+
+    A task stays pure (writes only under ``ctx.workdir``); to surface a file or
+    metric as a run-scoped product it returns the marker as an output value.
+    Here — where the engine still holds ``run_context`` — we perform the side
+    effect (copy+register the artifact under ``<run_dir>/artifacts/``; append the
+    scalar to the run's metrics) and replace the marker with a plain value (the
+    artifact's run path / the metric number) so downstream tasks bind cleanly.
+    Without a workspace ``run_context`` the markers degrade to their bare value.
+    """
+    if not isinstance(output, dict) or not any(
+        isinstance(v, (RegisterArtifact, RegisterMetric)) for v in output.values()
+    ):
+        return output
+
+    artifact = getattr(run_context, "artifact", None)
+    metrics = getattr(run_context, "metrics", None)
+    run_dir = getattr(run_context, "run_dir", None)
+    promoted: dict = {}
+    for key, value in output.items():
+        if isinstance(value, RegisterArtifact):
+            path = Path(value.path)
+            if artifact is not None:
+                asset = artifact.save(
+                    value.name or path.name, path, tags=value.tags, mime=value.mime
+                )
+                promoted[key] = (
+                    str(Path(run_dir) / asset.path) if run_dir is not None else str(path)
+                )
+            else:
+                promoted[key] = str(path)
+        elif isinstance(value, RegisterMetric):
+            if metrics is not None:
+                metrics.scalar(value.key, value.value, value.step, tags=value.tags)
+            promoted[key] = value.value
+        else:
+            promoted[key] = value
+    return promoted
+
+
+class MissingTaskInputError(TypeError):
+    """A task declares a required parameter with no matching input and no default."""
+
+
+def _binding_source(inputs: TaskInput, depends_on: list[str]) -> Any:  # noqa: ANN401 (dynamic binding map)
+    """The flat ``name → value`` map a task body's parameters bind from.
+
+    - Root task: the engine envelope ``{"params": <run params>, "workdir": Path}``
+      — bind from the run params, so unwrap to ``inputs["params"]``.
+    - Multiple upstreams: ``inputs`` is ``{dep → output}``; the by-name model
+      merges the per-dep dict outputs into one flat map (the ``task(**a, **b)``
+      shape). Later deps win on key collisions.
+    - Single upstream: its output directly (a dict binds by name; a scalar binds
+      positionally to a sole free parameter).
+    """
+    if len(depends_on) > 1 and isinstance(inputs, dict):
+        merged: dict = {}
+        for dep in depends_on:
+            value = inputs.get(dep)
+            if isinstance(value, dict):
+                merged.update(value)
+            elif value is not None:
+                # A scalar upstream output binds by its dependency name, so a
+                # consumer can still receive it as a parameter named after the dep.
+                merged[dep] = value
+        return merged
+    if isinstance(inputs, dict):
+        if set(inputs) <= {"params", "workdir"} and isinstance(inputs.get("params"), dict):
+            return inputs["params"]
+        return inputs
+    return inputs
+
+
+def _is_ctx_param(p: inspect.Parameter) -> bool:
+    """True if *p* is the optional leading ``ctx`` (TaskContext) parameter."""
+    if p.name == "ctx":
+        return True
+    ann = p.annotation
+    return isinstance(ann, str) and "TaskContext" in ann
+
+
+def _bind_call_args(
+    func: Callable,
+    task_ctx: TaskContext,
+    inputs: TaskInput,
+    config: JSONMapping,
+    depends_on: list[str],
+) -> tuple[list, dict]:
+    """Bind *func*'s parameters by name from the task's inputs.
+
+    The optional leading ``ctx`` parameter receives the ``TaskContext`` (workdir
+    / artifacts); every other parameter is filled by name from the merged map
+    {build-time config (incl. ``dependent_params`` overlay)} | {upstream outputs
+    | run params}, where the dynamic inputs win. A single non-dict upstream value
+    binds positionally to the sole remaining free parameter; a ``**kwargs``
+    parameter absorbs the rest (the ``task(**upstream)`` shape). A required
+    parameter with no matching input and no default raises
+    :class:`MissingTaskInputError`.
+
+    A body whose only parameter is ``ctx`` reduces to ``func(ctx)`` — the legacy
+    contract — so existing ``execute(self, ctx)`` tasks are unchanged.
+    """
+    params = [
+        p
+        for p in inspect.signature(func).parameters.values()
+        if p.kind in (p.POSITIONAL_OR_KEYWORD, p.KEYWORD_ONLY, p.VAR_KEYWORD)
+    ]
+    args: list = []
+    kwargs: dict = {}
+    has_ctx = (
+        bool(params)
+        and params[0].kind != inspect.Parameter.VAR_KEYWORD
+        and _is_ctx_param(params[0])
+    )
+    if has_ctx:
+        args.append(task_ctx)
+    free = params[1:] if has_ctx else params
+    named = [p for p in free if p.kind != inspect.Parameter.VAR_KEYWORD]
+    has_var_kw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in free)
+
+    base = dict(config) if isinstance(config, Mapping) else {}
+    raw = _binding_source(inputs, depends_on)
+    if isinstance(raw, dict):
+        name_source = {**base, **raw}  # dynamic inputs win over build-time config
+        single: Any = None
+    else:
+        name_source = base
+        single = raw  # a single non-dict upstream value (or None for no input)
+
+    bound: set[str] = set()
+    for p in named:
+        if p.name in name_source:
+            kwargs[p.name] = name_source[p.name]
+            bound.add(p.name)
+    # A single non-dict value binds positionally to the sole still-unbound param.
+    if single is not None:
+        remaining = [p for p in named if p.name not in bound]
+        if len(named) == 1:
+            kwargs[named[0].name] = single
+            bound.add(named[0].name)
+        elif len(remaining) == 1 and remaining[0].default is inspect.Parameter.empty:
+            kwargs[remaining[0].name] = single
+            bound.add(remaining[0].name)
+    for p in named:
+        if p.name not in bound and p.default is inspect.Parameter.empty:
+            raise MissingTaskInputError(
+                f"task body {getattr(func, '__qualname__', func)!r} requires "
+                f"{p.name!r} but it was not delivered (have: {sorted(name_source)})"
+            )
+    # ``**kwargs`` soaks up everything not already bound (the task(**upstream) shape).
+    if has_var_kw:
+        kwargs.update({k: v for k, v in name_source.items() if k not in bound})
+    return args, kwargs
+
+
+def _bound_call(
+    func: Callable,
+    task_ctx: TaskContext,
+    inputs: TaskInput,
+    config: JSONMapping,
+    depends_on: list[str],
+) -> Any:  # noqa: ANN401 (returns the task body's own output)
+    """Call *func* with parameters bound by name from the task inputs."""
+    args, kwargs = _bind_call_args(func, task_ctx, inputs, config, depends_on)
+    return func(*args, **kwargs)
 
 
 async def _invoke_body_with_ctx(
     registration: TaskRegistration,
     task_ctx: TaskContext[Any, TaskInput],
+    inputs: TaskInput,
+    config: JSONMapping,
 ) -> TaskOutput:
     """Dispatch a registered task's body against a *pre-built* TaskContext.
 
@@ -307,9 +481,9 @@ async def _invoke_body_with_ctx(
     """
     body = registration.fn_or_class
 
-    # OOP Task subclass — invoke .execute(ctx).
+    # OOP Task subclass — invoke .execute(ctx, **inputs-by-name).
     if isinstance(body, Task):
-        return await body.execute(task_ctx)
+        return await _bound_call(body.execute, task_ctx, inputs, config, registration.depends_on)
 
     # OOP Actor subclass — drain the async generator.
     if isinstance(body, Actor):
@@ -320,7 +494,7 @@ async def _invoke_body_with_ctx(
 
     # Third-party Runnable (anything with .execute) — protocol path.
     if isinstance(body, Runnable):
-        return await body.execute(task_ctx)
+        return await _bound_call(body.execute, task_ctx, inputs, config, registration.depends_on)
 
     # Third-party Streamable (anything with .run async generator).
     if isinstance(body, Streamable):
@@ -340,9 +514,12 @@ async def _invoke_body_with_ctx(
             last3 = chunk
         return last3
 
-    # Decorator-task: plain async function.
+    # Decorator-task: plain async function — bind params by name (ctx optional).
     if callable(body):
-        return await cast("Callable[..., Awaitable[TaskOutput]]", body)(task_ctx)
+        return await cast(
+            "Awaitable[TaskOutput]",
+            _bound_call(body, task_ctx, inputs, config, registration.depends_on),
+        )
 
     raise TypeError(
         f"Task '{registration.name}' is neither Task / Actor / Runnable / "

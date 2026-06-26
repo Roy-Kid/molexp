@@ -179,19 +179,18 @@ class TaskContext[StateT, InputT]:
         object.__setattr__(self, "_workdir", workdir)
 
     @property
-    def inputs(self) -> InputT:
-        """Runtime data flowing in along the edges."""
-        return self._inputs
-
-    @property
     def workdir(self) -> Path | None:
-        """Content-addressed scratch directory for this task (``None`` if absent)."""
-        return self._workdir
+        """Content-addressed scratch directory for this task (``None`` if absent).
 
-    @property
-    def config(self) -> JSONMapping:
-        """Read-only mapping of build-time configuration."""
-        return self._config
+        This is the **only** data surface a task body reads off ``ctx``. Runtime
+        inputs are no longer reached through the context — they are bound to the
+        body's own typed parameters by name (``def task(ctx, sigma: float = 1.0)``;
+        the engine fills ``sigma`` from {upstream outputs} | {run params}). The
+        former ``ctx.inputs`` / ``ctx.config`` are gone from the public surface;
+        the underlying values survive as private slots only so engine-internal
+        adapters (SubWorkflow / capability injection) can read them.
+        """
+        return self._workdir
 
     @property
     def state(self) -> StateT | ReadOnlyStateView | Mapping[Any, Any] | None:

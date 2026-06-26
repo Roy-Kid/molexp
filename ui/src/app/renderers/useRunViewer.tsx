@@ -87,7 +87,9 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
     let cancelled = false;
     setLogsError(null);
 
-    if (!runId || !runProjectId || !runExperimentId || activeTab !== "logs") {
+    // Fetch eagerly (not only on the logs tab) so the RunViewer can decide
+    // whether to surface the Logs tab at all — the files are tiny.
+    if (!runId || !runProjectId || !runExperimentId) {
       return;
     }
 

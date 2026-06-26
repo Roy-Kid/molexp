@@ -53,6 +53,10 @@ export const entityPath = (ref: EntityRef, snapshot: WorkspaceSnapshot): string 
     case "agent":
       return ref.id === "new" ? "/agent-tasks/new" : `/agent-tasks/${enc(ref.id)}`;
 
+    case "knowledge":
+      // id is a bundle-relative concept path (may contain "/"); bare id → browse.
+      return ref.id ? `/knowledge/${ref.id.split("/").map(enc).join("/")}` : "/knowledge";
+
     case "workspace-file":
       // Files carry their kind in the query string; callers that have the file
       // kind should build the path via ``fileEntityPath`` instead.
@@ -69,5 +73,6 @@ export const SECTION_PATH = {
   workflows: "/workflows",
   assets: "/assets",
   agents: "/agent-tasks",
+  knowledge: "/knowledge",
   settings: "/settings",
 } as const;

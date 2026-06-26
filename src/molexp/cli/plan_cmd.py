@@ -29,7 +29,10 @@ if TYPE_CHECKING:
     from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.registry.capability_registry import CapabilityRegistry
-    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
+    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ModeResult
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+    from molexp.workspace import Workspace
+    from molexp.workspace.models import ComputeTarget
     from molexp.workspace.run import Run
 
 __all__ = ["plan"]
@@ -38,14 +41,21 @@ _DRAFT_PREVIEW_CHARS = 80
 
 
 class InteractiveApprover:
-    """``Approver`` for ``molexp plan``'s experiment-report review checkpoint.
+    """``Approver`` for ``molexp plan``'s review checkpoints.
 
     A callable approver (mirrors the ``Approver`` protocol via
     :meth:`__call__`). It **auto-grants without prompting** when ``assume_yes``
     is set or stdin is not a TTY (CI, pipes, the test runner) — so
-    non-interactive pipelines never block; on an interactive terminal it prints
-    the latest ``experiment_report`` and prompts ``[y/N]`` before the plan
-    compiles. ``PlanMode(approver=InteractiveApprover(...))`` wires it in.
+    non-interactive pipelines never block. On an interactive terminal it gates
+    each checkpoint, branching on the request intent:
+
+    - ``experiment_spec`` — the **pre-compile** gate. Prints the concrete
+      ``experiment_spec`` (the resolved variables/conditions + answered
+      questions) and prompts ``[y/N]`` BEFORE the spec is fed to the LLM to
+      build the workflow. A rejection stops the pipeline before any IR/source.
+    - ``final_report`` — the terminal whole-plan review.
+
+    ``PlanMode(approver=InteractiveApprover(...))`` wires it into both gates.
     """
 
     def __init__(self, *, run: Run, assume_yes: bool = False) -> None:
@@ -71,22 +81,13 @@ class InteractiveApprover:
                 reason="auto-granted (non-interactive: --yes or no TTY)",
             )
 
-        from molexp.cli._common import rprint
-        from molexp.harness.schemas import ExperimentReport
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-        store = FileArtifactStore(root=Path(self._run.run_dir / "artifacts"))
-        ref = store.latest_by_kind("experiment_report")
-        if ref is not None:
-            report = ExperimentReport.model_validate_json(store.get(ref.id))
-            rprint("\n[bold]Review the experiment report before compiling:[/bold]")
-            rprint(f"  title      : {report.title}")
-            rprint(f"  objective  : {report.objective}")
-            rprint(f"  system     : {report.system_description}")
-            rprint(f"  design     : {report.experimental_design}")
-            if report.assumptions:
-                rprint(f"  assumptions: {'; '.join(report.assumptions)}")
-        answer = input(f"Approve this experiment report? [{request.intent}] [y/N] ").strip().lower()
+        if request.intent == "experiment_spec":
+            self._print_spec()
+            prompt = "Approve this spec and compile the workflow?"
+        else:
+            self._print_final_summary()
+            prompt = "Approve this plan as final?"
+        answer = input(f"{prompt} [{request.intent}] [y/N] ").strip().lower()
         return ApprovalDecision(
             request_id=request.id,
             granted=answer in ("y", "yes"),
@@ -94,6 +95,43 @@ class InteractiveApprover:
             decided_at=datetime.now(tz=UTC),
             reason=f"operator answered {answer!r}",
         )
+
+    def _store(self) -> FileArtifactStore:
+        from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+        return FileArtifactStore(root=Path(self._run.run_dir / "artifacts"))
+
+    def _print_spec(self) -> None:
+        """Print the concrete experiment_spec the operator approves pre-compile."""
+        import json
+
+        from molexp.cli._common import rprint
+
+        store = self._store()
+        ref = store.latest_by_kind("experiment_spec")
+        rprint("\n[bold]Review the concrete spec before compiling the workflow:[/bold]")
+        if ref is None:
+            rprint("  (no experiment_spec artifact found)")
+            return
+        spec = json.loads(store.get(ref.id))
+        rprint(f"  title     : {spec.get('title')}")
+        rprint(f"  objective : {spec.get('objective')}")
+        for v in spec.get("variables", []):
+            val = (v.get("value") or {}).get("value")
+            rprint(f"  variable  : {v.get('name')} = {val} {v.get('unit') or ''}".rstrip())
+        for q in spec.get("resolved_questions", []):
+            rprint(f"  resolved  : {q.get('question')} -> {q.get('answer')}")
+
+    def _print_final_summary(self) -> None:
+        """Print a brief whole-plan summary for the terminal review gate."""
+        from molexp.cli._common import rprint
+
+        store = self._store()
+        rprint("\n[bold]Review the full verified plan:[/bold]")
+        has_source = store.latest_by_kind("workflow_source") is not None
+        has_dry = store.latest_by_kind("execution_result") is not None
+        rprint(f"  workflow source generated : {has_source}")
+        rprint(f"  compiled / dry-ran        : {has_dry}")
 
 
 def _configured_model() -> str | None:
@@ -136,18 +174,10 @@ class PlanRuntime:
         from molexp.agent import PydanticAIRouter
         from molexp.agent.router import ModelTier
         from molexp.harness import RouterBackedAgentGateway
-        from molexp.harness.prompts import prompts_by_agent
-        from molexp.harness.prompts.workflow_source import (
-            SYSTEM_PROMPT as WORKFLOW_SOURCE_SYSTEM_PROMPT,
-        )
-        from molexp.harness.schemas import (
-            BoundWorkflow,
-            ExperimentReport,
-            FinalReport,
-            TestSource,
-            TestSpecBundle,
-            WorkflowIR,
-            WorkflowSource,
+        from molexp.harness.gateways import (
+            plan_agent_responses,
+            plan_output_kinds,
+            plan_system_prompts,
         )
         from molexp.harness.store.file_artifact_store import FileArtifactStore
 
@@ -156,28 +186,9 @@ class PlanRuntime:
         return RouterBackedAgentGateway(
             router=router,
             artifact_store=store,
-            agent_responses={
-                "experiment_report_writer": ExperimentReport,
-                "workflow_ir_extractor": WorkflowIR,
-                "bound_workflow_binder": BoundWorkflow,
-                "workflow_source_writer": WorkflowSource,
-                "test_spec_writer": TestSpecBundle,
-                "test_code_writer": TestSource,
-                "final_report_writer": FinalReport,
-            },
-            output_kind_by_agent={
-                "experiment_report_writer": "experiment_report",
-                "workflow_ir_extractor": "workflow_ir",
-                "bound_workflow_binder": "bound_workflow",
-                "workflow_source_writer": "workflow_source",
-                "test_spec_writer": "test_spec",
-                "test_code_writer": "test_source",
-                "final_report_writer": "final_report",
-            },
-            system_prompt_by_agent={
-                **prompts_by_agent(),
-                "workflow_source_writer": WORKFLOW_SOURCE_SYSTEM_PROMPT,
-            },
+            agent_responses=plan_agent_responses(),
+            output_kind_by_agent=plan_output_kinds(),
+            system_prompt_by_agent=plan_system_prompts(),
             model=model,
         )
 
@@ -248,8 +259,10 @@ def plan(
         bool,
         typer.Option(
             "--execute",
-            help="After planning, chain RunMode on the same run: generate + run "
-            "tests, execute the workflow, and produce the final report.",
+            help="After the plan is reviewed (step 8), run the workflow for real "
+            "on the same run: the opt-in execution tail (real pytest + engine) "
+            "plus the final report and audit. Off by default — the plan stops at "
+            "the execution report.",
         ),
     ] = False,
     yes: Annotated[
@@ -295,13 +308,15 @@ def plan(
     # Content-addressed run id: the same draft maps to the same Run, so the
     # per-run completion ledger resumes instead of starting a fresh pipeline.
     params: dict[str, JSONValue] = {"mode": "plan", "draft": draft_text}
-    run = (
-        ws.add_project(project)
-        .add_experiment(experiment)
-        .add_run(params, id=deterministic_run_id(params))
-    )
+    exp = ws.add_project(project).add_experiment(experiment)
+    run = exp.add_run(params, id=deterministic_run_id(params))
 
-    mode = PlanMode(approver=InteractiveApprover(run=run, assume_yes=yes))
+    mode = PlanMode(
+        approver=InteractiveApprover(run=run, assume_yes=yes),
+        executor=PlanRuntime.build_executor(),
+        execute=execute,
+        compute_target=_resolve_compute_target(run, ws),
+    )
     stage_names = [stage.name for stage in mode.stages(draft_text)]
     preview = draft_text.strip().splitlines()[0][:_DRAFT_PREVIEW_CHARS]
     rprint(f"[bold]molexp plan[/bold] — {len(stage_names)} stages on run [bold]{run.id}[/bold]")
@@ -333,13 +348,25 @@ def plan(
     for name, ref in zip(stage_names, result.stage_artifacts, strict=True):
         rprint(f"  {name:<26} {ref.kind:<20} {ref.id}")
 
+    # Materialize the SAME UI-facing records the server's `POST /plan-tasks`
+    # writes — persist the workflow IR onto the experiment + record the Agents
+    # session (with the deliverables locator) and Knowledge note — so a plan
+    # produced here is identical, in the UI, to one generated from the web app.
+    from molexp.server.plan_runtime.materialize import materialize_plan_records
+
+    task_id = f"plan-{run.id}"
+    materialize_plan_records(
+        run=run,
+        experiment=exp,
+        workspace_root=str(workspace_root),
+        task_id=task_id,
+        draft=draft_text,
+        model=resolved_model,
+    )
+    rprint(f"  ui session: [bold]{task_id}[/bold] (open the Agents tab to see this plan)")
+
     if execute:
-        _execute_run_mode(
-            run=run,
-            draft_text=draft_text,
-            gateway=gateway,
-            capability_registry=capability_registry,
-        )
+        _print_final_report(run, result)
 
     rprint(f"\n  artifacts : {run.run_dir / 'artifacts'}")
     rprint(f"  audit db  : {run.run_dir / 'harness.sqlite'}  (events + artifact lineage)")
@@ -349,55 +376,29 @@ def plan(
     )
 
 
-def _execute_run_mode(
-    *,
-    run: Run,
-    draft_text: str,
-    gateway: AgentGateway,
-    capability_registry: CapabilityRegistry | None = None,
-) -> None:
-    """Chain RunMode after PlanMode on the same content-addressed Run.
+def _resolve_compute_target(run: Run, ws: Workspace) -> ComputeTarget | None:
+    """Resolve the run's intended ``ComputeTarget`` from the workspace registry.
 
-    The generated tests gate the real execution; stage failures surface with
-    the same ledger-resume hint as the planning half (RunMode keeps its own
-    per-run ledger, keyed by mode name + draft).
+    ``RunMetadata.target`` names a target registered in
+    ``WorkspaceMetadata.targets``; the step-9 execution report describes it.
+    A fresh workspace with no targets resolves to ``None`` (a local default).
     """
+    target_name = getattr(run.metadata, "target", None)
+    if not target_name:
+        return None
+    targets = getattr(getattr(ws, "metadata", None), "targets", []) or []
+    return next((t for t in targets if t.name == target_name), None)
+
+
+def _print_final_report(run: Run, result: ModeResult) -> None:
+    """Print the final report produced by the ``--execute`` tail."""
     from molexp.cli._common import rprint
-    from molexp.harness import FinalReport, RunMode, StageExecutionError
+    from molexp.harness import FinalReport
     from molexp.harness.store.file_artifact_store import FileArtifactStore
-
-    mode = RunMode(executor=PlanRuntime.build_executor())
-    stage_names = [stage.name for stage in mode.stages(draft_text)]
-    rprint(
-        f"\n[bold]molexp plan --execute[/bold] — chaining RunMode "
-        f"({len(stage_names)} stages) on run [bold]{run.id}[/bold]"
-    )
-    rprint(f"  stages    : {' -> '.join(stage_names)}")
-
-    try:
-        result = asyncio.run(
-            mode.run(
-                run=run,
-                user_input=draft_text,
-                gateway=gateway,
-                capability_registry=capability_registry,
-            )
-        )
-    except StageExecutionError as exc:
-        rprint(f"[red]Run pipeline failed:[/red] {exc}")
-        rprint(
-            "[dim]Completed stages stay in the run's completion ledger — "
-            "re-running the same draft with --execute resumes from the failed stage.[/dim]"
-        )
-        raise typer.Exit(1) from exc
-
-    rprint("\n[green]OK[/green] run-mode stages completed — stage artifacts:")
-    for name, ref in zip(stage_names, result.stage_artifacts, strict=True):
-        rprint(f"  {name:<26} {ref.kind:<20} {ref.id}")
 
     report_ref = next((a for a in result.stage_artifacts if a.kind == "final_report"), None)
     if report_ref is None:
-        rprint("[yellow]No final_report artifact found after RunMode.[/yellow]")
+        rprint("[yellow]No final_report artifact found after execution.[/yellow]")
         return
     store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
     report = FinalReport.model_validate_json(store.get(report_ref.id))

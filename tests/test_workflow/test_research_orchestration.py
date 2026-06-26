@@ -20,7 +20,7 @@ from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
 @pytest.mark.asyncio
 class TestDependentParams:
     async def test_resolves_from_upstream_output_into_config(self) -> None:
-        """Downstream sees dependent_params(prev) merged into TaskContext.config."""
+        """A dependent_params(prev) overlay binds to the downstream body's param by name."""
         wf = WorkflowCompiler(name="dep-params")
 
         @wf.task
@@ -31,24 +31,29 @@ class TestDependentParams:
             depends_on=["cooling"],
             dependent_params=lambda prev: {"T": 0.7 * prev["cooling"].output["Tg"]},
         )
-        async def mechanical(ctx: TaskContext) -> float:
-            return float(ctx.config["T"])
+        async def mechanical(T: float) -> float:  # 'T' is delivered by dependent_params
+            return float(T)
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.status == "completed"
         assert result.outputs["mechanical"] == pytest.approx(0.42)
 
     async def test_no_dependent_params_keeps_config_unchanged(self) -> None:
-        """Sanity: tasks without dependent_params don't get spurious config."""
+        """Sanity: tasks without dependent_params get no spurious bound input.
+
+        Under by-name dataflow the former ``ctx.config`` overlay surfaces as a
+        bound parameter; a task that declares no ``dependent_params`` must see
+        no ``T`` among its delivered inputs.
+        """
         wf = WorkflowCompiler(name="dep-params-absent")
 
         @wf.task
-        async def upstream(ctx: TaskContext) -> int:
-            return 1
+        async def upstream(ctx: TaskContext) -> dict:
+            return {"value": 1}
 
         @wf.task(depends_on=["upstream"])
-        async def downstream(ctx: TaskContext) -> bool:
-            return "T" not in ctx.config
+        async def downstream(**inputs: object) -> bool:
+            return "T" not in inputs
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.outputs["downstream"] is True

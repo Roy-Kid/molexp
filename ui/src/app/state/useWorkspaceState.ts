@@ -65,6 +65,7 @@ const VIEW_POLL_SLICES: Record<LeftPanelView, readonly SnapshotSlice[]> = {
   asset: ["workspaces", "projectsList", "assets"],
   runs: [],
   agent: [],
+  knowledge: [],
   settings: [],
 };
 

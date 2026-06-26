@@ -111,8 +111,8 @@ async def test_workflow_executes_without_per_task_codegen():
         return 1
 
     @wf.task(depends_on=["a"])
-    async def b(ctx: TaskContext) -> int:
-        return ctx.inputs + 1
+    async def b(value: int) -> int:
+        return value + 1
 
     result = await WorkflowRuntime().execute(wf.compile())
     assert result.status == "completed"

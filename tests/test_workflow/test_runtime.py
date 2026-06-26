@@ -23,9 +23,18 @@ class _RunContextStub:
     No ``Workspace`` import.
     """
 
-    def __init__(self, *, work_dir: Path, config: dict | None = None, run_id: str | None = None):
+    def __init__(
+        self,
+        *,
+        work_dir: Path,
+        config: dict | None = None,
+        run_id: str | None = None,
+        params: dict | None = None,
+    ):
         self.work_dir = work_dir
         self.config = config or {}
+        # Root-task params reach the body by name (engine reads run_context.params).
+        self.params = params or {}
         self.run = type(
             "RunStub",
             (),
@@ -39,8 +48,8 @@ class TestFunctionalExecution:
         wf = WorkflowCompiler(name="single")
 
         @wf.task
-        async def double(ctx: TaskContext) -> int:
-            return (ctx.inputs or 5) * 2
+        async def double(x: int = 5) -> int:
+            return x * 2
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.status == "completed"
@@ -54,8 +63,8 @@ class TestFunctionalExecution:
             return 10
 
         @wf.task(depends_on=["step_a"])
-        async def step_b(ctx: TaskContext) -> int:
-            return ctx.inputs + 5
+        async def step_b(step_a: int) -> int:
+            return step_a + 5
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.outputs == {"step_a": 10, "step_b": 15}
@@ -154,11 +163,14 @@ class TestFunctionalExecution:
     async def test_config_is_plain_mapping(self, tmp_path):
         wf = WorkflowCompiler(name="plain-config")
 
+        # Build-time/runtime config now reaches a root task as a by-name run
+        # param: the engine binds ``epochs`` from the run's params dict.
         @wf.task
-        async def inspect(ctx: TaskContext) -> int:
-            return ctx.config["epochs"]
+        async def inspect(epochs: int) -> int:
+            return epochs
 
-        result = await WorkflowRuntime().execute(wf.compile(), config={"epochs": 42})
+        run_ctx = _RunContextStub(work_dir=tmp_path / "run", params={"epochs": 42})
+        result = await WorkflowRuntime().execute(wf.compile(), run_context=run_ctx)
         assert result.outputs["inspect"] == 42
 
 
@@ -166,8 +178,8 @@ class TestFunctionalExecution:
 class TestOOPExecution:
     async def test_task_subclass(self):
         class AddTen(Task):
-            async def execute(self, ctx: TaskContext) -> int:
-                return (ctx.inputs or 0) + 10
+            async def execute(self, ctx: TaskContext, value: int = 0) -> int:
+                return value + 10
 
         spec = WorkflowCompiler(name="oop").add(AddTen()).compile()
         result = await WorkflowRuntime().execute(spec)
@@ -191,8 +203,8 @@ class TestProtocolExecution:
                 return 10
 
         class External:
-            async def execute(self, ctx) -> int:
-                return ctx.inputs + 90
+            async def execute(self, ctx, oop) -> int:
+                return oop + 90
 
         spec = (
             WorkflowCompiler(name="mixed")
@@ -224,20 +236,23 @@ class TestParallelExecution:
         wf = WorkflowCompiler(name="diamond")
 
         @wf.task
-        async def root(ctx):
+        async def root():
             return 1
 
+        # Single scalar upstream binds positionally to the sole free parameter.
         @wf.task(depends_on=["root"])
-        async def left(ctx):
-            return ctx.inputs + 10
+        async def left(root) -> dict:
+            return {"left": root + 10}
 
         @wf.task(depends_on=["root"])
-        async def right(ctx):
-            return ctx.inputs + 20
+        async def right(root) -> dict:
+            return {"right": root + 20}
 
+        # Two upstreams: their dict outputs MERGE into one flat name→value map,
+        # and the body binds each by name.
         @wf.task(depends_on=["left", "right"])
-        async def merge(ctx):
-            return ctx.inputs["left"] + ctx.inputs["right"]
+        async def merge(left: int, right: int):
+            return left + right
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.outputs["merge"] == 32
