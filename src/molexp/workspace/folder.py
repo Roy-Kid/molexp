@@ -733,14 +733,21 @@ class Folder:
                 "(it uses OS-level shutil.move); remote-backed folders cannot be moved."
             )
         target_id = self._name if new_name is None else _validate_name_to_id(new_name)
-        target_dir = Path(new_parent._fs.join(new_parent.path(), target_id))
+        # Honor the child class's container layout (``runs/run-<id>``,
+        # ``projects/<id>``, …) via the same ``child_dir`` hook that mounting
+        # uses — a naive ``new_parent.path()/id`` join would strand the moved
+        # folder outside its container and hide it from ``list_folders``.
+        target_dir = Path(type(self).child_dir(new_parent, target_id))
         if new_parent._fs.exists(target_dir):
             raise FolderMoveCollisionError(str(self.resolve()), str(target_dir))
         src = self.resolve()
-        dst = target_dir
-        shutil.move(str(src), str(dst))
-        if self._parent is not None:
-            self._parent._children_cache.pop(self._name, None)
+        old_parent = self._parent
+        # ``shutil.move`` only creates the final path component, so ensure the
+        # container dir (``runs/``, ``projects/``, …) exists under the new parent.
+        new_parent._fs.mkdir(new_parent._fs.dirname(target_dir), parents=True, exist_ok=True)
+        shutil.move(str(src), str(target_dir))
+        if old_parent is not None:
+            old_parent._children_cache.pop(self._name, None)
         self._parent = new_parent
         self._root_path = None
         self._fs = new_parent._fs
@@ -755,6 +762,11 @@ class Folder:
         new_parent._children_cache[target_id] = self
         meta_path = new_parent._fs.join(target_dir, _METADATA_FILENAME)
         _save_metadata(self._metadata, meta_path, fs=new_parent._fs)
+        # Children indexes are derived; rebuild both endpoints from on-disk truth
+        # so a typed ``list_folders(cls=…)`` on either parent reflects the move.
+        if old_parent is not None:
+            old_parent.sync_folders(cls=type(self))
+        new_parent.sync_folders(cls=type(self))
 
 
 def append_link(src: Folder, dst: Folder, *, text: str | None = None) -> None:

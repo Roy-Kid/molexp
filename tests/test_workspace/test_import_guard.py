@@ -112,3 +112,48 @@ def test_workspace_init_does_not_load_workflow_or_agent() -> None:
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+# ── Curation subpackage allow-set ────────────────────────────────────────────
+#
+# ``molexp.workspace.curation`` composes existing workspace primitives. As a
+# member of the workspace layer it may import the cross-layer identity / path
+# / profile primitives and any intra-``molexp.workspace`` module — nothing
+# else. This guard is RED until the package exists (the dir-existence
+# assertion documents that it is not yet implemented), then it pins the
+# subpackage's import surface using the same AST walk as the deny-list above.
+
+CURATION_ROOT = WORKSPACE_ROOT / "curation"
+
+CURATION_ALLOWED_MOLEXP: frozenset[str] = frozenset(
+    {"molexp._typing", "molexp.profile", "molexp.path", "molexp.ids"}
+)
+
+
+def _curation_import_allowed(module: str) -> bool:
+    """Allow the four cross-layer primitives plus any intra-workspace module."""
+    return module in CURATION_ALLOWED_MOLEXP or module.startswith("molexp.workspace")
+
+
+def test_curation_subpackage_allowed_imports() -> None:
+    """Every ``molexp.*`` import under ``workspace/curation/`` is in the allow-set.
+
+    Reuses :func:`_files_importing` with the broad ``"molexp"`` prefix to
+    enumerate every absolute ``molexp.*`` import in the subpackage, then
+    rejects any that is neither a sanctioned cross-layer primitive nor an
+    intra-``molexp.workspace`` import.
+    """
+    assert CURATION_ROOT.exists(), (
+        "molexp.workspace.curation is not implemented yet "
+        f"(expected package directory at {CURATION_ROOT})"
+    )
+    offenders = [
+        f"{path.relative_to(WORKSPACE_ROOT)}:{lineno}: {module}"
+        for path, lineno, module in _files_importing("molexp", CURATION_ROOT)
+        if not _curation_import_allowed(module)
+    ]
+    assert not offenders, (
+        "molexp.workspace.curation may import only the cross-layer primitives "
+        f"{sorted(CURATION_ALLOWED_MOLEXP)} plus intra-workspace modules.\n"
+        "Offenders:\n  " + "\n  ".join(offenders)
+    )
