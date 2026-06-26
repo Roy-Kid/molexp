@@ -26,6 +26,7 @@ from molexp.harness.schemas.bound_workflow import (
     ResourcePolicy,
 )
 from molexp.harness.schemas.capability import ToolCapability
+from molexp.harness.schemas.capability_invocation import CapabilityInvocationResult
 from molexp.harness.schemas.capability_selection import (
     CapabilitySelection,
     SelectedCapability,
@@ -78,6 +79,7 @@ __all__ = [
     "AuditReport",
     "BoundTask",
     "BoundWorkflow",
+    "CapabilityInvocationResult",
     "CapabilitySelection",
     "CommandResult",
     "CommandSpec",

@@ -18,6 +18,7 @@ __all__ = [
     "CapabilityAlreadyRegisteredError",
     "CapabilityCallValidationError",
     "CapabilityNotFoundError",
+    "CapabilityResolutionError",
     "EventSeqConflictError",
     "HarnessError",
     "StageExecutionError",
@@ -101,3 +102,15 @@ class CapabilityCallValidationError(HarnessError):
     contract (unknown capability, extra keys, missing required keys).
 
     Shallow contract — does NOT check value types against the schema."""
+
+
+class CapabilityResolutionError(HarnessError):
+    """Raised by :func:`molexp.harness.capability.resolve_callable` when a
+    :class:`ToolCapability`'s ``callable_path`` cannot be dispatched to a real
+    callable.
+
+    Distinct from :class:`CapabilityNotFoundError` (a registry miss): the
+    capability *is* registered, but its ``callable_path`` is ``None``/empty,
+    names an unimportable module, references a missing attribute, or resolves
+    to a non-callable object. There is no silent fallback — every dispatch
+    failure surfaces as this typed error."""

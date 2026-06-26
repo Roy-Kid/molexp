@@ -24,6 +24,7 @@ from molexp.harness.stages.generate_input_set import GenerateInputSet
 from molexp.harness.stages.generate_test_code import GenerateTestCode
 from molexp.harness.stages.generate_test_spec import GenerateTestSpec
 from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
+from molexp.harness.stages.invoke_capability import InvokeCapability
 from molexp.harness.stages.materialize_execution import MaterializeExecution
 from molexp.harness.stages.repair_loop import RepairLoop
 from molexp.harness.stages.resolve_capabilities import ResolveCapabilities
@@ -54,6 +55,7 @@ __all__ = [
     "GenerateTestCode",
     "GenerateTestSpec",
     "GenerateWorkflowSource",
+    "InvokeCapability",
     "MaterializeExecution",
     "RepairLoop",
     "ResolveCapabilities",

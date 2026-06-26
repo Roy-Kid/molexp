@@ -37,6 +37,7 @@ from molexp.harness.audit import (
     generate_audit_report,
     replay_metadata,
 )
+from molexp.harness.capability import resolve_callable
 from molexp.harness.core import HarnessRunContext, Stage, StageRunner
 from molexp.harness.errors import (
     AgentResponseNotRegisteredError,
@@ -44,6 +45,7 @@ from molexp.harness.errors import (
     CapabilityAlreadyRegisteredError,
     CapabilityCallValidationError,
     CapabilityNotFoundError,
+    CapabilityResolutionError,
     EventSeqConflictError,
     HarnessError,
     StageExecutionError,
@@ -68,6 +70,7 @@ from molexp.harness.schemas import (
     AuditReport,
     BoundTask,
     BoundWorkflow,
+    CapabilityInvocationResult,
     CommandResult,
     CommandSpec,
     DependencyEdge,
@@ -125,6 +128,7 @@ from molexp.harness.stages import (
     GenerateTestCode,
     GenerateTestSpec,
     GenerateWorkflowSource,
+    InvokeCapability,
     MaterializeExecution,
     RepairLoop,
     ResolveCapabilities,
@@ -184,8 +188,10 @@ __all__ = [
     "BoundWorkflowValidator",
     "CapabilityAlreadyRegisteredError",
     "CapabilityCallValidationError",
+    "CapabilityInvocationResult",
     "CapabilityNotFoundError",
     "CapabilityRegistry",
+    "CapabilityResolutionError",
     "CommandResult",
     "CommandSpec",
     "CompileWorkflow",
@@ -222,6 +228,7 @@ __all__ = [
     "InMemoryCapabilityRegistry",
     "InputSet",
     "InputSetValidator",
+    "InvokeCapability",
     "LocalExecutor",
     "MaterializeExecution",
     "Mode",
@@ -279,4 +286,5 @@ __all__ = [
     "find_last_successful_stage",
     "generate_audit_report",
     "replay_metadata",
+    "resolve_callable",
 ]
