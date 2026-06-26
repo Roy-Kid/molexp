@@ -24,8 +24,14 @@ from __future__ import annotations
 
 from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
 from molexp.harness.policy.event_log import ApprovalEventRecorder
+from molexp.harness.policy.side_effect_gate import (
+    enforce_side_effect_approvals,
+    make_side_effect_approval_requests,
+)
 
 __all__ = [
     "ApprovalEventRecorder",
     "ApprovalPolicyEvaluator",
+    "enforce_side_effect_approvals",
+    "make_side_effect_approval_requests",
 ]

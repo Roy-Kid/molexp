@@ -19,10 +19,12 @@ persisted ``capability_invocation_params`` — so the standard ``StageRunner``
 bracket stamps the ``derived_from`` edge with ``ctx.run_id``. Nonzero exit
 persists a failed result first, then raises :class:`StagePersistedFailureError`.
 
-Gating is intentionally absent here: validation and resolution are pure and the
-only side-effecting step is the executor call, so a later
-``side_effects``-driven :class:`ApprovalGate` can be interposed between the
-guard and the invocation without restructuring this stage.
+Destructive work is gated pre-dispatch: after the pure validate + resolve guard
+and before any persistence or dispatch, a capability that declares
+``side_effects`` must clear an :class:`ApprovalGate` (via
+:func:`~molexp.harness.policy.side_effect_gate.enforce_side_effect_approvals`).
+A denial raises :class:`StageExecutionError` before the callable ever runs; a
+read-only capability bypasses the gate entirely.
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from molexp.harness.capability import resolve_callable
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
 from molexp.harness.executors import LocalExecutor
+from molexp.harness.policy.side_effect_gate import enforce_side_effect_approvals
 from molexp.harness.schemas import (
     ArtifactRef,
     CapabilityInvocationResult,
@@ -47,6 +50,7 @@ from molexp.workspace.utils import generate_id
 if TYPE_CHECKING:
     from molexp.harness.core.run_context import HarnessRunContext
     from molexp.harness.executors import Executor
+    from molexp.harness.stages.approval_gate import Approver
 
 __all__ = ["InvokeCapability"]
 
@@ -89,11 +93,13 @@ class InvokeCapability(Stage):
         parameters: dict[str, Any],
         *,
         executor: Executor | None = None,
+        approve: Approver | None = None,
         timeout_s: int = 3600,
     ) -> None:
         self._capability_id = capability_id
         self._parameters = parameters
         self._executor: Executor = executor if executor is not None else LocalExecutor()
+        self._approve = approve
         self._timeout_s = timeout_s
 
     async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
@@ -110,7 +116,13 @@ class InvokeCapability(Stage):
         cap = registry.get(self._capability_id)
         resolve_callable(cap.callable_path)
 
-        # 3. Persist params + materialize the runner, then invoke via the executor.
+        # 3. Gate destructive work pre-dispatch: a capability that declares
+        #    side_effects must clear the ApprovalGate before its body runs. A
+        #    denial raises StageExecutionError here — no persistence, no
+        #    dispatch. A read-only capability bypasses the gate entirely.
+        await enforce_side_effect_approvals([cap], ctx=ctx, approve=self._approve)
+
+        # 4. Persist params + materialize the runner, then invoke via the executor.
         params_ref = ctx.artifact_store.put_json(
             kind="capability_invocation_params",
             obj=self._parameters,
@@ -126,7 +138,7 @@ class InvokeCapability(Stage):
         )
         command = await self._executor.execute(spec, artifact_store=ctx.artifact_store)
 
-        # 4. Lift into a CapabilityInvocationResult; persist parent-linked.
+        # 5. Lift into a CapabilityInvocationResult; persist parent-linked.
         succeeded = command.exit_code == 0
         result = CapabilityInvocationResult(
             id=f"capability-invocation-result-{generate_id()}",

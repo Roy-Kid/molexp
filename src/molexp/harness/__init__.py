@@ -55,7 +55,12 @@ from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
 from molexp.harness.mode import Mode
 from molexp.harness.modes import PlanMode
-from molexp.harness.policy import ApprovalEventRecorder, ApprovalPolicyEvaluator
+from molexp.harness.policy import (
+    ApprovalEventRecorder,
+    ApprovalPolicyEvaluator,
+    enforce_side_effect_approvals,
+    make_side_effect_approval_requests,
+)
 from molexp.harness.registry import CapabilityRegistry, InMemoryCapabilityRegistry
 from molexp.harness.schemas import (
     WELL_KNOWN_ARTIFACT_KINDS,
@@ -283,8 +288,10 @@ __all__ = [
     "WorkflowSource",
     "WorkflowSourceValidator",
     "auto_grant_approver",
+    "enforce_side_effect_approvals",
     "find_last_successful_stage",
     "generate_audit_report",
+    "make_side_effect_approval_requests",
     "replay_metadata",
     "resolve_callable",
 ]
