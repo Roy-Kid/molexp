@@ -128,25 +128,21 @@ def _artifact_manifest(deps: WorkflowDeps, name: str) -> list[dict[str, JSONValu
 def _reregister_artifacts(deps: WorkflowDeps, name: str, manifest: list[dict]) -> None:
     """Re-register cached artifacts into the current run by content-hash.
 
-    Idempotent catalog upsert keyed on ``(kind, content_hash)`` pointing at
-    bytes already present in the content-addressed store — no recompute, no
-    byte recopy. Entries whose bytes are absent (fresh workspace) are
-    skipped gracefully. Reached purely through duck-typed ``run_context``
-    surface so the workflow layer keeps its decoupling from a concrete
-    workspace import.
+    Idempotent manifest re-registration keyed on ``(name, content_hash)``
+    pointing at bytes already present in the content-addressed store — no
+    recompute, no byte recopy. Entries whose bytes are absent (fresh
+    workspace) are skipped gracefully. Reached purely through the duck-typed
+    ``run_context`` surface so the workflow layer keeps its decoupling from a
+    concrete workspace import.
     """
     run_context = deps.run_context
     if run_context is None or not manifest:
         return
+    # The run re-registers content-addressed artifacts into its own manifest
+    # (duck-typed so the workflow layer keeps no concrete workspace import).
     run = getattr(run_context, "run", None)
-    scope = getattr(run, "scope", None)
-    # Reach the workspace catalog through the run's ancestry (duck-typed).
-    experiment = getattr(run, "experiment", None)
-    project = getattr(experiment, "project", None)
-    workspace = getattr(project, "workspace", None)
-    catalog = getattr(workspace, "catalog", None)
-    reregister = getattr(catalog, "reregister_artifact", None)
-    if scope is None or not callable(reregister):
+    reregister = getattr(run, "reregister_artifact", None)
+    if not callable(reregister):
         return
     for entry in manifest:
         content_hash = entry.get("content_hash")
@@ -156,7 +152,6 @@ def _reregister_artifacts(deps: WorkflowDeps, name: str, manifest: list[dict]) -
             reregister(
                 name=entry.get("name"),
                 content_hash=content_hash,
-                target_scope=scope,
                 producer_task=name,
             )
         except Exception:

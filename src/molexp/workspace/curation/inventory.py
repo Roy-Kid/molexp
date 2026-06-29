@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
+from ..assets import scan
+
 if TYPE_CHECKING:
     from molexp.workspace.workspace import Workspace
 
@@ -105,7 +107,7 @@ def scan_workspace(workspace: Workspace) -> WorkspaceInventory:
                 experiments=tuple(experiments),
             )
         )
-    asset_count = workspace.catalog.rebuild().assets
+    asset_count = len(scan.scan_assets(workspace.root))
     return WorkspaceInventory(
         name=workspace.metadata.name,
         projects=tuple(projects),

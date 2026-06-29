@@ -181,9 +181,11 @@ def list_workspace_files(
     include_set = {part.strip() for part in (include or "").split(",") if part.strip()}
     asset_index_by_abs: dict[Path, dict] = {}
     if "catalog" in include_set:
+        from molexp.workspace.assets import scan
+
         from ._scope import resolve_scope_dir
 
-        for asset in workspace.catalog.query_assets():
+        for asset in scan.scan_assets(workspace.root):
             scope_dir = resolve_scope_dir(workspace, asset.scope)
             if scope_dir is None:
                 continue

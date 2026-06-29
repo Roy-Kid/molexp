@@ -112,7 +112,11 @@ def _register_inplace_asset(workspace, dataset_path: Path, *, asset_id: str = "d
         source_path=str(dataset_path),
         import_action="symlink",
     )
-    workspace.catalog.register(asset)
+    # Authoritative on-disk record the scanner reads (mirrors
+    # DataAssetLibrary.register_in_place): assets/<id>/asset.json, no payload.
+    asset_dir = Path(workspace.root) / "assets" / asset_id
+    asset_dir.mkdir(parents=True, exist_ok=True)
+    (asset_dir / "asset.json").write_text(asset.model_dump_json())
     return asset
 
 

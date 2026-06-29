@@ -12,7 +12,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from molexp.workspace.assets import Asset
+from molexp.workspace.assets import Asset, scan
 
 from ..dependencies import get_workspace
 from ..schemas import (
@@ -50,7 +50,8 @@ def _siblings(workspace, asset: Asset) -> list[CatalogSibling]:  # noqa: ANN001
     """Return other assets produced by the same task in the same scope."""
     if asset.producer is None or asset.producer.task_id is None:
         return []
-    peers = workspace.catalog.query_assets(
+    peers = scan.scan_assets(
+        workspace.root,
         scope=asset.scope,
         producer_task=asset.producer.task_id,
     )
@@ -93,8 +94,8 @@ def catalog_by_path(
 
     workspace_rel = str(target.relative_to(root))
 
-    # Scan all catalog assets, prefer exact path match (to its scope dir).
-    assets = workspace.catalog.query_assets()
+    # Scan all assets, prefer exact path match (to its scope dir).
+    assets = scan.scan_assets(workspace.root)
     for asset in assets:
         scope_dir = resolve_scope_dir(workspace, asset.scope)
         if scope_dir is None:

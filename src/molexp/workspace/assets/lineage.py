@@ -18,6 +18,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from . import scan
+
 if TYPE_CHECKING:
     from ..workspace import Workspace
 
@@ -42,7 +44,7 @@ def ancestors(workspace: Workspace, asset_id: str) -> set[str]:
     frontier: list[str] = [asset_id]
     while frontier:
         cur = frontier.pop()
-        asset = workspace.catalog.get(cur)
+        asset = scan.get_asset(workspace.root, cur)
         if asset is None or asset.producer is None:
             continue
         for upstream in asset.producer.inputs:
@@ -69,7 +71,7 @@ def descendants(workspace: Workspace, asset_id: str) -> set[str]:
         *asset_id* in its inputs.
     """
     children_of: dict[str, list[str]] = {}
-    for asset in workspace.catalog.query_assets():
+    for asset in scan.scan_assets(workspace.root):
         if asset.producer is None:
             continue
         for inp in asset.producer.inputs:

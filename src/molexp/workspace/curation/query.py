@@ -12,6 +12,8 @@ from __future__ import annotations
 from collections import Counter
 from typing import TYPE_CHECKING, Protocol
 
+from ..assets import scan
+
 if TYPE_CHECKING:
     from molexp.workspace.assets.base import Asset
     from molexp.workspace.assets.view import AssetsView
@@ -31,16 +33,17 @@ class _AssetScope(Protocol):
 def find_asset_by_hash(workspace: Workspace, content_hash: str) -> Asset | None:
     """Return the asset with *content_hash*, or ``None`` if there is none.
 
-    Composes ``workspace.catalog.find_by_content_hash``. Read-only.
+    Composes ``scan.find_by_content_hash`` over the authoritative manifests.
+    Read-only.
 
     Args:
-        workspace: The workspace whose catalog to search.
+        workspace: The workspace whose assets to search.
         content_hash: A content hash string (e.g. ``"sha256:..."``).
 
     Returns:
         The matching :class:`Asset`, or ``None``.
     """
-    return workspace.catalog.find_by_content_hash(content_hash)
+    return scan.find_by_content_hash(workspace.root, content_hash)
 
 
 def aggregate_assets_by_kind(scope: _AssetScope, *, recursive: bool = False) -> dict[str, int]:

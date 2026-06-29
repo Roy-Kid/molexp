@@ -15,6 +15,8 @@ from typing import Literal
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
+from molexp.workspace.assets import scan
+
 from ..dependencies import get_workspace
 from ..exceptions import AssetNotFoundError
 from ..preview import (
@@ -30,7 +32,7 @@ router = APIRouter(prefix="/assets", tags=["assets"])
 
 def _resolve_dataset_path(workspace, asset_id: str) -> Path:  # noqa: ANN001
     """Resolve the asset's on-disk path, raising a typed 404 if unknown."""
-    asset = workspace.catalog.get(asset_id)
+    asset = scan.get_asset(workspace.root, asset_id)
     if asset is None:
         raise AssetNotFoundError(asset_id)
     scope_dir = resolve_scope_dir(workspace, asset.scope)

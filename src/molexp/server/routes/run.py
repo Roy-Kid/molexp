@@ -479,12 +479,12 @@ def get_run_files(
         raise RunNotFoundError(project_id, experiment_id, run_id)
 
     run_dir = Path(run.run_dir)
-    from molexp.workspace.assets import AssetScope
+    from molexp.workspace.assets import AssetScope, scan
 
     run_scope = AssetScope(kind="run", ids=(project_id, experiment_id, run_id))
-    catalog_assets = workspace.catalog.query_assets(scope=run_scope)
+    scoped_assets = scan.scan_assets(workspace.root, scope=run_scope)
     asset_index: dict[str, tuple[str, str, str | None]] = {}
-    for a in catalog_assets:
+    for a in scoped_assets:
         rel = str(a.path)
         asset_index[rel] = (
             a.asset_id,

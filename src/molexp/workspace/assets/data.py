@@ -145,8 +145,9 @@ class DataAssetLibrary:
         ``path`` points at ``src`` where it already lives (relative to the
         scope directory). This keeps the original filename, so a same-stem
         sidecar (``qm9.tar.bz2`` ↔ ``qm9.py``) stays a real sibling of the
-        resolved path. The reference is recorded in the catalog index only —
-        there is no ``assets/<id>/`` payload directory.
+        resolved path. The reference is recorded authoritatively as
+        ``assets/<id>/asset.json`` (record only — no ``payload/`` directory,
+        since the file stays where it already lives).
 
         Args:
             name: Asset display name.
@@ -184,6 +185,13 @@ class DataAssetLibrary:
             import_action="reference",
             content_hash=content_hash,
         )
+
+        # Authoritative on-disk record (no payload/ dir — the file stays in
+        # place); the scanner reads assets/<id>/asset.json.
+        asset_dir = self.root / asset.asset_id
+        asset_dir.mkdir(parents=True, exist_ok=True)
+        with open(asset_dir / "asset.json", "w") as f:  # noqa: PTH123
+            json.dump(asset.model_dump(mode="json"), f, indent=2)
 
         if self.catalog is not None:
             self.catalog.register(asset)

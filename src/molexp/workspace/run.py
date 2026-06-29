@@ -260,6 +260,32 @@ class Run(Folder):
 
         return AssetsView(self.experiment.project.workspace.root, self.scope)
 
+    def reregister_artifact(  # noqa: ANN201
+        self,
+        *,
+        name: str | None,
+        content_hash: str,
+        producer_task: str | None = None,
+    ):
+        """Re-register a content-addressed artifact into this run's manifest.
+
+        Used by the workflow cache when a cached task output is reused: the
+        bytes already live in the content-addressed store, so only a fresh
+        manifest entry pointing at the same path + ``content_hash`` is written
+        (no recompute, no recopy). Returns the new asset, or ``None`` when the
+        bytes are absent in this workspace.
+        """
+        from .assets import scan
+
+        return scan.reregister_artifact(
+            self.experiment.project.workspace.root,
+            self.run_dir,
+            name=name,
+            content_hash=content_hash,
+            target_scope=self.scope,
+            producer_task=producer_task,
+        )
+
     def get_result(self, key: str) -> TaskOutput:
         """Read a result value for *key*.
 

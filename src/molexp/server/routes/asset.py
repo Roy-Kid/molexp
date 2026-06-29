@@ -14,7 +14,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from molexp.workspace.assets import AssetScope, LogAsset, lineage
+from molexp.workspace.assets import AssetScope, LogAsset, lineage, scan
 
 from ..dependencies import get_workspace
 from ..exceptions import AssetNotFoundError, InvalidPathError
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/assets", tags=["assets"])
 
 
 def _require_asset(workspace, asset_id: str):  # noqa: ANN001, ANN202
-    asset = workspace.catalog.get(asset_id)
+    asset = scan.get_asset(workspace.root, asset_id)
     if asset is None:
         raise AssetNotFoundError(asset_id)
     return asset
@@ -63,7 +63,8 @@ def list_assets(
     # Note: project/experiment/run scoping is better served by the
     # per-scope routes below (they carry the full ids tuple).
 
-    assets = workspace.catalog.query_assets(
+    assets = scan.scan_assets(
+        workspace.root,
         kind=kind,
         scope=scope,
         producer_run=run_id,
@@ -93,7 +94,7 @@ def get_asset_lineage(asset_id: str, workspace=Depends(get_workspace)) -> AssetL
     _require_asset(workspace, asset_id)
 
     def _node(aid: str) -> AssetLineageNode | None:
-        a = workspace.catalog.get(aid)
+        a = scan.get_asset(workspace.root, aid)
         if a is None:
             return None
         return AssetLineageNode(id=a.asset_id, name=a.name, kind=a.kind, scope_kind=a.scope.kind)
