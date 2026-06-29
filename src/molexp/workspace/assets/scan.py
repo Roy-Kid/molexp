@@ -16,12 +16,14 @@ reads. Results are ordered deterministically by ``(created_at, asset_id)``.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from datetime import datetime
 from os import PathLike
 from pathlib import Path
 
 from ..utils import generate_asset_id
+from ._adapter import parse_asset
 from .base import Asset, AssetScope, Producer
 from .manifest import AssetManifest
 
@@ -62,11 +64,47 @@ def _iter_scope_dirs(root: Path) -> Iterator[Path]:
                     yield run_dir
 
 
+def _load_data_assets(scope_dir: Path) -> Iterator[Asset]:
+    """Yield ``DataAsset``s stored as ``<scope_dir>/assets/<id>/asset.json``.
+
+    User-imported ``DataAsset``s are written one-per-directory by
+    :class:`~molexp.workspace.assets.data.DataAssetLibrary` rather than into the
+    scope's ``assets.json`` manifest, so they are an authoritative source the
+    scanner must read alongside the manifest.
+    """
+    data_dir = scope_dir / "assets"
+    if not data_dir.is_dir():
+        return
+    for asset_dir in sorted(data_dir.iterdir()):
+        record = asset_dir / "asset.json"
+        if not record.is_file():
+            continue
+        try:
+            with open(record) as fh:  # noqa: PTH123
+                yield parse_asset(json.load(fh))
+        except (OSError, ValueError):
+            continue
+
+
 def _all_assets(root: Path) -> list[Asset]:
-    """Load every asset across all scope manifests under ``root``."""
+    """Load every asset across all scopes under ``root``.
+
+    Two authoritative sources per scope: the ``assets.json`` manifest
+    (run-produced artifacts / logs / checkpoints) and the per-asset
+    ``assets/<id>/asset.json`` files (user-imported ``DataAsset``s).
+    Deduplicated by ``asset_id`` (manifest wins).
+    """
     out: list[Asset] = []
+    seen: set[str] = set()
     for scope_dir in _iter_scope_dirs(root):
-        out.extend(AssetManifest(scope_dir).load().values())
+        for asset in AssetManifest(scope_dir).load().values():
+            if asset.asset_id not in seen:
+                seen.add(asset.asset_id)
+                out.append(asset)
+        for asset in _load_data_assets(scope_dir):
+            if asset.asset_id not in seen:
+                seen.add(asset.asset_id)
+                out.append(asset)
     return out
 
 

@@ -255,10 +255,10 @@ class Run(Folder):
 
     @property
     def assets(self):  # noqa: ANN201
-        """Scope-filtered catalog view (read-only queries) for this run."""
+        """Scope-filtered asset view (read-only queries) for this run."""
         from .assets import AssetsView
 
-        return AssetsView(self.experiment.project.workspace.catalog, self.scope)
+        return AssetsView(self.experiment.project.workspace.root, self.scope)
 
     def get_result(self, key: str) -> TaskOutput:
         """Read a result value for *key*.

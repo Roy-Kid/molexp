@@ -199,8 +199,8 @@ class Workspace(Folder):
 
     @property
     def assets(self) -> AssetsView:
-        """Scope-filtered catalog view (read-only queries)."""
-        return AssetsView(self.catalog, self.scope)
+        """Scope-filtered asset view (read-only queries)."""
+        return AssetsView(self.root, self.scope)
 
     @property
     def data_assets(self) -> DataAssetLibrary:
