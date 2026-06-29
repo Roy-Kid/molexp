@@ -1,7 +1,8 @@
 """Asset routes — unified typed Asset API under ``/api/assets``.
 
 The old routes only served ``DataAsset`` uploads.  The new surface is
-backed by the workspace ``AssetCatalog`` and supports every kind
+backed by the workspace manifest scanner (``assets.scan``, reading the
+authoritative per-scope ``assets.json``) and supports every kind
 (``data``, ``artifact``, ``log``, ``checkpoint``, …).
 """
 

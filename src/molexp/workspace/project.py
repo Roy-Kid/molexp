@@ -17,7 +17,6 @@ from molexp._typing import JSONValue
 from molexp.path import Path
 
 if TYPE_CHECKING:
-    from .catalog import AssetCatalog
     from .fs import FileSystem
     from .workspace import Workspace
 
@@ -194,9 +193,7 @@ class Project(Folder):
     @property
     def data_assets(self) -> DataAssetLibrary:
         if self._data_assets is None:
-            self._data_assets = DataAssetLibrary(
-                self.project_dir, self.scope, self.workspace.catalog
-            )
+            self._data_assets = DataAssetLibrary(self.project_dir, self.scope)
         return self._data_assets
 
     # ── Persistence ─────────────────────────────────────────────────────
@@ -207,29 +204,11 @@ class Project(Folder):
         self._fs.mkdir(d, parents=True, exist_ok=True)
         meta_path = self._fs.join(d, "project.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
-        self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
         meta_path = self._fs.join(self.project_dir, "project.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
-        self._catalog_upsert()
-
-    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
-        meta = self._entity_metadata
-        catalog.upsert_project(
-            {
-                "project_id": meta.id,
-                "workspace_id": self.workspace.id,
-                "name": meta.name,
-                "description": meta.description,
-                "owner": meta.owner,
-                "tags": list(meta.tags),
-                "path": "projects/" + self.id,
-                "created_at": meta.created_at.isoformat(),
-                "updated_at": meta.created_at.isoformat(),
-            }
-        )
 
     def import_asset(  # noqa: ANN201
         self,
@@ -301,9 +280,7 @@ class Project(Folder):
         return self.has_folder(name, cls=Experiment)
 
     def remove_experiment(self, name: str) -> None:
-        slug = slugify(name)
         self.remove_folder(name, cls=Experiment)
-        self.workspace.catalog.remove_experiment(slug)
 
     def list_experiments(self) -> list[Experiment]:
         """List all experiments in this project via the typed CRUD view."""

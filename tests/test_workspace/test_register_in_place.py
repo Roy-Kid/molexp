@@ -27,8 +27,10 @@ def test_register_in_place_keeps_name_and_sibling(tmp_path):
     assert str(asset.path) == "qm9.tar.bz2"
     # Resolves back to the in-place file — nothing was copied.
     assert asset.absolute_path(tmp_path) == dataset
-    # Registered in the catalog index.
-    assert ws.catalog.get(asset.asset_id) is not None
+    # Recorded authoritatively as assets/<id>/asset.json.
+    from molexp.workspace.assets import scan
+
+    assert scan.get_asset(ws.root, asset.asset_id) is not None
     # The sidecar is a real sibling of the resolved dataset path.
     assert (asset.absolute_path(tmp_path).parent / "qm9.py").exists()
 

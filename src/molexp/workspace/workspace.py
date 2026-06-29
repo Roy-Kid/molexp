@@ -24,7 +24,6 @@ from .base import (
     _save_metadata,
 )
 from .cache import CacheFolder
-from .catalog import AssetCatalog
 from .errors import ProjectExistsError, ProjectNotFoundError
 from .folder import (
     WORKSPACE_PROJECT_KIND,
@@ -139,7 +138,6 @@ class Workspace(Folder):
         self.root: Path = self._root_path
         self._entity_metadata: WorkspaceMetadata = entity_meta
         self._data_assets: DataAssetLibrary | None = None
-        self._catalog: AssetCatalog | None = None
         self._cache_folder: CacheFolder | None = None
 
     # ── Folder hooks ─────────────────────────────────────────────────────
@@ -206,18 +204,8 @@ class Workspace(Folder):
     def data_assets(self) -> DataAssetLibrary:
         """Library for importing ``DataAsset`` inputs."""
         if self._data_assets is None:
-            self._data_assets = DataAssetLibrary(self.root, self.scope, self.catalog)
+            self._data_assets = DataAssetLibrary(self.root, self.scope)
         return self._data_assets
-
-    @property
-    def catalog(self) -> AssetCatalog:
-        """Workspace-wide JSON asset + entity catalog.
-
-        Lazily constructed.  The catalog directory is created on first write.
-        """
-        if self._catalog is None:
-            self._catalog = AssetCatalog(self.root)
-        return self._catalog
 
     # ── System folder accessors (singletons via lowercase property) ──────
 
@@ -246,25 +234,11 @@ class Workspace(Folder):
         meta_path = self._fs.join(root_str, "workspace.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
         self.write_meta()  # OKF marker for the root, additive
-        self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
         meta_path = self._fs.join(self.resolve(), "workspace.json")
         _save_metadata(self._entity_metadata, meta_path, fs=self._fs)
-        self._catalog_upsert()
-
-    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
-        meta = self._entity_metadata
-        catalog.upsert_workspace(
-            {
-                "workspace_id": meta.id,
-                "root_path": self.resolve(),
-                "name": meta.name,
-                "created_at": meta.created_at.isoformat(),
-                "updated_at": meta.created_at.isoformat(),
-            }
-        )
 
     # ── Alternative constructors ─────────────────────────────────────────
 
@@ -309,10 +283,8 @@ class Workspace(Folder):
     # the legacy implementation for now to avoid behavioral drift.
 
     def remove_project(self, name: str) -> None:
-        """Delete project directory + cascade-drop catalog rows + drop indices."""
-        slug = slugify(name)
+        """Delete the project directory + drop child indices."""
         self.remove_folder(name, cls=Project)
-        self.catalog.remove_project(slug)
 
     def list_projects(self) -> list[Project]:
         """List all projects in this workspace via the typed CRUD view."""

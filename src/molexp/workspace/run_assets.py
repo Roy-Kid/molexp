@@ -2,7 +2,7 @@
 
 Tier-3 collaborator of :class:`~molexp.workspace.run.RunContext` (see the
 ``workspace-slim-03-runcontext`` decomposition). Bundles the asset scope,
-manifest, catalog, the typed accessors (``artifact`` / ``log`` /
+manifest, the typed accessors (``artifact`` / ``log`` /
 ``checkpoint`` / ``metrics``), the data-asset import/lookup verbs, the
 execution scratch-directory helper, and error-trace persistence — every
 "do I/O against this run's assets" entry point in one place.
@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING
 
 from .assets import (
     ArtifactAccessor,
-    AssetCatalog,
     AssetManifest,
     AssetScope,
     CheckpointAccessor,
@@ -55,15 +54,10 @@ class RunAssets:
         self._producer = producer
         self._get_execution_id = get_execution_id
         self._manifest = AssetManifest(work_dir)
-        self._catalog = AssetCatalog(run.experiment.project.workspace.root)
 
-        self.artifact = ArtifactAccessor(work_dir, scope, self._manifest, self._catalog, producer)
-        self.log = LogAccessor(
-            work_dir, scope, self._manifest, self._catalog, producer, get_execution_id
-        )
-        self.checkpoint = CheckpointAccessor(
-            work_dir, scope, self._manifest, self._catalog, producer
-        )
+        self.artifact = ArtifactAccessor(work_dir, scope, self._manifest, producer)
+        self.log = LogAccessor(work_dir, scope, self._manifest, producer, get_execution_id)
+        self.checkpoint = CheckpointAccessor(work_dir, scope, self._manifest, producer)
         self.metrics = MetricsWriter(work_dir)
 
     # ── Working directories ─────────────────────────────────────────────
@@ -206,4 +200,3 @@ class RunAssets:
             execution_id=exec_id,
         )
         self._manifest.register(asset)
-        self._catalog.register(asset)

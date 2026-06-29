@@ -35,8 +35,7 @@ from .models import FolderMetadata
 from .utils import slugify
 
 if TYPE_CHECKING:
-    from .catalog import AssetCatalog
-    from .workspace import Workspace
+    pass
 
 F = TypeVar("F", bound="Folder")
 
@@ -662,50 +661,6 @@ class Folder:
 
     def _to_index_row(self) -> dict[str, JSONValue]:
         return cast("dict[str, JSONValue]", self._metadata.model_dump(mode="json"))
-
-    # ── Catalog upsert dispatch ──────────────────────────────────────────
-    #
-    # Workspace / Project / Experiment / Run each publish a row into the
-    # root workspace catalog on materialize / save.  Only the *dispatch* —
-    # resolve the root workspace catalog, then write the kind-specific row —
-    # is shared here; each entity supplies its own payload and
-    # ``upsert_<kind>`` call through :meth:`_write_catalog_row`.  The four
-    # bodies are semantically distinct, so this is dispatch dedup only, not
-    # a literal merge.
-
-    def _catalog_upsert(self) -> None:
-        """Publish this node's row into the root workspace catalog.
-
-        Resolves the catalog once (walking to the root workspace) and
-        delegates the per-kind payload to :meth:`_write_catalog_row`.
-        """
-        self._write_catalog_row(self._workspace_catalog)
-
-    @property
-    def _workspace_catalog(self) -> AssetCatalog:
-        """The root workspace's :class:`AssetCatalog`.
-
-        Walks the parent chain to the root node — the only one without a
-        parent, always the :class:`Workspace` for the four catalog-bearing
-        entities — and returns its ``catalog``.
-        """
-        node: Folder = self
-        while node._parent is not None:
-            node = node._parent
-        return cast("Workspace", node).catalog
-
-    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
-        """Build this node's catalog record and call ``catalog.upsert_<kind>``.
-
-        Per-kind hook with no shared payload — overridden by the four
-        catalog-bearing entities (Workspace / Project / Experiment / Run).
-        The default raises so a non-entity ``Folder`` (cache, agent
-        sessions) that never calls :meth:`_catalog_upsert` cannot silently
-        no-op into the catalog.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not participate in the workspace catalog"
-        )
 
     # ── Delete + move ────────────────────────────────────────────────────
 

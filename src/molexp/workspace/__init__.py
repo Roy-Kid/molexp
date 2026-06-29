@@ -20,9 +20,8 @@ read-only Zotero importer that produces ``ReferenceConcept`` records
 
 Each scope exposes:
 
-- ``{scope}.assets``       — read-only catalog view (typed Asset queries)
+- ``{scope}.assets``       — read-only asset view (typed Asset queries over the manifests)
 - ``{scope}.data_assets``  — ``DataAssetLibrary`` for importing user inputs
-- ``workspace.catalog``    — full workspace-level ``AssetCatalog`` (singleton property)
 - ``workspace.cache``      — ``CacheFolder`` (singleton property; exposes ``as_cache_store()``)
 
 Upstream layers extend the workspace tree by importing the public
@@ -34,7 +33,6 @@ generic five-verb CRUD — see ``molexp.agent.folders`` for the
 from .assets import (
     ArtifactAsset,
     Asset,
-    AssetCatalog,
     AssetManifest,
     AssetScope,
     AssetsView,
@@ -118,7 +116,6 @@ __all__ = [
     "ArtifactAsset",
     # Assets
     "Asset",
-    "AssetCatalog",
     "AssetManifest",
     "AssetScope",
     "AssetsView",

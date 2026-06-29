@@ -1,10 +1,10 @@
 """Asset queries over a workspace.
 
 ``find_asset_by_hash`` and ``aggregate_assets_by_kind`` are read-only
-compositions over the ``AssetCatalog`` and per-scope ``AssetsView``. Neither
-rebuilds the catalog: a directly-registered asset (e.g. an imported
-``DataAsset``) lives only in the catalog, not in a scope manifest, so a rebuild
-would drop it.
+compositions over the authoritative on-disk manifests (``scan.scan_assets``)
+and per-scope ``AssetsView``. A directly-registered asset (e.g. an imported
+``DataAsset``) is recorded as ``assets/<id>/asset.json`` and the scanner reads
+both that record and the per-scope ``assets.json``.
 """
 
 from __future__ import annotations

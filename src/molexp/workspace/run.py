@@ -23,10 +23,7 @@ from molexp.knowledge.types import concept_type
 from molexp.path import Path as MolexpPath  # workspace-abstraction path (Folder.path() return)
 from molexp.profile import ProfileConfig
 
-from .assets import (
-    AssetCatalog,
-    AssetScope,
-)
+from .assets import AssetScope
 from .base import (
     _load_metadata,
     _reconstruct,
@@ -357,53 +354,9 @@ class Run(Folder):
         d = self.run_dir
         self._fs.mkdir(d, parents=True, exist_ok=True)
         _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
-        self._catalog_upsert()
 
     def save(self) -> None:
         _save_metadata(self.metadata, self._fs.join(self.run_dir, "run.json"), fs=self._fs)
-        self._catalog_upsert()
-
-    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
-        # The catalog is a derived index, never the source of truth: hot
-        # state (status / finished_at / ownership / executions) is read from
-        # the OKF ``_ops`` sidecar (wsokf-10), identity from ``run.json``.
-        ops = self.read_ops()
-        labels: dict[str, str] = {}
-        if ops.owner_pid is not None:
-            labels["pid"] = str(ops.owner_pid)
-        if ops.owner_host is not None:
-            labels["host"] = ops.owner_host
-        if ops.heartbeat_at is not None:
-            labels["heartbeat"] = ops.heartbeat_at.isoformat()
-        record = {
-            "run_id": self.metadata.id,
-            "experiment_id": self.experiment.id,
-            "status": ops.status.value,
-            "parameters": dict(self.metadata.parameters),
-            "profile": self.metadata.profile,
-            "config_hash": self.metadata.config_hash,
-            "labels": labels,
-            "path": f"runs/run-{self.id}",
-            "created_at": self.metadata.created_at.isoformat(),
-            "finished_at": (ops.finished_at.isoformat() if ops.finished_at else None),
-            "workflow_snapshot": (
-                dict(self.metadata.workflow_snapshot) if self.metadata.workflow_snapshot else None
-            ),
-        }
-        # Batch the run row + its executions into one transaction (was N+1
-        # whole-file rewrites under the legacy backend).
-        execution_records = [
-            {
-                "execution_id": rec.execution_id,
-                "run_id": self.metadata.id,
-                "status": rec.status,
-                "started_at": rec.started_at.isoformat(),
-                "finished_at": (rec.finished_at.isoformat() if rec.finished_at else None),
-                "scheduler_job_id": rec.scheduler_job_id,
-            }
-            for rec in ops.executions
-        ]
-        catalog.upsert_run_with_executions(record, execution_records)
 
     # ── Execution ───────────────────────────────────────────────────────
 
@@ -479,9 +432,8 @@ class Run(Folder):
     def delete_execution(self, execution_id: str) -> None:
         """Delete a single execution attempt from this run.
 
-        Removes ``executions/<execution_id>/`` on disk, pops the matching
-        entry from ``execution_history``, and drops the catalog row.  The
-        run itself is left intact.
+        Removes ``executions/<execution_id>/`` on disk and pops the matching
+        entry from ``execution_history``.  The run itself is left intact.
 
         Raises:
             KeyError: If the execution id is not present under this run.
@@ -501,7 +453,6 @@ class Run(Folder):
         if matched_idx is not None:
             history.pop(matched_idx)
             self.update_ops(lambda state: state.model_copy(update={"executions": tuple(history)}))
-        self.experiment.project.workspace.catalog.remove_execution(execution_id)
 
     # ── Internal (frozen-metadata mutation helpers) ──────────────────────
 

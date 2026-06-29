@@ -12,8 +12,8 @@ artifact, derived from which prior artifact (:class:`ArtifactLineageStore`)
 — plus the audit event timeline. **Run-level provenance** (params, merged
 config + ``config_hash``, profile, workflow identity, execution history,
 environment) is owned by :mod:`molexp.workspace` (``RunMetadata`` /
-``AssetCatalog``); code-version and environment capture belong there, never
-here.
+per-scope ``AssetManifest``); code-version and environment capture belong
+there, never here.
 
 The state substrate: typed artifact references, an append-only event log, an
 artifact-lineage edge store, and a Stage / StageRunner wrapper that brackets

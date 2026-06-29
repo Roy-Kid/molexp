@@ -1,4 +1,4 @@
-"""Artifacts, logs, checkpoints, data imports, and catalog queries.
+"""Artifacts, logs, checkpoints, data imports, and asset queries.
 
 Matches ``docs/guide/assets.md``.
 
@@ -10,7 +10,8 @@ Walks through:
 4. ``ws.data_assets.import_asset`` — pulls external data into the workspace.
 5. ``ctx.find_asset`` — scope-walking lookup (run → experiment → project →
    workspace) on the driver-side ``RunContext``.
-6. ``ws.catalog.query_assets`` — workspace-wide asset queries.
+6. ``scan.scan_assets`` — workspace-wide asset queries over the authoritative
+   on-disk manifests (the manifest scanner that replaced the SQLite catalog).
 
 Task bodies stay on the pure ``{inputs, config}`` contract; the asset
 helpers live on the ``RunContext`` the driver opened via ``run.start()``.
@@ -72,9 +73,11 @@ async def main() -> None:
         if dataset is not None:
             ctx.artifact.save("dataset-path.txt", str(dataset.path))
 
-    # 6. Catalog queries — flat view over the whole workspace.
-    catalog = ws.catalog
-    all_assets = catalog.query_assets()
+    # 6. Asset queries — flat view over the whole workspace, scanned from the
+    #    authoritative on-disk manifests.
+    from molexp.workspace.assets import scan
+
+    all_assets = scan.scan_assets(ws.root)
     print(f"workspace root: {root}")
     print(f"total assets:   {len(all_assets)}")
     for asset in all_assets:

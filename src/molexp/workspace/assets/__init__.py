@@ -1,12 +1,11 @@
 """Typed asset model.
 
-This package defines the Asset class hierarchy, per-scope manifest,
-and workspace-level catalog.  See
+This package defines the Asset class hierarchy, the per-scope ``assets.json``
+manifest, and the manifest-scanning query layer (:mod:`.scan`).  See
 ``docs/development/specs/unified-asset-model.md`` for the design.
 """
 
-from ..catalog.index import AssetCatalog
-from . import lineage
+from . import lineage, scan
 from ._adapter import ASSET_ADAPTER, AnyAsset, parse_asset
 from .accessors import ArtifactAccessor, CheckpointAccessor, LogAccessor
 from .artifact import ArtifactAsset
@@ -24,7 +23,6 @@ __all__ = [
     "ArtifactAccessor",
     "ArtifactAsset",
     "Asset",
-    "AssetCatalog",
     "AssetManifest",
     "AssetScope",
     "AssetsView",
@@ -39,4 +37,5 @@ __all__ = [
     "Producer",
     "lineage",
     "parse_asset",
+    "scan",
 ]

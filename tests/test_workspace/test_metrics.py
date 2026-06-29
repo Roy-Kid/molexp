@@ -31,8 +31,10 @@ class TestRunMetrics:
         with run.start() as ctx:
             ctx.metrics.scalar("train/loss", 0.25, step=1)
 
-        catalog = run.experiment.project.workspace.catalog
-        assert catalog.query_assets(kind="metrics", producer_run=run.id) == []
+        from molexp.workspace.assets import scan
+
+        root = run.experiment.project.workspace.root
+        assert scan.scan_assets(root, kind="metrics", producer_run=run.id) == []
 
         manifest = json.loads((Path(run.run_dir) / "assets.json").read_text())
         kinds = {entry["kind"] for entry in manifest["assets"].values()}

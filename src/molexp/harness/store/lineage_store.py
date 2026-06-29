@@ -9,8 +9,8 @@ edge optionally stamped with the producing ``stage`` name and the pipeline
 It is NOT a general provenance system. Run-level provenance — parameters,
 merged config + ``config_hash``, profile, workflow identity, execution
 history, environment — is owned by :mod:`molexp.workspace`
-(``RunMetadata`` / ``AssetCatalog`` / ``Asset.producer``). Code-version and
-environment capture belong there, never here.
+(``RunMetadata`` / per-scope ``AssetManifest`` / ``Asset.producer``).
+Code-version and environment capture belong there, never here.
 """
 
 from __future__ import annotations

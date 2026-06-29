@@ -83,8 +83,11 @@ class TestArtifactAccessor:
     def test_asset_visible_in_catalog(self, run):
         with run.start() as ctx:
             ctx.artifact.save("m.json", {"a": 1})
-        catalog = run.experiment.project.workspace.catalog
-        artifacts = catalog.query_assets(kind="artifact", producer_run=run.id)
+        from molexp.workspace.assets import scan
+
+        artifacts = scan.scan_assets(
+            run.experiment.project.workspace.root, kind="artifact", producer_run=run.id
+        )
         assert len(artifacts) == 1
         assert artifacts[0].name == "m.json"
 
@@ -104,8 +107,11 @@ class TestLogAccessor:
     def test_log_asset_registered(self, run):
         with run.start() as ctx:
             ctx.log("custom").append("msg")
-        catalog = run.experiment.project.workspace.catalog
-        logs = catalog.query_assets(kind="log", producer_run=run.id)
+        from molexp.workspace.assets import scan
+
+        logs = scan.scan_assets(
+            run.experiment.project.workspace.root, kind="log", producer_run=run.id
+        )
         names = {a.name for a in logs}
         # "run" log is created automatically by lifecycle; "custom" by user
         assert "custom" in names
@@ -179,9 +185,12 @@ class TestErrorTraceAsset:
         assert error_txt.exists()
         assert "RuntimeError" in error_txt.read_text()
 
-        # Catalog entry
-        catalog = run.experiment.project.workspace.catalog
-        traces = catalog.query_assets(kind="error_trace", producer_run=run.id)
+        # Error-trace asset recorded in the manifest
+        from molexp.workspace.assets import scan
+
+        traces = scan.scan_assets(
+            run.experiment.project.workspace.root, kind="error_trace", producer_run=run.id
+        )
         assert len(traces) == 1
         assert traces[0].exception_type == "RuntimeError"
 

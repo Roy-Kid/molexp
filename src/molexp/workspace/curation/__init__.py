@@ -1,8 +1,9 @@
 """Workspace curation — scan, query, reorganize, and dedupe a workspace tree.
 
-Pure functions that **compose** existing workspace primitives (``AssetCatalog``,
-``AssetsView``, ``DataAssetLibrary``, ``Folder.move_to`` / ``Folder.delete``) —
-they add no new scanning, hashing, move, or import machinery. The harness
+Pure functions that **compose** existing workspace primitives (the
+``assets.scan`` manifest scanner, ``AssetsView``, ``DataAssetLibrary``,
+``Folder.move_to`` / ``Folder.delete``) — they add no new scanning, hashing,
+move, or import machinery. The harness
 surfaces these as toolified capabilities (see the curation capability catalog);
 this layer is the storage-level building block they bind to.
 

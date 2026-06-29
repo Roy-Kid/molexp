@@ -3,7 +3,7 @@
 ``scan_workspace`` classifies the ``Workspace -> Project -> Experiment -> Run``
 tree into a frozen snapshot: a per-project / per-experiment / per-run breakdown
 plus tree-wide totals. It composes the typed ``list_*`` walkers with each run's
-``status`` and the catalog rebuild's asset count — it does not re-implement any
+``status`` and the manifest-scan asset count — it does not re-implement any
 traversal.
 """
 
@@ -74,9 +74,8 @@ def scan_workspace(workspace: Workspace) -> WorkspaceInventory:
 
     Composes ``workspace.list_projects`` / ``Project.list_experiments`` /
     ``Experiment.list_runs`` and each run's ``status`` for the structural
-    breakdown, and ``workspace.catalog.rebuild().assets`` for ``asset_count``.
-    Rebuilding refreshes the derived catalog index from on-disk truth; the
-    scan is otherwise read-only.
+    breakdown, and ``scan.scan_assets(workspace.root)`` for ``asset_count``.
+    The scan reads the authoritative on-disk manifests; it is read-only.
 
     Args:
         workspace: The workspace to inventory.

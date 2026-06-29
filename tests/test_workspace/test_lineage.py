@@ -43,9 +43,9 @@ class TestContentHash:
             ctx.log("train").append("hi")
             log_assets = list(Path(run.experiment.list_runs()[0].run_dir).iterdir())
             assert log_assets  # placeholder — actual log retrieval below
-            from molexp.workspace.assets import LogAsset
+            from molexp.workspace.assets import LogAsset, scan
 
-            manifest_assets = ws.catalog.query_assets(kind="log", producer_run=run.id)
+            manifest_assets = scan.scan_assets(ws.root, kind="log", producer_run=run.id)
             assert len(manifest_assets) >= 1
             assert all(isinstance(a, LogAsset) for a in manifest_assets)
             assert all(a.content_hash is None for a in manifest_assets)
@@ -99,7 +99,6 @@ class TestLineageTraversal:
         asset_loop = asset.model_copy(
             update={"producer": asset.producer.model_copy(update={"inputs": (asset.asset_id,)})}
         )
-        ws.catalog.update(asset_loop)
         from molexp.workspace.assets import AssetManifest
 
         AssetManifest(Path(run.run_dir)).update(asset_loop)

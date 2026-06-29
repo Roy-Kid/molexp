@@ -1,4 +1,4 @@
-"""Tests for Project/Experiment/Run delete APIs and catalog cascade."""
+"""Tests for Project/Experiment/Run delete APIs and listing cascade."""
 
 from __future__ import annotations
 
@@ -47,19 +47,6 @@ class TestDeleteExecution:
         assert not (Path(r.run_dir) / "executions" / first_exec).exists()
         assert all(rec.execution_id != first_exec for rec in r.execution_history)
 
-    def test_catalog_row_removed(self, tmp_path):
-        ws, _p, _e, r = _build(tmp_path)
-        first_exec = r.execution_history[0].execution_id
-        # Run materialization populates catalog executions too
-        r.save()
-        assert any(
-            row["execution_id"] == first_exec for row in ws.catalog.query_executions(run_id=r.id)
-        )
-        r.delete_execution(first_exec)
-        assert not any(
-            row["execution_id"] == first_exec for row in ws.catalog.query_executions(run_id=r.id)
-        )
-
     def test_unknown_execution_raises(self, tmp_path):
         _ws, _p, _e, r = _build(tmp_path)
         with pytest.raises(KeyError):
@@ -74,13 +61,11 @@ class TestDeleteRun:
         e.remove_run(r.id)
         assert not run_dir.exists()
 
-    def test_cascades_executions_in_catalog(self, tmp_path):
-        ws, _p, e, r = _build(tmp_path)
-        r.save()
-        assert ws.catalog.query_executions(run_id=r.id)
+    def test_remove_run_clears_listing(self, tmp_path):
+        _ws, _p, e, r = _build(tmp_path)
+        assert any(run.id == r.id for run in e.list_runs())
         e.remove_run(r.id)
-        assert ws.catalog.query_executions(run_id=r.id) == []
-        assert ws.catalog.query_runs(experiment_id=e.id) == []
+        assert all(run.id != r.id for run in e.list_runs())
 
     def test_unknown_run_raises(self, tmp_path):
         _ws, _p, e, _r = _build(tmp_path)
@@ -96,13 +81,11 @@ class TestDeleteExperiment:
         p.remove_experiment(e.id)
         assert not exp_dir.exists()
 
-    def test_cascades_runs_and_executions(self, tmp_path):
-        ws, p, e, r = _build(tmp_path)
-        r.save()
-        assert ws.catalog.query_runs(experiment_id=e.id)
+    def test_remove_experiment_clears_listing(self, tmp_path):
+        _ws, p, e, _r = _build(tmp_path)
+        assert any(exp.id == e.id for exp in p.list_experiments())
         p.remove_experiment(e.id)
-        assert ws.catalog.query_runs(experiment_id=e.id) == []
-        assert ws.catalog.query_executions(run_id=r.id) == []
+        assert all(exp.id != e.id for exp in p.list_experiments())
 
     def test_unknown_experiment_raises(self, tmp_path):
         _ws, p, _e, _r = _build(tmp_path)
@@ -111,10 +94,8 @@ class TestDeleteExperiment:
 
 
 class TestDeleteProject:
-    def test_cascades_everything(self, tmp_path):
-        ws, p, e, r = _build(tmp_path)
-        r.save()
+    def test_remove_project_clears_everything(self, tmp_path):
+        ws, p, _e, _r = _build(tmp_path)
         ws.remove_project(p.id)
         assert not Path(p.project_dir).exists()
-        assert ws.catalog.query_runs(experiment_id=e.id) == []
-        assert ws.catalog.query_executions(run_id=r.id) == []
+        assert all(proj.id != p.id for proj in ws.list_projects())

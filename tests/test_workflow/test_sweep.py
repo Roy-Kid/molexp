@@ -27,8 +27,11 @@ def _execute(spec, tmp_path):
     run = exp.add_run({})
     with RunContext(run) as ctx:
         result = asyncio.run(WorkflowRuntime().execute(spec, run_context=ctx))
-    catalog = run.experiment.project.workspace.catalog
-    artifacts = catalog.query_assets(kind="artifact", producer_run=run.id)
+    from molexp.workspace.assets import scan
+
+    artifacts = scan.scan_assets(
+        run.experiment.project.workspace.root, kind="artifact", producer_run=run.id
+    )
     return result, artifacts
 
 

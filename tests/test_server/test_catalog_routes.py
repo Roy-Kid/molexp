@@ -36,10 +36,10 @@ class TestCatalogByPath:
             ctx.artifact.save("metrics.json", '{"loss": 0.1}')
 
         # Pick the relative path under the workspace root
-        from molexp.workspace.assets import AssetScope
+        from molexp.workspace.assets import AssetScope, scan
 
         scope = AssetScope(kind="run", ids=(project.id, experiment.id, run.id))
-        assets = experiment.project.workspace.catalog.query_assets(scope=scope)
+        assets = scan.scan_assets(experiment.project.workspace.root, scope=scope)
         artifact = next(a for a in assets if a.kind == "artifact")
         rel = (Path(run.run_dir) / artifact.path).relative_to(
             Path(experiment.project.workspace.root)

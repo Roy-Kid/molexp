@@ -1,9 +1,8 @@
 """Typed accessors used by ``RunContext``.
 
 Three accessors are exposed as ``ctx.artifact``, ``ctx.log``, and
-``ctx.checkpoint``.  Each writes the physical file, registers the
-asset in the run-scope manifest, and upserts the catalog row — all
-in one call.
+``ctx.checkpoint``.  Each writes the physical file and registers the
+asset in the run-scope ``assets.json`` manifest — all in one call.
 
 Producer fields are auto-populated from a caller-provided callable so
 that task-scoped producer info can be set when running inside a task.
@@ -18,7 +17,6 @@ from pathlib import Path
 
 from molexp._typing import TaskOutput
 
-from ..catalog.index import AssetCatalog
 from ..utils import compute_content_hash, generate_asset_id
 from .artifact import ArtifactAsset
 from .base import Asset, AssetScope, Producer
@@ -33,19 +31,15 @@ class _AccessorBase:
         scope_dir: Path,
         scope: AssetScope,
         manifest: AssetManifest,
-        catalog: AssetCatalog | None,
         producer_provider: Callable[[], Producer],
     ) -> None:
         self._scope_dir = scope_dir
         self._scope = scope
         self._manifest = manifest
-        self._catalog = catalog
         self._producer_provider = producer_provider
 
     def _register(self, asset) -> None:  # noqa: ANN001
         self._manifest.register(asset)
-        if self._catalog is not None:
-            self._catalog.register(asset)
 
 
 class ArtifactAccessor(_AccessorBase):
@@ -117,12 +111,10 @@ class _BoundLog:
         asset: LogAsset,
         scope_dir: Path,
         manifest: AssetManifest,
-        catalog: AssetCatalog | None,
     ) -> None:
         self._asset = asset
         self._scope_dir = scope_dir
         self._manifest = manifest
-        self._catalog = catalog
         self._dirty = False
 
     @property
@@ -132,9 +124,9 @@ class _BoundLog:
     def append(self, line: str) -> None:
         # The line bytes go straight to the .log file (O(1) append). The
         # ``line_count`` / ``updated_at`` metadata is bumped in memory only and
-        # marked dirty; rewriting the whole manifest + a catalog row on *every*
-        # line is O(lines x assets) churn, so the flush is deferred to
-        # :meth:`flush` (called once when the run context exits).
+        # marked dirty; rewriting the whole manifest on *every* line is
+        # O(lines x assets) churn, so the flush is deferred to :meth:`flush`
+        # (called once when the run context exits).
         self._asset.append(self._scope_dir, line)
         self._asset = self._asset.model_copy(
             update={
@@ -149,8 +141,6 @@ class _BoundLog:
         if not self._dirty:
             return
         self._manifest.update(self._asset)
-        if self._catalog is not None:
-            self._catalog.update(self._asset)
         self._dirty = False
 
     def tail(self, n: int = 100) -> list[str]:
@@ -172,11 +162,10 @@ class LogAccessor(_AccessorBase):
         scope_dir: Path,
         scope: AssetScope,
         manifest: AssetManifest,
-        catalog: AssetCatalog | None,
         producer_provider: Callable[[], Producer],
         execution_id_provider: Callable[[], str | None],
     ) -> None:
-        super().__init__(scope_dir, scope, manifest, catalog, producer_provider)
+        super().__init__(scope_dir, scope, manifest, producer_provider)
         self._execution_id_provider = execution_id_provider
         self._cache: dict[str, _BoundLog] = {}
 
@@ -216,7 +205,7 @@ class LogAccessor(_AccessorBase):
             )
             self._register(existing)
 
-        bound = _BoundLog(existing, self._scope_dir, self._manifest, self._catalog)
+        bound = _BoundLog(existing, self._scope_dir, self._manifest)
         self._cache[name] = bound
         return bound
 
@@ -234,10 +223,9 @@ class CheckpointAccessor(_AccessorBase):
         scope_dir: Path,
         scope: AssetScope,
         manifest: AssetManifest,
-        catalog: AssetCatalog | None,
         producer_provider: Callable[[], Producer],
     ) -> None:
-        super().__init__(scope_dir, scope, manifest, catalog, producer_provider)
+        super().__init__(scope_dir, scope, manifest, producer_provider)
         self._last_ckpt_id: str | None = None
 
     def __call__(

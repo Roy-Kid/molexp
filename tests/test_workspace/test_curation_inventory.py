@@ -8,8 +8,8 @@ subpackage ships they pin the inventory contract:
 
 * counts are totals across the whole ``Workspace → Project → Experiment →
   Run`` tree;
-* ``asset_count`` is sourced from ``workspace.catalog.rebuild().assets``
-  (manifest-persisted assets — run-scoped artifacts/logs/checkpoints);
+* ``asset_count`` is sourced from scanning the authoritative manifests
+  (``scan.scan_assets`` — run-scoped artifacts/logs/checkpoints);
 * every returned model is frozen.
 """
 
@@ -34,7 +34,7 @@ def _seed_two_run_tree(root: Path) -> Workspace:
     """One project / one experiment / two runs (one succeeded, one pending).
 
     The succeeded run saves a run-scoped artifact, so the workspace owns at
-    least one manifest-persisted asset that ``catalog.rebuild()`` counts.
+    least one manifest-persisted asset that ``scan.scan_assets`` counts.
     """
     ws = Workspace(root=root, name="Curation Lab")
     proj = ws.add_project("alpha")
@@ -63,11 +63,13 @@ class TestScanWorkspaceBasics:
         assert inv.experiment_count == 1
         assert inv.run_count == 2
 
-    def test_asset_count_matches_rebuild_report(self, tmp_path: Path) -> None:
-        """``asset_count`` is fed by ``RebuildReport.assets`` (idempotent)."""
+    def test_asset_count_matches_scan(self, tmp_path: Path) -> None:
+        """``asset_count`` equals the manifest scan total (authoritative source)."""
+        from molexp.workspace.assets import scan
+
         ws = _seed_two_run_tree(tmp_path / "lab")
         inv = scan_workspace(ws)
-        assert inv.asset_count == ws.catalog.rebuild().assets
+        assert inv.asset_count == len(scan.scan_assets(ws.root))
         assert inv.asset_count >= 1  # the succeeded run's artifact is persisted
 
 

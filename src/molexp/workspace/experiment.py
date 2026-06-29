@@ -34,7 +34,6 @@ from typing import TYPE_CHECKING, Protocol, cast
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .catalog import AssetCatalog
     from .param import ParamSpace
     from .project import Project
     from .workspace import Workspace
@@ -314,9 +313,7 @@ class Experiment(Folder):
     @property
     def data_assets(self) -> DataAssetLibrary:
         if self._data_assets is None:
-            self._data_assets = DataAssetLibrary(
-                self.experiment_dir, self.scope, self.project.workspace.catalog
-            )
+            self._data_assets = DataAssetLibrary(self.experiment_dir, self.scope)
         return self._data_assets
 
     def get_seeds(self) -> list[int]:
@@ -337,7 +334,6 @@ class Experiment(Folder):
         self._fs.mkdir(d, parents=True, exist_ok=True)
         disk_meta = self._persist_workflow_doc()
         _save_metadata(disk_meta, self._fs.join(d, "experiment.json"), fs=self._fs)
-        self._catalog_upsert()
 
     def save(self) -> None:
         """Persist current metadata to disk."""
@@ -347,7 +343,6 @@ class Experiment(Folder):
             self._fs.join(self.experiment_dir, "experiment.json"),
             fs=self._fs,
         )
-        self._catalog_upsert()
 
     @property
     def _workflow_doc_path(self) -> str:
@@ -375,25 +370,6 @@ class Experiment(Folder):
         if self._fs.is_file(doc_path):
             self._fs.remove(doc_path)
         return self._entity_metadata
-
-    def _write_catalog_row(self, catalog: AssetCatalog) -> None:
-        meta = self._entity_metadata
-        catalog.upsert_experiment(
-            {
-                "experiment_id": meta.id,
-                "project_id": self.project.id,
-                "name": meta.name,
-                "description": meta.description,
-                "tags": list(meta.tags),
-                "parameter_space": dict(meta.parameter_space),
-                "n_replicas": meta.n_replicas,
-                "workflow_source": meta.workflow_source,
-                "workflow_type": meta.workflow_type,
-                "path": f"projects/{self.project.id}/experiments/{self.id}",
-                "created_at": meta.created_at.isoformat(),
-                "updated_at": meta.created_at.isoformat(),
-            }
-        )
 
     # ── Run CRUD: typed semantic sugar over generic Folder CRUD ────────────
 
@@ -528,7 +504,6 @@ class Experiment(Folder):
 
     def remove_run(self, run_id: str) -> None:
         self.remove_folder(run_id, cls=Run)
-        self.project.workspace.catalog.remove_run(run_id)
 
     # ── Internal helpers ────────────────────────────────────────────────
 
