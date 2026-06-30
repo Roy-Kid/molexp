@@ -53,6 +53,19 @@ class GitResult:
     stderr: str
 
 
+@dataclass(frozen=True)
+class GitBytesResult:
+    """Outcome of a successful binary git invocation.
+
+    ``stdout`` is returned undecoded (object-database commands like
+    ``cat-file -p`` may emit non-UTF-8 payloads); ``stderr`` is decoded
+    for human-readable error messages.
+    """
+
+    stdout: bytes
+    stderr: str
+
+
 async def run_git(
     args: list[str],
     *,
@@ -99,3 +112,56 @@ async def run_git(
     if check and proc.returncode != 0:
         raise GitCommandError(args, cwd, proc.returncode, stderr)
     return GitResult(stdout=stdout, stderr=stderr)
+
+
+async def run_git_bytes(
+    args: list[str],
+    *,
+    cwd: Path | str | None = None,
+    env: dict[str, str] | None = None,
+    timeout: float = DEFAULT_TIMEOUT_S,
+    check: bool = True,
+    stdin_data: bytes | None = None,
+) -> GitBytesResult:
+    """Run ``git <args>`` with optional binary stdin, returning raw bytes stdout.
+
+    The binary twin of :func:`run_git`, sharing the same chokepoint, error
+    shape, and timeout policy. Used by object-database commands that read or
+    write non-UTF-8 payloads (``hash-object --stdin``, ``cat-file -p``,
+    ``mktree``, ``commit-tree``): stdout is returned undecoded.
+
+    Args:
+        args: argv passed after ``git``.
+        cwd: Working directory; ``None`` uses the current process cwd.
+        env: Subprocess environment; ``None`` inherits ``os.environ``.
+        timeout: Hard wall-clock ceiling. Exceeded → SIGKILL +
+            ``GitCommandError(returncode=None)``.
+        check: If True (default), raise ``GitCommandError`` on non-zero exit.
+        stdin_data: Bytes to feed on stdin; ``None`` attaches ``DEVNULL``.
+
+    Returns:
+        GitBytesResult with raw stdout bytes and decoded stderr.
+
+    Raises:
+        GitCommandError: On non-zero exit (when ``check=True``) or timeout.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=str(cwd) if cwd is not None else None,
+        env=env if env is not None else os.environ.copy(),
+        stdin=asyncio.subprocess.PIPE if stdin_data is not None else asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(stdin_data), timeout=timeout)
+    except TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise GitCommandError(args, cwd, None, "timed out") from exc
+
+    stderr = stderr_b.decode("utf-8", "replace") if stderr_b else ""
+    if check and proc.returncode != 0:
+        raise GitCommandError(args, cwd, proc.returncode, stderr)
+    return GitBytesResult(stdout=stdout_b or b"", stderr=stderr)

@@ -21,7 +21,38 @@ binary; pygit2 needs libgit2 C bindings).
 
 from __future__ import annotations
 
+from molexp.git.objects import (
+    ObjectDb,
+    Oid,
+    Signature,
+    TreeEntry,
+    build_commit,
+    build_tree,
+    ensure_object_db,
+    object_type,
+    read_object,
+    read_ref,
+    set_ref,
+    write_blob,
+)
 from molexp.git.operations import ensure_clone, fetch, push
 from molexp.git.worktree import GitWorktreeManager
 
-__all__ = ["GitWorktreeManager", "ensure_clone", "fetch", "push"]
+__all__ = [
+    "GitWorktreeManager",
+    "ObjectDb",
+    "Oid",
+    "Signature",
+    "TreeEntry",
+    "build_commit",
+    "build_tree",
+    "ensure_clone",
+    "ensure_object_db",
+    "fetch",
+    "object_type",
+    "push",
+    "read_object",
+    "read_ref",
+    "set_ref",
+    "write_blob",
+]

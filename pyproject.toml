@@ -51,6 +51,7 @@ molcrafts-molq = { path = "../molq", editable = true }
 molexp = "molexp.cli:app"
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = [
     "unit: fast standalone tests for a single function/class",
     "integration: tests that exercise multi-component flows (FastAPI, workspace)",
