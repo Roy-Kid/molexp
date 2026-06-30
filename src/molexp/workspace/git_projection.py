@@ -40,13 +40,17 @@ authoritative ``*.json``.
 
 from __future__ import annotations
 
+import asyncio
 import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mollog import get_logger
+
 from molexp.git import (
+    GitWorktreeManager,
     ObjectDb,
     Oid,
     Signature,
@@ -57,19 +61,37 @@ from molexp.git import (
     set_ref,
     write_blob,
 )
+from molexp.git import (
+    push as _git_push_refs,
+)
 from molexp.ids import compute_content_hash
 
 if TYPE_CHECKING:
     from molexp.workspace.run import Run
     from molexp.workspace.workspace import Workspace
 
+logger = get_logger(__name__)
+
 __all__ = [
     "ARTIFACT_POINTER_MARKER",
     "DEFAULT_BLOB_THRESHOLD_BYTES",
+    "DEFAULT_PUSH_REFSPEC",
     "GitProjection",
     "ProjectedRun",
     "ProjectionResult",
+    "checkpoint",
+    "checkpoint_run",
+    "checkpoint_run_on_settle",
+    "default_object_db_path",
+    "materialize_run",
+    "projection_enabled",
+    "push",
+    "rebuild",
 ]
+
+# All molexp-projected refs live under this namespace; the default push refspec
+# mirrors exactly that namespace to the remote (never the operator's branches).
+DEFAULT_PUSH_REFSPEC = "refs/molexp/*:refs/molexp/*"
 
 # Files larger than this are projected as a pointer, not inline bytes.
 DEFAULT_BLOB_THRESHOLD_BYTES = 10 * 1024 * 1024
@@ -171,6 +193,15 @@ class GitProjection:
         shutil.rmtree(self._db.path, ignore_errors=True)
         self._db = await ensure_object_db(self._db.path)
         return await self.project()
+
+    async def project_run(self, run: Run) -> ProjectedRun:
+        """Project a single run (tree + execution commits + its ref) only.
+
+        The O(1)-per-run entry the Execution-settled checkpoint hook uses — it
+        updates ``refs/molexp/runs/<run_id>`` without re-walking the whole
+        workspace, keeping the cadence cheap and low-frequency.
+        """
+        return await self._project_run(run)
 
     async def _project_run(self, run: Run) -> ProjectedRun:
         tree = await self._project_run_tree(run)
@@ -280,3 +311,114 @@ def _execution_message(record) -> str:  # noqa: ANN001 — ExecutionRecord (work
         f"started_at: {record.started_at.isoformat()}\n"
         f"finished_at: {finished}\n"
     )
+
+
+# ── Shared backend (CLI ≡ server ≡ lifecycle all call these symbols) ──────────
+
+
+def default_object_db_path(workspace: Workspace) -> Path:
+    """The bare git object DB for ``workspace`` — ``<root>/.molexp/git``.
+
+    A molexp-internal hidden dir (mirrors the ``<root>/.molexp/background``
+    precedent), so it never collides with the user's own ``<root>/.git``.
+    """
+    return Path(str(workspace.root)) / ".molexp" / "git"
+
+
+def projection_enabled(workspace: Workspace, *, db_path: Path | None = None) -> bool:
+    """Whether the git projection is initialised for ``workspace`` (opt-in by existence).
+
+    The settle-time auto-checkpoint is a no-op until the object DB exists, so a
+    run that never uses the projection pays nothing and the DB is never created
+    implicitly.
+    """
+    db = Path(db_path) if db_path is not None else default_object_db_path(workspace)
+    return (db / "HEAD").exists()
+
+
+async def checkpoint(workspace: Workspace, *, db_path: Path | None = None) -> ProjectionResult:
+    """Project the whole workspace and update ``refs/molexp/*`` (local; ungated)."""
+    db = await ensure_object_db(db_path or default_object_db_path(workspace))
+    return await GitProjection(workspace, db).project()
+
+
+async def checkpoint_run(run: Run, *, db_path: Path | None = None) -> ProjectedRun:
+    """Checkpoint a single run — the cheap per-run entry used at Execution settle."""
+    workspace = run.experiment.project.workspace
+    db = await ensure_object_db(db_path or default_object_db_path(workspace))
+    return await GitProjection(workspace, db).project_run(run)
+
+
+async def rebuild(workspace: Workspace, *, db_path: Path | None = None) -> ProjectionResult:
+    """Erase + deterministically re-derive the whole projection (local; ungated)."""
+    db = await ensure_object_db(db_path or default_object_db_path(workspace))
+    return await GitProjection(workspace, db).rebuild()
+
+
+async def push(
+    workspace: Workspace,
+    *,
+    remote: str,
+    refspec: str = DEFAULT_PUSH_REFSPEC,
+    db_path: Path | None = None,
+) -> None:
+    """Push the projected ``refs/molexp/*`` to ``remote`` (outward-facing).
+
+    Outward-facing and hard to reverse — gated through the harness ApprovalGate
+    when invoked as the ``molexp.curation.git_push`` ToolCapability. The bare
+    object materialization (checkpoint / rebuild) stays local and ungated.
+    """
+    db = await ensure_object_db(db_path or default_object_db_path(workspace))
+    await _git_push_refs(db.path, refspec, remote=remote)
+
+
+async def materialize_run(
+    workspace: Workspace,
+    run_id: str,
+    dest: Path | str,
+    *,
+    db_path: Path | None = None,
+) -> Path:
+    """Materialize a run's projected history into a scratch worktree at ``dest``.
+
+    Checks out ``refs/molexp/runs/<run_id>`` in **detached HEAD** into ``dest``
+    (a scratch dir, never the live workspace) via :class:`GitWorktreeManager`,
+    so a historical execution can be inspected or re-run without git ever
+    touching the live, molexp-managed workspace files.
+    """
+    db = await ensure_object_db(db_path or default_object_db_path(workspace))
+    manager = GitWorktreeManager(db.path)
+    await manager.add_detached(f"refs/molexp/runs/{run_id}", Path(dest))
+    return Path(dest)
+
+
+def checkpoint_run_on_settle(run: Run) -> None:
+    """Sync Execution-settled hook: a best-effort, low-frequency per-run checkpoint.
+
+    Called once per settled execution from ``run_lifecycle.exit()``. A no-op
+    unless the projection DB already exists (opt-in by existence). Best-effort:
+    git is a derived view, so a projection failure is logged, never raised into
+    the run lifecycle. Bridges to the async backend safely from sync or async
+    callers.
+    """
+    workspace = run.experiment.project.workspace
+    if not projection_enabled(workspace):
+        return
+    try:
+        _run_coro_blocking(checkpoint_run(run))
+    except Exception as exc:
+        logger.warning(f"git checkpoint failed for run {run.id}: {exc}")
+
+
+def _run_coro_blocking(coro):  # noqa: ANN001, ANN202 — internal sync→async bridge
+    """Run ``coro`` to completion from either a sync or an async caller."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # A loop is already running in this thread (async ``__aexit__`` path): run
+    # the coroutine on a worker thread with its own loop.
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(lambda: asyncio.run(coro)).result()

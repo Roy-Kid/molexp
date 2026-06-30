@@ -15,6 +15,7 @@ from . import (
     curate_tasks,
     execution,
     experiment,
+    git,
     knowledge,
     molq,
     plan_tasks,
@@ -47,6 +48,7 @@ def _workspace_scoped_modules() -> tuple:
         catalog,
         workflow,
         tensorboard,
+        git,
     )
 
 
@@ -100,6 +102,7 @@ def create_api_router() -> APIRouter:
     api_router.include_router(targets.router)
     api_router.include_router(tensorboard.router)
     api_router.include_router(workflow.router)
+    api_router.include_router(git.router)
 
     # Aggregate surface: the same domain routers, namespaced by workspace.
     api_router.include_router(_create_workspace_scoped_router(), prefix="/workspaces/{ws}")

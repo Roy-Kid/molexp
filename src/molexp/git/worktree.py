@@ -44,6 +44,23 @@ class GitWorktreeManager:
             cwd=self.root,
         )
 
+    async def add_detached(self, commit: str, worktree_path: Path) -> None:
+        """Materialize ``commit`` into ``worktree_path`` in detached HEAD.
+
+        Equivalent to::
+
+            git -C <root> worktree add --detach <worktree_path> <commit>
+
+        ``commit`` may be a commit OID or any ref (e.g. ``refs/molexp/runs/<id>``).
+        Unlike :meth:`add` it creates no branch — used to materialize a
+        historical state into a scratch dir for inspection / re-run, never into
+        the live workspace.
+        """
+        await run_git(
+            ["worktree", "add", "--detach", str(worktree_path), commit],
+            cwd=self.root,
+        )
+
     async def remove(self, worktree_path: Path, *, force: bool = False) -> None:
         """Tear down ``worktree_path`` and detach it from the main repo.
 

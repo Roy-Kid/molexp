@@ -159,8 +159,18 @@ class RunLifecycle:
             f"execution finished exec_id={ctx._execution_id}  status={final.value}"
         )
         ctx._ctx_store.save()
+        # Low-frequency git checkpoint at the Execution-settled boundary: one
+        # commit per settled execution, and only when the projection DB already
+        # exists (opt-in by existence). Best-effort — never breaks the run.
+        self._checkpoint_git_on_settle()
         ctx._entered = False
         return False
+
+    def _checkpoint_git_on_settle(self) -> None:
+        """Trigger the opt-in, best-effort git checkpoint for this settled run."""
+        from molexp.workspace.git_projection import checkpoint_run_on_settle
+
+        checkpoint_run_on_settle(self._ctx.run)
 
     def _apply_profile_metadata(self) -> None:
         """Persist the active profile name / data / hash into RunMetadata."""

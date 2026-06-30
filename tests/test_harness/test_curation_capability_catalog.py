@@ -57,12 +57,14 @@ FORBIDDEN_IMPORT_PREFIXES: tuple[str, ...] = (
     "mcp",
 )
 
-#: Per the reconciled link-01/link-04 contract: exactly the three mutators are
-#: destructive; the five scan/query/report functions are read-only.
+#: The destructive (side-effecting) mutators: the three workspace reorg verbs
+#: plus the outward-facing git push (workspace-git-projection-04). The
+#: scan/query/report functions are read-only.
 EXPECTED_DESTRUCTIVE_IDS = {
     "molexp.curation.move_run",
     "molexp.curation.rehome_asset",
     "molexp.curation.delete_folder",
+    "molexp.curation.git_push",
 }
 
 

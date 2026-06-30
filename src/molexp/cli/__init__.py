@@ -59,6 +59,11 @@ app.add_typer(asset_app, name="asset")
 app.add_typer(target_app, name="target")
 app.add_typer(mcp_app, name="mcp")
 
+# ── git checkpoint projection group ──────────────────────────────────────────
+from molexp.cli.git_cmd import git_app  # noqa: E402
+
+app.add_typer(git_app, name="git")
+
 # ── session + config groups ──────────────────────────────────────────────────
 from molexp.cli.session_cmd import session_app  # noqa: E402
 
