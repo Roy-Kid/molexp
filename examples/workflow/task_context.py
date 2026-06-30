@@ -1,20 +1,26 @@
-"""A tour of ``TaskContext`` — the pure ``{inputs, config}`` contract.
+"""A tour of ``TaskContext`` — inputs bind by name, ``ctx`` carries the workdir.
 
 Matches ``docs/guide/task-context.md``.
 
-Every task body receives one frozen ``TaskContext``:
+A task body declares the runtime values it consumes as **named parameters**; the
+engine binds them from the merged map {build-time config} | {upstream outputs |
+run params} (dynamic inputs win):
 
-* ``ctx.inputs``  — runtime data flowing in along the graph's edges. For a
-  downstream task that is the upstream output; for a root task of a tracked
-  run the engine injects ``{"params": <run params>, "workdir": <Path>}``.
-* ``ctx.config``  — the active configuration mapping (the resolved profile
-  for a tracked run, or the ``config=`` kwarg of ``WorkflowRuntime.execute``).
-* ``ctx.workdir`` — content-addressed scratch directory for this task
-  (``None`` when no workspace run is attached).
+* a root task's sweep params arrive as named params (``base`` below);
+* a downstream task's single upstream output binds positionally to its sole free
+  parameter (``value`` below);
+* build-time / profile ``config`` fields bind by name (``scale`` below).
 
-There is no ``ctx.run_context`` and no ``ctx.deps``: a task cannot climb up to
-the Run or the workspace. Workspace helpers (``set_result`` / ``artifact`` /
-``log``) live on the driver-side ``RunContext`` instead.
+The only data surface left on the ``TaskContext`` itself is:
+
+* ``ctx.workdir`` — a content-addressed scratch directory for this task
+  (``None`` when no workspace run is attached). Keep the leading ``ctx``
+  parameter only when the body writes there.
+
+There is no ``ctx.inputs`` / ``ctx.config`` / ``ctx.run_context`` and no
+``ctx.deps``: a task cannot climb up to the Run or the workspace. Workspace
+helpers (``set_result`` / ``artifact`` / ``log``) live on the driver-side
+``RunContext`` instead.
 
 Run directly::
 
@@ -33,22 +39,19 @@ from molexp.workflow import Task, TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
 class Seed(Task):
-    """Root task: reads the engine-injected ``{"params", "workdir"}`` inputs."""
+    """Root task: the run param ``base`` binds by name; ``ctx.workdir`` is used."""
 
-    async def execute(self, ctx: TaskContext) -> int:
-        base = ctx.inputs["params"].get("base", 1)
-        workdir = ctx.inputs["workdir"]  # same Path as ctx.workdir
-        if workdir is not None:
-            (workdir / "seed.txt").write_text(str(base))
+    async def execute(self, ctx: TaskContext, base: int = 1) -> int:
+        if ctx.workdir is not None:
+            (ctx.workdir / "seed.txt").write_text(str(base))
         return base
 
 
 class Record(Task):
-    """Downstream task: reads ``ctx.inputs`` (upstream output) and ``ctx.config``."""
+    """Downstream task: ``value`` is the upstream output; ``scale`` is config."""
 
-    async def execute(self, ctx: TaskContext) -> int:
-        scale = ctx.config.get("scale", 1)
-        return ctx.inputs * scale
+    async def execute(self, ctx: TaskContext, value: int, scale: int = 1) -> int:
+        return value * scale
 
 
 # Module scope so the compiled artifact is importable across CLI re-imports.

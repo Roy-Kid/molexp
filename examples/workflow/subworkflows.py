@@ -30,30 +30,32 @@ from molexp.workflow import (
 def build_preprocess() -> WorkflowCompiler:
     """The inner pipeline — could live in its own module.
 
-    ``load`` reads ``ctx.inputs`` (the value forwarded into the inner workflow's
-    entry task), so when this spec is used as a ``parallel`` body each fan-out
-    element drives a *distinct* inner run.
+    ``load``'s ``seed`` parameter receives the value forwarded into the inner
+    workflow's entry task, so when this spec is used as a ``parallel`` body each
+    fan-out element drives a *distinct* inner run; standalone, ``seed`` falls
+    back to its default.
     """
     wf = WorkflowCompiler(name="preprocess")
 
     @wf.task
-    async def load(ctx: TaskContext) -> list[float]:
-        # ``ctx.inputs`` is the forwarded node input: the fan-out element (an int)
-        # in the parallel case, or ``None`` when this inner is run standalone.
-        seed = ctx.inputs if isinstance(ctx.inputs, int) else 0
+    async def load(seed: int = 0) -> list[float]:
+        # ``seed`` is the forwarded node input: the fan-out element (an int) in
+        # the parallel case, or the default 0 when this inner is run standalone.
         return [3.0 + seed, 1.0, 4.0, 1.0, 5.0]
 
     @wf.task(depends_on=["load"])
-    async def normalize(ctx: TaskContext) -> list[float]:
-        top = max(ctx.inputs)
-        return [x / top for x in ctx.inputs]
+    async def normalize(values: list[float]) -> list[float]:
+        # ``load``'s single upstream list binds positionally to ``values``.
+        top = max(values)
+        return [x / top for x in values]
 
     return wf
 
 
 class Train(Task):
-    async def execute(self, ctx: TaskContext) -> float:
-        return sum(ctx.inputs) / len(ctx.inputs)
+    async def execute(self, ctx: TaskContext, values: list[float]) -> float:
+        # The SubWorkflow node's terminal output (a list) binds to ``values``.
+        return sum(values) / len(values)
 
 
 async def run_chained() -> None:
@@ -82,14 +84,15 @@ async def run_parallel_body() -> None:
     wf = WorkflowCompiler(name="fanout", entry="enumerate")
 
     @wf.task
-    async def enumerate(ctx: TaskContext) -> list[int]:
+    async def enumerate() -> list[int]:
         return [0, 1, 2]
 
     wf.add(SubWorkflow(build_preprocess()), name="preprocess")
 
     @wf.task
-    async def collect(ctx: TaskContext) -> list[list[float]]:
-        return list(ctx.inputs)
+    async def collect(values: list[list[float]]) -> list[list[float]]:
+        # The join receives one inner output per element, bound to ``values``.
+        return list(values)
 
     wf.parallel(map_over="enumerate", body="preprocess", join="collect", max_concurrency=2)
 

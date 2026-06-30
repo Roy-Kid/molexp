@@ -14,16 +14,20 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="train")
 
 
 @wf.task
-async def train(ctx: TaskContext) -> dict:
-    """Root task — the engine injects ``{"params", "workdir"}`` as inputs."""
-    lr = ctx.inputs["params"].get("lr", 1e-3)
-    epochs = ctx.config.get("epochs", 3)
+async def train(lr: float = 1e-3, epochs: int = 3) -> dict:
+    """Root task — its inputs arrive bound to named parameters.
+
+    The engine fills ``lr`` from the run's sweep params (``params={"lr": [1e-3]}``)
+    and ``epochs`` from build-time config; each falls back to its declared
+    default when absent. ``ctx`` is omitted because this body needs no
+    ``ctx.workdir`` scratch space — the only data surface left on the context.
+    """
     final_loss = 1.0 / (epochs * (lr * 1000 + 1))
     return {"lr": lr, "epochs": epochs, "final_loss": final_loss}
 

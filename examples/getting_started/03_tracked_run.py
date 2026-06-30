@@ -14,14 +14,14 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="baseline")
 
 
 @wf.task
-async def experiment_body(ctx: TaskContext) -> dict:
-    seed = ctx.inputs["params"].get("seed", 0)
+async def experiment_body(seed: int = 0) -> dict:
+    """Root task — the run's sweep param ``seed`` binds to this named parameter."""
     return {"score": 0.87, "seed": seed}
 
 

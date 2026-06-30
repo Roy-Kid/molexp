@@ -3,11 +3,11 @@
 Matches ``docs/guide/control-flow.md``.
 
 ``wf.branch`` declares label-routed edges: the deciding task returns
-``(value, Next("label"))`` and the routed target receives ``value`` as its
-``ctx.inputs``. ``wf.loop`` repeats a body until its ``until`` task returns
-``Next("exit")``; each iteration's value reaches the next iteration's body
-head via ``ctx.inputs`` — no shared mutable state. This example runs two
-patterns back to back:
+``(value, Next("label"))`` and the routed target receives ``value`` bound to its
+own named parameters. ``wf.loop`` repeats a body until its ``until`` task returns
+``Next("exit")``; each iteration's value reaches the next iteration's body head
+as a named parameter — no shared mutable state, no ``ctx``. This example runs
+two patterns back to back:
 
 1. Branch — ``classify`` routes a payload to ``accepted`` or ``rejected``.
 2. Loop — ``step`` / ``check`` refine a value until it converges, then
@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import Next, TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import Next, WorkflowCompiler, WorkflowRuntime
 
 
 # ── 1. Branch — route a value to one downstream task ───────────────────────
@@ -30,17 +30,17 @@ async def branch_demo(score: float) -> None:
     wf = WorkflowCompiler(name="triage", entry="classify")
 
     @wf.task
-    async def classify(ctx: TaskContext) -> tuple[dict, Next]:
+    async def classify() -> tuple[dict, Next]:
         label = "accept" if score > 0.5 else "reject"
         return {"score": score}, Next(label)
 
     @wf.task
-    async def accepted(ctx: TaskContext) -> str:
-        return f"accepted score={ctx.inputs['score']}"  # routed value via ctx.inputs
+    async def accepted(score: float) -> str:
+        return f"accepted score={score}"  # routed dict binds by name
 
     @wf.task
-    async def rejected(ctx: TaskContext) -> str:
-        return f"rejected score={ctx.inputs['score']}"
+    async def rejected(score: float) -> str:
+        return f"rejected score={score}"
 
     wf.branch("classify", routes={"accept": "accepted", "reject": "rejected"})
 
@@ -54,18 +54,19 @@ async def loop_demo() -> None:
     wf = WorkflowCompiler(name="refine", entry="step")
 
     @wf.task
-    async def step(ctx: TaskContext) -> int:
-        prev = ctx.inputs if isinstance(ctx.inputs, int) else 0
-        return prev + 1  # ctx.inputs = previous iteration's value (None on iter 1)
+    async def step(value: int | None = None) -> int:
+        # ``value`` = previous iteration's routed output (None on iteration 1).
+        prev = value if isinstance(value, int) else 0
+        return prev + 1
 
     @wf.task(depends_on=["step"])
-    async def check(ctx: TaskContext) -> tuple[int, Next]:
-        n = ctx.inputs
-        return n, Next("exit" if n >= 3 else "continue")
+    async def check(value: int) -> tuple[int, Next]:
+        # The single upstream (``step``) value binds positionally to ``value``.
+        return value, Next("exit" if value >= 3 else "continue")
 
     @wf.task
-    async def report(ctx: TaskContext) -> str:
-        return f"converged at {ctx.inputs}"  # exit-edge value via ctx.inputs
+    async def report(value: int) -> str:
+        return f"converged at {value}"  # exit-edge value binds by name
 
     wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 

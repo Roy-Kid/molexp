@@ -178,6 +178,21 @@ def _stub_factory(run: Any, model: str) -> Any:
     gw.register(agent_name="test_spec_writer", output=_TEST_SPEC, output_kind="test_spec")
     gw.register(agent_name="test_code_writer", output=_TEST_SOURCE, output_kind="test_source")
     gw.register(agent_name="input_set_generator", output=_INPUT_SET, output_kind="input_set")
+    # ResolveCapabilities runs the capability_selector agent only when a grounded
+    # registry is present (the grounded test) — pick the one capability it offers.
+    gw.register(
+        agent_name="capability_selector",
+        output={
+            "selected": [
+                {
+                    "id": "molpy.builder.water.SPCEBuilder",
+                    "reason": "builds the SPC/E water box this experiment needs",
+                }
+            ],
+            "notes": "",
+        },
+        output_kind="capability_selection",
+    )
     return gw
 
 
