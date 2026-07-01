@@ -54,7 +54,9 @@ from .reference_meta import ReferenceMeta
 from .zotero_concepts import read_zotero_items
 
 if TYPE_CHECKING:
+    from .assets.base import Asset
     from .concepts import Note, ReferenceConcept
+    from .doc_embed import EntitySummary
 
 __all__ = ["Backlink", "Bundle"]
 
@@ -429,6 +431,68 @@ class Bundle:
                 if isinstance(descendant, Note):
                     parts.append(f"\n\n## {self.rel_path(descendant)}\n\n{descendant.read_index()}")
         return "".join(parts)
+
+    # ── document embed verb + entity summary (knowledge-docs-05) ─────────
+
+    def embed(
+        self,
+        src_concept: Note,
+        target: Folder | Asset,
+        *,
+        role: EdgeRole | None = None,
+    ) -> None:
+        """Embed *target* into document *src_concept* as one typed provenance edge.
+
+        Writes a single typed markdown link from the ``Note`` *src_concept* to
+        *target* through the sole edge-writer
+        :func:`~molexp.workspace.folder.append_link` -- never a hand-built
+        markdown string. *target* is a :class:`Folder` (a ``Run`` /
+        ``Experiment`` / ``ReferenceConcept`` / ``Note``, handed to
+        ``append_link`` directly) or an
+        :class:`~molexp.workspace.assets.base.Asset` (resolved to its in-tree
+        record dir ``<scope_dir>/assets/<asset_id>/`` and pointed at, never
+        copied).
+
+        With *role* ``None`` the per-kind default is used
+        (:func:`~molexp.workspace.doc_embed.default_role_for`): a ``Run`` /
+        ``Experiment`` -> ``records``, a ``ReferenceConcept`` -> ``cites``, any
+        ``Asset`` (or other) -> ``references``; all from the frozen
+        :class:`~molexp.workspace.edges.EdgeRole` vocabulary. An explicit *role*
+        overrides the default.
+
+        Args:
+            src_concept: The document (a ``Note``) the edge originates from.
+            target: The live entity to embed (a ``Folder`` or an ``Asset``).
+            role: An explicit edge role; defaults to the per-kind default.
+
+        Raises:
+            TypeError: If *target* is neither a ``Folder`` nor an ``Asset``.
+            FileNotFoundError: If an ``Asset`` target has no on-disk record dir
+                (missing precondition -- raised, never silently downgraded).
+        """
+        from .doc_embed import default_role_for, resolve_embed_target
+
+        dst = resolve_embed_target(target, root=self._root, pin=self._pinned_parent)
+        edge_role = role if role is not None else default_role_for(target)
+        append_link(src_concept, dst, role=edge_role)
+
+    def entity_summary(self, target: Folder | Asset) -> EntitySummary:
+        """Return a read-only :class:`EntitySummary` for *target* (a UI-card projection).
+
+        Convenience wrapper over
+        :func:`~molexp.workspace.doc_embed.summarize_entity` that passes this
+        bundle's root as the anchor (needed only to locate an ``Asset``'s record
+        dir). Writes nothing.
+
+        Args:
+            target: The entity to summarize (a ``Folder`` or an ``Asset``).
+
+        Returns:
+            The read-only :class:`EntitySummary`.
+        """
+        from .doc_embed import summarize_entity
+
+        return summarize_entity(target, root=self._root)
 
     # ── typed filtered views + Zotero import (wsokf-05) ──────────────────
 

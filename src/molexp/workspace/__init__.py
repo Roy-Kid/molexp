@@ -49,6 +49,7 @@ from .bundle_index import BundleIndex, ConceptIndexEntry
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .concepts import Note, ReferenceConcept
 from .context import Context
+from .doc_embed import EntitySummary, summarize_entity
 from .edges import DEFAULT_EDGE_ROLE, Edge, EdgeRole
 from .errors import (
     ConceptNotFoundError,
@@ -93,6 +94,7 @@ from .models import (
     RunMetadata,
     WorkspaceMetadata,
 )
+from .note_meta import NoteMeta
 from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
 from .reference_meta import ReferenceMeta
@@ -174,6 +176,8 @@ __all__ = [
     # OKF typed knowledge-graph edge role (typed-provenance-edge P0.1)
     "Edge",
     "EdgeRole",
+    # OKF document-embed entity summary (knowledge-docs-05) — read-only UI card
+    "EntitySummary",
     "ErrorInfo",
     "ErrorTraceAsset",
     "ExecutionRecord",
@@ -198,6 +202,8 @@ __all__ = [
     "LogAsset",
     # OKF Note Concept (wsokf-05) — a directory whose path is its identity
     "Note",
+    # OKF Note document meta.yaml payload (knowledge-docs-05) — tags + status
+    "NoteMeta",
     # Parameters
     "ParamSpace",
     "Params",
@@ -255,6 +261,7 @@ __all__ = [
     "read_zotero_items",
     "remove_target",
     "resolve_target",
+    "summarize_entity",
     "target_run_dir",
     "target_to_transport",
     "to_transport",

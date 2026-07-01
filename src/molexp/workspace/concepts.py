@@ -25,6 +25,7 @@ via the :class:`~molexp.workspace.bundle.Bundle` façade.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import ClassVar, cast
 
 from molexp.knowledge.types import concept_type
@@ -32,9 +33,10 @@ from molexp.knowledge.types import concept_type
 from .edges import DEFAULT_EDGE_ROLE, EdgeRole
 from .folder import META_YAML_FILENAME, Folder, append_link
 from .fs import FileSystem, PathArg
+from .note_meta import NOTE_TYPE, NoteMeta
 from .reference_meta import ReferenceMeta
 
-NOTE_KIND = "note.note"
+NOTE_KIND = NOTE_TYPE
 REFERENCE_KIND = "reference.reference"
 
 
@@ -87,6 +89,51 @@ class Note(Folder):
                 to :data:`~molexp.workspace.edges.DEFAULT_EDGE_ROLE`.
         """
         append_link(self, ref, text=text, role=role)
+
+    # -- typed meta.yaml (tags / status) -- knowledge-docs-05 ------------------
+
+    def read_note_meta(self) -> NoteMeta:
+        """Load this note's typed document ``meta.yaml`` as a :class:`NoteMeta`.
+
+        A legacy bare marker (only ``{type, id}``) -- or an absent ``meta.yaml``
+        -- reads back with the additive defaults (``tags == []`` /
+        ``status == "active"``), so no migration is needed.
+        """
+        fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
+        if not self._fs.exists(fpath):
+            return NoteMeta(type=self._kind, id=self._name)
+        return cast("NoteMeta", NoteMeta.from_yaml(self._fs.read_text(fpath)))
+
+    def write_note_meta(self, meta: NoteMeta) -> None:
+        """Atomically write this note's typed document ``meta.yaml``.
+
+        The on-disk ``type`` is stamped to this Concept's ``kind`` (``note.note``)
+        and ``id`` to its name, mirroring
+        :meth:`ReferenceConcept.write_ref_meta`, so :func:`concept_from_dir`
+        rebuilds a :class:`Note` and identity stays path-derived. Any other keys
+        on *meta* are preserved verbatim (``ConceptMeta`` is ``extra="allow"``).
+        """
+        meta = meta.model_copy(update={"type": self._kind, "id": self._name})
+        fpath = self._fs.join(self.path(), META_YAML_FILENAME)
+        self._fs.atomic_write_text(fpath, meta.to_yaml())
+
+    def tags(self) -> list[str]:
+        """Return this note's categorical tags (``[]`` when untagged)."""
+        return list(self.read_note_meta().tags)
+
+    def status(self) -> str:
+        """Return this note's lifecycle status (``"active"`` by default)."""
+        return self.read_note_meta().status
+
+    def set_tags(self, tags: Iterable[str]) -> None:
+        """Set this note's tags, preserving ``status`` and any other meta keys."""
+        current = self.read_note_meta()
+        self.write_note_meta(current.model_copy(update={"tags": list(tags)}))
+
+    def set_status(self, status: str) -> None:
+        """Set this note's status, preserving ``tags`` and any other meta keys."""
+        current = self.read_note_meta()
+        self.write_note_meta(current.model_copy(update={"status": status}))
 
 
 @concept_type(REFERENCE_KIND)
