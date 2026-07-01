@@ -199,7 +199,7 @@ class TaskContext[StateT, InputT]:
         """DEPRECATED read-only snapshot of shared workflow state.
 
         Emits a ``DeprecationWarning`` on every access: loop-back and
-        branch-routed values now arrive via ``ctx.inputs``; ``ctx.state``
+        branch-routed values now arrive as named task parameters; ``ctx.state``
         will be removed. The returned object is a point-in-time, read-only
         snapshot (see :func:`_freeze_state`) — engine state cannot be
         mutated through it.

@@ -2,7 +2,7 @@
 
 One `molexp` script usually needs more than one execution shape. You may want a fast smoke run for local iteration, a conservative default for everyday work, and a heavier configuration for production or cluster submission. `molcfg` exists so those variants stay in data instead of leaking into ad-hoc flags or duplicated scripts.
 
-The framework treats a profile as opaque user data. It loads a config file, resolves one named profile, injects the merged mapping into `ctx.config`, and records the chosen profile on the run. The framework does not assign special meaning to keys like `epochs`, `dataset`, or `skip_heavy_compute`; task code reads those fields explicitly.
+The framework treats a profile as opaque user data. It loads a config file, resolves one named profile, injects the merged mapping as the run's build-time config, and records the chosen profile on the run. The framework does not assign special meaning to keys like `epochs`, `dataset`, or `skip_heavy_compute`; task code reads those fields explicitly, by declaring them as parameters.
 
 ## A Config File Makes Variants Explicit
 
@@ -34,28 +34,35 @@ profiles:
 
 This arrangement keeps one script responsible for workflow structure while the config file owns execution shape. It also makes review easier: changing the experiment recipe becomes a diff in `molcfg.yaml`, not a rewrite of control flow.
 
-## Task Code Reads the Active Profile Through `ctx.config`
+## Task Code Reads the Active Profile Through Named Parameters
 
-Once a profile has been selected, every task sees the same read-only `ProfileConfig` through `TaskContext.config`. That object behaves like a mapping, so normal dictionary access patterns work.
+Once a profile has been selected, its merged mapping becomes the run's build-time config. A task declares the fields it needs as named parameters; the engine binds each one by name (dynamic inputs — upstream outputs and run params — win over config), and any field a task does not declare is simply left unbound.
 
 ```python
 from molexp.workflow import Task, TaskContext
 
 
 class Train(Task):
-    async def execute(self, ctx: TaskContext) -> dict:
-        epochs = ctx.config.get("epochs", 100)
-        lr = ctx.config.get("optimizer", {}).get("lr", 1e-3)
-
-        if ctx.config.get("skip_heavy_compute"):
+    async def execute(
+        self,
+        ctx: TaskContext,
+        data,
+        epochs: int = 100,
+        optimizer: dict | None = None,
+        skip_heavy_compute: bool = False,
+    ) -> dict:
+        # Config binds by name at the top level, so a nested block like
+        # ``optimizer: {lr: ...}`` arrives whole as the ``optimizer`` parameter.
+        lr = (optimizer or {}).get("lr", 1e-3)
+        if skip_heavy_compute:
             return {"mode": "lightweight", "epochs": 1, "lr": lr}
 
-        return train_model(epochs=epochs, lr=lr)
+        return train_model(data, epochs=epochs, lr=lr)
 ```
 
-The important design choice is that the task decides what those fields mean. `molexp` does not translate `dry-run` into special runtime behavior, and it does not reserve names for particular semantics. If your workflow wants `skip_heavy_compute`, you add it to the profile and read it yourself.
+The important design choice is that the task decides what those fields mean. `molexp` does not translate `dry-run` into special runtime behavior, and it does not reserve names for particular semantics. If your workflow wants `skip_heavy_compute`, you add it to the profile and declare a matching parameter to read it.
 
-Even when no profile is selected, `ctx.config` still exists. In that case it is simply an empty defaults-only mapping, which is why `.get()` is the safest access pattern for optional fields.
+Even when no profile is selected, the run still carries a config — in that case just the defaults, possibly empty. Any field the config does not provide falls back to its parameter's declared default, which is why every optional field should declare one.
 
 ## The CLI Selects, Refines, and Replays a Profile
 
@@ -110,7 +117,7 @@ Before execution begins, `molexp run` writes profile information into the run me
 
 This matters for two reasons. First, different profiles of the same experiment become distinct run identities instead of colliding in the same run directory. Second, replay and debugging stay grounded in real metadata: you can inspect `run.json`, recover the exact merged config, and understand which execution slice produced the artifacts on disk.
 
-That same persisted metadata feeds other user-visible behaviors. The run monitor can distinguish profiles, replay tooling can reconstruct the chosen config, and task code running under `molexp execute RUN_DIR` sees the same `ctx.config` payload the original run used.
+That same persisted metadata feeds other user-visible behaviors. The run monitor can distinguish profiles, replay tooling can reconstruct the chosen config, and task code running under `molexp execute RUN_DIR` binds its parameters from the same config payload the original run used.
 
 ## One Script Can Cover Local Iteration and Cluster Submission
 

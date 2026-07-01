@@ -25,7 +25,7 @@ That distinction is also why the Python API and the CLI behave slightly differen
 
 ## Profiles, Metadata, and Inspection
 
-Profiles live at the boundary between workflow execution and workspace persistence. Tasks read the active configuration through `ctx.config`, but the chosen profile name, the merged config payload, and its `config_hash` are all stored on the run record. That makes configuration both executable and inspectable. You can look at `run.json` later and recover the exact config slice a run used, rather than relying on memory or shell history.
+Profiles live at the boundary between workflow execution and workspace persistence. Tasks read the active configuration as named parameters bound from the resolved profile config, but the chosen profile name, the merged config payload, and its `config_hash` are all stored on the run record. That makes configuration both executable and inspectable. You can look at `run.json` later and recover the exact config slice a run used, rather than relying on memory or shell history.
 
 This is also the layer that the server and UI expose. Browsing projects, experiments, runs, and execution history is fundamentally browsing workspace state.
 

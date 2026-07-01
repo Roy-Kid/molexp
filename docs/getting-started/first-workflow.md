@@ -4,26 +4,25 @@ Before MolExp becomes a workspace or a CLI tool, it is a workflow system. The fi
 
 ## Writing the First Task
 
-A task is an async computation that receives a `TaskContext`. The context gives the task its upstream input (`ctx.inputs`) and the active configuration mapping (`ctx.config`).
+A task is an async computation. It declares the runtime values it consumes as ordinary named parameters, and the engine binds them by name: an upstream task's output and any build-time configuration are matched to parameters that share their name. The leading `ctx` parameter is optional — a task keeps it only when it needs a scratch directory (`ctx.workdir`), which is the one data surface left on the `TaskContext`. A task that just transforms data, like the two below, omits `ctx` entirely.
 
 ```python
-from molexp.workflow import TaskContext, WorkflowCompiler
+from molexp.workflow import WorkflowCompiler
 
 wf = WorkflowCompiler(name="pipeline")
 
 
 @wf.task
-async def fetch(ctx: TaskContext) -> dict:
+async def fetch() -> dict:
     return {"value": 42}
 
 
 @wf.task(depends_on=["fetch"])
-async def scale(ctx: TaskContext) -> int:
-    factor = ctx.config.get("factor", 2)
-    return ctx.inputs["value"] * factor
+async def scale(value: int, factor: int = 2) -> int:
+    return value * factor
 ```
 
-The important thing here is not the arithmetic. It is the dependency line. `scale` depends on `fetch`, so its `ctx.inputs` is the output of that upstream task.
+The important thing here is not the arithmetic. It is the dependency line. `scale` depends on `fetch`, so `fetch`'s output — the `{"value": 42}` dictionary — is bound into `scale`'s parameters by name: the `value` key fills the `value` parameter. The `factor` parameter has no upstream match, so it falls back to its declared default of `2`; build-time configuration could supply a different `factor`, and that dynamic value would win over the default.
 
 ## Compiling the Graph
 
@@ -69,8 +68,8 @@ class Fetch(Task):
 
 
 class Scale(Task):
-    async def execute(self, ctx: TaskContext) -> int:
-        return ctx.inputs["value"] * 2
+    async def execute(self, ctx: TaskContext, value: int, factor: int = 2) -> int:
+        return value * factor
 
 
 compiled = (
@@ -81,7 +80,7 @@ compiled = (
 )
 ```
 
-Both styles produce the same kind of compiled workflow. The choice is mostly about how you want to organize code.
+Both styles produce the same kind of compiled workflow. The class form keeps the `ctx` parameter on `execute` by convention; the input parameters (`value`, `factor`) follow it and bind by name exactly as they do for the decorator form. The choice is mostly about how you want to organize code.
 
 ## What to Learn Next
 

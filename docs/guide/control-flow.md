@@ -7,22 +7,26 @@ MolExp's workflow engine handles control flow through the **shape of the DAG**, 
 Tasks whose dependencies are all satisfied run in parallel automatically. You don't mark anything as "parallel"; you just make sure they share the same set of upstream dependencies.
 
 ```python
-from molexp.workflow import TaskContext, WorkflowCompiler
+from molexp.workflow import WorkflowCompiler
 
 wf = WorkflowCompiler(name="pipeline")
 
 @wf.task
-async def fetch(ctx: TaskContext) -> dict:
-    return {"data": load()}
+async def fetch() -> dict:
+    return {"raw": load()}
 
 @wf.task(depends_on=["fetch"])
-async def parse(ctx: TaskContext) -> dict: ...
+async def parse(raw: list) -> list: ...
 
 @wf.task(depends_on=["fetch"])
-async def validate(ctx: TaskContext) -> dict: ...
+async def validate(raw: list) -> bool: ...
 
 @wf.task(depends_on=["parse", "validate"])
-async def merge(ctx: TaskContext) -> dict: ...
+async def merge(parse: list, validate: bool) -> dict:
+    # Two upstreams: each non-dict output is keyed by its dependency name, so a
+    # parameter named after the dep binds it. (Had an upstream returned a dict,
+    # its fields would merge into one flat map instead — see below.)
+    ...
 ```
 
 `parse` and `validate` run concurrently once `fetch` finishes. `merge` waits for both. This is the idiomatic way to express "run these in parallel, then reduce".
@@ -33,10 +37,12 @@ Use a plain `if` inside a task. If a branch has no work, return a sentinel / `No
 
 ```python
 @wf.task(depends_on=["fetch"])
-async def maybe_clean(ctx: TaskContext) -> dict:
-    if ctx.config.get("skip_cleaning", False):
-        return ctx.inputs
-    return clean(ctx.inputs)
+async def maybe_clean(items: list[int], skip_cleaning: bool = False) -> list[int]:
+    # ``items`` = ``fetch``'s output (single upstream, bound positionally);
+    # ``skip_cleaning`` = a build-time config field, bound by name.
+    if skip_cleaning:
+        return items
+    return clean(items)
 ```
 
 For larger branch-specific pipelines, route between whole tasks with `wf.branch` (next section).
@@ -46,21 +52,21 @@ For larger branch-specific pipelines, route between whole tasks with `wf.branch`
 When a decision selects between **whole downstream tasks**, declare label-routed edges with `wf.branch` and return `Next` from the deciding task:
 
 ```python
-from molexp.workflow import Next, TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import Next, WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="triage", entry="classify")
 
 @wf.task
-async def classify(ctx: TaskContext) -> tuple[dict, Next]:
+async def classify() -> tuple[dict, Next]:
     score = run_model()
     return {"score": score}, Next("accept" if score > 0.5 else "reject")
 
 @wf.task
-async def accepted(ctx: TaskContext) -> dict:
-    return ctx.inputs               # {"score": ...} — the routed value
+async def accepted(score: float) -> dict:
+    return {"score": score}         # the routed dict binds by name
 
 @wf.task
-async def rejected(ctx: TaskContext) -> None: ...
+async def rejected(score: float) -> None: ...
 
 wf.branch("classify", routes={"accept": "accepted", "reject": "rejected"})
 
@@ -69,7 +75,7 @@ result = await WorkflowRuntime().execute(wf.compile())
 
 Two declaration forms are equivalent: `wf.branch("src", routes={"l1": "t1", "l2": "t2"})` and the single-edge `wf.branch("src", "label", "target")`. The same routes can also be declared inline on the task — `@wf.task(routes={"accept": "accepted", ...})`. Route to the reserved name `"_end"` to terminate the workflow on that label.
 
-The branch task returns a bare `Next("label")` or a `(value, Next("label"))` tuple. **Values ride the edges**: the routed target receives `value` as its `ctx.inputs` (a declared `depends_on` interface always wins — a target with data deps keeps its collected upstream shape). Returning an undeclared label raises `UnknownRouteError`; a task with declared routes that returns no `Next` raises `MissingRouteError`.
+The branch task returns a bare `Next("label")` or a `(value, Next("label"))` tuple. **Values ride the edges**: the routed target receives `value` bound to its own named parameters — a dict value binds by name, a scalar binds positionally (a declared `depends_on` interface always wins — a target with data deps keeps its collected upstream shape). Returning an undeclared label raises `UnknownRouteError`; a task with declared routes that returns no `Next` raises `MissingRouteError`.
 
 Un-routed targets never run. If a downstream task `depends_on` a task the branch routed *away* from, the engine detects this **structurally** and raises `WorkflowDeadlockError` (naming the unsatisfiable dependencies) the moment the consumer becomes control-ready — no timeouts; a genuinely slow upstream is never mistaken for a dead one. Design joins so every `depends_on` edge is on a live path for every route, or split the join per route.
 
@@ -79,9 +85,9 @@ Sequential repetition that fits in one task body belongs **inside** the task (Py
 
 ```python
 @wf.task
-async def iterate(ctx: TaskContext) -> list[float]:
-    xs = ctx.inputs
-    for _ in range(ctx.config.get("iters", 10)):
+async def iterate(xs: list[float], iters: int = 10) -> list[float]:
+    # ``xs`` binds by name (run param / upstream); ``iters`` is a config field.
+    for _ in range(iters):
         xs = [x * 1.01 for x in xs]
     return xs
 ```
@@ -89,23 +95,24 @@ async def iterate(ctx: TaskContext) -> list[float]:
 When each iteration is itself a (multi-task) piece of the graph, declare a workflow-level loop with `wf.loop`:
 
 ```python
-from molexp.workflow import Next, TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import Next, WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="refine", entry="step")
 
 @wf.task
-async def step(ctx: TaskContext) -> int:
-    prev = ctx.inputs if isinstance(ctx.inputs, int) else 0
-    return prev + 1                 # ctx.inputs = previous iteration's value
+async def step(value: int | None = None) -> int:
+    # ``value`` = previous iteration's routed output (None on iteration 1).
+    prev = value if isinstance(value, int) else 0
+    return prev + 1
 
 @wf.task(depends_on=["step"])
-async def check(ctx: TaskContext) -> tuple[int, Next]:
-    n = ctx.inputs
-    return n, Next("exit" if n >= 3 else "continue")
+async def check(value: int) -> tuple[int, Next]:
+    # The single upstream (``step``) binds positionally to ``value``.
+    return value, Next("exit" if value >= 3 else "continue")
 
 @wf.task
-async def report(ctx: TaskContext) -> str:
-    return f"final:{ctx.inputs}"    # ctx.inputs = the value check routed out
+async def report(value: int) -> str:
+    return f"final:{value}"          # the exit-edge value binds by name
 
 wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 ```
@@ -113,7 +120,7 @@ wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 `wf.loop(body=..., until=..., max_iters=..., on_exit=...)` semantics:
 
 - `body` (list of task names) runs, then the `until` task decides: return `Next("continue")` to run the body again, or `Next("exit")` to proceed to `on_exit` (default `"_end"` — terminate).
-- Loop-back values ride the edges: when `until` returns `(value, Next("continue"))`, the next iteration's body head receives `value` as its `ctx.inputs` (the first iteration sees `None`, or the entry inputs). The same `(value, Next("exit"))` value reaches the `on_exit` task. No shared mutable state is involved — accumulate by passing values forward.
+- Loop-back values ride the edges: when `until` returns `(value, Next("continue"))`, the next iteration's body head receives `value` as a named parameter (the first iteration sees `None`, or the entry inputs). The same `(value, Next("exit"))` value reaches the `on_exit` task's named parameter. No shared mutable state is involved — accumulate by passing values forward.
 - `max_iters` is a mandatory runaway guard: after the `until` task has dispatched `Next("continue")` `max_iters` times, the engine forces `Next("exit")` and emits a `LoopMaxItersExceeded` *warning* — the workflow completes rather than failing.
 
 !!! warning "Loops and parallel joins don't fuse"
@@ -124,21 +131,21 @@ wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 Use `wf.parallel` when you need to fan out over a list produced by an upstream task:
 
 ```python
-from molexp.workflow import TaskContext, WorkflowCompiler
+from molexp.workflow import WorkflowCompiler
 
 wf = WorkflowCompiler(name="fan-out", entry="scatter")
 
 @wf.task
-async def scatter(ctx: TaskContext) -> list[int]:
+async def scatter() -> list[int]:
     return [1, 2, 3, 4]
 
 @wf.task
-async def process(ctx: TaskContext) -> int:
-    return ctx.inputs ** 2          # ctx.inputs is one fan-out element
+async def process(value: int) -> int:
+    return value ** 2               # ``value`` is one fan-out element
 
 @wf.task
-async def reduce(ctx: TaskContext) -> int:
-    return sum(ctx.inputs)          # collected outputs, one per element, in order
+async def reduce(values: list[int]) -> int:
+    return sum(values)              # collected outputs, one per element, in order
 
 wf.parallel(map_over="scatter", body="process", join="reduce", max_concurrency=2)
 ```
@@ -170,5 +177,5 @@ for a UI canvas or observability tool, use `CompiledWorkflow.to_graph_ir()`, not
 
 ## Runnable Examples
 
-- `examples/workflow/control_flow.py` runs a diamond, a conditional branch driven by `ctx.config`, a build-time fan-out, and a `wf.parallel` runtime fan-out.
-- `examples/workflow/branch_and_loop.py` runs a `wf.branch` routed decision and a `wf.loop` refinement loop, with routed / loop-back values arriving via `ctx.inputs`.
+- `examples/workflow/control_flow.py` runs a diamond, a conditional branch driven by a build-time config field, a build-time fan-out, and a `wf.parallel` runtime fan-out.
+- `examples/workflow/branch_and_loop.py` runs a `wf.branch` routed decision and a `wf.loop` refinement loop, with routed / loop-back values arriving as named parameters.

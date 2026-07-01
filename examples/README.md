@@ -22,10 +22,10 @@ You can delete these freely; none of them touch `~/` or any system path.
 | Guide | Example | What it shows |
 |---|---|---|
 | [task-and-actor](../docs/guide/task-and-actor.md) | `workflow/task_and_actor.py` | Decorator, OOP, and Protocol-form tasks, plus a streaming actor |
-| [task-context](../docs/guide/task-context.md) | `workflow/task_context.py` | `ctx.inputs` / `ctx.config` / `ctx.workdir` — the pure task context |
+| [task-context](../docs/guide/task-context.md) | `workflow/task_context.py` | Named-parameter binding (upstream output / run param / build-time config) and `ctx.workdir` — the pure task context |
 | [workflow-runtime](../docs/guide/workflow-runtime.md) | `workflow/workflow_runtime.py` | `WorkflowRuntime.execute()` vs `.start()` |
 | [control-flow](../docs/guide/control-flow.md) | `workflow/control_flow.py` | Diamond fan-out, conditionals, build-time and `wf.parallel` fan-out |
-| [control-flow](../docs/guide/control-flow.md) | `workflow/branch_and_loop.py` | `wf.branch` routing and `wf.loop` repeat-until — `(value, Next(label))` values arrive via `ctx.inputs` |
+| [control-flow](../docs/guide/control-flow.md) | `workflow/branch_and_loop.py` | `wf.branch` routing and `wf.loop` repeat-until — `(value, Next(label))` values bind to the target's named parameters |
 | [subworkflows](../docs/guide/subworkflows.md) | `workflow/subworkflows.py` | Calling a sub-spec from inside a task |
 
 ## Records and Assets
@@ -105,12 +105,14 @@ discovery, so a separate `me.entry(ws)` call is no longer needed. The
 registry is process-local — cluster workers re-establish it by re-running
 the user script on import.
 
-Task bodies stay on the pure `{inputs, config}` contract: a root task of a
-tracked run receives `{"params": <run params>, "workdir": <Path>}` as
-`ctx.inputs`, and `ctx.config` is the resolved profile. Workspace helpers
-(`ctx.set_result` / `ctx.artifact` / `ctx.log`) live on the driver-side
-`RunContext`; read persisted results back with the public
-`run.get_result(key)` instead of parsing `run.json` by hand.
+Task bodies declare the runtime values they consume as named parameters: a
+root task of a tracked run receives its sweep params by name, an upstream
+task's output binds to a parameter named after that task, and build-time
+config fields bind by name (each with a declared default). The only data
+surface on the `TaskContext` itself is `ctx.workdir`. Workspace helpers
+(`set_result` / `artifact` / `log`) live on the driver-side `RunContext`; read
+persisted results back with the public `run.get_result(key)` instead of parsing
+`run.json` by hand.
 
 ## Running an Example
 

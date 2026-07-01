@@ -10,9 +10,9 @@ new user.
 
 Every script runs in a subprocess (its own interpreter, no shared module
 state) with a temporary working directory; the examples themselves write
-only into ``tempfile.mkdtemp()`` locations. The CLI-driven example
-(``04_cli_and_profiles``) is copied into the temp dir and driven through
-``molexp run`` exactly as its README documents.
+only into ``tempfile.mkdtemp()`` locations. The CLI-driven profile examples
+(``04_cli_and_profiles`` and ``operations/run_profiles``) are copied into the
+temp dir and driven through ``molexp run`` exactly as they document.
 """
 
 from __future__ import annotations
@@ -118,16 +118,34 @@ def test_example_script_runs_clean(script: Path, tmp_path: Path) -> None:
     _assert_no_api_drift(proc, label)
 
 
-@pytest.mark.integration
-def test_cli_and_profiles_example_runs_via_molexp_run(tmp_path: Path) -> None:
-    """``04_cli_and_profiles`` is CLI-driven: verify the documented command.
+# CLI-driven profile examples: each is copied into the temp dir (so the
+# ``_workspace`` it creates never lands in the repo) and driven exactly as its
+# docstring documents — ``molexp run train.py --profile <profile>`` reading
+# profile fields as named parameters.
+CLI_PROFILE_EXAMPLES = [
+    ("getting_started/04_cli_and_profiles", "smoke"),
+    ("operations/run_profiles", "smoke"),
+]
 
-    The directory is copied into the temp dir so the ``_workspace`` it
-    creates never lands in the repo, then driven exactly as its docstring
-    documents: ``molexp run train.py --profile smoke``.
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("rel_dir", "profile"),
+    [pytest.param(rel_dir, profile, id=rel_dir) for rel_dir, profile in CLI_PROFILE_EXAMPLES],
+)
+def test_cli_profile_example_runs_via_molexp_run(
+    rel_dir: str, profile: str, tmp_path: Path
+) -> None:
+    """Each CLI-driven profile example must run green via the documented command.
+
+    The drift check is load-bearing here: ``molexp run`` exits 0 (and prints
+    ``OK … runs completed``) even when a task fails into ``status=failed``, so a
+    removed-attribute break — the exact ``ctx.config`` / ``ctx.inputs`` drift —
+    only surfaces as an ``AttributeError`` in the captured output, not the exit
+    code.
     """
-    src = EXAMPLES / "getting_started" / "04_cli_and_profiles"
-    dst = tmp_path / "04_cli_and_profiles"
+    src = EXAMPLES / rel_dir
+    dst = tmp_path / Path(rel_dir).name
     shutil.copytree(src, dst, ignore=shutil.ignore_patterns("_workspace", "__pycache__"))
 
     proc = _run(
@@ -138,11 +156,13 @@ def test_cli_and_profiles_example_runs_via_molexp_run(tmp_path: Path) -> None:
             "run",
             "train.py",
             "--profile",
-            "smoke",
+            profile,
         ],
         cwd=dst,
     )
-    _assert_exit_zero(proc, "molexp run 04_cli_and_profiles/train.py --profile smoke")
+    label = f"molexp run {rel_dir}/train.py --profile {profile}"
+    _assert_exit_zero(proc, label)
+    _assert_no_api_drift(proc, label)
     assert (dst / "_workspace" / "workspace.json").exists(), (
         "CLI run did not materialize the declared workspace"
     )

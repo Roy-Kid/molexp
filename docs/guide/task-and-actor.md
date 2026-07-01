@@ -39,16 +39,17 @@ All three are interchangeable — the last form **requires no `molexp` import**,
 
 ## Declaring Dependencies
 
-Dependencies are declared **by task name** (not output name). The return value of an upstream task becomes `ctx.inputs` of its single direct downstream:
+Dependencies are declared **by task name** (not output name). The return value of an upstream task binds to a parameter of its downstream **named after that upstream task**:
 
 ```python
 @wf.task
-async def square(ctx: TaskContext) -> float:
-    return ctx.inputs ** 2
+async def square() -> float:
+    return 42.0 ** 2
 
+# ``square``'s output binds to the downstream parameter named after it.
 @wf.task(depends_on=["square"])
-async def add_bias(ctx: TaskContext) -> float:
-    return ctx.inputs + 10.0
+async def add_bias(square: float) -> float:
+    return square + 10.0
 ```
 
 For instance registration, chain `.add(...)` calls and finish with `.compile()`:
@@ -71,9 +72,9 @@ compiled = (
 
 ```python
 class Fetch(Task[None, str, dict]):
-    async def execute(self, ctx: TaskContext[None, str]) -> dict:
-        # the source path arrives as an input, not via ambient deps
-        return read_records(ctx.inputs)
+    async def execute(self, ctx: TaskContext[None, str], source: str) -> dict:
+        # the source path arrives as a named parameter, not via ambient deps
+        return read_records(source)
 ```
 
 Plain `Task` (no generics) defaults to `Any` everywhere. Build-time configuration is the task instance's own `__init__` arguments — captured automatically as the task's config identity (the cache and the IR both key on it), and read inside the body as plain `self.*` attributes.
@@ -88,10 +89,10 @@ from molexp.workflow import TaskContext, WorkflowCompiler
 
 wf = WorkflowCompiler(name="stream")
 
-@wf.actor(depends_on=["load"])
+@wf.actor
 async def monitor(ctx: TaskContext):
-    for item in ctx.inputs:
-        yield {"seen": item}
+    for item in [1, 2, 3]:
+        yield {"seen": item}   # last yield becomes the task output
 ```
 
 ```python
@@ -100,7 +101,7 @@ from molexp.workflow import Actor, TaskContext
 
 class Monitor(Actor):
     async def run(self, ctx: TaskContext):
-        for item in ctx.inputs:
+        for item in [1, 2, 3]:
             yield {"seen": item}
 ```
 
@@ -108,7 +109,7 @@ Any object with `async def run(self, ctx)` returning an async iterator satisfies
 
 ### Context and output
 
-A streaming body receives the same `TaskContext` as a batch task (`ctx.inputs`, `ctx.config`, `ctx.workdir`). The engine drives the async generator to exhaustion and records **the last yielded value** as the task's output; downstream tasks read that value from the shared results like any other. Streaming bodies are never cached (they are marked `is_actor` at compile time).
+A streaming body receives the same `TaskContext` as a batch task, but takes **only** `ctx` — unlike a batch task, an actor gets no by-name input parameters (its sole data surface is `ctx.workdir`). The engine drives the async generator to exhaustion and records **the last yielded value** as the task's output; a downstream task reads that value bound to a parameter named after this actor, like any other upstream. Streaming bodies are never cached (they are marked `is_actor` at compile time).
 
 ### Runtime Boundaries
 
@@ -119,7 +120,7 @@ Supported today:
 
 Not implemented:
 
-- Inter-task message-passing channels (`receive` / `send` / `emit`). An earlier, never-wired channel surface was removed — every path raised `NotImplementedError`. If you need streaming *between* concurrently-running tasks, open an issue; today an actor consumes `ctx.inputs` and yields outputs, it does not exchange messages mid-run with peers.
+- Inter-task message-passing channels (`receive` / `send` / `emit`). An earlier, never-wired channel surface was removed — every path raised `NotImplementedError`. If you need streaming *between* concurrently-running tasks, open an issue; today an actor yields outputs, it does not exchange messages mid-run with peers.
 
 Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.TaskContext`, `molexp.workflow.protocols.Streamable`, and the drain loop in `molexp.workflow._pydantic_graph.node`.
 
@@ -139,21 +140,21 @@ Relevant code: `molexp.workflow.task.Actor`, `molexp.workflow.context.TaskContex
 Fan-out over a runtime-produced list is declared with `wf.parallel`:
 
 ```python
-from molexp.workflow import TaskContext, WorkflowCompiler
+from molexp.workflow import WorkflowCompiler
 
 wf = WorkflowCompiler(name="fan-out", entry="scatter")
 
 @wf.task
-async def scatter(ctx: TaskContext) -> list[int]:
+async def scatter() -> list[int]:
     return [1, 2, 3, 4]
 
 @wf.task
-async def compute(ctx: TaskContext) -> int:
-    return ctx.inputs ** 2          # ctx.inputs is one element
+async def compute(value: int) -> int:
+    return value ** 2               # one element binds positionally to `value`
 
 @wf.task
-async def reduce(ctx: TaskContext) -> int:
-    return sum(ctx.inputs)          # one output per element, in order
+async def reduce(values: list[int]) -> int:
+    return sum(values)              # the collected results, one per element, in order
 
 wf.parallel(map_over="scatter", body="compute", join="reduce", max_concurrency=2)
 ```

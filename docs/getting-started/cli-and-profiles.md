@@ -54,15 +54,22 @@ profiles:
     skip_heavy_compute: true
 ```
 
-Tasks then read the active configuration through `ctx.config`:
+Tasks then read those configuration fields as ordinary named parameters — MolExp binds each profile field to the task parameter of the same name:
 
 ```python
 @wf.task(depends_on=["fetch"])
-async def compute(ctx: TaskContext) -> float:
-    if ctx.config.get("skip_heavy_compute"):
+async def compute(
+    fetch: list[float],
+    optimizer: dict | None = None,
+    skip_heavy_compute: bool = False,
+) -> float:
+    if skip_heavy_compute:
         return 0.0
-    return sum(ctx.inputs) * ctx.config.get("optimizer", {}).get("lr", 1.0)
+    lr = (optimizer or {}).get("lr", 1.0)
+    return sum(fetch) * lr
 ```
+
+Here `fetch` (the list from the upstream task of that name) binds from the graph edge, while `optimizer` and `skip_heavy_compute` bind by name from the resolved profile; each falls back to its declared default when the active profile omits it.
 
 The important design choice is that MolExp stores the profile and injects it, but does not assign domain meaning to its keys. Your task code decides what `epochs`, `skip_heavy_compute`, or `optimizer.lr` actually mean.
 

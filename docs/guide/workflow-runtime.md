@@ -16,7 +16,7 @@ The compiled artifact carries a frozen, molexp-owned `ExecutionPlan` that a stru
 
 When execution begins, the runtime builds the initial workflow state (optionally seeded with already-known task outputs), injects root-task inputs, and drives the lowered graph to completion. Tasks whose dependencies are all satisfied run concurrently. That is why most workflow parallelism in MolExp is implicit: you declare the dependency structure, and the runtime extracts the available concurrency from that structure.
 
-If a `RunContext` is attached (`execute(..., run_context=ctx)`), the runtime threads the run's profile config into every task's `ctx.config`, injects the run's sweep parameters and a content-addressed `workdir` into root-task `ctx.inputs`, persists per-node outputs under the run's execution directory, and back-propagates task failures so the run's final status is correct.
+If a `RunContext` is attached (`execute(..., run_context=ctx)`), the runtime binds the run's profile config into every task **by name**, binds the run's sweep parameters into root tasks **by name** (with a content-addressed `workdir` exposed as `ctx.workdir`), persists per-node outputs under the run's execution directory, and back-propagates task failures so the run's final status is correct.
 
 The runtime also relies on the compiled workflow identity rather than on ad hoc process state. `workflow_id` is derived deterministically from the workflow name and task topology, which is what makes it useful for correlating equivalent graphs across executions and machines.
 
@@ -49,7 +49,7 @@ with run.start(profile_config=cfg) as ctx:
     await runtime.execute(compiled, run_context=ctx)
 ```
 
-When a live `RunContext` is passed, its profile config owns `ctx.config` (the `config=` kwarg is ignored in its favor), and the run's lifecycle — status transitions, execution records, error capture — is managed by the `with run.start()` block. For the common "build a fresh run and execute on it" shape, `runtime.run_on(compiled, experiment, parameters=...)` does both steps in one call.
+When a live `RunContext` is passed, its profile config supplies the values bound to tasks by name (the `config=` kwarg is ignored in its favor), and the run's lifecycle — status transitions, execution records, error capture — is managed by the `with run.start()` block. For the common "build a fresh run and execute on it" shape, `runtime.run_on(compiled, experiment, parameters=...)` does both steps in one call.
 
 ## Cancellation and Failure
 

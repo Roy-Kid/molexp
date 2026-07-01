@@ -8,20 +8,19 @@ The fastest way to understand MolExp is to see one small script move through the
 import asyncio
 
 import molexp as me
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="sum")
 
 
 @wf.task
-async def fetch(ctx: TaskContext) -> list[float]:
-    return [1.0, 4.0, 9.0]
+async def fetch(scale: float = 1.0) -> dict:
+    return {"values": [1.0, 4.0, 9.0], "scale": scale}
 
 
 @wf.task(depends_on=["fetch"])
-async def summarize(ctx: TaskContext) -> float:
-    scale = ctx.config.get("scale", 1.0)
-    return sum(ctx.inputs) * scale
+async def summarize(values: list[float], scale: float = 1.0) -> float:
+    return sum(values) * scale
 
 
 compiled = wf.compile()
@@ -49,7 +48,7 @@ The workflow itself is only the graph created by `WorkflowCompiler(...)`, the tw
 
 Because run ids are derived from the run's parameters, re-declaring the same sweep is idempotent: repeated invocations rediscover the same runs instead of creating duplicates.
 
-Inside a task body, `ctx.inputs` carries the data flowing in along the graph's edges (the upstream output, or — for a root task of a tracked run — the engine-injected `{"params": ..., "workdir": ...}` mapping) and `ctx.config` exposes profile data when a profile is active. Workspace helpers live on the driver-side `RunContext` opened by `run.start()`: `ctx.set_result(...)` stores lightweight result values on the run record (read them back with the public `run.get_result(key)`), and `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers it as an `ArtifactAsset` in the workspace catalog. See [Unified Asset Model](../guide/assets.md) for the full shape of artifacts, logs, checkpoints, and data assets.
+Inside a task body, the data flowing in along the graph's edges is bound to the task's own named parameters. The root task `fetch` receives the run's sweep params by name, which is why declaring a `scale` parameter hands it the swept value; a downstream task like `summarize` receives its upstream's output by name — because `fetch` returns a dictionary, `summarize`'s `values` and `scale` parameters are filled from that dictionary's keys. Build-time and profile configuration fields bind the same way, by parameter name, and any parameter with no matching input falls back to its declared default. The task context object (`ctx`) is optional and now exposes only `ctx.workdir`, a content-addressed scratch directory, so neither task above declares it. Workspace helpers are separate and live on the driver-side `RunContext` opened by `run.start()` — a distinct object from the task context: `ctx.set_result(...)` stores lightweight result values on the run record (read them back with the public `run.get_result(key)`), and `ctx.artifact.save(...)` writes a file under the run's artifact directory and registers it as an `ArtifactAsset` in the workspace catalog. See [Unified Asset Model](../guide/assets.md) for the full shape of artifacts, logs, checkpoints, and data assets.
 
 ## Running the Script
 

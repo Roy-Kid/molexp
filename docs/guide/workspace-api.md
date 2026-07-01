@@ -158,7 +158,7 @@ Entering the context creates the run directories if necessary, loads previously 
 
 Leaving the context closes the lifecycle. A normal exit marks the run as `succeeded`, unless the workflow execution recorded a failed run status. An exception marks the run as `failed`, writes `ErrorInfo` into metadata, and stores a traceback under `executions/<execution_id>/error.txt`. In both cases the execution history entry is finalized with its end time and final status.
 
-The most commonly used `RunContext` helpers fall into three groups. Note that they are **driver-side**: task bodies receive only the pure `TaskContext` (`ctx.inputs` / `ctx.config` / `ctx.workdir`) and cannot reach the `RunContext`.
+The most commonly used `RunContext` helpers fall into three groups. Note that they are **driver-side**: task bodies receive the pure `TaskContext` (only `ctx.workdir`) — their inputs, config, and run params arrive as named parameters — and cannot reach the `RunContext`.
 
 The first group deals with results and metadata. `ctx.set_result(key, value)` and `ctx.get_result(key)` read and write the lightweight result map persisted into `run.json`; `run.get_result(key)` is the public read-back on the entity itself; when the key was never `set_result`-persisted (typical for `molexp run` CLI executions, which have no driver script calling `set_result`), it falls back to the persisted node output of the same name from the run's latest execution. Node outputs whose original value was not JSON-serializable are persisted only as lossy observability renderings and are never returned as results — `get_result` logs a warning and returns `None` for those. `ctx.set_workflow(payload)` stores a workflow-shaped dictionary onto the serialized run-context — the payload type is opaque to workspace; the workflow layer gives the dict its shape. This is distinct from the binding-registry association made by `Experiment.run(...)`, which records the live `CompiledWorkflow` instance for downstream consumers within the same process.
 
@@ -236,9 +236,9 @@ wf = WorkflowCompiler(name="demo")
 
 
 @wf.task
-async def compute(ctx: TaskContext) -> float:
-    lr = ctx.inputs["params"]["lr"]          # engine-injected root inputs
-    scale = ctx.config.get("scale", 1.0)     # resolved profile / config
+async def compute(ctx: TaskContext, lr: float, scale: float = 1.0) -> float:
+    # ``lr`` is a root run-param bound by name; ``scale`` is a config field
+    # bound by name, falling back to its default when absent.
     return lr * scale
 
 

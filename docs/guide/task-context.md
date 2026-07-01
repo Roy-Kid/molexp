@@ -1,42 +1,52 @@
 # TaskContext
 
-`TaskContext` is the execution boundary between a workflow definition and the code inside one task. It is deliberately small: a task receives its runtime inputs and its configuration, and nothing else. A task cannot climb up from its context to the Run, the workspace, or injected services — that is the **pure task context** contract, and it is what makes a task's cache identity (code + config + inputs) complete.
+`TaskContext` is the execution boundary between a workflow definition and the code inside one task. It is deliberately small: a task declares the runtime values it consumes as **named parameters**, and the only thing it reads off the context object itself is a per-task scratch directory (`ctx.workdir`). A task cannot climb up from its context to the Run, the workspace, or injected services — that is the **pure task context** contract, and it is what makes a task's cache identity (code + config + inputs) complete.
 
-## The Core View of a Task
+## How a Task Receives Its Inputs
 
-Every task sees the same frozen shape:
+A task body declares the runtime values it consumes as **named parameters**. The engine binds each parameter *by name*; a task no longer reads its inputs or its configuration off `ctx` at all. The leading `ctx` parameter is optional: include it only when the body needs the per-task scratch directory (below).
+
+```python
+from molexp.workflow import Task, TaskContext
+
+class Record(Task):
+    async def execute(self, ctx: TaskContext, value: int, scale: int = 1) -> int:
+        return value * scale
+```
+
+`value` and `scale` are filled from one merged map, `{build-time config} | {upstream outputs | run params}`, where the dynamic inputs (upstream outputs / run params) **win** over build-time config. A parameter with no matching key falls back to its declared default; a *required* parameter (no default) with no match raises `MissingTaskInputError`. The three sources each bind by name:
+
+- **Upstream task outputs**, keyed by the upstream task's name (its `depends_on` entry). With a single upstream, a `dict` output binds by field name and a scalar output binds positionally to the sole free parameter. With multiple upstreams, each dep's `dict` output merges into one flat map (later deps win) and a scalar dep is keyed by its dep name; a `**kwargs` parameter absorbs whatever is left.
+- **Run sweep params** on a root task bind by name: `params={"base": [1]}` fills `async def seed(base: int = 1)`. (The engine still wraps a root envelope internally, but the body reads run params *as named parameters*, never by indexing into an inputs mapping.)
+- **Build-time config** — the `config=` kwarg of `WorkflowRuntime.execute(...)`, or a tracked run's resolved `ProfileConfig` — binds by name: `config={"scale": 10}` fills a parameter `scale: int = 1`.
+
+## The Only Thing on `ctx`: the Workdir
+
+When present (named `ctx`, or annotated `TaskContext`), the leading parameter receives the `TaskContext`, whose **only** data surface is `ctx.workdir`:
 
 ```python
 class TaskContext[StateT, InputT]:
-    inputs: InputT            # runtime data flowing in along the graph's edges
-    config: Mapping           # build-time / profile configuration (read-only)
     workdir: Path | None      # content-addressed scratch dir for THIS task
 ```
 
-`ctx.inputs` is the value produced by the immediate upstream task, or a keyed mapping when fan-in joins more than one upstream parent. For a **root task of a tracked run**, the engine injects `{"params": <run params>, "workdir": <Path>}` — the run's sweep parameters and the working directory arrive *as inputs*, not through an ambient handle. Loop-back and branch-routed values are also delivered on the edges: when a task returns `(value, Next(label))`, the routed target receives `value` as its `ctx.inputs` (a declared `depends_on` interface always wins), so loop accumulation reads the previous iteration's value from `ctx.inputs`.
-
-`ctx.config` is the active configuration mapping: the resolved `ProfileConfig` when the workflow runs under a tracked run, or the `config=` kwarg of `WorkflowRuntime.execute(...)` otherwise. It always behaves like a read-only mapping.
-
-`ctx.workdir` is a content-addressed scratch directory derived from the task's content identity — the sanctioned place a task writes intermediate files. It is a bare `pathlib.Path`, stable across runs for identical task content, and `None` when no workspace run is attached. A fan-out body shares one `workdir` across elements, so per-element bodies should sub-namespace it.
+`ctx.workdir` is a content-addressed scratch directory derived from the task's content identity — the sanctioned place a task writes intermediate files. It is a bare `pathlib.Path`, stable across runs for identical task content, and `None` when no workspace run is attached. A fan-out body shares one `workdir` across elements, so per-element bodies should sub-namespace it. Include `ctx` in the signature only when the body actually writes there.
 
 !!! warning "Deprecated: `ctx.state`"
-    `ctx.state` is deprecated and scheduled for removal: accessing it emits a `DeprecationWarning` and returns a **read-only snapshot** (engine state cannot be mutated through it). Everything it was used for — reading the previous loop iteration's value, picking up a branch-routed value — now arrives via `ctx.inputs`. Migrate any remaining reads to the inputs channel.
+    `ctx.state` is deprecated and scheduled for removal: accessing it emits a `DeprecationWarning` and returns a **read-only snapshot** (engine state cannot be mutated through it). Everything it was used for — reading the previous loop iteration's value, picking up a branch-routed value — now arrives as **named parameters** (the values-on-edges engine delivers loop-back and branch-routed values as the body's own arguments). Migrate any remaining reads to named parameters.
 
-There is **no** `ctx.run_context` and **no** `ctx.deps`. Capabilities that used to be reached through them — artifact persistence, asset lookup, run metadata — live on the driver-side `RunContext` (see below) or are delivered as inputs by the engine.
+There is **no** `ctx.run_context` and **no** `ctx.deps`. Capabilities that used to be reached through them — artifact persistence, asset lookup, run metadata — live on the driver-side `RunContext` (see below) or are delivered to the body as named parameters by the engine.
 
 ## Reading Configuration
 
-The common pattern is to read optional settings with `.get()` and supply workflow-level defaults in task code:
+Build-time and profile configuration reach a task the same way as any other input — **by name**, with the body supplying a default for anything optional. A key from `config={...}` (or the resolved `ProfileConfig`) binds to the like-named parameter:
 
 ```python
 class Train(Task):
-    async def execute(self, ctx: TaskContext) -> dict:
-        lr = ctx.config.get("lr", 1e-3)
-        batch = ctx.config.get("batch", 32)
+    async def execute(self, ctx: TaskContext, lr: float = 1e-3, batch: int = 32) -> dict:
         return {"lr": lr, "batch": batch}
 ```
 
-That design keeps profile semantics in user code. MolExp resolves and preserves the selected profile, but it does not attach special meaning to arbitrary keys.
+Running `execute(compiled, config={"lr": 5e-4})` fills `lr`; `batch` falls back to its default. That design keeps profile semantics in user code: MolExp resolves and preserves the selected profile, but it does not attach special meaning to arbitrary keys.
 
 ## Working Under a Run
 
@@ -56,20 +66,20 @@ print(run.get_result("final_loss"))   # public read-back on the Run entity
 
 `ctx.set_result(...)` stores lightweight values on the run record, `ctx.artifact.save(...)` registers an `ArtifactAsset`, `ctx.log(name)` appends to a `LogAsset`, `ctx.checkpoint(...)` chains `CheckpointAsset`s, and `ctx.find_asset(...)` walks run → experiment → project → workspace. Assets written this way carry a `Producer` record automatically; while a task body is executing, the engine tags the active task id so queries like `catalog.query_assets(producer_task="train")` work. See the [Unified Asset Model](assets.md) guide for the complete picture of scopes, catalog, and per-kind subclasses.
 
-Inside the task, the run shows up only as data: root tasks get the sweep `params` and `workdir` injected into `ctx.inputs`, and every task gets the resolved profile as `ctx.config`. The same task code therefore runs unchanged in pure in-memory execution — there is simply no workdir and whatever `config=` the caller passed.
+Inside the task, the run shows up only as data: a root task's sweep `params` bind to its like-named parameters, `ctx.workdir` points into the execution directory, and the resolved profile config binds by name too. The same task code therefore runs unchanged in pure in-memory execution — there is simply no workdir, and whatever `config=` the caller passed binds the same way.
 
 ## Streaming tasks (Actor)
 
-Streaming `Actor` bodies receive the **same** `TaskContext` as batch tasks — there is no separate context type. An actor's `run()` is an async generator; the engine drives it to exhaustion and records the last yielded value as the task's output:
+Streaming `Actor` bodies receive the **same** `TaskContext` as batch tasks — there is no separate context type. Unlike a batch task, an actor takes **no** by-name input parameters: its `run()` receives only `ctx`. The engine drives the async generator to exhaustion and records the last yielded value as the task's output:
 
 ```python
 class Monitor(Actor):
     async def run(self, ctx: TaskContext):
-        for item in ctx.inputs:
-            yield transform(item)
+        for item in [1, 2, 3]:
+            yield {"seen": item}   # last yield becomes the task output
 ```
 
-There is no inter-task message-passing channel: an earlier `receive()` / `send()` surface was never wired (every path raised `NotImplementedError`) and has been removed. An actor consumes `ctx.inputs` and yields outputs; it does not exchange messages mid-run with peer tasks.
+There is no inter-task message-passing channel: an earlier `receive()` / `send()` surface was never wired (every path raised `NotImplementedError`) and has been removed. An actor yields its outputs; it does not exchange messages mid-run with peer tasks.
 
 ## Typing and Ergonomics
 
@@ -79,4 +89,4 @@ If you need the broader runtime lifecycle around this context object, the next p
 
 ## Runnable Example
 
-`examples/workflow/task_context.py` exercises `ctx.inputs`, `ctx.config`, and `ctx.workdir` inside one tracked run, with the workspace helpers on the driver-side `RunContext`.
+`examples/workflow/task_context.py` exercises name-bound inputs (a root-task run param, an upstream output, and build-time `config`) plus `ctx.workdir` inside one tracked run, with the workspace helpers on the driver-side `RunContext`.

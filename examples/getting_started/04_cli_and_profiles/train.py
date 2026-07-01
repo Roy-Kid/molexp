@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import TaskContext, WorkflowCompiler
+from molexp.workflow import WorkflowCompiler
 
 # Workspace lives next to this script so repeated ``molexp run`` calls reuse it.
 WORKSPACE_ROOT = Path(__file__).resolve().parent / "_workspace"
@@ -28,17 +28,16 @@ wf = WorkflowCompiler(name="train")
 
 
 @wf.task
-async def train(ctx: TaskContext) -> dict:
-    """``ctx.config`` is the resolved molcfg profile selected via ``--profile``."""
-    lr = ctx.config.get("lr", 1e-3)
-    epochs = ctx.config.get("epochs", 1)
+async def train(lr: float = 1e-3, epochs: int = 10) -> dict:
+    """Profile fields bind by name.
+
+    ``--profile`` merges ``molcfg.yaml`` into the run's build-time config, and
+    the engine fills ``lr`` / ``epochs`` from it — each falling back to its
+    declared default when the selected profile omits it. The chosen profile
+    name is recorded on the run record, not read inside the task.
+    """
     final_loss = 1.0 / (epochs * (lr * 1000 + 1))
-    return {
-        "profile": ctx.config.name,
-        "lr": lr,
-        "epochs": epochs,
-        "final_loss": final_loss,
-    }
+    return {"lr": lr, "epochs": epochs, "final_loss": final_loss}
 
 
 (

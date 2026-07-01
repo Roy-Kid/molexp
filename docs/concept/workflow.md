@@ -18,8 +18,8 @@ async def fetch(ctx: TaskContext) -> list[float]:
 
 
 @wf.task(depends_on=["fetch"])
-async def summarize(ctx: TaskContext) -> float:
-    return sum(ctx.inputs)
+async def summarize(fetch: list[float]) -> float:
+    return sum(fetch)
 
 
 compiled = wf.compile()
@@ -56,6 +56,6 @@ This narrow boundary is what lets `Workflow` remain reusable. The same compiled 
 
 ## Where It Connects to the Rest of MolExp
 
-The workflow becomes operationally meaningful when it is declared on an experiment in the workspace layer via `experiment.run(compiled, params=...)`. That declaration associates one graph with one persistent research definition and one parameter sweep. At execution time the engine delivers profile data through `ctx.config` and the run's sweep parameters plus a content-addressed working directory through the root task's `ctx.inputs`, which is why authoring code can remain mostly unchanged while the surrounding execution environment becomes richer.
+The workflow becomes operationally meaningful when it is declared on an experiment in the workspace layer via `experiment.run(compiled, params=...)`. That declaration associates one graph with one persistent research definition and one parameter sweep. At execution time the engine binds profile and config values together with the run's sweep parameters to the task body's named parameters, and exposes a content-addressed working directory as `ctx.workdir`, which is why authoring code can remain mostly unchanged while the surrounding execution environment becomes richer.
 
 If you need the persistent side of this story, continue with [Workspace](workspace.md). If the missing piece is reusable data and provenance, continue with [Assets and Reproducibility](assets-and-reproducibility.md).

@@ -22,14 +22,15 @@ These live in `molexp.workflow.protocols`.
 
 ## Why Structural (Not Nominal)?
 
-The `ctx` argument is deliberately typed as `Any` so third-party code need not import molexp to satisfy the protocol. At runtime, molexp passes the same concrete `TaskContext` to batch and streaming bodies; a third-party object can simply treat `ctx` as having the attributes it cares about (`ctx.inputs`, `ctx.config`, …).
+The `ctx` argument is deliberately typed as `Any` so third-party code need not import molexp to satisfy the protocol. At runtime, molexp passes the same concrete `TaskContext` to batch and streaming bodies; a third-party object can treat `ctx` as carrying only `ctx.workdir`, while the runtime values it operates on arrive as the body's own named parameters (bound by name from upstream outputs, run params, and build-time config).
 
 This makes it easy to drop in existing library components (e.g. data-pipeline nodes from another molcrafts package) without writing adapters:
 
 ```python
 class ExternalProcessor:
-    async def execute(self, ctx) -> dict:
-        return {"processed": ctx.inputs}
+    async def execute(self, ctx, records: list | None = None) -> dict:
+        # runtime values arrive as the body's own named parameters, not off ctx
+        return {"processed": records}
 
 from molexp.workflow import WorkflowCompiler
 compiled = WorkflowCompiler(name="pipeline").add(ExternalProcessor()).compile()
@@ -39,14 +40,14 @@ compiled = WorkflowCompiler(name="pipeline").add(ExternalProcessor()).compile()
 
 `molexp.workflow.Task` and `molexp.workflow.Actor` are **convenience base classes** that implement these protocols with helpful generics (`StateT`, `InputT`, `OutputT`). Using them is optional but recommended when you want:
 
-- Static type-checking of `ctx.inputs` / `ctx.config`.
+- Static type-checking of the body's named parameters.
 - An explicit declaration that this class is "meant as a molexp task".
 
 At runtime, the compiler treats a `Task` subclass and a third-party `Runnable` object identically.
 
 ## What the Protocol Does *Not* Require
 
-- **No configuration class.** The old `config_type` / Pydantic-config pattern is gone — configuration flows through `ctx.config` (a molcfg `ProfileConfig`) and per-instance attributes you set in `__init__`.
+- **No configuration class.** The old `config_type` / Pydantic-config pattern is gone — configuration values bind to the body's named parameters (from build-time config, itself a molcfg `ProfileConfig`) and per-instance attributes you set in `__init__`.
 - **No registration step.** There is no `register_task(...)` hoop to jump through — registering on a `WorkflowCompiler` (decorator or `.add(...)`) is the source of truth. (A separate `TaskTypeRegistry` exists only for IR (de)serialization slugs.)
 - **No explicit input/output schema.** Type hints on `execute()` / `run()` are advisory; the runtime does not enforce them.
 
