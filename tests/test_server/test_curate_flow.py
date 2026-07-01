@@ -35,7 +35,6 @@ import pytest
 from molexp.harness import (
     Approver,
     InMemoryCapabilityRegistry,
-    StageExecutionError,
     auto_grant_approver,
 )
 from molexp.harness.capabilities import curation_capabilities
@@ -43,6 +42,7 @@ from molexp.harness.gateways.stub import StubAgentGateway
 from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.server.curate_runtime.flow import (
+    CurationArgumentError,
     CurationInvocation,
     CurationResult,
     resolve_curation_arguments,
@@ -190,6 +190,8 @@ async def test_read_only_flow_scans_and_persists_artifacts(
     store = FileArtifactStore(root=Path(env.run.run_dir) / "artifacts")
     assert store.list_by_kind("capability_catalog"), "catalog artifact not persisted"
     assert store.list_by_kind("capability_invocation_result"), "result artifact not persisted"
+    # ac-005 — the read-only branch produces no ChangeProposal (no gate).
+    assert not store.list_by_kind("change_proposal"), "read-only must not create a proposal"
 
 
 # ─────────────────────────────────── ac-002b · resolve_curation_arguments (unit)
@@ -236,12 +238,12 @@ def test_resolve_arguments_reconstructs_run_and_target_experiment(env: CurationE
 
 
 @pytest.mark.asyncio
-async def test_destructive_denied_raises_and_does_not_mutate(
+async def test_destructive_denied_records_and_does_not_mutate(
     env: CurationEnv,
     patched_registry: None,
 ) -> None:
-    """A denied ``move_run`` raises ``StageExecutionError`` before any mutation —
-    the subject run stays under the source experiment, never reaches the target."""
+    """ac-003 — a denied ``move_run`` is now *recorded* (granted=False), not raised
+    (§8.3): the subject run stays under the source experiment, never reaches the target."""
     gateway = _gateway_with_planner(
         env.run,
         capability_id="molexp.curation.move_run",
@@ -249,20 +251,88 @@ async def test_destructive_denied_raises_and_does_not_mutate(
         reason="relocate",
     )
 
-    with pytest.raises(StageExecutionError):
-        await run_curation_flow(
-            "move subject run to target-exp",
-            workspace=env.ws,
-            experiment=env.source_exp,
-            run=env.run,
-            gateway=gateway,
-            approve=_DENYING_APPROVER,
-        )
+    result = await run_curation_flow(
+        "move subject run to target-exp",
+        workspace=env.ws,
+        experiment=env.source_exp,
+        run=env.run,
+        gateway=gateway,
+        approve=_DENYING_APPROVER,
+    )
 
+    assert result.granted is False
     source_ids = {run.id for run in env.source_exp.list_runs()}
     target_ids = {run.id for run in env.target_exp.list_runs()}
     assert "subject" in source_ids, "denied move must leave the run in its source"
     assert "subject" not in target_ids, "denied move must not relocate the run"
+
+
+@pytest.mark.asyncio
+async def test_destructive_single_gate_bypasses_side_effect_gate(
+    env: CurationEnv,
+    patched_registry: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ac-002 — the destructive path never re-runs enforce_side_effect_approvals and
+    the approver fires exactly once (one approval stack)."""
+    counters = {"side_effect": 0, "approve": 0}
+
+    async def _spy_side_effect_gate(*args: object, **kwargs: object) -> list:
+        counters["side_effect"] += 1
+        return []
+
+    monkeypatch.setattr(
+        "molexp.harness.policy.side_effect_gate.enforce_side_effect_approvals",
+        _spy_side_effect_gate,
+    )
+
+    async def _counting_approver(request: ApprovalRequest) -> ApprovalDecision:
+        counters["approve"] += 1
+        return ApprovalDecision(
+            request_id=request.id,
+            granted=True,
+            decided_by="test",
+            decided_at=datetime.now(tz=UTC),
+        )
+
+    gateway = _gateway_with_planner(
+        env.run,
+        capability_id="molexp.curation.move_run",
+        references={"run": "subject", "target_experiment": "target-exp"},
+    )
+    await run_curation_flow(
+        "move subject run to target-exp",
+        workspace=env.ws,
+        experiment=env.source_exp,
+        run=env.run,
+        gateway=gateway,
+        approve=_counting_approver,
+    )
+    assert counters["side_effect"] == 0, "the legacy side-effect gate must not run"
+    assert counters["approve"] == 1, "exactly one approval round"
+
+
+@pytest.mark.asyncio
+async def test_destructive_uncoverable_cap_fails_loud(
+    env: CurationEnv,
+    patched_registry: None,
+) -> None:
+    """ac-004 — a destructive cap the mapping cannot cover (rehome_asset) fails loud,
+    never silently reaching the old gate."""
+    gateway = _gateway_with_planner(
+        env.run,
+        capability_id="molexp.curation.rehome_asset",
+        references={"asset": "a1", "source": "source-exp", "target": "target-exp"},
+    )
+    with pytest.raises(CurationArgumentError):
+        await run_curation_flow(
+            "rehome the asset",
+            workspace=env.ws,
+            experiment=env.source_exp,
+            run=env.run,
+            gateway=gateway,
+            approve=auto_grant_approver,
+        )
 
 
 # ──────────────────────────── ac-004 (granted) · destructive proceeds, run moves
@@ -299,3 +369,8 @@ async def test_destructive_granted_proceeds_and_moves_run(
     target_ids = {run.id for run in env.target_exp.list_runs()}
     assert "subject" not in source_ids, "granted move must remove the run from its source"
     assert "subject" in target_ids, "granted move must relocate the run to the target"
+
+    # ac-001 — the destructive path now produces the §8 proposal records.
+    store = FileArtifactStore(root=Path(env.run.run_dir) / "artifacts")
+    assert store.list_by_kind("change_proposal"), "change_proposal artifact not persisted"
+    assert store.list_by_kind("proposal_action_result"), "action result artifact not persisted"

@@ -38,7 +38,10 @@ from molexp.server.dependencies import get_workspace
 from molexp.workspace.utils import derive_run_id
 
 _BASE = "/api/projects/test-project/experiments/curate-exp/curate-tasks"
-_ARTIFACT_KINDS = ("prompt", "capability_catalog", "capability_invocation_result")
+# A destructive move now routes through the §8 ChangeProposal gate (curate-unify-02),
+# so it persists a change_proposal + proposal_action_result instead of the legacy
+# capability_invocation_result.
+_ARTIFACT_KINDS = ("prompt", "capability_catalog", "change_proposal", "proposal_action_result")
 
 
 def _scan_factory(run: Any, model: str) -> Any:

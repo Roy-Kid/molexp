@@ -9,18 +9,23 @@ request into a discover -> plan -> invoke sequence:
    persist the rendered catalog as a ``capability_catalog`` artifact;
 2. **plan** with one ``curation_planner`` agent call whose structured output is a
    :class:`CurationInvocation` (a JSON-reference handle, never live objects);
-3. reconstruct the chosen function's **live-object** arguments from the JSON
-   references via :func:`resolve_curation_arguments`;
-4. when the capability declares ``side_effects``, gate through link-03's
-   :func:`enforce_side_effect_approvals` — a denial raises ``StageExecutionError``
-   and **no mutation occurs**;
-5. invoke the resolved curation function **in-process** and persist a
-   ``capability_invocation_result`` artifact.
+3. branch on the chosen capability's ``side_effects``:
+   - **destructive** (``side_effects`` non-empty) → map the invocation onto a §8
+     :class:`~molexp.harness.schemas.change_proposal.ChangeProposal`
+     (:func:`curation_invocation_to_proposal`) and drive it through the P2.1 gate
+     (:func:`run_curation_proposal`) — a single approval both records the proposal
+     and, on a grant, dispatches the in-process mutation. A denial is *recorded*
+     (``status="rejected"``), never raised (§8.3). A destructive capability the
+     mapping cannot express fails loud (``CurationArgumentError``).
+   - **read-only** (``side_effects == []``) → reconstruct the live-object
+     arguments (:func:`resolve_curation_arguments`), invoke the function
+     **in-process**, and persist a ``capability_invocation_result`` artifact.
 
 In-process invocation is correct here: built-in curation is trusted molexp code
 operating on the live in-memory workspace. The subprocess isolation of the
 link-02 path exists for the untrusted/heavy external science toolchain and
-cannot carry live-object arguments.
+cannot carry live-object arguments. The destructive path is unified onto the
+ChangeProposal gate — it never re-runs ``enforce_side_effect_approvals``.
 """
 
 from __future__ import annotations
@@ -33,13 +38,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from molexp.harness import HarnessRunContext, resolve_callable
 from molexp.harness.capabilities import curation_capabilities
-from molexp.harness.policy import enforce_side_effect_approvals
 from molexp.harness.prompts.capability_catalog import render_capability_catalog
 from molexp.harness.schemas import AgentCallSpec
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
 from molexp.mcp_capabilities import aresolve_curation_capability_registry
+from molexp.server.curate_runtime.proposal_flow import (
+    curation_invocation_to_proposal,
+    run_curation_proposal,
+)
 
 if TYPE_CHECKING:
     from molexp.harness.gateways import AgentGateway
@@ -248,23 +256,40 @@ async def run_curation_flow(
     )
 
     cap = registry.get(invocation.capability_id)
+
+    if cap.side_effects:
+        # Destructive → route through the §8 ChangeProposal gate (the single
+        # execution stack). ``curation_invocation_to_proposal`` builds the proposal
+        # from the planner's flat references; ``run_curation_proposal`` gates once
+        # and, on a grant, dispatches the in-process mutation. A denial is
+        # *recorded* (status="rejected"), never raised (§8.3).
+        proposal = curation_invocation_to_proposal(invocation.capability_id, invocation.references)
+        if proposal is None:
+            raise CurationArgumentError(
+                f"destructive capability {invocation.capability_id!r} cannot be mapped "
+                "to a ChangeProposal (complex references are a follow-up)"
+            )
+        result_proposal = await run_curation_proposal(
+            proposal, workspace=workspace, run=run, approve=approve
+        )
+        outcome = result_proposal.execution_result
+        status = outcome.status if outcome is not None else "failed"
+        result_ids = list(outcome.result_artifact_ids) if outcome is not None else []
+        return CurationResult(
+            capability_id=invocation.capability_id,
+            mutation_summary=f"{invocation.capability_id}: {status}",
+            granted=status == "executed",
+            artifact_ids=[catalog_ref.id, *result_ids],
+        )
+
+    # Read-only → unchanged: reconstruct live args + invoke in-process, persist a
+    # ``capability_invocation_result``. No proposal, no gate.
     live_args = resolve_curation_arguments(
         invocation.capability_id, invocation.references, workspace=workspace, experiment=experiment
     )
-
-    if cap.side_effects:
-        # Gate destructive work: a denial raises StageExecutionError here, before
-        # the callable runs — no mutation, no result artifact.
-        await enforce_side_effect_approvals([cap], ctx=ctx, approve=approve)
-
     fn = resolve_callable(cap.callable_path)
     fn(**live_args)
-
-    mutation_summary = (
-        f"invoked {invocation.capability_id} (args: {sorted(live_args)})"
-        if cap.side_effects
-        else f"queried {invocation.capability_id} (read-only)"
-    )
+    mutation_summary = f"queried {invocation.capability_id} (read-only)"
     result_ref = ctx.artifact_store.put_json(
         kind="capability_invocation_result",
         obj={
