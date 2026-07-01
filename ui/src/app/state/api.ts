@@ -1,4 +1,7 @@
 import type { BacklinksResponse } from "@/api/generated/models/BacklinksResponse";
+import { EmbedRequest } from "@/api/generated/models/EmbedRequest";
+import type { EmbedResponse } from "@/api/generated/models/EmbedResponse";
+import type { EntityCard } from "@/api/generated/models/EntityCard";
 import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeListResponse";
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import type { NoteSummary } from "@/api/generated/models/NoteSummary";
@@ -135,9 +138,23 @@ export class TensorboardScalarsError extends Error {
   }
 }
 
+export type { EntityCard } from "@/api/generated/models/EntityCard";
 export type { LammpsLogResponse } from "@/api/generated/models/LammpsLogResponse";
 export type { LammpsThermoStage } from "@/api/generated/models/LammpsThermoStage";
 export type { RunFileTextResponse } from "@/api/generated/models/RunFileTextResponse";
+
+/** The entity kinds a knowledge document can embed (mirrors ``EmbedRequest.target_kind``). */
+export type EmbedTargetKind = "run" | "experiment" | "asset" | "reference";
+
+/** The typed provenance-edge role an embed writes (mirrors ``EmbedRequest.role``). */
+export type EmbedRole = "derived_from" | "cites" | "supersedes" | "records" | "references";
+
+const EMBED_TARGET_KIND: Record<EmbedTargetKind, EmbedRequest.target_kind> = {
+  run: EmbedRequest.target_kind.RUN,
+  experiment: EmbedRequest.target_kind.EXPERIMENT,
+  asset: EmbedRequest.target_kind.ASSET,
+  reference: EmbedRequest.target_kind.REFERENCE,
+};
 
 export const workspaceApi = {
   getProjects: async (): Promise<ApiProjectResponse[]> => {
@@ -392,11 +409,48 @@ export const workspaceApi = {
     );
   },
   // OKF knowledge concepts (Notes + References) for the active workspace.
-  listKnowledge: async (): Promise<KnowledgeListResponse> => {
-    return KnowledgeService.listKnowledgeApiKnowledgeGet();
+  // Optional `tag` / `status` AND-narrow the note list (06 added the query
+  // support); existing callers pass nothing and get the full list.
+  listKnowledge: async (
+    options: { tag?: string | null; status?: string | null } = {},
+  ): Promise<KnowledgeListResponse> => {
+    return KnowledgeService.listKnowledgeApiKnowledgeGet(
+      options.tag ?? undefined,
+      options.status ?? undefined,
+    );
   },
   getNote: async (path: string): Promise<NoteDetailResponse> => {
     return KnowledgeService.getNoteApiKnowledgeNoteGet(path);
+  },
+  /**
+   * The resolved summary cards for a note's embedded entities (06's card
+   * resolver, ridden through ``getNote``). A thin read wrapper so the entity-card
+   * UI never re-derives the request shape at the call site.
+   */
+  getNoteCards: async (path: string): Promise<EntityCard[]> => {
+    const detail = await KnowledgeService.getNoteApiKnowledgeNoteGet(path);
+    return detail.cards ?? [];
+  },
+  /**
+   * Embed a live workspace entity into a note as one typed provenance edge
+   * (06's ``POST /knowledge/doc/embed``). Maps the friendly kind onto the
+   * generated ``EmbedRequest.target_kind`` enum so callers pass a plain string.
+   */
+  embedEntity: async (
+    path: string,
+    request: {
+      targetKind: EmbedTargetKind;
+      target: string;
+      role?: EmbedRole | null;
+      text?: string | null;
+    },
+  ): Promise<EmbedResponse> => {
+    return KnowledgeService.embedDocApiKnowledgeDocEmbedPost(path, {
+      target_kind: EMBED_TARGET_KIND[request.targetKind],
+      target: request.target,
+      role: request.role ?? null,
+      text: request.text ?? null,
+    });
   },
   /**
    * Rewrite a note's body (its `index.md`) through the generated

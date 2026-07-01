@@ -7,8 +7,10 @@ import { Code2, Eye, Save } from "lucide-react";
 import { type JSX, lazy, Suspense, useCallback, useMemo, useState } from "react";
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import { workspaceApi } from "@/app/state/api";
+import type { WorkspaceSnapshot } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { buildNoteDocUpdate, isDirty } from "./noteDraft";
+import { SlashMenu } from "./SlashMenu";
 
 // Monaco is a heavy dependency; lazy-load it so the source-mode chunk is only
 // fetched when the user toggles into it (mirrors ``plugins/editor/TextEditor``).
@@ -74,9 +76,15 @@ const MilkdownSurface = ({
 export const NoteEditor = ({
   note,
   onSaved,
+  snapshot,
+  onEmbedded,
 }: {
   note: NoteDetailResponse;
   onSaved: (updated: NoteDetailResponse) => void;
+  /** Workspace entities the "/" menu can embed; enables the SlashMenu when set. */
+  snapshot?: WorkspaceSnapshot;
+  /** Fired after an embed edge is written so the host can refetch the cards. */
+  onEmbedded?: () => void;
 }): JSX.Element => {
   const [mode, setMode] = useState<EditMode>("wysiwyg");
   const [markdown, setMarkdown] = useState<string>(note.body);
@@ -92,6 +100,17 @@ export const NoteEditor = ({
   const enterWysiwyg = useCallback(() => {
     setSurfaceKey((key) => key + 1);
     setMode("wysiwyg");
+  }, []);
+
+  // Drop a slash-menu block at the end of the doc, then reseed the WYSIWYG
+  // surface so the inserted markdown renders (Milkdown takes no controlled
+  // value). `index.md` stays the source of truth — we only append markdown.
+  const insertMarkdown = useCallback((snippet: string): void => {
+    if (!snippet) return;
+    setMarkdown(
+      (prev) => `${prev}${prev.length > 0 && !prev.endsWith("\n") ? "\n" : ""}${snippet}`,
+    );
+    setSurfaceKey((key) => key + 1);
   }, []);
 
   const handleSave = useCallback(async () => {
@@ -112,25 +131,35 @@ export const NoteEditor = ({
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex flex-none items-center justify-between gap-2">
-        <div className="inline-flex rounded-md border border-border/60 bg-muted/30 p-0.5">
-          <Button
-            type="button"
-            variant={mode === "wysiwyg" ? "secondary" : "ghost"}
-            size="sm"
-            className="gap-1.5"
-            onClick={enterWysiwyg}
-          >
-            <Eye className="h-4 w-4" /> Editor
-          </Button>
-          <Button
-            type="button"
-            variant={mode === "source" ? "secondary" : "ghost"}
-            size="sm"
-            className="gap-1.5"
-            onClick={enterSource}
-          >
-            <Code2 className="h-4 w-4" /> Source
-          </Button>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-md border border-border/60 bg-muted/30 p-0.5">
+            <Button
+              type="button"
+              variant={mode === "wysiwyg" ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-1.5"
+              onClick={enterWysiwyg}
+            >
+              <Eye className="h-4 w-4" /> Editor
+            </Button>
+            <Button
+              type="button"
+              variant={mode === "source" ? "secondary" : "ghost"}
+              size="sm"
+              className="gap-1.5"
+              onClick={enterSource}
+            >
+              <Code2 className="h-4 w-4" /> Source
+            </Button>
+          </div>
+          {snapshot && (
+            <SlashMenu
+              notePath={note.relPath}
+              snapshot={snapshot}
+              onInsert={insertMarkdown}
+              onEmbedded={onEmbedded}
+            />
+          )}
         </div>
         <div className="flex items-center gap-2">
           {dirty && <span className="text-xs text-muted-foreground">Unsaved changes</span>}

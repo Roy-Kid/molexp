@@ -13,6 +13,8 @@ import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeList
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import type { ReferenceSummary } from "@/api/generated/models/ReferenceSummary";
 import { EmptyState, EntityHeader } from "@/app/components/entity";
+import { DocumentControls } from "@/app/renderers/knowledge/DocumentControls";
+import { EntityRefCard } from "@/app/renderers/knowledge/EntityRefCard";
 import { workspaceApi } from "@/app/state/api";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
@@ -152,18 +154,40 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
         <div className={`${COLUMN} flex-1 overflow-auto px-4 py-6 md:px-8`}>
           {noteError ? (
             <p className="text-sm text-destructive">{noteError}</p>
-          ) : note ? (
-            editing ? (
-              <Suspense
-                fallback={<p className="text-sm italic text-muted-foreground">Loading editor…</p>}
-              >
-                <NoteEditor note={note} onSaved={() => setReloadToken((token) => token + 1)} />
-              </Suspense>
-            ) : (
-              <MarkdownContent text={note.body || "_(empty note)_"} />
-            )
-          ) : (
+          ) : !note ? (
             <p className="text-sm italic text-muted-foreground">Loading…</p>
+          ) : editing ? (
+            <Suspense
+              fallback={<p className="text-sm italic text-muted-foreground">Loading editor…</p>}
+            >
+              <NoteEditor
+                note={note}
+                snapshot={snapshot}
+                onSaved={() => setReloadToken((token) => token + 1)}
+                onEmbedded={() => setReloadToken((token) => token + 1)}
+              />
+            </Suspense>
+          ) : (
+            <div className="space-y-4">
+              <DocumentControls relPath={relPath} />
+              <MarkdownContent text={note.body || "_(empty note)_"} />
+              {note.cards && note.cards.length > 0 && (
+                <section className="space-y-2 border-t border-border/50 pt-4">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Embedded entities ({note.cards.length})
+                  </h3>
+                  <div className="space-y-1.5">
+                    {note.cards.map((card) => (
+                      <EntityRefCard
+                        key={`${card.kind}:${card.id}`}
+                        card={card}
+                        snapshot={snapshot}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
           )}
         </div>
       </div>
