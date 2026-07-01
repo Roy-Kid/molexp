@@ -8,6 +8,7 @@ import type { DirectoryCreateRequest } from '../models/DirectoryCreateRequest';
 import type { FileContentResponse } from '../models/FileContentResponse';
 import type { FileContentUpdateRequest } from '../models/FileContentUpdateRequest';
 import type { TargetTestResponse } from '../models/TargetTestResponse';
+import type { WorkspaceContextResponse } from '../models/WorkspaceContextResponse';
 import type { WorkspaceInfoResponse } from '../models/WorkspaceInfoResponse';
 import type { WorkspaceOpenLocalRequest } from '../models/WorkspaceOpenLocalRequest';
 import type { WorkspaceOpenRemoteRequest } from '../models/WorkspaceOpenRemoteRequest';
@@ -63,6 +64,39 @@ export class WorkspaceService {
             url: '/api/workspace/cache/refresh',
             body: requestBody,
             mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Workspace Context
+     * The canonical structural workspace read-model (integration.md §1).
+     *
+     * A read-only projection assembled from authoritative workspace state — the one
+     * shape agents/planners/CLI/UI observe. ``ContextFocus`` is supplied by the
+     * caller via optional query params and is never persisted. ``/runs`` remains the
+     * specialized detailed run view (richer per-execution rows); this endpoint is the
+     * canonical *structure* and stays consistent with it.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @returns WorkspaceContextResponse Successful Response
+     * @throws ApiError
+     */
+    public static getWorkspaceContextApiWorkspaceContextGet(
+        projectId?: (string | null),
+        experimentId?: (string | null),
+        runId?: (string | null),
+    ): CancelablePromise<WorkspaceContextResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspace/context',
+            query: {
+                'projectId': projectId,
+                'experimentId': experimentId,
+                'runId': runId,
+            },
             errors: {
                 422: `Validation Error`,
             },
