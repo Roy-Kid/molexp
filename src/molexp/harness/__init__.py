@@ -32,6 +32,13 @@ Imports from ``molexp.workflow``, ``molexp.plugins``, ``molexp.server``,
 
 from __future__ import annotations
 
+from molexp.harness.actions import (
+    ChangeActionHandler,
+    ChangeActionRegistry,
+    ProposalActionRecorder,
+    ProposalExecutor,
+    assert_within_affected_scope,
+)
 from molexp.harness.audit import (
     find_last_successful_stage,
     generate_audit_report,
@@ -60,8 +67,10 @@ from molexp.harness.errors import (
     CapabilityResolutionError,
     EventSeqConflictError,
     HarnessError,
+    OutOfAffectedScopeError,
     StageExecutionError,
     StagePersistedFailureError,
+    UnhandledHighRiskOpError,
 )
 from molexp.harness.executors import DryRunExecutor, Executor, LocalExecutor
 from molexp.harness.gateways import AgentGateway, RouterBackedAgentGateway
@@ -226,6 +235,9 @@ __all__ = [
     "CapabilityNotFoundError",
     "CapabilityRegistry",
     "CapabilityResolutionError",
+    # Guarded execution — the coordination-layer "Act" seam (integration P2.1)
+    "ChangeActionHandler",
+    "ChangeActionRegistry",
     "ChangeProposal",
     "ChangeSpec",
     "CommandResult",
@@ -272,12 +284,15 @@ __all__ = [
     "ModeResult",
     "NextAction",
     "ObjectRef",
+    "OutOfAffectedScopeError",
     "ParameterSource",
     "ParameterValue",
     "PathPolicy",
     "PlanMode",
     "PlanReview",
     "PlanReviewFinding",
+    "ProposalActionRecorder",
+    "ProposalExecutor",
     "ProposalOutcome",
     "ProposalStatus",
     "ProvenanceValidator",
@@ -311,6 +326,7 @@ __all__ = [
     "TestStatus",
     "ToolCapability",
     "ToolPolicy",
+    "UnhandledHighRiskOpError",
     "UserPlan",
     "ValidateBoundWorkflow",
     "ValidateExperimentSpec",
@@ -327,6 +343,7 @@ __all__ = [
     "WorkflowSourceValidator",
     "WorkspaceSummary",
     "approval_level_for",
+    "assert_within_affected_scope",
     "auto_grant_approver",
     "enforce_side_effect_approvals",
     "find_last_successful_stage",

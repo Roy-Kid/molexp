@@ -21,8 +21,10 @@ __all__ = [
     "CapabilityResolutionError",
     "EventSeqConflictError",
     "HarnessError",
+    "OutOfAffectedScopeError",
     "StageExecutionError",
     "StagePersistedFailureError",
+    "UnhandledHighRiskOpError",
 ]
 
 
@@ -114,3 +116,24 @@ class CapabilityResolutionError(HarnessError):
     names an unimportable module, references a missing attribute, or resolves
     to a non-callable object. There is no silent fallback — every dispatch
     failure surfaces as this typed error."""
+
+
+class UnhandledHighRiskOpError(HarnessError):
+    """Raised by :meth:`molexp.harness.actions.ProposalExecutor.dispatch` when a
+    granted :class:`~molexp.harness.schemas.change_proposal.ChangeProposal`'s
+    ``proposed_change.op`` has no registered :class:`ChangeActionHandler`.
+
+    A routing/config defect, not a proposal-execution outcome: it propagates out
+    of ``dispatch`` (no ``tool_*`` event, no ``status="failed"`` record). There
+    is no silent fallback — an unhandled high-risk op is always loud
+    (integration.md §10 invariant #10)."""
+
+
+class OutOfAffectedScopeError(HarnessError):
+    """Raised by :func:`molexp.harness.actions.assert_within_affected_scope` when
+    an action would touch an :class:`~molexp.harness.schemas.change_proposal.ObjectRef`
+    absent from the proposal's ``affected_objects``.
+
+    Enforces the §8.2 binding scope ("the ONLY objects Act may touch"). A handler
+    that hits this is recorded by the executor as ``status="failed"`` (+ a
+    ``tool_failed`` event), never a silent partial mutation."""
