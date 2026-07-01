@@ -35,6 +35,7 @@ from .assets.scan import scan_assets
 from .bundle import Bundle
 from .bundle_index import extract_title
 from .concepts import Note, ReferenceConcept
+from .knowledge_item import KnowledgeItem
 from .models import RunStatus
 
 if TYPE_CHECKING:
@@ -270,9 +271,10 @@ def assemble_workspace_context(
     knowledge: list[KnowledgeRef] = []
     bundle = Bundle(root)
     for concept in bundle.walk():
-        # Knowledge is Note/Reference today; the typed KnowledgeItem (P0.4) joins this
-        # filter later. Entity folders (Project/Experiment/Run) are deliberately excluded.
-        if isinstance(concept, Note | ReferenceConcept):
+        # Knowledge is the free-form Note, the literature ReferenceConcept, and the
+        # typed source-attributed KnowledgeItem (P0.4) — the canonical home for
+        # auto-derived knowledge. Entity folders (Project/Experiment/Run) are excluded.
+        if isinstance(concept, Note | ReferenceConcept | KnowledgeItem):
             meta = concept.read_meta()
             raw_id = meta.get("id")
             knowledge.append(

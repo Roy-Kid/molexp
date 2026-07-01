@@ -212,7 +212,7 @@ def _write_experiment_record(
     model: str,
 ) -> None:
     from molexp.workspace import Workspace
-    from molexp.workspace.concepts import Note
+    from molexp.workspace.knowledge_item import KnowledgeItem, KnowledgeMeta, SourceRef
 
     tasks = _read_workflow_tasks(experiment)
     source = _read_workflow_source(run)
@@ -227,13 +227,36 @@ def _write_experiment_record(
         tasks=tasks,
         source=source,
     )
-    # Mount the record Note at the WORKSPACE ROOT (idempotent on the slugified
-    # name). Mounting under the nested Experiment trips a Bundle path-doubling
-    # bug for deeply-nested concepts, so root-mount keeps it reliably readable in
-    # the Knowledge tab; the experiment id is encoded in the name + the body.
+    # Auto-derived project knowledge is a TYPED, SOURCE-ATTRIBUTED KnowledgeItem —
+    # not an unsourced free-form Note (integration.md §5, invariant #4). Mount it
+    # at the WORKSPACE ROOT (idempotent on the slugified name): mounting under the
+    # nested Experiment trips a Bundle path-doubling bug for deeply-nested
+    # concepts, and the experiment id is encoded in the name + the body.
     ws = Workspace(root=Path(workspace_root), name=Path(workspace_root).name)
-    note = ws.add_folder(Note(parent=ws, name=f"experiment-record-{experiment.id}-{run.id}"))
-    note.set_body(body)
+    item = ws.add_folder(
+        KnowledgeItem(parent=ws, name=f"experiment-record-{experiment.id}-{run.id}")
+    )
+    # ≥1 SourceRef is required (KnowledgeMeta rejects an empty list): the plan run
+    # and its experiment, plus the content-addressed experiment_report the record
+    # renders from, when present.
+    sources = [
+        SourceRef(kind="run", ref=run.id),
+        SourceRef(kind="experiment", ref=experiment.id),
+    ]
+    report_ref = _experiment_report_ref(run)
+    if report_ref is not None:
+        sources.append(SourceRef(kind="artifact", ref=report_ref))
+    item.write_knowledge_meta(
+        KnowledgeMeta(kind="Decision", sources=sources, created_by=f"PlanMode/{model}")
+    )
+    item.set_body(body)
+    # A typed provenance out-edge to the in-tree run makes the item reachable from
+    # what it derives from (reuses the P0.1 edge; guarded so a link failure never
+    # loses the meta + body already written).
+    try:
+        item.cite(run, role="derived_from")
+    except Exception as exc:
+        _LOG.warning(f"[plan-record {run.id}] provenance edge to run failed: {exc!r}")
 
 
 def _read_workflow_tasks(experiment: Experiment) -> list[str]:
@@ -251,6 +274,19 @@ def _read_workflow_tasks(experiment: Experiment) -> list[str]:
     return [
         tc["task_id"] for tc in tcs if isinstance(tc, dict) and isinstance(tc.get("task_id"), str)
     ]
+
+
+def _experiment_report_ref(run: Run) -> str | None:
+    """The content-addressed id of the run's latest ``experiment_report`` artifact.
+
+    Used as an ``artifact`` :class:`SourceRef` on the plan-record KnowledgeItem so
+    the record cites the exact report it renders from. ``None`` if absent.
+    """
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    store = FileArtifactStore(root=Path(run.run_dir) / "artifacts")
+    ref = store.latest_by_kind("experiment_report")
+    return ref.id if ref is not None else None
 
 
 def _read_workflow_source(run: Run) -> str | None:

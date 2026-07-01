@@ -1,7 +1,10 @@
 """Tests for ``record_plan_outputs`` — surfacing a plan on Agents + Knowledge.
 
-After a PlanMode run, the plan should appear as an agent-task session (Agents
-tab) and as a Knowledge experiment-record Note, both readable.
+After a PlanMode run, the plan appears as an agent-task session (Agents tab) and
+as a **sourced ``KnowledgeItem``** (integration.md §5): auto-derived knowledge is
+typed + source-attributed (≥1 ``SourceRef`` — invariant #4), not an unsourced
+free-form ``Note``. It surfaces on the coordination-loop knowledge read-model
+(``assemble_workspace_context(...).knowledge``), not the Note-docs Knowledge tab.
 """
 
 from __future__ import annotations
@@ -14,7 +17,18 @@ from molexp.server.routes.agent_task_store import (
     list_agent_task_metadata,
     read_agent_task_events,
 )
-from molexp.server.routes.knowledge import get_note, list_knowledge
+from molexp.workspace import Bundle
+from molexp.workspace.knowledge_item import KnowledgeItem
+from molexp.workspace.workspace_context import assemble_workspace_context
+
+
+def _find_record(workspace, run_id: str) -> KnowledgeItem | None:
+    """The plan-record ``KnowledgeItem`` for *run_id*, walked from the Bundle."""
+    bundle = Bundle(workspace.root)
+    return next(
+        (c for c in bundle.walk() if isinstance(c, KnowledgeItem) and run_id in c.name),
+        None,
+    )
 
 
 def _seed_report(run) -> None:
@@ -48,7 +62,7 @@ def test_record_plan_outputs_writes_agent_session(workspace, experiment):
     assert plan_tasks[0].goal == "build a melt"
 
 
-def test_record_plan_outputs_writes_readable_knowledge_note(workspace, experiment):
+def test_plan_record_is_sourced_knowledge_item(workspace, experiment):
     run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec2")
     _seed_report(run)
 
@@ -61,15 +75,40 @@ def test_record_plan_outputs_writes_readable_knowledge_note(workspace, experimen
         model="m",
     )
 
-    kn = list_knowledge(workspace=workspace)
-    note = next((n for n in kn.notes if "planrec2" in n.name), None)
-    assert note is not None
-    assert note.excerpt  # non-empty — the record renders the report
-    # The note opens by its bundle-relative path (root-mounted → no nesting bug).
-    detail = get_note(path=note.relPath, workspace=workspace)
-    assert "Melt plan" in detail.body
-    assert "measure conductivity" in detail.body
-    assert "build a melt" in detail.body  # the original request
+    rec = _find_record(workspace, "planrec2")
+    assert rec is not None, "the plan record must be a KnowledgeItem"
+    # Source attribution invariant (#4): ≥1 SourceRef, citing the run + experiment.
+    meta = rec.read_knowledge_meta()
+    assert len(meta.sources) >= 1
+    kinds = {(s.kind, s.ref) for s in meta.sources}
+    assert ("run", run.id) in kinds
+    assert ("experiment", experiment.id) in kinds
+    # The rendered report is the readable body.
+    body = rec.body()
+    assert "Melt plan" in body
+    assert "measure conductivity" in body
+    assert "build a melt" in body  # the original request
+    # A typed provenance edge makes the item reachable from the run it cites.
+    assert any(e.target for e in rec.typed_out_edges())
+
+
+def test_plan_record_surfaced_in_workspace_context(workspace, experiment):
+    run = experiment.add_run(params={"mode": "plan", "draft": "build a melt"}, id="planrec5")
+    _seed_report(run)
+
+    record_plan_outputs(
+        run=run,
+        experiment=experiment,
+        workspace_root=str(workspace.root),
+        task_id="plan-planrec5",
+        draft="build a melt",
+        model="m",
+    )
+
+    ctx = assemble_workspace_context(workspace)
+    refs = [k for k in ctx.knowledge if k.type == "knowledge.item"]
+    assert refs, "the assembler must surface KnowledgeItems on the context"
+    assert any(k.title == "Melt plan" for k in refs)
 
 
 def test_record_plan_outputs_writes_session_transcript(workspace, experiment):
@@ -97,7 +136,7 @@ def test_record_plan_outputs_writes_session_transcript(workspace, experiment):
 
 
 def test_record_plan_outputs_no_report_still_writes_session(workspace, experiment):
-    # A plan run with no experiment_report still lists as a session (no note).
+    # A plan run with no experiment_report still lists as a session (no knowledge item).
     run = experiment.add_run(params={"mode": "plan", "draft": "x"}, id="planrec3")
 
     record_plan_outputs(
@@ -111,5 +150,4 @@ def test_record_plan_outputs_no_report_still_writes_session(workspace, experimen
 
     tasks = list_agent_task_metadata(str(workspace.root))
     assert any(t.task_id == "plan-planrec3" for t in tasks)
-    kn = list_knowledge(workspace=workspace)
-    assert not any("planrec3" in n.name for n in kn.notes)
+    assert _find_record(workspace, "planrec3") is None
