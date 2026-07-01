@@ -35,6 +35,36 @@ logger = get_logger(__name__)
 HEARTBEAT_INTERVAL_SECONDS = 30.0
 
 
+def _split_error_text(raw: str) -> tuple[str, str]:
+    """Split a ``"ExceptionType: message"`` string into ``(type, message)``.
+
+    The workflow engine records task failures type-prefixed (e.g.
+    ``"ZeroDivisionError: division by zero"``). Recover the type when the prefix
+    is a Python-exception-style identifier; otherwise keep the whole string as
+    the message under a generic ``"WorkflowError"`` type — never fabricate a
+    specific type we did not actually see.
+    """
+    head, sep, tail = raw.partition(": ")
+    if sep and head.isidentifier() and head[:1].isupper():
+        return head, tail
+    return "WorkflowError", raw
+
+
+def _error_info_from_context(ctx: RunContext, now: datetime) -> ErrorInfo | None:
+    """Build an :class:`ErrorInfo` from the message ``mark_failed`` stashed.
+
+    ``mark_failed`` records ``context.errors["run"] = {"message": ...}`` when a
+    task fails without the exception propagating out of ``execute()``. Returns
+    ``None`` when no such message is present (nothing to persist).
+    """
+    run_err = ctx._ctx_store.context.errors.get("run")
+    raw = run_err.get("message") if isinstance(run_err, dict) else run_err
+    if not raw:
+        return None
+    etype, message = _split_error_text(str(raw))
+    return ErrorInfo(type=etype, message=message, timestamp=now)
+
+
 class RunLifecycle:
     """Enter/exit orchestration for a :class:`RunContext`."""
 
@@ -126,6 +156,16 @@ class RunLifecycle:
         if exc_type is None:
             workflow_status = ctx._ctx_store.context.status.get("run")
             final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
+            if final is RunStatus.FAILED:
+                # The engine caught the task exception into a FAILED workflow
+                # status (it does NOT re-raise, so the run stays resumable) and
+                # stashed the message on the context via ``mark_failed``. Lift it
+                # into the workspace-owned canonical record, so run.json /
+                # execution.json don't silently carry ``error: null`` while the
+                # reason lives only in the workflow-layer document.
+                error_info = _error_info_from_context(ctx, now)
+                if error_info is not None:
+                    ctx.run._update_metadata(error=error_info)
         else:
             final = RunStatus.FAILED
             error_info = ErrorInfo(

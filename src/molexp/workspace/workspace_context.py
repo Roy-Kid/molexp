@@ -207,6 +207,8 @@ def assemble_workspace_context(
                 workflows.append(WorkflowRef(experiment_id=experiment.id, name=experiment.name))
             for run in experiment.list_runs():
                 ops = run.read_ops()
+                err = run.metadata.error
+                err_text = f"{err.type}: {err.message}" if err is not None else None
                 ref = RunRef(
                     run_id=run.id,
                     experiment_id=experiment.id,
@@ -221,11 +223,15 @@ def assemble_workspace_context(
                 run_ids.add(run.id)
                 if run.is_retryable:
                     failed_runs.append(ref)
+                    # Say WHY, not just that it failed — the captured error is the
+                    # one signal a user needs to act (integration.md §1.4 "no
+                    # silent invalid state").
+                    reason = f": {err_text}" if err_text else ""
                     flags.append(
                         HealthFlag(
                             kind="failed_run",
                             ref=run.id,
-                            detail=f"run {run.id} is {ops.status} (retryable)",
+                            detail=f"run {run.id} is {ops.status} (retryable){reason}",
                         )
                     )
                 if ops.status == RunStatus.RUNNING:

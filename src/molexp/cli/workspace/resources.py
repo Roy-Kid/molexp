@@ -499,6 +499,14 @@ def run_info(
 
     rprint(f"[bold]Run:[/bold] {r.id}")
     rprint(f"  Status: {r.status}")
+    # A failed run must say WHY, right under the status, with the one command to
+    # retry — the reason is captured in the canonical record (run.json).
+    err = r.metadata.error
+    if err is not None:
+        rprint(f"  [red]Error:[/red] {err.type}: {err.message}")
+        script = getattr(r.metadata, "script", None)
+        hint = f"molexp run {script} --resume" if script else "molexp run <script> --resume"
+        rprint(f"  [dim]Retry with:[/dim] {hint}")
     rprint(f"  Created: {r.metadata.created_at}")
     if r.finished_at:
         rprint(f"  Finished: {r.finished_at}")

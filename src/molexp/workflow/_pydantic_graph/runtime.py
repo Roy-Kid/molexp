@@ -544,8 +544,13 @@ class WorkflowRuntime:
             raise
         except Exception as exc:
             logger.exception(f"Workflow {compiled.name!r} execution failed")
+            # Carry the exception TYPE alongside the message ("ZeroDivisionError:
+            # division by zero"), matching the task-level record engine.py writes,
+            # so the workspace can persist a typed ErrorInfo instead of a bare
+            # message with no type.
+            error_text = f"{type(exc).__name__}: {exc}"
             if run_context is not None:
-                _record_run_failure(run_context, str(exc))
+                _record_run_failure(run_context, error_text)
             if persist_dir is not None:
                 from .persistence import mark_workflow_finished
 
@@ -554,7 +559,7 @@ class WorkflowRuntime:
                     execution_id,
                     status="failed",
                     outputs=dict(state.results),
-                    error=str(exc),
+                    error=error_text,
                 )
             # ``state`` is mutated in place by the graph runner, so it still
             # holds every task result recorded before the raise. Preserve them
