@@ -13,8 +13,9 @@ Walks through:
 6. ``scan.scan_assets`` — workspace-wide asset queries over the authoritative
    on-disk manifests (the manifest scanner that replaced the SQLite catalog).
 
-Task bodies stay on the pure ``{inputs, config}`` contract; the asset
-helpers live on the ``RunContext`` the driver opened via ``run.start()``.
+Task bodies receive their inputs as named parameters (nothing on ``ctx`` but
+``ctx.workdir``); the asset helpers live on the ``RunContext`` the driver opened
+via ``run.start()``.
 
 Run directly::
 

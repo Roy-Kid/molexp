@@ -46,11 +46,19 @@ OFFLINE_LLM_SCRIPTS = [
     EXAMPLES / "harness" / "experiment_pipeline.py",
 ]
 
+# Offline operations examples (no server, no molq, no network) — listed
+# explicitly because ``operations/`` also holds network/scheduler-dependent
+# scripts that must not run in the smoke gate.
+OFFLINE_OPERATIONS_SCRIPTS = [
+    EXAMPLES / "operations" / "curate.py",
+]
+
 STANDALONE_SCRIPTS = [
     *_scripts("getting_started"),
     *_scripts("workflow"),
     *_scripts("workspace"),
     *OFFLINE_LLM_SCRIPTS,
+    *OFFLINE_OPERATIONS_SCRIPTS,
 ]
 
 
@@ -71,6 +79,31 @@ def _assert_exit_zero(proc: subprocess.CompletedProcess[str], label: str) -> Non
     )
 
 
+# "The example code itself is broken against the API" signatures. These never
+# appear in an *intended* domain failure (which raises a clear RuntimeError /
+# ValueError with a message, e.g. workflow_persistence's "first attempt boom").
+# An API rename that leaves an example calling a removed attribute (the exact
+# ``ctx.inputs`` drift) surfaces here even though the engine catches the task
+# exception into ``status=failed`` and the process still exits 0.
+_BROKEN_SIGNATURES = (
+    "AttributeError",
+    "ModuleNotFoundError",
+    "ImportError",
+    "NameError",
+    "SyntaxError",
+)
+
+
+def _assert_no_api_drift(proc: subprocess.CompletedProcess[str], label: str) -> None:
+    output = proc.stdout + proc.stderr
+    hits = [sig for sig in _BROKEN_SIGNATURES if sig in output]
+    assert not hits, (
+        f"{label} emitted {hits} — the example is broken against the shipped API "
+        f"(a task likely failed silently into status=failed).\n"
+        f"--- stdout ---\n{proc.stdout}\n--- stderr ---\n{proc.stderr}"
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "script",
@@ -80,7 +113,9 @@ def test_example_script_runs_clean(script: Path, tmp_path: Path) -> None:
     """Every standalone example must exit 0 when run as ``python <script>``."""
     assert script.exists(), f"example script vanished: {script}"
     proc = _run([sys.executable, str(script)], cwd=tmp_path)
-    _assert_exit_zero(proc, str(script.relative_to(REPO_ROOT)))
+    label = str(script.relative_to(REPO_ROOT))
+    _assert_exit_zero(proc, label)
+    _assert_no_api_drift(proc, label)
 
 
 @pytest.mark.integration

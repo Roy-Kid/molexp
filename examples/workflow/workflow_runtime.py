@@ -16,21 +16,22 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import CompiledWorkflow, TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import CompiledWorkflow, WorkflowCompiler, WorkflowRuntime
 
 
 def build_slow_workflow() -> CompiledWorkflow:
     wf = WorkflowCompiler(name="slow")
 
     @wf.task
-    async def step_one(ctx: TaskContext) -> int:
+    async def step_one() -> int:
         await asyncio.sleep(0.05)
         return 1
 
+    # ``step_two`` receives ``step_one``'s output by naming a parameter after it.
     @wf.task(depends_on=["step_one"])
-    async def step_two(ctx: TaskContext) -> int:
+    async def step_two(step_one: int) -> int:
         await asyncio.sleep(0.05)
-        return ctx.inputs + 1
+        return step_one + 1
 
     return wf.compile()
 

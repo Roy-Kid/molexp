@@ -249,9 +249,13 @@ def _execute_proposal(
     outcome = result.execution_result
     status = outcome.status if outcome is not None else "failed"
     color = "green" if status == "executed" else "yellow"
-    rprint(f"  op     : {proposal.proposed_change.op}")
+    # Print the chemist-facing curation verb (move_run/…), not the engine op.
+    curation_op = proposal.proposed_change.payload.get("curation_op", proposal.proposed_change.op)
+    rprint(f"  op     : {curation_op}")
     rprint(f"  status : [{color}]{status}[/{color}]")
     if status != "executed":
+        reason = outcome.reason if outcome is not None else None
+        rprint(f"  reason : [red]{reason or 'no reason recorded'}[/red]")
         raise typer.Exit(1)
 
 

@@ -64,19 +64,22 @@ Requires Python >= 3.12. Core depends on `pydantic`, `pydantic-graph`, `typer`, 
 ```python
 import asyncio
 
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="demo")
 
 
 @wf.task
-async def fetch(ctx: TaskContext) -> list[float]:
+async def fetch() -> list[float]:
     return [1.0, 4.0, 9.0]
 
 
+# A task receives an upstream's output by naming a parameter after that task —
+# ``reduce`` binds ``fetch``'s output to its ``fetch`` argument (there is no
+# ``ctx.inputs``: inputs are plain named parameters).
 @wf.task(depends_on=["fetch"])
-async def reduce(ctx: TaskContext) -> float:
-    return sum(ctx.inputs)
+async def reduce(fetch: list[float]) -> float:
+    return sum(fetch)
 
 
 result = asyncio.run(WorkflowRuntime().execute(wf.compile()))

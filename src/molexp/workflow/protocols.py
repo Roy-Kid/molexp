@@ -176,11 +176,14 @@ class Streamable(Protocol):
     drives the generator to exhaustion and records the last yielded value as
     the task's output; streaming bodies are never cached.
 
+    Actor bodies receive only ``ctx`` (no by-name input parameters); the last
+    value they yield becomes the task output.
+
     Example::
 
         class MyStreamer:
             async def run(self, ctx):
-                for item in ctx.inputs:
+                for item in [1, 2, 3]:
                     yield transform(item)
     """
 

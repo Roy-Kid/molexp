@@ -654,6 +654,7 @@ class CurateResponse(BaseModel):
 
     proposalId: str
     status: str
+    reason: str | None = None
     resultArtifactIds: list[str] = Field(default_factory=list)
 
 
@@ -714,5 +715,6 @@ async def curate_workspace(
     return CurateResponse(
         proposalId=proposal.id,
         status=outcome.status if outcome is not None else "failed",
+        reason=outcome.reason if outcome is not None else None,
         resultArtifactIds=list(outcome.result_artifact_ids) if outcome is not None else [],
     )

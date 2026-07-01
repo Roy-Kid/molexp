@@ -19,9 +19,9 @@ artifact persistence, running a sub-workflow — are delivered *as inputs* by th
 engine, or handled by the engine's materialization layer after the body returns.
 
 ``state`` is in **staged removal** (pure-task-context state-elimination): the
-values-on-edges engine now delivers loop-back and branch-routed values via
-``ctx.inputs`` (declared ``depends_on`` wins; trigger-carried values reach
-dep-less targets), so the patterns that used to read ``state.results`` no
+values-on-edges engine now delivers loop-back and branch-routed values as
+**named task parameters** (declared ``depends_on`` wins; trigger-carried values
+reach dep-less targets), so the patterns that used to read ``state.results`` no
 longer need it. Accessing ``ctx.state`` emits a ``DeprecationWarning`` and
 returns a READ-ONLY snapshot of the underlying state (a ``MappingProxyType``
 copy for mappings; a frozen :class:`ReadOnlyStateView` for engine
@@ -58,9 +58,9 @@ class _WorkflowStateLike(Protocol):
 
 
 _STATE_DEPRECATION_MSG = (
-    "TaskContext.state is deprecated: values now arrive via ctx.inputs "
-    "(the values-on-edges engine delivers loop-back and branch-routed values "
-    "on the activating edge); ctx.state will be removed."
+    "TaskContext.state is deprecated: values now bind to named task parameters "
+    "(the values-on-edges engine delivers loop-back and branch-routed values as "
+    "the body's named args); ctx.state will be removed."
 )
 
 
@@ -142,14 +142,16 @@ def _freeze_state[StateT](state: StateT) -> StateT | ReadOnlyStateView | Mapping
 class TaskContext[StateT, InputT]:
     """Frozen context passed to every ``Task.execute()`` / ``Actor.run()``.
 
+    Runtime inputs are **not** read off the context — they bind to the body's own
+    typed parameters by name (``async def task(ctx, sigma: float = 1.0)``; the
+    engine fills ``sigma`` from {upstream task outputs keyed by task name} |
+    {run sweep params} | {build config}, falling back to the declared default).
+    ``ctx`` exposes only ``workdir`` (there is no ``ctx.inputs`` / ``ctx.config``).
+
     Attributes:
-        inputs: Runtime data flowing in along the edges — upstream task outputs
-            (``None`` for a root task with nothing injected), or the engine's
-            injected inputs for a root task (sweep params + a workdir ``Path``).
-        config: Read-only build-time configuration mapping (defaults to ``{}``).
         state: DEPRECATED — emits a ``DeprecationWarning`` and returns a
-            read-only snapshot; loop / branch values now arrive via ``inputs``
-            (see module docstring).
+            read-only snapshot; loop / branch values now arrive as named task
+            parameters (see module docstring).
         workdir: Content-addressed scratch directory for THIS task — a bare
             ``pathlib.Path`` the engine derives from the task's content identity
             (its ``TaskSnapshot.key``) via the materialization layer. It is the

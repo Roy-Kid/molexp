@@ -19,7 +19,7 @@ from pathlib import Path
 
 import molexp as me
 from molexp.profile import ProfileConfig
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 # Module-level marker so the first attempt fails and the second succeeds.
 _FAIL_ONCE_MARKER: Path | None = None
@@ -28,12 +28,13 @@ wf = WorkflowCompiler(name="flaky")
 
 
 @wf.task
-async def flaky_train(ctx: TaskContext) -> dict:
+async def flaky_train(epochs: int = 3) -> dict:
+    # Config values bind to task parameters by name (``epochs`` from the profile).
     assert _FAIL_ONCE_MARKER is not None
     if not _FAIL_ONCE_MARKER.exists():
         _FAIL_ONCE_MARKER.touch()
         raise RuntimeError("first attempt boom")
-    return {"epochs": ctx.config["epochs"]}
+    return {"epochs": epochs}
 
 
 compiled = wf.compile()

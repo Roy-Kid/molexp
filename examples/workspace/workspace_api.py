@@ -18,14 +18,15 @@ import tempfile
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 wf = WorkflowCompiler(name="step")
 
 
 @wf.task
-async def step(ctx: TaskContext) -> dict:
-    return {"noted": True, "seed": ctx.inputs["params"].get("seed")}
+async def step(seed: int | None = None) -> dict:
+    # A run's sweep params bind to task parameters by name (``seed`` here).
+    return {"noted": True, "seed": seed}
 
 
 compiled = wf.compile()

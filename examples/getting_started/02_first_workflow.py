@@ -15,23 +15,25 @@ from __future__ import annotations
 
 import asyncio
 
-from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
+from molexp.workflow import WorkflowCompiler, WorkflowRuntime
 
 
 async def main() -> None:
     wf = WorkflowCompiler(name="first-workflow")
 
     @wf.task
-    async def load(ctx: TaskContext) -> list[int]:
+    async def load() -> list[int]:
         return [1, 2, 3, 4, 5]
 
+    # A downstream task receives an upstream's output by naming a parameter after
+    # that upstream task — ``square`` binds ``load``'s output to its ``load`` arg.
     @wf.task(depends_on=["load"])
-    async def square(ctx: TaskContext) -> list[int]:
-        return [x * x for x in ctx.inputs]
+    async def square(load: list[int]) -> list[int]:
+        return [x * x for x in load]
 
     @wf.task(depends_on=["square"])
-    async def total(ctx: TaskContext) -> int:
-        return sum(ctx.inputs)
+    async def total(square: list[int]) -> int:
+        return sum(square)
 
     compiled = wf.compile()
     result = await WorkflowRuntime().execute(compiled)

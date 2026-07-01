@@ -27,12 +27,13 @@ async def functional_demo() -> None:
     wf = WorkflowCompiler(name="functional")
 
     @wf.task
-    async def load(ctx: TaskContext) -> list[int]:
+    async def load() -> list[int]:
         return [1, 2, 3]
 
+    # An upstream's output binds to a parameter named after that upstream task.
     @wf.task(depends_on=["load"])
-    async def square(ctx: TaskContext) -> list[int]:
-        return [x * x for x in ctx.inputs]
+    async def square(load: list[int]) -> list[int]:
+        return [x * x for x in load]
 
     result = await WorkflowRuntime().execute(wf.compile())
     print(f"functional: {result.outputs}")
@@ -45,8 +46,9 @@ class Load(Task):
 
 
 class Sum(Task):
-    async def execute(self, ctx: TaskContext) -> int:
-        return sum(ctx.inputs)
+    # ``load`` binds the upstream ``Load`` task's output (class name snake_cased).
+    async def execute(self, ctx: TaskContext, load: list[int]) -> int:
+        return sum(load)
 
 
 async def oop_demo() -> None:
@@ -59,8 +61,8 @@ async def oop_demo() -> None:
 class ExternalDoubler:
     """Matches :class:`~molexp.workflow.protocols.Runnable` structurally."""
 
-    async def execute(self, ctx) -> int:
-        return sum(ctx.inputs) * 2
+    async def execute(self, ctx, load: list[int]) -> int:
+        return sum(load) * 2
 
 
 async def protocol_demo() -> None:
@@ -78,13 +80,12 @@ async def protocol_demo() -> None:
 async def actor_demo() -> None:
     wf = WorkflowCompiler(name="stream")
 
-    @wf.task
-    async def load(ctx: TaskContext) -> list[int]:
-        return [1, 2, 3]
-
-    @wf.actor(depends_on=["load"])
+    # An actor's async generator is driven to exhaustion; its last yield becomes
+    # the task output. Actor bodies receive only ``ctx`` (unlike tasks, they take
+    # no by-name input parameters).
+    @wf.actor
     async def monitor(ctx: TaskContext):
-        for item in ctx.inputs:
+        for item in [1, 2, 3]:
             yield {"seen": item}  # last yield becomes the task output
 
     result = await WorkflowRuntime().execute(wf.compile())
