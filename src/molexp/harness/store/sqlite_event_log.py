@@ -13,7 +13,6 @@ chaining the underlying :class:`sqlite3.IntegrityError`.
 from __future__ import annotations
 
 import json
-import sqlite3
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +21,7 @@ from typing import Any
 from molexp.harness.errors import EventSeqConflictError
 from molexp.harness.schemas import EventType, HarnessEvent
 from molexp.harness.store._sqlite import open_db
+from molexp.sqlitelog import SeqConflictError, SeqEventStore
 
 __all__ = ["SQLiteEventLog"]
 
@@ -36,6 +36,17 @@ class SQLiteEventLog:
         # the cross-table writes serialize. All connection access goes
         # through it because ``StageRunner`` calls us from worker threads.
         self._conn, self._lock = open_db(self._path)
+        # The append-only ``events`` seq-log engine (Layer-0 primitive).
+        # ``refs_column="artifact_ids_json"`` reproduces the existing on-disk
+        # harness ``events`` schema exactly (so pre-existing DBs are unchanged).
+        self._store = SeqEventStore(
+            self._conn,
+            self._lock,
+            table="events",
+            scope_column="run_id",
+            refs_column="artifact_ids_json",
+        )
+        self._store.ensure_schema()
 
     def append(
         self,
@@ -56,13 +67,7 @@ class SQLiteEventLog:
         )
 
     def list_events(self, run_id: str) -> list[HarnessEvent]:
-        with self._lock:
-            rows = self._conn.execute(
-                "SELECT id, run_id, seq, type, actor, created_at, payload_json, "
-                "artifact_ids_json FROM events WHERE run_id = ? ORDER BY seq",
-                (run_id,),
-            ).fetchall()
-        return [self._row_to_event(row) for row in rows]
+        return [self._row_to_event(row) for row in self._store.list_rows(run_id)]
 
     def get_timeline(self, run_id: str) -> list[HarnessEvent]:
         # Alias by contract: get_timeline == list_events for a single run.
@@ -109,42 +114,27 @@ class SQLiteEventLog:
         artifact_ids: list[str],
     ) -> HarnessEvent:
         created_at = datetime.now(tz=UTC)
-        payload_json = json.dumps(payload, default=str)
-        artifact_ids_json = json.dumps(artifact_ids)
-        # Hold the shared lock across the whole SELECT MAX(seq) → INSERT
-        # read-modify-write so concurrent appends from to_thread workers
-        # cannot interleave and assign the same (run_id, seq).
-        with self._lock:
-            try:
-                self._conn.execute("BEGIN")
-                if seq is None:
-                    row = self._conn.execute(
-                        "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?",
-                        (run_id,),
-                    ).fetchone()
-                    assigned_seq = int(row[0])
-                else:
-                    assigned_seq = seq
-                self._conn.execute(
-                    "INSERT INTO events (id, run_id, seq, type, actor, created_at, "
-                    "payload_json, artifact_ids_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        event_id,
-                        run_id,
-                        assigned_seq,
-                        type_,
-                        actor,
-                        created_at.isoformat(),
-                        payload_json,
-                        artifact_ids_json,
-                    ),
-                )
-                self._conn.execute("COMMIT")
-            except sqlite3.IntegrityError as exc:
-                self._conn.execute("ROLLBACK")
-                raise EventSeqConflictError(
-                    f"duplicate (run_id={run_id!r}, seq={seq}) in event log"
-                ) from exc
+        # Delegate the seq-append (BEGIN → MAX(seq)+1 → INSERT, under the shared
+        # lock) to the Layer-0 SeqEventStore; wrap its SeqConflictError in the
+        # harness-typed EventSeqConflictError so callers see the same contract.
+        try:
+            assigned_seq = self._store.append(
+                event_id=event_id,
+                scope_id=run_id,
+                type=type_,
+                actor=actor,
+                created_at_iso=created_at.isoformat(),
+                payload_json=json.dumps(payload, default=str),
+                refs_json=json.dumps(artifact_ids),
+                seq=seq,
+            )
+        except SeqConflictError as exc:
+            # Preserve the harness contract that EventSeqConflictError chains the
+            # underlying sqlite3.IntegrityError directly (SeqEventStore raised the
+            # SeqConflictError ``from`` that IntegrityError).
+            raise EventSeqConflictError(
+                f"duplicate (run_id={run_id!r}, seq={seq}) in event log"
+            ) from exc.__cause__
 
         return HarnessEvent(
             id=event_id,
