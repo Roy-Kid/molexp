@@ -6,6 +6,8 @@ import type { BacklinksResponse } from '../models/BacklinksResponse';
 import type { DocBodyUpdate } from '../models/DocBodyUpdate';
 import type { DocCreateRequest } from '../models/DocCreateRequest';
 import type { DocMoveRequest } from '../models/DocMoveRequest';
+import type { EmbedRequest } from '../models/EmbedRequest';
+import type { EmbedResponse } from '../models/EmbedResponse';
 import type { KnowledgeListResponse } from '../models/KnowledgeListResponse';
 import type { MessageResponse } from '../models/MessageResponse';
 import type { NoteDetailResponse } from '../models/NoteDetailResponse';
@@ -17,13 +19,28 @@ export class KnowledgeService {
     /**
      * List Knowledge
      * List every Note + ReferenceConcept in the active workspace's bundle.
+     *
+     * Optional ``tag`` / ``status`` query params AND-narrow the note list (both
+     * read from the 05 :class:`~molexp.workspace.note_meta.NoteMeta` fields).
+     * @param tag Only notes carrying this tag.
+     * @param status Only notes with this lifecycle status.
      * @returns KnowledgeListResponse Successful Response
      * @throws ApiError
      */
-    public static listKnowledgeApiKnowledgeGet(): CancelablePromise<KnowledgeListResponse> {
+    public static listKnowledgeApiKnowledgeGet(
+        tag?: (string | null),
+        status?: (string | null),
+    ): CancelablePromise<KnowledgeListResponse> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/knowledge',
+            query: {
+                'tag': tag,
+                'status': status,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**
@@ -139,6 +156,36 @@ export class KnowledgeService {
         });
     }
     /**
+     * Embed Doc
+     * Embed a live entity into a document — delegates to ``Bundle.embed``.
+     *
+     * Resolves the source ``Note`` (404 on miss / non-note) and the target entity
+     * (``run`` / ``experiment`` / ``asset`` / ``reference``; 404 on miss), then
+     * writes ONE typed provenance edge via ``Bundle.embed`` — the same verb the CLI
+     * uses, so the edge-writing logic is never re-built at the HTTP boundary.
+     * @param path The source note Concept's bundle-relative path.
+     * @param requestBody
+     * @returns EmbedResponse Successful Response
+     * @throws ApiError
+     */
+    public static embedDocApiKnowledgeDocEmbedPost(
+        path: string,
+        requestBody: EmbedRequest,
+    ): CancelablePromise<EmbedResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/knowledge/doc/embed',
+            query: {
+                'path': path,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
      * Export Doc
      * Export a note as portable Markdown — delegates to ``Bundle.export_markdown``.
      * @param path The note Concept's bundle-relative path (its identity).
@@ -161,7 +208,7 @@ export class KnowledgeService {
     }
     /**
      * Get Note
-     * Return one note's full body (its ``index.md``) + its outgoing links.
+     * Return one note's full body (its ``index.md``) + its outgoing links + cards.
      * @param path The note Concept's bundle-relative path (its identity).
      * @returns NoteDetailResponse Successful Response
      * @throws ApiError

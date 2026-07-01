@@ -33,6 +33,8 @@ export type { ClarificationRequiredEvent } from './models/ClarificationRequiredE
 export type { CompactionPerformedEvent } from './models/CompactionPerformedEvent';
 export type { ComparisonRunRow } from './models/ComparisonRunRow';
 export type { ContextFocusResponse } from './models/ContextFocusResponse';
+export { CurateRequest } from './models/CurateRequest';
+export type { CurateResponse } from './models/CurateResponse';
 export type { CurateTaskCreateRequest } from './models/CurateTaskCreateRequest';
 export type { CurateTaskListResponse } from './models/CurateTaskListResponse';
 export type { CurateTaskResponse } from './models/CurateTaskResponse';
@@ -41,6 +43,9 @@ export type { DirectoryCreateRequest } from './models/DirectoryCreateRequest';
 export type { DocBodyUpdate } from './models/DocBodyUpdate';
 export type { DocCreateRequest } from './models/DocCreateRequest';
 export type { DocMoveRequest } from './models/DocMoveRequest';
+export { EmbedRequest } from './models/EmbedRequest';
+export { EmbedResponse } from './models/EmbedResponse';
+export type { EntityCard } from './models/EntityCard';
 export type { ErrorEvent } from './models/ErrorEvent';
 export type { ExecutionCreateRequest } from './models/ExecutionCreateRequest';
 export type { ExecutionRecordResponse } from './models/ExecutionRecordResponse';

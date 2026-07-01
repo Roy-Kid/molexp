@@ -18,20 +18,26 @@ maps :class:`ConceptNotFoundError` (and a non-``Note`` concept) to a 404.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path as _StdPath
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 
 from molexp.server.dependencies import get_workspace
+from molexp.workspace.edges import EdgeRole
 
 from ..deps.served import active_served_key, assert_workspace_writable
 from ..schemas import MessageResponse
 
 if TYPE_CHECKING:
     from molexp.workspace import Bundle, Workspace
+    from molexp.workspace.assets.base import Asset
     from molexp.workspace.concepts import Note
+    from molexp.workspace.experiment import Experiment
+    from molexp.workspace.folder import Folder
+    from molexp.workspace.run import Run
 
 __all__ = ["router"]
 
@@ -44,6 +50,8 @@ class NoteSummary(BaseModel):
     name: str
     relPath: str
     excerpt: str
+    tags: list[str] = []
+    status: str | None = None
 
 
 class ReferenceSummary(BaseModel):
@@ -64,11 +72,43 @@ class KnowledgeListResponse(BaseModel):
     total: int
 
 
+class EntityCard(BaseModel):
+    """A clickable summary card for an entity a document embeds (05 resolver)."""
+
+    kind: str
+    id: str
+    title: str
+    relPath: str | None = None
+    status: str | None = None
+
+
 class NoteDetailResponse(BaseModel):
     name: str
     relPath: str
     body: str
     links: list[str]
+    cards: list[EntityCard] = []
+
+
+class EmbedRequest(BaseModel):
+    """Embed a live workspace entity into a document as one typed provenance edge."""
+
+    target_kind: Literal["run", "asset", "experiment", "reference"]
+    target: str
+    # ``None`` = defer to ``Bundle.embed``'s per-kind default (run/experiment ->
+    # records, reference -> cites, asset/other -> references), so an HTTP embed
+    # with no explicit role writes the SAME edge a CLI ``Bundle.embed`` call
+    # would — the Python==UI invariant. An explicit role overrides.
+    role: EdgeRole | None = None
+    text: str | None = None
+
+
+class EmbedResponse(BaseModel):
+    """Echo of the written embed edge."""
+
+    srcPath: str
+    target: str
+    role: EdgeRole
 
 
 class DocCreateRequest(BaseModel):
@@ -108,23 +148,152 @@ def _require_writable(request: Request) -> None:
 
 
 def _note_summary(bundle: Bundle, note: Note) -> NoteSummary:
-    """Build a :class:`NoteSummary` for *note* (name + identity path + excerpt)."""
+    """Build a :class:`NoteSummary` for *note* (identity + excerpt + tags/status).
+
+    ``tags``/``status`` come from the 05 :class:`~molexp.workspace.note_meta.NoteMeta`
+    helpers (an untagged note reads back ``[]`` / ``"active"``).
+    """
     body = note.body() or ""
     return NoteSummary(
         name=note.name,
         relPath=bundle.rel_path(note),
         excerpt=body[:_EXCERPT_CHARS],
+        tags=note.tags(),
+        status=note.status(),
     )
 
 
-def _note_detail(note: Note, path: str) -> NoteDetailResponse:
-    """Build a :class:`NoteDetailResponse` for *note* at its identity *path*."""
+def _note_detail(bundle: Bundle, workspace: Workspace, note: Note, path: str) -> NoteDetailResponse:
+    """Build a :class:`NoteDetailResponse` for *note* at its identity *path*.
+
+    Enriches the response with ``cards`` — one :class:`EntityCard` per typed
+    out-edge that resolves to a live entity (Run / Experiment / Reference / Note
+    / Asset), each projected by the 05 entity-summary resolver
+    (:meth:`~molexp.workspace.bundle.Bundle.entity_summary`).
+    """
     return NoteDetailResponse(
         name=note.name,
         relPath=path,
         body=note.body(),
         links=list(note.out_edges()),
+        cards=_resolve_cards(bundle, workspace, note),
     )
+
+
+def _resolve_cards(bundle: Bundle, workspace: Workspace, note: Note) -> list[EntityCard]:
+    """Resolve *note*'s typed out-edges to :class:`EntityCard` summary cards.
+
+    Each edge target is resolved back to its live entity; an edge that resolves
+    to no entity is skipped (it cannot be summarized as a card).
+    """
+    cards: list[EntityCard] = []
+    for edge in note.typed_out_edges():
+        entity = _resolve_edge_entity(bundle, workspace, edge.target)
+        if entity is None:
+            continue
+        summary = bundle.entity_summary(entity)
+        cards.append(
+            EntityCard(
+                kind=summary.kind,
+                id=summary.id,
+                title=summary.title,
+                relPath=_entity_rel_path(bundle, entity),
+                status=_entity_status(entity),
+            )
+        )
+    return cards
+
+
+def _resolve_edge_entity(
+    bundle: Bundle, workspace: Workspace, target: str
+) -> Folder | Asset | None:
+    """Resolve a typed out-edge *target* path back to its live entity, or ``None``.
+
+    A Concept dir (``meta.yaml`` present) resolves to its typed ``Folder`` via
+    the bundle; an asset record dir (``<scope>/assets/<asset_id>/``) resolves to
+    its :class:`~molexp.workspace.assets.base.Asset` via the manifest scanner.
+    """
+    from molexp.workspace.assets.scan import get_asset
+    from molexp.workspace.errors import ConceptNotFoundError
+
+    abs_path = _StdPath(str(target))
+    try:
+        rel = abs_path.relative_to(bundle.root).as_posix()
+    except ValueError:
+        return None
+    try:
+        return bundle.get(rel)
+    except ConceptNotFoundError:
+        pass
+    if abs_path.parent.name == "assets":
+        return get_asset(workspace.root, abs_path.name)
+    return None
+
+
+def _entity_rel_path(bundle: Bundle, entity: Folder | Asset) -> str | None:
+    """A ``Folder`` entity's bundle-relative identity path; ``None`` for an ``Asset``."""
+    from molexp.workspace.assets.base import Asset
+
+    if isinstance(entity, Asset):
+        return None
+    return bundle.rel_path(entity)
+
+
+def _entity_status(entity: Folder | Asset) -> str | None:
+    """A ``Note`` entity's lifecycle status; ``None`` for anything else."""
+    from molexp.workspace.concepts import Note
+
+    return entity.status() if isinstance(entity, Note) else None
+
+
+def _resolve_embed_target(
+    bundle: Bundle, workspace: Workspace, target_kind: str, target: str
+) -> Folder | Asset:
+    """Resolve an embed ``(target_kind, target)`` to a live ``Folder`` / ``Asset``.
+
+    Mirrors :func:`_resolve_note`'s not-found → 404 policy: an unknown run /
+    experiment / asset / reference (or a target that resolves to no entity) is a
+    404, never a silent miss.
+    """
+    from molexp.workspace.errors import ConceptNotFoundError
+
+    if target_kind == "reference":
+        try:
+            return bundle.get(target)
+        except ConceptNotFoundError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"reference {target!r} not found"
+            ) from exc
+
+    entity: Folder | Asset | None
+    if target_kind == "run":
+        entity = _find_run(workspace, target)
+    elif target_kind == "experiment":
+        entity = _find_experiment(workspace, target)
+    else:  # "asset" — the Literal on EmbedRequest guarantees no other value
+        from molexp.workspace.assets.scan import get_asset
+
+        entity = get_asset(workspace.root, target)
+    if entity is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"{target_kind} {target!r} not found")
+    return entity
+
+
+def _find_run(workspace: Workspace, run_id: str) -> Run | None:
+    """Find a ``Run`` by id across every project/experiment, or ``None``."""
+    for project in workspace.list_projects():
+        for experiment in project.list_experiments():
+            if experiment.has_run(run_id):
+                return experiment.get_run(run_id)
+    return None
+
+
+def _find_experiment(workspace: Workspace, experiment_id: str) -> Experiment | None:
+    """Find an ``Experiment`` by id across every project, or ``None``."""
+    for project in workspace.list_projects():
+        if project.has_experiment(experiment_id):
+            return project.get_experiment(experiment_id)
+    return None
 
 
 def _resolve_note(bundle: Bundle, path: str) -> Note:
@@ -142,20 +311,27 @@ def _resolve_note(bundle: Bundle, path: str) -> Note:
 
 
 @router.get("", response_model=KnowledgeListResponse)
-def list_knowledge(workspace: Workspace = Depends(get_workspace)) -> KnowledgeListResponse:
-    """List every Note + ReferenceConcept in the active workspace's bundle."""
+def list_knowledge(
+    tag: Annotated[str | None, Query(description="Only notes carrying this tag.")] = None,
+    status: Annotated[
+        str | None, Query(description="Only notes with this lifecycle status.")
+    ] = None,
+    workspace: Workspace = Depends(get_workspace),
+) -> KnowledgeListResponse:
+    """List every Note + ReferenceConcept in the active workspace's bundle.
+
+    Optional ``tag`` / ``status`` query params AND-narrow the note list (both
+    read from the 05 :class:`~molexp.workspace.note_meta.NoteMeta` fields).
+    """
     bundle = _bundle(workspace)
 
     notes: list[NoteSummary] = []
     for note in bundle.notes():
-        body = note.body() or ""
-        notes.append(
-            NoteSummary(
-                name=note.name,
-                relPath=bundle.rel_path(note),
-                excerpt=body[:_EXCERPT_CHARS],
-            )
-        )
+        if tag is not None and tag not in note.tags():
+            continue
+        if status is not None and note.status() != status:
+            continue
+        notes.append(_note_summary(bundle, note))
 
     references: list[ReferenceSummary] = []
     for ref in bundle.references():
@@ -186,10 +362,10 @@ def get_note(
     path: str = Query(..., description="The note Concept's bundle-relative path (its identity)."),
     workspace: Workspace = Depends(get_workspace),
 ) -> NoteDetailResponse:
-    """Return one note's full body (its ``index.md``) + its outgoing links."""
+    """Return one note's full body (its ``index.md``) + its outgoing links + cards."""
     bundle = _bundle(workspace)
     concept = _resolve_note(bundle, path)
-    return _note_detail(concept, path)
+    return _note_detail(bundle, workspace, concept, path)
 
 
 # ── Document authoring — thin delegators to workspace ``Bundle`` verbs ────────
@@ -212,6 +388,35 @@ def create_doc(
     return _note_summary(bundle, note)
 
 
+@router.post(
+    "/doc/embed",
+    response_model=EmbedResponse,
+    dependencies=[Depends(_require_writable)],
+)
+def embed_doc(
+    body: EmbedRequest,
+    path: str = Query(..., description="The source note Concept's bundle-relative path."),
+    workspace: Workspace = Depends(get_workspace),
+) -> EmbedResponse:
+    """Embed a live entity into a document — delegates to ``Bundle.embed``.
+
+    Resolves the source ``Note`` (404 on miss / non-note) and the target entity
+    (``run`` / ``experiment`` / ``asset`` / ``reference``; 404 on miss), then
+    writes ONE typed provenance edge via ``Bundle.embed`` — the same verb the CLI
+    uses, so the edge-writing logic is never re-built at the HTTP boundary.
+    """
+    from molexp.workspace.doc_embed import default_role_for
+
+    bundle = _bundle(workspace)
+    note = _resolve_note(bundle, path)
+    target = _resolve_embed_target(bundle, workspace, body.target_kind, body.target)
+    # Resolve the effective role the same way ``Bundle.embed`` will, so the
+    # echoed response reports the edge that was actually written.
+    role = body.role if body.role is not None else default_role_for(target)
+    bundle.embed(note, target, role=role)
+    return EmbedResponse(srcPath=path, target=body.target, role=role)
+
+
 @router.put(
     "/doc",
     response_model=NoteDetailResponse,
@@ -226,7 +431,7 @@ def edit_doc(
     bundle = _bundle(workspace)
     note = _resolve_note(bundle, path)
     note.set_body(payload.body)
-    return _note_detail(note, path)
+    return _note_detail(bundle, workspace, note, path)
 
 
 @router.patch(

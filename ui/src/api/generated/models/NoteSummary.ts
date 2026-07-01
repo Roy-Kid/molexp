@@ -6,5 +6,7 @@ export type NoteSummary = {
     excerpt: string;
     name: string;
     relPath: string;
+    status?: (string | null);
+    tags?: Array<string>;
 };
 

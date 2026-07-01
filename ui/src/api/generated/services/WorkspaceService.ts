@@ -4,6 +4,8 @@
 /* eslint-disable */
 import type { CacheControlRequest } from '../models/CacheControlRequest';
 import type { CacheControlResponse } from '../models/CacheControlResponse';
+import type { CurateRequest } from '../models/CurateRequest';
+import type { CurateResponse } from '../models/CurateResponse';
 import type { DirectoryCreateRequest } from '../models/DirectoryCreateRequest';
 import type { FileContentResponse } from '../models/FileContentResponse';
 import type { FileContentUpdateRequest } from '../models/FileContentUpdateRequest';
@@ -117,6 +119,30 @@ export class WorkspaceService {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/workspace/copilot',
+        });
+    }
+    /**
+     * Curate Workspace
+     * Gate + execute one deterministic destructive-curation op (single stack).
+     *
+     * Shares the ``run_curation_proposal`` backend with ``molexp curate`` (Python ≡
+     * UI). ``approve=false`` (default) records the proposal and refuses; ``true``
+     * executes the mutation. Either way the §8 ``change_proposal`` artifact is the audit.
+     * @param requestBody
+     * @returns CurateResponse Successful Response
+     * @throws ApiError
+     */
+    public static curateWorkspaceApiWorkspaceCuratePost(
+        requestBody: CurateRequest,
+    ): CancelablePromise<CurateResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/workspace/curate',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                422: `Validation Error`,
+            },
         });
     }
     /**

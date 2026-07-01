@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from molexp.workspace import Bundle
@@ -345,3 +347,257 @@ def test_openapi_contains_doc_paths():
     # The three mutating verbs live on /api/knowledge/doc.
     for verb in ("post", "put", "patch", "delete"):
         assert verb in paths["/api/knowledge/doc"]
+
+
+# ── knowledge-docs-06: embed routes, summary cards, tag/status ───────────────
+
+
+def _seed_run(workspace, *, run_id: str = "r"):
+    """Seed a project / experiment / run and return the Run folder."""
+    proj = workspace.add_project("p")
+    exp = proj.add_experiment("e")
+    return exp.add_run(id=run_id)
+
+
+def _seed_note(workspace, name: str = "doc", *, body: str = "# Doc"):
+    """Seed a root-mounted Note document via the Bundle façade."""
+    return Bundle(workspace.root).create_note(name, body=body)
+
+
+# ── ac-001 — POST /knowledge/doc/embed writes a typed provenance edge ────────
+
+
+def test_embed_writes_edge(client, workspace):
+    run = _seed_run(workspace, run_id="r")
+    _seed_note(workspace, "doc")
+
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "run", "target": "r", "role": "records"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["srcPath"] == "doc"
+    assert data["target"] == "r"
+    assert data["role"] == "records"
+
+    # The edge landed on the source note's typed out-edges, resolving to the run.
+    fresh = Bundle(workspace.root).get("doc")
+    edges = fresh.typed_out_edges()
+    assert len(edges) == 1
+    assert edges[0].role == "records"
+    assert os.path.normpath(edges[0].target) == os.path.normpath(str(run.resolve()))
+
+
+def test_embed_no_role_uses_per_kind_default_parity(client, workspace):
+    """No wire role -> the SAME per-kind default a CLI ``Bundle.embed`` writes.
+
+    Embedding a Run with no explicit role must yield ``records`` (Bundle.embed's
+    per-kind default), not a route-local ``references`` default — otherwise the
+    HTTP path and the Python/CLI path would write different edges for the same
+    operation, violating the Python==UI invariant.
+    """
+    _seed_run(workspace, run_id="r")
+    _seed_note(workspace, "doc")
+
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "run", "target": "r"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["role"] == "records"
+    assert Bundle(workspace.root).get("doc").typed_out_edges()[0].role == "records"
+
+
+# ── ac-002 — embed delegates to Bundle.embed (Python==UI parity) ─────────────
+
+
+def test_embed_delegates_to_bundle(client, workspace, monkeypatch):
+    from molexp.workspace.run import Run
+
+    _seed_run(workspace, run_id="r")
+    _seed_note(workspace, "doc")
+
+    calls: list[tuple[object, object, object]] = []
+    orig = Bundle.embed
+
+    def spy(self, src, target, *, role=None):
+        calls.append((src, target, role))
+        return orig(self, src, target, role=role)
+
+    monkeypatch.setattr(Bundle, "embed", spy)
+
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "run", "target": "r", "role": "records"},
+    )
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    src, target, role = calls[0]
+    assert isinstance(src, Note)
+    assert isinstance(target, Run)
+    assert target.name == "r"
+    assert role == "records"
+
+
+# ── ac-003 — embed route is writable-gated (read-only workspace rejected) ────
+
+
+def test_embed_writable_gate(client, workspace, _remote_served):
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "run", "target": "r"},
+    )
+    assert resp.status_code == 405
+
+
+def test_embed_writable_gate_local_not_405(client, workspace):
+    # A local workspace is not rejected by the gate (404 for the missing note,
+    # never 405).
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "nope"},
+        json={"target_kind": "run", "target": "r"},
+    )
+    assert resp.status_code != 405
+
+
+# ── ac-004 — unknown source note or missing target entity returns 404 ────────
+
+
+def test_embed_404_unknown_source_note(client, workspace):
+    _seed_run(workspace, run_id="r")
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "no-such-note"},
+        json={"target_kind": "run", "target": "r"},
+    )
+    assert resp.status_code == 404
+
+
+def test_embed_404_non_note_source(client, workspace):
+    _seed_concepts(workspace)  # kremer1990 is a ReferenceConcept, not a Note
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "kremer1990"},
+        json={"target_kind": "reference", "target": "kremer1990"},
+    )
+    assert resp.status_code == 404
+
+
+def test_embed_404_missing_target_entity(client, workspace):
+    _seed_note(workspace, "doc")
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "run", "target": "ghost"},
+    )
+    assert resp.status_code == 404
+
+
+def test_embed_404_missing_asset_target(client, workspace):
+    _seed_note(workspace, "doc")
+    resp = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "asset", "target": "no-such-asset"},
+    )
+    assert resp.status_code == 404
+
+
+# ── ac-005 — GET /knowledge/note resolves embedded-entity summary cards ──────
+
+
+def test_note_summary_cards(client, workspace):
+    run = _seed_run(workspace, run_id="r")
+    _seed_note(workspace, "doc")
+
+    embed = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "run", "target": "r", "role": "records"},
+    )
+    assert embed.status_code == 200
+
+    got = client.get("/api/knowledge/note", params={"path": "doc"})
+    assert got.status_code == 200
+    cards = got.json()["cards"]
+    assert len(cards) == 1
+    card = cards[0]
+    assert card["kind"] == "workspace.run"
+    assert card["id"] == "r"
+    assert card["title"]  # non-empty resolved title
+    assert card["status"] is None  # a Run has no note status
+    assert os.path.normpath(str(run.resolve())).endswith(os.path.normpath(card["relPath"]))
+
+
+def test_note_summary_cards_asset_target(client, workspace, tmp_path):
+    proj = workspace.add_project("p")
+    exp = proj.add_experiment("e")
+    src = tmp_path / "input.txt"
+    src.write_text("payload")
+    asset = exp.data_assets.import_asset("mydata", str(src))
+    _seed_note(workspace, "doc")
+
+    embed = client.post(
+        "/api/knowledge/doc/embed",
+        params={"path": "doc"},
+        json={"target_kind": "asset", "target": asset.asset_id},
+    )
+    assert embed.status_code == 200
+
+    cards = client.get("/api/knowledge/note", params={"path": "doc"}).json()["cards"]
+    assert len(cards) == 1
+    assert cards[0]["id"] == asset.asset_id
+
+
+# ── ac-006 — GET /knowledge exposes tags and status on note summaries ────────
+
+
+def test_knowledge_list_tags_status(client, workspace):
+    note = _seed_note(workspace, "tagged", body="# Tagged")
+    note.set_tags(["physics", "md"])
+    note.set_status("draft")
+
+    resp = client.get("/api/knowledge")
+    assert resp.status_code == 200
+    summaries = {n["name"]: n for n in resp.json()["notes"]}
+    assert summaries["tagged"]["tags"] == ["physics", "md"]
+    assert summaries["tagged"]["status"] == "draft"
+
+
+# ── ac-007 — GET /knowledge tag/status query params narrow the list ──────────
+
+
+def test_knowledge_list_filter(client, workspace):
+    alpha = _seed_note(workspace, "alpha", body="# A")
+    alpha.set_tags(["physics"])
+    alpha.set_status("draft")
+    beta = _seed_note(workspace, "beta", body="# B")
+    beta.set_tags(["chem"])
+    beta.set_status("active")
+
+    def _names(**params: str):
+        return {n["name"] for n in client.get("/api/knowledge", params=params).json()["notes"]}
+
+    assert _names(tag="physics") == {"alpha"}
+    assert _names(status="active") == {"beta"}
+    # AND semantics when combined.
+    assert _names(tag="physics", status="draft") == {"alpha"}
+    assert _names(tag="physics", status="active") == set()
+
+
+# ── ac-008 — OpenAPI surface carries the new embed path ──────────────────────
+
+
+def test_openapi_contains_embed_path():
+    from molexp.server.app import create_app
+
+    schema = create_app().openapi()
+    paths = schema["paths"]
+    assert "/api/knowledge/doc/embed" in paths
+    assert "post" in paths["/api/knowledge/doc/embed"]
