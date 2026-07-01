@@ -2,5 +2,8 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export type JSONValue = (string | number | boolean | Array<JSONValue> | Record<string, JSONValue> | null);
+import type { NoteSummary } from './NoteSummary';
+export type BacklinksResponse = {
+    backlinks: Array<NoteSummary>;
+};
 

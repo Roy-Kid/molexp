@@ -13,6 +13,7 @@ import type { WorkspaceInfoResponse } from '../models/WorkspaceInfoResponse';
 import type { WorkspaceOpenLocalRequest } from '../models/WorkspaceOpenLocalRequest';
 import type { WorkspaceOpenRemoteRequest } from '../models/WorkspaceOpenRemoteRequest';
 import type { WorkspaceRunsResponse } from '../models/WorkspaceRunsResponse';
+import type { WorkspaceSummaryResponse } from '../models/WorkspaceSummaryResponse';
 import type { WorkspaceTargetCreateRequest } from '../models/WorkspaceTargetCreateRequest';
 import type { WorkspaceTargetListResponse } from '../models/WorkspaceTargetListResponse';
 import type { WorkspaceTargetResponse } from '../models/WorkspaceTargetResponse';
@@ -100,6 +101,22 @@ export class WorkspaceService {
             errors: {
                 422: `Validation Error`,
             },
+        });
+    }
+    /**
+     * Get Workspace Copilot
+     * The read-only Workspace Copilot summary — structured state + ranked next-actions.
+     *
+     * A pure projection over the canonical ``WorkspaceContext``; it mutates nothing.
+     * Next-actions are **advisory** and separated from execution — high-risk ones are
+     * flagged ``requiresProposal`` (they must go through a ``ChangeProposal`` first).
+     * @returns WorkspaceSummaryResponse Successful Response
+     * @throws ApiError
+     */
+    public static getWorkspaceCopilotApiWorkspaceCopilotGet(): CancelablePromise<WorkspaceSummaryResponse> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspace/copilot',
         });
     }
     /**

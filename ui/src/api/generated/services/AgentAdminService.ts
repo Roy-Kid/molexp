@@ -12,7 +12,7 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPatch(
+    public static agentAdminDisabledApiAgentAdminPathDelete(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -32,7 +32,7 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPatch1(
+    public static agentAdminDisabledApiAgentAdminPathDelete1(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -52,7 +52,7 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPatch2(
+    public static agentAdminDisabledApiAgentAdminPathDelete2(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -72,7 +72,7 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPatch3(
+    public static agentAdminDisabledApiAgentAdminPathDelete3(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
@@ -92,7 +92,7 @@ export class AgentAdminService {
      * @returns any Successful Response
      * @throws ApiError
      */
-    public static agentAdminDisabledApiAgentAdminPathPatch4(
+    public static agentAdminDisabledApiAgentAdminPathDelete4(
         path: string,
     ): CancelablePromise<any> {
         return __request(OpenAPI, {
