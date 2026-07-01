@@ -60,6 +60,12 @@ from .errors import (
     RunExistsError,
     RunNotFoundError,
 )
+from .events import (
+    WORKSPACE_EVENTS_DB,
+    WorkspaceEvent,
+    WorkspaceEventLog,
+    WorkspaceEventType,
+)
 from .experiment import Experiment
 from .folder import (
     WORKSPACE_EXPERIMENT_KIND,
@@ -134,6 +140,8 @@ __all__ = [
     "RETRYABLE_STATUSES",
     # Folder kind taxonomy (unify-folder-abstraction-02)
     "WORKSPACE_CACHE_KIND",
+    # Workspace event spine (integration P0.3) — append-only cross-object timeline
+    "WORKSPACE_EVENTS_DB",
     "WORKSPACE_EXPERIMENT_KIND",
     "WORKSPACE_PROJECT_KIND",
     "WORKSPACE_ROOT_KIND",
@@ -219,6 +227,9 @@ __all__ = [
     # Entities
     "Workspace",
     "WorkspaceContext",
+    "WorkspaceEvent",
+    "WorkspaceEventLog",
+    "WorkspaceEventType",
     # Metadata models
     "WorkspaceMetadata",
     "WorkspaceRef",
