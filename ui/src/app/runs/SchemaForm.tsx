@@ -57,7 +57,10 @@ export interface SchemaFormProps {
   onChange: (next: Record<string, unknown>) => void;
 }
 
-function initialValues(schema: InputField[], value: Record<string, unknown>): Record<string, unknown> {
+function initialValues(
+  schema: InputField[],
+  value: Record<string, unknown>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const field of schema) {
     out[field.name] = field.name in value ? value[field.name] : field.default;
@@ -88,10 +91,7 @@ export function SchemaForm({ schema, value, onChange }: SchemaFormProps): JSX.El
             </Label>
             <div className="sm:col-span-2">
               {field.type === "enum" ? (
-                <Select
-                  value={String(current ?? "")}
-                  onValueChange={(v) => set(field.name, v)}
-                >
+                <Select value={String(current ?? "")} onValueChange={(v) => set(field.name, v)}>
                   <SelectTrigger id={`f-${field.name}`} className="h-8">
                     <SelectValue />
                   </SelectTrigger>

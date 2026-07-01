@@ -113,7 +113,7 @@ export const useRunViewer = (props: RendererProps): UseRunViewer => {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, runProjectId, runExperimentId, runId, selectedExecutionId]);
+  }, [runProjectId, runExperimentId, runId, selectedExecutionId]);
 
   const project = run ? snapshot.projects.find((item) => item.id === run.projectId) : undefined;
   const experiment = run

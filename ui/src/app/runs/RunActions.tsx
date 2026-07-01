@@ -17,8 +17,8 @@
 import { Play, RefreshCw } from "lucide-react";
 import { type JSX, useCallback, useEffect, useState } from "react";
 import type { TargetResponse } from "@/api/generated/models/TargetResponse";
-import { TargetsService } from "@/api/generated/services/TargetsService";
 import { ExperimentsService } from "@/api/generated/services/ExperimentsService";
+import { TargetsService } from "@/api/generated/services/TargetsService";
 import { ParametersForm } from "@/app/runs/ParametersForm";
 import {
   type InputField,
@@ -65,7 +65,9 @@ function errMessage(err: unknown): string {
     if (Array.isArray(detail)) {
       return detail
         .map((d) =>
-          d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : String(d),
+          d && typeof d === "object" && "msg" in d
+            ? String((d as { msg: unknown }).msg)
+            : String(d),
         )
         .join("; ");
     }
