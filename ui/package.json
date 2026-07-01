@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@flowgram.ai/free-layout-editor": "1.0.11",
+    "@milkdown/kit": "^7.21.2",
+    "@milkdown/react": "^7.21.2",
     "@molcrafts/molplot": "^0.0.1",
     "@molcrafts/molvis-core": "^0.1.0",
     "@monaco-editor/react": "^4.7.0",

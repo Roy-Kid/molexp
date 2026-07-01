@@ -396,6 +396,15 @@ export const workspaceApi = {
   getNote: async (path: string): Promise<NoteDetailResponse> => {
     return KnowledgeService.getNoteApiKnowledgeNoteGet(path);
   },
+  /**
+   * Rewrite a note's body (its `index.md`) through the generated
+   * KnowledgeService (never a hand-rolled fetch — mirrors `workflowApi.save`).
+   * Returns the server-normalized NoteDetailResponse so the caller can realign
+   * its in-memory body with what was persisted.
+   */
+  updateNoteDoc: async (path: string, body: string): Promise<NoteDetailResponse> => {
+    return KnowledgeService.editDocApiKnowledgeDocPut(path, { body });
+  },
   updateRunStatus: async (
     projectId: string,
     experimentId: string,

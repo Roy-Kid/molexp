@@ -1,5 +1,13 @@
-import { ArrowLeft, BookOpen, ExternalLink, FileText, NotebookPen } from "lucide-react";
-import { type JSX, useEffect, useMemo, useState } from "react";
+import {
+  ArrowLeft,
+  BookOpen,
+  ExternalLink,
+  Eye,
+  FileText,
+  NotebookPen,
+  Pencil,
+} from "lucide-react";
+import { type JSX, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeListResponse";
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
 import type { ReferenceSummary } from "@/api/generated/models/ReferenceSummary";
@@ -9,6 +17,13 @@ import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
 import { MarkdownContent } from "@/components/ui/markdown";
+
+// Lazy-loaded so Milkdown / ProseMirror (a heavy dependency graph) is split
+// into an async chunk fetched only when the user enters edit mode, keeping the
+// read-only Knowledge browse path light.
+const NoteEditor = lazy(() =>
+  import("@/app/renderers/knowledge/NoteEditor").then((m) => ({ default: m.NoteEditor })),
+);
 
 const COLUMN = "mx-auto w-full max-w-3xl";
 
@@ -35,6 +50,10 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<NoteDetailResponse | null>(null);
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<boolean>(false);
+  // Bumped after a save to re-fetch getNote and realign with the server's
+  // normalized body (the write also drops us back to the preview view).
+  const [reloadToken, setReloadToken] = useState<number>(0);
 
   const relPath = selection.objectId;
 
@@ -63,8 +82,11 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
     [data, relPath],
   );
 
-  // Fetch the note body when a note path is selected.
+  // Fetch the note body when a note path is selected. Editing is a note-local
+  // affordance, so any selection change or post-save reload returns to preview.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is a re-fetch trigger
   useEffect(() => {
+    setEditing(false);
     if (!isNotePath || !relPath) {
       setNote(null);
       return;
@@ -82,7 +104,7 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
     return () => {
       cancelled = true;
     };
-  }, [isNotePath, relPath]);
+  }, [isNotePath, relPath, reloadToken]);
 
   const back = (): void => nav.setSelection({ objectType: "knowledge", objectId: "" });
 
@@ -94,16 +116,44 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
           icon={NotebookPen}
           title={note?.name ?? relPath}
           actions={
-            <Button variant="ghost" size="sm" onClick={back}>
-              <ArrowLeft className="h-4 w-4" /> Back
-            </Button>
+            <>
+              {note && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditing((prev) => !prev)}
+                  aria-pressed={editing}
+                >
+                  {editing ? (
+                    <>
+                      <Eye className="h-4 w-4" /> Preview
+                    </>
+                  ) : (
+                    <>
+                      <Pencil className="h-4 w-4" /> Edit
+                    </>
+                  )}
+                </Button>
+              )}
+              <Button variant="ghost" size="sm" onClick={back}>
+                <ArrowLeft className="h-4 w-4" /> Back
+              </Button>
+            </>
           }
         />
         <div className={`${COLUMN} flex-1 overflow-auto px-4 py-6 md:px-8`}>
           {noteError ? (
             <p className="text-sm text-destructive">{noteError}</p>
           ) : note ? (
-            <MarkdownContent text={note.body || "_(empty note)_"} />
+            editing ? (
+              <Suspense
+                fallback={<p className="text-sm italic text-muted-foreground">Loading editor…</p>}
+              >
+                <NoteEditor note={note} onSaved={() => setReloadToken((token) => token + 1)} />
+              </Suspense>
+            ) : (
+              <MarkdownContent text={note.body || "_(empty note)_"} />
+            )
           ) : (
             <p className="text-sm italic text-muted-foreground">Loading…</p>
           )}
