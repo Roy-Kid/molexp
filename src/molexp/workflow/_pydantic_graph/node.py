@@ -465,6 +465,30 @@ def _bound_call(
     return func(*args, **kwargs)
 
 
+async def _drain_stream(
+    fn: Callable,
+    task_ctx: TaskContext,
+    inputs: TaskInput,
+    config: JSONMapping,
+    depends_on: list[str],
+) -> TaskOutput:
+    """Drive a streaming body's async generator to exhaustion, binding its
+    non-``ctx`` parameters by name exactly as :func:`_bound_call` does for a
+    batch task.
+
+    An actor is therefore on the SAME input contract as a task — its parameters
+    bind from {build-time config} | {upstream outputs | run params} — and the
+    only streaming-specific behaviour is that the LAST yielded value becomes the
+    task output (``None`` if the generator never yields). A body whose sole
+    parameter is ``ctx`` reduces to ``fn(ctx)``, so ctx-only actors are
+    unchanged.
+    """
+    last: TaskOutput = None
+    async for chunk in _bound_call(fn, task_ctx, inputs, config, depends_on):
+        last = chunk
+    return last
+
+
 async def _invoke_body_with_ctx(
     registration: TaskRegistration,
     task_ctx: TaskContext[Any, TaskInput],
@@ -485,12 +509,9 @@ async def _invoke_body_with_ctx(
     if isinstance(body, Task):
         return await _bound_call(body.execute, task_ctx, inputs, config, registration.depends_on)
 
-    # OOP Actor subclass — drain the async generator.
+    # OOP Actor subclass — drain the async generator (inputs bind by name).
     if isinstance(body, Actor):
-        last: TaskOutput = None
-        async for chunk in body.run(task_ctx):
-            last = chunk
-        return last
+        return await _drain_stream(body.run, task_ctx, inputs, config, registration.depends_on)
 
     # Third-party Runnable (anything with .execute) — protocol path.
     if isinstance(body, Runnable):
@@ -498,21 +519,15 @@ async def _invoke_body_with_ctx(
 
     # Third-party Streamable (anything with .run async generator).
     if isinstance(body, Streamable):
-        last2: TaskOutput = None
-        async for chunk in body.run(task_ctx):
-            last2 = chunk
-        return last2
+        return await _drain_stream(body.run, task_ctx, inputs, config, registration.depends_on)
 
     # Decorator-actor: async-generator function. ``is_actor=True`` is the
-    # registry's contract that ``body(ctx)`` returns an ``AsyncIterator``;
+    # registry's contract that ``body(ctx, ...)`` returns an ``AsyncIterator``;
     # the cast tells the static type-checker which arm of ``TaskBody`` we
     # are in (the runtime check above is the actual guard).
     if getattr(registration, "is_actor", False) and callable(body):
         actor_fn = cast("Callable[..., AsyncIterator[TaskOutput]]", body)
-        last3: TaskOutput = None
-        async for chunk in actor_fn(task_ctx):
-            last3 = chunk
-        return last3
+        return await _drain_stream(actor_fn, task_ctx, inputs, config, registration.depends_on)
 
     # Decorator-task: plain async function — bind params by name (ctx optional).
     if callable(body):

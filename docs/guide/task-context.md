@@ -70,13 +70,13 @@ Inside the task, the run shows up only as data: a root task's sweep `params` bin
 
 ## Streaming tasks (Actor)
 
-Streaming `Actor` bodies receive the **same** `TaskContext` as batch tasks — there is no separate context type. Unlike a batch task, an actor takes **no** by-name input parameters: its `run()` receives only `ctx`. The engine drives the async generator to exhaustion and records the last yielded value as the task's output:
+Streaming `Actor` bodies receive the **same** `TaskContext` as batch tasks — there is no separate context type — and bind their non-`ctx` parameters by name from the same merged map (`{config} | {upstream outputs | run params}`). The only streaming-specific behaviour is that the engine drives the async generator to exhaustion and records the **last yielded value** as the task's output:
 
 ```python
 class Monitor(Actor):
-    async def run(self, ctx: TaskContext):
-        for item in [1, 2, 3]:
-            yield {"seen": item}   # last yield becomes the task output
+    async def run(self, ctx: TaskContext, source: list[int]):
+        for item in source:            # ``source`` binds the upstream output
+            yield {"seen": item}       # last yield becomes the task output
 ```
 
 There is no inter-task message-passing channel: an earlier `receive()` / `send()` surface was never wired (every path raised `NotImplementedError`) and has been removed. An actor yields its outputs; it does not exchange messages mid-run with peer tasks.

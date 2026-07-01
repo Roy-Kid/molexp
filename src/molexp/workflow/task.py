@@ -12,24 +12,26 @@ pydantic-graph ``Step`` (one per task; see
 
 Identity has three orthogonal parts: **code** (the ``execute`` body), **config**
 (the ``__init__`` arguments — a task instance *is* its config), and **input**
-(the data delivered at run time via ``ctx.inputs``). Build-time config is supplied
-to the constructor and captured automatically (``self._task_config``); the body
-reads it as plain ``self.*`` attributes. ``ctx`` carries only the runtime input.
-The content-addressed cache and IR serialization both key on the captured config,
-so a task never re-declares it anywhere else (no ``builder.add(config=)``).
+(the data delivered at run time, bound to the body's named parameters). Build-time
+config is supplied to the constructor and captured automatically
+(``self._task_config``); the body reads it as plain ``self.*`` attributes. Runtime
+inputs bind by name from {upstream outputs | run params}; the leading ``ctx`` is
+optional and carries only ``ctx.workdir``. The content-addressed cache and IR
+serialization both key on the captured config, so a task never re-declares it
+anywhere else (no ``builder.add(config=)``).
 
 Simple (no generics)::
 
     class Square(Task):
-        async def execute(self, ctx: TaskContext) -> int:
-            return ctx.inputs**2
+        async def execute(self, ctx: TaskContext, value: int) -> int:
+            return value**2
 
 Typed (state/input/output generics)::
 
     class Fetch(Task[WorkflowState, str, DataFrame]):
-        async def execute(self, ctx: TaskContext[WorkflowState, str]) -> DataFrame:
-            # source path arrives as an input, not via ambient deps.
-            return read_frame(ctx.inputs)
+        async def execute(self, ctx: TaskContext[WorkflowState, str], source: str) -> DataFrame:
+            # source path binds by name, not via ambient deps.
+            return read_frame(source)
 
 Third-party (no molexp import)::
 
@@ -105,7 +107,11 @@ class Actor[StateT, InputT, OutputT](_CapturesInitConfig, ABC):
 
     Subclass and implement :meth:`run` as an async generator yielding
     output chunks (the terminal yield may be ``Next(label)`` / ``End()``
-    per spec 03 §5).
+    per spec 03 §5). Like a batch :class:`Task`, ``run`` binds its non-``ctx``
+    parameters by name from {build-time config} | {upstream outputs | run
+    params}, so ``async def run(self, ctx, data): ...`` receives an upstream
+    output as ``data``; the streaming-specific behaviour is only that the last
+    yielded value becomes the task output.
     """
 
     # ``run`` is declared without ``async`` because async-generator

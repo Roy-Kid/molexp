@@ -38,7 +38,7 @@ Control flow beyond the DAG shape is declared on the compiler:
 ``wf.parallel`` (runtime-sized fan-out), ``wf.branch`` (label-routed
 edges) and ``wf.loop`` (repeat-until). A branch or loop-``until`` task
 returns ``(value, Next("label"))``; the routed target receives ``value``
-as its ``ctx.inputs`` (values-on-edges delivery — see
+bound to its named parameters (values-on-edges delivery — see
 ``docs/guide/control-flow.md``).
 
 Execution lives on :class:`WorkflowRuntime`

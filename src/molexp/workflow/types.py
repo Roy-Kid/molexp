@@ -35,7 +35,7 @@ class Next(BaseModel):
     ``Next("exit")`` to proceed to ``on_exit``.
 
     Return ``(value, Next("label"))`` to carry a value on the routed edge:
-    the target task receives ``value`` as its ``ctx.inputs``
+    the target task receives ``value`` bound to its named parameters
     (values-on-edges delivery; a declared ``depends_on`` interface always
     wins). Part of ``molexp.workflow.__all__`` — import it as
     ``from molexp.workflow import Next``.

@@ -160,8 +160,8 @@ class Runnable(Protocol):
     Example (no molexp import needed)::
 
         class MyProcessor:
-            async def execute(self, ctx) -> dict:
-                data = ctx.inputs
+            async def execute(self, ctx, data) -> dict:
+                # ``data`` binds an upstream output by name; ``ctx`` is optional.
                 return {"processed": data}
     """
 
@@ -172,18 +172,20 @@ class Runnable(Protocol):
 class Streamable(Protocol):
     """Protocol for streaming actor nodes.
 
-    Any object with ``async run(ctx) -> AsyncIterator`` qualifies. The engine
-    drives the generator to exhaustion and records the last yielded value as
-    the task's output; streaming bodies are never cached.
+    Any object with ``async run(ctx, ...) -> AsyncIterator`` qualifies. The
+    engine drives the generator to exhaustion and records the last yielded
+    value as the task's output; streaming bodies are never cached.
 
-    Actor bodies receive only ``ctx`` (no by-name input parameters); the last
-    value they yield becomes the task output.
+    Actor bodies bind their non-``ctx`` parameters by name — from {build-time
+    config} | {upstream outputs | run params} — exactly like a batch task; the
+    only streaming-specific behaviour is that the LAST value they yield becomes
+    the task output. A body whose sole parameter is ``ctx`` is the minimal case.
 
     Example::
 
         class MyStreamer:
-            async def run(self, ctx):
-                for item in [1, 2, 3]:
+            async def run(self, ctx, data):
+                for item in data:  # ``data`` binds an upstream output
                     yield transform(item)
     """
 

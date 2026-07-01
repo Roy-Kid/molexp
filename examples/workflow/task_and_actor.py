@@ -80,12 +80,17 @@ async def protocol_demo() -> None:
 async def actor_demo() -> None:
     wf = WorkflowCompiler(name="stream")
 
-    # An actor's async generator is driven to exhaustion; its last yield becomes
-    # the task output. Actor bodies receive only ``ctx`` (unlike tasks, they take
-    # no by-name input parameters).
-    @wf.actor
-    async def monitor(ctx: TaskContext):
-        for item in [1, 2, 3]:
+    @wf.task
+    async def source() -> list[int]:
+        return [1, 2, 3]
+
+    # An actor binds its inputs by name, exactly like a task: ``source`` is the
+    # upstream task's output. Its async generator is driven to exhaustion and the
+    # last yielded value becomes the task output. (A ``ctx``-only actor also
+    # works — the leading ``ctx`` param stays optional.)
+    @wf.actor(depends_on=["source"])
+    async def monitor(source: list[int]):
+        for item in source:
             yield {"seen": item}  # last yield becomes the task output
 
     result = await WorkflowRuntime().execute(wf.compile())

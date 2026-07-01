@@ -109,7 +109,7 @@ Any object with `async def run(self, ctx)` returning an async iterator satisfies
 
 ### Context and output
 
-A streaming body receives the same `TaskContext` as a batch task, but takes **only** `ctx` — unlike a batch task, an actor gets no by-name input parameters (its sole data surface is `ctx.workdir`). The engine drives the async generator to exhaustion and records **the last yielded value** as the task's output; a downstream task reads that value bound to a parameter named after this actor, like any other upstream. Streaming bodies are never cached (they are marked `is_actor` at compile time).
+A streaming body receives the same `TaskContext` as a batch task **and** binds its non-`ctx` parameters by name in exactly the same way — from `{build-time config} | {upstream outputs | run params}` — so `async def run(self, ctx, source): ...` reads an upstream output as `source` (declare `depends_on` to wire it). The only streaming-specific behaviour is that the engine drives the async generator to exhaustion and records **the last yielded value** as the task's output; a downstream task reads that value bound to a parameter named after this actor, like any other upstream. Streaming bodies are never cached (they are marked `is_actor` at compile time).
 
 ### Runtime Boundaries
 

@@ -68,8 +68,8 @@ def _cache_inputs(
     (unchanged, so existing cache entries stay valid). When the engine
     injected root inputs for *name* (sweep params + workdir for a workspace
     run, possibly merged with a SubWorkflow-forwarded value), they are folded
-    in under a separate ``"root_inputs"`` key — because the body consumes
-    ``state.root_inputs[name]`` as its ``ctx.inputs``, those values are part
+    in under a separate ``"root_inputs"`` key — because the body binds its
+    named parameters from ``state.root_inputs[name]``, those values are part
     of the task's cache identity. The workdir Path is canonicalized OUT (see
     :func:`_canonical_root_inputs`). A trigger-*delivered* value (branch-routed
     / loop-back input for a dep-less task) likewise joins the identity under a

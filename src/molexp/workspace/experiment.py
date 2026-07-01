@@ -479,9 +479,9 @@ class Experiment(Folder):
         grid mapping (expanded as a Cartesian product) or any
         :class:`~molexp.workspace.ParamSpace`. It is materialized into one
         content-addressed :class:`Run` per cell (idempotent — re-declaring the same
-        sweep adds no duplicates); each Run's parameters reach the workflow's root
-        tasks as ``ctx.inputs`` at run time (the scratch dir is ``ctx.workdir``,
-        never an input). ``None`` ⇒ a single parameter-free run.
+        sweep adds no duplicates); each Run's parameters bind by name to the
+        workflow's root-task parameters at run time (the scratch dir is
+        ``ctx.workdir``, never an input). ``None`` ⇒ a single parameter-free run.
 
         The workflow is associated + persisted (IR + source snapshot + entrypoint)
         and the workspace registered through the cross-layer

@@ -61,11 +61,12 @@ class WorkflowState:
     results: dict[str, TaskOutput] = field(default_factory=dict)
     completed: set[str] = field(default_factory=set)
     # Engine-injected inputs for ROOT tasks (no upstream deps). Opt-in: empty by
-    # default, so a root task with no entry sees ``ctx.inputs is None`` exactly
-    # as before. The runtime populates an entry (e.g. ``{"params": ...,
-    # "workdir": Path}``) for roots of a parameterized/workspace run. Distinct
-    # from ``seeded`` (which SKIPS the body); a root-input task still RUNS its
-    # body with the injected inputs pre-set.
+    # default, so a root task with no entry gets no injected inputs (its
+    # parameters fall back to their declared defaults) exactly as before. The
+    # runtime populates an entry (e.g. ``{"params": ..., "workdir": Path}``) for
+    # roots of a parameterized/workspace run, and the body binds its named
+    # parameters from it. Distinct from ``seeded`` (which SKIPS the body); a
+    # root-input task still RUNS its body with the injected inputs pre-set.
     root_inputs: dict[str, TaskOutput] = field(default_factory=dict)
     loop_counters: dict[str, int] = field(default_factory=dict)
     parallel_runs: dict[str, int] = field(default_factory=dict)
