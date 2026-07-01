@@ -31,6 +31,7 @@ __all__ = [
     "WorkspaceEvent",
     "WorkspaceEventLog",
     "WorkspaceEventType",
+    "emit_workspace_event",
 ]
 
 WORKSPACE_EVENTS_DB = "workspace.events.sqlite"
@@ -144,3 +145,47 @@ class WorkspaceEventLog:
             payload=json.loads(payload_json),
             refs=json.loads(refs_json),
         )
+
+
+def emit_workspace_event(
+    root: str | PathLike[str],
+    type: WorkspaceEventType,
+    actor: str,
+    *,
+    payload: dict[str, JSONValue] | None = None,
+    refs: list[str] | None = None,
+) -> WorkspaceEvent | None:
+    """Best-effort append to a workspace's event spine — **opt-in + non-fatal**.
+
+    The workspace timeline is a *derived, rebuildable* sidecar, so emission never
+    participates in the correctness of the operation that triggered it:
+
+    - **Opt-in by existence.** A workspace enables its timeline by constructing a
+      :class:`WorkspaceEventLog` once (which creates ``<root>/workspace.events.sqlite``).
+      Until then this is a no-op and **adds no file** — workspaces that have not
+      opted in stay byte-identical, so the hot-path emit sites (``run.created`` /
+      ``run.started`` / ``run.completed`` / ``run.failed``) are inert for them.
+    - **Non-fatal.** Any exception is swallowed and ``None`` is returned; an
+      event-log failure must never break the run or asset op that emitted.
+
+    The run-lifecycle milestones are the high-value spine wired today. ``asset.added``
+    (from the artifact-save path) and ``knowledge.created`` (from the KnowledgeItem
+    write path) are a documented follow-up needing the same opt-in + root plumbing at
+    their (hotter / decoupled) sites.
+
+    Args:
+        root: The workspace root directory (callers resolve it from context they hold).
+        type: The coordination event type.
+        actor: Who emitted it (``"run-lifecycle"`` / ``"agent:<name>"`` / …).
+        payload: Optional structured detail.
+        refs: Related object ids (``run_id`` / ``asset_id`` / ``"sha256:…"`` / path).
+
+    Returns:
+        The appended :class:`WorkspaceEvent`, or ``None`` if disabled or on failure.
+    """
+    try:
+        if not (Path(root) / WORKSPACE_EVENTS_DB).exists():
+            return None
+        return WorkspaceEventLog(root).append(type, actor, payload=payload, refs=refs)
+    except Exception:
+        return None

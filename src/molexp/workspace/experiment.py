@@ -415,7 +415,18 @@ class Experiment(Folder):
             workflow_snapshot=workflow_snapshot,
             target=resolved_target,
         )
-        return cast(Run, self.add_folder(child))
+        run = cast(Run, self.add_folder(child))
+        # Opt-in, non-fatal workspace-timeline milestone (integration P0.3).
+        from .events import emit_workspace_event
+
+        emit_workspace_event(
+            self.workspace.resolve(),
+            "run.created",
+            "run-lifecycle",
+            payload={"experiment_id": self.id, "project_id": self.project.id},
+            refs=[run.id],
+        )
+        return run
 
     def add_runs(
         self,

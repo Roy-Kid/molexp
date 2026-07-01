@@ -65,6 +65,7 @@ from .events import (
     WorkspaceEvent,
     WorkspaceEventLog,
     WorkspaceEventType,
+    emit_workspace_event,
 )
 from .experiment import Experiment
 from .folder import (
@@ -244,6 +245,7 @@ __all__ = [
     # Atomic plain-text I/O — companion to atomic_write_json for
     # markdown reports / generated source previews / log snapshots.
     "atomic_write_text",
+    "emit_workspace_event",
     "get_target",
     "has_target",
     "list_targets",

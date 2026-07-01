@@ -109,6 +109,8 @@ class RunLifecycle:
         ctx._assets.append_run_log(f"execution started  exec_id={ctx._execution_id}")
         ctx._ctx_store.save()
         self._start_heartbeat()
+        # Opt-in, non-fatal workspace-timeline milestone (integration P0.3).
+        self._emit_run_event("run.started", payload={"execution_id": ctx._execution_id})
 
     def exit(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
         # Stop the heartbeat first so it cannot race the terminal-status
@@ -163,6 +165,9 @@ class RunLifecycle:
         # commit per settled execution, and only when the projection DB already
         # exists (opt-in by existence). Best-effort — never breaks the run.
         self._checkpoint_git_on_settle()
+        # Opt-in, non-fatal workspace-timeline milestone (integration P0.3).
+        settled = "run.completed" if final is RunStatus.SUCCEEDED else "run.failed"
+        self._emit_run_event(settled, payload={"status": final.value, "execution_id": execution_id})
         ctx._entered = False
         return False
 
@@ -171,6 +176,25 @@ class RunLifecycle:
         from molexp.workspace.git_projection import checkpoint_run_on_settle
 
         checkpoint_run_on_settle(self._ctx.run)
+
+    def _emit_run_event(self, event_type, *, payload) -> None:  # noqa: ANN001
+        """Append an opt-in, non-fatal run milestone to the workspace event spine.
+
+        Resolves the workspace root from the run (the same
+        ``run.experiment.project.workspace`` path :meth:`_checkpoint_git_on_settle`
+        uses) and delegates to :func:`molexp.workspace.events.emit_workspace_event`,
+        which is a no-op unless the workspace opted in and swallows any failure.
+        """
+        from molexp.workspace.events import emit_workspace_event
+
+        run = self._ctx.run
+        emit_workspace_event(
+            run.experiment.project.workspace.resolve(),
+            event_type,
+            "run-lifecycle",
+            payload=payload,
+            refs=[run.id],
+        )
 
     def _apply_profile_metadata(self) -> None:
         """Persist the active profile name / data / hash into RunMetadata."""
