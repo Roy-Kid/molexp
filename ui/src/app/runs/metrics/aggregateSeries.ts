@@ -130,7 +130,9 @@ const baseConfig = (
   theme: "auto",
 });
 
-const xValue = (point: ScalarPoint, xMode: XMode): number =>
+// Only the x-axis fields are read, so accept any point carrying them — this lets
+// both ScalarPoint and the aggregated AlignedStep (which has no single `y`) pass.
+const xValue = (point: Pick<ScalarPoint, "step" | "wall">, xMode: XMode): number =>
   xMode === "step" ? point.step : point.wall;
 
 const applySmoothing = (ys: number[], smoothing: number): number[] =>
