@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import mimetypes
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -620,4 +620,99 @@ def refresh_workspace_cache(
     return CacheControlResponse(
         dropped=dropped,
         warnings=[f"{w.path}: {w.reason}" for w in warnings],
+    )
+
+
+# ── Guarded curation (deterministic, LLM-free) — curate-unify-03 ──────────────
+
+
+class CurateRequest(BaseModel):
+    """A structured, LLM-free destructive-curation request.
+
+    Builds a §8 ``ChangeProposal`` directly from typed args and drives it through
+    the shared ``run_curation_proposal`` backend (the same one the CLI + NL flow
+    use). ``approve`` defaults to ``False`` so a destructive mutation over HTTP
+    never auto-executes — the proposal is recorded and refused unless the caller
+    opts in.
+    """
+
+    op: Literal["move_run", "delete_folder", "rehome_asset"]
+    run: str | None = None
+    target_experiment: str | None = None
+    folder: str | None = None
+    asset: str | None = None
+    source: dict[str, str] | None = None
+    target: dict[str, str] | None = None
+    action: str = "copy"
+    approve: bool = False
+    project: str = "curations"
+    experiment: str = "curate"
+
+
+class CurateResponse(BaseModel):
+    """The gated-execution outcome for a deterministic curation request."""
+
+    proposalId: str
+    status: str
+    resultArtifactIds: list[str] = Field(default_factory=list)
+
+
+async def _curate_reject_approver(request):  # noqa: ANN001, ANN202
+    from datetime import UTC, datetime
+
+    from molexp.harness.schemas import ApprovalDecision
+
+    return ApprovalDecision(
+        request_id=request.id,
+        granted=False,
+        decided_by="http",
+        decided_at=datetime.now(tz=UTC),
+        reason="approve=false",
+    )
+
+
+@router.post("/curate", response_model=CurateResponse)
+async def curate_workspace(
+    request: CurateRequest,
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> CurateResponse:
+    """Gate + execute one deterministic destructive-curation op (single stack).
+
+    Shares the ``run_curation_proposal`` backend with ``molexp curate`` (Python ≡
+    UI). ``approve=false`` (default) records the proposal and refuses; ``true``
+    executes the mutation. Either way the §8 ``change_proposal`` artifact is the audit.
+    """
+    from molexp.harness import auto_grant_approver
+    from molexp.server.curate_runtime import build_curation_proposal, run_curation_proposal
+    from molexp.workspace.utils import derive_run_id
+
+    try:
+        proposal = build_curation_proposal(
+            request.op,
+            run=request.run,
+            target_experiment=request.target_experiment,
+            folder=request.folder,
+            asset=request.asset,
+            source=request.source,
+            target=request.target,
+            action=request.action,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    params: dict[str, Any] = {"mode": "curate-propose", "op": request.op, "proposal": proposal.id}
+    audit_run = (
+        workspace.add_project(request.project)
+        .add_experiment(request.experiment)
+        .add_run(params, id=derive_run_id(params))
+    )
+    approver = auto_grant_approver if request.approve else _curate_reject_approver
+    result = await run_curation_proposal(
+        proposal, workspace=workspace, run=audit_run, approve=approver
+    )
+    outcome = result.execution_result
+    return CurateResponse(
+        proposalId=proposal.id,
+        status=outcome.status if outcome is not None else "failed",
+        resultArtifactIds=list(outcome.result_artifact_ids) if outcome is not None else [],
     )

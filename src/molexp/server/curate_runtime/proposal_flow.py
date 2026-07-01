@@ -40,7 +40,11 @@ if TYPE_CHECKING:
     from molexp.harness.stages.approval_gate import Approver
     from molexp.workspace import Run, Workspace
 
-__all__ = ["curation_invocation_to_proposal", "run_curation_proposal"]
+__all__ = [
+    "build_curation_proposal",
+    "curation_invocation_to_proposal",
+    "run_curation_proposal",
+]
 
 _MOVE_RUN = "molexp.curation.move_run"
 _DELETE_FOLDER = "molexp.curation.delete_folder"
@@ -57,6 +61,84 @@ def _proposal_id(capability_id: str, references: dict[str, str]) -> str:
 
 def _is_known_curation_cap(capability_id: str) -> bool:
     return any(cap.id == capability_id for cap in curation_capabilities())
+
+
+def _move_run_proposal(run: str, target: str) -> ChangeProposal:
+    affected = [ObjectRef(kind="run", id=run), ObjectRef(kind="experiment", id=target)]
+    return ChangeProposal(
+        id=_proposal_id("move_run", {"run": run, "target_experiment": target}),
+        intent=f"move run {run} to experiment {target}",
+        current_state=StateSnapshot(objects=affected),
+        proposed_change=ChangeSpec(
+            op="asset_move",
+            summary=f"move_run {run} -> {target}",
+            payload={
+                "curation_op": "move_run",
+                "target_experiment": {"kind": "experiment", "id": target},
+            },
+        ),
+        affected_objects=affected,
+        expected_benefit="relocate the run to the target experiment",
+        reversibility="reversible",
+        approval_level=approval_level_for("asset_move", "reversible"),
+    )
+
+
+def _delete_folder_proposal(folder: str) -> ChangeProposal:
+    # The curation delete_folder capability names a run (flow.py resolves a
+    # "folder" reference as experiment.get_run(ref)), so the target is kind="run".
+    affected = [ObjectRef(kind="run", id=folder)]
+    return ChangeProposal(
+        id=_proposal_id("delete_folder", {"folder": folder}),
+        intent=f"delete folder {folder}",
+        current_state=StateSnapshot(objects=affected),
+        proposed_change=ChangeSpec(
+            op="artifact_delete", summary=f"delete_folder {folder}", payload={}
+        ),
+        affected_objects=affected,
+        expected_benefit="remove the folder and its contents",
+        reversibility="irreversible",
+        approval_level=approval_level_for("artifact_delete", "irreversible"),
+    )
+
+
+def _rehome_asset_proposal(
+    asset: str, source: dict[str, str], target: dict[str, str], action: str
+) -> ChangeProposal:
+    reversibility = "reversible" if action == "copy" else "partially"
+    affected = [
+        ObjectRef(kind="data_asset", id=asset),
+        ObjectRef(kind=source["kind"], id=source["id"]),
+        ObjectRef(kind=target["kind"], id=target["id"]),
+    ]
+    return ChangeProposal(
+        id=_proposal_id(
+            "rehome_asset", {"asset": asset, "action": action, **_scope_key(source, target)}
+        ),
+        intent=f"re-home asset {asset} ({action})",
+        current_state=StateSnapshot(objects=affected),
+        proposed_change=ChangeSpec(
+            op="asset_move",
+            summary=f"rehome_asset {asset} ({action})",
+            payload={
+                "curation_op": "rehome_asset",
+                "source": dict(source),
+                "target": dict(target),
+                "action": action,
+            },
+        ),
+        affected_objects=affected,
+        expected_benefit="re-home the asset payload into the target scope",
+        reversibility=reversibility,
+        approval_level=approval_level_for("asset_move", reversibility),
+    )
+
+
+def _scope_key(source: dict[str, str], target: dict[str, str]) -> dict[str, str]:
+    return {
+        "source": f"{source['kind']}:{source['id']}",
+        "target": f"{target['kind']}:{target['id']}",
+    }
 
 
 def curation_invocation_to_proposal(
@@ -81,49 +163,60 @@ def curation_invocation_to_proposal(
     """
     if not _is_known_curation_cap(capability_id):
         raise ValueError(f"{capability_id!r} is not a known curation capability")
-
     if capability_id == _MOVE_RUN:
-        run = references["run"]
-        target = references["target_experiment"]
-        affected = [ObjectRef(kind="run", id=run), ObjectRef(kind="experiment", id=target)]
-        return ChangeProposal(
-            id=_proposal_id(capability_id, references),
-            intent=f"move run {run} to experiment {target}",
-            current_state=StateSnapshot(objects=affected),
-            proposed_change=ChangeSpec(
-                op="asset_move",
-                summary=f"move_run {run} -> {target}",
-                payload={
-                    "curation_op": "move_run",
-                    "target_experiment": {"kind": "experiment", "id": target},
-                },
-            ),
-            affected_objects=affected,
-            expected_benefit="relocate the run to the target experiment",
-            reversibility="reversible",
-            approval_level=approval_level_for("asset_move", "reversible"),
-        )
-
+        return _move_run_proposal(references["run"], references["target_experiment"])
     if capability_id == _DELETE_FOLDER:
-        folder = references["folder"]
-        # The curation delete_folder capability names a run (flow.py resolves a
-        # "folder" reference as experiment.get_run(ref)), so the target is kind="run".
-        affected = [ObjectRef(kind="run", id=folder)]
-        return ChangeProposal(
-            id=_proposal_id(capability_id, references),
-            intent=f"delete folder {folder}",
-            current_state=StateSnapshot(objects=affected),
-            proposed_change=ChangeSpec(
-                op="artifact_delete", summary=f"delete_folder {folder}", payload={}
-            ),
-            affected_objects=affected,
-            expected_benefit="remove the folder and its contents",
-            reversibility="irreversible",
-            approval_level=approval_level_for("artifact_delete", "irreversible"),
-        )
-
+        return _delete_folder_proposal(references["folder"])
     # Known but read-only, or a destructive cap this mapping does not cover.
     return None
+
+
+def build_curation_proposal(
+    op: str,
+    *,
+    run: str | None = None,
+    target_experiment: str | None = None,
+    folder: str | None = None,
+    asset: str | None = None,
+    source: dict[str, str] | None = None,
+    target: dict[str, str] | None = None,
+    action: str = "copy",
+) -> ChangeProposal:
+    """Build a §8 :class:`ChangeProposal` from explicit typed args (LLM-free path).
+
+    The deterministic peer of :func:`curation_invocation_to_proposal`: the operator
+    (CLI flags / route body) names the op + its targets directly, so ``rehome_asset``
+    is supported here (unlike the flat-reference LLM path).
+
+    Args:
+        op: One of ``"move_run"`` / ``"delete_folder"`` / ``"rehome_asset"``.
+        run: The run id (``move_run``).
+        target_experiment: The destination experiment id (``move_run``).
+        folder: The folder/run id to delete (``delete_folder``).
+        asset: The data-asset id (``rehome_asset``).
+        source: The source scope ref ``{"kind", "id"}`` (``rehome_asset``).
+        target: The target scope ref ``{"kind", "id"}`` (``rehome_asset``).
+        action: ``"copy"`` (default) or ``"move"`` (``rehome_asset``).
+
+    Returns:
+        The built :class:`ChangeProposal`.
+
+    Raises:
+        ValueError: An unknown *op*, or a required arg missing for the chosen op.
+    """
+    if op == "move_run":
+        if not run or not target_experiment:
+            raise ValueError("move_run requires 'run' and 'target_experiment'")
+        return _move_run_proposal(run, target_experiment)
+    if op == "delete_folder":
+        if not folder:
+            raise ValueError("delete_folder requires 'folder'")
+        return _delete_folder_proposal(folder)
+    if op == "rehome_asset":
+        if not asset or not source or not target:
+            raise ValueError("rehome_asset requires 'asset', 'source', and 'target'")
+        return _rehome_asset_proposal(asset, source, target, action)
+    raise ValueError(f"unknown curation op {op!r}")
 
 
 def _build_ctx(workspace: Workspace, run: Run) -> HarnessRunContext:

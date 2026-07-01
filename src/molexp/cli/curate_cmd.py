@@ -1,21 +1,20 @@
-"""``molexp curate`` — run the shared workspace-curation flow from a TTY.
+"""``molexp curate`` — workspace curation, LLM-free ops + a natural-language ``ask``.
 
-A thin adapter over :func:`~molexp.server.curate_runtime.flow.run_curation_flow`
-— the ONE backend code path the ``curate-tasks`` route also delegates to
-(Python ≡ UI). A natural-language request flows through discover → plan → (gate)
-→ in-process invoke on a content-addressed ``workspace.Run``, driven by a
-:class:`~molexp.harness.gateways.router_backed.RouterBackedAgentGateway` built
-from the configured LLM.
+A Typer group with two front-ends onto the **one** curation execution stack
+(the §8 ChangeProposal gate):
 
-Destructive curation capabilities (those declaring ``side_effects``) are gated:
-on an interactive terminal the operator is prompted ``[y/N]`` before the
-mutation runs; non-interactively (``--yes`` or no TTY — CI, pipes, the test
-runner) they auto-grant so pipelines never block.
+- ``molexp curate ask "<NL>"`` — the LLM-driven flow: a natural-language request
+  is planned by an agent and (for a destructive op) routed through the gate.
+  Mirrors ``molexp plan``'s model resolution (``--model`` → ``molexp config``
+  ``agent.model``).
+- ``molexp curate move-run|delete-folder|rehome-asset`` — deterministic, LLM-free:
+  the operator names the op + targets with flags; a ``ChangeProposal`` is built
+  directly and gated.
 
-Model resolution mirrors ``molexp plan``: ``--model`` wins, else the
-``agent.model`` key from ``molexp config``; with neither, the command fails with
-an actionable message. Heavy imports are deferred into the command body so plain
-``molexp --help`` stays fast.
+Both share the ``run_curation_proposal`` backend (Python ≡ UI). Destructive ops
+are gated by an :class:`InteractiveApprover` (``[y/N]`` on a TTY; auto-granted on
+``--yes`` / non-interactive). Heavy imports are deferred into command bodies so
+plain ``molexp --help`` stays fast.
 """
 
 from __future__ import annotations
@@ -27,24 +26,31 @@ from typing import TYPE_CHECKING, Annotated
 import typer
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
+    from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ChangeProposal
     from molexp.workspace.run import Run
 
-__all__ = ["curate"]
+__all__ = ["curate_app"]
 
 _REQUEST_PREVIEW_CHARS = 80
 
+curate_app = typer.Typer(
+    name="curate",
+    help="Workspace curation — deterministic ops (move-run/delete-folder/rehome-asset) + NL `ask`.",
+    no_args_is_help=True,
+)
+
 
 class InteractiveApprover:
-    """``Approver`` for ``molexp curate``'s destructive-capability gate.
+    """``Approver`` for the curation ChangeProposal gate.
 
     A callable approver (mirrors the ``Approver`` protocol via :meth:`__call__`).
     It **auto-grants without prompting** when ``assume_yes`` is set or stdin is
     not a TTY (CI, pipes, the test runner). On an interactive terminal it prints
-    the side-effecting capability and prompts ``[y/N]`` before the mutation runs;
-    a rejection raises ``StageExecutionError`` inside the gate and no mutation
-    occurs.
+    the proposed high-risk op and prompts ``[y/N]`` before the mutation runs; a
+    rejection is *recorded* by the gate (``status="rejected"``) — no mutation.
     """
 
     def __init__(self, *, assume_yes: bool = False) -> None:
@@ -71,11 +77,11 @@ class InteractiveApprover:
 
         from molexp.cli._common import rprint
 
-        cap_id = request.metadata.get("capability_id", "?")
-        effects = request.metadata.get("side_effects", [])
-        rprint("\n[bold]This curation step has side effects:[/bold]")
-        rprint(f"  capability   : {cap_id}")
-        rprint(f"  side effects : {', '.join(effects) if effects else '(none)'}")
+        proposal_id = request.metadata.get("proposal_id", "?")
+        op = request.metadata.get("high_risk_op", "?")
+        rprint("\n[bold]This curation step mutates high-risk state:[/bold]")
+        rprint(f"  proposal : {proposal_id}")
+        rprint(f"  op       : {op}")
         answer = input(f"Approve and run? [{request.intent}] [y/N] ").strip().lower()
         return ApprovalDecision(
             request_id=request.id,
@@ -87,28 +93,24 @@ class InteractiveApprover:
 
 
 def _configured_model() -> str | None:
-    """Return the ``agent.model`` value from ``molexp config``, if any.
-
-    Delegates to the ``molexp agent`` command's resolver so both commands read
-    the same configuration key. A seam: tests monkeypatch this.
-    """
+    """Return the ``agent.model`` value from ``molexp config``, if any."""
     from molexp.cli.agent_cmd import _configured_model as agent_configured_model
 
     return agent_configured_model()
 
 
 def _build_gateway(*, model: str, run: Run) -> AgentGateway:
-    """Build the production curate gateway (a seam mirroring ``PlanRuntime``).
-
-    Delegates to :func:`~molexp.server.curate_runtime.gateway.build_curate_gateway`
-    so the CLI and route construct the gateway identically.
-    """
+    """Build the production curate gateway (a seam mirroring ``PlanRuntime``)."""
     from molexp.server.curate_runtime.gateway import build_curate_gateway
 
     return build_curate_gateway(model=model, run=run)
 
 
-def curate(
+# ── curate ask (natural-language) ─────────────────────────────────────────────
+
+
+@curate_app.command("ask")
+def curate_ask(
     request: Annotated[
         str | None,
         typer.Argument(help="Natural-language workspace-curation request (or use --file)."),
@@ -138,14 +140,13 @@ def curate(
         typer.Option(
             "--yes/--non-interactive",
             "-y",
-            help="Auto-approve destructive curation steps. The default already "
-            "auto-approves when stdin is not a TTY (CI/pipes).",
+            help="Auto-approve destructive curation steps (default auto-approves off a TTY).",
         ),
     ] = False,
 ) -> None:
-    """Plan + invoke one workspace-curation capability in-process (shared flow)."""
+    """Plan + run one curation capability from a natural-language request (LLM)."""
+    from molexp._typing import JSONValue
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.harness import StageExecutionError
     from molexp.server.curate_runtime.flow import CurationArgumentError, run_curation_flow
     from molexp.workspace import Workspace
 
@@ -162,16 +163,12 @@ def curate(
     workspace_root = (workspace or Path.cwd()).resolve()
     ws = Workspace(workspace_root)
     ws.materialize()
-    # Content-addressed run id: the same request maps to the same Run (parity
-    # with the curate-tasks route's content addressing).
-    from molexp._typing import JSONValue
-
     params: dict[str, JSONValue] = {"mode": "curate", "request": request_text}
     exp = ws.add_project(project).add_experiment(experiment)
     run = exp.add_run(params, id=deterministic_run_id(params))
 
     preview = request_text.strip().splitlines()[0][:_REQUEST_PREVIEW_CHARS]
-    rprint(f"[bold]molexp curate[/bold] — run [bold]{run.id}[/bold]")
+    rprint(f"[bold]molexp curate ask[/bold] — run [bold]{run.id}[/bold]")
     rprint(f"  model     : {resolved_model}")
     rprint(f"  request   : {preview}")
     rprint(f"  workspace : {workspace_root}")
@@ -188,11 +185,8 @@ def curate(
                 approve=InteractiveApprover(assume_yes=yes),
             )
         )
-    except StageExecutionError as exc:
-        rprint(f"[red]Curation denied / failed at the approval gate:[/red] {exc}")
-        raise typer.Exit(1) from exc
     except CurationArgumentError as exc:
-        rprint(f"[red]Could not reconstruct curation arguments:[/red] {exc}")
+        rprint(f"[red]Could not build the curation action:[/red] {exc}")
         raise typer.Exit(1) from exc
 
     rprint("\n[green]OK[/green] curation complete:")
@@ -201,6 +195,155 @@ def curate(
     rprint(f"  granted    : {result.granted}")
     rprint(f"\n  artifacts : {run.run_dir / 'artifacts'}")
     rprint(f"  audit db  : {run.run_dir / 'harness.sqlite'}  (events + artifact lineage)")
+
+
+# ── deterministic (LLM-free) ops ──────────────────────────────────────────────
+
+_WorkspaceOpt = Annotated[
+    Path | None, typer.Option("--workspace", help="Workspace root; defaults to cwd.")
+]
+_ProjectOpt = Annotated[str, typer.Option("--project", help="Audit project.")]
+_ExperimentOpt = Annotated[str, typer.Option("--experiment", help="Audit experiment.")]
+_YesOpt = Annotated[
+    bool,
+    typer.Option("--yes/--non-interactive", "-y", help="Auto-approve (default off a TTY)."),
+]
+
+
+def _execute_proposal(
+    proposal: ChangeProposal,
+    *,
+    label: str,
+    workspace: Path | None,
+    project: str,
+    experiment: str,
+    yes: bool,
+) -> None:
+    """Mint an audit run, gate + execute *proposal*, print the outcome (exit 1 if not executed)."""
+    from molexp._typing import JSONValue
+    from molexp.cli._common import deterministic_run_id, rprint
+    from molexp.server.curate_runtime import run_curation_proposal
+    from molexp.workspace import Workspace
+
+    ws_root = (workspace or Path.cwd()).resolve()
+    ws = Workspace(ws_root)
+    ws.materialize()
+
+    params: dict[str, JSONValue] = {
+        "mode": "curate-propose",
+        "op": proposal.proposed_change.op,
+        "proposal": proposal.id,
+    }
+    run = (
+        ws.add_project(project)
+        .add_experiment(experiment)
+        .add_run(params, id=deterministic_run_id(params))
+    )
+    rprint(f"[bold]molexp curate {label}[/bold] — proposal [bold]{proposal.id}[/bold]")
+
+    result = asyncio.run(
+        run_curation_proposal(
+            proposal, workspace=ws, run=run, approve=InteractiveApprover(assume_yes=yes)
+        )
+    )
+    outcome = result.execution_result
+    status = outcome.status if outcome is not None else "failed"
+    color = "green" if status == "executed" else "yellow"
+    rprint(f"  op     : {proposal.proposed_change.op}")
+    rprint(f"  status : [{color}]{status}[/{color}]")
+    if status != "executed":
+        raise typer.Exit(1)
+
+
+def _build_or_exit(thunk: Callable[[], ChangeProposal]) -> ChangeProposal:
+    """Run *thunk* (a ``build_curation_proposal`` call); a ``ValueError`` exits 1."""
+    from molexp.cli._common import rprint
+
+    try:
+        return thunk()
+    except ValueError as exc:
+        rprint(f"[red]{exc}[/red]")
+        raise typer.Exit(1) from exc
+
+
+@curate_app.command("move-run")
+def curate_move_run(
+    run: Annotated[str, typer.Option("--run", help="Run id to relocate.")],
+    to: Annotated[str, typer.Option("--to", help="Target experiment id.")],
+    workspace: _WorkspaceOpt = None,
+    project: _ProjectOpt = "curations",
+    experiment: _ExperimentOpt = "curate",
+    yes: _YesOpt = False,
+) -> None:
+    """Relocate a run to another experiment (gated)."""
+    from molexp.server.curate_runtime import build_curation_proposal
+
+    proposal = _build_or_exit(
+        lambda: build_curation_proposal("move_run", run=run, target_experiment=to)
+    )
+    _execute_proposal(
+        proposal,
+        label="move-run",
+        workspace=workspace,
+        project=project,
+        experiment=experiment,
+        yes=yes,
+    )
+
+
+@curate_app.command("delete-folder")
+def curate_delete_folder(
+    folder: Annotated[str, typer.Option("--folder", help="Run/folder id to delete.")],
+    workspace: _WorkspaceOpt = None,
+    project: _ProjectOpt = "curations",
+    experiment: _ExperimentOpt = "curate",
+    yes: _YesOpt = False,
+) -> None:
+    """Delete a folder / run (gated, irreversible)."""
+    from molexp.server.curate_runtime import build_curation_proposal
+
+    proposal = _build_or_exit(lambda: build_curation_proposal("delete_folder", folder=folder))
+    _execute_proposal(
+        proposal,
+        label="delete-folder",
+        workspace=workspace,
+        project=project,
+        experiment=experiment,
+        yes=yes,
+    )
+
+
+@curate_app.command("rehome-asset")
+def curate_rehome_asset(
+    asset: Annotated[str, typer.Option("--asset", help="Data-asset id.")],
+    from_: Annotated[str, typer.Option("--from", help="Source experiment id.")],
+    to: Annotated[str, typer.Option("--to", help="Target experiment id.")],
+    action: Annotated[str, typer.Option("--action", help="'copy' (default) or 'move'.")] = "copy",
+    workspace: _WorkspaceOpt = None,
+    project: _ProjectOpt = "curations",
+    experiment: _ExperimentOpt = "curate",
+    yes: _YesOpt = False,
+) -> None:
+    """Re-home a data asset into another experiment scope (gated)."""
+    from molexp.server.curate_runtime import build_curation_proposal
+
+    proposal = _build_or_exit(
+        lambda: build_curation_proposal(
+            "rehome_asset",
+            asset=asset,
+            source={"kind": "experiment", "id": from_},
+            target={"kind": "experiment", "id": to},
+            action=action,
+        )
+    )
+    _execute_proposal(
+        proposal,
+        label="rehome-asset",
+        workspace=workspace,
+        project=project,
+        experiment=experiment,
+        yes=yes,
+    )
 
 
 def _resolve_request(request: str | None, file: Path | None) -> str:

@@ -90,6 +90,7 @@ class TestCurateCmd:
             app,
             [
                 "curate",
+                "ask",
                 "inventory the workspace",
                 "--workspace",
                 str(tmp_path),
@@ -124,7 +125,7 @@ class TestCurateCmd:
 
         result = runner.invoke(
             app,
-            ["curate", request_text, "--workspace", str(tmp_path), "--model", "stub-model"],
+            ["curate", "ask", request_text, "--workspace", str(tmp_path), "--model", "stub-model"],
         )
         assert result.exit_code == 0, result.output
 
@@ -141,7 +142,16 @@ class TestCurateCmd:
 
         result = runner.invoke(
             app,
-            ["curate", "--file", str(req), "--workspace", str(tmp_path / "ws"), "--model", "m"],
+            [
+                "curate",
+                "ask",
+                "--file",
+                str(req),
+                "--workspace",
+                str(tmp_path / "ws"),
+                "--model",
+                "m",
+            ],
         )
 
         assert result.exit_code == 0, result.output
@@ -152,7 +162,7 @@ class TestCurateCmd:
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr("molexp.cli.curate_cmd._configured_model", lambda: None)
-        result = runner.invoke(app, ["curate", "a request", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["curate", "ask", "a request", "--workspace", str(tmp_path)])
         assert result.exit_code == 1
         assert "No model configured" in result.output
         assert "molexp config set agent.model" in result.output
@@ -163,14 +173,14 @@ class TestCurateCmd:
     ) -> None:
         monkeypatch.setattr("molexp.cli.curate_cmd._configured_model", lambda: "stub-model")
         # Neither argument nor file.
-        result = runner.invoke(app, ["curate", "--workspace", str(tmp_path)])
+        result = runner.invoke(app, ["curate", "ask", "--workspace", str(tmp_path)])
         assert result.exit_code == 1
         assert "exactly one way" in result.output
         # Both at once.
         req = tmp_path / "r.md"
         req.write_text("x", encoding="utf-8")
         result = runner.invoke(
-            app, ["curate", "inline req", "--file", str(req), "--workspace", str(tmp_path)]
+            app, ["curate", "ask", "inline req", "--file", str(req), "--workspace", str(tmp_path)]
         )
         assert result.exit_code == 1
         assert "exactly one way" in result.output
