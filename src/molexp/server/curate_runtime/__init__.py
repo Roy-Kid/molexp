@@ -31,6 +31,10 @@ from molexp.server.curate_runtime.gateway import (
     reset_curate_gateway_factory,
     set_curate_gateway_factory,
 )
+from molexp.server.curate_runtime.proposal_flow import (
+    curation_invocation_to_proposal,
+    run_curation_proposal,
+)
 from molexp.server.curate_runtime.task import (
     CurateTask,
     CurateTaskRegistry,
@@ -48,8 +52,10 @@ __all__ = [
     "curate_agent_responses",
     "curate_output_kinds",
     "curate_system_prompts",
+    "curation_invocation_to_proposal",
     "reset_curate_gateway_factory",
     "resolve_curation_arguments",
     "run_curation_flow",
+    "run_curation_proposal",
     "set_curate_gateway_factory",
 ]

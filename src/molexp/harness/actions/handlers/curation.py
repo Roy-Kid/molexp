@@ -49,6 +49,17 @@ def _sole(proposal: ChangeProposal, kind: str) -> ObjectRef:
     return matches[0]
 
 
+def _sole_of_kinds(proposal: ChangeProposal, kinds: tuple[str, ...]) -> ObjectRef:
+    """Return the single ``affected_objects`` ref whose kind is in *kinds* (else raise)."""
+    matches = [o for o in proposal.affected_objects if o.kind in kinds]
+    if len(matches) != 1:
+        raise ValueError(
+            f"expected exactly one of {kinds} in affected_objects, got {len(matches)} "
+            f"(proposal {proposal.id})"
+        )
+    return matches[0]
+
+
 def _record(
     ctx: HarnessRunContext, proposal: ChangeProposal, created_by: str, detail: dict
 ) -> ProposalOutcome:
@@ -118,10 +129,16 @@ class AssetMoveHandler:
 
 
 class ArtifactDeleteHandler:
-    """Handle the ``artifact_delete`` op — ``delete_folder`` on the bound folder."""
+    """Handle the ``artifact_delete`` op — ``delete_folder`` on the bound folder.
+
+    The affected object may be any deletable ``Folder`` — a ``run``,
+    ``experiment``, or generic ``folder`` (all resolve to ``Folder`` subclasses,
+    and ``delete_folder`` operates on any of them). Curation's ``delete_folder``
+    capability names a run, so ``run`` is included.
+    """
 
     async def apply(self, ctx: HarnessRunContext, proposal: ChangeProposal) -> ProposalOutcome:
-        folder_ref = _sole(proposal, "folder")
+        folder_ref = _sole_of_kinds(proposal, ("run", "experiment", "folder"))
         assert_within_affected_scope(proposal, [folder_ref])
         folder = cast("Folder", resolve_object_ref(ctx.workspace_root, folder_ref))
         delete_folder(folder)

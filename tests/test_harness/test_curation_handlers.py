@@ -190,6 +190,21 @@ def test_artifact_delete_removes_folder(tmp_path: Path) -> None:
     assert _result_obj(ctx, outcome)["proposal_id"] == "cp-ge2"
 
 
+def test_artifact_delete_removes_run_kind(tmp_path: Path) -> None:
+    """ac-009 (curate-unify-01) — artifact_delete deletes a run-kind affected object."""
+    _workspace(tmp_path)
+    ctx = _ctx(tmp_path)
+    proposal = _proposal(
+        "artifact_delete",
+        affected=[ObjectRef(kind="run", id="r1")],
+        payload={},
+    )
+    outcome = asyncio.run(_curation_executor().dispatch(ctx, proposal))
+    assert outcome.status == "executed"
+    ws = Workspace(root=tmp_path, name="Lab")
+    assert not ws.get_project("p").get_experiment("e1").has_run("r1")
+
+
 def test_out_of_bounds_target_fails_loud_no_mutation(tmp_path: Path) -> None:
     """ac-006 — a target outside affected_objects raises loudly, no fs change."""
     from molexp.harness.errors import OutOfAffectedScopeError
