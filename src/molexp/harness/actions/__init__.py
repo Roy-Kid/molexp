@@ -10,6 +10,11 @@ Concrete handlers (curation) and the gate wiring land in later slices.
 
 from __future__ import annotations
 
+from molexp.harness.actions.handlers import (
+    ArtifactDeleteHandler,
+    AssetMoveHandler,
+    register_curation_handlers,
+)
 from molexp.harness.actions.proposal_executor import (
     ChangeActionHandler,
     ChangeActionRegistry,
@@ -17,11 +22,16 @@ from molexp.harness.actions.proposal_executor import (
     assert_within_affected_scope,
 )
 from molexp.harness.actions.recorder import ProposalActionRecorder
+from molexp.harness.actions.resolve import resolve_object_ref
 
 __all__ = [
+    "ArtifactDeleteHandler",
+    "AssetMoveHandler",
     "ChangeActionHandler",
     "ChangeActionRegistry",
     "ProposalActionRecorder",
     "ProposalExecutor",
     "assert_within_affected_scope",
+    "register_curation_handlers",
+    "resolve_object_ref",
 ]

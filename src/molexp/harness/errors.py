@@ -21,6 +21,7 @@ __all__ = [
     "CapabilityResolutionError",
     "EventSeqConflictError",
     "HarnessError",
+    "ObjectRefResolutionError",
     "OutOfAffectedScopeError",
     "StageExecutionError",
     "StagePersistedFailureError",
@@ -137,3 +138,13 @@ class OutOfAffectedScopeError(HarnessError):
     Enforces the §8.2 binding scope ("the ONLY objects Act may touch"). A handler
     that hits this is recorded by the executor as ``status="failed"`` (+ a
     ``tool_failed`` event), never a silent partial mutation."""
+
+
+class ObjectRefResolutionError(HarnessError):
+    """Raised by :func:`molexp.harness.actions.resolve_object_ref` when an
+    :class:`~molexp.harness.schemas.change_proposal.ObjectRef` cannot be resolved
+    to a live workspace entity.
+
+    Covers a missing id (no run / experiment / folder / data asset with that id)
+    and an unknown ``kind``. There is no silent ``None`` — an unresolvable ref is
+    always loud (project no-fallback rule)."""

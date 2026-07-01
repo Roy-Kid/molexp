@@ -33,11 +33,15 @@ Imports from ``molexp.workflow``, ``molexp.plugins``, ``molexp.server``,
 from __future__ import annotations
 
 from molexp.harness.actions import (
+    ArtifactDeleteHandler,
+    AssetMoveHandler,
     ChangeActionHandler,
     ChangeActionRegistry,
     ProposalActionRecorder,
     ProposalExecutor,
     assert_within_affected_scope,
+    register_curation_handlers,
+    resolve_object_ref,
 )
 from molexp.harness.audit import (
     find_last_successful_stage,
@@ -67,6 +71,7 @@ from molexp.harness.errors import (
     CapabilityResolutionError,
     EventSeqConflictError,
     HarnessError,
+    ObjectRefResolutionError,
     OutOfAffectedScopeError,
     StageExecutionError,
     StagePersistedFailureError,
@@ -219,11 +224,14 @@ __all__ = [
     "ApprovalPolicyEvaluator",
     "ApprovalRequest",
     "Approver",
+    # Guarded execution — the coordination-layer "Act" seam (integration P2.1)
+    "ArtifactDeleteHandler",
     "ArtifactKind",
     "ArtifactLineageStore",
     "ArtifactNotFoundError",
     "ArtifactRef",
     "ArtifactStore",
+    "AssetMoveHandler",
     "AuditReport",
     "BindMolcraftsTasks",
     "BoundTask",
@@ -235,7 +243,6 @@ __all__ = [
     "CapabilityNotFoundError",
     "CapabilityRegistry",
     "CapabilityResolutionError",
-    # Guarded execution — the coordination-layer "Act" seam (integration P2.1)
     "ChangeActionHandler",
     "ChangeActionRegistry",
     "ChangeProposal",
@@ -284,6 +291,7 @@ __all__ = [
     "ModeResult",
     "NextAction",
     "ObjectRef",
+    "ObjectRefResolutionError",
     "OutOfAffectedScopeError",
     "ParameterSource",
     "ParameterValue",
@@ -351,8 +359,10 @@ __all__ = [
     "generate_audit_report",
     "is_high_risk",
     "make_side_effect_approval_requests",
+    "register_curation_handlers",
     "replay_metadata",
     "requires_change_proposal",
     "resolve_callable",
+    "resolve_object_ref",
     "summarize_workspace",
 ]
