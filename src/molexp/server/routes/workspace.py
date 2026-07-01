@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from molexp.workspace import Workspace
+from molexp.workspace import ContextFocus, Workspace, assemble_workspace_context
 from molexp.workspace.fs_cached import CachedRemoteFileSystem, prefetch_workspace_indices
 from molexp.workspace.fs_local import LocalFileSystem
 
@@ -27,6 +27,7 @@ from ..schemas import (
     FileContentResponse,
     TargetTestCheck,
     TargetTestResponse,
+    WorkspaceContextResponse,
     WorkspaceInfoResponse,
     WorkspaceOpenLocalRequest,
     WorkspaceOpenRequest,
@@ -105,6 +106,26 @@ def get_workspace_info(workspace=Depends(get_workspace)) -> WorkspaceInfoRespons
         projectCount=len(workspace.list_projects()),
         assetCount=len(workspace.assets.list()),
     )
+
+
+@router.get("/context", response_model=WorkspaceContextResponse)
+def get_workspace_context(
+    project_id: str | None = Query(default=None, alias="projectId"),
+    experiment_id: str | None = Query(default=None, alias="experimentId"),
+    run_id: str | None = Query(default=None, alias="runId"),
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> WorkspaceContextResponse:
+    """The canonical structural workspace read-model (integration.md §1).
+
+    A read-only projection assembled from authoritative workspace state — the one
+    shape agents/planners/CLI/UI observe. ``ContextFocus`` is supplied by the
+    caller via optional query params and is never persisted. ``/runs`` remains the
+    specialized detailed run view (richer per-execution rows); this endpoint is the
+    canonical *structure* and stays consistent with it.
+    """
+    focus = ContextFocus(project_id=project_id, experiment_id=experiment_id, run_id=run_id)
+    context = assemble_workspace_context(workspace, focus=focus)
+    return WorkspaceContextResponse.from_context(context)
 
 
 @router.get("/runs", response_model=WorkspaceRunsResponse)

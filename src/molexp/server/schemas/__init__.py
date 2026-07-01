@@ -128,6 +128,7 @@ from .targets import (
     TargetTestCheck,
     TargetTestResponse,
 )
+from .workspace_context import WorkspaceContextResponse
 from .workspace_runs import (
     WorkspaceExecutionRow,
     WorkspaceRunRow,
@@ -261,6 +262,7 @@ __all__ = [
     "WorkflowDocumentRequest",
     "WorkflowDocumentResponse",
     "WorkflowSnapshotResponse",
+    "WorkspaceContextResponse",
     # Workspace runs aggregate
     "WorkspaceExecutionRow",
     "WorkspaceFolderResponse",
