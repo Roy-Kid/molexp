@@ -16,7 +16,7 @@ parallel gate. It is **dry**: no executor runs; ``execution_result`` records the
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import get_args
+from typing import TYPE_CHECKING, get_args
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.policy.event_log import ApprovalEventRecorder
@@ -30,6 +30,9 @@ from molexp.harness.schemas.change_proposal import (
     Reversibility,
 )
 from molexp.harness.stages.approval_gate import Approver, auto_grant_approver
+
+if TYPE_CHECKING:
+    from molexp.harness.actions import ProposalExecutor
 
 __all__ = [
     "HIGH_RISK_OPS",
@@ -90,14 +93,32 @@ async def gate_change_proposal(
     *,
     approve: Approver | None = None,
     now: datetime | None = None,
+    executor: ProposalExecutor | None = None,
 ) -> ChangeProposal:
-    """Store, gate, and audit *proposal* — dry (no executor).
+    """Store, gate, and (optionally) execute *proposal*.
 
     Persists the proposal as a ``change_proposal`` artifact (so a rejected
     proposal is preserved, §8.3), records ``approval_requested`` then
     ``approval_granted`` / ``approval_rejected`` via the shared recorder, and
     returns the proposal with its :class:`ProposalOutcome` in
-    ``execution_result`` — ``granted`` or ``rejected``, never an execution.
+    ``execution_result``.
+
+    Two modes (integration.md §6.1):
+
+    - **Advisory (default, ``executor is None``)** — dry: the outcome is
+      ``granted`` or ``rejected``; nothing runs. This is the historical behavior.
+    - **Guarded execution (``executor`` provided)** — on a *granted* decision the
+      mutation is dispatched through *executor* after ``approval_granted`` is
+      recorded, and the executor's ``ProposalOutcome`` (``executed`` / ``failed``)
+      becomes ``execution_result``. A *rejected* decision stays dry regardless.
+
+    **Single gate.** This ApprovalGate *is* the approval for the mutation: the
+    slice-01/02 curation handlers mutate in-process and never re-run
+    :func:`~molexp.harness.policy.side_effect_gate.enforce_side_effect_approvals`,
+    so an approved mutation is gated exactly once — here. The dispatch is not
+    wrapped in try/except: a runtime op failure is caught *inside* the executor
+    and surfaced as ``status="failed"`` (recorded), while a structural error
+    (unhandled op) propagates past this gate unchanged.
 
     Args:
         ctx: The harness run context (artifact store + event log + run id).
@@ -105,6 +126,9 @@ async def gate_change_proposal(
         approve: The :class:`Approver` resolving the request (default
             :func:`auto_grant_approver`).
         now: Timestamp stamped on the approval request (default aware-UTC now).
+        executor: When provided, the :class:`ProposalExecutor` a *granted*
+            proposal is dispatched through (guarded execution). ``None`` keeps
+            the dry advisory behavior.
 
     Returns:
         A copy of *proposal* with ``execution_result`` filled.
@@ -124,11 +148,18 @@ async def gate_change_proposal(
     decision = await approve(request)
     ApprovalEventRecorder.record_decision(ctx.event_log, ctx.run_id, request, decision)
 
-    outcome = ProposalOutcome(
-        status="granted" if decision.granted else "rejected",
-        decided_by=decision.decided_by,
-        decided_at=decision.decided_at,
-        reason=decision.reason,
-        result_artifact_ids=[proposal_ref.id],
-    )
+    if decision.granted and executor is not None:
+        # Guarded execution: the gate granted, so dispatch the mutation. The
+        # executor records tool_completed / tool_failed and returns an
+        # executed/failed outcome; an unhandled op propagates past the gate.
+        outcome = await executor.dispatch(ctx, proposal)
+    else:
+        # Advisory (dry): reject, or granted-with-no-executor. Nothing runs.
+        outcome = ProposalOutcome(
+            status="granted" if decision.granted else "rejected",
+            decided_by=decision.decided_by,
+            decided_at=decision.decided_at,
+            reason=decision.reason,
+            result_artifact_ids=[proposal_ref.id],
+        )
     return proposal.model_copy(update={"execution_result": outcome})
