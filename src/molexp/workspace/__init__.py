@@ -103,6 +103,19 @@ from .targets import (
     to_transport,
 )
 from .workspace import Workspace
+from .workspace_context import (
+    ArtifactRef,
+    ContextFocus,
+    ExperimentRef,
+    HealthFlag,
+    KnowledgeRef,
+    ProjectRef,
+    RunRef,
+    WorkflowRef,
+    WorkspaceContext,
+    WorkspaceRef,
+    assemble_workspace_context,
+)
 from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
@@ -116,6 +129,8 @@ __all__ = [
     "WORKSPACE_ROOT_KIND",
     "WORKSPACE_RUN_KIND",
     "ArtifactAsset",
+    # WorkspaceContext read-model + assembler (integration P0.2)
+    "ArtifactRef",
     # Assets
     "Asset",
     "AssetManifest",
@@ -132,6 +147,7 @@ __all__ = [
     "ConceptNotFoundError",
     # Context
     "Context",
+    "ContextFocus",
     "DataAsset",
     "DataAssetLibrary",
     # OKF typed knowledge-graph edge role (typed-provenance-edge P0.1)
@@ -145,11 +161,14 @@ __all__ = [
     "ExperimentExistsError",
     "ExperimentMetadata",
     "ExperimentNotFoundError",
+    "ExperimentRef",
     # Folder abstraction (unify-folder-abstraction-01)
     "Folder",
     "FolderMetadata",
     "FolderMoveCollisionError",
     "GridSpace",
+    "HealthFlag",
+    "KnowledgeRef",
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
     "LogAsset",
@@ -163,6 +182,7 @@ __all__ = [
     "ProjectExistsError",
     "ProjectMetadata",
     "ProjectNotFoundError",
+    "ProjectRef",
     # OKF Reference Concept (wsokf-05) — a directory whose path is its
     # identity. Its typed meta.yaml payload is ReferenceMeta.
     "ReferenceConcept",
@@ -173,20 +193,25 @@ __all__ = [
     "RunExistsError",
     "RunMetadata",
     "RunNotFoundError",
+    "RunRef",
     "RunStatus",
     "Session",
     "SessionManager",
     "Target",
     "TargetNotFound",
     "UniformSpace",
+    "WorkflowRef",
     # Entities
     "Workspace",
+    "WorkspaceContext",
     # Metadata models
     "WorkspaceMetadata",
+    "WorkspaceRef",
     # OKF read-only Zotero importer (wsokf-05) — produces ReferenceConcepts
     "ZoteroItem",
     # Compute target helpers
     "add_target",
+    "assemble_workspace_context",
     # Atomic JSON I/O — used by workflow layer's persistence + agent
     # layer's session storage.
     "atomic_write_json",
