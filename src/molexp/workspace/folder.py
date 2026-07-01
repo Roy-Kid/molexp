@@ -28,6 +28,7 @@ from molexp.knowledge.types import resolve_concept_type
 from molexp.path import Path
 
 from .base import _load_metadata, _reconstruct, _save_metadata
+from .edges import DEFAULT_EDGE_ROLE, Edge, EdgeRole, encode_label, parse_role, validate_role
 from .errors import FolderMoveCollisionError
 from .fs import FileSystem, PathArg
 from .fs_local import LocalFileSystem
@@ -57,7 +58,7 @@ _CAMEL_TO_SNAKE = re.compile(r"(?<!^)(?=[A-Z])")
 INDEX_FILENAME = "index.md"
 META_YAML_FILENAME = "meta.yaml"  # OKF unified concept marker (type → registry)
 OPS_DIR = "_ops"  # OKF operational sidecar — hot machine state, NOT knowledge
-_MD_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")  # [text](target)
+_MD_LINK = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")  # [label](target) — both captured
 
 
 class LinkScan(NamedTuple):
@@ -65,15 +66,18 @@ class LinkScan(NamedTuple):
 
     Attributes:
         concepts: Targets resolving to an existing in-tree dir — the
-            knowledge-graph out-edges. (Once OKF ``meta.yaml`` lands as the
-            unified concept marker, this narrows to true Concept dirs.)
+            knowledge-graph out-edges (path-only, unchanged for back-compat).
         external: ``http(s)://`` links.
         other: In-tree targets that don't resolve to a dir.
+        typed_concepts: The same in-tree concept edges as :attr:`concepts`, each
+            paired with its declared :class:`~molexp.workspace.edges.EdgeRole`
+            recovered from the markdown ``[label]`` channel.
     """
 
     concepts: list[str]
     external: list[str]
     other: list[str]
+    typed_concepts: list[Edge]
 
 
 def _validate_kind(kind: str) -> None:
@@ -284,7 +288,8 @@ class Folder:
         concepts: list[str] = []
         external: list[str] = []
         other: list[str] = []
-        for target in _MD_LINK.findall(self.read_index()):
+        typed_concepts: list[Edge] = []
+        for raw_label, target in _MD_LINK.findall(self.read_index()):
             if target.startswith(("http://", "https://")):
                 external.append(target)
                 continue
@@ -292,13 +297,30 @@ class Folder:
             concept_dir = norm.parent if norm.name == INDEX_FILENAME else norm
             if self._fs.is_dir(str(concept_dir)):
                 concepts.append(str(concept_dir))
+                role, _human = parse_role(raw_label)
+                typed_concepts.append(Edge(target=str(concept_dir), role=role))
             else:
                 other.append(target)
-        return LinkScan(concepts=concepts, external=external, other=other)
+        return LinkScan(
+            concepts=concepts,
+            external=external,
+            other=other,
+            typed_concepts=typed_concepts,
+        )
 
     def out_edges(self) -> list[str]:
-        """In-tree Folder link targets — the knowledge-graph out-edges."""
+        """In-tree Folder link targets — the knowledge-graph out-edges (path-only)."""
         return self.links().concepts
+
+    def typed_out_edges(self) -> list[Edge]:
+        """In-tree out-edges paired with their declared ``EdgeRole``.
+
+        The typed companion to :meth:`out_edges`: each :class:`~molexp.workspace.edges.Edge`
+        carries the same resolved target path plus the role recovered from the
+        markdown label channel (a legacy untyped link defaults to
+        :data:`~molexp.workspace.edges.DEFAULT_EDGE_ROLE`, never dropped).
+        """
+        return self.links().typed_concepts
 
     # ── OKF _ops/ operational sidecar (hot machine state, never in meta.yaml) ─
 
@@ -724,29 +746,46 @@ class Folder:
         new_parent.sync_folders(cls=type(self))
 
 
-def append_link(src: Folder, dst: Folder, *, text: str | None = None) -> None:
-    """Append a relative markdown link ``src → dst`` to ``src``'s ``index.md``.
+def append_link(
+    src: Folder,
+    dst: Folder,
+    *,
+    text: str | None = None,
+    role: EdgeRole = DEFAULT_EDGE_ROLE,
+) -> None:
+    """Append a typed relative markdown link ``src → dst`` to ``src``'s ``index.md``.
 
     Writes a real markdown link (relative to *src*'s dir) so
-    :meth:`Folder.out_edges` resolves it back to *dst*. The graph lives in
-    markdown, never in ``meta.yaml``. Appends unconditionally; link dedup and
-    edge-typing remain a future enhancement.
+    :meth:`Folder.out_edges` resolves it back to *dst* and
+    :meth:`Folder.typed_out_edges` recovers *role*. The graph lives in markdown,
+    never in ``meta.yaml``. The *role* is carried in the link's ``[label]``
+    channel via :func:`~molexp.workspace.edges.encode_label` — the default role
+    encodes to the bare label, so pre-role output stays byte-identical. Appends
+    unconditionally; link dedup remains a future enhancement.
 
-    Shared helper: :meth:`Bundle.link` and :meth:`Note.cite` both delegate
-    here, so the single source of the markdown-edge format lives in this
-    (lower) module that both import from.
+    Shared helper: :meth:`Bundle.link` and :meth:`Note.cite` both delegate here,
+    so the single source of the markdown-edge format (and the sole role-writing
+    chokepoint) lives in this (lower) module that both import from.
 
     Args:
         src: The Concept the edge originates from.
         dst: The Concept the edge points to.
         text: Optional link label; defaults to *dst*'s name.
+        role: The declared :class:`~molexp.workspace.edges.EdgeRole`; defaults to
+            :data:`~molexp.workspace.edges.DEFAULT_EDGE_ROLE`.
+
+    Raises:
+        ValueError: If *role* is not a known ``EdgeRole`` — validated before any
+            write, so an invalid role leaves ``index.md`` untouched.
     """
+    validate_role(role)
     rel = os.path.relpath(str(dst.resolve()), str(src.resolve()))
     rel_posix = PurePosixPath(rel).as_posix()
     label = text if text is not None else dst.name
+    encoded = encode_label(role, label)
     existing = src.read_index()
     prefix = existing if not existing or existing.endswith("\n") else existing + "\n"
-    src.write_index(f"{prefix}- [{label}]({rel_posix})\n")
+    src.write_index(f"{prefix}- [{encoded}]({rel_posix})\n")
 
 
 def concept_from_dir(child_dir: PathArg, parent: Folder) -> Folder:

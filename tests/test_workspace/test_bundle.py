@@ -236,3 +236,53 @@ def test_get_typed_concept(tmp_path: Path) -> None:
     b = Bundle(tmp_path)
     assert isinstance(b.get("lab"), Workspace)
     assert isinstance(b.get("lab/projects/p"), Project)
+
+
+# ── typed-provenance-edge (P0.1) ─────────────────────────────────────────────
+
+
+def test_link_threads_role(bundle: Path) -> None:
+    """ac-004: Bundle.link threads the role through the single append_link writer."""
+    b = Bundle(bundle)
+    src = b.get("alpha")
+    dst = b.get("delta")
+
+    b.link(src, dst, role="supersedes")
+
+    typed = b.get("alpha").typed_out_edges()
+    assert len(typed) == 1
+    assert typed[0].role == "supersedes"
+    assert Path(typed[0].target) == Path(dst.resolve())
+
+
+def test_concept_under_run_resolves_and_links_back(tmp_path: Path) -> None:
+    """ac-005: a Concept nested under runs/run-<id>/ resolves to its real dir.
+
+    Regresses the Bundle path-doubling bug that ``server/plan_runtime/record.py``
+    currently root-mounts a Note to dodge. The bundle root is the *workspace dir*
+    itself (the case that triggers the bug), and the deep concept must resolve
+    with no ``projects/projects`` or ``runs/runs`` segment doubling.
+    """
+    import os
+    from typing import cast
+
+    from molexp.workspace import Note, Workspace
+
+    ws = Workspace(root=tmp_path / "lab")
+    ws.materialize()
+    run = ws.add_project("p").add_experiment("e").add_run(id="r")
+    rec = cast("Note", run.add_folder(Note(parent=run, name="rec")))
+    real = os.path.normpath(str(rec.resolve()))
+
+    b = Bundle(ws.resolve())
+    rel = "projects/p/experiments/e/runs/run-r/rec"
+    got = b.get(rel)
+
+    assert os.path.normpath(str(got.resolve())) == real
+    assert "projects/projects" not in str(got.resolve())
+    assert "runs/runs" not in str(got.resolve())
+
+    # a typed link from the nested Note back to its Run round-trips
+    b.link(got, run, role="records")
+    edges = {os.path.normpath(p) for p in b.get(rel).out_edges()}
+    assert os.path.normpath(str(run.resolve())) in edges

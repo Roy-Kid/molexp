@@ -29,6 +29,7 @@ from typing import ClassVar, cast
 
 from molexp.knowledge.types import concept_type
 
+from .edges import DEFAULT_EDGE_ROLE, EdgeRole
 from .folder import META_YAML_FILENAME, Folder, append_link
 from .fs import FileSystem, PathArg
 from .reference_meta import ReferenceMeta
@@ -67,9 +68,25 @@ class Note(Folder):
         """Set the note body (its ``index.md``)."""
         self.write_index(text)
 
-    def cite(self, ref: Folder, *, text: str | None = None) -> None:
-        """Cite *ref* — append a markdown link resolvable via :meth:`out_edges`."""
-        append_link(self, ref, text=text)
+    def cite(
+        self,
+        ref: Folder,
+        *,
+        text: str | None = None,
+        role: EdgeRole = DEFAULT_EDGE_ROLE,
+    ) -> None:
+        """Cite *ref* — append a typed markdown link resolvable via :meth:`out_edges`.
+
+        A thin delegator over the single :func:`~molexp.workspace.folder.append_link`
+        writer; *role* is recovered by :meth:`Folder.typed_out_edges`.
+
+        Args:
+            ref: The Concept being cited.
+            text: Optional link label; defaults to *ref*'s name.
+            role: The declared :class:`~molexp.workspace.edges.EdgeRole`; defaults
+                to :data:`~molexp.workspace.edges.DEFAULT_EDGE_ROLE`.
+        """
+        append_link(self, ref, text=text, role=role)
 
 
 @concept_type(REFERENCE_KIND)

@@ -17,6 +17,7 @@ References:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -425,3 +426,60 @@ def test_write_json_rejects_bad_names(tmp_path: Path, bad_name: str) -> None:
     folder.materialize()
     with pytest.raises(ValueError):
         folder.write_json(bad_name, {})
+
+
+# ── typed-provenance-edge (P0.1): typed edge roles on the markdown graph ──────
+
+
+def _concept_folder(name: str, root: Path) -> Folder:
+    """A materialized base Concept dir (metadata.json + meta.yaml) for edge tests."""
+    folder = Folder(name=name, kind="bundle.concept", root_path=str(root))
+    folder.materialize()
+    folder.write_meta()
+    return folder
+
+
+def test_edge_role_round_trip(tmp_path: Path) -> None:
+    """ac-001: every EdgeRole written via append_link is recoverable, role intact."""
+    from molexp.workspace.folder import append_link
+
+    roles = ("derived_from", "cites", "supersedes", "records", "references")
+    for i, role in enumerate(roles):
+        src = _concept_folder(f"src{i}", tmp_path)
+        dst = _concept_folder(f"dst{i}", tmp_path)
+        append_link(src, dst, role=role)
+        typed = src.typed_out_edges()
+        assert len(typed) == 1
+        assert os.path.normpath(typed[0].target) == os.path.normpath(str(dst.resolve()))
+        assert typed[0].role == role
+        # the path-only view is unchanged and still resolves dst
+        assert os.path.normpath(str(dst.resolve())) in {
+            os.path.normpath(e) for e in src.out_edges()
+        }
+
+
+def test_legacy_untyped_link_defaults_role(tmp_path: Path) -> None:
+    """ac-002: a plain pre-role link parses to DEFAULT_EDGE_ROLE and is never dropped."""
+    from molexp.workspace.edges import DEFAULT_EDGE_ROLE
+
+    src = _concept_folder("src", tmp_path)
+    dst = _concept_folder("dst", tmp_path)
+    # a plain markdown link with no role sigil — as older code wrote it
+    src.write_index("# src\n\n- [dst](../dst)\n")
+    typed = src.typed_out_edges()
+    assert len(typed) == 1
+    assert typed[0].role == DEFAULT_EDGE_ROLE
+    assert os.path.normpath(str(dst.resolve())) in {os.path.normpath(e) for e in src.out_edges()}
+    # meta.yaml is never consulted for the edge
+    assert "dst" not in (Path(src.resolve()) / "meta.yaml").read_text(encoding="utf-8")
+
+
+def test_append_link_unknown_role_raises(tmp_path: Path) -> None:
+    """ac-003: an unknown role raises and writes nothing."""
+    from molexp.workspace.folder import append_link
+
+    src = _concept_folder("src", tmp_path)
+    dst = _concept_folder("dst", tmp_path)
+    with pytest.raises(ValueError):
+        append_link(src, dst, role="not_a_role")
+    assert src.read_index() == ""

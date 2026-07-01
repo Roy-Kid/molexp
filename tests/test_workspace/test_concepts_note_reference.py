@@ -129,6 +129,23 @@ def test_reference_typed_meta_and_citation(tmp_path: Path) -> None:
     assert ref.citation() == "Smith et al. 2024"
 
 
+# ── typed-provenance-edge (P0.1): Note.cite threads the role (ac-004) ─────────
+
+
+def test_cite_threads_role(tmp_path: Path) -> None:
+    root = Folder(name="bundle", kind="bundle.concept", root_path=str(tmp_path))
+    root.materialize()
+    note = _mount(root, Note(parent=root, name="idea"))
+    ref = _mount(root, ReferenceConcept(parent=root, name="smith2024"))
+
+    note.cite(ref, role="derived_from")
+
+    typed = note.typed_out_edges()
+    assert len(typed) == 1
+    assert typed[0].role == "derived_from"
+    assert Path(typed[0].target) == Path(str(ref.resolve()))
+
+
 # ── OKF concept exports (ac-008 / ac-009) ────────────────────────────────────
 
 

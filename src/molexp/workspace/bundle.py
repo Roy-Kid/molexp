@@ -39,6 +39,7 @@ from .bundle_index import (
     ConceptIndexEntry,
     extract_title,
 )
+from .edges import DEFAULT_EDGE_ROLE, EdgeRole
 from .errors import ConceptNotFoundError
 from .folder import (
     META_YAML_FILENAME,
@@ -107,15 +108,54 @@ class Bundle:
         typed subclasses chain their ``resolve()`` through that parent (an
         ``Experiment`` resolves via its owning ``Project``). So the bundle hands
         it the nearest **ancestor Concept** — itself reconstructed recursively —
-        as the parent, walking up past non-Concept organizational dirs. When no
-        ancestor Concept exists within the bundle, a path-only base ``Folder``
-        (resolving to the immediate parent dir) carries ``_fs`` + path so the
-        identity stays the on-disk path.
+        as the parent, walking up past non-Concept organizational dirs.
+
+        When no ancestor Concept exists within the bundle, a path-only base
+        ``Folder`` anchored at *path*'s immediate parent dir carries ``_fs`` +
+        path. That is correct for a base Concept — whose ``resolve()`` chains
+        only its own name — but a **layout-aware entity** (``Project`` /
+        ``Experiment`` / ``Run``) replays its container segment (``projects/`` …)
+        on top of that anchor, doubling the path (``.../projects/projects/<id>``).
+        This is the nested-mount bug ``server/plan_runtime/record.py`` root-mounts
+        to dodge. We detect the replay (``resolve() != child_dir``) and re-anchor
+        the thin parent the exact number of levels up that makes the entity's own
+        layout replay reproduce *child_dir* — without touching entity
+        ``resolve()`` (the frozen Layout naming law).
         """
         child_dir = str(path)
         ancestor = self._nearest_ancestor_concept(child_dir)
-        parent = ancestor if ancestor is not None else self._thin_parent(child_dir)
-        return concept_from_dir(child_dir, parent)
+        if ancestor is not None:
+            return concept_from_dir(child_dir, ancestor)
+        thin = self._thin_parent(child_dir)
+        concept = concept_from_dir(child_dir, thin)
+        if self._norm(concept.resolve()) == self._norm(child_dir):
+            return concept
+        reanchored = self._reanchored_parent(concept, thin, child_dir)
+        return concept_from_dir(child_dir, reanchored)
+
+    @staticmethod
+    def _norm(path: PathArg) -> str:
+        """Normalize *path* to a canonical POSIX string for identity comparison."""
+        return str(PurePosixPath(os.path.normpath(str(path))))
+
+    def _reanchored_parent(self, concept: Folder, thin: Folder, child_dir: str) -> Folder:
+        """Re-anchor a layout-replaying entity so ``resolve() == child_dir``.
+
+        *thin* resolved to ``dirname(child_dir)``; the entity then re-added ``k``
+        container segments on top of it. Count ``k`` from the overshoot and pin a
+        fresh anchor ``k`` levels above *child_dir*, so the entity's own replay
+        lands back on *child_dir* exactly.
+        """
+        resolved = PurePosixPath(self._norm(concept.resolve()))
+        anchor = PurePosixPath(self._norm(thin.resolve()))
+        target = PurePosixPath(self._norm(child_dir))
+        try:
+            overshoot = len(resolved.relative_to(anchor).parts)
+        except ValueError:  # unexpected resolve() shape — don't guess
+            return thin
+        if not 1 <= overshoot <= len(target.parents):
+            return thin
+        return self._pinned_parent(str(target.parents[overshoot - 1]))
 
     def _nearest_ancestor_concept(self, child_dir: str) -> Folder | None:
         """Reconstruct the closest enclosing Concept dir, or ``None`` if none.
@@ -143,13 +183,22 @@ class Bundle:
             return False
 
     def _thin_parent(self, child_dir: PathArg) -> Folder:
-        """A path-only base Folder whose ``resolve()`` equals *child_dir*'s dir.
+        """A path-only base Folder anchored at *child_dir*'s immediate parent dir.
+
+        The base case for a top-level Concept (one with no enclosing Concept): a
+        base ``Folder.resolve()`` chains a single segment (the Concept's own
+        name) onto this anchor. See :meth:`_pinned_parent`.
+        """
+        return self._pinned_parent(self._fs.dirname(str(child_dir)))
+
+    def _pinned_parent(self, directory: PathArg) -> Folder:
+        """A path-only base Folder whose ``resolve()`` equals *directory* exactly.
 
         Built without ``__init__`` to bypass name/kind validation — its sole job
-        is to carry ``_fs`` and a ``resolve()`` value into ``concept_from_dir``
-        for a top-level Concept (one with no enclosing Concept).
+        is to carry ``_fs`` and a fixed ``resolve()`` value into
+        ``concept_from_dir`` as a Concept's parent anchor.
         """
-        directory = self._fs.dirname(str(child_dir))
+        directory = str(directory)
         parent = Folder.__new__(Folder)
         parent._parent = None
         parent._name = self._fs.basename(directory)
@@ -214,19 +263,30 @@ class Bundle:
             concept.write_meta()
         return concept
 
-    def link(self, src: Folder, dst: Folder, *, text: str | None = None) -> None:
-        """Record a semantic edge ``src → dst`` as a markdown link in *src*.
+    def link(
+        self,
+        src: Folder,
+        dst: Folder,
+        *,
+        text: str | None = None,
+        role: EdgeRole = DEFAULT_EDGE_ROLE,
+    ) -> None:
+        """Record a typed semantic edge ``src → dst`` as a markdown link in *src*.
 
         Appends a real markdown link (relative to *src*) to ``src/index.md`` so
-        :meth:`Folder.out_edges` resolves it back to *dst*. The graph lives in
-        markdown, never in ``meta.yaml``.
+        :meth:`Folder.out_edges` resolves it back to *dst* and
+        :meth:`Folder.typed_out_edges` recovers *role*. The graph lives in
+        markdown, never in ``meta.yaml``. A thin delegator over the single
+        :func:`~molexp.workspace.folder.append_link` writer.
 
         Args:
             src: The Concept the edge originates from.
             dst: The Concept the edge points to.
             text: Optional link label; defaults to *dst*'s name.
+            role: The declared :class:`~molexp.workspace.edges.EdgeRole`; defaults
+                to :data:`~molexp.workspace.edges.DEFAULT_EDGE_ROLE`.
         """
-        append_link(src, dst, text=text)
+        append_link(src, dst, text=text, role=role)
 
     # ── typed filtered views + Zotero import (wsokf-05) ──────────────────
 

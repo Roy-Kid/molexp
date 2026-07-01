@@ -49,6 +49,7 @@ from .bundle_index import BundleIndex, ConceptIndexEntry
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .concepts import Note, ReferenceConcept
 from .context import Context
+from .edges import DEFAULT_EDGE_ROLE, Edge, EdgeRole
 from .errors import (
     ConceptNotFoundError,
     ExperimentExistsError,
@@ -105,6 +106,7 @@ from .workspace import Workspace
 from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
+    "DEFAULT_EDGE_ROLE",
     # Retryable-status domain (resume / rerun verb selection)
     "RETRYABLE_STATUSES",
     # Folder kind taxonomy (unify-folder-abstraction-02)
@@ -132,6 +134,9 @@ __all__ = [
     "Context",
     "DataAsset",
     "DataAssetLibrary",
+    # OKF typed knowledge-graph edge role (typed-provenance-edge P0.1)
+    "Edge",
+    "EdgeRole",
     "ErrorInfo",
     "ErrorTraceAsset",
     "ExecutionRecord",
