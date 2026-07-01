@@ -45,6 +45,11 @@ from molexp.harness.change_proposal_gate import (
     is_high_risk,
     requires_change_proposal,
 )
+from molexp.harness.copilot import (
+    NextAction,
+    WorkspaceSummary,
+    summarize_workspace,
+)
 from molexp.harness.core import HarnessRunContext, Stage, StageRunner
 from molexp.harness.errors import (
     AgentResponseNotRegisteredError,
@@ -187,6 +192,7 @@ from molexp.harness.validators import (
 
 __all__ = [
     # ChangeProposal / AgentIntent + high-risk-mutation guard (integration P0.5)
+    # Workspace Copilot — read-only summary + ranked next-actions (integration P0.6)
     "CHANGE_PROPOSAL_KIND",
     "HIGH_RISK_OPS",
     "WELL_KNOWN_ARTIFACT_KINDS",
@@ -264,6 +270,7 @@ __all__ = [
     "MaterializeExecution",
     "Mode",
     "ModeResult",
+    "NextAction",
     "ObjectRef",
     "ParameterSource",
     "ParameterValue",
@@ -318,6 +325,7 @@ __all__ = [
     "WorkflowIRValidator",
     "WorkflowSource",
     "WorkflowSourceValidator",
+    "WorkspaceSummary",
     "approval_level_for",
     "auto_grant_approver",
     "enforce_side_effect_approvals",
@@ -329,4 +337,5 @@ __all__ = [
     "replay_metadata",
     "requires_change_proposal",
     "resolve_callable",
+    "summarize_workspace",
 ]

@@ -33,6 +33,7 @@ from ..schemas import (
     WorkspaceOpenRequest,
     WorkspaceRunRow,
     WorkspaceRunsResponse,
+    WorkspaceSummaryResponse,
     WorkspaceTargetCreateRequest,
     WorkspaceTargetListResponse,
     WorkspaceTargetResponse,
@@ -126,6 +127,20 @@ def get_workspace_context(
     focus = ContextFocus(project_id=project_id, experiment_id=experiment_id, run_id=run_id)
     context = assemble_workspace_context(workspace, focus=focus)
     return WorkspaceContextResponse.from_context(context)
+
+
+@router.get("/copilot", response_model=WorkspaceSummaryResponse)
+def get_workspace_copilot(workspace=Depends(get_workspace)) -> WorkspaceSummaryResponse:  # noqa: ANN001
+    """The read-only Workspace Copilot summary — structured state + ranked next-actions.
+
+    A pure projection over the canonical ``WorkspaceContext``; it mutates nothing.
+    Next-actions are **advisory** and separated from execution — high-risk ones are
+    flagged ``requiresProposal`` (they must go through a ``ChangeProposal`` first).
+    """
+    from molexp.harness import summarize_workspace
+
+    summary = summarize_workspace(assemble_workspace_context(workspace))
+    return WorkspaceSummaryResponse.from_summary(summary)
 
 
 @router.get("/runs", response_model=WorkspaceRunsResponse)
