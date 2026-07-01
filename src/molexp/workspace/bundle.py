@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path as _StdPath
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
 from molexp.ids import slugify
 
@@ -56,10 +56,25 @@ from .zotero_concepts import read_zotero_items
 if TYPE_CHECKING:
     from .concepts import Note, ReferenceConcept
 
-__all__ = ["Bundle"]
+__all__ = ["Backlink", "Bundle"]
 
 REFERENCES_GROUP = "references"
 SOURCES_FILENAME = "sources.json"
+
+
+class Backlink(NamedTuple):
+    """A resolved reverse edge: a *source* Concept linking to a target, and its role.
+
+    The typed companion of a :meth:`Bundle.backlinks` result — the inverse of a
+    :meth:`Folder.typed_out_edges` entry.
+
+    Attributes:
+        source: The Concept whose ``index.md`` holds the edge.
+        role: The declared :class:`~molexp.workspace.edges.EdgeRole` of the edge.
+    """
+
+    source: Folder
+    role: EdgeRole
 
 
 def _utcnow() -> datetime:
@@ -287,6 +302,133 @@ class Bundle:
                 to :data:`~molexp.workspace.edges.DEFAULT_EDGE_ROLE`.
         """
         append_link(src, dst, text=text, role=role)
+
+    # ── document CRUD verbs (knowledge-docs-01) ──────────────────────────
+    #
+    # The shared, workspace-owned document surface: CLI and server both call
+    # these same ``Bundle`` verbs, so the CRUD logic lives in one place and is
+    # never re-implemented at the HTTP boundary (the Python==UI invariant).
+
+    def create_note(self, name: str, *, parent: Folder | None = None, body: str = "") -> Note:
+        """Idempotently create (or fetch) a :class:`Note` document Concept.
+
+        *name* is slugified to the directory name (path is identity). With
+        *parent* ``None`` the note mounts at the bundle root; otherwise it mounts
+        as a child Concept under *parent* (recursive nesting, since a ``Note`` is
+        a ``Folder``). Repeat calls on the same slug return the existing Concept
+        — no duplicate dir — mirroring :meth:`import_zotero`'s idempotent-create.
+        A non-empty *body* is written to ``index.md``.
+
+        Args:
+            name: Human name; slugified to the Concept dir name.
+            parent: Concept to nest under, or ``None`` for the bundle root.
+            body: Initial ``index.md`` narrative (written only when non-empty).
+
+        Returns:
+            The mounted :class:`Note` (the existing one on a repeat call).
+        """
+        from .concepts import Note
+
+        host = parent if parent is not None else self._pinned_parent(self._root)
+        slug = slugify(name) or name
+        note = cast("Note", host.add_folder(Note(parent=host, name=slug)))
+        if body:
+            note.set_body(body)
+        return note
+
+    def rename_note(self, concept: Folder, new_name: str) -> None:
+        """Rename *concept* in place (same parent), preserving body + child docs.
+
+        Delegates to :meth:`Folder.move_to` with the current parent, so the whole
+        subtree moves as one and the Concept resolves at its new identity path.
+
+        Args:
+            concept: The Concept to rename.
+            new_name: The new human name; slugified to the new dir name.
+
+        Raises:
+            ValueError: If *concept* is unmounted (has no parent).
+        """
+        parent = concept.parent
+        if parent is None:
+            raise ValueError(f"cannot rename unmounted concept {concept.name!r}")
+        # Slugify at the verb boundary (as create_note does) so callers may pass
+        # a human name; move_to itself requires an already-valid id.
+        concept.move_to(parent, new_name=slugify(new_name) or new_name)
+
+    def move_note(self, concept: Folder, new_parent: Folder) -> None:
+        """Move *concept* under *new_parent*, preserving body + child docs.
+
+        Delegates to :meth:`Folder.move_to`; the Concept resolves under
+        *new_parent* afterward. Existing relative links inside the moved
+        ``index.md`` travel verbatim (they are not rewritten) — a derived
+        :meth:`backlinks` recompute reflects the Concept's new identity.
+
+        Args:
+            concept: The Concept to move.
+            new_parent: The Concept (or host Folder) to mount it under.
+        """
+        concept.move_to(new_parent)
+
+    def delete_note(self, concept: Folder) -> None:
+        """Delete *concept* — remove its directory subtree and drop it from the tree.
+
+        Delegates to :meth:`Folder.delete` (recursive removal + parent-cache
+        eviction). After deletion :meth:`walk` no longer yields the Concept.
+
+        Args:
+            concept: The Concept to delete.
+        """
+        concept.delete()
+
+    def backlinks(self, concept: Folder) -> list[Backlink]:
+        """Return every Concept whose edge points at *concept* (a derived view).
+
+        Walks the bundle and reads each Concept's :meth:`Folder.typed_out_edges`,
+        collecting every *other* Concept with an edge resolving to *concept* as a
+        :class:`Backlink` carrying the source and its
+        :class:`~molexp.workspace.edges.EdgeRole` (the default ``references`` role
+        is included, never dropped). A rebuildable reverse view — no reverse index
+        is persisted (one-source-of-truth law).
+
+        Args:
+            concept: The link target to find backlinks for.
+
+        Returns:
+            The :class:`Backlink` rows pointing at *concept*.
+        """
+        target = self._norm(concept.resolve())
+        result: list[Backlink] = []
+        for source in self.walk():
+            if self._norm(source.resolve()) == target:
+                continue  # a self-edge is not a backlink
+            for edge in source.typed_out_edges():
+                if self._norm(edge.target) == target:
+                    result.append(Backlink(source=source, role=edge.role))
+        return result
+
+    def export_markdown(self, concept: Folder, *, include_children: bool = True) -> str:
+        """Return *concept*'s ``index.md`` as portable Markdown (optionally folding children).
+
+        With *include_children* the descendant :class:`Note` bodies are appended
+        depth-first in document order, each under a ``## <bundle-relative-path>``
+        header. Read-only — writes nothing.
+
+        Args:
+            concept: The Concept whose Markdown to export.
+            include_children: Fold descendant ``Note`` bodies in (default ``True``).
+
+        Returns:
+            A single portable Markdown string.
+        """
+        from .concepts import Note
+
+        parts = [concept.read_index()]
+        if include_children:
+            for descendant in self._walk_dir(str(concept.resolve())):
+                if isinstance(descendant, Note):
+                    parts.append(f"\n\n## {self.rel_path(descendant)}\n\n{descendant.read_index()}")
+        return "".join(parts)
 
     # ── typed filtered views + Zotero import (wsokf-05) ──────────────────
 

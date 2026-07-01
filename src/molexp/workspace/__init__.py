@@ -44,7 +44,7 @@ from .assets import (
     Producer,
 )
 from .base import atomic_write_json, atomic_write_text
-from .bundle import Bundle
+from .bundle import Backlink, Bundle
 from .bundle_index import BundleIndex, ConceptIndexEntry
 from .cache import WORKSPACE_CACHE_KIND, CacheFolder
 from .concepts import Note, ReferenceConcept
@@ -155,6 +155,8 @@ __all__ = [
     "AssetManifest",
     "AssetScope",
     "AssetsView",
+    # OKF Note backlink (knowledge-docs-01) — a derived reverse-edge row
+    "Backlink",
     # OKF bundle façade (wsokf-04) — distinct from the per-scope Library
     "Bundle",
     "BundleIndex",
