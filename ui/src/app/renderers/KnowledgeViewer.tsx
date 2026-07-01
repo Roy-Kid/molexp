@@ -1,6 +1,7 @@
 import {
   ArrowLeft,
   BookOpen,
+  Download,
   ExternalLink,
   Eye,
   FileText,
@@ -135,6 +136,13 @@ export const KnowledgeViewer = ({ selection, snapshot }: RendererProps): JSX.Ele
                   )}
                 </Button>
               )}
+              {/* Portable-Markdown download: a plain <a href> so the server's
+                  Content-Disposition attachment header drives the browser save. */}
+              <Button variant="ghost" size="sm" asChild>
+                <a href={workspaceApi.knowledgeDocExportUrl(relPath)} download>
+                  <Download className="h-4 w-4" /> Export
+                </a>
+              </Button>
               <Button variant="ghost" size="sm" onClick={back}>
                 <ArrowLeft className="h-4 w-4" /> Back
               </Button>

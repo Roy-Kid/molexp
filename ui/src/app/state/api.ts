@@ -1,5 +1,7 @@
+import type { BacklinksResponse } from "@/api/generated/models/BacklinksResponse";
 import type { KnowledgeListResponse } from "@/api/generated/models/KnowledgeListResponse";
 import type { NoteDetailResponse } from "@/api/generated/models/NoteDetailResponse";
+import type { NoteSummary } from "@/api/generated/models/NoteSummary";
 import type { PlanDetailResponse } from "@/api/generated/models/PlanDetailResponse";
 import type { PlanListResponse } from "@/api/generated/models/PlanListResponse";
 import type { PlanTaskCreateRequest } from "@/api/generated/models/PlanTaskCreateRequest";
@@ -404,6 +406,45 @@ export const workspaceApi = {
    */
   updateNoteDoc: async (path: string, body: string): Promise<NoteDetailResponse> => {
     return KnowledgeService.editDocApiKnowledgeDocPut(path, { body });
+  },
+  /**
+   * Create a Note document via the generated KnowledgeService. `parentPath`
+   * nests the new doc beneath an existing Note (its bundle-relative path);
+   * omit it to create a root-bundle knowledge-base doc.
+   */
+  createKnowledgeDoc: async (
+    name: string,
+    options: { parentPath?: string | null; body?: string } = {},
+  ): Promise<NoteSummary> => {
+    return KnowledgeService.createDocApiKnowledgeDocPost({
+      name,
+      parentPath: options.parentPath ?? null,
+      body: options.body ?? "",
+    });
+  },
+  /** Rename a Note (PATCH /knowledge/doc with a new `name`). */
+  renameKnowledgeDoc: async (path: string, name: string): Promise<NoteSummary> => {
+    return KnowledgeService.moveDocApiKnowledgeDocPatch(path, { name });
+  },
+  /** Reparent a Note under `parentPath` (PATCH /knowledge/doc). */
+  moveKnowledgeDoc: async (path: string, parentPath: string): Promise<NoteSummary> => {
+    return KnowledgeService.moveDocApiKnowledgeDocPatch(path, { parentPath });
+  },
+  /** Delete a Note (its directory subtree) via the generated KnowledgeService. */
+  deleteKnowledgeDoc: async (path: string): Promise<void> => {
+    await KnowledgeService.deleteDocApiKnowledgeDocDelete(path);
+  },
+  /** Every Concept linking at `path` (GET /knowledge/backlinks). */
+  getKnowledgeBacklinks: async (path: string): Promise<BacklinksResponse> => {
+    return KnowledgeService.getBacklinksApiKnowledgeBacklinksGet(path);
+  },
+  /**
+   * Plain URL for a browser download of a Note's portable Markdown
+   * (GET /knowledge/doc/export). Used directly via `<a href>` — never fetched —
+   * so the `Content-Disposition` attachment header drives the download.
+   */
+  knowledgeDocExportUrl: (path: string): string => {
+    return `/api/knowledge/doc/export?path=${encodeURIComponent(path)}`;
   },
   updateRunStatus: async (
     projectId: string,

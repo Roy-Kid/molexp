@@ -1,3 +1,4 @@
+import { KnowledgeDocPanel } from "@/app/knowledge/KnowledgeDocPanel";
 import { registerRenderer } from "@/app/registry";
 import { AgentSessionInspector } from "@/app/renderers/AgentSessionInspector";
 import { AgentViewer } from "@/app/renderers/AgentViewer";
@@ -251,8 +252,8 @@ export const registerDefaultRenderers = (): void => {
       contentType: "metadata",
       panelKind: "inspector",
     },
-    title: "Knowledge",
+    title: "Document",
     panelSlot: "right",
-    Component: KnowledgeViewer,
+    Component: KnowledgeDocPanel,
   });
 };

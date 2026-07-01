@@ -32,6 +32,7 @@ import { CreateExperimentDialog } from "@/app/components/CreateExperimentDialog"
 import { CreateProjectDialog } from "@/app/components/CreateProjectDialog";
 import { CreateRunDialog } from "@/app/components/CreateRunDialog";
 import { EMPTY_COPY, StatusBadge } from "@/app/components/entity";
+import { DocTree } from "@/app/knowledge/DocTree";
 import type { TreeNode, TreeNodeAction } from "@/app/panels/TreeView";
 import { TreeView } from "@/app/panels/TreeView";
 import { computeFacetCounts } from "@/app/runs/aggregates";
@@ -1152,17 +1153,7 @@ export const LeftPanel = ({
         emptyDescription={EMPTY_COPY.agentSessions.description}
       />
     ),
-    knowledge: (
-      <nav className="space-y-0.5 px-1 pb-4 text-xs">
-        <button
-          type="button"
-          onClick={() => onSelect({ objectType: "knowledge", objectId: "" })}
-          className="w-full rounded-sm px-2 py-1.5 text-left font-medium text-foreground hover:bg-muted/40"
-        >
-          All notes &amp; references
-        </button>
-      </nav>
-    ),
+    knowledge: <DocTree snapshot={snapshot} activeId={activeId} onSelect={onSelect} />,
     settings: (
       <nav className="space-y-0.5 px-1 pb-4 text-xs">
         <div className="rounded-sm bg-muted/30 px-2 py-1.5 font-medium text-foreground">
