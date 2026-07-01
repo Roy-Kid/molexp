@@ -462,6 +462,19 @@ export const workspaceApi = {
     return KnowledgeService.editDocApiKnowledgeDocPut(path, { body });
   },
   /**
+   * Update a note's tags/status (PATCH /knowledge/doc/meta) through the
+   * generated KnowledgeService — never a hand-rolled fetch. Each field is
+   * optional; omit one to leave it untouched (the server preserves the sibling
+   * via `Note.set_tags` / `Note.set_status`). Returns the server-normalized
+   * NoteSummary so the caller can realign its in-memory tags/status.
+   */
+  updateNoteMeta: async (
+    path: string,
+    patch: { tags?: string[]; status?: string },
+  ): Promise<NoteSummary> => {
+    return KnowledgeService.updateDocMetaApiKnowledgeDocMetaPatch(path, patch);
+  },
+  /**
    * Create a Note document via the generated KnowledgeService. `parentPath`
    * nests the new doc beneath an existing Note (its bundle-relative path);
    * omit it to create a root-bundle knowledge-base doc.

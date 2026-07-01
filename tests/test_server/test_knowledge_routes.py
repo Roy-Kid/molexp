@@ -601,3 +601,159 @@ def test_openapi_contains_embed_path():
     paths = schema["paths"]
     assert "/api/knowledge/doc/embed" in paths
     assert "post" in paths["/api/knowledge/doc/embed"]
+
+
+# ── knowledge-docs-08: writable Note tags/status via PATCH /doc/meta ─────────
+
+
+# ── ac-001 — PATCH /knowledge/doc/meta?path= with tags persists ──────────────
+
+
+def test_patch_doc_meta_tags_persists(client, workspace):
+    _seed_note(workspace, "doc", body="# Doc")
+
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "doc"},
+        json={"tags": ["physics", "md"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tags"] == ["physics", "md"]
+
+    # Re-read through the workspace API confirms it landed in meta.yaml.
+    assert Bundle(workspace.root).get("doc").tags() == ["physics", "md"]
+
+
+# ── ac-002 — PATCH /knowledge/doc/meta?path= with status persists ────────────
+
+
+def test_patch_doc_meta_status_persists(client, workspace):
+    _seed_note(workspace, "doc", body="# Doc")
+
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "doc"},
+        json={"status": "draft"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "draft"
+
+    assert Bundle(workspace.root).get("doc").status() == "draft"
+
+
+# ── ac-003 — partial PATCH preserves the untouched sibling field ─────────────
+
+
+def test_patch_doc_meta_partial_preserves_sibling(client, workspace):
+    note = _seed_note(workspace, "doc", body="# Doc")
+    note.set_tags(["physics"])
+    note.set_status("draft")
+
+    # PATCH only status -> tags preserved.
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "doc"},
+        json={"status": "archived"},
+    )
+    assert resp.status_code == 200
+    fresh = Bundle(workspace.root).get("doc")
+    assert fresh.status() == "archived"
+    assert fresh.tags() == ["physics"]
+
+    # PATCH only tags -> status preserved.
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "doc"},
+        json={"tags": ["physics", "chem"]},
+    )
+    assert resp.status_code == 200
+    fresh = Bundle(workspace.root).get("doc")
+    assert fresh.tags() == ["physics", "chem"]
+    assert fresh.status() == "archived"
+
+
+# ── ac-004 — write-gate: remote served workspace → 405 ───────────────────────
+
+
+def test_patch_doc_meta_writable_gate(client, workspace, _remote_served):
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "doc"},
+        json={"status": "draft"},
+    )
+    assert resp.status_code == 405
+
+
+def test_patch_doc_meta_local_not_405(client, workspace):
+    # A local workspace is not rejected by the gate (404 for the missing note).
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "nope"},
+        json={"status": "draft"},
+    )
+    assert resp.status_code != 405
+
+
+# ── ac-005 — unknown path / non-note concept → 404 ───────────────────────────
+
+
+def test_patch_doc_meta_404_unknown_path(client, workspace):
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "does-not-exist"},
+        json={"status": "draft"},
+    )
+    assert resp.status_code == 404
+
+
+def test_patch_doc_meta_404_non_note(client, workspace):
+    _seed_concepts(workspace)  # kremer1990 is a ReferenceConcept, not a Note
+    resp = client.patch(
+        "/api/knowledge/doc/meta",
+        params={"path": "kremer1990"},
+        json={"tags": ["x"]},
+    )
+    assert resp.status_code == 404
+
+
+# ── ac-006 — parity: delegates to Note.set_tags / Note.set_status ────────────
+
+
+def test_patch_doc_meta_delegates_to_note_verbs(client, workspace, monkeypatch):
+    _seed_note(workspace, "doc", body="# Doc")
+
+    seen: dict[str, object] = {}
+    orig_tags = Note.set_tags
+    orig_status = Note.set_status
+
+    def tags_spy(self, tags):
+        seen["set_tags"] = list(tags)
+        return orig_tags(self, tags)
+
+    def status_spy(self, status):
+        seen["set_status"] = status
+        return orig_status(self, status)
+
+    monkeypatch.setattr(Note, "set_tags", tags_spy)
+    monkeypatch.setattr(Note, "set_status", status_spy)
+
+    # tags-only PATCH -> only set_tags fires.
+    client.patch("/api/knowledge/doc/meta", params={"path": "doc"}, json={"tags": ["a"]})
+    assert seen == {"set_tags": ["a"]}
+
+    seen.clear()
+    # status-only PATCH -> only set_status fires.
+    client.patch("/api/knowledge/doc/meta", params={"path": "doc"}, json={"status": "draft"})
+    assert seen == {"set_status": "draft"}
+
+
+# ── ac-007 — OpenAPI surface carries PATCH /api/knowledge/doc/meta ────────────
+
+
+def test_openapi_contains_doc_meta_patch():
+    from molexp.server.app import create_app
+
+    schema = create_app().openapi()
+    paths = schema["paths"]
+    assert "/api/knowledge/doc/meta" in paths
+    assert "patch" in paths["/api/knowledge/doc/meta"]

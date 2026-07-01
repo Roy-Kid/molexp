@@ -126,6 +126,18 @@ class DocMoveRequest(BaseModel):
     parentPath: str | None = None
 
 
+class DocMetaUpdate(BaseModel):
+    """Partial update of a note's ``meta.yaml`` tags/status.
+
+    Each field is independently optional; ``None`` means "leave untouched", which
+    maps onto ``Note.set_tags`` / ``Note.set_status`` each preserving the sibling
+    field. A request with both ``None`` is a no-op that returns the current summary.
+    """
+
+    tags: list[str] | None = None
+    status: str | None = None
+
+
 class BacklinksResponse(BaseModel):
     backlinks: list[NoteSummary]
 
@@ -451,6 +463,31 @@ def move_doc(
         bundle.rename_note(note, payload.name)
     if payload.parentPath is not None:
         bundle.move_note(note, _resolve_note(bundle, payload.parentPath))
+    return _note_summary(bundle, note)
+
+
+@router.patch(
+    "/doc/meta",
+    response_model=NoteSummary,
+    dependencies=[Depends(_require_writable)],
+)
+def update_doc_meta(
+    payload: DocMetaUpdate,
+    path: str = Query(..., description="The note Concept's bundle-relative path (its identity)."),
+    workspace: Workspace = Depends(get_workspace),
+) -> NoteSummary:
+    """Update a note's tags/status — delegates to ``Note.set_tags`` / ``Note.set_status``.
+
+    Each field is applied only when present (``None`` = leave untouched), so a
+    partial update preserves the sibling field. The write logic is never re-built
+    here: the same ``Note`` verbs the CLI uses own it (the Python==UI invariant).
+    """
+    bundle = _bundle(workspace)
+    note = _resolve_note(bundle, path)
+    if payload.tags is not None:
+        note.set_tags(payload.tags)
+    if payload.status is not None:
+        note.set_status(payload.status)
     return _note_summary(bundle, note)
 
 

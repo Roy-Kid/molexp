@@ -7,6 +7,7 @@
  */
 export type CurateResponse = {
     proposalId: string;
+    reason?: (string | null);
     resultArtifactIds?: Array<string>;
     status: string;
 };

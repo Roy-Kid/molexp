@@ -42,6 +42,7 @@ export type { DataAssetRegisterRequest } from './models/DataAssetRegisterRequest
 export type { DirectoryCreateRequest } from './models/DirectoryCreateRequest';
 export type { DocBodyUpdate } from './models/DocBodyUpdate';
 export type { DocCreateRequest } from './models/DocCreateRequest';
+export type { DocMetaUpdate } from './models/DocMetaUpdate';
 export type { DocMoveRequest } from './models/DocMoveRequest';
 export { EmbedRequest } from './models/EmbedRequest';
 export { EmbedResponse } from './models/EmbedResponse';

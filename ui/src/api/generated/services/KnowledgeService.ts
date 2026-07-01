@@ -5,6 +5,7 @@
 import type { BacklinksResponse } from '../models/BacklinksResponse';
 import type { DocBodyUpdate } from '../models/DocBodyUpdate';
 import type { DocCreateRequest } from '../models/DocCreateRequest';
+import type { DocMetaUpdate } from '../models/DocMetaUpdate';
 import type { DocMoveRequest } from '../models/DocMoveRequest';
 import type { EmbedRequest } from '../models/EmbedRequest';
 import type { EmbedResponse } from '../models/EmbedResponse';
@@ -201,6 +202,35 @@ export class KnowledgeService {
             query: {
                 'path': path,
             },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Update Doc Meta
+     * Update a note's tags/status — delegates to ``Note.set_tags`` / ``Note.set_status``.
+     *
+     * Each field is applied only when present (``None`` = leave untouched), so a
+     * partial update preserves the sibling field. The write logic is never re-built
+     * here: the same ``Note`` verbs the CLI uses own it (the Python==UI invariant).
+     * @param path The note Concept's bundle-relative path (its identity).
+     * @param requestBody
+     * @returns NoteSummary Successful Response
+     * @throws ApiError
+     */
+    public static updateDocMetaApiKnowledgeDocMetaPatch(
+        path: string,
+        requestBody: DocMetaUpdate,
+    ): CancelablePromise<NoteSummary> {
+        return __request(OpenAPI, {
+            method: 'PATCH',
+            url: '/api/knowledge/doc/meta',
+            query: {
+                'path': path,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 422: `Validation Error`,
             },
