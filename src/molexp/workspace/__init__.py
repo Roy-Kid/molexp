@@ -68,6 +68,14 @@ from .folder import (
     WORKSPACE_RUN_KIND,
     Folder,
 )
+from .knowledge_item import (
+    KNOWLEDGE_ITEM_KIND,
+    KnowledgeItem,
+    KnowledgeKind,
+    KnowledgeMeta,
+    SourceKind,
+    SourceRef,
+)
 from .models import (
     ComputeTarget,
     ErrorInfo,
@@ -120,6 +128,8 @@ from .zotero_concepts import ZoteroItem, read_zotero_items
 
 __all__ = [
     "DEFAULT_EDGE_ROLE",
+    # OKF KnowledgeItem Concept (integration P0.4) — typed, source-linked
+    "KNOWLEDGE_ITEM_KIND",
     # Retryable-status domain (resume / rerun verb selection)
     "RETRYABLE_STATUSES",
     # Folder kind taxonomy (unify-folder-abstraction-02)
@@ -168,6 +178,9 @@ __all__ = [
     "FolderMoveCollisionError",
     "GridSpace",
     "HealthFlag",
+    "KnowledgeItem",
+    "KnowledgeKind",
+    "KnowledgeMeta",
     "KnowledgeRef",
     # Target types + session management (unified workspace CLI)
     "LocalTarget",
@@ -197,6 +210,8 @@ __all__ = [
     "RunStatus",
     "Session",
     "SessionManager",
+    "SourceKind",
+    "SourceRef",
     "Target",
     "TargetNotFound",
     "UniformSpace",
