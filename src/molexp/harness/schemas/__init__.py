@@ -31,6 +31,19 @@ from molexp.harness.schemas.capability_selection import (
     CapabilitySelection,
     SelectedCapability,
 )
+from molexp.harness.schemas.change_proposal import (
+    CHANGE_PROPOSAL_KIND,
+    AgentIntent,
+    ApprovalLevel,
+    ChangeProposal,
+    ChangeSpec,
+    HighRiskOp,
+    ObjectRef,
+    ProposalOutcome,
+    ProposalStatus,
+    Reversibility,
+    StateSnapshot,
+)
 from molexp.harness.schemas.command import CommandResult, CommandSpec
 from molexp.harness.schemas.event import EventType, HarnessEvent
 from molexp.harness.schemas.execution_report import ExecutionReport
@@ -67,11 +80,15 @@ from molexp.harness.schemas.workflow_ir import (
 from molexp.harness.schemas.workflow_source import GeneratedFile, WorkflowSource
 
 __all__ = [
+    # ChangeProposal / AgentIntent — high-risk-mutation guard (integration P0.5)
+    "CHANGE_PROPOSAL_KIND",
     "WELL_KNOWN_ARTIFACT_KINDS",
     "AgentCallResult",
     "AgentCallSpec",
+    "AgentIntent",
     "ApprovalDecision",
     "ApprovalIntent",
+    "ApprovalLevel",
     "ApprovalPolicy",
     "ApprovalRequest",
     "ArtifactKind",
@@ -81,6 +98,8 @@ __all__ = [
     "BoundWorkflow",
     "CapabilityInvocationResult",
     "CapabilitySelection",
+    "ChangeProposal",
+    "ChangeSpec",
     "CommandResult",
     "CommandSpec",
     "DependencyEdge",
@@ -94,18 +113,24 @@ __all__ = [
     "FinalReport",
     "GeneratedFile",
     "HarnessEvent",
+    "HighRiskOp",
     "InputSet",
     "ModeResult",
+    "ObjectRef",
     "ParameterSource",
     "ParameterValue",
     "PathPolicy",
     "PlanReview",
     "PlanReviewFinding",
+    "ProposalOutcome",
+    "ProposalStatus",
     "ResolvedQuestion",
     "ResourcePolicy",
+    "Reversibility",
     "SelectedCapability",
     "SpecCondition",
     "SpecVariable",
+    "StateSnapshot",
     "SweepAxis",
     "SweepStrategy",
     "TaskIR",
