@@ -21,7 +21,7 @@ from molexp.cli._target import TargetOption, resolve_workspace_target
 from molexp.profile import MolCfg, ProfileConfig, load_molcfg
 from molexp.profile.loader import find_default_config
 from molexp.workflow import WorkflowRuntime, default_binding_registry
-from molexp.workspace.run import RETRYABLE_STATUSES
+from molexp.workspace.run import RETRYABLE_STATUSES, RunStatus
 from molexp.workspace.source_snapshot import snapshot_sources
 from molexp.workspace.target import LocalTarget, RemoteTarget
 
@@ -573,7 +573,13 @@ def execute(
                 seed_outputs=seed_outputs,
             )
         )
-    rprint(f"[green]OK[/green] execute complete run={run_id} status={run_obj.status}")
+    status = run_obj.status
+    if status != RunStatus.SUCCEEDED.value:
+        # The scheduler reads this exit code to mark the job failed; a failed run
+        # reported as success would strand the whole pipeline.
+        rprint(f"[red]FAILED[/red] execute run={run_id} status={status}")
+        raise typer.Exit(1)
+    rprint(f"[green]OK[/green] execute complete run={run_id} status={status}")
 
 
 def _open_plan_run(run_dir: Path, project_id: str, experiment_id: str, run_id: str):
@@ -738,6 +744,30 @@ def _run_dry_run(
         rprint("[dim]No runnable bound experiments found.[/dim]")
 
 
+def _report_local_results(dispatched_runs: list[Run], continue_verb: str | None) -> None:
+    """Print an honest terminal-status summary and set the process exit code.
+
+    In-process execution settles each run to a terminal status synchronously, so
+    a run that did not reach ``succeeded`` (``failed`` / ``cancelled``) must make
+    ``molexp run`` exit non-zero — scripts, CI steps, and schedulers read that
+    exit code, and reporting "OK ... completed" over a failed run is a
+    silent-failure trap. Only runs that actually executed are inspected (skipped
+    runs never enter *dispatched_runs*).
+    """
+    verb = {"resume": "resumed", "rerun": "reran"}.get(continue_verb or "", "completed")
+    if not dispatched_runs:
+        rprint(f"\n[dim]No runs {verb}.[/dim]")
+        return
+    failed = [r for r in dispatched_runs if r.status != RunStatus.SUCCEEDED.value]
+    if failed:
+        rprint("")
+        for mol_run in failed:
+            rprint(f"  [red]x[/red] run={mol_run.id}  status={mol_run.status}")
+        rprint(f"\n[red]FAILED[/red] {len(failed)} of {len(dispatched_runs)} runs did not succeed.")
+        raise typer.Exit(1)
+    rprint(f"\n[green]OK[/green] {len(dispatched_runs)} runs {verb}.")
+
+
 def _run_local_inprocess(
     *,
     script: Path,
@@ -748,7 +778,7 @@ def _run_local_inprocess(
 ) -> None:
     """Execute the run plan in-process, with a progress bar."""
     mode_label = _profile_mode_label(profile_cfg, "[green]local[/green]")
-    _dispatch_runs(
+    _n, dispatched_runs = _dispatch_runs(
         script=script,
         profile_cfg=profile_cfg,
         continue_verb=continue_verb,
@@ -756,8 +786,10 @@ def _run_local_inprocess(
         explicit_workspace=explicit_ws,
         run_handler=_make_local_inprocess_handler(profile_cfg, verb=continue_verb),
         mode_label=mode_label,
+        suppress_ok=True,
         show_progress=True,
     )
+    _report_local_results(dispatched_runs, continue_verb)
 
 
 def _submit_to_scheduler(
