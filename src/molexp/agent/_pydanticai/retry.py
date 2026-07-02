@@ -2,10 +2,10 @@
 
 Retry ownership is split three ways; this module owns only the third:
 
-1. **Output / structured-parse validation** → ``Agent(output_retries=N)``.
+1. **Output / structured-parse validation** → ``Agent(retries={"output": N})``.
    pydantic-ai re-runs the model with the validation error fed back as a
    cheap follow-up turn. The router's structured agent sets
-   ``output_retries=2``; ``schema_parse`` is therefore **excluded** from
+   ``retries={"output": 2}``; ``schema_parse`` is therefore **excluded** from
    :attr:`RetryPolicy.retry_on` so the two layers never compound (re-sending
    the full multi-thousand-token prompt at the router level burned 14:30 min
    on one production call — once is enough).
@@ -63,7 +63,7 @@ class RetryPolicy(BaseModel):
             retryable. Defaults to the two truly-transient classes
             (``model_unavailable``, ``timeout``). ``schema_parse`` is
             **deliberately excluded** — pydantic-ai's
-            ``Agent(output_retries=N)`` retries schema-parse failures
+            ``Agent(retries={"output": N})`` retries schema-parse failures
             at the model level with the validation error fed back as a
             short follow-up turn (cheap). Re-sending the full
             multi-thousand-token prompt at the router level on the

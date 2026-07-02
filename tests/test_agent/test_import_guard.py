@@ -14,9 +14,10 @@ Two pydantic-SDK invariants also live here:
 1. ``pydantic_ai`` may only be imported from
    ``src/molexp/agent/_pydanticai/``.
 2. ``pydantic_graph`` must NOT be imported anywhere under
-   ``src/molexp/agent/`` — pg lives exclusively under
-   ``src/molexp/workflow/_pydantic_graph/``. PlanMode drives multi-step
-   workflows through the public ``molexp.workflow`` API.
+   ``src/molexp/agent/`` — molexp has dropped the dependency entirely
+   (no ``pydantic_graph`` import anywhere under ``src/``; the workflow
+   engine is molexp-owned under ``workflow/_engine/``). PlanMode drives
+   multi-step workflows through the public ``molexp.workflow`` API.
 3. Plain ``import molexp.agent`` does not eagerly load ``pydantic_ai``
    — the SDK is loaded lazily when ``PydanticAIRouter`` is
    constructed (on first ``AgentRunner.run``).
@@ -35,6 +36,7 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "molexp.plugins",
     "molexp.server",
     "molexp.cli",
+    "molexp.services",  # application-service layer sits above agent
     "molexp.sweep",
     "molexp.workflow",  # spec 03b: agent stopped being the orchestrator
     "molexp.harness",  # spec 03b: agent sits below harness in the DAG
@@ -143,8 +145,9 @@ def test_pydantic_graph_never_imported_in_agent() -> None:
     hits = _files_importing("pydantic_graph", AGENT_ROOT)
     bad = _format(hits)
     assert not bad, (
-        "pydantic_graph imported inside agent/. The workflow layer is "
-        "the only sanctioned pg site:\n  " + "\n  ".join(bad)
+        "pydantic_graph imported inside agent/. molexp has zero "
+        "pydantic_graph dependency; no import is sanctioned anywhere "
+        "under src/:\n  " + "\n  ".join(bad)
     )
 
 
@@ -153,10 +156,9 @@ def test_importing_molexp_agent_does_not_load_pydantic_ai() -> None:
 
     The router is heavy and the SDK takes time to load; agent's
     runner constructs it lazily on first ``.run()``. We only assert
-    pydantic_ai laziness here — pydantic_graph may legitimately load
-    transitively through ``molexp.workflow`` (PlanMode wiring), and
-    its confinement to ``workflow/_pydantic_graph/`` is enforced
-    separately by ``tests/test_workflow/test_import_guard.py``.
+    pydantic_ai laziness here — molexp itself never imports
+    pydantic_graph anywhere under ``src/`` (the dependency was removed;
+    enforced by ``tests/test_workflow/test_engine_boundary.py``).
     """
     code = (
         "import sys\n"

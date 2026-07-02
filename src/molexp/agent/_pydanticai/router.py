@@ -99,6 +99,14 @@ def _noop_hook(event: ProviderEvent) -> None:
     del event
 
 
+class _PreflightProbe(BaseModel):
+    """Trivial schema :meth:`PydanticAIRouter.preflight` uses to force
+    structured-agent construction (credential + constructor-kwarg
+    validation) without a real caller schema. Never sent to a model."""
+
+    ok: bool = True
+
+
 class PydanticAIRouter:
     """Concrete :class:`Router` impl atop ``pydantic_ai.Agent``.
 
@@ -169,6 +177,24 @@ class PydanticAIRouter:
         # Per-call usage records, cleared by ``clear_usage`` at mode start.
         self._usage_log: list[CallUsage] = []
         self._usage_started: float | None = None
+
+    # ── Preflight ───────────────────────────────────────────────────────────
+
+    def preflight(self) -> None:
+        """Eagerly construct one text and one structured agent per tier.
+
+        No network I/O and no disk writes — ``Agent(...)`` construction is
+        where pydantic-ai validates provider credentials *and* constructor
+        kwargs, so priming both paths up front surfaces a missing API key
+        and a version-incompatible kwarg (the 1.x-only ``output_retries=``,
+        removed in 2.0, used to crash mid-pipeline at the first structured
+        call, long after a text-only preflight had passed). Primed agents
+        stay cached for real use; the structured probe schema occupies one
+        extra cache slot per tier.
+        """
+        for tier in ModelTier:
+            self._text_agent(tier)
+            self._structured_agent(tier, _PreflightProbe, "preflight probe")
 
     # ── Usage accounting ────────────────────────────────────────────────────
 
@@ -313,21 +339,24 @@ class PydanticAIRouter:
         key: tuple[ModelTier, type[BaseModel] | None] = (tier, schema)
         if key not in self._agents:
             model = self._tier_models[tier]
-            # output_retries=2 lets pydantic-ai retry schema_parse at the
-            # model level with the validation error fed back as a short
+            # retries={"output": 2} lets pydantic-ai retry schema_parse at
+            # the model level with the validation error fed back as a short
             # follow-up turn — cheap and exactly the failure mode the
             # router's outer retry was double-handling before
-            # ``plan-mode-pydanticai-rewrite``.
+            # ``plan-mode-pydanticai-rewrite``. The dict spelling is the
+            # one accepted by both pydantic-ai 1.x (≥1.105) and 2.x — the
+            # legacy ``output_retries=`` kwarg was removed in 2.0 and made
+            # ``Agent(...)`` raise TypeError there.
             # ty's overload solver currently can't bind Agent's generic
             # overloads through ``output_type=type[SchemaT]``; the call is
-            # valid per pydantic-ai's signature (output_retries included).
+            # valid per pydantic-ai's signature.
             agent = cast(
                 "Agent[None, SchemaT]",
                 Agent(  # ty: ignore[no-matching-overload]
                     model=model,
                     output_type=schema,
                     system_prompt=system,
-                    output_retries=2,
+                    retries={"output": 2},
                 ),
             )
             self._agents[key] = cast("Agent[None, Any]", agent)
@@ -361,7 +390,7 @@ class PydanticAIRouter:
         (``model_unavailable`` / ``timeout``) with exponential backoff.
         Every other classified failure — and exhaustion of the attempt
         budget — raises :class:`ProviderError`. Anything pydantic-ai
-        already retries (output/parse validation via ``output_retries``,
+        already retries (output/parse validation via ``retries={"output": N}``,
         ``ModelRetry`` via ``Agent(retries=)``) never reaches here, so the
         two layers do not compound.
 

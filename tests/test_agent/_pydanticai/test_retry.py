@@ -25,7 +25,7 @@ def test_retry_policy_default_construction() -> None:
     assert ErrorKind.model_unavailable in policy.retry_on
     assert ErrorKind.timeout in policy.retry_on
     # schema_parse is deliberately NOT in the default retry_on after
-    # ``plan-mode-pydanticai-rewrite``: pydantic-ai's Agent(output_retries=N)
+    # ``plan-mode-pydanticai-rewrite``: pydantic-ai's Agent(retries={"output": N})
     # retries schema-parse failures at the model level with the
     # validation error fed back as a cheap follow-up turn; the router
     # used to re-issue the full prompt on the same kind of failure and
@@ -127,15 +127,13 @@ def _combined_retry_docstrings() -> str:
 
 
 def test_retry_docstrings_enumerate_output_retries_owner() -> None:
-    """ac-003 — the docstrings must name pydantic-ai output_retries as
-    the owner of output/parse-validation retries.
-
-    RED today: current docstrings mention ``output_retries`` only in
-    the ``retry_on`` note but the full ownership enumeration / the
-    other owners below are absent.
+    """ac-003 — the docstrings must name pydantic-ai's output-retry
+    budget (``retries={"output": N}`` — the spelling shared by 1.x and
+    2.x; the legacy ``output_retries=`` kwarg was removed in 2.0) as the
+    owner of output/parse-validation retries.
     """
     doc = _combined_retry_docstrings()
-    assert "output_retries" in doc
+    assert 'retries={"output"' in doc
 
 
 def test_retry_docstrings_enumerate_agent_retries_owner() -> None:
