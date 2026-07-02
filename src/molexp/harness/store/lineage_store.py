@@ -2,7 +2,7 @@
 
 Scope (deliberately narrow): this store records **which pipeline stage
 produced which artifact, derived from which prior artifact** — the
-``derived_from`` edge graph between harness :class:`ArtifactRef` ids, each
+``derived_from`` edge graph between harness :class:`PlanArtifactRef` ids, each
 edge optionally stamped with the producing ``stage`` name and the pipeline
 ``run_id`` so a lineage chain is traversable end-to-end.
 
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from molexp.harness.schemas import ArtifactRef
+from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = ["ArtifactLineageStore"]
 
@@ -36,8 +36,8 @@ class ArtifactLineageStore(Protocol):
         run_id: str | None = None,
     ) -> None: ...
 
-    def trace_backward(self, artifact_id: str) -> list[ArtifactRef]: ...
+    def trace_backward(self, artifact_id: str) -> list[PlanArtifactRef]: ...
 
-    def trace_forward(self, artifact_id: str) -> list[ArtifactRef]: ...
+    def trace_forward(self, artifact_id: str) -> list[PlanArtifactRef]: ...
 
     def lineage_graph(self, artifact_id: str) -> dict[str, Any]: ...

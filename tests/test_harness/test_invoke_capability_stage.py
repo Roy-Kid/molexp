@@ -37,22 +37,23 @@ from typing import Any
 import pytest
 
 from molexp.harness import (
-    CapabilityCallValidationError,
-    CapabilityInvocationResult,
     CapabilityRegistry,
-    CapabilityResolutionError,
     DryRunExecutor,
-    HarnessError,
-    InMemoryCapabilityRegistry,
-    InvokeCapability,
     LocalExecutor,
     Stage,
     StageExecutionError,
-    ToolCapability,
-    resolve_callable,
 )
+from molexp.harness.capability import resolve_callable
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage_runner import run_stage_bracketed
+from molexp.harness.errors import (
+    CapabilityCallValidationError,
+    CapabilityResolutionError,
+    HarnessError,
+)
+from molexp.harness.registry import InMemoryCapabilityRegistry
+from molexp.harness.schemas import CapabilityInvocationResult, ToolCapability
+from molexp.harness.stages import InvokeCapability
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -314,13 +315,13 @@ def test_missing_registry_raises_stage_execution_error(tmp_path: Path) -> None:
 def test_public_surface() -> None:
     """The three new symbols + resolver are reachable from ``molexp.harness`` and
     the artifact kinds are registered."""
-    import molexp.harness as h
+    from molexp.harness.schemas import WELL_KNOWN_ARTIFACT_KINDS
 
     assert issubclass(InvokeCapability, Stage)
     assert InvokeCapability.name == "invoke_capability"
     assert issubclass(CapabilityResolutionError, HarnessError)
-    assert "capability_invocation_params" in h.WELL_KNOWN_ARTIFACT_KINDS
-    assert "capability_invocation_result" in h.WELL_KNOWN_ARTIFACT_KINDS
+    assert "capability_invocation_params" in WELL_KNOWN_ARTIFACT_KINDS
+    assert "capability_invocation_result" in WELL_KNOWN_ARTIFACT_KINDS
 
 
 def test_resolve_callable_re_exported_from_submodule() -> None:

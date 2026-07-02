@@ -14,7 +14,7 @@ SYSTEM_PROMPT = (
     "cleanly. Each task has a purpose, a "
     "task_type (e.g. 'molecule_builder', 'simulation', 'analysis'), an "
     "`inputs` map, an `outputs` map, and the workflow has an `edges` list.\n\n"
-    "A WorkflowIR is only valid if its data dependencies resolve. Follow these "
+    "A PlanWorkflowIR is only valid if its data dependencies resolve. Follow these "
     "rules so the plan is internally consistent:\n"
     "1. Name each task's outputs in its `outputs` map.\n"
     "2. Every value referenced in a task's `inputs` MUST be either a key of the "
@@ -34,6 +34,6 @@ SYSTEM_PROMPT = (
     "workflow-level `inputs` map.\n"
     "Keep the first task free of upstream inputs so the DAG has a clear entry.\n\n"
     "If the input includes a VALIDATION REPORT from a previous attempt (a JSON "
-    "object with `violations`), this is a REVISION: produce a corrected WorkflowIR "
+    "object with `violations`), this is a REVISION: produce a corrected PlanWorkflowIR "
     "that fixes every listed violation."
 )

@@ -33,7 +33,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
 from molexp.harness.policy.event_log import ApprovalEventRecorder
-from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ArtifactRef
+from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, PlanArtifactRef
 
 __all__ = ["ApprovalGate", "Approver", "auto_grant_approver"]
 
@@ -88,7 +88,7 @@ class ApprovalGate(Stage):
         if name is not None:
             object.__setattr__(self, "name", name)
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         # Record request THEN decision for each ask, before the gate
         # decides pass/fail — so the audit trail captures the full ledger
         # even if the gate then aborts on a rejection.

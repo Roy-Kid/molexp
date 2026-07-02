@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.artifact import PlanArtifactRef
 
 __all__ = ["UserPlan"]
 
@@ -26,5 +26,5 @@ class UserPlan(BaseModel):
     raw_text: str
     user_id: str | None = None
     submitted_at: datetime
-    attachments: list[ArtifactRef] = Field(default_factory=list)
+    attachments: list[PlanArtifactRef] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)

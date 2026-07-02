@@ -32,9 +32,9 @@ def plan_agent_responses() -> dict[str, type[BaseModel]]:
         FinalReport,
         InputSet,
         PlanReview,
+        PlanWorkflowIR,
         TestSource,
         TestSpecBundle,
-        WorkflowIR,
         WorkflowSource,
     )
 
@@ -42,7 +42,7 @@ def plan_agent_responses() -> dict[str, type[BaseModel]]:
         "experiment_report_writer": ExperimentReport,
         "experiment_spec_generator": ExperimentSpec,
         "capability_selector": CapabilitySelection,
-        "workflow_ir_extractor": WorkflowIR,
+        "workflow_ir_extractor": PlanWorkflowIR,
         "bound_workflow_binder": BoundWorkflow,
         "workflow_source_writer": WorkflowSource,
         "input_set_generator": InputSet,

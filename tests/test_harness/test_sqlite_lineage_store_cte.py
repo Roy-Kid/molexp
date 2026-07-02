@@ -52,7 +52,7 @@ def _make_node(artifact_store: FileArtifactStore, label: str) -> str:
     """Create a distinct real artifact for ``label`` and return its id.
 
     ``trace_backward`` / ``trace_forward`` hydrate every visited id through
-    ``get_ref``, so each graph node must back onto a real ArtifactRef. The
+    ``get_ref``, so each graph node must back onto a real PlanArtifactRef. The
     payload embeds the label so content-addressed ids stay distinct.
     """
     ref = artifact_store.put_json(

@@ -24,11 +24,11 @@ def _baseline_ir():
     from molexp.harness.schemas.workflow_ir import (
         DependencyEdge,
         ExpectedOutput,
-        TaskIR,
-        WorkflowIR,
+        PlanTaskIR,
+        PlanWorkflowIR,
     )
 
-    build = TaskIR(
+    build = PlanTaskIR(
         id="build",
         name="Build system",
         purpose="Pack water box",
@@ -36,7 +36,7 @@ def _baseline_ir():
         inputs={"n_chains": ParameterValue(value=100, source="user_provided")},
         outputs={"structure": "structure.pdb"},
     )
-    run_md = TaskIR(
+    run_md = PlanTaskIR(
         id="run_md",
         name="Run NEMD",
         purpose="Propagate dynamics under field",
@@ -44,7 +44,7 @@ def _baseline_ir():
         inputs={"structure": ParameterValue(value="structure.pdb", source="user_provided")},
         outputs={"trajectory": "traj.dcd"},
     )
-    return WorkflowIR(
+    return PlanWorkflowIR(
         id="wf-001",
         name="water_nemd",
         objective="Compute ionic mobility under field",
@@ -77,25 +77,25 @@ class TestWorkflowIRValidator:
         assert report.target_id == "wf-001"
 
     def test_validate_workflow_ir_signature_and_import(self) -> None:
-        """ac-004: importable from both paths; signature returns ValidationReport."""
-        from molexp.harness import WorkflowIRValidator as top
-        from molexp.harness.schemas.validation import ValidationReport
+        """ac-004: importable from both paths; signature returns PlanValidationReport."""
+        from molexp.harness.schemas.validation import PlanValidationReport
+        from molexp.harness.validators import WorkflowIRValidator as top
         from molexp.harness.validators import WorkflowIRValidator as via_pkg
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator as via_mod
 
         assert top is via_pkg is via_mod
 
         report = top.validate(_baseline_ir())
-        assert isinstance(report, ValidationReport)
+        assert isinstance(report, PlanValidationReport)
 
     # ------------------------------------------------------------------ violations
 
     def test_duplicate_task_id(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dup_task = TaskIR(
+        dup_task = PlanTaskIR(
             id="build",  # duplicate
             name="Other",
             purpose="x",
@@ -184,13 +184,13 @@ class TestWorkflowIRValidator:
 
     def test_unresolved_input(self) -> None:
         from molexp.harness.schemas.parameter import ParameterValue
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
         # run_md depends on "structure" (from "build"). Add a 3rd task whose
         # input name is unresolved.
-        orphan = TaskIR(
+        orphan = PlanTaskIR(
             id="orphan",
             name="Orphan",
             purpose="x",
@@ -204,11 +204,11 @@ class TestWorkflowIRValidator:
 
     def test_agent_inferred_not_flagged_is_warning(self) -> None:
         from molexp.harness.schemas.parameter import ParameterValue
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        risky = TaskIR(
+        risky = PlanTaskIR(
             id="risky",
             name="risky",
             purpose="x",
@@ -228,11 +228,11 @@ class TestWorkflowIRValidator:
 
     def test_agent_inferred_in_review_flags_is_clean(self) -> None:
         from molexp.harness.schemas.parameter import ParameterValue
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        flagged_task = TaskIR(
+        flagged_task = PlanTaskIR(
             id="flagged",
             name="flagged",
             purpose="x",
@@ -246,11 +246,11 @@ class TestWorkflowIRValidator:
         assert "agent_inferred_not_flagged" not in _codes(report)
 
     def test_shell_command_in_ir_bash(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="dirty",
             purpose="Run bash -c 'rm -rf /'",
@@ -263,11 +263,11 @@ class TestWorkflowIRValidator:
         assert "shell_command_in_ir" in _codes(report)
 
     def test_shell_command_in_ir_subprocess(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="dirty",
             purpose="invoke subprocess.run(['lmp', '-in', 'in.lammps'])",
@@ -280,11 +280,11 @@ class TestWorkflowIRValidator:
         assert "shell_command_in_ir" in _codes(report)
 
     def test_shell_command_in_ir_semicolon(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="run a; run b",
             purpose="x",
@@ -297,11 +297,11 @@ class TestWorkflowIRValidator:
         assert "shell_command_in_ir" in _codes(report)
 
     def test_backend_leak_in_ir_slurm(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="dirty",
             purpose="submit via slurm",
@@ -314,11 +314,11 @@ class TestWorkflowIRValidator:
         assert "backend_leak_in_ir" in _codes(report)
 
     def test_backend_leak_in_ir_sbatch(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="sbatch run.sh",
             purpose="x",
@@ -331,11 +331,11 @@ class TestWorkflowIRValidator:
         assert "backend_leak_in_ir" in _codes(report)
 
     def test_backend_leak_in_ir_module_load(self) -> None:
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="dirty",
             purpose="needs module load gcc/11",
@@ -353,11 +353,11 @@ class TestWorkflowIRValidator:
         deny list. Regression: the previous ``_string_fields`` only scanned
         free-text fields, leaving parameter values as a soft channel."""
         from molexp.harness.schemas.parameter import ParameterValue
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        dirty = TaskIR(
+        dirty = PlanTaskIR(
             id="dirty",
             name="dirty",
             purpose="harmless",
@@ -381,11 +381,11 @@ class TestWorkflowIRValidator:
         backticks (e.g. ``output matches `expected.csv` ``). The old
         deny-list included ``` ` ``` which produced false positives on
         perfectly fine prose. Regression: it must no longer trip."""
-        from molexp.harness.schemas.workflow_ir import TaskIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
         from molexp.harness.validators.workflow_ir import WorkflowIRValidator
 
         ir = _baseline_ir()
-        clean = TaskIR(
+        clean = PlanTaskIR(
             id="prose",
             name="prose",
             purpose="document the run",

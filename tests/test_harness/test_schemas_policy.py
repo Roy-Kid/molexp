@@ -186,4 +186,4 @@ def test_three_policies_re_exported_from_schemas_package() -> None:
 
 
 def test_three_policies_re_exported_from_top_level() -> None:
-    from molexp.harness import ApprovalPolicy, PathPolicy, ToolPolicy  # noqa: F401
+    from molexp.harness.schemas import ApprovalPolicy, PathPolicy, ToolPolicy  # noqa: F401

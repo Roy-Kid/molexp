@@ -3,7 +3,7 @@
 Checks that the concrete spec actually concretizes the human-readable
 report it derives from: every open ``user_questions`` entry is answered and,
 when the report named variables, the spec pinned at least one. Pure, sync,
-no I/O, never raises — returns a :class:`ValidationReport` the owning
+no I/O, never raises — returns a :class:`PlanValidationReport` the owning
 ``ValidateExperimentSpec`` stage lifts to an error.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from molexp.harness.schemas.experiment_report import ExperimentReport
 from molexp.harness.schemas.experiment_spec import ExperimentSpec
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
 __all__ = ["ExperimentSpecValidator"]
 
@@ -20,7 +20,7 @@ class ExperimentSpecValidator:
     @staticmethod
     def validate(
         spec: ExperimentSpec, *, report: ExperimentReport | None = None
-    ) -> ValidationReport:
+    ) -> PlanValidationReport:
         violations: list[ValidationViolation] = []
 
         if report is not None:
@@ -55,7 +55,7 @@ class ExperimentSpecValidator:
                     )
                 )
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="experiment_spec",
             target_id=spec.id,
             violations=violations,

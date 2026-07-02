@@ -123,7 +123,7 @@ def _make_workflow_ir_canned_response() -> dict:
 def test_extract_builds_correct_spec(ctx_with_gateway) -> None:
     """Capture the spec the stage passes to the gateway."""
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, WorkflowIR
+    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, PlanWorkflowIR
     from molexp.harness.stages.extract_workflow_ir import ExtractWorkflowIR
 
     spec_ref = _seed_experiment_spec_ref(ctx_with_gateway.artifact_store)
@@ -150,7 +150,7 @@ def test_extract_builds_correct_spec(ctx_with_gateway) -> None:
     spec = captured[0]
     assert spec.agent_name == "workflow_ir_extractor"
     assert spec.input_artifact_ids == [spec_ref.id]
-    assert spec.output_schema == WorkflowIR.model_json_schema()
+    assert spec.output_schema == PlanWorkflowIR.model_json_schema()
 
 
 def test_extract_returns_workflow_ir_ref_with_parent_ids(ctx_with_gateway) -> None:

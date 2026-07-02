@@ -85,21 +85,23 @@ def _test_spec_canned() -> dict:
 
 def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path) -> None:
     from molexp.harness import (
-        BindMolcraftsTasks,
-        ExtractWorkflowIR,
         FileArtifactStore,
-        GenerateExperimentReport,
-        GenerateExperimentSpec,
-        GenerateTestSpec,
         HarnessRunContext,
-        SaveUserPlan,
         SQLiteArtifactLineageStore,
         SQLiteEventLog,
         StageRunner,
+    )
+    from molexp.harness.gateways.stub import StubAgentGateway
+    from molexp.harness.stages import (
+        BindMolcraftsTasks,
+        ExtractWorkflowIR,
+        GenerateExperimentReport,
+        GenerateExperimentSpec,
+        GenerateTestSpec,
+        SaveUserPlan,
         ValidateBoundWorkflow,
         ValidateWorkflowIR,
     )
-    from molexp.harness.gateways.stub import StubAgentGateway
 
     db = tmp_path / "events.sqlite"
     a = FileArtifactStore(root=tmp_path / "artifacts")
@@ -156,7 +158,7 @@ def test_seven_stage_pipeline_yields_eight_layer_provenance_chain(tmp_path: Path
 
 
 def test_phase08_public_symbols_importable() -> None:
-    from molexp.harness import (  # noqa: F401
+    from molexp.harness.stages import (  # noqa: F401
         BindMolcraftsTasks,
         GenerateTestSpec,
         ValidateBoundWorkflow,

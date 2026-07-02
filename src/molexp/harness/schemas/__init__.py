@@ -16,7 +16,7 @@ from molexp.harness.schemas.approval import (
 from molexp.harness.schemas.artifact import (
     WELL_KNOWN_ARTIFACT_KINDS,
     ArtifactKind,
-    ArtifactRef,
+    PlanArtifactRef,
 )
 from molexp.harness.schemas.audit_report import AuditReport
 from molexp.harness.schemas.bound_workflow import (
@@ -70,12 +70,12 @@ from molexp.harness.schemas.test_spec import (
     TestStatus,
 )
 from molexp.harness.schemas.user_plan import UserPlan
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 from molexp.harness.schemas.workflow_ir import (
     DependencyEdge,
     ExpectedOutput,
-    TaskIR,
-    WorkflowIR,
+    PlanTaskIR,
+    PlanWorkflowIR,
 )
 from molexp.harness.schemas.workflow_source import GeneratedFile, WorkflowSource
 
@@ -92,7 +92,6 @@ __all__ = [
     "ApprovalPolicy",
     "ApprovalRequest",
     "ArtifactKind",
-    "ArtifactRef",
     "AuditReport",
     "BoundTask",
     "BoundWorkflow",
@@ -120,8 +119,12 @@ __all__ = [
     "ParameterSource",
     "ParameterValue",
     "PathPolicy",
+    "PlanArtifactRef",
     "PlanReview",
     "PlanReviewFinding",
+    "PlanTaskIR",
+    "PlanValidationReport",
+    "PlanWorkflowIR",
     "ProposalOutcome",
     "ProposalStatus",
     "ResolvedQuestion",
@@ -133,7 +136,6 @@ __all__ = [
     "StateSnapshot",
     "SweepAxis",
     "SweepStrategy",
-    "TaskIR",
     "TestKind",
     "TestResult",
     "TestSource",
@@ -143,8 +145,6 @@ __all__ = [
     "ToolCapability",
     "ToolPolicy",
     "UserPlan",
-    "ValidationReport",
     "ValidationViolation",
-    "WorkflowIR",
     "WorkflowSource",
 ]

@@ -5,7 +5,7 @@ from __future__ import annotations
 __all__ = ["SYSTEM_PROMPT"]
 
 SYSTEM_PROMPT = (
-    "You are a binder. Map each task of the abstract WorkflowIR to a concrete "
+    "You are a binder. Map each task of the abstract PlanWorkflowIR to a concrete "
     "molcrafts capability — its package, capability_id, and callable — producing "
     "a BoundWorkflow with one bound task per IR task. Preserve the task graph "
     "(ids, inputs, outputs, edges) exactly as in the IR.\n\n"

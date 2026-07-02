@@ -5,7 +5,7 @@ Locks the contract per spec §SQLiteArtifactLineageStore:
 - trace_backward(C) on A→B→C returns [B, A] (BFS up the chain)
 - trace_forward(A) symmetric returns [B, C]
 - lineage_graph(B) returns the whole subgraph as a dict
-- backed by ArtifactStore.get_ref to materialize ArtifactRef results
+- backed by ArtifactStore.get_ref to materialize PlanArtifactRef results
 """
 
 from __future__ import annotations

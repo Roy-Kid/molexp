@@ -2,12 +2,12 @@
 
 Per ``.claude/notes/harness-goal.md`` §4.7: ``BoundWorkflow`` describes
 *how* the experiment will actually run — which Molcrafts capability
-implements each ``TaskIR``, what version, what parameters (with
+implements each ``PlanTaskIR``, what version, what parameters (with
 provenance), what command template, what side effects, what backend,
 what environment, what resource policy.
 
 Every ``BoundTask.ir_task_id`` references a
-:class:`molexp.harness.schemas.workflow_ir.TaskIR.id`; the structural
+:class:`molexp.harness.schemas.workflow_ir.PlanTaskIR.id`; the structural
 validator
 (:func:`molexp.harness.validators.bound_workflow.validate_bound_workflow`)
 ensures the mapping is one-to-one and that input/output keys agree.
@@ -34,7 +34,7 @@ __all__ = [
 
 
 class BoundTask(BaseModel):
-    """One concretely-bound execution unit, linked back to its ``TaskIR``."""
+    """One concretely-bound execution unit, linked back to its ``PlanTaskIR``."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -91,7 +91,7 @@ class ResourcePolicy(BaseModel):
 
 
 class BoundWorkflow(BaseModel):
-    """The execution-binding layer above :class:`WorkflowIR`.
+    """The execution-binding layer above :class:`PlanWorkflowIR`.
 
     Phase-3 invariants enforced by
     :func:`molexp.harness.validators.bound_workflow.validate_bound_workflow`:

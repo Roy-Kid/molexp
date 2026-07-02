@@ -1,4 +1,4 @@
-"""Tests for ArtifactRef + ArtifactKind (Phase 1 schema layer).
+"""Tests for PlanArtifactRef + ArtifactKind (Phase 1 schema layer).
 
 Locks the wire format and validation contract per spec §4.1:
 - frozen pydantic round-trip
@@ -16,9 +16,9 @@ from pydantic import ValidationError
 
 
 def test_artifact_ref_round_trip() -> None:
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
-    ref = ArtifactRef(
+    ref = PlanArtifactRef(
         id="a1b2c3d4",
         kind="workflow_ir",
         uri="file:///tmp/wf.json",
@@ -29,14 +29,14 @@ def test_artifact_ref_round_trip() -> None:
         metadata={"package": "molpy", "version": "0.1.0"},
     )
     dumped = ref.model_dump_json()
-    rehydrated = ArtifactRef.model_validate_json(dumped)
+    rehydrated = PlanArtifactRef.model_validate_json(dumped)
     assert rehydrated == ref
 
 
 def test_artifact_ref_is_frozen() -> None:
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
-    ref = ArtifactRef(
+    ref = PlanArtifactRef(
         id="a1b2c3d4",
         kind="log",
         uri="file:///x",
@@ -49,9 +49,9 @@ def test_artifact_ref_is_frozen() -> None:
 
 
 def test_artifact_ref_defaults_parent_ids_and_metadata() -> None:
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
-    ref = ArtifactRef(
+    ref = PlanArtifactRef(
         id="a1b2c3d4",
         kind="log",
         uri="file:///x",
@@ -64,15 +64,15 @@ def test_artifact_ref_defaults_parent_ids_and_metadata() -> None:
 
 
 def test_artifact_ref_accepts_arbitrary_string_kind() -> None:
-    """ArtifactRef accepts arbitrary string kinds under the open `str` contract.
+    """PlanArtifactRef accepts arbitrary string kinds under the open `str` contract.
 
     Spec ac-004: agent-layer modes register kinds like "intent_spec",
     "plan_graph", "preflight_report", … without round-tripping through the
     harness schema module.
     """
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
-    ref = ArtifactRef(
+    ref = PlanArtifactRef(
         id="a1b2c3d4",
         kind="intent_spec",
         uri="file:///x",
@@ -82,19 +82,19 @@ def test_artifact_ref_accepts_arbitrary_string_kind() -> None:
     )
     assert ref.kind == "intent_spec"
     # JSON round-trip preserves the custom kind value.
-    rehydrated = ArtifactRef.model_validate_json(ref.model_dump_json())
+    rehydrated = PlanArtifactRef.model_validate_json(ref.model_dump_json())
     assert rehydrated.kind == "intent_spec"
     assert rehydrated == ref
 
 
 def test_artifact_ref_rejects_empty_kind() -> None:
-    """ArtifactRef rejects kind="" — pydantic min_length=1 constraint pins the
+    """PlanArtifactRef rejects kind="" — pydantic min_length=1 constraint pins the
     edge case from the spec's Testing strategy.
     """
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
     with pytest.raises(ValidationError):
-        ArtifactRef(
+        PlanArtifactRef(
             id="a1b2c3d4",
             kind="",
             uri="file:///x",
@@ -105,11 +105,11 @@ def test_artifact_ref_rejects_empty_kind() -> None:
 
 
 def test_artifact_ref_sha256_must_be_bare_hex() -> None:
-    """ArtifactRef.sha256 stores bare hex, not the 'sha256:<hex>' prefixed form."""
-    from molexp.harness.schemas.artifact import ArtifactRef
+    """PlanArtifactRef.sha256 stores bare hex, not the 'sha256:<hex>' prefixed form."""
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
     # Bare hex of length 64 is accepted.
-    ArtifactRef(
+    PlanArtifactRef(
         id="a1b2c3d4",
         kind="log",
         uri="file:///x",
@@ -119,7 +119,7 @@ def test_artifact_ref_sha256_must_be_bare_hex() -> None:
     )
     # Prefixed form is rejected — caller (FileArtifactStore) must strip it.
     with pytest.raises(ValidationError):
-        ArtifactRef(
+        PlanArtifactRef(
             id="a1b2c3d4",
             kind="log",
             uri="file:///x",
@@ -184,17 +184,16 @@ def test_well_known_artifact_kinds_contents() -> None:
     assert "validation_report" in well_known_set
 
 
-def test_well_known_artifact_kinds_reexported_through_top_level() -> None:
-    """`WELL_KNOWN_ARTIFACT_KINDS` re-exports through schemas and harness top-level.
+def test_well_known_artifact_kinds_reexported_through_schemas() -> None:
+    """`WELL_KNOWN_ARTIFACT_KINDS` re-exports through `molexp.harness.schemas`.
 
-    Spec ac-003: `from molexp.harness import WELL_KNOWN_ARTIFACT_KINDS` succeeds;
-    same tuple object as in artifact.py; listed in both `__all__`s.
+    The harness top level no longer re-exports schemas (shrunk `__all__`);
+    the canonical import path is the `schemas` subpackage.
     """
     import molexp.harness as harness_top
     import molexp.harness.schemas as schemas_top
     from molexp.harness.schemas import artifact as artifact_mod
 
-    assert harness_top.WELL_KNOWN_ARTIFACT_KINDS is artifact_mod.WELL_KNOWN_ARTIFACT_KINDS
     assert schemas_top.WELL_KNOWN_ARTIFACT_KINDS is artifact_mod.WELL_KNOWN_ARTIFACT_KINDS
-    assert "WELL_KNOWN_ARTIFACT_KINDS" in harness_top.__all__
+    assert "WELL_KNOWN_ARTIFACT_KINDS" not in harness_top.__all__
     assert "WELL_KNOWN_ARTIFACT_KINDS" in schemas_top.__all__

@@ -14,7 +14,7 @@ Traversals are BFS:
 - ``trace_forward(A)`` walks ``child_id`` edges from ``A``, returning
   descendants in level order.
 
-Each visited id is hydrated into an :class:`ArtifactRef` via the supplied
+Each visited id is hydrated into an :class:`PlanArtifactRef` via the supplied
 :class:`ArtifactStore` so callers get the full metadata, not just an id.
 
 The edge walk runs as a single ``WITH RECURSIVE`` CTE rather than one
@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from molexp.harness.schemas import ArtifactRef
+from molexp.harness.schemas import PlanArtifactRef
 from molexp.harness.store._sqlite import open_db
 from molexp.harness.store.artifact_store import ArtifactStore
 
@@ -90,11 +90,11 @@ class SQLiteArtifactLineageStore:
                 ),
             )
 
-    def trace_backward(self, artifact_id: str) -> list[ArtifactRef]:
+    def trace_backward(self, artifact_id: str) -> list[PlanArtifactRef]:
         order = self._bfs(artifact_id, direction="up")
         return [self._artifacts.get_ref(aid) for aid in order]
 
-    def trace_forward(self, artifact_id: str) -> list[ArtifactRef]:
+    def trace_forward(self, artifact_id: str) -> list[PlanArtifactRef]:
         order = self._bfs(artifact_id, direction="down")
         return [self._artifacts.get_ref(aid) for aid in order]
 

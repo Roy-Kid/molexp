@@ -2,7 +2,7 @@
 ``ValidateTestSource`` stage (spec ``harness-run-mode-01-substrate``, T03).
 
 Pure validator contract (mirrors ``validators/workflow_source.py``):
-``TestSourceValidator.validate(source: str, *, target_id: str) -> ValidationReport``
+``TestSourceValidator.validate(source: str, *, target_id: str) -> PlanValidationReport``
 with ``target_kind == "test_source"``. Checks are parse/compile-time ONLY —
 ``ast.parse`` syntax check, private ``molexp.workflow._*`` import scan, at
 least one ``def test_*`` function, and a ``compile(...)`` byte-compile
@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from molexp.harness import ArtifactRef
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.schemas import PlanArtifactRef
 
 # --------------------------------------------------------------- fixtures
 
@@ -44,7 +44,7 @@ SYNTAX_ERROR_SOURCE = "def (:\n    pass\n"
 
 # (b) imports a private subpackage of molexp.workflow.
 PRIVATE_IMPORT_SOURCE = """\
-from molexp.workflow._pydantic_graph import engine
+from molexp.workflow._engine import engine
 
 
 def test_sneaky():
@@ -106,7 +106,7 @@ def ctx(tmp_path: Path) -> HarnessRunContext:
 
 
 def _test_source_dict(source: str) -> dict:
-    from molexp.harness import TestSource
+    from molexp.harness.schemas import TestSource
 
     ts = TestSource(
         source=source,
@@ -117,7 +117,7 @@ def _test_source_dict(source: str) -> dict:
     return json.loads(ts.model_dump_json())
 
 
-def _seed_test_source(ctx: HarnessRunContext, source: str) -> ArtifactRef:
+def _seed_test_source(ctx: HarnessRunContext, source: str) -> PlanArtifactRef:
     return ctx.artifact_store.put_json(
         kind="test_source",
         obj=_test_source_dict(source),
@@ -130,7 +130,7 @@ class TestValidateTestSource:
     # ------------------------------------------------- pure validator: happy
 
     def test_validate_test_source_passes_valid_pytest_source(self) -> None:
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(VALID_TEST_SOURCE, target_id="ts-art-1")
         assert report.passed is True
@@ -141,7 +141,7 @@ class TestValidateTestSource:
     # --------------------------------------------------- pure validator: red
 
     def test_validate_test_source_flags_syntax_error_without_raising(self) -> None:
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(SYNTAX_ERROR_SOURCE, target_id="ts-art-1")
         assert report.passed is False
@@ -149,7 +149,7 @@ class TestValidateTestSource:
         assert any("syntax" in v.code.lower() for v in report.violations)
 
     def test_validate_test_source_never_raises_on_garbage(self) -> None:
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         # Total function: even on wildly malformed input no exception escapes.
         for bad in ("def (:\n", "@@@@", "import", "class :", "\x00\x01"):
@@ -157,15 +157,15 @@ class TestValidateTestSource:
             assert report.passed is False
 
     def test_validate_test_source_rejects_private_workflow_import(self) -> None:
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(PRIVATE_IMPORT_SOURCE, target_id="ts-art-1")
         assert report.passed is False
         # A violation must name the disallowed private import target.
-        assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
+        assert any("_engine" in (v.message + (v.path or "")) for v in report.violations)
 
     def test_validate_test_source_requires_a_test_function(self) -> None:
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(NO_TEST_FUNCTION_SOURCE, target_id="ts-art-1")
         assert report.passed is False
@@ -175,7 +175,7 @@ class TestValidateTestSource:
 
     def test_validate_test_source_never_executes_module_code(self) -> None:
         """Parse + compile ONLY: a module-level ``raise`` must not fire."""
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(MODULE_RAISE_SOURCE, target_id="ts-art-1")
         assert report.passed is True
@@ -184,7 +184,7 @@ class TestValidateTestSource:
     def test_validate_test_source_runs_byte_compile_stage(self) -> None:
         """'break' outside a loop passes ast.parse but fails compile() — a
         failing report proves the byte-compile pre-check actually runs."""
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(COMPILE_STAGE_ERROR_SOURCE, target_id="ts-art-1")
         assert report.passed is False
@@ -193,8 +193,8 @@ class TestValidateTestSource:
     # ------------------------------------------------------------ stage shape
 
     def test_stage_name_and_subclass(self) -> None:
-        from molexp.harness import ValidateTestSource
         from molexp.harness.core.stage import Stage
+        from molexp.harness.stages import ValidateTestSource
 
         assert ValidateTestSource.name == "validate_test_source"
         assert issubclass(ValidateTestSource, Stage)
@@ -202,7 +202,8 @@ class TestValidateTestSource:
     # ------------------------------------------------------- stage happy path
 
     def test_stage_persists_passing_report_for_good_source(self, ctx) -> None:
-        from molexp.harness import ValidateTestSource, ValidationReport
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSource
 
         ts_ref = _seed_test_source(ctx, VALID_TEST_SOURCE)
         report_ref = asyncio.run(ValidateTestSource().run(ctx))
@@ -211,14 +212,16 @@ class TestValidateTestSource:
         assert ts_ref.id in report_ref.parent_ids
 
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is True
         assert report.target_kind == "test_source"
 
     # --------------------------------------------------------- stage red path
 
     def test_stage_persists_failing_report_then_raises(self, ctx) -> None:
-        from molexp.harness import StagePersistedFailureError, ValidateTestSource, ValidationReport
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSource
 
         _seed_test_source(ctx, SYNTAX_ERROR_SOURCE)
 
@@ -229,14 +232,15 @@ class TestValidateTestSource:
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
         raw = ctx.artifact_store.get(reports[0].id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert report.target_kind == "test_source"
         assert exc_info.value.persisted_ref.id == reports[0].id
         assert exc_info.value.persisted_ref.kind == "validation_report"
 
     def test_stage_returns_failing_ref_when_raise_disabled(self, ctx) -> None:
-        from molexp.harness import ValidateTestSource, ValidationReport
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSource
 
         ts_ref = _seed_test_source(ctx, SYNTAX_ERROR_SOURCE)
         report_ref = asyncio.run(ValidateTestSource(raise_on_failure=False).run(ctx))
@@ -244,7 +248,7 @@ class TestValidateTestSource:
         assert report_ref.kind == "validation_report"
         assert ts_ref.id in report_ref.parent_ids
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
 
 
@@ -262,7 +266,7 @@ class TestValidateTestSourcePerTask:
     def test_rejects_module_missing_a_per_task_test(self) -> None:
         """ac-005 — a module covering only some required tasks fails with a
         ``missing_task_test`` error for the uncovered one."""
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(
             _TWO_TASK_SOURCE,
@@ -276,7 +280,7 @@ class TestValidateTestSourcePerTask:
 
     def test_accepts_a_test_per_required_task(self) -> None:
         """ac-005 — every required task covered by a ``test_*`` → passes."""
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(
             _TWO_TASK_SOURCE,
@@ -288,7 +292,7 @@ class TestValidateTestSourcePerTask:
 
     def test_normalizes_non_identifier_task_ids(self) -> None:
         """A hyphenated task id is matched by its identifier-safe token."""
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         source = "def test_b_build_ok():\n    assert True\n"
         report = TestSourceValidator.validate(
@@ -298,7 +302,7 @@ class TestValidateTestSourcePerTask:
 
     def test_none_required_keeps_legacy_behaviour(self) -> None:
         """required_task_ids=None → only the legacy 'at least one test' check."""
-        from molexp.harness import TestSourceValidator
+        from molexp.harness.validators import TestSourceValidator
 
         report = TestSourceValidator.validate(VALID_TEST_SOURCE, target_id="ts-art-1")
         assert report.passed is True

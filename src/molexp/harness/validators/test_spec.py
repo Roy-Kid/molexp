@@ -8,7 +8,7 @@ Two-mode contract:
 - **shallow** (default): when ``ir`` and ``bw`` are both ``None``, only
   shape / target-presence / command-safety / tolerance-coherence checks
   fire. Useful when the caller wants to validate a TestSpec in isolation
-  before any WorkflowIR has been built.
+  before any PlanWorkflowIR has been built.
 
 - **cross-checked**: when ``ir`` is supplied, additional codes
   ``unknown_task_target`` / ``unknown_workflow_target`` resolve the
@@ -21,8 +21,9 @@ from __future__ import annotations
 
 from molexp.harness.schemas.bound_workflow import BoundWorkflow
 from molexp.harness.schemas.test_spec import TestSpec
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
-from molexp.harness.schemas.workflow_ir import WorkflowIR
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
+from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
+from molexp.harness.validators.render import format_candidates
 
 __all__ = ["TestSpecValidator"]
 
@@ -50,9 +51,9 @@ class TestSpecValidator:
     def validate(
         spec: TestSpec,
         *,
-        ir: WorkflowIR | None = None,
+        ir: PlanWorkflowIR | None = None,
         bw: BoundWorkflow | None = None,  # noqa: ARG004  — accepted for symmetry with Phase-3 validators; Phase-6 will use it
-    ) -> ValidationReport:
+    ) -> PlanValidationReport:
         violations: list[ValidationViolation] = []
 
         # 1. missing_target / 2. ambiguous_target
@@ -76,21 +77,20 @@ class TestSpecValidator:
             )
 
         # 3. unknown_task_target — only if ir provided
-        if (
-            ir is not None
-            and spec.target_task_id is not None
-            and spec.target_task_id not in {t.id for t in ir.tasks}
-        ):
-            violations.append(
-                ValidationViolation(
-                    code="unknown_task_target",
-                    message=(
-                        f"target_task_id {spec.target_task_id!r} not found "
-                        f"in WorkflowIR {ir.id!r} tasks"
-                    ),
-                    path="target_task_id",
+        if ir is not None and spec.target_task_id is not None:
+            known_task_ids = {t.id for t in ir.tasks}
+            if spec.target_task_id not in known_task_ids:
+                violations.append(
+                    ValidationViolation(
+                        code="unknown_task_target",
+                        message=(
+                            f"test {spec.id!r} targets unknown task "
+                            f"{spec.target_task_id!r}; known tasks in "
+                            f"PlanWorkflowIR {ir.id!r}: {format_candidates(known_task_ids)}"
+                        ),
+                        path="target_task_id",
+                    )
                 )
-            )
 
         # 4. unknown_workflow_target — only if ir provided
         if (
@@ -102,8 +102,8 @@ class TestSpecValidator:
                 ValidationViolation(
                     code="unknown_workflow_target",
                     message=(
-                        f"target_workflow_id {spec.target_workflow_id!r} does not match "
-                        f"WorkflowIR.id {ir.id!r}"
+                        f"test {spec.id!r} targets unknown workflow "
+                        f"{spec.target_workflow_id!r}; known workflow id: {ir.id!r}"
                     ),
                     path="target_workflow_id",
                 )
@@ -151,7 +151,7 @@ class TestSpecValidator:
                 )
             )
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="test_spec",
             target_id=spec.id,
             violations=violations,

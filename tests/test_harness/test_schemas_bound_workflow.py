@@ -137,7 +137,7 @@ def test_bound_workflow_round_trip() -> None:
 
 
 def test_bound_workflow_edges_uses_dependency_edge_from_workflow_ir() -> None:
-    """Same DependencyEdge type as WorkflowIR — not re-defined."""
+    """Same DependencyEdge type as PlanWorkflowIR — not re-defined."""
     from molexp.harness.schemas.bound_workflow import BoundWorkflow
     from molexp.harness.schemas.workflow_ir import DependencyEdge as IREdge
 

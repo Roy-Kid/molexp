@@ -264,10 +264,8 @@ class TestPlanModeShape:
             "extract_workflow_ir",
             "bind_molcrafts_tasks",
             "generate_workflow_source",
-            "generate_test_spec",
-            "validate_test_spec",
-            "generate_test_code",
-            "validate_test_source",
+            "generate_test_spec",  # RepairLoop: GenerateTestSpec + ValidateTestSpec
+            "generate_test_code",  # RepairLoop: GenerateTestCode + ValidateTestSource
             "generate_input_set",
             "materialize_execution",
             "execute_tests",
@@ -285,6 +283,163 @@ class TestPlanModeShape:
             "approve_execution",
             "generate_audit_report",
         ]
+
+
+# ─────────────────────────────────────── test_spec chain: repair symmetry
+
+# Structurally valid TestSpecBundle whose specs target task ids absent from
+# the workflow IR — the exact cross-generation drift observed in production
+# (unknown_task_target), which ValidateTestSpec deterministically rejects.
+_INVALID_TEST_SPEC = {
+    "id": "tsb-water",
+    "bound_workflow_id": "bw-water",
+    "specs": [
+        {
+            "id": "ts-ghost",
+            "name": "ghost task check",
+            "kind": "unit_test",
+            "target_task_id": "ghost_task",
+            "description": "targets a task id absent from the workflow IR",
+        }
+    ],
+}
+
+
+class TestTestSpecRepairChain:
+    """GenerateTestSpec + ValidateTestSpec form a RepairLoop, symmetric with
+    the workflow_source chain — a rejected bundle is regenerated with the
+    validator's violations as feedback instead of failing the whole plan."""
+
+    def test_test_spec_chain_is_a_repair_loop_matching_workflow_source_budget(self) -> None:
+        from molexp.harness.stages import GenerateTestSpec, RepairLoop, ValidateTestSpec
+
+        stages = {s.name: s for s in PlanMode().stages("draft")}
+        loop = stages["generate_test_spec"]
+        assert isinstance(loop, RepairLoop)
+        assert isinstance(loop._generate, GenerateTestSpec)
+        assert [type(v) for v in loop._validators] == [ValidateTestSpec]
+        assert loop._feedback_kind == "test_spec_feedback"
+        source_loop = stages["generate_workflow_source"]
+        assert isinstance(source_loop, RepairLoop)
+        assert loop._attempts == source_loop._attempts == 4
+
+    @pytest.mark.integration
+    def test_test_spec_repair_feeds_violations_back_and_converges(self, tmp_path: Path) -> None:
+        """Stubbed LLM emits an invalid bundle first, then a valid one: the
+        loop records the violations as ``test_spec_feedback``, regenerates
+        with that feedback as an input, and returns the valid bundle."""
+        from molexp.harness.core.run_context import HarnessRunContext
+        from molexp.harness.schemas import TestSpecBundle
+        from molexp.harness.store.sqlite_event_log import SQLiteEventLog
+
+        db = tmp_path / "harness.sqlite"
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = StubAgentGateway(store)
+        gateway.register_sequence(
+            "test_spec_writer", [_INVALID_TEST_SPEC, _TEST_SPEC], output_kind="test_spec"
+        )
+        ctx = HarnessRunContext(
+            run_id="r-repair",
+            workspace_root=tmp_path,
+            artifact_store=store,
+            event_log=SQLiteEventLog(path=db),
+            lineage_store=SQLiteArtifactLineageStore(path=db, artifact_store=store),
+            agent_gateway=gateway,
+        )
+        store.put_json(kind="workflow_ir", obj=_WORKFLOW_IR, created_by="seed", parent_ids=[])
+        store.put_json(kind="bound_workflow", obj=_BOUND_WORKFLOW, created_by="seed", parent_ids=[])
+
+        loop = next(s for s in PlanMode().stages(_DRAFT) if s.name == "generate_test_spec")
+        ref = asyncio.run(loop.run(ctx))
+
+        assert ref.kind == "test_spec"
+        bundle = TestSpecBundle.model_validate_json(store.get(ref.id))
+        assert [s.target_task_id for s in bundle.specs] == ["make_data", "summarize"]
+        # The rejection was recorded as feedback carrying the violations …
+        feedback = store.latest_by_kind("test_spec_feedback")
+        assert feedback is not None
+        assert b"unknown_task_target" in store.get(feedback.id)
+        # … and the regenerated bundle was produced WITH that feedback input.
+        assert feedback.id in ref.parent_ids
+
+
+# A test module that byte-compiles only if `from __future__` sits at the top —
+# the exact production failure: the LLM appended it mid-file (SyntaxError).
+_SYNTAX_ERROR_TEST_SOURCE = {
+    **_TEST_SOURCE,
+    "files": [
+        {
+            "path": "tests/test_make_data.py",
+            "source": "def test_ok():\n    pass\n\nfrom __future__ import annotations\n",
+        },
+    ],
+}
+
+
+class TestTestCodeRepairChain:
+    """GenerateTestCode + ValidateTestSource form a RepairLoop, symmetric with
+    the test_spec and workflow_source chains — a test module that fails the
+    byte-compile gate is regenerated with the violations as feedback instead
+    of failing the whole plan (production: `from __future__` emitted at line
+    98 cost a full re-run)."""
+
+    def test_test_code_chain_is_a_repair_loop_matching_the_shared_budget(self) -> None:
+        from molexp.harness.stages import GenerateTestCode, RepairLoop, ValidateTestSource
+
+        stages = {s.name: s for s in PlanMode().stages("draft")}
+        loop = stages["generate_test_code"]
+        assert isinstance(loop, RepairLoop)
+        assert isinstance(loop._generate, GenerateTestCode)
+        assert [type(v) for v in loop._validators] == [ValidateTestSource]
+        assert loop._feedback_kind == "test_code_feedback"
+        assert loop._attempts == stages["generate_test_spec"]._attempts == 4
+
+    @pytest.mark.integration
+    def test_test_code_repair_feeds_violations_back_and_converges(self, tmp_path: Path) -> None:
+        """Stubbed LLM emits a non-compiling module first, then a valid one:
+        the loop records the compile violations as ``test_code_feedback``,
+        regenerates with that feedback as an input, and returns the valid
+        source."""
+        from molexp.harness.core.run_context import HarnessRunContext
+        from molexp.harness.schemas import TestSource
+        from molexp.harness.store.sqlite_event_log import SQLiteEventLog
+
+        db = tmp_path / "harness.sqlite"
+        store = FileArtifactStore(root=tmp_path / "artifacts")
+        gateway = StubAgentGateway(store)
+        gateway.register_sequence(
+            "test_code_writer",
+            [_SYNTAX_ERROR_TEST_SOURCE, _TEST_SOURCE],
+            output_kind="test_source",
+        )
+        ctx = HarnessRunContext(
+            run_id="r-repair-code",
+            workspace_root=tmp_path,
+            artifact_store=store,
+            event_log=SQLiteEventLog(path=db),
+            lineage_store=SQLiteArtifactLineageStore(path=db, artifact_store=store),
+            agent_gateway=gateway,
+        )
+        store.put_json(kind="test_spec", obj=_TEST_SPEC, created_by="seed", parent_ids=[])
+        store.put_json(
+            kind="workflow_source", obj=_WORKFLOW_SOURCE, created_by="seed", parent_ids=[]
+        )
+
+        loop = next(s for s in PlanMode().stages(_DRAFT) if s.name == "generate_test_code")
+        ref = asyncio.run(loop.run(ctx))
+
+        assert ref.kind == "test_source"
+        source = TestSource.model_validate_json(store.get(ref.id))
+        assert [f.path for f in source.files] == [
+            "tests/test_make_data.py",
+            "tests/test_summarize.py",
+        ]
+        # The rejection was recorded as feedback carrying the violations …
+        feedback = store.latest_by_kind("test_code_feedback")
+        assert feedback is not None
+        assert b"compile_error" in store.get(feedback.id)
+        # … and the regenerated source was produced WITH that feedback input.
+        assert feedback.id in ref.parent_ids
 
 
 # ───────────────────────────────────────────────── offline run (plan-only)
@@ -391,14 +546,14 @@ class TestPlanModeExecute:
         gateway = _fixture_gateway(run, test_source=_FAILING_TEST_SOURCE)
         store = FileArtifactStore(root=run.run_dir / "artifacts")
 
-        from molexp.harness import StagePersistedFailureError
+        from molexp.harness.errors import StagePersistedFailureError
 
         with pytest.raises(StagePersistedFailureError):
             asyncio.run(PlanMode(execute=True).run(run=run, user_input=_DRAFT, gateway=gateway))
 
         # In-function import: a module-level `TestResult` would be collected by
         # pytest as a test class (house pattern for Test*-named schemas).
-        from molexp.harness import TestResult
+        from molexp.harness.schemas import TestResult
 
         test_ref = store.latest_by_kind("test_result")
         assert test_ref is not None

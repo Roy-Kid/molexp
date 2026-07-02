@@ -3,14 +3,14 @@
 Plain-Python runtime pieces:
 
 - :class:`HarnessRunContext` — frozen container handing services to stages.
-- :class:`Stage` — ABC with ``async run(ctx) -> ArtifactRef``.
+- :class:`Stage` — ABC with ``async run(ctx) -> PlanArtifactRef``.
 - :func:`run_stage_bracketed` — the audit bracket (``stage_started`` /
   ``artifact_created`` / ``stage_completed`` / ``stage_failed`` events +
   ``derived_from`` lineage edges) every stage execution goes through.
 - :class:`StageRunner` — thin single-stage wrapper over the bracket.
 - :func:`stage_fingerprint` — code identity for the Mode completion ledger.
 
-The harness ``Stage`` returns one ``ArtifactRef``; the agent layer's loops
+The harness ``Stage`` returns one ``PlanArtifactRef``; the agent layer's loops
 stream ``AgentEvent`` instead — the two abstractions stay distinct.
 """
 

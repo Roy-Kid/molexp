@@ -22,21 +22,21 @@ def _baseline_test_spec():
         id="ts-001",
         name="Schema sanity",
         kind="schema_test",
-        description="Verify WorkflowIR schema validates cleanly",
+        description="Verify PlanWorkflowIR schema validates cleanly",
         target_workflow_id="wf-001",
     )
 
 
 def _baseline_ir():
-    from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
+    from molexp.harness.schemas.workflow_ir import PlanTaskIR, PlanWorkflowIR
 
-    return WorkflowIR(
+    return PlanWorkflowIR(
         id="wf-001",
         name="wf",
         objective="x",
         inputs={},
         tasks=[
-            TaskIR(
+            PlanTaskIR(
                 id="task_a",
                 name="Task A",
                 purpose="x",
@@ -67,15 +67,15 @@ class TestTestSpecValidator:
         assert report.target_id == "ts-001"
 
     def test_validate_test_spec_signature_and_import(self) -> None:
-        """Importable from both paths; returns ValidationReport."""
-        from molexp.harness import TestSpecValidator as top
-        from molexp.harness.schemas.validation import ValidationReport
+        """Importable from both paths; returns PlanValidationReport."""
+        from molexp.harness.schemas.validation import PlanValidationReport
+        from molexp.harness.validators import TestSpecValidator as top
         from molexp.harness.validators import TestSpecValidator as via_pkg
         from molexp.harness.validators.test_spec import TestSpecValidator as via_mod
 
         assert top is via_pkg is via_mod
         report = top.validate(_baseline_test_spec())
-        assert isinstance(report, ValidationReport)
+        assert isinstance(report, PlanValidationReport)
 
     # -------------------------------------------------------------- codes
 
@@ -107,6 +107,47 @@ class TestTestSpecValidator:
         report = TestSpecValidator.validate(spec, ir=_baseline_ir())
         assert "unknown_task_target" in _codes(report)
 
+    def test_unknown_task_target_message_names_id_and_candidates(self) -> None:
+        """The violation message must name the test, the unknown target id,
+        and list the known task ids from the IR — actionable without opening
+        the report artifact."""
+        from molexp.harness.validators.test_spec import TestSpecValidator
+
+        spec = _baseline_test_spec().model_copy(
+            update={"target_task_id": "ghost_task", "target_workflow_id": None}
+        )
+        report = TestSpecValidator.validate(spec, ir=_baseline_ir())
+        [violation] = [v for v in report.violations if v.code == "unknown_task_target"]
+        assert "'ts-001'" in violation.message  # the test spec's own id
+        assert "'ghost_task'" in violation.message  # the unknown target id
+        assert "task_a" in violation.message  # the known candidate
+
+    def test_unknown_task_target_message_caps_long_candidate_list(self) -> None:
+        """A very long candidate list is sorted, capped, and says how many more."""
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR
+        from molexp.harness.validators.test_spec import TestSpecValidator
+
+        many_tasks = [
+            PlanTaskIR(
+                id=f"task_{i:02d}",
+                name=f"Task {i}",
+                purpose="x",
+                task_type="x",
+                inputs={},
+                outputs={"out": "out.json"},
+            )
+            for i in range(30)
+        ]
+        ir = _baseline_ir().model_copy(update={"tasks": many_tasks})
+        spec = _baseline_test_spec().model_copy(
+            update={"target_task_id": "ghost_task", "target_workflow_id": None}
+        )
+        report = TestSpecValidator.validate(spec, ir=ir)
+        [violation] = [v for v in report.violations if v.code == "unknown_task_target"]
+        assert "task_00" in violation.message  # sorted list starts at the front
+        assert "task_29" not in violation.message  # tail is capped away
+        assert "15 more" in violation.message  # and the cap says how many more
+
     def test_shallow_mode_skips_unknown_task_target(self) -> None:
         """Without ir, unknown_task_target must NOT fire."""
         from molexp.harness.validators.test_spec import TestSpecValidator
@@ -133,6 +174,18 @@ class TestTestSpecValidator:
         spec = _baseline_test_spec().model_copy(update={"target_workflow_id": "wf-other"})
         report = TestSpecValidator.validate(spec, ir=_baseline_ir())
         assert "unknown_workflow_target" in _codes(report)
+
+    def test_unknown_workflow_target_message_names_id_and_candidate(self) -> None:
+        """The violation message must name the test, the unknown workflow id,
+        and the one valid workflow id (the IR's own)."""
+        from molexp.harness.validators.test_spec import TestSpecValidator
+
+        spec = _baseline_test_spec().model_copy(update={"target_workflow_id": "wf-other"})
+        report = TestSpecValidator.validate(spec, ir=_baseline_ir())
+        [violation] = [v for v in report.violations if v.code == "unknown_workflow_target"]
+        assert "'ts-001'" in violation.message  # the test spec's own id
+        assert "'wf-other'" in violation.message  # the unknown target id
+        assert "'wf-001'" in violation.message  # the known candidate
 
     def test_shallow_mode_skips_unknown_workflow_target(self) -> None:
         from molexp.harness.validators.test_spec import TestSpecValidator

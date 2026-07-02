@@ -29,11 +29,11 @@ def _baseline():
     from molexp.harness.schemas.workflow_ir import (
         DependencyEdge,
         ExpectedOutput,
-        TaskIR,
-        WorkflowIR,
+        PlanTaskIR,
+        PlanWorkflowIR,
     )
 
-    t1 = TaskIR(
+    t1 = PlanTaskIR(
         id="t1",
         name="Build",
         purpose="x",
@@ -41,7 +41,7 @@ def _baseline():
         inputs={"n_chains": ParameterValue(value=100, source="user_provided")},
         outputs={"structure": "structure.pdb"},
     )
-    t2 = TaskIR(
+    t2 = PlanTaskIR(
         id="t2",
         name="Run",
         purpose="x",
@@ -49,7 +49,7 @@ def _baseline():
         inputs={"structure": ParameterValue(value="structure.pdb", source="user_provided")},
         outputs={"trajectory": "traj.dcd"},
     )
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-001",
         name="wf",
         objective="x",
@@ -116,8 +116,8 @@ class TestBoundWorkflowValidator:
         assert report.target_id == "bw-001"
 
     def test_validate_bound_workflow_signature_and_import(self, tmp_path: Path) -> None:
-        from molexp.harness import BoundWorkflowValidator as top
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
+        from molexp.harness.validators import BoundWorkflowValidator as top
         from molexp.harness.validators import BoundWorkflowValidator as via_pkg
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator as via_mod
 
@@ -125,7 +125,7 @@ class TestBoundWorkflowValidator:
 
         ir, bw = _baseline()
         report = top.validate(bw, ir, workspace_root=tmp_path)
-        assert isinstance(report, ValidationReport)
+        assert isinstance(report, PlanValidationReport)
 
     def test_phase_4_placeholder_comment_present(self) -> None:
         """ac-006: a Phase-4 placeholder comment block marks where
@@ -238,7 +238,7 @@ class TestBoundWorkflowValidator:
         assert "edge_topology_mismatch" in _codes(report)
 
     def test_edge_topology_match_with_id_translation(self, tmp_path: Path) -> None:
-        """Even when BoundTask.id ≠ TaskIR.id, topology must agree after translation."""
+        """Even when BoundTask.id ≠ PlanTaskIR.id, topology must agree after translation."""
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
         ir, bw = _baseline()
@@ -246,7 +246,7 @@ class TestBoundWorkflowValidator:
         assert "edge_topology_mismatch" not in _codes(report)
 
     def test_no_violations_when_clean(self, tmp_path: Path) -> None:
-        """The full clean baseline must produce ValidationReport.passed=True."""
+        """The full clean baseline must produce PlanValidationReport.passed=True."""
         from molexp.harness.validators.bound_workflow import BoundWorkflowValidator
 
         ir, bw = _baseline()

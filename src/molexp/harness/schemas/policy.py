@@ -14,7 +14,7 @@ future executors) can check them.
 
 :class:`ApprovalPolicy` *is* consumed in Phase 6 by
 :func:`molexp.harness.policy.evaluate_approval_policy`, which walks a
-``BoundWorkflow`` (and optional ``WorkflowIR``) and emits one
+``BoundWorkflow`` (and optional ``PlanWorkflowIR``) and emits one
 :class:`ApprovalRequest` per triggered ``require_for_*`` clause.
 """
 

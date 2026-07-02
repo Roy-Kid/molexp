@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 def _three_capabilities():
-    from molexp.harness import ToolCapability
+    from molexp.harness.schemas import ToolCapability
 
     builder = ToolCapability(
         id="molpy.builder.water.SPCEBuilder",
@@ -65,23 +65,23 @@ def _three_capabilities():
 
 
 def _build_matched_pair():
-    from molexp.harness import (
+    from molexp.harness.registry import InMemoryCapabilityRegistry
+    from molexp.harness.schemas import (
         BoundTask,
         BoundWorkflow,
         DependencyEdge,
         ExecutionEnvironment,
         ExpectedOutput,
-        InMemoryCapabilityRegistry,
         ParameterValue,
+        PlanTaskIR,
+        PlanWorkflowIR,
         ResourcePolicy,
-        TaskIR,
-        WorkflowIR,
     )
 
     builder, runner, analyzer = _three_capabilities()
     registry = InMemoryCapabilityRegistry(capabilities=[builder, runner, analyzer])
 
-    build = TaskIR(
+    build = PlanTaskIR(
         id="build",
         name="Pack water",
         purpose="Generate SPC/E configuration",
@@ -92,7 +92,7 @@ def _build_matched_pair():
         },
         outputs={"structure": "structure.pdb"},
     )
-    run_md = TaskIR(
+    run_md = PlanTaskIR(
         id="run_md",
         name="Run NEMD",
         purpose="Apply external field",
@@ -100,7 +100,7 @@ def _build_matched_pair():
         inputs={"structure": ParameterValue(value="structure.pdb", source="user_provided")},
         outputs={"trajectory": "traj.dcd"},
     )
-    analyze = TaskIR(
+    analyze = PlanTaskIR(
         id="analyze",
         name="Compute mobility",
         purpose="Estimate ionic mobility",
@@ -108,7 +108,7 @@ def _build_matched_pair():
         inputs={"trajectory": ParameterValue(value="traj.dcd", source="user_provided")},
         outputs={"mobility": "mobility.json"},
     )
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-water-nemd",
         name="water_nemd_e2e",
         objective="Compute ionic mobility",
@@ -188,7 +188,7 @@ def _codes(report) -> list[str]:
 
 class TestPhase04E2ERegistry:
     def test_three_capability_pipeline_validates_clean(self, tmp_path: Path) -> None:
-        from molexp.harness import BoundWorkflowValidator
+        from molexp.harness.validators import BoundWorkflowValidator
 
         ir, bw, registry = _build_matched_pair()
         report = BoundWorkflowValidator.validate(bw, ir, workspace_root=tmp_path, registry=registry)
@@ -196,7 +196,7 @@ class TestPhase04E2ERegistry:
         assert report.violations == []
 
     def test_flipping_to_ghost_capability_triggers_unknown_capability(self, tmp_path: Path) -> None:
-        from molexp.harness import BoundWorkflowValidator
+        from molexp.harness.validators import BoundWorkflowValidator
 
         ir, bw, registry = _build_matched_pair()
         bad_run = bw.tasks[1].model_copy(update={"capability_id": "ghost.capability"})
@@ -207,7 +207,7 @@ class TestPhase04E2ERegistry:
         assert "unknown_capability" in _codes(report)
 
     def test_undeclared_side_effect_fires(self, tmp_path: Path) -> None:
-        from molexp.harness import BoundWorkflowValidator
+        from molexp.harness.validators import BoundWorkflowValidator
 
         ir, bw, registry = _build_matched_pair()
         # MobilityKernel only declares ["fs_write"]; add "network" which it didn't.
@@ -219,38 +219,41 @@ class TestPhase04E2ERegistry:
         assert "undeclared_side_effect" in _codes(report)
 
     def test_phase04_public_surface_complete(self) -> None:
-        from molexp.harness import (  # noqa: F401
+        from molexp.harness import CapabilityRegistry  # noqa: F401
+        from molexp.harness.errors import (  # noqa: F401
             CapabilityAlreadyRegisteredError,
             CapabilityCallValidationError,
             CapabilityNotFoundError,
-            CapabilityRegistry,
-            InMemoryCapabilityRegistry,
-            ToolCapability,
         )
+        from molexp.harness.registry import InMemoryCapabilityRegistry  # noqa: F401
+        from molexp.harness.schemas import ToolCapability  # noqa: F401
 
     def test_phase01_to_phase03_surface_still_intact(self) -> None:
         """Regression: every Phase-1/2/3 export must still import."""
         from molexp.harness import (  # noqa: F401
-            AgentCallResult,
-            AgentCallSpec,
             AgentGateway,
-            ArtifactKind,
-            ArtifactRef,
-            BoundTask,
-            BoundWorkflow,
-            BoundWorkflowValidator,
-            DependencyEdge,
-            ExperimentReport,
             FileArtifactStore,
-            GenerateExperimentReport,
             HarnessRunContext,
-            SaveUserPlan,
             Stage,
             StageRunner,
-            TaskIR,
+        )
+        from molexp.harness.schemas import (  # noqa: F401
+            AgentCallResult,
+            AgentCallSpec,
+            ArtifactKind,
+            BoundTask,
+            BoundWorkflow,
+            DependencyEdge,
+            ExperimentReport,
+            PlanArtifactRef,
+            PlanTaskIR,
+            PlanValidationReport,
+            PlanWorkflowIR,
             UserPlan,
-            ValidationReport,
             ValidationViolation,
-            WorkflowIR,
+        )
+        from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan  # noqa: F401
+        from molexp.harness.validators import (  # noqa: F401
+            BoundWorkflowValidator,
             WorkflowIRValidator,
         )

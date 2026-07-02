@@ -2,7 +2,7 @@
 
 Locks the contract every AgentGateway impl honors:
 - AgentCallSpec field shape (frozen, defaults)
-- AgentCallResult field shape (frozen, nested ArtifactRef)
+- AgentCallResult field shape (frozen, nested PlanArtifactRef)
 - round-trip via model_dump_json / model_validate_json
 - output_schema accepts ExperimentReport.model_json_schema() unchanged
 """
@@ -14,11 +14,11 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.artifact import PlanArtifactRef
 
 
-def _ref(*, kind: str, sha: str, id_: str = "abc12345") -> ArtifactRef:
-    return ArtifactRef(
+def _ref(*, kind: str, sha: str, id_: str = "abc12345") -> PlanArtifactRef:
+    return PlanArtifactRef(
         id=id_,
         kind=kind,  # type: ignore[arg-type]
         uri=f"file:///tmp/{id_}",

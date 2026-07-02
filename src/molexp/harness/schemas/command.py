@@ -20,7 +20,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.artifact import PlanArtifactRef
 
 __all__ = ["CommandResult", "CommandSpec"]
 
@@ -46,7 +46,7 @@ class CommandResult(BaseModel):
     exit_code: int
     started_at: datetime
     ended_at: datetime
-    stdout_artifact: ArtifactRef
-    stderr_artifact: ArtifactRef
-    output_artifacts: list[ArtifactRef] = Field(default_factory=list)
+    stdout_artifact: PlanArtifactRef
+    stderr_artifact: PlanArtifactRef
+    output_artifacts: list[PlanArtifactRef] = Field(default_factory=list)
     metadata: dict[str, str] = Field(default_factory=dict)

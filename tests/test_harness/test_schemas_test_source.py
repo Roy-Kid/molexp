@@ -12,7 +12,7 @@ After GREEN these assert:
   module + derivation metadata, mirroring ``WorkflowSource``;
 - ``symbols`` defaults to the empty tuple;
 - unknown fields are rejected (``extra="forbid"``);
-- ``"test_source"`` is a registered artifact kind AND a ``ValidationReport``
+- ``"test_source"`` is a registered artifact kind AND a ``PlanValidationReport``
   target kind;
 - the schema is re-exported from ``molexp.harness`` and
   ``molexp.harness.schemas``.
@@ -36,7 +36,7 @@ _TEST_SOURCE = (
 
 
 def test_test_source_schema_fields() -> None:
-    from molexp.harness import TestSource
+    from molexp.harness.schemas import TestSource
 
     ts = TestSource(
         source=_TEST_SOURCE,
@@ -53,7 +53,7 @@ def test_test_source_schema_fields() -> None:
 
 
 def test_test_source_symbols_default_to_empty_tuple() -> None:
-    from molexp.harness import TestSource
+    from molexp.harness.schemas import TestSource
 
     ts = TestSource(
         source=_TEST_SOURCE,
@@ -65,7 +65,7 @@ def test_test_source_symbols_default_to_empty_tuple() -> None:
 
 
 def test_test_source_is_frozen() -> None:
-    from molexp.harness import TestSource
+    from molexp.harness.schemas import TestSource
 
     ts = TestSource(
         source=_TEST_SOURCE,
@@ -78,7 +78,7 @@ def test_test_source_is_frozen() -> None:
 
 
 def test_test_source_forbids_extra_fields() -> None:
-    from molexp.harness import TestSource
+    from molexp.harness.schemas import TestSource
 
     with pytest.raises(ValidationError):
         TestSource(
@@ -90,12 +90,10 @@ def test_test_source_forbids_extra_fields() -> None:
         )
 
 
-def test_test_source_reexported_from_harness() -> None:
-    import molexp.harness as h
+def test_test_source_reexported_from_schemas() -> None:
     from molexp.harness.schemas import TestSource as FromSchemas
     from molexp.harness.schemas.test_source import TestSource as Canonical
 
-    assert h.TestSource is Canonical
     assert FromSchemas is Canonical
 
 
@@ -103,15 +101,15 @@ def test_test_source_reexported_from_harness() -> None:
 
 
 def test_test_source_in_well_known_artifact_kinds() -> None:
-    from molexp.harness import WELL_KNOWN_ARTIFACT_KINDS
+    from molexp.harness.schemas import WELL_KNOWN_ARTIFACT_KINDS
 
     assert "test_source" in WELL_KNOWN_ARTIFACT_KINDS
 
 
 def test_validation_report_accepts_test_source_target_kind() -> None:
-    from molexp.harness import ValidationReport
+    from molexp.harness.schemas import PlanValidationReport
 
-    report = ValidationReport.from_violations(
+    report = PlanValidationReport.from_violations(
         target_kind="test_source",
         target_id="x",
         violations=[],

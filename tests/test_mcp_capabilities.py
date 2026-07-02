@@ -14,8 +14,8 @@ from __future__ import annotations
 
 import pytest
 
-from molexp.harness import InMemoryCapabilityRegistry
 from molexp.harness.errors import CapabilityCallValidationError
+from molexp.harness.registry import InMemoryCapabilityRegistry
 from molexp.mcp_capabilities import (
     capabilities_from_payloads,
     capability_from_node,

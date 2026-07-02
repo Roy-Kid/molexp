@@ -156,13 +156,8 @@ def test_action_events_carry_proposal_and_op(tmp_path: Path) -> None:
 
 def test_public_surface_and_eventtype_not_widened() -> None:
     """ac-006 — the actions surface exports and EventType is not widened."""
-    from molexp.harness import (
-        ChangeActionHandler,
-        OutOfAffectedScopeError,
-        ProposalActionRecorder,
-        ProposalExecutor,
-        UnhandledHighRiskOpError,
-    )
+    from molexp.harness.actions import ChangeActionHandler, ProposalActionRecorder, ProposalExecutor
+    from molexp.harness.errors import OutOfAffectedScopeError, UnhandledHighRiskOpError
 
     assert ProposalExecutor and ChangeActionHandler and ProposalActionRecorder
     assert UnhandledHighRiskOpError and OutOfAffectedScopeError

@@ -30,11 +30,11 @@ def _baseline_with_registry():
     from molexp.harness.schemas.parameter import ParameterValue
     from molexp.harness.schemas.workflow_ir import (
         ExpectedOutput,
-        TaskIR,
-        WorkflowIR,
+        PlanTaskIR,
+        PlanWorkflowIR,
     )
 
-    t1 = TaskIR(
+    t1 = PlanTaskIR(
         id="t1",
         name="Build",
         purpose="x",
@@ -42,7 +42,7 @@ def _baseline_with_registry():
         inputs={"n_chains": ParameterValue(value=100, source="user_provided")},
         outputs={"structure": "structure.pdb"},
     )
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-001",
         name="wf",
         objective="x",

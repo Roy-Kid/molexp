@@ -7,7 +7,7 @@ Side-effect-free checks run *before* any compile/exec of LLM-generated code:
    private ``molexp.workflow`` submodule (anything under
    ``molexp.workflow._...``); generated code must target the public surface.
 
-Returns a :class:`ValidationReport` (``target_kind="workflow_source"``) and
+Returns a :class:`PlanValidationReport` (``target_kind="workflow_source"``) and
 **never raises** — malformed input yields a failing report, not an exception.
 This is the gate :class:`ValidateWorkflowSource` runs before it ever compiles
 or executes the source.
@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import ast
 
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
 __all__ = ["WorkflowSourceValidator"]
 
@@ -33,7 +33,7 @@ def _is_private_workflow(module: str | None) -> bool:
 
 class WorkflowSourceValidator:
     @staticmethod
-    def validate(source: str, *, target_id: str = "") -> ValidationReport:
+    def validate(source: str, *, target_id: str = "") -> PlanValidationReport:
         """Run syntax + public-surface-import pre-checks on generated source.
 
         Args:
@@ -41,13 +41,13 @@ class WorkflowSourceValidator:
             target_id: The artifact id this source came from (for the report).
 
         Returns:
-            A :class:`ValidationReport` with ``target_kind="workflow_source"``;
+            A :class:`PlanValidationReport` with ``target_kind="workflow_source"``;
             ``passed`` is False if any error-severity violation is present.
         """
         try:
             tree = ast.parse(source)
         except SyntaxError as exc:
-            return ValidationReport.from_violations(
+            return PlanValidationReport.from_violations(
                 target_kind="workflow_source",
                 target_id=target_id,
                 violations=[
@@ -80,7 +80,7 @@ class WorkflowSourceValidator:
                     )
                 )
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="workflow_source",
             target_id=target_id,
             violations=violations,

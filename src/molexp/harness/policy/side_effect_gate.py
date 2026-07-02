@@ -31,7 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from molexp.harness.core.run_context import HarnessRunContext
-    from molexp.harness.schemas import ArtifactRef
+    from molexp.harness.schemas import PlanArtifactRef
     from molexp.harness.stages.approval_gate import Approver
 
 __all__ = ["enforce_side_effect_approvals", "make_side_effect_approval_requests"]
@@ -92,7 +92,7 @@ async def enforce_side_effect_approvals(
     ctx: HarnessRunContext,
     approve: Approver | None = None,
     subject_artifact_ids: list[str] | None = None,
-) -> ArtifactRef | None:
+) -> PlanArtifactRef | None:
     """Gate the destructive items in *items* through ``ApprovalGate``.
 
     Builds the requests via :func:`make_side_effect_approval_requests`. With no

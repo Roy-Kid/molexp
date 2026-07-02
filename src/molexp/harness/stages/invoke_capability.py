@@ -40,10 +40,10 @@ from molexp.harness.errors import StageExecutionError, StagePersistedFailureErro
 from molexp.harness.executors import LocalExecutor
 from molexp.harness.policy.side_effect_gate import enforce_side_effect_approvals
 from molexp.harness.schemas import (
-    ArtifactRef,
     CapabilityInvocationResult,
     CommandResult,
     CommandSpec,
+    PlanArtifactRef,
 )
 from molexp.workspace.utils import generate_id
 
@@ -102,7 +102,7 @@ class InvokeCapability(Stage):
         self._approve = approve
         self._timeout_s = timeout_s
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         registry = ctx.capability_registry
         if registry is None:
             raise StageExecutionError(

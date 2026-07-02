@@ -56,18 +56,14 @@ def test_capability_registry_is_runtime_checkable_protocol() -> None:
 
 
 def test_capability_registry_re_exports() -> None:
-    from molexp.harness import (
-        CapabilityRegistry as via_top,
-    )
-    from molexp.harness import (
-        InMemoryCapabilityRegistry as via_top_impl,
-    )
+    from molexp.harness import CapabilityRegistry as via_top
     from molexp.harness.registry import (
         CapabilityRegistry as via_pkg,
     )
     from molexp.harness.registry import (
         InMemoryCapabilityRegistry as via_pkg_impl,
     )
+    from molexp.harness.registry import InMemoryCapabilityRegistry as via_top_impl
 
     assert via_top is via_pkg
     assert via_top_impl is via_pkg_impl
@@ -277,24 +273,18 @@ def test_validate_call_unrestricted_schema_accepts_any_keys() -> None:
 
 
 def test_errors_re_exported_from_top_level() -> None:
-    from molexp.harness import (
-        CapabilityAlreadyRegisteredError as via_top_dup,
-    )
-    from molexp.harness import (
-        CapabilityCallValidationError as via_top_call,
-    )
-    from molexp.harness import (
-        CapabilityNotFoundError as via_top_missing,
-    )
     from molexp.harness.errors import (
         CapabilityAlreadyRegisteredError as via_mod_dup,
     )
+    from molexp.harness.errors import CapabilityAlreadyRegisteredError as via_top_dup
     from molexp.harness.errors import (
         CapabilityCallValidationError as via_mod_call,
     )
+    from molexp.harness.errors import CapabilityCallValidationError as via_top_call
     from molexp.harness.errors import (
         CapabilityNotFoundError as via_mod_missing,
     )
+    from molexp.harness.errors import CapabilityNotFoundError as via_top_missing
 
     assert via_top_dup is via_mod_dup
     assert via_top_call is via_mod_call

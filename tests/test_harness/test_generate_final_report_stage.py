@@ -41,7 +41,7 @@ def _final_report_canned() -> dict:
 
 
 def _seed_inputs(store):
-    from molexp.harness import ExecutionResult, ExperimentReport, TestResult
+    from molexp.harness.schemas import ExecutionResult, ExperimentReport, TestResult
 
     report = ExperimentReport(
         title="Diffusion of an LJ fluid",
@@ -128,14 +128,16 @@ def ctx_with_gw(tmp_path: Path):
 
 
 def test_name_and_subclass() -> None:
-    from molexp.harness import GenerateFinalReport, Stage
+    from molexp.harness import Stage
+    from molexp.harness.stages import GenerateFinalReport
 
     assert GenerateFinalReport.name == "generate_final_report"
     assert issubclass(GenerateFinalReport, Stage)
 
 
 def test_fail_fast_no_gateway(ctx_no_gw) -> None:
-    from molexp.harness import GenerateFinalReport, StageExecutionError
+    from molexp.harness import StageExecutionError
+    from molexp.harness.stages import GenerateFinalReport
 
     _seed_inputs(ctx_no_gw.artifact_store)
     stage = GenerateFinalReport()
@@ -145,9 +147,9 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
 
 
 def test_builds_correct_spec(ctx_with_gw) -> None:
-    from molexp.harness import FinalReport, GenerateFinalReport
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec
+    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, FinalReport
+    from molexp.harness.stages import GenerateFinalReport
 
     er_ref, tr_ref, xr_ref = _seed_inputs(ctx_with_gw.artifact_store)
     real_gw = ctx_with_gw.agent_gateway
@@ -177,7 +179,7 @@ def test_builds_correct_spec(ctx_with_gw) -> None:
 
 
 def test_returns_final_report_ref_with_lineage(ctx_with_gw) -> None:
-    from molexp.harness import GenerateFinalReport
+    from molexp.harness.stages import GenerateFinalReport
 
     er_ref, tr_ref, xr_ref = _seed_inputs(ctx_with_gw.artifact_store)
     ctx_with_gw.agent_gateway.register(

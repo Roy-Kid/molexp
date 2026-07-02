@@ -13,7 +13,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from molexp.harness import FinalReport
+from molexp.harness.schemas import FinalReport
 
 _NARRATIVE_FIELDS = (
     "title",
@@ -62,11 +62,9 @@ def test_final_report_is_frozen() -> None:
         report.title = "mutated"  # type: ignore[misc]
 
 
-def test_final_report_reexported_from_harness() -> None:
-    import molexp.harness as h
+def test_final_report_reexported_from_schemas() -> None:
     from molexp.harness.schemas import FinalReport as FromSchemas
     from molexp.harness.schemas.final_report import FinalReport as Canonical
 
-    assert h.FinalReport is Canonical
     assert FromSchemas is Canonical
     assert FinalReport is Canonical

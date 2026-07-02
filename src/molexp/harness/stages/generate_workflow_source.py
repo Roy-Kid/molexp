@@ -14,7 +14,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
 from molexp.harness.prompts.capability_catalog import render_capability_catalog
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, WorkflowSource
+from molexp.harness.schemas import AgentCallSpec, PlanArtifactRef, WorkflowSource
 from molexp.harness.stages._resolve import feedback_inputs, require_latest
 
 __all__ = ["GenerateWorkflowSource"]
@@ -31,10 +31,16 @@ class GenerateWorkflowSource(Stage):
 
     name: ClassVar[str] = "generate_workflow_source"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("GenerateWorkflowSource requires ctx.agent_gateway to be set")
         bound = require_latest(ctx, "bound_workflow", stage=self.name)
+        # The concrete ExperimentSpec rides along so the writer implements its
+        # exact numbers (parameter values, grid sizes, tolerances). ReviewPlan
+        # judges the output against the experiment report — without the spec
+        # in view the repair loop could not converge on those numbers
+        # (production: two models x 4 attempts kept inventing their own).
+        experiment_spec = require_latest(ctx, "experiment_spec", stage=self.name)
 
         prompt_artifact_id: str | None = None
         if ctx.capability_registry is not None:
@@ -49,7 +55,11 @@ class GenerateWorkflowSource(Stage):
 
         spec = AgentCallSpec(
             agent_name="workflow_source_writer",
-            input_artifact_ids=[bound.id, *feedback_inputs(ctx, "workflow_source_feedback")],
+            input_artifact_ids=[
+                bound.id,
+                experiment_spec.id,
+                *feedback_inputs(ctx, "workflow_source_feedback"),
+            ],
             prompt_artifact_id=prompt_artifact_id,
             output_schema=WorkflowSource.model_json_schema(),
         )

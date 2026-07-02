@@ -106,7 +106,7 @@ def test_tool_capability_re_exported_from_schemas() -> None:
 
 
 def test_tool_capability_re_exported_from_top_level() -> None:
-    from molexp.harness import ToolCapability as via_top
+    from molexp.harness.schemas import ToolCapability as via_top
     from molexp.harness.schemas.capability import ToolCapability as via_module
 
     assert via_top is via_module

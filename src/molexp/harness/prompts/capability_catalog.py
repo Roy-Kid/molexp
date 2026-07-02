@@ -53,7 +53,7 @@ def render_capability_catalog(capabilities: Iterable[ToolCapability]) -> str:
     lines = [
         "## Available molcrafts capabilities",
         "",
-        "Bind each WorkflowIR task to exactly ONE `capability_id` chosen from "
+        "Bind each PlanWorkflowIR task to exactly ONE `capability_id` chosen from "
         "this catalog. Do NOT invent capability_ids, callables, or packages that "
         "are not listed here. A trailing `*` marks a required parameter.",
         "",
@@ -83,7 +83,7 @@ def render_selected_capability_catalog(
         "## Selected molcrafts capabilities",
         "",
         "These capabilities were chosen for THIS experiment from the grounded "
-        "molcrafts toolchain. Bind each WorkflowIR task to exactly ONE "
+        "molcrafts toolchain. Bind each PlanWorkflowIR task to exactly ONE "
         "`capability_id` from this list (a trailing `*` marks a required "
         "parameter). Do NOT invent capability_ids that are not listed here.",
         "",

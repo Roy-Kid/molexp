@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.harness.schemas import ArtifactRef
+    from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = [
     "AgentResponseNotRegisteredError",
@@ -66,16 +66,16 @@ class StagePersistedFailureError(StageExecutionError):
     and emits ``artifact_created`` + ``derived_from`` edges for
     ``persisted_ref`` before re-raising, preserving the
     always-persist-then-raise contract for validators: the
-    :class:`ValidationReport` is visible to downstream auditors even when
+    :class:`PlanValidationReport` is visible to downstream auditors even when
     the stage was strict and aborted the pipeline.
 
     Attributes:
-        persisted_ref: The :class:`ArtifactRef` of the failure artifact
-            (e.g. a parse-error ValidationReport) already written to the
+        persisted_ref: The :class:`PlanArtifactRef` of the failure artifact
+            (e.g. a parse-error PlanValidationReport) already written to the
             artifact store.
     """
 
-    def __init__(self, persisted_ref: ArtifactRef, message: str) -> None:
+    def __init__(self, persisted_ref: PlanArtifactRef, message: str) -> None:
         super().__init__(message)
         self.persisted_ref = persisted_ref
 

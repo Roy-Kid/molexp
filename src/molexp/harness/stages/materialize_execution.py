@@ -15,10 +15,10 @@ engine loads in the executor's child process, never in the harness process.
 
 Sentinel rendering uses ``str.replace`` on ``__MODULE_NAME__`` /
 ``__PARAMS_JSON__`` (not ``str.format``) so the template needs no
-brace-escaping. The params payload is the WorkflowIR root-input defaults
+brace-escaping. The params payload is the PlanWorkflowIR root-input defaults
 overlaid with the **first cell** of the latest ``input_set`` (the
 parameter-space sweep from plan step 6); absent an input set it is just
-``{name: ParameterValue.value}`` from ``WorkflowIR.inputs``. Embedded as
+``{name: ParameterValue.value}`` from ``PlanWorkflowIR.inputs``. Embedded as
 canonical ``json.dumps(..., sort_keys=True)``.
 
 The driver honors a ``--compile-only`` flag: it builds + compiles the
@@ -39,11 +39,11 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
 from molexp.harness.schemas import (
-    ArtifactRef,
     GeneratedFile,
     InputSet,
+    PlanArtifactRef,
+    PlanWorkflowIR,
     TestSource,
-    WorkflowIR,
     WorkflowSource,
 )
 from molexp.harness.stages._resolve import require_latest
@@ -74,10 +74,19 @@ def main() -> int:
         assert compiled is not None
         print(f"compiled OK; params={sorted(PARAMS)}")
         return 0
-    result = asyncio.run(WorkflowRuntime().execute(compiled, config=PARAMS or None))
+    # scratch_root honours the ctx.workdir contract for this bare execution
+    # (no tracked Run): task scratch lands under generated/.materialize,
+    # content-addressed and auditable.
+    result = asyncio.run(
+        WorkflowRuntime().execute(
+            compiled, config=PARAMS or None, scratch_root=".materialize"
+        )
+    )
     with open("outputs.json", "w", encoding="utf-8") as fh:
         json.dump(result.outputs, fh, default=str)
-    return 0 if result.status == "completed" else 1
+    # "succeeded" is the canonical terminal-success status (workspace status
+    # law: pending -> running -> succeeded | failed | cancelled).
+    return 0 if result.status == "succeeded" else 1
 
 
 if __name__ == "__main__":
@@ -90,14 +99,14 @@ class MaterializeExecution(Stage):
 
     name: ClassVar[str] = "materialize_execution"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         ws_ref = require_latest(ctx, "workflow_source", stage=self.name)
         ts_ref = require_latest(ctx, "test_source", stage=self.name)
         ir_ref = require_latest(ctx, "workflow_ir", stage=self.name)
 
         ws = self._parse(ctx, ws_ref.id, WorkflowSource, "workflow_source")
         ts = self._parse(ctx, ts_ref.id, TestSource, "test_source")
-        ir = self._parse(ctx, ir_ref.id, WorkflowIR, "workflow_ir")
+        ir = self._parse(ctx, ir_ref.id, PlanWorkflowIR, "workflow_ir")
 
         generated = ctx.workspace_root / "generated"
         generated.mkdir(parents=True, exist_ok=True)
@@ -113,7 +122,7 @@ class MaterializeExecution(Stage):
         )
 
         params = {name: pv.value for name, pv in ir.inputs.items()}
-        params.update(self._first_input_cell(ctx))
+        params.update(self._input_overlay(ctx))
         driver_text = _DRIVER_TEMPLATE.replace("__MODULE_NAME__", ws.module_name).replace(
             "__PARAMS_JSON__", json.dumps(params, sort_keys=True, default=str)
         )
@@ -163,13 +172,16 @@ class MaterializeExecution(Stage):
                 parent_ids=[parent],
             )
 
-    def _first_input_cell(self, ctx: HarnessRunContext) -> dict[str, object]:
-        """Return the first cell of the latest ``input_set`` sweep, or ``{}``.
+    def _input_overlay(self, ctx: HarnessRunContext) -> dict[str, object]:
+        """Return the ``input_set`` overlay for the driver params, or ``{}``.
 
-        The cell overlays the WorkflowIR root-input defaults so the
-        materialized driver runs against the parameter-space sweep's first
-        point. Expansion is delegated to workspace ``GridSpace`` — the harness
-        never reimplements it. Absent or unparseable input set → no overlay.
+        Two channels, overlaying the PlanWorkflowIR root-input defaults:
+        ``fixed_params`` land verbatim (whole values — list-valued inputs the
+        workflow scans internally), then the first cell of the sweep (one
+        scalar per axis; ``ValidateInputSet`` guarantees axes and fixed params
+        are disjoint and no axis targets a list-valued input). Expansion is
+        delegated to workspace ``GridSpace`` — the harness never reimplements
+        it. Absent or unparseable input set → no overlay.
         """
         ref = ctx.artifact_store.latest_by_kind("input_set")
         if ref is None:
@@ -178,12 +190,14 @@ class MaterializeExecution(Stage):
             iset = InputSet.model_validate_json(ctx.artifact_store.get(ref.id))
         except Exception:
             return {}
+        overlay: dict[str, object] = dict(iset.fixed_params)
         if not iset.sweep_axes:
-            return {}
+            return overlay
         from molexp.workspace.param import GridSpace
 
         grid = GridSpace({axis.name: list(axis.values) for axis in iset.sweep_axes})
-        return next(iter(grid), {})
+        overlay.update(next(iter(grid), {}))
+        return overlay
 
     def _parse(
         self,

@@ -43,12 +43,9 @@ def ctx(tmp_path: Path):
 
 def test_e2e_pipeline_three_layer_provenance(ctx) -> None:
     """SaveUserPlan → GenerateExperimentReport produces a 3-layer chain."""
-    from molexp.harness import (
-        GenerateExperimentReport,
-        SaveUserPlan,
-        StageRunner,
-    )
+    from molexp.harness import StageRunner
     from molexp.harness.gateways.stub import StubAgentGateway
+    from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan
 
     stub = StubAgentGateway(artifact_store=ctx.artifact_store)
     stub.register(
@@ -83,12 +80,9 @@ def test_e2e_pipeline_three_layer_provenance(ctx) -> None:
 
 
 def test_e2e_event_log_contains_two_stage_quartets(ctx) -> None:
-    from molexp.harness import (
-        GenerateExperimentReport,
-        SaveUserPlan,
-        StageRunner,
-    )
+    from molexp.harness import StageRunner
     from molexp.harness.gateways.stub import StubAgentGateway
+    from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan
 
     stub = StubAgentGateway(artifact_store=ctx.artifact_store)
     stub.register(
@@ -126,15 +120,14 @@ def test_e2e_event_log_contains_two_stage_quartets(ctx) -> None:
 
 def test_phase02_public_symbols_importable_from_top_level() -> None:
     """ac-008 (positive direction)."""
-    from molexp.harness import (  # noqa: F401
+    from molexp.harness import AgentGateway  # noqa: F401
+    from molexp.harness.schemas import (  # noqa: F401
         AgentCallResult,
         AgentCallSpec,
-        AgentGateway,
         ExperimentReport,
-        GenerateExperimentReport,
-        SaveUserPlan,
         UserPlan,
     )
+    from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan  # noqa: F401
 
 
 def test_stub_agent_gateway_not_at_top_level() -> None:

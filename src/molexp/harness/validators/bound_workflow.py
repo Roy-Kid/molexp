@@ -1,7 +1,7 @@
 """Structural + capability-aware validator for :class:`BoundWorkflow`.
 
 Phase 3 introduced seven structural checks against the matched
-:class:`WorkflowIR`. Phase 4 adds four capability-aware checks that fire
+:class:`PlanWorkflowIR`. Phase 4 adds four capability-aware checks that fire
 only when a :class:`CapabilityRegistry` is supplied; without the registry,
 behavior is byte-identical to Phase 3.
 
@@ -17,8 +17,8 @@ from pathlib import Path
 from molexp.harness.errors import CapabilityCallValidationError
 from molexp.harness.registry.capability_registry import CapabilityRegistry
 from molexp.harness.schemas.bound_workflow import BoundWorkflow
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
-from molexp.harness.schemas.workflow_ir import WorkflowIR
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
+from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
 
 __all__ = ["BoundWorkflowValidator"]
 
@@ -30,10 +30,10 @@ class BoundWorkflowValidator:
     @staticmethod
     def validate(
         bw: BoundWorkflow,
-        ir: WorkflowIR,
+        ir: PlanWorkflowIR,
         workspace_root: Path,
         registry: CapabilityRegistry | None = None,
-    ) -> ValidationReport:
+    ) -> PlanValidationReport:
         workspace_root = Path(workspace_root).resolve()
         violations: list[ValidationViolation] = []
         ir_tasks_by_id = {t.id: t for t in ir.tasks}
@@ -46,7 +46,7 @@ class BoundWorkflowValidator:
                         code="unknown_ir_task",
                         message=(
                             f"BoundTask {bt.id!r}.ir_task_id={bt.ir_task_id!r} does not "
-                            "exist in the referenced WorkflowIR"
+                            "exist in the referenced PlanWorkflowIR"
                         ),
                         path=f"tasks[id={bt.id}].ir_task_id",
                     )
@@ -251,7 +251,7 @@ class BoundWorkflowValidator:
         # submit on. Runtime concern; lives here for discoverability.
         # ------------------------------------------------------------------
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="bound_workflow",
             target_id=bw.id,
             violations=violations,

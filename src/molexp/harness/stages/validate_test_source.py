@@ -6,7 +6,7 @@ test-function presence, byte-compile). Unlike
 :class:`ValidateWorkflowSource` there is **no** compile-through-the-engine
 step and **no** ``exec`` — actually running the tests is
 :class:`ExecuteTests`'s job, through a harness executor subprocess. A
-:class:`ValidationReport` is always persisted; on failure the stage raises
+:class:`PlanValidationReport` is always persisted; on failure the stage raises
 :class:`StagePersistedFailureError` after persisting.
 """
 
@@ -19,12 +19,13 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StagePersistedFailureError
 from molexp.harness.schemas import (
-    ArtifactRef,
+    PlanArtifactRef,
+    PlanValidationReport,
     TestSource,
-    ValidationReport,
     ValidationViolation,
 )
 from molexp.harness.stages._resolve import require_latest
+from molexp.harness.validators.render import render_violations
 from molexp.harness.validators.test_source import TestSourceValidator
 
 __all__ = ["ValidateTestSource"]
@@ -38,14 +39,14 @@ class ValidateTestSource(Stage):
     def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         target = require_latest(ctx, "test_source", stage=self.name).id
         raw = ctx.artifact_store.get(target)
 
         try:
             ts = TestSource.model_validate_json(raw)
         except Exception as exc:
-            report = ValidationReport.from_violations(
+            report = PlanValidationReport.from_violations(
                 target_kind="test_source",
                 target_id=target,
                 violations=[
@@ -68,9 +69,11 @@ class ValidateTestSource(Stage):
             target_id=target,
             required_task_ids=self._required_task_ids(ctx),
         )
-        codes = [v.code for v in report.violations if v.severity == "error"]
         return self._persist_and_maybe_raise(
-            ctx, report, f"test source validation failed: {codes}", target=target
+            ctx,
+            report,
+            f"test source validation failed:\n{render_violations(report.violations)}",
+            target=target,
         )
 
     @staticmethod
@@ -96,11 +99,11 @@ class ValidateTestSource(Stage):
     def _persist_and_maybe_raise(
         self,
         ctx: HarnessRunContext,
-        report: ValidationReport,
+        report: PlanValidationReport,
         error_message: str,
         *,
         target: str,
-    ) -> ArtifactRef:
+    ) -> PlanArtifactRef:
         report_ref = ctx.artifact_store.put_json(
             kind="validation_report",
             obj=json.loads(report.model_dump_json()),

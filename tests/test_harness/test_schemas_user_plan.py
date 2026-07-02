@@ -4,7 +4,7 @@ Locks the wire format:
 - frozen pydantic round-trip
 - attachments default to empty list, metadata default to empty dict
 - user_id is optional
-- attachments accept ArtifactRef instances (typed)
+- attachments accept PlanArtifactRef instances (typed)
 """
 
 from __future__ import annotations
@@ -16,10 +16,10 @@ from pydantic import ValidationError
 
 
 def test_user_plan_round_trip() -> None:
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
     from molexp.harness.schemas.user_plan import UserPlan
 
-    attachment = ArtifactRef(
+    attachment = PlanArtifactRef(
         id="abc12345",
         kind="input_file",
         uri="file:///tmp/x.dcd",

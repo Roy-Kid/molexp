@@ -4,7 +4,7 @@
 Around every call to ``stage.run(ctx)`` it:
 
 1. Appends ``stage_started`` with ``payload={"stage": stage.name}``.
-2. ``await stage.run(ctx)`` → returns an :class:`ArtifactRef`.
+2. ``await stage.run(ctx)`` → returns an :class:`PlanArtifactRef`.
 3. Appends ``artifact_created`` carrying the returned ref's id.
 4. Appends ``stage_completed``.
 5. On exception: appends ``stage_failed`` with the ``repr(exc)`` payload
@@ -17,7 +17,7 @@ If a Stage raises :class:`StagePersistedFailureError`, the bracket treats it
 as a persisted-then-aborted failure: it still emits ``artifact_created`` +
 ``derived_from`` edges for the persisted ref, then emits ``stage_failed``
 and re-raises unchanged. This preserves always-persist-then-raise
-validators' audit trail (the :class:`ValidationReport` is visible to
+validators' audit trail (the :class:`PlanValidationReport` is visible to
 ``trace_backward`` even when the strict mode aborts the pipeline).
 
 This way, individual stages stay pure (read inputs from the context, write
@@ -41,12 +41,12 @@ import asyncio
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-from molexp.harness.schemas import ArtifactRef
+from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = ["StageRunner", "run_stage_bracketed"]
 
 
-async def _record_artifact(ctx: HarnessRunContext, stage: Stage, ref: ArtifactRef) -> None:
+async def _record_artifact(ctx: HarnessRunContext, stage: Stage, ref: PlanArtifactRef) -> None:
     """Emit ``artifact_created`` + the ref's ``derived_from`` lineage edges.
 
     Each edge is stamped with the producing stage's name and the pipeline's
@@ -73,7 +73,7 @@ async def _record_artifact(ctx: HarnessRunContext, stage: Stage, ref: ArtifactRe
         )
 
 
-async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> ArtifactRef:
+async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> PlanArtifactRef:
     """Run ``stage`` against ``ctx``, bracketed by the harness audit events.
 
     The single source of truth for the stage audit bracket — used by both
@@ -87,7 +87,7 @@ async def run_stage_bracketed(ctx: HarnessRunContext, stage: Stage) -> ArtifactR
         stage: The stage to execute.
 
     Returns:
-        The :class:`ArtifactRef` the stage produced.
+        The :class:`PlanArtifactRef` the stage produced.
 
     Raises:
         StagePersistedFailureError: Re-raised unchanged after recording the
@@ -145,5 +145,5 @@ class StageRunner:
     def __init__(self, ctx: HarnessRunContext) -> None:
         self._ctx = ctx
 
-    async def run_stage(self, stage: Stage) -> ArtifactRef:
+    async def run_stage(self, stage: Stage) -> PlanArtifactRef:
         return await run_stage_bracketed(self._ctx, stage)

@@ -72,13 +72,16 @@ def _seed_spec(store, **kw: object):
 
 
 def _seed_ir(store, *, inputs=("n_steps",)):
+    # ``inputs`` is a tuple of names (value defaults to 500) or a dict
+    # name → declared value (to seed e.g. list-valued root inputs).
+    values = inputs if isinstance(inputs, dict) else dict.fromkeys(inputs, 500)
     return store.put_json(
         kind="workflow_ir",
         obj={
             "id": "wf-ir-1",
             "name": "demo",
             "objective": "x",
-            "inputs": {k: {"value": 500, "source": "user_provided"} for k in inputs},
+            "inputs": {k: {"value": v, "source": "user_provided"} for k, v in values.items()},
             "tasks": [],
             "edges": [],
             "expected_outputs": [],
@@ -142,14 +145,14 @@ def test_generate_experiment_spec_fail_fast_without_gateway(tmp_path: Path) -> N
 
 
 def test_validate_experiment_spec_passes_when_questions_resolved(tmp_path: Path) -> None:
-    from molexp.harness.schemas import ValidationReport
+    from molexp.harness.schemas import PlanValidationReport
     from molexp.harness.stages.validate_experiment_spec import ValidateExperimentSpec
 
     ctx = _ctx(tmp_path)
     _seed_report(ctx.artifact_store, user_questions=["which water model?"])
     _seed_spec(ctx.artifact_store, resolved=[{"question": "which water model?", "answer": "SPC/E"}])
     ref = asyncio.run(ValidateExperimentSpec().run(ctx))
-    report = ValidationReport.model_validate_json(ctx.artifact_store.get(ref.id))
+    report = PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id))
     assert report.passed
 
 
@@ -265,31 +268,29 @@ def test_generate_input_set(tmp_path: Path) -> None:
 # ---------------------------------------------------------- ValidateInputSet
 
 
-def _seed_input_set(store, *, axis_name="n_steps", total_runs=2):
-    return store.put_json(
-        kind="input_set",
-        obj={
-            "id": "is-1",
-            "experiment_spec_id": "spec-1",
-            "title": "sweep",
-            "sweep_axes": [{"name": axis_name, "values": [1000, 2000], "source": "user_provided"}],
-            "strategy": "grid",
-            "total_runs": total_runs,
-        },
-        created_by="seed",
-        parent_ids=[],
-    )
+def _seed_input_set(store, *, axis_name="n_steps", total_runs=2, fixed_params=None):
+    obj = {
+        "id": "is-1",
+        "experiment_spec_id": "spec-1",
+        "title": "sweep",
+        "sweep_axes": [{"name": axis_name, "values": [1000, 2000], "source": "user_provided"}],
+        "strategy": "grid",
+        "total_runs": total_runs,
+    }
+    if fixed_params is not None:
+        obj["fixed_params"] = fixed_params
+    return store.put_json(kind="input_set", obj=obj, created_by="seed", parent_ids=[])
 
 
 def test_validate_input_set_passes(tmp_path: Path) -> None:
-    from molexp.harness.schemas import ValidationReport
+    from molexp.harness.schemas import PlanValidationReport
     from molexp.harness.stages.validate_input_set import ValidateInputSet
 
     ctx = _ctx(tmp_path)
     _seed_ir(ctx.artifact_store, inputs=("n_steps",))
     _seed_input_set(ctx.artifact_store, axis_name="n_steps", total_runs=2)
     ref = asyncio.run(ValidateInputSet().run(ctx))
-    assert ValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
+    assert PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
 
 
 def test_validate_input_set_flags_unknown_axis(tmp_path: Path) -> None:
@@ -301,6 +302,63 @@ def test_validate_input_set_flags_unknown_axis(tmp_path: Path) -> None:
     _seed_input_set(ctx.artifact_store, axis_name="temperature", total_runs=2)  # not an IR input
     with pytest.raises(StagePersistedFailureError):
         asyncio.run(ValidateInputSet().run(ctx))
+
+
+def test_validate_input_set_flags_axis_targeting_list_param(tmp_path: Path) -> None:
+    """A sweep axis delivers ONE scalar per cell — an axis whose IR root input
+    is list-valued would change the parameter's shape (the task iterates it).
+    Regression: a real ``--execute`` run passed ``sigma_values=0.9`` into
+    ``for sigma in sigma_values`` → ``TypeError: 'float' object is not
+    iterable``. Such a param belongs in ``fixed_params``, passed whole."""
+    from molexp.harness.errors import StagePersistedFailureError
+    from molexp.harness.stages.validate_input_set import ValidateInputSet
+
+    ctx = _ctx(tmp_path)
+    _seed_ir(ctx.artifact_store, inputs={"sigma_values": [0.9, 1.0], "n_steps": 500})
+    _seed_input_set(ctx.artifact_store, axis_name="sigma_values", total_runs=2)
+    with pytest.raises(StagePersistedFailureError) as excinfo:
+        asyncio.run(ValidateInputSet().run(ctx))
+    message = str(excinfo.value)
+    assert "axis_targets_list_param" in message
+    assert "sigma_values" in message
+    assert "fixed_params" in message  # the message names the fix
+
+
+def test_validate_input_set_accepts_fixed_params(tmp_path: Path) -> None:
+    from molexp.harness.schemas import PlanValidationReport
+    from molexp.harness.stages.validate_input_set import ValidateInputSet
+
+    ctx = _ctx(tmp_path)
+    _seed_ir(ctx.artifact_store, inputs={"sigma_values": [0.9, 1.0], "n_steps": 500})
+    _seed_input_set(
+        ctx.artifact_store, axis_name="n_steps", fixed_params={"sigma_values": [0.9, 1.0]}
+    )
+    ref = asyncio.run(ValidateInputSet().run(ctx))
+    assert PlanValidationReport.model_validate_json(ctx.artifact_store.get(ref.id)).passed
+
+
+def test_validate_input_set_flags_unknown_fixed_param(tmp_path: Path) -> None:
+    from molexp.harness.errors import StagePersistedFailureError
+    from molexp.harness.stages.validate_input_set import ValidateInputSet
+
+    ctx = _ctx(tmp_path)
+    _seed_ir(ctx.artifact_store, inputs=("n_steps",))
+    _seed_input_set(ctx.artifact_store, fixed_params={"temperature": 300})
+    with pytest.raises(StagePersistedFailureError) as excinfo:
+        asyncio.run(ValidateInputSet().run(ctx))
+    assert "unknown_fixed_param" in str(excinfo.value)
+
+
+def test_validate_input_set_flags_axis_fixed_overlap(tmp_path: Path) -> None:
+    from molexp.harness.errors import StagePersistedFailureError
+    from molexp.harness.stages.validate_input_set import ValidateInputSet
+
+    ctx = _ctx(tmp_path)
+    _seed_ir(ctx.artifact_store, inputs=("n_steps",))
+    _seed_input_set(ctx.artifact_store, axis_name="n_steps", fixed_params={"n_steps": 500})
+    with pytest.raises(StagePersistedFailureError) as excinfo:
+        asyncio.run(ValidateInputSet().run(ctx))
+    assert "axis_fixed_overlap" in str(excinfo.value)
 
 
 # ---------------------------------------------------------- GenerateExecutionReport

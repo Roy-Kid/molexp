@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from molexp.harness.errors import ArtifactNotFoundError
 from molexp.harness.schemas.artifact import ArtifactKind
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 from molexp.harness.store.artifact_store import ArtifactStore
 from molexp.harness.store.lineage_store import ArtifactLineageStore
 
@@ -45,7 +45,7 @@ class ProvenanceValidator:
         artifact_store: ArtifactStore,
         lineage_store: ArtifactLineageStore,
         root_kind: ArtifactKind = "user_plan",
-    ) -> ValidationReport:
+    ) -> PlanValidationReport:
         violations: list[ValidationViolation] = []
 
         # 1. artifact_not_found — catch the typed error rather than bubbling it.
@@ -59,7 +59,7 @@ class ProvenanceValidator:
                     path="artifact_id",
                 )
             )
-            return ValidationReport.from_violations(
+            return PlanValidationReport.from_violations(
                 target_kind="provenance",
                 target_id=artifact_id,
                 violations=violations,
@@ -67,7 +67,7 @@ class ProvenanceValidator:
 
         # If the artifact itself IS the root_kind, no ancestors required.
         if ref.kind == root_kind:
-            return ValidationReport.from_violations(
+            return PlanValidationReport.from_violations(
                 target_kind="provenance",
                 target_id=artifact_id,
                 violations=violations,
@@ -88,7 +88,7 @@ class ProvenanceValidator:
                     severity="warning",
                 )
             )
-            return ValidationReport.from_violations(
+            return PlanValidationReport.from_violations(
                 target_kind="provenance",
                 target_id=artifact_id,
                 violations=violations,
@@ -107,7 +107,7 @@ class ProvenanceValidator:
                 )
             )
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="provenance",
             target_id=artifact_id,
             violations=violations,

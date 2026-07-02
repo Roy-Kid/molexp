@@ -4,7 +4,7 @@ Mirrors the canonical validator-stage shape verified in
 ``ValidateWorkflowSource`` (``stages/validate_workflow_source.py``):
 
 - input resolved via ``require_latest("test_spec")``;
-- a ``ValidationReport`` is ALWAYS persisted as a ``"validation_report"``
+- a ``PlanValidationReport`` is ALWAYS persisted as a ``"validation_report"``
   artifact whose ``parent_ids`` carry the test_spec artifact id;
 - on failure with the default ``raise_on_failure=True`` the stage raises
   ``StagePersistedFailureError`` AFTER persisting, with ``persisted_ref``
@@ -25,8 +25,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from molexp.harness import ArtifactRef
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.schemas import PlanArtifactRef
 
 # --------------------------------------------------------------- fixtures
 
@@ -56,7 +56,7 @@ def _test_spec_dict(
     target_task_id: str | None = "task-square",
     target_workflow_id: str | None = None,
 ) -> dict:
-    from molexp.harness import TestSpec
+    from molexp.harness.schemas import TestSpec
 
     spec = TestSpec(
         id="ts-001",
@@ -70,15 +70,15 @@ def _test_spec_dict(
 
 
 def _workflow_ir_dict(task_id: str) -> dict:
-    from molexp.harness import TaskIR, WorkflowIR
+    from molexp.harness.schemas import PlanTaskIR, PlanWorkflowIR
 
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-x",
         name="demo",
         objective="exercise the square task",
         inputs={},
         tasks=[
-            TaskIR(
+            PlanTaskIR(
                 id=task_id,
                 name="square",
                 purpose="square the input integers",
@@ -93,7 +93,7 @@ def _workflow_ir_dict(task_id: str) -> dict:
     return json.loads(ir.model_dump_json())
 
 
-def _seed(ctx: HarnessRunContext, kind: str, obj: dict) -> ArtifactRef:
+def _seed(ctx: HarnessRunContext, kind: str, obj: dict) -> PlanArtifactRef:
     return ctx.artifact_store.put_json(kind=kind, obj=obj, created_by="seed", parent_ids=[])
 
 
@@ -102,14 +102,14 @@ def _seed(ctx: HarnessRunContext, kind: str, obj: dict) -> ArtifactRef:
 
 class TestValidateTestSpecStage:
     def test_stage_name_and_subclass(self) -> None:
-        from molexp.harness import ValidateTestSpec
         from molexp.harness.core.stage import Stage
+        from molexp.harness.stages import ValidateTestSpec
 
         assert ValidateTestSpec.name == "validate_test_spec"
         assert issubclass(ValidateTestSpec, Stage)
 
     def test_ctor_raise_on_failure_is_keyword_only(self) -> None:
-        from molexp.harness import ValidateTestSpec
+        from molexp.harness.stages import ValidateTestSpec
 
         with pytest.raises(TypeError):
             ValidateTestSpec(False)  # type: ignore[call-arg]
@@ -117,7 +117,8 @@ class TestValidateTestSpecStage:
     # ------------------------------------------------------------- happy path
 
     def test_happy_path_persists_passing_report(self, ctx) -> None:
-        from molexp.harness import ValidateTestSpec, ValidationReport
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         spec_ref = _seed(ctx, "test_spec", _test_spec_dict())
         report_ref = asyncio.run(ValidateTestSpec().run(ctx))
@@ -126,26 +127,29 @@ class TestValidateTestSpecStage:
         assert spec_ref.id in report_ref.parent_ids
 
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is True
         assert report.target_kind == "test_spec"
 
     # ----------------------------------------------- workflow_ir cross-check
 
     def test_cross_check_passes_when_target_task_in_ir(self, ctx) -> None:
-        from molexp.harness import ValidateTestSpec, ValidationReport
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-square"))
         _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
         report_ref = asyncio.run(ValidateTestSpec().run(ctx))
 
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is True
         assert report.target_kind == "test_spec"
 
     def test_cross_check_fails_when_target_task_not_in_ir(self, ctx) -> None:
-        from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-other"))
         _seed(ctx, "test_spec", _test_spec_dict(target_task_id="task-square"))
@@ -157,16 +161,47 @@ class TestValidateTestSpecStage:
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
         raw = ctx.artifact_store.get(reports[0].id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert any(v.code == "unknown_task_target" for v in report.violations)
         assert exc_info.value.persisted_ref.id == reports[0].id
         assert exc_info.value.persisted_ref.kind == "validation_report"
 
+        # The raised error must surface the violation MESSAGE (unknown id +
+        # known candidates), not just the bare code — the CLI shows str(exc).
+        rendered = str(exc_info.value)
+        assert "unknown_task_target" in rendered
+        assert "'task-square'" in rendered  # the unknown target id
+        assert "task-other" in rendered  # the known candidate from the IR
+
+    def test_stage_error_deduplicates_repeated_violation_messages(self, ctx) -> None:
+        """Identical violations across bundle members render once in the error."""
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.stages import ValidateTestSpec
+
+        _seed(ctx, "workflow_ir", _workflow_ir_dict(task_id="task-other"))
+        bundle = {
+            "id": "tsb-dup",
+            "bound_workflow_id": "wf",
+            "specs": [
+                _test_spec_dict(target_task_id="task-square"),
+                _test_spec_dict(target_task_id="task-square"),
+            ],
+        }
+        _seed(ctx, "test_spec", bundle)
+
+        with pytest.raises(StagePersistedFailureError) as exc_info:
+            asyncio.run(ValidateTestSpec().run(ctx))
+
+        rendered = str(exc_info.value)
+        assert rendered.count("targets unknown task") == 1
+
     # ---------------------------------------------- red path: missing target
 
     def test_missing_target_persists_failing_report_then_raises(self, ctx) -> None:
-        from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         _seed(ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None))
 
@@ -176,13 +211,14 @@ class TestValidateTestSpecStage:
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
         raw = ctx.artifact_store.get(reports[0].id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert any(v.code == "missing_target" for v in report.violations)
         assert exc_info.value.persisted_ref.id == reports[0].id
 
     def test_missing_target_returns_failing_ref_when_raise_disabled(self, ctx) -> None:
-        from molexp.harness import ValidateTestSpec, ValidationReport
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         spec_ref = _seed(
             ctx, "test_spec", _test_spec_dict(target_task_id=None, target_workflow_id=None)
@@ -192,7 +228,7 @@ class TestValidateTestSpecStage:
         assert report_ref.kind == "validation_report"
         assert spec_ref.id in report_ref.parent_ids
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
 
 
@@ -201,7 +237,8 @@ class TestValidateTestSpecBundle:
 
     def test_bundle_validates_every_member_spec(self, ctx) -> None:
         """ac-004 — a TestSpecBundle is validated per-member into one report."""
-        from molexp.harness import ValidateTestSpec, ValidationReport
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         bundle = {
             "id": "tsb-1",
@@ -210,19 +247,25 @@ class TestValidateTestSpecBundle:
         }
         _seed(ctx, "test_spec", bundle)
         report_ref = asyncio.run(ValidateTestSpec().run(ctx))
-        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
+        report = PlanValidationReport.model_validate(
+            json.loads(ctx.artifact_store.get(report_ref.id))
+        )
         assert report.passed is True
         assert report.target_kind == "test_spec"
 
     def test_empty_bundle_fails_validation(self, ctx) -> None:
         """ac-004 — a bundle with no specs is itself a violation."""
-        from molexp.harness import StagePersistedFailureError, ValidateTestSpec, ValidationReport
+        from molexp.harness.errors import StagePersistedFailureError
+        from molexp.harness.schemas import PlanValidationReport
+        from molexp.harness.stages import ValidateTestSpec
 
         _seed(ctx, "test_spec", {"id": "tsb-empty", "bound_workflow_id": "wf", "specs": []})
         with pytest.raises(StagePersistedFailureError):
             asyncio.run(ValidateTestSpec().run(ctx))
 
         report_ref = ctx.artifact_store.latest_by_kind("validation_report")
-        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
+        report = PlanValidationReport.model_validate(
+            json.loads(ctx.artifact_store.get(report_ref.id))
+        )
         assert report.passed is False
         assert any(v.code == "empty_test_spec_bundle" for v in report.violations)

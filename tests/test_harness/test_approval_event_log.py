@@ -144,18 +144,14 @@ class TestApprovalEventLog:
     # ------------------------------------------------- re-exports
 
     def test_helpers_re_exported(self) -> None:
-        from molexp.harness import (
-            ApprovalEventRecorder as via_top_decision,
-        )
-        from molexp.harness import (
-            ApprovalEventRecorder as via_top_request,
-        )
         from molexp.harness.policy import (
             ApprovalEventRecorder as via_pkg_decision,
         )
         from molexp.harness.policy import (
             ApprovalEventRecorder as via_pkg_request,
         )
+        from molexp.harness.policy import ApprovalEventRecorder as via_top_decision
+        from molexp.harness.policy import ApprovalEventRecorder as via_top_request
 
         assert via_top_request is via_pkg_request
         assert via_top_decision is via_pkg_decision

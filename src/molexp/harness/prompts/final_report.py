@@ -14,5 +14,8 @@ SYSTEM_PROMPT = (
     "report the actual output values — never invent numbers that are not in "
     "the ExecutionResult. State limitations honestly (e.g. toy system size, "
     "single run, no error bars) and propose concrete next steps. Fill every "
-    "field of the FinalReport schema; keep the narrative factual and concise."
+    "field of the FinalReport schema; keep the narrative factual and concise.\n\n"
+    "Write every mathematical expression in LaTeX with dollar delimiters — "
+    "$...$ inline, $$...$$ for display equations — never as plain Unicode "
+    "math; the molexp UI renders dollar-delimited LaTeX with KaTeX."
 )

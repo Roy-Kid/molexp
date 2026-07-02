@@ -15,7 +15,7 @@ from typing import ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, FinalReport
+from molexp.harness.schemas import AgentCallSpec, FinalReport, PlanArtifactRef
 from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["GenerateFinalReport"]
@@ -26,7 +26,7 @@ class GenerateFinalReport(Stage):
 
     name: ClassVar[str] = "generate_final_report"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("GenerateFinalReport requires ctx.agent_gateway to be set")
         experiment_report = require_latest(ctx, "experiment_report", stage=self.name)

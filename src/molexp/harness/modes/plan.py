@@ -88,7 +88,23 @@ from molexp.harness.stages import (
 if TYPE_CHECKING:
     from molexp.workspace.models import ComputeTarget
 
-__all__ = ["PlanMode"]
+__all__ = ["PlanMode", "PlanStep"]
+
+
+class PlanStep:
+    """One *visible* step of the plan pipeline — a titled group of stages.
+
+    The nine step titles are the documented user-facing vocabulary
+    (``docs/guide/plan-mode.md`` / ``docs/architecture/plan-mode.md``); the
+    stage objects inside are internal execution units. ``tail=True`` marks
+    the opt-in ``--execute`` group, which is *not* one of the nine steps.
+    A runtime container (holds live ``Stage`` instances), so a plain class.
+    """
+
+    def __init__(self, title: str, stages: list[Stage], *, tail: bool = False) -> None:
+        self.title = title
+        self.stages = stages
+        self.tail = tail
 
 
 class PlanMode(Mode):
@@ -109,76 +125,129 @@ class PlanMode(Mode):
         self._execute = execute
         self._compute_target = compute_target
 
-    def stages(self, user_input: Any) -> list[Stage]:  # noqa: ANN401 — the NL draft
-        stages: list[Stage] = [
+    def step_groups(self, user_input: Any) -> list[PlanStep]:  # noqa: ANN401 — the NL draft
+        """The nine documented steps (plus the opt-in ``--execute`` tail).
+
+        The single source of truth for step ↔ stage grouping: :meth:`stages`
+        flattens this structure, and the CLI banner/progress renders it, so
+        the user-facing "nine steps" and the executed stage sequence can
+        never drift apart.
+        """
+        groups: list[PlanStep] = [
             # 1. Draft proposal — capture the request, draft a human-readable report.
-            SaveUserPlan(user_text=str(user_input)),
-            GenerateExperimentReport(),
-            # 2. Draft spec — concretize every parameter, resolve open questions.
-            RepairLoop(
-                name="generate_experiment_spec",
-                generate=GenerateExperimentSpec(),
-                validators=[ValidateExperimentSpec()],
-                feedback_kind="experiment_spec_feedback",
+            PlanStep(
+                "Draft proposal",
+                [SaveUserPlan(user_text=str(user_input)), GenerateExperimentReport()],
             ),
-            # Spec approval — the human approves the concrete spec BEFORE it is
-            # fed to the LLM to build the workflow. A rejection stops here: no
-            # capability discovery, no IR, no source ever runs. `PlanMode(
-            # approver=…)` wires this gate (the meaningful pre-compile checkpoint).
-            ApprovalGate(
-                requests=[self._spec_request()],
-                approve=self._approver,
-                name="approve_experiment_spec",
-                result_kind="spec_approval",
+            # 2. Draft spec — concretize every parameter, resolve open questions.
+            # The spec approval gate lets the human approve the concrete spec
+            # BEFORE it is fed to the LLM to build the workflow. A rejection
+            # stops here: no capability discovery, no IR, no source ever runs.
+            PlanStep(
+                "Draft spec",
+                [
+                    RepairLoop(
+                        name="generate_experiment_spec",
+                        generate=GenerateExperimentSpec(),
+                        validators=[ValidateExperimentSpec()],
+                        feedback_kind="experiment_spec_feedback",
+                    ),
+                    ApprovalGate(
+                        requests=[self._spec_request()],
+                        approve=self._approver,
+                        name="approve_experiment_spec",
+                        result_kind="spec_approval",
+                    ),
+                ],
             ),
             # 3. Resolve capabilities — discover the molcrafts toolchain.
-            ResolveCapabilities(),
+            PlanStep("Resolve capabilities", [ResolveCapabilities()]),
             # 4. Workflow IR — lift the concrete spec into a flow + topology.
-            RepairLoop(
-                name="extract_workflow_ir",
-                generate=ExtractWorkflowIR(),
-                validators=[ValidateWorkflowIR()],
-                feedback_kind="workflow_ir_feedback",
+            PlanStep(
+                "Workflow IR",
+                [
+                    RepairLoop(
+                        name="extract_workflow_ir",
+                        generate=ExtractWorkflowIR(),
+                        validators=[ValidateWorkflowIR()],
+                        feedback_kind="workflow_ir_feedback",
+                    ),
+                ],
             ),
             # 5. Tasks + per-task tests — bind, codegen, and a unit test per task.
-            RepairLoop(
-                name="bind_molcrafts_tasks",
-                generate=BindMolcraftsTasks(),
-                validators=[ValidateBoundWorkflow()],
-                feedback_kind="bound_workflow_feedback",
+            PlanStep(
+                "Tasks + per-task tests",
+                [
+                    RepairLoop(
+                        name="bind_molcrafts_tasks",
+                        generate=BindMolcraftsTasks(),
+                        validators=[ValidateBoundWorkflow()],
+                        feedback_kind="bound_workflow_feedback",
+                    ),
+                    RepairLoop(
+                        name="generate_workflow_source",
+                        generate=GenerateWorkflowSource(),
+                        validators=[ValidateWorkflowSource(), ReviewPlan()],
+                        feedback_kind="workflow_source_feedback",
+                        attempts=4,
+                    ),
+                    RepairLoop(
+                        name="generate_test_spec",
+                        generate=GenerateTestSpec(),
+                        validators=[ValidateTestSpec()],
+                        feedback_kind="test_spec_feedback",
+                        attempts=4,
+                    ),
+                    RepairLoop(
+                        name="generate_test_code",
+                        generate=GenerateTestCode(),
+                        validators=[ValidateTestSource()],
+                        feedback_kind="test_code_feedback",
+                        attempts=4,
+                    ),
+                ],
             ),
-            RepairLoop(
-                name="generate_workflow_source",
-                generate=GenerateWorkflowSource(),
-                validators=[ValidateWorkflowSource(), ReviewPlan()],
-                feedback_kind="workflow_source_feedback",
-                attempts=4,
-            ),
-            GenerateTestSpec(),
-            ValidateTestSpec(),
-            GenerateTestCode(),
-            ValidateTestSource(),
             # 6. Input set — the parameter-space sweep the workflow runs over.
-            RepairLoop(
-                name="generate_input_set",
-                generate=GenerateInputSet(),
-                validators=[ValidateInputSet()],
-                feedback_kind="input_set_feedback",
+            PlanStep(
+                "Input set",
+                [
+                    RepairLoop(
+                        name="generate_input_set",
+                        generate=GenerateInputSet(),
+                        validators=[ValidateInputSet()],
+                        feedback_kind="input_set_feedback",
+                    ),
+                ],
             ),
             # 7. Compile / dry-run — materialize, run per-task tests, compile (no science).
-            MaterializeExecution(),
-            ExecuteTests(self._executor),
-            CompileWorkflow(self._executor),
+            PlanStep(
+                "Compile / dry-run",
+                [
+                    MaterializeExecution(),
+                    ExecuteTests(self._executor),
+                    CompileWorkflow(self._executor),
+                ],
+            ),
             # 8. Review — gate the whole verified plan before it is final.
-            ApprovalGate(
-                requests=[self._final_request()], approve=self._approver, name="approve_plan"
+            PlanStep(
+                "Review",
+                [
+                    ApprovalGate(
+                        requests=[self._final_request()],
+                        approve=self._approver,
+                        name="approve_plan",
+                    ),
+                ],
             ),
             # 9. Execution report — describe where & how it would run (no submission).
-            GenerateExecutionReport(self._compute_target),
+            PlanStep("Execution report", [GenerateExecutionReport(self._compute_target)]),
         ]
         if self._execute:
-            stages.extend(self._execution_tail())
-        return stages
+            groups.append(PlanStep("Execute", self._execution_tail(), tail=True))
+        return groups
+
+    def stages(self, user_input: Any) -> list[Stage]:  # noqa: ANN401 — the NL draft
+        return [stage for group in self.step_groups(user_input) for stage in group.stages]
 
     def _execution_tail(self) -> list[Stage]:
         """The opt-in real-execution stages (the folded-in RunMode back half)."""

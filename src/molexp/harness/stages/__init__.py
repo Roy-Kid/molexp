@@ -2,7 +2,7 @@
 
 Each stage is a thin wrapper that constructs typed inputs, drives the right
 artifact-store / agent-gateway call, and returns a single
-:class:`ArtifactRef`. The audit bracket
+:class:`PlanArtifactRef`. The audit bracket
 (:func:`~molexp.harness.core.stage_runner.run_stage_bracketed`) handles
 event emission and artifact-lineage wiring around them.
 """

@@ -104,7 +104,7 @@ def test_persisted_failure_emits_artifact_created_and_edges_before_failing(ctx) 
     """StagePersistedFailureError: runner emits artifact_created + edges then re-raises.
 
     Mirrors the always-persist-then-raise validator contract: a strict
-    validator persists a parse-error ValidationReport, raises
+    validator persists a parse-error PlanValidationReport, raises
     ``StagePersistedFailureError(persisted_ref, …)``, and the runner
     surfaces the persisted artifact + lineage in the audit trail before
     failing the stage.

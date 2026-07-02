@@ -3,7 +3,7 @@
 Per ``.claude/notes/harness-goal.md`` §10.1-10.2: every harness call into
 an agent flows through this typed envelope, so the audit log can answer
 "which agent ran, against which inputs, returning which artifacts" without
-guessing. The two ``ArtifactRef`` fields on the result are an explicit
+guessing. The two ``PlanArtifactRef`` fields on the result are an explicit
 invariant: any :class:`molexp.harness.gateways.gateway.AgentGateway` impl
 MUST persist both the parsed output and the raw response before returning,
 giving the audit pipeline a verbatim record of what the LLM emitted (not
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.artifact import PlanArtifactRef
 
 __all__ = ["AgentCallResult", "AgentCallSpec"]
 
@@ -48,7 +48,7 @@ class AgentCallResult(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    output_artifact: ArtifactRef
-    raw_response_artifact: ArtifactRef
+    output_artifact: PlanArtifactRef
+    raw_response_artifact: PlanArtifactRef
     model: str
     usage: dict[str, int] = Field(default_factory=dict)

@@ -9,6 +9,6 @@ final + audit reports on the same ``workspace.Run``.
 
 from __future__ import annotations
 
-from molexp.harness.modes.plan import PlanMode
+from molexp.harness.modes.plan import PlanMode, PlanStep
 
-__all__ = ["PlanMode"]
+__all__ = ["PlanMode", "PlanStep"]

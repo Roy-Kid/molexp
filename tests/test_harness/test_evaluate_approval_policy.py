@@ -311,11 +311,11 @@ class TestEvaluateApprovalPolicy:
     def test_overwrite_from_ir_task_review_flags(self) -> None:
         from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
         from molexp.harness.schemas.parameter import ParameterValue
-        from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR, PlanWorkflowIR
 
         policy = _empty_policy().model_copy(update={"require_for_overwrite": True})
         bw = _clean_bound_workflow()  # no bw.review_flags
-        t1 = TaskIR(
+        t1 = PlanTaskIR(
             id="t1",
             name="x",
             purpose="x",
@@ -324,7 +324,7 @@ class TestEvaluateApprovalPolicy:
             outputs={"out": "out.txt"},
             review_flags=["overwrite"],
         )
-        ir = WorkflowIR(
+        ir = PlanWorkflowIR(
             id="wf-001",
             name="wf",
             objective="x",
@@ -346,11 +346,11 @@ class TestEvaluateApprovalPolicy:
     def test_overwrite_both_flags_dedupe(self) -> None:
         from molexp.harness.policy.evaluate import ApprovalPolicyEvaluator
         from molexp.harness.schemas.parameter import ParameterValue
-        from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
+        from molexp.harness.schemas.workflow_ir import PlanTaskIR, PlanWorkflowIR
 
         policy = _empty_policy().model_copy(update={"require_for_overwrite": True})
         bw = _clean_bound_workflow().model_copy(update={"review_flags": ["overwrite"]})
-        t1 = TaskIR(
+        t1 = PlanTaskIR(
             id="t1",
             name="x",
             purpose="x",
@@ -359,7 +359,7 @@ class TestEvaluateApprovalPolicy:
             outputs={"out": "out.txt"},
             review_flags=["overwrite"],
         )
-        ir = WorkflowIR(
+        ir = PlanWorkflowIR(
             id="wf-001",
             name="wf",
             objective="x",
@@ -468,18 +468,14 @@ class TestEvaluateApprovalPolicy:
     # ----------------------------------------- re-export
 
     def test_evaluate_re_exported(self) -> None:
-        from molexp.harness import (
-            ApprovalPolicyEvaluator as top_eval,
-        )
-        from molexp.harness import (
-            ApprovalPolicyEvaluator as top_final,
-        )
         from molexp.harness.policy import (
             ApprovalPolicyEvaluator as pkg_eval,
         )
         from molexp.harness.policy import (
             ApprovalPolicyEvaluator as pkg_final,
         )
+        from molexp.harness.policy import ApprovalPolicyEvaluator as top_eval
+        from molexp.harness.policy import ApprovalPolicyEvaluator as top_final
 
         assert top_eval is pkg_eval
         assert top_final is pkg_final

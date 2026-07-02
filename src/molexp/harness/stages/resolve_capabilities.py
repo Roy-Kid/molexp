@@ -29,7 +29,7 @@ from molexp.harness.prompts.capability_catalog import (
     render_capability_catalog,
     render_selected_capability_catalog,
 )
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, CapabilitySelection
+from molexp.harness.schemas import AgentCallSpec, CapabilitySelection, PlanArtifactRef
 from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["ResolveCapabilities"]
@@ -52,7 +52,7 @@ class ResolveCapabilities(Stage):
 
     name: ClassVar[str] = "resolve_capabilities"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         registry = ctx.capability_registry
         if registry is None:
             return ctx.artifact_store.put_text(

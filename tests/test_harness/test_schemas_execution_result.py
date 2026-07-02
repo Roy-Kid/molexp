@@ -4,7 +4,7 @@ RED before implementation: ``ExecutionResult`` does not exist yet, so the
 module-level import fails at collection. After GREEN these assert the
 frozen wire shape: required execution identity + timing fields, a
 two-value ``status`` Literal, and the ``TestResult``-aligned
-``ArtifactRef | None`` stdout/stderr channel.
+``PlanArtifactRef | None`` stdout/stderr channel.
 
 Timestamps are fixed constants — no wall clock in assertions.
 """
@@ -16,14 +16,14 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from molexp.harness import ArtifactRef, ExecutionResult
+from molexp.harness.schemas import ExecutionResult, PlanArtifactRef
 
 _STARTED = datetime(2026, 6, 10, 12, 0, 0, tzinfo=UTC)
 _ENDED = datetime(2026, 6, 10, 12, 5, 0, tzinfo=UTC)
 
 
-def _artifact_ref(kind: str) -> ArtifactRef:
-    return ArtifactRef(
+def _artifact_ref(kind: str) -> PlanArtifactRef:
+    return PlanArtifactRef(
         id=f"art-{kind}",
         kind=kind,
         uri=f"file:///artifacts/{kind}",
@@ -117,11 +117,9 @@ def test_execution_result_is_frozen() -> None:
         result.exit_code = 1  # type: ignore[misc]
 
 
-def test_execution_result_reexported_from_harness() -> None:
-    import molexp.harness as h
+def test_execution_result_reexported_from_schemas() -> None:
     from molexp.harness.schemas import ExecutionResult as FromSchemas
     from molexp.harness.schemas.execution_result import ExecutionResult as Canonical
 
-    assert h.ExecutionResult is Canonical
     assert FromSchemas is Canonical
     assert ExecutionResult is Canonical

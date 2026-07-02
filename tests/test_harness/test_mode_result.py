@@ -15,11 +15,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from molexp.harness.schemas import ArtifactRef, ValidationReport
+from molexp.harness.schemas import PlanArtifactRef, PlanValidationReport
 
 
-def _ref(artifact_id: str, kind: str) -> ArtifactRef:
-    return ArtifactRef(
+def _ref(artifact_id: str, kind: str) -> PlanArtifactRef:
+    return PlanArtifactRef(
         id=artifact_id,
         kind=kind,
         uri=f"mem://{artifact_id}",
@@ -64,7 +64,9 @@ def test_mode_result_carries_per_stage_artifacts_and_final() -> None:
 
     a = _ref("art-a", "user_plan")
     b = _ref("art-b", "experiment_report")
-    report = ValidationReport(passed=True, violations=[], target_kind="workflow_ir", target_id="x")
+    report = PlanValidationReport(
+        passed=True, violations=[], target_kind="workflow_ir", target_id="x"
+    )
 
     result = ModeResult(
         mode_name="demo",

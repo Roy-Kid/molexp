@@ -54,13 +54,9 @@ def _dangerous_workflow():
 
 class TestPhase06E2EPolicyApproval:
     def test_dangerous_workflow_triggers_multiple_intents(self, tmp_path: Path) -> None:
-        from molexp.harness import (
-            ApprovalDecision,
-            ApprovalEventRecorder,
-            ApprovalPolicy,
-            ApprovalPolicyEvaluator,
-            SQLiteEventLog,
-        )
+        from molexp.harness import SQLiteEventLog
+        from molexp.harness.policy import ApprovalEventRecorder, ApprovalPolicyEvaluator
+        from molexp.harness.schemas import ApprovalDecision, ApprovalPolicy
 
         bw = _dangerous_workflow()
         policy = ApprovalPolicy()  # all six require_for_* default True
@@ -124,12 +120,14 @@ class TestPhase06E2EPolicyApproval:
     # ----------------------------------------- public-surface invariants
 
     def test_phase06_public_symbols_importable_from_top_level(self) -> None:
-        from molexp.harness import (  # noqa: F401
-            ApprovalDecision,
+        from molexp.harness.policy import (  # noqa: F401
             ApprovalEventRecorder,
+            ApprovalPolicyEvaluator,
+        )
+        from molexp.harness.schemas import (  # noqa: F401
+            ApprovalDecision,
             ApprovalIntent,
             ApprovalPolicy,
-            ApprovalPolicyEvaluator,
             ApprovalRequest,
             PathPolicy,
             ToolPolicy,
@@ -137,18 +135,20 @@ class TestPhase06E2EPolicyApproval:
 
     def test_phase01_to_phase05_surface_still_intact(self) -> None:
         """Regression: every Phase-1..5 export still importable."""
-        from molexp.harness import (  # noqa: F401
-            ArtifactRef,
+        from molexp.harness import CapabilityRegistry  # noqa: F401
+        from molexp.harness.schemas import (  # noqa: F401
             BoundWorkflow,
-            BoundWorkflowValidator,
-            CapabilityRegistry,
             ExperimentReport,
-            ProvenanceValidator,
-            SaveUserPlan,
+            PlanArtifactRef,
+            PlanWorkflowIR,
             TestSpec,
-            TestSpecValidator,
             ToolCapability,
             UserPlan,
-            WorkflowIR,
+        )
+        from molexp.harness.stages import SaveUserPlan  # noqa: F401
+        from molexp.harness.validators import (  # noqa: F401
+            BoundWorkflowValidator,
+            ProvenanceValidator,
+            TestSpecValidator,
             WorkflowIRValidator,
         )

@@ -127,11 +127,11 @@ class TestValidateWorkflowIRStage:
         assert report_ref.kind == "validation_report"
         assert ir_ref.id in report_ref.parent_ids
 
-        # Loaded report parses as ValidationReport and is passed.
-        from molexp.harness.schemas.validation import ValidationReport
+        # Loaded report parses as PlanValidationReport and is passed.
+        from molexp.harness.schemas.validation import PlanValidationReport
 
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is True
         assert report.target_kind == "workflow_ir"
 
@@ -149,10 +149,10 @@ class TestValidateWorkflowIRStage:
         # Despite raising, the validation_report MUST be persisted.
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
 
         raw = ctx.artifact_store.get(reports[0].id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert any(v.code == "cyclic_dependency" for v in report.violations)
 
@@ -164,25 +164,25 @@ class TestValidateWorkflowIRStage:
         report_ref = asyncio.run(stage.run(ctx))
         assert report_ref.kind == "validation_report"
 
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
 
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
 
     def test_unparseable_input_persists_parse_error_report_and_raises(self, ctx) -> None:
-        """Garbage JSON for WorkflowIR → parse-error ValidationReport persisted, then raise.
+        """Garbage JSON for PlanWorkflowIR → parse-error PlanValidationReport persisted, then raise.
 
         The always-persist contract MUST hold even when the input is so
         malformed that the validator can't be invoked. The stage synthesizes
-        a one-violation ValidationReport (code 'ir_parse_error') and raises
+        a one-violation PlanValidationReport (code 'ir_parse_error') and raises
         ``StagePersistedFailureError`` (a ``StageExecutionError`` subclass).
         """
         from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
-        # Seed a non-WorkflowIR artifact under the kind="workflow_ir" slot.
+        # Seed a non-PlanWorkflowIR artifact under the kind="workflow_ir" slot.
         ctx.artifact_store.put_json(
             kind="workflow_ir",
             obj={"not": "a workflow ir at all"},
@@ -195,11 +195,11 @@ class TestValidateWorkflowIRStage:
             asyncio.run(stage.run(ctx))
         assert isinstance(exc_info.value, StagePersistedFailureError)
 
-        # The parse-error ValidationReport MUST be persisted.
+        # The parse-error PlanValidationReport MUST be persisted.
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
         raw = ctx.artifact_store.get(reports[0].id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert report.target_kind == "workflow_ir"
         assert any(v.code == "ir_parse_error" for v in report.violations)
@@ -208,7 +208,7 @@ class TestValidateWorkflowIRStage:
 
     def test_unparseable_input_soft_mode_returns_parse_error_report(self, ctx) -> None:
         """raise_on_failure=False on unparseable IR returns the parse-error report."""
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_workflow_ir import ValidateWorkflowIR
 
         ctx.artifact_store.put_json(
@@ -220,6 +220,6 @@ class TestValidateWorkflowIRStage:
         stage = ValidateWorkflowIR(raise_on_failure=False)
         report_ref = asyncio.run(stage.run(ctx))
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert any(v.code == "ir_parse_error" for v in report.violations)

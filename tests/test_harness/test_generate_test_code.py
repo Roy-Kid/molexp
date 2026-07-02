@@ -19,8 +19,8 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 if TYPE_CHECKING:
-    from molexp.harness import ArtifactRef
     from molexp.harness.core.run_context import HarnessRunContext
+    from molexp.harness.schemas import PlanArtifactRef
     from molexp.harness.store.artifact_store import ArtifactStore
 
 _TEST_SOURCE = (
@@ -56,8 +56,8 @@ def _test_source_canned() -> dict:
     }
 
 
-def _seed_test_spec(artifact_store: ArtifactStore) -> ArtifactRef:
-    from molexp.harness import TestSpec
+def _seed_test_spec(artifact_store: ArtifactStore) -> PlanArtifactRef:
+    from molexp.harness.schemas import TestSpec
 
     spec = TestSpec(
         id="ts-001",
@@ -74,8 +74,8 @@ def _seed_test_spec(artifact_store: ArtifactStore) -> ArtifactRef:
     )
 
 
-def _seed_workflow_source(artifact_store: ArtifactStore) -> ArtifactRef:
-    from molexp.harness import WorkflowSource
+def _seed_workflow_source(artifact_store: ArtifactStore) -> PlanArtifactRef:
+    from molexp.harness.schemas import WorkflowSource
 
     ws = WorkflowSource(
         source=_WORKFLOW_SOURCE,
@@ -135,15 +135,16 @@ def ctx_with_gw(tmp_path: Path) -> HarnessRunContext:
 
 
 def test_name_and_subclass() -> None:
-    from molexp.harness import GenerateTestCode
     from molexp.harness.core.stage import Stage
+    from molexp.harness.stages import GenerateTestCode
 
     assert GenerateTestCode.name == "generate_test_code"
     assert issubclass(GenerateTestCode, Stage)
 
 
 def test_fail_fast_no_gateway(ctx_no_gw) -> None:
-    from molexp.harness import GenerateTestCode, StageExecutionError
+    from molexp.harness import StageExecutionError
+    from molexp.harness.stages import GenerateTestCode
 
     _seed_test_spec(ctx_no_gw.artifact_store)
     _seed_workflow_source(ctx_no_gw.artifact_store)
@@ -154,9 +155,9 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
 
 
 def test_builds_correct_spec(ctx_with_gw) -> None:
-    from molexp.harness import GenerateTestCode, TestSource
     from molexp.harness.gateways.gateway import AgentGateway
-    from molexp.harness.schemas import AgentCallResult, AgentCallSpec
+    from molexp.harness.schemas import AgentCallResult, AgentCallSpec, TestSource
+    from molexp.harness.stages import GenerateTestCode
 
     ts_ref = _seed_test_spec(ctx_with_gw.artifact_store)
     ws_ref = _seed_workflow_source(ctx_with_gw.artifact_store)
@@ -186,7 +187,7 @@ def test_builds_correct_spec(ctx_with_gw) -> None:
 
 
 def test_persists_test_source_artifact_with_lineage(ctx_with_gw) -> None:
-    from molexp.harness import GenerateTestCode
+    from molexp.harness.stages import GenerateTestCode
 
     ts_ref = _seed_test_spec(ctx_with_gw.artifact_store)
     ws_ref = _seed_workflow_source(ctx_with_gw.artifact_store)

@@ -2,7 +2,7 @@
 
 Ties the Phase-2 pipeline output to both Phase-5 validators:
 - validate_provenance on the experiment_report artifact → passed=True
-- validate_test_spec against a hand-built WorkflowIR for the same pipeline → passed=True
+- validate_test_spec against a hand-built PlanWorkflowIR for the same pipeline → passed=True
 
 Also re-confirms the Phase-5 public surface (ac-003).
 """
@@ -19,14 +19,13 @@ def _run_pipeline_and_return_refs(tmp_path: Path):
     """
     from molexp.harness import (
         FileArtifactStore,
-        GenerateExperimentReport,
         HarnessRunContext,
-        SaveUserPlan,
         SQLiteArtifactLineageStore,
         SQLiteEventLog,
         StageRunner,
     )
     from molexp.harness.gateways.stub import StubAgentGateway
+    from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan
 
     db_path = tmp_path / "events.sqlite"
     artifacts = FileArtifactStore(root=tmp_path / "artifacts")
@@ -63,7 +62,7 @@ class TestPhase05E2ETestAndProvenance:
 
     def test_phase05_validate_provenance_on_pipeline_output(self, tmp_path: Path) -> None:
         """The Phase-2 e2e experiment_report must trace back to user_plan."""
-        from molexp.harness import ProvenanceValidator
+        from molexp.harness.validators import ProvenanceValidator
 
         ctx, _user_plan_ref, report_ref = _run_pipeline_and_return_refs(tmp_path)
         report = ProvenanceValidator.validate(
@@ -77,7 +76,7 @@ class TestPhase05E2ETestAndProvenance:
 
     def test_phase05_validate_provenance_with_custom_root_kind(self, tmp_path: Path) -> None:
         """root_kind override: report should also trace to itself (the experiment_report)."""
-        from molexp.harness import ProvenanceValidator
+        from molexp.harness.validators import ProvenanceValidator
 
         ctx, _user_plan_ref, report_ref = _run_pipeline_and_return_refs(tmp_path)
         # The artifact IS an experiment_report → it counts as root_kind.
@@ -92,23 +91,23 @@ class TestPhase05E2ETestAndProvenance:
     # ------------------------------------------------------ validate_test_spec
 
     def test_phase05_validate_test_spec_against_hand_built_ir(self, tmp_path: Path) -> None:
-        """Construct a TestSpec targeting a hand-built WorkflowIR derived from
+        """Construct a TestSpec targeting a hand-built PlanWorkflowIR derived from
         the pipeline's experiment_report; assert validate_test_spec passes."""
-        from molexp.harness import (
+        from molexp.harness.schemas import (
             DependencyEdge,
             ExpectedOutput,
             ParameterValue,
-            TaskIR,
+            PlanTaskIR,
+            PlanWorkflowIR,
             TestSpec,
-            TestSpecValidator,
-            WorkflowIR,
         )
+        from molexp.harness.validators import TestSpecValidator
 
         _ctx, _user_plan_ref, _report_ref = _run_pipeline_and_return_refs(tmp_path)
 
-        # Hand-built WorkflowIR derived from the pipeline's report — Phase-5
+        # Hand-built PlanWorkflowIR derived from the pipeline's report — Phase-5
         # doesn't ship the agent stage that synthesizes this automatically.
-        build = TaskIR(
+        build = PlanTaskIR(
             id="build_system",
             name="Pack water",
             purpose="Generate SPC/E configuration",
@@ -116,7 +115,7 @@ class TestPhase05E2ETestAndProvenance:
             inputs={"n_water": ParameterValue(value=512, source="user_provided")},
             outputs={"structure": "structure.pdb"},
         )
-        run_md = TaskIR(
+        run_md = PlanTaskIR(
             id="run_md",
             name="Run NEMD",
             purpose="Apply external field",
@@ -124,7 +123,7 @@ class TestPhase05E2ETestAndProvenance:
             inputs={"structure": ParameterValue(value="structure.pdb", source="user_provided")},
             outputs={"trajectory": "traj.dcd"},
         )
-        ir = WorkflowIR(
+        ir = PlanWorkflowIR(
             id="wf-water-nemd-p5",
             name="water_nemd_p5",
             objective="Compute ionic mobility",
@@ -151,30 +150,25 @@ class TestPhase05E2ETestAndProvenance:
     # ------------------------------------------------- public-surface invariants
 
     def test_phase05_public_symbols_importable_from_top_level(self) -> None:
-        from molexp.harness import (  # noqa: F401
-            ProvenanceValidator,
-            TestKind,
-            TestResult,
-            TestSpec,
-            TestSpecValidator,
-            TestStatus,
-        )
+        from molexp.harness.schemas import TestKind, TestResult, TestSpec, TestStatus  # noqa: F401
+        from molexp.harness.validators import ProvenanceValidator, TestSpecValidator  # noqa: F401
 
     def test_phase01_to_phase04_surface_still_intact(self) -> None:
         """Regression: every Phase-1..4 export still importable."""
-        from molexp.harness import (  # noqa: F401
+        from molexp.harness import AgentGateway, CapabilityRegistry  # noqa: F401
+        from molexp.harness.registry import InMemoryCapabilityRegistry  # noqa: F401
+        from molexp.harness.schemas import (  # noqa: F401
             AgentCallResult,
             AgentCallSpec,
-            AgentGateway,
             ArtifactKind,
-            ArtifactRef,
             BoundTask,
             BoundWorkflow,
-            BoundWorkflowValidator,
-            CapabilityRegistry,
             ExperimentReport,
-            InMemoryCapabilityRegistry,
+            PlanArtifactRef,
             ToolCapability,
             UserPlan,
+        )
+        from molexp.harness.validators import (  # noqa: F401
+            BoundWorkflowValidator,
             WorkflowIRValidator,
         )

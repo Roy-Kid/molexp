@@ -68,7 +68,7 @@ def ctx(tmp_path: Path):
 
 
 def _seed_workflow_source(store):
-    from molexp.harness import WorkflowSource
+    from molexp.harness.schemas import WorkflowSource
 
     ws = WorkflowSource(
         source="def build_workflow():\n    return None\n",
@@ -95,14 +95,16 @@ def _write_driver(ctx, driver_text: str) -> Path:
 
 
 def test_name_and_subclass() -> None:
-    from molexp.harness import ExecuteWorkflow, Stage
+    from molexp.harness import Stage
+    from molexp.harness.stages import ExecuteWorkflow
 
     assert ExecuteWorkflow.name == "execute_workflow"
     assert issubclass(ExecuteWorkflow, Stage)
 
 
 def test_command_spec_built_per_contract(ctx) -> None:
-    from molexp.harness import ExecuteWorkflow, LocalExecutor
+    from molexp.harness import LocalExecutor
+    from molexp.harness.stages import ExecuteWorkflow
 
     _seed_workflow_source(ctx.artifact_store)
     generated = _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
@@ -119,7 +121,8 @@ def test_command_spec_built_per_contract(ctx) -> None:
 
 
 def test_custom_timeout_flows_into_command_spec(ctx) -> None:
-    from molexp.harness import DryRunExecutor, ExecuteWorkflow
+    from molexp.harness import DryRunExecutor
+    from molexp.harness.stages import ExecuteWorkflow
 
     _seed_workflow_source(ctx.artifact_store)
     _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
@@ -134,7 +137,9 @@ def test_custom_timeout_flows_into_command_spec(ctx) -> None:
 
 
 def test_green_run_persists_succeeded_execution_result(ctx) -> None:
-    from molexp.harness import ExecuteWorkflow, ExecutionResult, LocalExecutor
+    from molexp.harness import LocalExecutor
+    from molexp.harness.schemas import ExecutionResult
+    from molexp.harness.stages import ExecuteWorkflow
 
     ws_ref = _seed_workflow_source(ctx.artifact_store)
     _write_driver(ctx, DRIVER_WRITES_OUTPUTS)
@@ -153,12 +158,10 @@ def test_green_run_persists_succeeded_execution_result(ctx) -> None:
 
 
 def test_nonzero_exit_persists_failed_result_then_raises(ctx) -> None:
-    from molexp.harness import (
-        ExecuteWorkflow,
-        ExecutionResult,
-        LocalExecutor,
-        StagePersistedFailureError,
-    )
+    from molexp.harness import LocalExecutor
+    from molexp.harness.errors import StagePersistedFailureError
+    from molexp.harness.schemas import ExecutionResult
+    from molexp.harness.stages import ExecuteWorkflow
 
     _seed_workflow_source(ctx.artifact_store)
     _write_driver(ctx, DRIVER_EXITS_NONZERO)
@@ -176,7 +179,9 @@ def test_nonzero_exit_persists_failed_result_then_raises(ctx) -> None:
 
 
 def test_missing_outputs_json_yields_empty_outputs_without_crashing(ctx) -> None:
-    from molexp.harness import ExecuteWorkflow, ExecutionResult, LocalExecutor
+    from molexp.harness import LocalExecutor
+    from molexp.harness.schemas import ExecutionResult
+    from molexp.harness.stages import ExecuteWorkflow
 
     _seed_workflow_source(ctx.artifact_store)
     _write_driver(ctx, DRIVER_NO_OUTPUTS_FILE)

@@ -177,9 +177,6 @@ def test_find_last_failure_of_same_stage_invalidates_its_completion(stores) -> N
 
 
 def test_phase10_public_surface() -> None:
-    from molexp.harness import (  # noqa: F401
-        AuditReport,
-        find_last_successful_stage,
-        generate_audit_report,
-        replay_metadata,
-    )
+    from molexp.harness import replay_metadata  # noqa: F401
+    from molexp.harness.audit import find_last_successful_stage, generate_audit_report  # noqa: F401
+    from molexp.harness.schemas import AuditReport  # noqa: F401

@@ -22,7 +22,7 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.core.stage_runner import StageRunner, run_stage_bracketed
 from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-from molexp.harness.schemas import ArtifactRef
+from molexp.harness.schemas import PlanArtifactRef
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -48,7 +48,7 @@ def _make_ctx(root: Path, *, run_id: str = "run-test") -> HarnessRunContext:
 class NoopStage(Stage):
     name = "NoopStage"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         return ctx.artifact_store.put_json(
             kind="log",
             obj={"note": "hello"},
@@ -60,7 +60,7 @@ class NoopStage(Stage):
 class SeedStage(Stage):
     name = "SeedStage"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         return ctx.artifact_store.put_json(
             kind="user_plan",
             obj={"step": "A"},
@@ -75,7 +75,7 @@ class ChildStage(Stage):
     def __init__(self, parent_id: str) -> None:
         self._parent_id = parent_id
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         return ctx.artifact_store.put_json(
             kind="experiment_report",
             obj={"step": "B"},
@@ -87,7 +87,7 @@ class ChildStage(Stage):
 class PlainFailStage(Stage):
     name = "PlainFailStage"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         raise RuntimeError("boom")
 
 
@@ -95,7 +95,7 @@ def _persist_then_raise_stage(parent_id: str) -> type[Stage]:
     class PersistThenRaiseStage(Stage):
         name = "PersistThenRaiseStage"
 
-        async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+        async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
             failure_ref = ctx.artifact_store.put_json(
                 kind="validation_report",
                 obj={"passed": False, "violations": []},

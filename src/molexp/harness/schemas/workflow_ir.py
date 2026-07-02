@@ -1,6 +1,6 @@
-"""``WorkflowIR`` + constituents — the scientific-intent layer.
+"""``PlanWorkflowIR`` + constituents — the scientific-intent layer.
 
-Per ``.claude/notes/harness-goal.md`` §4.6: ``WorkflowIR`` describes *what*
+Per ``.claude/notes/harness-goal.md`` §4.6: ``PlanWorkflowIR`` describes *what*
 the experiment wants to compute, in vocabulary the agent and the user
 both understand. It is intentionally free of execution details (no shell
 commands, no backend identifiers, no package versions) — those live one
@@ -24,15 +24,15 @@ from molexp.harness.schemas.parameter import ParameterValue
 __all__ = [
     "DependencyEdge",
     "ExpectedOutput",
-    "TaskIR",
-    "WorkflowIR",
+    "PlanTaskIR",
+    "PlanWorkflowIR",
 ]
 
 
 class DependencyEdge(BaseModel):
     """Directed edge in a workflow task graph.
 
-    Re-used by both :class:`WorkflowIR.edges` (id refers to ``TaskIR.id``)
+    Re-used by both :class:`PlanWorkflowIR.edges` (id refers to ``PlanTaskIR.id``)
     and :class:`molexp.harness.schemas.bound_workflow.BoundWorkflow.edges`
     (id refers to ``BoundTask.id`` — note the id-space switch).
     """
@@ -61,8 +61,8 @@ class ExpectedOutput(BaseModel):
     required: bool = True
 
 
-class TaskIR(BaseModel):
-    """One unit of scientific work in a :class:`WorkflowIR`.
+class PlanTaskIR(BaseModel):
+    """One unit of scientific work in a :class:`PlanWorkflowIR`.
 
     Carries *what* the task wants — purpose, type, scientific parameters
     with provenance, suggested capabilities (hints for binding, not
@@ -86,10 +86,10 @@ class TaskIR(BaseModel):
     review_flags: list[str] = Field(default_factory=list)
 
 
-class WorkflowIR(BaseModel):
+class PlanWorkflowIR(BaseModel):
     """The scientific-intent layer: what the experiment wants to compute.
 
-    A ``WorkflowIR`` is built by an agent (Phase 4's ``ExtractWorkflowIR``
+    A ``PlanWorkflowIR`` is built by an agent (Phase 4's ``ExtractWorkflowIR``
     stage) from an upstream :class:`molexp.harness.schemas.experiment_report.ExperimentReport`
     artifact, then validated by
     :func:`molexp.harness.validators.workflow_ir.validate_workflow_ir`.
@@ -104,7 +104,7 @@ class WorkflowIR(BaseModel):
     name: str
     objective: str
     inputs: dict[str, ParameterValue]
-    tasks: list[TaskIR]
+    tasks: list[PlanTaskIR]
     edges: list[DependencyEdge]
     expected_outputs: list[ExpectedOutput]
     assumptions: list[str] = Field(default_factory=list)

@@ -1,10 +1,10 @@
-"""Tests for ValidationReport / ValidationViolation (Phase 3).
+"""Tests for PlanValidationReport / ValidationViolation (Phase 3).
 
 Locks the contract every validator returns:
 - frozen pydantic round-trip
 - target_kind is Literal["workflow_ir", "bound_workflow"]
 - severity is Literal["error", "warning"], defaults to "error"
-- ValidationReport.from_violations sets passed = not any(error severity)
+- PlanValidationReport.from_violations sets passed = not any(error severity)
 """
 
 from __future__ import annotations
@@ -63,25 +63,25 @@ def test_validation_violation_severity_is_literal_not_enum() -> None:
 
 
 def test_validation_report_round_trip() -> None:
-    from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+    from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
-    report = ValidationReport(
+    report = PlanValidationReport(
         passed=False,
         violations=[ValidationViolation(code="x", message="y")],
         target_kind="workflow_ir",
         target_id="wf-001",
     )
     dumped = report.model_dump_json()
-    rehydrated = ValidationReport.model_validate_json(dumped)
+    rehydrated = PlanValidationReport.model_validate_json(dumped)
     assert rehydrated == report
 
 
 def test_validation_report_target_kind_is_literal() -> None:
     from typing import Literal
 
-    from molexp.harness.schemas.validation import ValidationReport
+    from molexp.harness.schemas.validation import PlanValidationReport
 
-    field = ValidationReport.model_fields["target_kind"]
+    field = PlanValidationReport.model_fields["target_kind"]
     assert get_origin(field.annotation) is Literal
     # Phase 5 widens additively. Old values stay; new values join.
     actual = set(get_args(field.annotation))
@@ -90,10 +90,10 @@ def test_validation_report_target_kind_is_literal() -> None:
 
 
 def test_validation_report_target_kind_rejects_unknown() -> None:
-    from molexp.harness.schemas.validation import ValidationReport
+    from molexp.harness.schemas.validation import PlanValidationReport
 
     with pytest.raises(ValidationError):
-        ValidationReport(
+        PlanValidationReport(
             passed=True,
             violations=[],
             target_kind="not_a_kind",  # type: ignore[arg-type]
@@ -102,9 +102,9 @@ def test_validation_report_target_kind_rejects_unknown() -> None:
 
 
 def test_from_violations_empty_yields_passed() -> None:
-    from molexp.harness.schemas.validation import ValidationReport
+    from molexp.harness.schemas.validation import PlanValidationReport
 
-    report = ValidationReport.from_violations(
+    report = PlanValidationReport.from_violations(
         target_kind="workflow_ir", target_id="wf-001", violations=[]
     )
     assert report.passed is True
@@ -112,9 +112,9 @@ def test_from_violations_empty_yields_passed() -> None:
 
 
 def test_from_violations_warning_only_still_passes() -> None:
-    from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+    from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
-    report = ValidationReport.from_violations(
+    report = PlanValidationReport.from_violations(
         target_kind="workflow_ir",
         target_id="wf-001",
         violations=[ValidationViolation(code="hint", message="m", severity="warning")],
@@ -124,9 +124,9 @@ def test_from_violations_warning_only_still_passes() -> None:
 
 
 def test_from_violations_single_error_fails() -> None:
-    from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+    from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
-    report = ValidationReport.from_violations(
+    report = PlanValidationReport.from_violations(
         target_kind="workflow_ir",
         target_id="wf-001",
         violations=[ValidationViolation(code="bad", message="m", severity="error")],
@@ -135,9 +135,9 @@ def test_from_violations_single_error_fails() -> None:
 
 
 def test_from_violations_mixed_warnings_and_error_fails() -> None:
-    from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+    from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
-    report = ValidationReport.from_violations(
+    report = PlanValidationReport.from_violations(
         target_kind="bound_workflow",
         target_id="bw-001",
         violations=[
@@ -149,9 +149,9 @@ def test_from_violations_mixed_warnings_and_error_fails() -> None:
 
 
 def test_validation_report_is_frozen() -> None:
-    from molexp.harness.schemas.validation import ValidationReport
+    from molexp.harness.schemas.validation import PlanValidationReport
 
-    report = ValidationReport(
+    report = PlanValidationReport(
         passed=True,
         violations=[],
         target_kind="workflow_ir",

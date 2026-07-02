@@ -13,14 +13,22 @@ persisting. Red tests therefore unconditionally block the downstream
 
 from __future__ import annotations
 
+import importlib.util
 import json
+import re
 import sys
 from typing import TYPE_CHECKING, ClassVar
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-from molexp.harness.schemas import ArtifactRef, CommandSpec, TestResult, TestSource
+from molexp.harness.schemas import (
+    CommandResult,
+    CommandSpec,
+    PlanArtifactRef,
+    TestResult,
+    TestSource,
+)
 from molexp.harness.stages._resolve import require_latest
 from molexp.workspace.utils import generate_id
 
@@ -28,6 +36,12 @@ if TYPE_CHECKING:
     from molexp.harness.executors import Executor
 
 __all__ = ["ExecuteTests"]
+
+#: CPython's ModuleNotFoundError spelling in pytest output.
+_MISSING_MODULE_RE = re.compile(r"No module named '([^']+)'")
+
+#: pytest's generic complaint when async tests run without an async plugin.
+_ASYNC_UNSUPPORTED_RE = re.compile(r"async def functions are not natively supported")
 
 
 class ExecuteTests(Stage):
@@ -39,7 +53,8 @@ class ExecuteTests(Stage):
         self._executor = executor
         self._timeout_s = timeout_s
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
+        self._require_pytest()
         ts_ref = require_latest(ctx, "test_source", stage=self.name)
         ts = self._parse_test_source(ctx, ts_ref.id)
 
@@ -70,12 +85,83 @@ class ExecuteTests(Stage):
             parent_ids=[ts_ref.id],
         )
         if not passed:
+            detail = self._environment_detail(ctx, command)
+            # Leave the captured pytest output as test_code_feedback so the
+            # NEXT GenerateTestCode regeneration (repair loop and the
+            # post-eviction re-run both thread feedback_inputs(...,
+            # "test_code_feedback")) learns from this failure instead of
+            # re-rolling blind — three consecutive production re-runs each
+            # invented a different wrong assertion.
+            ctx.artifact_store.put_text(
+                kind="test_code_feedback",
+                text=(
+                    "The previously generated tests FAILED when executed "
+                    f"(pytest exit {command.exit_code}). Fix the tests (or the "
+                    "assertions' expectations) so they pass against the actual "
+                    "workflow source. Captured pytest output:\n\n"
+                    + self._captured_output(ctx, command)
+                ),
+                created_by="ExecuteTests",
+                parent_ids=[ts_ref.id, result_ref.id],
+            )
             raise StagePersistedFailureError(
                 result_ref,
-                f"generated tests failed (pytest exit {command.exit_code}); "
+                f"generated tests failed (pytest exit {command.exit_code}){detail}; "
                 "workflow execution is blocked",
             )
         return result_ref
+
+    def _environment_detail(self, ctx: HarnessRunContext, command: CommandResult) -> str:
+        """One ``" — …"`` clause naming an environment gap behind the red run.
+
+        Two gaps routinely masquerade as plain test failures — an experiment
+        dependency the interpreter cannot import (e.g. numpy), and async
+        generated tests running without pytest-asyncio (molexp task bodies
+        are async-first, so ``@pytest.mark.asyncio`` is the norm). Name the
+        gap and the fix; return ``""`` for a genuinely red test run.
+        """
+        output = self._captured_output(ctx, command)
+        missing = sorted(set(_MISSING_MODULE_RE.findall(output)))
+        if missing:
+            return (
+                f" — the test interpreter cannot import: {', '.join(missing)}; "
+                f"install the experiment's dependencies into {sys.executable}"
+            )
+        if _ASYNC_UNSUPPORTED_RE.search(output):
+            return (
+                " — the generated tests are async but the test interpreter lacks "
+                'pytest-asyncio (carried by `pip install "molexp[agent]"`)'
+            )
+        return ""
+
+    @staticmethod
+    def _captured_output(ctx: HarnessRunContext, command: CommandResult) -> str:
+        """The run's combined stdout + stderr text, best-effort."""
+        chunks: list[str] = []
+        for ref in (command.stdout_artifact, command.stderr_artifact):
+            try:
+                raw = ctx.artifact_store.get(ref.id)
+            except Exception:  # pragma: no cover — output artifact gone; skip
+                continue
+            chunks.append(raw.decode("utf-8", errors="replace") if isinstance(raw, bytes) else raw)
+        return "\n".join(chunks)
+
+    def _require_pytest(self) -> None:
+        """Fail fast — with the real reason — when the test runner is absent.
+
+        The command below targets ``sys.executable``, so an in-process
+        ``find_spec`` check is a faithful precondition for the exact
+        interpreter that will run it. Without this guard a missing pytest
+        surfaced as ``generated tests failed (pytest exit 1)`` — blaming the
+        LLM-generated tests for an environment gap the operator must fix.
+        """
+        if importlib.util.find_spec("pytest") is None:
+            raise StageExecutionError(
+                f"stage {self.name!r} needs pytest to run the generated per-task "
+                f"tests, but {sys.executable} cannot import it — install it into "
+                'that environment (`pip install "molexp[agent]"` carries it, or '
+                "`pip install pytest`). The generated tests were NOT run."
+            )
 
     def _parse_test_source(self, ctx: HarnessRunContext, artifact_id: str) -> TestSource:
         raw = ctx.artifact_store.get(artifact_id)

@@ -4,7 +4,7 @@ Loads a :class:`WorkflowSource` artifact, runs the pure
 :func:`validate_workflow_source` pre-checks (syntax + public-surface imports),
 and only if those pass **lazily imports** ``molexp.workflow`` to compile the
 source into a real ``CompiledWorkflow`` (calling the program's
-``build_workflow()`` and ``.compile()``). A :class:`ValidationReport` is
+``build_workflow()`` and ``.compile()``). A :class:`PlanValidationReport` is
 **always persisted**; on failure
 the stage raises :class:`StagePersistedFailureError` (mirroring
 :class:`ValidateWorkflowIR`).
@@ -35,12 +35,13 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StagePersistedFailureError
 from molexp.harness.schemas import (
-    ArtifactRef,
-    ValidationReport,
+    PlanArtifactRef,
+    PlanValidationReport,
     ValidationViolation,
     WorkflowSource,
 )
 from molexp.harness.stages._resolve import require_latest
+from molexp.harness.validators.render import render_violations
 from molexp.harness.validators.workflow_source import WorkflowSourceValidator
 
 __all__ = ["ValidateWorkflowSource"]
@@ -89,7 +90,7 @@ class ValidateWorkflowSource(Stage):
     def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         target = require_latest(ctx, "workflow_source", stage=self.name).id
         raw = ctx.artifact_store.get(target)
 
@@ -131,7 +132,7 @@ class ValidateWorkflowSource(Stage):
             return self._persist_and_maybe_raise(
                 ctx,
                 violations,
-                f"generated workflow files did not validate: {[v.code for v in violations]}",
+                f"generated workflow files did not validate:\n{render_violations(violations)}",
                 target=target,
             )
 
@@ -146,7 +147,7 @@ class ValidateWorkflowSource(Stage):
         return self._persist_and_maybe_raise(
             ctx,
             violations,
-            f"generated workflow source did not build: {[v.code for v in violations]}",
+            f"generated workflow source did not build:\n{render_violations(violations)}",
             target=target,
         )
 
@@ -209,8 +210,8 @@ class ValidateWorkflowSource(Stage):
         error_message: str,
         *,
         target: str,
-    ) -> ArtifactRef:
-        report = ValidationReport.from_violations(
+    ) -> PlanArtifactRef:
+        report = PlanValidationReport.from_violations(
             target_kind="workflow_source",
             target_id=target,
             violations=violations,
@@ -220,11 +221,11 @@ class ValidateWorkflowSource(Stage):
     def _persist_report_and_maybe_raise(
         self,
         ctx: HarnessRunContext,
-        report: ValidationReport,
+        report: PlanValidationReport,
         error_message: str | None = None,
         *,
         target: str,
-    ) -> ArtifactRef:
+    ) -> PlanArtifactRef:
         report_ref = ctx.artifact_store.put_json(
             kind="validation_report",
             obj=json.loads(report.model_dump_json()),
@@ -232,9 +233,9 @@ class ValidateWorkflowSource(Stage):
             parent_ids=[target],
         )
         if not report.passed and self._raise_on_failure:
-            codes = [v.code for v in report.violations if v.severity == "error"]
             raise StagePersistedFailureError(
                 report_ref,
-                error_message or f"workflow source validation failed: {codes}",
+                error_message
+                or (f"workflow source validation failed:\n{render_violations(report.violations)}"),
             )
         return report_ref

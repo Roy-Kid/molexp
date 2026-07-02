@@ -49,18 +49,20 @@ def _workflow_ir_canned_response() -> dict:
 class TestPhase07E2EPipeline:
     def test_five_stage_pipeline_yields_provenance_chain(self, tmp_path: Path) -> None:
         from molexp.harness import (
-            ExtractWorkflowIR,
             FileArtifactStore,
-            GenerateExperimentReport,
-            GenerateExperimentSpec,
             HarnessRunContext,
-            SaveUserPlan,
             SQLiteArtifactLineageStore,
             SQLiteEventLog,
             StageRunner,
-            ValidateWorkflowIR,
         )
         from molexp.harness.gateways.stub import StubAgentGateway
+        from molexp.harness.stages import (
+            ExtractWorkflowIR,
+            GenerateExperimentReport,
+            GenerateExperimentSpec,
+            SaveUserPlan,
+            ValidateWorkflowIR,
+        )
 
         # Wire ctx + stub gateway with three canned responses.
         db = tmp_path / "events.sqlite"
@@ -130,18 +132,20 @@ class TestPhase07E2EPipeline:
 
     def test_event_log_contains_one_quartet_per_stage(self, tmp_path: Path) -> None:
         from molexp.harness import (
-            ExtractWorkflowIR,
             FileArtifactStore,
-            GenerateExperimentReport,
-            GenerateExperimentSpec,
             HarnessRunContext,
-            SaveUserPlan,
             SQLiteArtifactLineageStore,
             SQLiteEventLog,
             StageRunner,
-            ValidateWorkflowIR,
         )
         from molexp.harness.gateways.stub import StubAgentGateway
+        from molexp.harness.stages import (
+            ExtractWorkflowIR,
+            GenerateExperimentReport,
+            GenerateExperimentSpec,
+            SaveUserPlan,
+            ValidateWorkflowIR,
+        )
 
         db = tmp_path / "events.sqlite"
         artifacts = FileArtifactStore(root=tmp_path / "artifacts")
@@ -190,23 +194,24 @@ class TestPhase07E2EPipeline:
     # ---------------------------------- public-surface invariants
 
     def test_phase07_public_symbols_importable(self) -> None:
-        from molexp.harness import ExtractWorkflowIR, ValidateWorkflowIR  # noqa: F401
+        from molexp.harness.stages import ExtractWorkflowIR, ValidateWorkflowIR  # noqa: F401
 
     def test_phase01_to_phase06_surface_still_intact(self) -> None:
         """Regression: every Phase-1..6 export still resolves."""
-        from molexp.harness import (  # noqa: F401
+        from molexp.harness import CapabilityRegistry  # noqa: F401
+        from molexp.harness.policy import ApprovalPolicyEvaluator  # noqa: F401
+        from molexp.harness.registry import InMemoryCapabilityRegistry  # noqa: F401
+        from molexp.harness.schemas import (  # noqa: F401
             ApprovalPolicy,
-            ApprovalPolicyEvaluator,
             BoundWorkflow,
-            BoundWorkflowValidator,
-            CapabilityRegistry,
             ExperimentReport,
-            GenerateExperimentReport,
-            InMemoryCapabilityRegistry,
-            ProvenanceValidator,
-            SaveUserPlan,
-            TestSpecValidator,
+            PlanWorkflowIR,
             ToolCapability,
-            WorkflowIR,
+        )
+        from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan  # noqa: F401
+        from molexp.harness.validators import (  # noqa: F401
+            BoundWorkflowValidator,
+            ProvenanceValidator,
+            TestSpecValidator,
             WorkflowIRValidator,
         )

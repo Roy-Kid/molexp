@@ -1,8 +1,8 @@
-"""``ArtifactRef`` + ``ArtifactKind`` — the basic state unit of a harness run.
+"""``PlanArtifactRef`` + ``ArtifactKind`` — the basic state unit of a harness run.
 
 Per ``.claude/notes/harness-goal.md`` §4.1: every harness-tracked product
 (user plan, experiment report, workflow IR, bound workflow, execution
-result, …) is referenced by an ``ArtifactRef`` carrying its kind, URI,
+result, …) is referenced by an ``PlanArtifactRef`` carrying its kind, URI,
 content hash, lineage, and creator metadata.
 
 ``ArtifactKind`` is an **open** :class:`str` alias — any non-empty string is
@@ -20,14 +20,14 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-__all__ = ["WELL_KNOWN_ARTIFACT_KINDS", "ArtifactKind", "ArtifactRef"]
+__all__ = ["WELL_KNOWN_ARTIFACT_KINDS", "ArtifactKind", "PlanArtifactRef"]
 
 
 ArtifactKind = str
 """Open string type for artifact kind discriminators.
 
 Pydantic enforces non-empty via the ``Field(min_length=1)`` constraint on
-:attr:`ArtifactRef.kind`; the alias itself imposes no membership check.
+:attr:`PlanArtifactRef.kind`; the alias itself imposes no membership check.
 Harness-internal stages produce the values listed in
 :data:`WELL_KNOWN_ARTIFACT_KINDS`.
 """
@@ -67,12 +67,12 @@ WELL_KNOWN_ARTIFACT_KINDS: tuple[str, ...] = (
 )
 """Artifact kinds produced by harness-internal stages (documentation only).
 
-``ArtifactRef.kind`` accepts any non-empty string — consumers above the
+``PlanArtifactRef.kind`` accepts any non-empty string — consumers above the
 harness layer register their own kinds without modifying this constant.
 """
 
 
-class ArtifactRef(BaseModel):
+class PlanArtifactRef(BaseModel):
     """Reference to one harness artifact.
 
     ``sha256`` is **bare hex** (no ``sha256:`` prefix). The companion
@@ -99,9 +99,9 @@ class ArtifactRef(BaseModel):
     def _sha256_must_be_bare_hex(cls, value: str) -> str:
         if ":" in value:
             raise ValueError(
-                "ArtifactRef.sha256 must be bare hex; strip the 'sha256:' "
+                "PlanArtifactRef.sha256 must be bare hex; strip the 'sha256:' "
                 "prefix returned by compute_content_hash before assigning."
             )
         if not value or any(c not in "0123456789abcdef" for c in value.lower()):
-            raise ValueError("ArtifactRef.sha256 must be a hex digest")
+            raise ValueError("PlanArtifactRef.sha256 must be a hex digest")
         return value

@@ -5,7 +5,7 @@ Covers acceptance criteria:
 - ac-001: ``WorkflowSource`` is a frozen pydantic model with source +
   derivation metadata, re-exported from ``molexp.harness``.
 - ac-002: ``"workflow_source"`` is a registered artifact kind AND a
-  ``ValidationReport`` target kind.
+  ``PlanValidationReport`` target kind.
 - ac-003: ``SYSTEM_PROMPT`` names the public ``molexp.workflow`` API.
 - ac-004: ``validate_workflow_source`` flags syntax errors, never raises.
 - ac-005: ``validate_workflow_source`` rejects private-subpackage imports
@@ -60,7 +60,7 @@ SYNTAX_ERROR_SOURCE = "def (:\n    pass\n"
 
 # (b) imports a private subpackage of molexp.workflow.
 PRIVATE_IMPORT_SOURCE = """\
-from molexp.workflow._pydantic_graph import something
+from molexp.workflow._engine import something
 from molexp.workflow import WorkflowCompiler
 
 
@@ -154,12 +154,10 @@ class TestValidateWorkflowSource:
         with pytest.raises(ValidationError):
             ws.source = "mutated"  # type: ignore[misc]
 
-    def test_workflow_source_reexported_from_harness(self) -> None:
-        import molexp.harness as h
+    def test_workflow_source_reexported_from_schemas(self) -> None:
         from molexp.harness.schemas import WorkflowSource as FromSchemas
         from molexp.harness.schemas.workflow_source import WorkflowSource as Canonical
 
-        assert h.WorkflowSource is Canonical
         assert FromSchemas is Canonical
 
     # ------------------------------------------------- ac-002 kind + target kind
@@ -170,9 +168,9 @@ class TestValidateWorkflowSource:
         assert "workflow_source" in WELL_KNOWN_ARTIFACT_KINDS
 
     def test_validation_report_accepts_workflow_source_target_kind(self) -> None:
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
 
-        report = ValidationReport.from_violations(
+        report = PlanValidationReport.from_violations(
             target_kind="workflow_source",
             target_id="ws-1",
             violations=[],
@@ -217,7 +215,7 @@ class TestValidateWorkflowSource:
         report = WorkflowSourceValidator.validate(PRIVATE_IMPORT_SOURCE)
         assert report.passed is False
         # A violation must name the disallowed private import target.
-        assert any("_pydantic_graph" in (v.message + (v.path or "")) for v in report.violations)
+        assert any("_engine" in (v.message + (v.path or "")) for v in report.violations)
 
     def test_validate_workflow_source_passes_public_surface_only(self) -> None:
         from molexp.harness.validators.workflow_source import WorkflowSourceValidator
@@ -229,7 +227,7 @@ class TestValidateWorkflowSource:
     # ------------------------------------ ac-007 stage compiles valid → Workflow
 
     def test_validate_workflow_source_compiles_valid_to_workflow(self, ctx) -> None:
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
         ws_ref = _seed_workflow_source(ctx, VALID_SOURCE)
@@ -240,7 +238,7 @@ class TestValidateWorkflowSource:
         assert ws_ref.id in report_ref.parent_ids
 
         raw = ctx.artifact_store.get(report_ref.id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is True
         assert report.target_kind == "workflow_source"
 
@@ -264,7 +262,7 @@ class TestValidateWorkflowSource:
     )
     def test_validate_workflow_source_persists_report_and_raises(self, ctx, source: str) -> None:
         from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_workflow_source import ValidateWorkflowSource
 
         _seed_workflow_source(ctx, source)
@@ -278,7 +276,7 @@ class TestValidateWorkflowSource:
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
         raw = ctx.artifact_store.get(reports[0].id)
-        report = ValidationReport.model_validate(json.loads(raw))
+        report = PlanValidationReport.model_validate(json.loads(raw))
         assert report.passed is False
         assert report.target_kind == "workflow_source"
         # persisted_ref points at the persisted failing report.

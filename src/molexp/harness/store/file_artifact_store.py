@@ -5,24 +5,24 @@ Layout under ``root``::
     <kind>/<id>.json        # put_json content
     <kind>/<id>.txt         # put_text content
     <kind>/<id>-<original>  # put_file content (original filename preserved)
-    _refs/<id>.json         # full ArtifactRef as JSON
+    _refs/<id>.json         # full PlanArtifactRef as JSON
     _index/<kind>.json      # ordered list of ids per kind
 
 Content writes go through :func:`molexp.workspace.atomic_write_json` /
 :func:`molexp.workspace.atomic_write_text`, so a crash mid-write leaves the
 original file (if any) intact. Content hash comes from
 :func:`molexp.workspace.utils.compute_content_hash` with the ``sha256:``
-prefix stripped before populating :attr:`ArtifactRef.sha256` (which stores
+prefix stripped before populating :attr:`PlanArtifactRef.sha256` (which stores
 bare hex per harness-goal.md §4.1).
 
 Idempotency: ``put_*`` is keyed on ``(kind, content_hash)``. The
 artifact id is the first 16 hex characters of
 ``sha256(f"{kind}:{content_sha}")``, so two ``put_*`` calls with
 identical content under the same kind return the same
-:class:`ArtifactRef`, while identical content put under two *different*
+:class:`PlanArtifactRef`, while identical content put under two *different*
 kinds yields two distinct ids — preventing the previous overwrite where
 ``put_text(kind=A, …)`` and ``put_text(kind=B, …)`` of the same bytes
-clobbered each other's :class:`ArtifactRef`.
+clobbered each other's :class:`PlanArtifactRef`.
 
 Provenance merging: an idempotent hit (same kind + content) returns a
 ref with the *union* of historical ``parent_ids`` and the
@@ -43,7 +43,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from molexp.harness.errors import ArtifactNotFoundError
-from molexp.harness.schemas import ArtifactKind, ArtifactRef
+from molexp.harness.schemas import ArtifactKind, PlanArtifactRef
 from molexp.workspace import atomic_write_json, atomic_write_text
 from molexp.workspace.utils import compute_content_hash
 
@@ -84,7 +84,7 @@ class FileArtifactStore:
         obj: object,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef:
+    ) -> PlanArtifactRef:
         return self._put_via_staging(
             kind=kind,
             suffix=".json",
@@ -99,7 +99,7 @@ class FileArtifactStore:
         text: str,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef:
+    ) -> PlanArtifactRef:
         return self._put_via_staging(
             kind=kind,
             suffix=".txt",
@@ -114,7 +114,7 @@ class FileArtifactStore:
         path: Path,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef:
+    ) -> PlanArtifactRef:
         # Hash the source directly — no need to copy first.
         sha = _hash_path(path)
         existing = self._find_existing(kind, sha)
@@ -143,11 +143,11 @@ class FileArtifactStore:
         write_staged: Callable[[Path], None],
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef:
+    ) -> PlanArtifactRef:
         """Write to a temp path, hash from disk, then move into place.
 
         Hashing post-write (via :func:`compute_content_hash`) keeps
-        :attr:`ArtifactRef.sha256` byte-identical to the on-disk file, which
+        :attr:`PlanArtifactRef.sha256` byte-identical to the on-disk file, which
         ``atomic_write_json``'s ``indent=2`` formatting would otherwise
         diverge from an in-memory canonical hash.
         """
@@ -194,17 +194,17 @@ class FileArtifactStore:
             )
         return content_path.read_bytes()
 
-    def get_ref(self, artifact_id: str) -> ArtifactRef:
+    def get_ref(self, artifact_id: str) -> PlanArtifactRef:
         ref_path = self._refs_dir / f"{artifact_id}.json"
         if not ref_path.exists():
             raise ArtifactNotFoundError(f"artifact {artifact_id!r} not found")
-        return ArtifactRef.model_validate_json(ref_path.read_text(encoding="utf-8"))
+        return PlanArtifactRef.model_validate_json(ref_path.read_text(encoding="utf-8"))
 
-    def list_by_kind(self, kind: ArtifactKind) -> list[ArtifactRef]:
+    def list_by_kind(self, kind: ArtifactKind) -> list[PlanArtifactRef]:
         index = self._read_index(kind)
         return [self.get_ref(aid) for aid in index]
 
-    def latest_by_kind(self, kind: ArtifactKind) -> ArtifactRef | None:
+    def latest_by_kind(self, kind: ArtifactKind) -> PlanArtifactRef | None:
         index = self._read_index(kind)
         if not index:
             return None
@@ -212,19 +212,21 @@ class FileArtifactStore:
 
     # ----------------------------------------------------------- internals
 
-    def _find_existing(self, kind: ArtifactKind, sha: str) -> ArtifactRef | None:
+    def _find_existing(self, kind: ArtifactKind, sha: str) -> PlanArtifactRef | None:
         artifact_id = _derive_id(kind, sha)
         ref_path = self._refs_dir / f"{artifact_id}.json"
         if not ref_path.exists():
             return None
-        ref = ArtifactRef.model_validate_json(ref_path.read_text(encoding="utf-8"))
+        ref = PlanArtifactRef.model_validate_json(ref_path.read_text(encoding="utf-8"))
         if ref.kind != kind or ref.sha256 != sha:
             # Hash collision at 64 bits is essentially impossible; if it
             # ever happens, fall through and treat as a new artifact.
             return None
         return ref
 
-    def _merge_parent_ids(self, existing: ArtifactRef, new_parent_ids: list[str]) -> ArtifactRef:
+    def _merge_parent_ids(
+        self, existing: PlanArtifactRef, new_parent_ids: list[str]
+    ) -> PlanArtifactRef:
         """On idempotent hit, union the new parent_ids with the stored ones.
 
         Without this, ``put_X`` returning an existing ref on a second
@@ -257,8 +259,8 @@ class FileArtifactStore:
         sha: str,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef:
-        ref = ArtifactRef(
+    ) -> PlanArtifactRef:
+        ref = PlanArtifactRef(
             id=artifact_id,
             kind=kind,
             uri=f"file://{content_path.resolve()}",

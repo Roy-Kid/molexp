@@ -1,9 +1,9 @@
-"""Structural validator for :class:`WorkflowIR` (Phase 3 §11.2).
+"""Structural validator for :class:`PlanWorkflowIR` (Phase 3 §11.2).
 
 Nine checks, one ``ValidationViolation.code`` each. The validator is a
 pure function — no I/O, no LLM, no exceptions raised — so callers
 (Phase-4 ``ValidateWorkflowIR`` stage) can branch deterministically on
-:attr:`ValidationReport.passed`.
+:attr:`PlanValidationReport.passed`.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from collections import deque
 from collections.abc import Iterable
 
 from molexp.harness.schemas.parameter import ParameterValue
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
-from molexp.harness.schemas.workflow_ir import TaskIR, WorkflowIR
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
+from molexp.harness.schemas.workflow_ir import PlanTaskIR, PlanWorkflowIR
 
 __all__ = ["WorkflowIRValidator"]
 
@@ -51,7 +51,7 @@ _BACKEND_DENY = (
 
 class WorkflowIRValidator:
     @staticmethod
-    def validate(ir: WorkflowIR) -> ValidationReport:
+    def validate(ir: PlanWorkflowIR) -> PlanValidationReport:
         violations: list[ValidationViolation] = []
 
         # 1. duplicate_task_id
@@ -118,8 +118,8 @@ class WorkflowIRValidator:
                     )
                 )
 
-        # 6. unresolved_input — every TaskIR input name must resolve to either
-        # WorkflowIR.inputs or some upstream task's output.
+        # 6. unresolved_input — every PlanTaskIR input name must resolve to either
+        # PlanWorkflowIR.inputs or some upstream task's output.
         ir_input_keys = set(ir.inputs.keys())
         upstream: dict[str, set[str]] = _build_upstream(task_ids, ir.edges)
         task_by_id = {t.id: t for t in ir.tasks}
@@ -137,7 +137,7 @@ class WorkflowIRValidator:
                         code="unresolved_input",
                         message=(
                             f"task {task.id!r} input {input_key!r} resolves to "
-                            "neither WorkflowIR.inputs nor any upstream task's output"
+                            "neither PlanWorkflowIR.inputs nor any upstream task's output"
                         ),
                         path=f"tasks[id={task.id}].inputs.{input_key}",
                     )
@@ -185,7 +185,7 @@ class WorkflowIRValidator:
                     ValidationViolation(
                         code="agent_inferred_not_flagged",
                         message=(
-                            f"WorkflowIR input {key!r} is agent_inferred but absent from review_flags"
+                            f"PlanWorkflowIR input {key!r} is agent_inferred but absent from review_flags"
                         ),
                         path=f"inputs.{key}",
                         severity="warning",
@@ -227,7 +227,7 @@ class WorkflowIRValidator:
                     )
                     break
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="workflow_ir",
             target_id=ir.id,
             violations=violations,
@@ -283,8 +283,8 @@ def _build_upstream(node_ids: list[str], edges: Iterable) -> dict[str, set[str]]
     return upstream
 
 
-def _string_fields(task: TaskIR) -> Iterable[tuple[str, str]]:
-    """Yield (path, value) for every string-typed scalar field of a TaskIR.
+def _string_fields(task: PlanTaskIR) -> Iterable[tuple[str, str]]:
+    """Yield (path, value) for every string-typed scalar field of a PlanTaskIR.
 
     Also yields ParameterValue.value strings from inputs/constraints —
     an agent that smuggles ``rm -rf /`` into ``inputs.command.value``
@@ -306,7 +306,7 @@ def _string_fields(task: TaskIR) -> Iterable[tuple[str, str]]:
             yield f"constraints.{key}.value", param.value
 
 
-def _string_fields_top_level(ir: WorkflowIR) -> Iterable[tuple[str, str]]:
+def _string_fields_top_level(ir: PlanWorkflowIR) -> Iterable[tuple[str, str]]:
     yield "name", ir.name
     yield "objective", ir.objective
     for a in ir.assumptions:

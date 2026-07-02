@@ -1,6 +1,6 @@
 """``BindMolcraftsTasks`` — plan step 5: bind IR tasks to capabilities.
 
-Asks the configured :class:`AgentGateway` to bind a :class:`WorkflowIR` to
+Asks the configured :class:`AgentGateway` to bind a :class:`PlanWorkflowIR` to
 a concrete :class:`BoundWorkflow` (capability assignments + parameters +
 execution backend + resource policy). Mirror of :class:`ExtractWorkflowIR`'s
 pattern: ctx-driven gateway, fail-fast on missing.
@@ -21,18 +21,18 @@ from typing import ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, BoundWorkflow
+from molexp.harness.schemas import AgentCallSpec, BoundWorkflow, PlanArtifactRef
 from molexp.harness.stages._resolve import feedback_inputs, require_latest
 
 __all__ = ["BindMolcraftsTasks"]
 
 
 class BindMolcraftsTasks(Stage):
-    """Bind a WorkflowIR to a BoundWorkflow via gateway."""
+    """Bind a PlanWorkflowIR to a BoundWorkflow via gateway."""
 
     name: ClassVar[str] = "bind_molcrafts_tasks"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("BindMolcraftsTasks requires ctx.agent_gateway to be set")
         ir = require_latest(ctx, "workflow_ir", stage=self.name)

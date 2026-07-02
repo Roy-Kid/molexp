@@ -3,7 +3,7 @@
 Two public functions for emitting approval requests:
 
 - :func:`evaluate_approval_policy` — pure walk of a ``BoundWorkflow``
-  (+ optional ``WorkflowIR``) against an ``ApprovalPolicy``. Returns the
+  (+ optional ``PlanWorkflowIR``) against an ``ApprovalPolicy``. Returns the
   list of :class:`ApprovalRequest` instances the policy demands.
 - :func:`make_final_report_approval_request` — companion helper for the
   one intent (``final_report``) that has no workflow signal.

@@ -24,5 +24,13 @@ SYSTEM_PROMPT = (
     "- Each file's module name must start with `test_` so pytest collects it.\n"
     "- Keep tests fast and deterministic (fixed seeds, no network, no real "
     "simulation engines).\n"
+    "- GROUND EVERY ASSERTION IN THE ACTUAL TASK SOURCE. The WorkflowSource is "
+    "in your inputs — read each task body and assert only behaviour that is "
+    "literally there: the exact returned dict keys, the exact filenames it "
+    "writes, the exact metric keys it registers. NEVER assert a file, key, or "
+    "side effect the source does not produce, and never hand-pick tolerances "
+    "tighter than the source's own numerics can meet (e.g. a discrete-grid "
+    "argmin cannot beat its grid spacing — test against the actual grid "
+    "resolution, not the analytical ideal).\n"
     "- Emit ONLY the programs (in `files`) — no prose, no markdown fences."
 )

@@ -12,7 +12,7 @@ pytest run — a module-level ``raise`` in the source cannot fire here):
 4. **Byte-compile** — ``compile(source, "<test_source>", "exec")``; catches
    what parsing alone cannot (e.g. ``break`` outside a loop).
 
-Returns a :class:`ValidationReport` (``target_kind="test_source"``) and
+Returns a :class:`PlanValidationReport` (``target_kind="test_source"``) and
 **never raises** — malformed input yields a failing report, not an exception.
 This is the gate :class:`ValidateTestSource` runs; actually executing the
 tests is :class:`ExecuteTests`'s job, through a harness executor.
@@ -24,7 +24,7 @@ import ast
 import re
 from collections.abc import Iterable
 
-from molexp.harness.schemas.validation import ValidationReport, ValidationViolation
+from molexp.harness.schemas.validation import PlanValidationReport, ValidationViolation
 
 __all__ = ["TestSourceValidator"]
 
@@ -62,7 +62,7 @@ class TestSourceValidator:
         *,
         target_id: str = "",
         required_task_ids: Iterable[str] | None = None,
-    ) -> ValidationReport:
+    ) -> PlanValidationReport:
         """Run syntax + import + test-presence + byte-compile pre-checks.
 
         Args:
@@ -75,13 +75,13 @@ class TestSourceValidator:
                 the legacy "at least one test" check stands alone.
 
         Returns:
-            A :class:`ValidationReport` with ``target_kind="test_source"``;
+            A :class:`PlanValidationReport` with ``target_kind="test_source"``;
             ``passed`` is False if any error-severity violation is present.
         """
         try:
             tree = ast.parse(source)
         except SyntaxError as exc:
-            return ValidationReport.from_violations(
+            return PlanValidationReport.from_violations(
                 target_kind="test_source",
                 target_id=target_id,
                 violations=[
@@ -147,7 +147,7 @@ class TestSourceValidator:
                 )
             )
 
-        return ValidationReport.from_violations(
+        return PlanValidationReport.from_violations(
             target_kind="test_source",
             target_id=target_id,
             violations=violations,

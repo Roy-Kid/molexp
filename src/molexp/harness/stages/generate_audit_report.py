@@ -16,7 +16,7 @@ from typing import ClassVar
 from molexp.harness.audit import generate_audit_report
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
-from molexp.harness.schemas import ArtifactRef
+from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = ["GenerateAuditReport"]
 
@@ -26,7 +26,7 @@ class GenerateAuditReport(Stage):
 
     name: ClassVar[str] = "generate_audit_report"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         report = generate_audit_report(
             run_id=ctx.run_id,
             event_log=ctx.event_log,

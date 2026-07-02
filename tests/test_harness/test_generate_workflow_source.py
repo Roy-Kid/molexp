@@ -68,6 +68,25 @@ def _seed_bw_ref(artifact_store):
     )
 
 
+def _seed_spec_ref(artifact_store):
+    """The concrete ExperimentSpec the writer must implement faithfully."""
+    return artifact_store.put_json(
+        kind="experiment_spec",
+        obj={
+            "id": "spec-x",
+            "experiment_report_id": "rep-x",
+            "title": "t",
+            "objective": "o",
+            "variables": [{"name": "n_points", "value": {"value": 200, "source": "user_provided"}}],
+            "controlled_conditions": [],
+            "resolved_questions": [],
+            "assumptions": [],
+        },
+        created_by="seed",
+        parent_ids=[],
+    )
+
+
 @pytest.fixture()
 def ctx_no_gw(tmp_path: Path):
     from molexp.harness.core.run_context import HarnessRunContext
@@ -131,11 +150,20 @@ def test_fail_fast_no_gateway(ctx_no_gw) -> None:
 
 
 def test_builds_correct_spec(ctx_with_gw) -> None:
+    """The writer sees the BoundWorkflow AND the concrete ExperimentSpec.
+
+    Regression: the writer used to receive only the bound workflow, while
+    ``ReviewPlan`` judged its output against the experiment report — an
+    information asymmetry that made the repair loop unable to converge on
+    the spec's concrete numbers (production: two models x 4 attempts each
+    kept inventing their own sigma grids / point counts / tolerances).
+    """
     from molexp.harness.gateways.gateway import AgentGateway
     from molexp.harness.schemas import AgentCallResult, AgentCallSpec, WorkflowSource
     from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
 
     bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
+    spec_ref = _seed_spec_ref(ctx_with_gw.artifact_store)
     real_gw = ctx_with_gw.agent_gateway
     real_gw.register(
         agent_name="workflow_source_writer",
@@ -157,7 +185,7 @@ def test_builds_correct_spec(ctx_with_gw) -> None:
     assert len(captured) == 1
     spec = captured[0]
     assert spec.agent_name == "workflow_source_writer"
-    assert spec.input_artifact_ids == [bw_ref.id]
+    assert spec.input_artifact_ids == [bw_ref.id, spec_ref.id]
     assert spec.output_schema == WorkflowSource.model_json_schema()
 
 
@@ -165,6 +193,7 @@ def test_persists_workflow_source_artifact_with_lineage(ctx_with_gw) -> None:
     from molexp.harness.stages.generate_workflow_source import GenerateWorkflowSource
 
     bw_ref = _seed_bw_ref(ctx_with_gw.artifact_store)
+    spec_ref = _seed_spec_ref(ctx_with_gw.artifact_store)
     ctx_with_gw.agent_gateway.register(
         agent_name="workflow_source_writer",
         output=_workflow_source_canned(),
@@ -173,3 +202,4 @@ def test_persists_workflow_source_artifact_with_lineage(ctx_with_gw) -> None:
     ref = asyncio.run(GenerateWorkflowSource().run(ctx_with_gw))
     assert ref.kind == "workflow_source"
     assert bw_ref.id in ref.parent_ids
+    assert spec_ref.id in ref.parent_ids

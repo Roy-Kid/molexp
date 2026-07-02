@@ -108,7 +108,7 @@ class TestValidateBoundWorkflowStage:
             ValidateBoundWorkflow("bw", "ir", True)  # type: ignore[misc]
 
     def test_happy_path_persists_report_and_returns_ref(self, ctx) -> None:
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
         ir_ref, bw_ref = _seed_pair(ctx, _valid_ir_dict(), _valid_bw_dict())
@@ -118,13 +118,15 @@ class TestValidateBoundWorkflowStage:
         assert bw_ref.id in report_ref.parent_ids
         assert ir_ref.id in report_ref.parent_ids
 
-        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(report_ref.id)))
+        report = PlanValidationReport.model_validate(
+            json.loads(ctx.artifact_store.get(report_ref.id))
+        )
         assert report.passed is True
 
     def test_strict_failure_raises_after_persisting(self, ctx) -> None:
         """Use missing baseline deny path to trigger a structural error."""
         from molexp.harness.errors import StageExecutionError
-        from molexp.harness.schemas.validation import ValidationReport
+        from molexp.harness.schemas.validation import PlanValidationReport
         from molexp.harness.stages.validate_bound_workflow import ValidateBoundWorkflow
 
         bad_bw = _valid_bw_dict()
@@ -138,7 +140,9 @@ class TestValidateBoundWorkflowStage:
 
         reports = ctx.artifact_store.list_by_kind("validation_report")
         assert len(reports) == 1
-        report = ValidationReport.model_validate(json.loads(ctx.artifact_store.get(reports[0].id)))
+        report = PlanValidationReport.model_validate(
+            json.loads(ctx.artifact_store.get(reports[0].id))
+        )
         assert report.passed is False
 
     def test_soft_failure_returns_ref(self, ctx) -> None:

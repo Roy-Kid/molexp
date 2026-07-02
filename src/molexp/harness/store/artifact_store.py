@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from molexp.harness.schemas import ArtifactKind, ArtifactRef
+from molexp.harness.schemas import ArtifactKind, PlanArtifactRef
 
 __all__ = ["ArtifactStore"]
 
@@ -26,7 +26,7 @@ class ArtifactStore(Protocol):
         obj: object,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef: ...
+    ) -> PlanArtifactRef: ...
 
     def put_text(
         self,
@@ -34,7 +34,7 @@ class ArtifactStore(Protocol):
         text: str,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef: ...
+    ) -> PlanArtifactRef: ...
 
     def put_file(
         self,
@@ -42,12 +42,12 @@ class ArtifactStore(Protocol):
         path: Path,
         created_by: str,
         parent_ids: list[str],
-    ) -> ArtifactRef: ...
+    ) -> PlanArtifactRef: ...
 
     def get(self, artifact_id: str) -> bytes: ...
 
-    def get_ref(self, artifact_id: str) -> ArtifactRef: ...
+    def get_ref(self, artifact_id: str) -> PlanArtifactRef: ...
 
-    def list_by_kind(self, kind: ArtifactKind) -> list[ArtifactRef]: ...
+    def list_by_kind(self, kind: ArtifactKind) -> list[PlanArtifactRef]: ...
 
-    def latest_by_kind(self, kind: ArtifactKind) -> ArtifactRef | None: ...
+    def latest_by_kind(self, kind: ArtifactKind) -> PlanArtifactRef | None: ...

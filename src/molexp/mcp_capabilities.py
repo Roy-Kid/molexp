@@ -335,7 +335,7 @@ def _registry_from_caps(
     caps: list[ToolCapability], *, server_name: str, say: Callable[[str], None]
 ) -> CapabilityRegistry | None:
     """Build the snapshot registry from prefetched caps (loud on empty)."""
-    from molexp.harness import InMemoryCapabilityRegistry
+    from molexp.harness.registry import InMemoryCapabilityRegistry
 
     if not caps:
         say("capability grounding off — molmcp returned no capabilities")
@@ -411,8 +411,8 @@ def _merge_curation_built_ins(science: CapabilityRegistry | None) -> CapabilityR
     Protocol-typed science return. Curation ids are ``molexp.curation.*`` and never
     collide with molmcp science ids.
     """
-    from molexp.harness import InMemoryCapabilityRegistry
     from molexp.harness.capabilities import curation_capabilities
+    from molexp.harness.registry import InMemoryCapabilityRegistry
 
     merged = InMemoryCapabilityRegistry()
     if science is not None:

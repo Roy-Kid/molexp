@@ -20,7 +20,7 @@ from typing import ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, ExperimentReport
+from molexp.harness.schemas import AgentCallSpec, ExperimentReport, PlanArtifactRef
 from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["GenerateExperimentReport"]
@@ -31,7 +31,7 @@ class GenerateExperimentReport(Stage):
 
     name: ClassVar[str] = "generate_experiment_report"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError(
                 "GenerateExperimentReport requires ctx.agent_gateway to be set"

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import ArtifactRef, BoundWorkflow, ExecutionReport, InputSet
+from molexp.harness.schemas import BoundWorkflow, ExecutionReport, InputSet, PlanArtifactRef
 from molexp.harness.stages._resolve import require_latest
 from molexp.workspace.utils import generate_id
 
@@ -37,7 +37,7 @@ class GenerateExecutionReport(Stage):
     def __init__(self, compute_target: ComputeTarget | None = None) -> None:
         self._target = compute_target
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         bw_ref = require_latest(ctx, "bound_workflow", stage=self.name)
         try:
             bound = BoundWorkflow.model_validate_json(ctx.artifact_store.get(bw_ref.id))

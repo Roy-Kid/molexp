@@ -4,7 +4,7 @@ Originally written for spec 03a (T2) against the ``complete_text`` +
 ``schema.model_validate_json`` path. Spec
 ``plan-mode-revival-02-structured-planning`` switches the gateway onto
 ``router.complete_structured`` (pydantic-ai's native ``output_type`` +
-``output_retries``), which returns a parsed ``schema`` instance directly.
+``retries={"output": N}``), which returns a parsed ``schema`` instance directly.
 This file is extended with the structured-path, prose-resilience, and
 prompt-wiring cases for that switch.
 

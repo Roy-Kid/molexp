@@ -22,7 +22,7 @@ from typing import ClassVar
 
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
-from molexp.harness.schemas import ArtifactRef, UserPlan
+from molexp.harness.schemas import PlanArtifactRef, UserPlan
 
 __all__ = ["SaveUserPlan"]
 
@@ -41,7 +41,7 @@ class SaveUserPlan(Stage):
         self._user_text = user_text
         self._user_id = user_id
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         raw_ref = ctx.artifact_store.put_text(
             kind="user_plan",
             text=self._user_text,

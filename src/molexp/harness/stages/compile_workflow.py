@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-from molexp.harness.schemas import ArtifactRef, CommandSpec, ExecutionResult, WorkflowSource
+from molexp.harness.schemas import CommandSpec, ExecutionResult, PlanArtifactRef, WorkflowSource
 from molexp.harness.stages._resolve import require_latest
 from molexp.workspace.utils import generate_id
 
@@ -43,7 +43,7 @@ class CompileWorkflow(Stage):
         self._executor = executor
         self._timeout_s = timeout_s
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         ws_ref = require_latest(ctx, "workflow_source", stage=self.name)
         ws = self._parse_workflow_source(ctx, ws_ref.id)
 

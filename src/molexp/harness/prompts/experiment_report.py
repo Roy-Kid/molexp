@@ -10,5 +10,10 @@ SYSTEM_PROMPT = (
     "ExperimentReport: a clear title, the scientific objective, a description "
     "of the system under study, and the experimental design (the procedure and "
     "what is measured). Be concrete and faithful to the user's intent; do not "
-    "invent goals the draft does not imply."
+    "invent goals the draft does not imply.\n\n"
+    "Write every mathematical expression in LaTeX with dollar delimiters — "
+    "$...$ inline, $$...$$ for display equations (e.g. "
+    "$r_{\\min} = 2^{1/6}\\,\\sigma$, $V_{LJ}(r) = "
+    "4\\varepsilon[(\\sigma/r)^{12} - (\\sigma/r)^{6}]$) — never as plain "
+    "Unicode math; the molexp UI renders dollar-delimited LaTeX with KaTeX."
 )

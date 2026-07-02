@@ -24,7 +24,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.artifact import PlanArtifactRef
 from molexp.harness.schemas.parameter import ParameterValue
 
 __all__ = ["TestKind", "TestResult", "TestSpec", "TestSpecBundle", "TestStatus"]
@@ -109,7 +109,7 @@ class TestResult(BaseModel):
     test_spec_id: str
     status: TestStatus
     metrics: dict[str, float] = Field(default_factory=dict)
-    produced_artifacts: list[ArtifactRef] = Field(default_factory=list)
-    stdout: ArtifactRef | None = None
-    stderr: ArtifactRef | None = None
+    produced_artifacts: list[PlanArtifactRef] = Field(default_factory=list)
+    stdout: PlanArtifactRef | None = None
+    stderr: PlanArtifactRef | None = None
     reason: str | None = None

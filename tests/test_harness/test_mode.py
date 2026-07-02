@@ -12,7 +12,7 @@ objects eagerly — one at a time through the shared audit bracket — against a
 Covered behaviour:
 
 - happy path — declared stages execute; ``ModeResult`` carries each stage's
-  ``ArtifactRef`` + the final.
+  ``PlanArtifactRef`` + the final.
 - cache-hit — a second identical ``Mode.run`` leaves an invocation-counting
   stub Stage's counter flat.
 - resume — a run failing at stage N, re-run, does NOT re-invoke stages
@@ -33,7 +33,7 @@ import pytest
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import ArtifactRef
+from molexp.harness.schemas import PlanArtifactRef
 from molexp.workspace import Workspace
 
 # ───────────────────────────────────────────────────────── fixtures / stubs
@@ -61,7 +61,7 @@ class CountingStage(Stage):
         self._counter = counter
         self._kind = kind
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         self._counter[self.name] = self._counter.get(self.name, 0) + 1
         return ctx.artifact_store.put_json(
             kind=self._kind,
@@ -78,7 +78,7 @@ class FailOnceStage(Stage):
         self.name = name
         self._counter = counter
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         self._counter[self.name] = self._counter.get(self.name, 0) + 1
         if self._counter[self.name] == 1:
             raise RuntimeError(f"{self.name} boom (first attempt)")
@@ -126,7 +126,7 @@ def test_mode_run_executes_all_stages_and_returns_mode_result(run) -> None:
     assert result.run_id == run.id
     # Every stage was invoked exactly once.
     assert counter == {"StageA": 1, "StageB": 1, "StageC": 1}
-    # One ArtifactRef per stage, in declared order.
+    # One PlanArtifactRef per stage, in declared order.
     assert len(result.stage_artifacts) == 3
     assert [a.kind for a in result.stage_artifacts] == [
         "user_plan",

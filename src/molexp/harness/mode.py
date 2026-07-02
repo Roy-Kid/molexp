@@ -21,6 +21,15 @@ resume fall out cleanly:
   (legacy ledgers) is dropped with a warning and the stage recomputes.
   Mirrors the workflow layer's seed-validation law: warn + recompute, never
   silently reuse, never error.
+- **Rejected, never pinned** — when a stage fails with a *persisted* failure
+  (:class:`StagePersistedFailureError`, i.e. a validation report whose
+  ``parent_ids`` name the rejected artifact(s)), the ledger entries for the
+  nearest recorded producers of those artifacts — and every entry at a later
+  pipeline position — are evicted from the ledger file before the failure
+  propagates. Without this, resume would skip the producer forever while the
+  deterministic validator re-rejects its pinned artifact: a permanent
+  deadlock. Re-running upstream stages is acceptable; re-failing on the same
+  rejected artifact is not.
 
 Contrast with :class:`molexp.agent.AgentLoop`: that is an LLM-conversation
 coroutine streaming ``AgentEvent`` to a sink; ``harness.Mode`` is a
@@ -46,8 +55,8 @@ from molexp.harness.core.fingerprint import stage_fingerprint
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.core.stage_runner import run_stage_bracketed
-from molexp.harness.errors import ArtifactNotFoundError
-from molexp.harness.schemas import ArtifactRef, ModeResult
+from molexp.harness.errors import ArtifactNotFoundError, StagePersistedFailureError
+from molexp.harness.schemas import ModeResult, PlanArtifactRef
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -117,8 +126,12 @@ class Mode(ABC):
 
         Raises:
             ValueError: If :meth:`stages` returns an empty list.
-            StageExecutionError: If a stage fails (completed stages remain in
-                the ledger so a re-run resumes from the failed stage).
+            StageExecutionError: If a stage fails. Completed stages remain in
+                the ledger so a re-run resumes from the failed stage — except
+                the producers of an artifact a validator *rejected*
+                (:class:`StagePersistedFailureError`), which are evicted so
+                the re-run regenerates the rejected artifact instead of
+                deadlocking on it (see :meth:`_evict_rejected_producers`).
         """
         stages = list(self.stages(user_input))
         if not stages:
@@ -133,11 +146,25 @@ class Mode(ABC):
             if self._entry_valid(ctx, completed.get(stage.name), stage.name, fingerprint):
                 continue  # verified cache hit / resume — skip the stage body
             completed.pop(stage.name, None)
-            ref = await run_stage_bracketed(ctx, stage)
+            try:
+                ref = await run_stage_bracketed(ctx, stage)
+            except StagePersistedFailureError as exc:
+                # A validator rejected an upstream artifact: evict its ledger
+                # producers so the next run regenerates instead of deadlocking
+                # on the pinned rejected artifact (see module docstring).
+                if self._evict_rejected_producers(
+                    ctx,
+                    stages,
+                    completed,
+                    failed_stage=stage.name,
+                    rejected_ref=exc.persisted_ref,
+                ):
+                    self._write_ledger(ledger_path, completed, run_id=run.id)
+                raise
             completed[stage.name] = {"artifact": ref.id, "fingerprint": fingerprint}
             self._write_ledger(ledger_path, completed, run_id=run.id)
 
-        stage_artifacts: tuple[ArtifactRef, ...] = tuple(
+        stage_artifacts: tuple[PlanArtifactRef, ...] = tuple(
             ctx.artifact_store.get_ref(completed[stage.name]["artifact"]) for stage in stages
         )
         return ModeResult(
@@ -188,6 +215,69 @@ class Mode(ABC):
                 "is gone from the store — recomputing"
             )
             return False
+        return True
+
+    def _evict_rejected_producers(
+        self,
+        ctx: HarnessRunContext,
+        stages: list[Stage],
+        completed: dict[str, _LedgerEntry],
+        *,
+        failed_stage: str,
+        rejected_ref: PlanArtifactRef,
+    ) -> bool:
+        """Evict the ledger entries pinning artifacts a validator just rejected.
+
+        ``rejected_ref`` is the persisted failure report; its ``parent_ids``
+        name the artifact(s) the failed stage consumed and rejected. From
+        those ids the artifact ancestry (``PlanArtifactRef.parent_ids``) is
+        walked upward to the *nearest* ledger-recorded producers — a rejected
+        artifact may itself be unledgered (e.g. a RepairLoop attempt), in
+        which case its inputs' producers are the ones pinning stale state.
+        Each matched producer is evicted, along with every ledger entry at a
+        later pipeline position: the pipeline is linear, so downstream
+        entries may have consumed the evicted output and keeping them would
+        re-create the very cross-stage drift being repaired. ``completed``
+        is pruned in place; the caller persists the ledger on ``True``.
+
+        Only reachable for :class:`StagePersistedFailureError` — a generic
+        failure identifies no rejected artifact, and the failed stage itself
+        was never recorded, so plain resume-from-the-failed-stage applies.
+        """
+        producer_by_artifact = {entry["artifact"]: name for name, entry in completed.items()}
+        matched: set[str] = set()
+        frontier: list[str] = list(rejected_ref.parent_ids)
+        seen: set[str] = set()
+        while frontier:
+            artifact_id = frontier.pop()
+            if artifact_id in seen:
+                continue
+            seen.add(artifact_id)
+            producer = producer_by_artifact.get(artifact_id)
+            if producer is not None:
+                matched.add(producer)  # nearest ledgered producer — stop this path
+                continue
+            try:
+                parents = ctx.artifact_store.get_ref(artifact_id).parent_ids
+            except ArtifactNotFoundError:
+                continue
+            frontier.extend(parents)
+        if not matched:
+            return False
+
+        order = {stage.name: index for index, stage in enumerate(stages)}
+        positions = [order[name] for name in matched if name in order]
+        evicted = set(matched)
+        if positions:
+            earliest = min(positions)
+            evicted.update(name for name in completed if order.get(name, -1) >= earliest)
+        for name in evicted:
+            completed.pop(name, None)
+        _LOG.warning(
+            f"[mode:{self.name}] stage {failed_stage!r} rejected artifact(s) pinned by the "
+            f"completion ledger — evicting {sorted(evicted)} so the next run regenerates "
+            "them instead of re-failing on the same artifact"
+        )
         return True
 
     def _build_ctx(

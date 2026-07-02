@@ -17,34 +17,35 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StagePersistedFailureError
 from molexp.harness.schemas import (
-    ArtifactRef,
     InputSet,
-    ValidationReport,
+    PlanArtifactRef,
+    PlanValidationReport,
+    PlanWorkflowIR,
     ValidationViolation,
-    WorkflowIR,
 )
 from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.input_set import InputSetValidator
+from molexp.harness.validators.render import render_violations
 
 __all__ = ["ValidateInputSet"]
 
 
 class ValidateInputSet(Stage):
-    """Validate an InputSet artifact; persist a ValidationReport artifact."""
+    """Validate an InputSet artifact; persist a PlanValidationReport artifact."""
 
     name: ClassVar[str] = "validate_input_set"
 
     def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         input_set_ref = require_latest(ctx, "input_set", stage=self.name)
         target_id = input_set_ref.id
 
         try:
             input_set = InputSet.model_validate_json(ctx.artifact_store.get(target_id))
         except Exception as exc:
-            report = ValidationReport.from_violations(
+            report = PlanValidationReport.from_violations(
                 target_kind="input_set",
                 target_id=target_id,
                 violations=[
@@ -71,7 +72,7 @@ class ValidateInputSet(Stage):
         ir = None
         if ir_in is not None:
             try:
-                ir = WorkflowIR.model_validate_json(ctx.artifact_store.get(ir_in.id))
+                ir = PlanWorkflowIR.model_validate_json(ctx.artifact_store.get(ir_in.id))
             except Exception:
                 ir = None
 
@@ -83,8 +84,8 @@ class ValidateInputSet(Stage):
             parent_ids=[target_id],
         )
         if not result.passed and self._raise_on_failure:
-            error_codes = [v.code for v in result.violations if v.severity == "error"]
             raise StagePersistedFailureError(
-                report_ref, f"InputSet validation failed with violations: {error_codes}"
+                report_ref,
+                f"InputSet validation failed:\n{render_violations(result.violations)}",
             )
         return report_ref

@@ -5,7 +5,7 @@ Locks the wire format:
 - TestKind Literal carries all 9 values from harness-goal.md §4.8
 - TestStatus Literal carries the 4 status values
 - TestSpec / TestResult defaults
-- ValidationReport.target_kind Literal widens additively
+- PlanValidationReport.target_kind Literal widens additively
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ def _minimal_test_spec_kwargs() -> dict:
         "id": "ts-001",
         "name": "Schema sanity",
         "kind": "schema_test",
-        "description": "Verify WorkflowIR schema validates cleanly",
+        "description": "Verify PlanWorkflowIR schema validates cleanly",
         "target_workflow_id": "wf-001",
     }
 
@@ -142,9 +142,9 @@ def test_test_spec_default_factories_are_independent() -> None:
 
 
 def _ref():
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
-    return ArtifactRef(
+    return PlanArtifactRef(
         id="art01234",
         kind="log",
         uri="file:///tmp/log",
@@ -211,21 +211,21 @@ def test_test_result_rejects_unknown_status() -> None:
         )
 
 
-# -------------------------------------------- ValidationReport widening
+# -------------------------------------------- PlanValidationReport widening
 
 
 def test_validation_report_target_kind_widens_additively() -> None:
-    from molexp.harness.schemas.validation import ValidationReport
+    from molexp.harness.schemas.validation import PlanValidationReport
 
     # New values accepted.
-    ValidationReport(target_kind="test_spec", target_id="x", passed=True)
-    ValidationReport(target_kind="provenance", target_id="x", passed=True)
+    PlanValidationReport(target_kind="test_spec", target_id="x", passed=True)
+    PlanValidationReport(target_kind="provenance", target_id="x", passed=True)
     # Old values still accepted (regression guard).
-    ValidationReport(target_kind="workflow_ir", target_id="x", passed=True)
-    ValidationReport(target_kind="bound_workflow", target_id="x", passed=True)
+    PlanValidationReport(target_kind="workflow_ir", target_id="x", passed=True)
+    PlanValidationReport(target_kind="bound_workflow", target_id="x", passed=True)
     # Unknown still rejected.
     with pytest.raises(ValidationError):
-        ValidationReport(target_kind="banana", target_id="x", passed=True)  # type: ignore[arg-type]
+        PlanValidationReport(target_kind="banana", target_id="x", passed=True)  # type: ignore[arg-type]
 
 
 # ---------------------------------------------------------- re-exports
@@ -264,4 +264,4 @@ def test_phase5_schemas_re_exported_from_schemas_package() -> None:
 
 
 def test_phase5_schemas_re_exported_from_top_level() -> None:
-    from molexp.harness import TestKind, TestResult, TestSpec, TestStatus  # noqa: F401
+    from molexp.harness.schemas import TestKind, TestResult, TestSpec, TestStatus  # noqa: F401

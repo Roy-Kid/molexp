@@ -3,7 +3,7 @@
 Locks the contract per spec §FileArtifactStore:
 - put_json / put_text / put_file write content + ref + kind-index via
   workspace.atomic_write_json / atomic_write_text
-- ArtifactRef.sha256 == compute_content_hash(path).removeprefix("sha256:")
+- PlanArtifactRef.sha256 == compute_content_hash(path).removeprefix("sha256:")
 - idempotent: identical content under the same kind returns the same ref
 - list_by_kind returns refs in creation order
 - latest_by_kind returns most recent or None

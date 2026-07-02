@@ -1,7 +1,7 @@
 """Pure evaluator for :class:`ApprovalPolicy` (Phase 6 §7.5).
 
 Given an ``ApprovalPolicy`` + an optional ``BoundWorkflow`` (and
-optionally its source ``WorkflowIR``), walks the workflow and emits one
+optionally its source ``PlanWorkflowIR``), walks the workflow and emits one
 :class:`ApprovalRequest` per triggered ``require_for_*`` clause.
 
 Auto-trigger rules (each gated by the matching policy flag):
@@ -15,7 +15,7 @@ Auto-trigger rules (each gated by the matching policy flag):
 - ``full_execution`` — emitted whenever the flag is True and ``bw`` is
   not None. The caller decides timing (before/after dry-run).
 - ``overwrite`` — emitted when ``"overwrite" in bw.review_flags`` OR
-  any ``TaskIR.review_flags`` (via the optional ``ir``) contains
+  any ``PlanTaskIR.review_flags`` (via the optional ``ir``) contains
   ``"overwrite"``. ``BoundTask`` has no ``review_flags`` field; the IR
   argument is how task-level overwrite hints reach this validator.
 
@@ -38,7 +38,7 @@ from datetime import UTC, datetime
 from molexp.harness.schemas.approval import ApprovalIntent, ApprovalRequest
 from molexp.harness.schemas.bound_workflow import BoundWorkflow
 from molexp.harness.schemas.policy import ApprovalPolicy
-from molexp.harness.schemas.workflow_ir import WorkflowIR
+from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
 
 __all__ = ["ApprovalPolicyEvaluator"]
 
@@ -79,7 +79,7 @@ class ApprovalPolicyEvaluator:
         policy: ApprovalPolicy,
         *,
         bw: BoundWorkflow | None = None,
-        ir: WorkflowIR | None = None,
+        ir: PlanWorkflowIR | None = None,
     ) -> list[ApprovalRequest]:
         """Walk ``policy`` + ``bw`` (+ optional ``ir``) and emit approval requests."""
         requests: list[ApprovalRequest] = []

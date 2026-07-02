@@ -9,11 +9,11 @@ Contract under test (RED — the stage does not exist yet):
   (driver rendered from a pure string template).
 - Driver text: ``ast.parse`` succeeds; imports ``WorkflowRuntime`` from
   ``molexp``; imports ``build_workflow`` from the workflow module; embeds
-  ``WorkflowIR.inputs`` values as ``json.dumps({...}, sort_keys=True)``;
+  ``PlanWorkflowIR.inputs`` values as ``json.dumps({...}, sort_keys=True)``;
   mentions ``outputs.json``; decides its exit code from the ``"completed"``
   workflow status.
 - Registers three ``input_file`` artifacts with exact lineage parents and
-  returns the DRIVER's ``ArtifactRef``.
+  returns the DRIVER's ``PlanArtifactRef``.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def ctx(tmp_path: Path):
 
 
 def _seed_workflow_source(store):
-    from molexp.harness import WorkflowSource
+    from molexp.harness.schemas import WorkflowSource
 
     ws = WorkflowSource(
         source=WORKFLOW_SOURCE_TEXT,
@@ -84,9 +84,9 @@ def _seed_test_source(store):
 
 
 def _seed_workflow_ir(store):
-    from molexp.harness import ParameterValue, WorkflowIR
+    from molexp.harness.schemas import ParameterValue, PlanWorkflowIR
 
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-ir-1",
         name="demo",
         objective="materialize a runnable workflow",
@@ -108,7 +108,7 @@ def _seed_all(store):
 
 
 def _run(ctx):
-    from molexp.harness import MaterializeExecution
+    from molexp.harness.stages import MaterializeExecution
 
     return asyncio.run(MaterializeExecution().run(ctx))
 
@@ -127,7 +127,8 @@ def _find_by_parents(refs, parent_ids: list[str]):
 
 
 def test_name_and_subclass() -> None:
-    from molexp.harness import MaterializeExecution, Stage
+    from molexp.harness import Stage
+    from molexp.harness.stages import MaterializeExecution
 
     assert MaterializeExecution.name == "materialize_execution"
     assert issubclass(MaterializeExecution, Stage)
@@ -172,13 +173,14 @@ def test_driver_embeds_sorted_params_json(ctx) -> None:
     assert expected_params in _driver_text(ctx)
 
 
-def test_driver_mentions_outputs_file_and_completed_status(ctx) -> None:
+def test_driver_mentions_outputs_file_and_succeeded_status(ctx) -> None:
     _seed_all(ctx.artifact_store)
     _run(ctx)
 
     driver = _driver_text(ctx)
     assert "outputs.json" in driver
-    assert "completed" in driver
+    # The canonical terminal-success status (workspace status law).
+    assert '== "succeeded"' in driver
 
 
 # ----------------------------------------------------------------- lineage
@@ -215,20 +217,18 @@ def test_driver_supports_compile_only(ctx) -> None:
     assert "--compile-only" in _driver_text(ctx)
 
 
-def _seed_input_set(store):
-    return store.put_json(
-        kind="input_set",
-        obj={
-            "id": "is-1",
-            "experiment_spec_id": "spec-1",
-            "title": "sweep",
-            "sweep_axes": [{"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}],
-            "strategy": "grid",
-            "total_runs": 2,
-        },
-        created_by="seed",
-        parent_ids=[],
-    )
+def _seed_input_set(store, *, fixed_params=None):
+    obj = {
+        "id": "is-1",
+        "experiment_spec_id": "spec-1",
+        "title": "sweep",
+        "sweep_axes": [{"name": "n_steps", "values": [1000, 2000], "source": "user_provided"}],
+        "strategy": "grid",
+        "total_runs": 2,
+    }
+    if fixed_params is not None:
+        obj["fixed_params"] = fixed_params
+    return store.put_json(kind="input_set", obj=obj, created_by="seed", parent_ids=[])
 
 
 def test_input_set_first_cell_overlays_params(ctx) -> None:
@@ -238,6 +238,18 @@ def test_input_set_first_cell_overlays_params(ctx) -> None:
     _run(ctx)
     # First grid cell of n_steps=[1000,2000] is 1000, overlaying the IR default 500.
     assert json.dumps({"n_steps": 1000}, sort_keys=True) in _driver_text(ctx)
+
+
+def test_input_set_fixed_params_pass_whole_values(ctx) -> None:
+    """``fixed_params`` land in the driver PARAMS verbatim — the channel for
+    list-valued root inputs the workflow scans internally. Regression: a real
+    ``--execute`` run swept ``sigma_values`` per-scalar and the task crashed
+    iterating a float."""
+    _seed_all(ctx.artifact_store)
+    _seed_input_set(ctx.artifact_store, fixed_params={"sigma_values": [0.9, 1.0]})
+    _run(ctx)
+    text = _driver_text(ctx)
+    assert json.dumps({"n_steps": 1000, "sigma_values": [0.9, 1.0]}, sort_keys=True) in text
 
 
 # --------------------------------------------------- multi-file (per-task) layout
@@ -316,3 +328,13 @@ def test_multifile_rejects_path_escaping_generated(ctx) -> None:
     with pytest.raises(StageExecutionError, match="escapes"):
         _run(ctx)
     assert not (ctx.workspace_root.parent / "escape.py").exists()
+
+
+def test_driver_mounts_scratch_root_for_ctx_workdir(ctx) -> None:
+    """The driver's bare execution must mount scratch_root so ctx.workdir is
+    available to task bodies (the workflow-source contract tells them to use
+    it). Regression: real execution crashed with `NoneType / str` in a
+    generated verify task."""
+    _seed_all(ctx.artifact_store)
+    _run(ctx)
+    assert 'scratch_root=".materialize"' in _driver_text(ctx)

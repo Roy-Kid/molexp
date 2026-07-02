@@ -1,9 +1,9 @@
-"""Tests for WorkflowIR / TaskIR / DependencyEdge / ExpectedOutput (Phase 3 §4.6).
+"""Tests for PlanWorkflowIR / PlanTaskIR / DependencyEdge / ExpectedOutput (Phase 3 §4.6).
 
 Locks the wire format:
 - frozen pydantic round-trip
 - ExpectedOutput.kind is the open ``ArtifactKind = str`` alias
-- TaskIR.inputs / constraints accept dict[str, ParameterValue]
+- PlanTaskIR.inputs / constraints accept dict[str, ParameterValue]
 - Defaults are independent (no shared mutable state)
 """
 
@@ -13,10 +13,10 @@ import pytest
 from pydantic import ValidationError
 
 
-def _make_task(task_id: str = "t1") -> TaskIR:  # noqa: F821 — Phase-3 type loaded inside body
-    from molexp.harness.schemas.workflow_ir import TaskIR
+def _make_task(task_id: str = "t1") -> PlanTaskIR:  # noqa: F821 — Phase-3 type loaded inside body
+    from molexp.harness.schemas.workflow_ir import PlanTaskIR
 
-    return TaskIR(
+    return PlanTaskIR(
         id=task_id,
         name="Build polymer",
         purpose="Generate atomistic configuration",
@@ -31,11 +31,11 @@ def test_workflow_ir_round_trip() -> None:
     from molexp.harness.schemas.workflow_ir import (
         DependencyEdge,
         ExpectedOutput,
-        TaskIR,
-        WorkflowIR,
+        PlanTaskIR,
+        PlanWorkflowIR,
     )
 
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-001",
         name="water_nemd",
         objective="Compute ionic mobility under field",
@@ -43,7 +43,7 @@ def test_workflow_ir_round_trip() -> None:
             "temperature_K": ParameterValue(value=300.0, source="user_provided"),
         },
         tasks=[
-            TaskIR(
+            PlanTaskIR(
                 id="build",
                 name="Build system",
                 purpose="Pack water box",
@@ -51,7 +51,7 @@ def test_workflow_ir_round_trip() -> None:
                 inputs={"temperature_K": ParameterValue(value=300.0, source="user_provided")},
                 outputs={"structure": "structure.pdb"},
             ),
-            TaskIR(
+            PlanTaskIR(
                 id="run_md",
                 name="Run NEMD",
                 purpose="Propagate dynamics under field",
@@ -66,14 +66,14 @@ def test_workflow_ir_round_trip() -> None:
         ],
     )
     dumped = ir.model_dump_json()
-    rehydrated = WorkflowIR.model_validate_json(dumped)
+    rehydrated = PlanWorkflowIR.model_validate_json(dumped)
     assert rehydrated == ir
 
 
 def test_workflow_ir_is_frozen() -> None:
-    from molexp.harness.schemas.workflow_ir import WorkflowIR
+    from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
 
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-001",
         name="x",
         objective="y",
@@ -87,9 +87,9 @@ def test_workflow_ir_is_frozen() -> None:
 
 
 def test_workflow_ir_defaults() -> None:
-    from molexp.harness.schemas.workflow_ir import WorkflowIR
+    from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
 
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-001",
         name="x",
         objective="y",
@@ -104,9 +104,9 @@ def test_workflow_ir_defaults() -> None:
 
 def test_task_ir_round_trip() -> None:
     from molexp.harness.schemas.parameter import ParameterValue
-    from molexp.harness.schemas.workflow_ir import TaskIR
+    from molexp.harness.schemas.workflow_ir import PlanTaskIR
 
-    task = TaskIR(
+    task = PlanTaskIR(
         id="t1",
         name="Build polymer",
         purpose="Generate atomistic configuration",
@@ -119,7 +119,7 @@ def test_task_ir_round_trip() -> None:
         review_flags=["n_chains"],
     )
     dumped = task.model_dump_json()
-    rehydrated = TaskIR.model_validate_json(dumped)
+    rehydrated = PlanTaskIR.model_validate_json(dumped)
     assert rehydrated == task
 
 
@@ -194,11 +194,11 @@ def test_expected_output_kind_accepts_open_string() -> None:
 
 def test_expected_output_rejects_empty_kind() -> None:
     """ac-008 — ``ExpectedOutput(kind="")`` is rejected by the
-    ``min_length=1`` constraint, consistent with ``ArtifactRef.kind``.
+    ``min_length=1`` constraint, consistent with ``PlanArtifactRef.kind``.
 
     Spec 01 janitor finding #1b: opening ``ArtifactKind = str`` lost
     the implicit non-empty constraint that ``Literal[...]`` enforced;
-    ``ArtifactRef.kind`` already pins ``min_length=1`` and
+    ``PlanArtifactRef.kind`` already pins ``min_length=1`` and
     ``ExpectedOutput.kind`` now matches.
     """
     from molexp.harness.schemas.workflow_ir import ExpectedOutput
@@ -217,10 +217,10 @@ def test_expected_output_is_frozen() -> None:
 
 def test_workflow_ir_inputs_reject_non_parameter_value() -> None:
     """ParameterValue type is enforced inside the dict."""
-    from molexp.harness.schemas.workflow_ir import WorkflowIR
+    from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
 
     with pytest.raises(ValidationError):
-        WorkflowIR(
+        PlanWorkflowIR(
             id="wf-001",
             name="x",
             objective="y",
@@ -232,10 +232,10 @@ def test_workflow_ir_inputs_reject_non_parameter_value() -> None:
 
 
 def test_task_ir_constraints_reject_non_parameter_value() -> None:
-    from molexp.harness.schemas.workflow_ir import TaskIR
+    from molexp.harness.schemas.workflow_ir import PlanTaskIR
 
     with pytest.raises(ValidationError):
-        TaskIR(
+        PlanTaskIR(
             id="t1",
             name="x",
             purpose="x",
@@ -248,12 +248,12 @@ def test_task_ir_constraints_reject_non_parameter_value() -> None:
 
 def test_default_factories_are_independent() -> None:
     """No shared mutable list/dict defaults across instances."""
-    from molexp.harness.schemas.workflow_ir import WorkflowIR
+    from molexp.harness.schemas.workflow_ir import PlanWorkflowIR
 
-    a = WorkflowIR(
+    a = PlanWorkflowIR(
         id="a", name="a", objective="a", inputs={}, tasks=[], edges=[], expected_outputs=[]
     )
-    b = WorkflowIR(
+    b = PlanWorkflowIR(
         id="b", name="b", objective="b", inputs={}, tasks=[], edges=[], expected_outputs=[]
     )
     assert a.assumptions is not b.assumptions

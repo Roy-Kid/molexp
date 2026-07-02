@@ -15,7 +15,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from molexp.harness.schemas.artifact import ArtifactRef
+from molexp.harness.schemas.artifact import PlanArtifactRef
 
 __all__ = ["ExecutionResult"]
 
@@ -47,7 +47,7 @@ class ExecutionResult(BaseModel):
     started_at: datetime
     ended_at: datetime
     outputs: dict[str, Any] = Field(default_factory=dict)
-    output_artifacts: list[ArtifactRef] = Field(default_factory=list)
-    stdout: ArtifactRef | None = None
-    stderr: ArtifactRef | None = None
+    output_artifacts: list[PlanArtifactRef] = Field(default_factory=list)
+    stdout: PlanArtifactRef | None = None
+    stderr: PlanArtifactRef | None = None
     metadata: dict[str, str] = Field(default_factory=dict)

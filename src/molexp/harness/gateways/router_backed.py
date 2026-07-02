@@ -35,7 +35,7 @@ Call flow (mirrors :class:`StubAgentGateway` shape):
    from) so audit replay can reconstruct the LLM *input*, not just its
    response. Its id is threaded into the raw + output lineage below.
 3. Drive ``router.complete_structured(schema=...)`` — pydantic-ai native
-   ``output_type`` + ``output_retries`` — to obtain a parsed ``schema``
+   ``output_type`` + ``retries={"output": N}`` — to obtain a parsed ``schema``
    instance. Unlike ``complete_text`` + ``model_validate_json``, a model
    wrapping its answer in prose/markdown does not crash the harness; the
    SDK enforces the schema.
@@ -60,7 +60,7 @@ from molexp.harness.errors import AgentResponseNotRegisteredError
 from molexp.harness.schemas import (
     AgentCallResult,
     AgentCallSpec,
-    ArtifactRef,
+    PlanArtifactRef,
 )
 from molexp.harness.store.artifact_store import ArtifactStore
 
@@ -119,7 +119,7 @@ class RouterBackedAgentGateway:
         prompt_parents = list(spec.input_artifact_ids)
         if spec.prompt_artifact_id:
             prompt_parents.append(spec.prompt_artifact_id)
-        prompt_ref: ArtifactRef = await asyncio.to_thread(
+        prompt_ref: PlanArtifactRef = await asyncio.to_thread(
             self._artifacts.put_text,
             kind="prompt",
             text=prompt,
@@ -130,7 +130,7 @@ class RouterBackedAgentGateway:
         lineage_parents = [*spec.input_artifact_ids, prompt_ref.id]
 
         # Use pydantic-ai native structured output (output_type=schema +
-        # output_retries) rather than complete_text + manual model_validate_json:
+        # retries={"output": N}) rather than complete_text + manual model_validate_json:
         # a real model wrapping its answer in prose/markdown no longer crashes
         # the harness — the SDK enforces the schema and returns an instance.
         instance = await self._router.complete_structured(
@@ -144,7 +144,7 @@ class RouterBackedAgentGateway:
         # §10.2 audit invariant: persist the raw response BEFORE the parsed
         # output. With structured output the "raw" record is the model's
         # structured dump; persist it as the log artifact first.
-        raw_ref: ArtifactRef = await asyncio.to_thread(
+        raw_ref: PlanArtifactRef = await asyncio.to_thread(
             self._artifacts.put_text,
             kind="log",
             text=instance.model_dump_json(),
@@ -152,7 +152,7 @@ class RouterBackedAgentGateway:
             parent_ids=lineage_parents,
         )
 
-        output_ref: ArtifactRef = await asyncio.to_thread(
+        output_ref: PlanArtifactRef = await asyncio.to_thread(
             self._artifacts.put_json,
             kind=output_kind,
             obj=instance.model_dump(mode="json"),

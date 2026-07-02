@@ -1,6 +1,6 @@
 """End-to-end Phase-3 validator test (ac-008).
 
-Hand-constructs a matched WorkflowIR + BoundWorkflow rooted in a
+Hand-constructs a matched PlanWorkflowIR + BoundWorkflow rooted in a
 Phase-2-style ExperimentReport sketch, validates both, then mutates each
 to trigger one targeted code and asserts the validators catch the defect.
 
@@ -13,21 +13,21 @@ from pathlib import Path
 
 
 def _build_matched_pair():
-    from molexp.harness import (
+    from molexp.harness.schemas import (
         BoundTask,
         BoundWorkflow,
         DependencyEdge,
         ExecutionEnvironment,
         ExpectedOutput,
         ParameterValue,
+        PlanTaskIR,
+        PlanWorkflowIR,
         ResourcePolicy,
-        TaskIR,
-        WorkflowIR,
     )
 
     # Phase-2-style ExperimentReport outline gives us this conceptual chain:
     # build_system → run_md → analyze_trajectory
-    build = TaskIR(
+    build = PlanTaskIR(
         id="build_system",
         name="Pack water box",
         purpose="Generate atomistic SPC/E water configuration",
@@ -38,7 +38,7 @@ def _build_matched_pair():
         },
         outputs={"structure": "structure.pdb"},
     )
-    run = TaskIR(
+    run = PlanTaskIR(
         id="run_md",
         name="Run NEMD",
         purpose="Propagate dynamics under external electric field",
@@ -46,7 +46,7 @@ def _build_matched_pair():
         inputs={"structure": ParameterValue(value="structure.pdb", source="user_provided")},
         outputs={"trajectory": "traj.dcd"},
     )
-    analyze = TaskIR(
+    analyze = PlanTaskIR(
         id="analyze_trajectory",
         name="Compute mobility",
         purpose="Estimate ionic mobility from trajectory",
@@ -54,7 +54,7 @@ def _build_matched_pair():
         inputs={"trajectory": ParameterValue(value="traj.dcd", source="user_provided")},
         outputs={"mobility": "mobility.json"},
     )
-    ir = WorkflowIR(
+    ir = PlanWorkflowIR(
         id="wf-water-nemd",
         name="water_nemd_e2e",
         objective="Compute ionic mobility under field",
@@ -127,7 +127,7 @@ def _build_matched_pair():
 
 class TestPhase03E2EValidators:
     def test_clean_pair_validates_clean(self, tmp_path: Path) -> None:
-        from molexp.harness import BoundWorkflowValidator, WorkflowIRValidator
+        from molexp.harness.validators import BoundWorkflowValidator, WorkflowIRValidator
 
         ir, bw = _build_matched_pair()
         ir_report = WorkflowIRValidator.validate(ir)
@@ -138,7 +138,8 @@ class TestPhase03E2EValidators:
         assert bw_report.violations == []
 
     def test_drop_edge_target_triggers_unknown_edge_target(self, tmp_path: Path) -> None:
-        from molexp.harness import DependencyEdge, WorkflowIRValidator
+        from molexp.harness.schemas import DependencyEdge
+        from molexp.harness.validators import WorkflowIRValidator
 
         ir, _ = _build_matched_pair()
         # Drop run_md's edge target by repointing it at a ghost.
@@ -153,7 +154,7 @@ class TestPhase03E2EValidators:
         assert report.passed is False
 
     def test_flip_bound_ir_task_id_triggers_unknown_ir_task(self, tmp_path: Path) -> None:
-        from molexp.harness import BoundWorkflowValidator
+        from molexp.harness.validators import BoundWorkflowValidator
 
         ir, bw = _build_matched_pair()
         bad_run = bw.tasks[1].model_copy(update={"ir_task_id": "ghost_ir_task"})
@@ -165,40 +166,43 @@ class TestPhase03E2EValidators:
     # ---------------------------------------------- Public-surface invariants
 
     def test_phase03_public_surface_complete(self) -> None:
-        from molexp.harness import (  # noqa: F401
+        from molexp.harness.schemas import (  # noqa: F401
             BoundTask,
             BoundWorkflow,
-            BoundWorkflowValidator,
             DependencyEdge,
             ExecutionEnvironment,
             ExpectedOutput,
+            PlanTaskIR,
+            PlanValidationReport,
+            PlanWorkflowIR,
             ResourcePolicy,
-            TaskIR,
-            ValidationReport,
             ValidationViolation,
-            WorkflowIR,
+        )
+        from molexp.harness.validators import (  # noqa: F401
+            BoundWorkflowValidator,
             WorkflowIRValidator,
         )
 
     def test_phase01_and_phase02_surface_still_visible(self) -> None:
         """Regression: existing Phase-1+2 exports must still import cleanly."""
         from molexp.harness import (  # noqa: F401
-            AgentCallResult,
-            AgentCallSpec,
             AgentGateway,
-            ArtifactKind,
-            ArtifactRef,
             ArtifactStore,
-            EventLog,
-            EventType,
-            ExperimentReport,
             FileArtifactStore,
-            GenerateExperimentReport,
-            HarnessError,
             HarnessRunContext,
-            ParameterValue,
-            SaveUserPlan,
             Stage,
             StageRunner,
+        )
+        from molexp.harness.errors import HarnessError  # noqa: F401
+        from molexp.harness.schemas import (  # noqa: F401
+            AgentCallResult,
+            AgentCallSpec,
+            ArtifactKind,
+            EventType,
+            ExperimentReport,
+            ParameterValue,
+            PlanArtifactRef,
             UserPlan,
         )
+        from molexp.harness.stages import GenerateExperimentReport, SaveUserPlan  # noqa: F401
+        from molexp.harness.store import EventLog  # noqa: F401

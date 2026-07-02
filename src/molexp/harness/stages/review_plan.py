@@ -16,7 +16,7 @@ from typing import ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError, StagePersistedFailureError
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, PlanReview
+from molexp.harness.schemas import AgentCallSpec, PlanArtifactRef, PlanReview
 from molexp.harness.stages._resolve import require_latest
 
 __all__ = ["ReviewPlan"]
@@ -29,7 +29,7 @@ class ReviewPlan(Stage):
 
     name: ClassVar[str] = "review_plan"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("ReviewPlan requires ctx.agent_gateway to be set")
         report = require_latest(ctx, "experiment_report", stage=self.name)

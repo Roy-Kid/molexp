@@ -1,7 +1,7 @@
 """``GenerateInputSet`` — plan step 6: spec → parameter-space expansion.
 
 Asks the gateway to turn the concrete :class:`ExperimentSpec` (and the
-:class:`WorkflowIR` it produced) into an :class:`InputSet`: which root
+:class:`PlanWorkflowIR` it produced) into an :class:`InputSet`: which root
 inputs are swept and over what values. The harness only *describes* the
 sweep; the workspace ``ParamSpace`` family expands it. Same ctx-driven
 gateway + fail-fast pattern as the other LLM stages.
@@ -14,7 +14,7 @@ from typing import ClassVar
 from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StageExecutionError
-from molexp.harness.schemas import AgentCallSpec, ArtifactRef, InputSet
+from molexp.harness.schemas import AgentCallSpec, InputSet, PlanArtifactRef
 from molexp.harness.stages._resolve import feedback_inputs, require_latest
 
 __all__ = ["GenerateInputSet"]
@@ -25,7 +25,7 @@ class GenerateInputSet(Stage):
 
     name: ClassVar[str] = "generate_input_set"
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         if ctx.agent_gateway is None:
             raise StageExecutionError("GenerateInputSet requires ctx.agent_gateway to be set")
         spec = require_latest(ctx, "experiment_spec", stage=self.name)

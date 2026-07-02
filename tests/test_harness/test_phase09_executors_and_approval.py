@@ -15,9 +15,9 @@ from pydantic import ValidationError
 
 
 def _ref():
-    from molexp.harness.schemas.artifact import ArtifactRef
+    from molexp.harness.schemas.artifact import PlanArtifactRef
 
-    return ArtifactRef(
+    return PlanArtifactRef(
         id="r0123456",
         kind="stdout",
         uri="file:///tmp/r",
@@ -377,11 +377,5 @@ def test_approval_gate_summary_carries_subject_artifact_ids(ctx) -> None:
 
 
 def test_phase09_public_surface() -> None:
-    from molexp.harness import (  # noqa: F401
-        ApprovalGate,
-        CommandResult,
-        CommandSpec,
-        DryRunExecutor,
-        Executor,
-        LocalExecutor,
-    )
+    from molexp.harness import ApprovalGate, DryRunExecutor, Executor, LocalExecutor  # noqa: F401
+    from molexp.harness.schemas import CommandResult, CommandSpec  # noqa: F401

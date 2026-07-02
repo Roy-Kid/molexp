@@ -169,7 +169,7 @@ class TestSchemasApproval:
         assert via_pkg_dec is via_mod_dec
 
     def test_three_approval_types_re_exported_from_top_level(self) -> None:
-        from molexp.harness import (  # noqa: F401
+        from molexp.harness.schemas import (  # noqa: F401
             ApprovalDecision,
             ApprovalIntent,
             ApprovalRequest,

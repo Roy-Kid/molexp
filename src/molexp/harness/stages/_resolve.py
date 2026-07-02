@@ -15,10 +15,10 @@ from molexp.harness.errors import StageExecutionError
 
 if TYPE_CHECKING:
     from molexp.harness.core.run_context import HarnessRunContext
-    from molexp.harness.schemas import ArtifactRef
+    from molexp.harness.schemas import PlanArtifactRef
 
 
-def require_latest(ctx: HarnessRunContext, kind: str, *, stage: str) -> ArtifactRef:
+def require_latest(ctx: HarnessRunContext, kind: str, *, stage: str) -> PlanArtifactRef:
     """Return the most recent artifact of ``kind``, or raise.
 
     Args:
@@ -27,7 +27,7 @@ def require_latest(ctx: HarnessRunContext, kind: str, *, stage: str) -> Artifact
         stage: The requesting stage's name, for a clear error message.
 
     Returns:
-        The latest :class:`ArtifactRef` of ``kind``.
+        The latest :class:`PlanArtifactRef` of ``kind``.
 
     Raises:
         StageExecutionError: If no artifact of ``kind`` exists yet — the

@@ -19,34 +19,35 @@ from molexp.harness.core.run_context import HarnessRunContext
 from molexp.harness.core.stage import Stage
 from molexp.harness.errors import StagePersistedFailureError
 from molexp.harness.schemas import (
-    ArtifactRef,
     ExperimentReport,
     ExperimentSpec,
-    ValidationReport,
+    PlanArtifactRef,
+    PlanValidationReport,
     ValidationViolation,
 )
 from molexp.harness.stages._resolve import require_latest
 from molexp.harness.validators.experiment_spec import ExperimentSpecValidator
+from molexp.harness.validators.render import render_violations
 
 __all__ = ["ValidateExperimentSpec"]
 
 
 class ValidateExperimentSpec(Stage):
-    """Validate an ExperimentSpec artifact; persist a ValidationReport artifact."""
+    """Validate an ExperimentSpec artifact; persist a PlanValidationReport artifact."""
 
     name: ClassVar[str] = "validate_experiment_spec"
 
     def __init__(self, *, raise_on_failure: bool = True) -> None:
         self._raise_on_failure = raise_on_failure
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         spec_ref = require_latest(ctx, "experiment_spec", stage=self.name)
         target_id = spec_ref.id
 
         try:
             spec = ExperimentSpec.model_validate_json(ctx.artifact_store.get(target_id))
         except Exception as exc:
-            report = ValidationReport.from_violations(
+            report = PlanValidationReport.from_violations(
                 target_kind="experiment_spec",
                 target_id=target_id,
                 violations=[
@@ -85,8 +86,8 @@ class ValidateExperimentSpec(Stage):
             parent_ids=[target_id],
         )
         if not result.passed and self._raise_on_failure:
-            error_codes = [v.code for v in result.violations if v.severity == "error"]
             raise StagePersistedFailureError(
-                report_ref, f"ExperimentSpec validation failed with violations: {error_codes}"
+                report_ref,
+                f"ExperimentSpec validation failed:\n{render_violations(result.violations)}",
             )
         return report_ref

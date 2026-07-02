@@ -1,6 +1,6 @@
 """``RepairLoop`` — generate → validate → repair until the plan converges.
 
-LLM generation is stochastic and imperfect: a malformed ``WorkflowIR``, an
+LLM generation is stochastic and imperfect: a malformed ``PlanWorkflowIR``, an
 off-signature binding, or a workflow that does not faithfully implement the
 report (caught by ``ReviewPlan``) would otherwise fail the whole plan on a
 single bad sample. ``RepairLoop`` wraps a generator stage and the validators
@@ -23,7 +23,7 @@ from molexp.harness.errors import StageExecutionError, StagePersistedFailureErro
 
 if TYPE_CHECKING:
     from molexp.harness.core.run_context import HarnessRunContext
-    from molexp.harness.schemas import ArtifactRef
+    from molexp.harness.schemas import PlanArtifactRef
 
 __all__ = ["RepairLoop"]
 
@@ -56,13 +56,13 @@ class RepairLoop(Stage):
         self._feedback_kind = feedback_kind
         self._attempts = attempts
 
-    async def run(self, ctx: HarnessRunContext) -> ArtifactRef:
+    async def run(self, ctx: HarnessRunContext) -> PlanArtifactRef:
         last: StageExecutionError | None = None
         for attempt in range(1, self._attempts + 1):
             # The generated artifact is this stage's output; the validators are
             # gates whose own (report) artifacts stay in the store but are not
             # returned, so downstream stages resolve the real generated artifact.
-            generated: ArtifactRef = await self._generate.run(ctx)
+            generated: PlanArtifactRef = await self._generate.run(ctx)
             try:
                 for validator in self._validators:
                     await validator.run(ctx)

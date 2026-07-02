@@ -48,24 +48,14 @@ from typing import Any
 
 import pytest
 
-from molexp.harness import (
-    ApprovalGate,
-    Approver,
-    ArtifactRef,
-    CapabilityInvocationResult,
-    CapabilityRegistry,
-    InMemoryCapabilityRegistry,
-    InvokeCapability,
-    LocalExecutor,
-    StageExecutionError,
-    ToolCapability,
-    auto_grant_approver,
-    enforce_side_effect_approvals,
-    make_side_effect_approval_requests,
-)
+from molexp.harness import ApprovalGate, CapabilityRegistry, LocalExecutor, StageExecutionError
 from molexp.harness.core.run_context import HarnessRunContext
+from molexp.harness.policy import enforce_side_effect_approvals, make_side_effect_approval_requests
+from molexp.harness.registry import InMemoryCapabilityRegistry
+from molexp.harness.schemas import CapabilityInvocationResult, PlanArtifactRef, ToolCapability
 from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
 from molexp.harness.schemas.bound_workflow import BoundTask
+from molexp.harness.stages import Approver, InvokeCapability, auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog
 from molexp.harness.store.sqlite_lineage_store import SQLiteArtifactLineageStore
@@ -269,18 +259,18 @@ def test_enforce_raises_and_logs_request_then_rejection_on_denial(tmp_path: Path
 
 
 # ──────────────────────────────────────────── ac-006 · runtime grant returns summary
-# Category: basics (granted gate persists a kind-tagged summary ArtifactRef).
+# Category: basics (granted gate persists a kind-tagged summary PlanArtifactRef).
 
 
 def test_enforce_returns_side_effect_approval_artifact_on_grant(tmp_path: Path) -> None:
-    """An auto-granted destructive item yields a ``side_effect_approval`` ``ArtifactRef``."""
+    """An auto-granted destructive item yields a ``side_effect_approval`` ``PlanArtifactRef``."""
     cap = _make_capability(id_="cap.del", side_effects=["delete"])
     ctx = _make_ctx(tmp_path)
 
     ref = asyncio.run(enforce_side_effect_approvals([cap], ctx=ctx, approve=auto_grant_approver))
 
     assert ref is not None
-    assert isinstance(ref, ArtifactRef)
+    assert isinstance(ref, PlanArtifactRef)
     assert ref.kind == "side_effect_approval"
 
 
@@ -336,19 +326,25 @@ def test_read_only_capability_bypasses_gate_and_dispatches(
 # Category: basics (dual re-export identity + canonical gate left untouched).
 
 
-def test_helpers_re_exported_from_both_surfaces() -> None:
-    """Both helpers resolve to the SAME object from ``molexp.harness`` and
-    ``molexp.harness.policy``."""
-    import molexp.harness as h
+def test_helpers_re_exported_from_policy_package() -> None:
+    """Both helpers resolve to the SAME object from ``molexp.harness.policy``
+    and their defining module (the harness top level no longer re-exports
+    policy helpers — shrunk ``__all__``)."""
     from molexp.harness.policy import (
         enforce_side_effect_approvals as enforce_via_policy,
     )
     from molexp.harness.policy import (
         make_side_effect_approval_requests as make_via_policy,
     )
+    from molexp.harness.policy.side_effect_gate import (
+        enforce_side_effect_approvals as enforce_canonical,
+    )
+    from molexp.harness.policy.side_effect_gate import (
+        make_side_effect_approval_requests as make_canonical,
+    )
 
-    assert h.make_side_effect_approval_requests is make_via_policy
-    assert h.enforce_side_effect_approvals is enforce_via_policy
+    assert make_via_policy is make_canonical
+    assert enforce_via_policy is enforce_canonical
 
 
 def test_canonical_approval_gate_module_untouched_by_side_effect_feature() -> None:

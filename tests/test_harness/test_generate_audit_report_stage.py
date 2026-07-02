@@ -58,14 +58,15 @@ def _seed_some_artifacts(store) -> None:
 
 
 def test_name_and_subclass() -> None:
-    from molexp.harness import GenerateAuditReport, Stage
+    from molexp.harness import Stage
+    from molexp.harness.stages import GenerateAuditReport
 
     assert GenerateAuditReport.name == "generate_audit_report"
     assert issubclass(GenerateAuditReport, Stage)
 
 
 def test_persists_audit_report_artifact(ctx) -> None:
-    from molexp.harness import GenerateAuditReport
+    from molexp.harness.stages import GenerateAuditReport
 
     _seed_some_artifacts(ctx.artifact_store)
     ref = asyncio.run(GenerateAuditReport().run(ctx))
@@ -76,7 +77,8 @@ def test_persists_audit_report_artifact(ctx) -> None:
 
 
 def test_audit_report_round_trips_with_run_id(ctx) -> None:
-    from molexp.harness import AuditReport, GenerateAuditReport
+    from molexp.harness.schemas import AuditReport
+    from molexp.harness.stages import GenerateAuditReport
 
     _seed_some_artifacts(ctx.artifact_store)
     ref = asyncio.run(GenerateAuditReport().run(ctx))
