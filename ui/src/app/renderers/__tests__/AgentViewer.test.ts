@@ -294,7 +294,7 @@ describe("completedStageKinds", () => {
 });
 
 describe("PLAN_STAGES", () => {
-  it("declares the nine PlanMode steps in order, keyed on the server's artifact kinds", () => {
+  it("declares the nine PlanMode steps + the --execute tail, keyed on the server's artifact kinds", () => {
     // Mirrors server/plan_runtime/record.py:_STAGE_LABELS — the rail + the
     // deliverables panel both read these kinds, so they must stay aligned.
     expect(PLAN_STAGES.map((s) => s.kind)).toEqual([
@@ -307,7 +307,14 @@ describe("PLAN_STAGES", () => {
       "execution_result",
       "analysis_result",
       "execution_report",
+      "final_report",
+      "audit_report",
     ]);
+  });
+
+  it("marks ONLY the --execute tail stages, so a nine-step plan shows nine steps", () => {
+    const tail = PLAN_STAGES.filter((s) => s.executeTail).map((s) => s.kind);
+    expect(tail).toEqual(["final_report", "audit_report"]);
   });
 
   it("defaults to the proposal step and maps kinds to deliverable views", () => {
@@ -316,6 +323,8 @@ describe("PLAN_STAGES", () => {
     expect(planStage("input_set")?.view).toBe("inputs");
     expect(planStage("execution_report")?.view).toBe("execution");
     expect(planStage("analysis_result")?.view).toBe("review");
+    expect(planStage("final_report")?.view).toBe("final");
+    expect(planStage("audit_report")?.view).toBe("audit");
     expect(planStage("nope")).toBeUndefined();
   });
 });

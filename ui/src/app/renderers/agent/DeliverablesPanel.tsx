@@ -1,4 +1,4 @@
-import { Check, ClipboardCopy, FileQuestion, Loader2, Package } from "lucide-react";
+import { Check, ClipboardCopy, FileQuestion, Loader2, Package, WrapText } from "lucide-react";
 import { type JSX, useCallback, useEffect, useMemo, useState } from "react";
 import type { PlanDetailResponse } from "@/api/generated/models/PlanDetailResponse";
 import { StatusBadge } from "@/app/components/entity";
@@ -9,6 +9,8 @@ import type { ApiSessionEvent, SemanticStatus } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownContent } from "@/components/ui/markdown";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { highlightCode, type TokenKind } from "@/lib/highlight";
+import { cn } from "@/lib/utils";
 import { ArtifactBody } from "./artifacts";
 import { planStage } from "./planStages";
 
@@ -180,18 +182,53 @@ const ScriptView = ({ source }: { source: string | null }): JSX.Element => {
     );
   }
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[11px] text-muted-foreground">build_workflow.py</span>
-        <CopyButton text={source} label="Copy source" />
-      </div>
-      <pre className="overflow-x-auto rounded-md border border-border/60 bg-muted/50 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground">
-        {source}
-      </pre>
-    </div>
+    <CodeBlock
+      text={source}
+      filename="build_workflow.py"
+      copyLabel="Copy source"
+      language="python"
+    />
   );
 };
 
+// Semantic-token colors for the read-only code panels — theme tokens only,
+// so they track light/dark like every other surface.
+const TOKEN_CLASS: Record<Exclude<TokenKind, "plain">, string> = {
+  comment: "italic text-muted-foreground",
+  string: "text-success",
+  keyword: "font-medium text-info",
+  number: "text-warning",
+  decorator: "text-warning",
+  key: "text-info",
+};
+
+const HighlightedCode = ({
+  text,
+  language,
+}: {
+  text: string;
+  language?: string;
+}): JSX.Element => {
+  const tokens = useMemo(() => highlightCode(text, language), [text, language]);
+  let offset = 0;
+  return (
+    <code>
+      {tokens.map((token) => {
+        const key = offset;
+        offset += token.text.length;
+        return (
+          <span key={key} className={token.kind === "plain" ? undefined : TOKEN_CLASS[token.kind]}>
+            {token.text}
+          </span>
+        );
+      })}
+    </code>
+  );
+};
+
+// Reviewers read whole YAML specs and python sources in this panel, often in a
+// narrow split — so long lines soft-wrap by default (never a 60-char guillotine)
+// with an explicit toggle to the classic one-line-per-row + horizontal scroll.
 const CodeBlock = ({
   text,
   filename,
@@ -202,20 +239,46 @@ const CodeBlock = ({
   filename: string;
   copyLabel: string;
   language?: string;
-}): JSX.Element => (
-  <div className="space-y-2">
-    <div className="flex items-center justify-between">
-      <span className="font-mono text-[11px] text-muted-foreground">{filename}</span>
-      <CopyButton text={text} label={copyLabel} />
+}): JSX.Element => {
+  const [wrap, setWrap] = useState(true);
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground">
+          {filename}
+        </span>
+        <div className="flex flex-none items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setWrap((prev) => !prev)}
+            aria-pressed={wrap}
+            title={
+              wrap
+                ? "Soft-wrapping long lines — click to scroll them instead"
+                : "Long lines scroll horizontally — click to soft-wrap"
+            }
+            className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <WrapText className="h-3 w-3" />
+            {wrap ? "Wrap" : "No wrap"}
+          </button>
+          <CopyButton text={text} label={copyLabel} />
+        </div>
+      </div>
+      <pre
+        data-language={language}
+        className={cn(
+          "rounded-md border border-border/60 bg-muted/50 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground",
+          wrap
+            ? "whitespace-pre-wrap break-words"
+            : "overflow-x-auto [scrollbar-width:thin] [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-track]:bg-transparent",
+        )}
+      >
+        <HighlightedCode text={text} language={language} />
+      </pre>
     </div>
-    <pre
-      data-language={language}
-      className="overflow-x-auto rounded-md border border-border/60 bg-muted/50 px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-foreground"
-    >
-      {text}
-    </pre>
-  </div>
-);
+  );
+};
 
 const WorkflowIrView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
   // The curated workflow-spec YAML: inputs, tasks (purpose + typed I/O), edges.
@@ -251,10 +314,86 @@ const SpecYamlView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
   );
 };
 
-const CapabilitiesView = ({ text }: { text: string | null }): JSX.Element => {
-  if (!text?.trim())
-    return <p className="text-sm italic text-muted-foreground">No capabilities were resolved.</p>;
-  return <MarkdownContent text={text} />;
+// One entry of `capabilitySelection.selected` — the server may record bare
+// capability-id strings or objects carrying the id plus a per-pick rationale.
+interface SelectedCapability {
+  id: string;
+  detail?: string;
+}
+
+const asSelectedCapability = (entry: unknown): SelectedCapability => {
+  if (typeof entry === "string") return { id: entry };
+  if (entry && typeof entry === "object") {
+    const rec = entry as Record<string, unknown>;
+    const id = rec.capability_id ?? rec.id ?? rec.name;
+    const detail = rec.reason ?? rec.purpose ?? rec.notes ?? rec.description;
+    return {
+      id: typeof id === "string" && id ? id : JSON.stringify(entry),
+      detail: typeof detail === "string" && detail ? detail : undefined,
+    };
+  }
+  return { id: String(entry) };
+};
+
+// The Resolve-capabilities deliverable is the LLM's SELECTION — the minimal
+// capability subset this experiment binds — not the grounded catalog prompt
+// ("Do NOT invent capability_ids…" is agent instruction, not user content).
+// The full catalog stays reachable, folded behind a <details>.
+const CapabilitiesView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
+  const catalog = plan.capabilities?.trim() ?? "";
+  const selection = plan.capabilitySelection;
+
+  if (!selection) {
+    // Older plans recorded no selection artifact — show whatever was grounded.
+    if (!catalog)
+      return <p className="text-sm italic text-muted-foreground">No capabilities were resolved.</p>;
+    return <MarkdownContent text={catalog} />;
+  }
+
+  const selected = Array.isArray(selection.selected)
+    ? (selection.selected as unknown[]).map(asSelectedCapability)
+    : [];
+  const notes = typeof selection.notes === "string" ? selection.notes.trim() : "";
+
+  return (
+    <div className="space-y-4">
+      <PanelSection title={`Selected capabilities (${selected.length})`}>
+        {selected.length === 0 ? (
+          <MarkdownContent
+            text={
+              notes
+                ? `None — ${notes}`
+                : "None — this experiment binds no capability from the catalog."
+            }
+          />
+        ) : (
+          <ul className="space-y-1.5">
+            {selected.map((cap) => (
+              <li key={cap.id} className="rounded-md border border-border/50 bg-card px-3 py-2">
+                <span className="break-all font-mono text-sm text-foreground">{cap.id}</span>
+                {cap.detail && <p className="mt-0.5 text-xs text-muted-foreground">{cap.detail}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </PanelSection>
+      {selected.length > 0 && notes && (
+        <PanelSection title="Selection rationale">
+          <MarkdownContent text={notes} />
+        </PanelSection>
+      )}
+      {catalog && (
+        <details className="rounded-md border border-border/60 bg-card">
+          <summary className="cursor-pointer select-none px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground">
+            Full grounded catalog
+          </summary>
+          <div className="border-t border-border/60 px-3 py-2">
+            <MarkdownContent text={catalog} />
+          </div>
+        </details>
+      )}
+    </div>
+  );
 };
 
 const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }): JSX.Element => {
@@ -263,6 +402,10 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
   const axes = Array.isArray(inputSet.sweep_axes)
     ? (inputSet.sweep_axes as Record<string, unknown>[])
     : [];
+  const fixed =
+    inputSet.fixed_params && typeof inputSet.fixed_params === "object"
+      ? Object.entries(inputSet.fixed_params as Record<string, unknown>)
+      : [];
   return (
     <div className="space-y-4">
       <PanelSection title="Parameter sweep">
@@ -303,6 +446,21 @@ const InputSetView = ({ inputSet }: { inputSet: Record<string, unknown> | null }
           </ul>
         )}
       </PanelSection>
+      {fixed.length > 0 && (
+        <PanelSection title={`Fixed params (${fixed.length})`}>
+          <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+            {fixed.map(([name, value]) => (
+              <div key={name} className="contents">
+                <dt className="font-mono text-muted-foreground">{name}</dt>
+                <dd className="font-mono text-foreground">{JSON.stringify(value)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="text-xs text-muted-foreground/70">
+            Passed whole into every cell — list-valued inputs the workflow scans internally.
+          </p>
+        </PanelSection>
+      )}
     </div>
   );
 };
@@ -392,6 +550,98 @@ const ExecutionReportView = ({
   );
 };
 
+// Final-report prose fields, in reading order (mirrors the FinalReport schema).
+const FINAL_REPORT_FIELDS: [string, string][] = [
+  ["objective", "Objective"],
+  ["methods_summary", "Methods"],
+  ["test_summary", "Tests"],
+  ["execution_summary", "Execution"],
+  ["results", "Results"],
+  ["conclusions", "Conclusions"],
+  ["limitations", "Limitations"],
+  ["next_steps", "Next steps"],
+];
+
+const FinalReportView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
+  const report = plan.finalReport;
+  const execution = plan.execution;
+  if (!report)
+    return (
+      <p className="text-sm italic text-muted-foreground">
+        The workflow has not been executed — run <code className="font-mono">molexp plan
+        --execute</code> to produce the final report.
+      </p>
+    );
+  const ok = execution?.status === "succeeded";
+  return (
+    <div className="space-y-4">
+      {execution && (
+        <PanelSection title="Real execution">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={ok ? "secondary" : "destructive"} className="font-mono text-[11px]">
+              {String(execution.status ?? "unknown")}
+            </Badge>
+            <Badge variant="secondary" className="font-mono text-[11px]">
+              exit {String(execution.exit_code ?? "?")}
+            </Badge>
+          </div>
+        </PanelSection>
+      )}
+      {typeof report.title === "string" && report.title && (
+        <p className="text-sm font-semibold text-foreground">{String(report.title)}</p>
+      )}
+      {FINAL_REPORT_FIELDS.map(([key, label]) => {
+        const value = report[key];
+        if (typeof value !== "string" || !value.trim()) return null;
+        return (
+          <PanelSection key={key} title={label}>
+            <MarkdownContent text={value} />
+          </PanelSection>
+        );
+      })}
+      <p className="text-xs text-muted-foreground/70">
+        Grounded in the run&apos;s persisted TestResult + ExecutionResult artifacts — every number
+        comes from a real output.
+      </p>
+    </div>
+  );
+};
+
+const AuditReportView = ({ report }: { report: Record<string, unknown> | null }): JSX.Element => {
+  if (!report)
+    return (
+      <p className="text-sm italic text-muted-foreground">
+        No audit report — it is generated at the end of a real execution.
+      </p>
+    );
+  const entries = Object.entries(report).filter(([, v]) => v == null || typeof v !== "object");
+  return (
+    <div className="space-y-4">
+      <PanelSection title="Audit trail">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          {entries.map(([key, value]) => (
+            <div key={key} className="contents">
+              <dt className="text-muted-foreground">{key}</dt>
+              <dd className="font-mono text-foreground">{String(value ?? "—")}</dd>
+            </div>
+          ))}
+        </dl>
+      </PanelSection>
+      <PanelSection title="Full record">
+        <CodeBlock
+          text={JSON.stringify(report, null, 2)}
+          filename="audit_report.json"
+          copyLabel="Copy JSON"
+        />
+      </PanelSection>
+      <p className="text-xs text-muted-foreground/70">
+        Every stage, artifact, and lineage edge of this run is also queryable in{" "}
+        <code className="font-mono">harness.sqlite</code>.
+      </p>
+    </div>
+  );
+};
+
 const MultiFileView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
   // One file per task (workflow/<task>.py) + assembly, plus one test per task
   // (tests/test_<task>.py). A path selector keeps complex/many-task plans
@@ -421,7 +671,13 @@ const MultiFileView = ({ plan }: { plan: PlanDetailResponse }): JSX.Element => {
         text={current.source}
         filename={current.path}
         copyLabel="Copy file"
-        language={current.path.endsWith(".py") ? "python" : undefined}
+        language={
+          current.path.endsWith(".py")
+            ? "python"
+            : /\.ya?ml$/.test(current.path)
+              ? "yaml"
+              : undefined
+        }
       />
     </div>
   );
@@ -547,7 +803,7 @@ const PlanDeliverables = ({
       case "spec":
         return inScroll(<SpecYamlView plan={plan} />);
       case "capabilities":
-        return inScroll(<CapabilitiesView text={plan.capabilities} />);
+        return inScroll(<CapabilitiesView plan={plan} />);
       case "topology":
         return inScroll(<WorkflowIrView plan={plan} />);
       case "script":
@@ -560,6 +816,10 @@ const PlanDeliverables = ({
         return inScroll(<ReviewView plan={plan} />);
       case "execution":
         return inScroll(<ExecutionReportView report={plan.executionReport} />);
+      case "final":
+        return inScroll(<FinalReportView plan={plan} />);
+      case "audit":
+        return inScroll(<AuditReportView report={plan.auditReport} />);
       default:
         return <EmptyStage label={stage?.label ?? "No deliverable"} />;
     }

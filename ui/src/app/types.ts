@@ -188,6 +188,8 @@ export interface WorkflowSummary {
 export interface AgentSessionSummary {
   id: string;
   sessionId: string;
+  /** Server-side task title (curated for plan tasks, goal-derived otherwise). */
+  title: string;
   goal: string;
   status: SemanticStatus;
   createdAt: string;

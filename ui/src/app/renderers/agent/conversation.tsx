@@ -16,6 +16,7 @@ import {
   EVENT_META,
   foldStreamedTurn,
   turnDurationSeconds,
+  visibleTimestampFlags,
 } from "@/app/renderers/agentEvents";
 import type { ApiSessionEvent } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -47,7 +48,14 @@ const formatTokens = (count: number): string => {
 // Event row (one raw event inside the "internal steps" disclosure)
 // ---------------------------------------------------------------------------
 
-const EventRow = ({ event }: { event: ApiSessionEvent }): JSX.Element => {
+const EventRow = ({
+  event,
+  showTimestamp = true,
+}: {
+  event: ApiSessionEvent;
+  /** Suppress the visible timestamp (hover tooltip keeps it) when it merely repeats the previous row's. */
+  showTimestamp?: boolean;
+}): JSX.Element => {
   const [expanded, setExpanded] = useState(false);
   const meta = EVENT_META[event.type] ?? {
     icon: Bot,
@@ -72,8 +80,8 @@ const EventRow = ({ event }: { event: ApiSessionEvent }): JSX.Element => {
                 {String(payload.tool_name)}
               </Badge>
             )}
-          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
-            {formatTs(event.ts)}
+          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground" title={event.ts}>
+            {showTimestamp ? formatTs(event.ts) : null}
           </span>
           {hasDetail && (
             <button
@@ -218,6 +226,16 @@ const InternalSteps = ({ turn }: { turn: ConversationTurn }): JSX.Element | null
       e.type !== "tool_call_started" &&
       !(hasStarted && e.type === "tool_call_completed"),
   );
+  // Backend batches often stamp adjacent steps with one ledger time; show
+  // the timestamp only where it changes (the rest keep a hover tooltip).
+  // Position is a stable identity — the event log is append-only — so the
+  // row key may safely encode it.
+  const timestampVisible = visibleTimestampFlags(detailSteps);
+  const detailRows = detailSteps.map((event, idx) => ({
+    key: `${turn.key}-step-${idx}-${event.type}`,
+    event,
+    showTimestamp: timestampVisible[idx] ?? true,
+  }));
   const count = streamed.toolCalls.length + detailSteps.length;
   const [open, setOpen] = useState(false);
   if (count === 0) return null;
@@ -244,9 +262,8 @@ const InternalSteps = ({ turn }: { turn: ConversationTurn }): JSX.Element | null
           {streamed.toolCalls.map((call) => (
             <ToolCallRow key={call.id} call={call} />
           ))}
-          {detailSteps.map((event, idx) => (
-            // biome-ignore lint/suspicious/noArrayIndexKey: the event log is append-only, so position is a stable identity even when two events share a timestamp
-            <EventRow key={`${turn.key}-step-${idx}-${event.type}`} event={event} />
+          {detailRows.map((row) => (
+            <EventRow key={row.key} event={row.event} showTimestamp={row.showTimestamp} />
           ))}
         </div>
       )}

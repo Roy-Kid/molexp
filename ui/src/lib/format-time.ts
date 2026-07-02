@@ -3,6 +3,8 @@
  * scheduler dashboards, and other timeline views.
  */
 
+import { formatDateTime } from "@/lib/datetime";
+
 export const formatDuration = (seconds: number | null): string => {
   if (seconds === null || Number.isNaN(seconds) || seconds < 0) {
     return "—";
@@ -57,9 +59,7 @@ export const formatRelative = (iso: string | null): string => {
   return `${Math.floor(delta / 86400)}d ago`;
 };
 
-export const formatTimestamp = (iso: string | null): string => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString();
-};
+// One wall-clock spelling app-wide: delegate to the shared formatter instead
+// of locale-dependent `toLocaleString()` (which rendered "02/07/2026, …" next
+// to ISO strings elsewhere on the same screen).
+export const formatTimestamp = (iso: string | null): string => formatDateTime(iso);

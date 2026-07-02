@@ -24,6 +24,8 @@ export interface TreeNodeAction {
 export interface TreeNode {
   id: string;
   label: string;
+  /** Hover tooltip; defaults to `label` (e.g. an agent task's full goal). */
+  hoverTitle?: string;
   labelClassName?: string;
   icon?: ComponentType<{ className?: string }>;
   iconClassName?: string;
@@ -88,7 +90,7 @@ const TreeRow = ({
       onContextMenu={() => {
         node.onSelect?.();
       }}
-      title={node.label}
+      title={node.hoverTitle ?? node.label}
     >
       {Icon && (
         <Icon

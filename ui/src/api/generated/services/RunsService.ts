@@ -6,6 +6,7 @@ import type { LammpsLogResponse } from '../models/LammpsLogResponse';
 import type { RunActionResponse } from '../models/RunActionResponse';
 import type { RunContinueResponse } from '../models/RunContinueResponse';
 import type { RunCreateRequest } from '../models/RunCreateRequest';
+import type { RunEventResponse } from '../models/RunEventResponse';
 import type { RunExecutionResponse } from '../models/RunExecutionResponse';
 import type { RunFilesResponse } from '../models/RunFilesResponse';
 import type { RunFileTextResponse } from '../models/RunFileTextResponse';
@@ -126,6 +127,43 @@ export class RunsService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'run_id': runId,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Events
+     * Return the run's recent workspace-timeline events, newest first.
+     *
+     * Reads the default-on ``workspace.events.sqlite`` spine via the shared
+     * :func:`molexp.workspace.events.read_workspace_events` (the same code path
+     * ``molexp runs info`` uses). A workspace with no timeline yet (nothing has
+     * emitted) returns ``[]``.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param limit
+     * @returns RunEventResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunEventsApiProjectsProjectIdExperimentsExperimentIdRunsRunIdEventsGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        limit: number = 50,
+    ): CancelablePromise<Array<RunEventResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/events',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+            },
+            query: {
+                'limit': limit,
             },
             errors: {
                 422: `Validation Error`,
@@ -418,14 +456,20 @@ export class RunsService {
     }
     /**
      * Rerun Run
-     * Rerun a failed/cancelled run from scratch in a new execution (no clone).
+     * Rerun a failed/cancelled run in a new execution (no clone).
      *
      * A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
-     * through molq; no parameters are cloned and no new Run is created. 409 unless
-     * the run is failed/cancelled (pending/succeeded/running are not rerun's job).
+     * through molq; no parameters are cloned and no new Run is created. Note the
+     * content-addressed cache may still serve deterministic tasks — pass
+     * ``fresh=true`` to bypass cache reads (persisted as a marker in the new
+     * execution slot, so whichever process executes it honors the request).
+     * 409 unless the run is failed/cancelled (pending/succeeded/running are not
+     * rerun's job). A stale ``running`` run with a dead owner is reaped to
+     * ``failed`` first (run-recovery bug 5).
      * @param projectId
      * @param experimentId
      * @param runId
+     * @param fresh Bypass content-addressed cache reads for the new execution: every task body actually re-runs (results are still written back to the cache). Same capability as the CLI's `molexp run --rerun --fresh`.
      * @returns RunContinueResponse Successful Response
      * @throws ApiError
      */
@@ -433,6 +477,7 @@ export class RunsService {
         projectId: string,
         experimentId: string,
         runId: string,
+        fresh: boolean = false,
     ): CancelablePromise<RunContinueResponse> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -441,6 +486,9 @@ export class RunsService {
                 'project_id': projectId,
                 'experiment_id': experimentId,
                 'run_id': runId,
+            },
+            query: {
+                'fresh': fresh,
             },
             errors: {
                 422: `Validation Error`,
@@ -454,7 +502,9 @@ export class RunsService {
      * The reopened execution is re-dispatched on the same ``execution_id``; the
      * worker seeds already-completed nodes from disk and recomputes the rest.
      * 409 unless the run is failed/cancelled (pending/succeeded/running are not
-     * resume's job).
+     * resume's job). A stale ``running`` run with a dead owner is reaped to
+     * ``failed`` first, so it enters the retryable domain instead of 409-ing
+     * forever (run-recovery bug 5).
      * @param projectId
      * @param experimentId
      * @param runId
@@ -668,6 +718,46 @@ export class RunsService {
                 'experiment_id': experimentId,
                 'run_id': runId,
                 'ws': ws,
+            },
+            errors: {
+                422: `Validation Error`,
+            },
+        });
+    }
+    /**
+     * Get Run Events
+     * Return the run's recent workspace-timeline events, newest first.
+     *
+     * Reads the default-on ``workspace.events.sqlite`` spine via the shared
+     * :func:`molexp.workspace.events.read_workspace_events` (the same code path
+     * ``molexp runs info`` uses). A workspace with no timeline yet (nothing has
+     * emitted) returns ``[]``.
+     * @param projectId
+     * @param experimentId
+     * @param runId
+     * @param ws
+     * @param limit
+     * @returns RunEventResponse Successful Response
+     * @throws ApiError
+     */
+    public static getRunEventsApiWorkspacesWsProjectsProjectIdExperimentsExperimentIdRunsRunIdEventsGet(
+        projectId: string,
+        experimentId: string,
+        runId: string,
+        ws: string,
+        limit: number = 50,
+    ): CancelablePromise<Array<RunEventResponse>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/workspaces/{ws}/projects/{project_id}/experiments/{experiment_id}/runs/{run_id}/events',
+            path: {
+                'project_id': projectId,
+                'experiment_id': experimentId,
+                'run_id': runId,
+                'ws': ws,
+            },
+            query: {
+                'limit': limit,
             },
             errors: {
                 422: `Validation Error`,
@@ -987,15 +1077,21 @@ export class RunsService {
     }
     /**
      * Rerun Run
-     * Rerun a failed/cancelled run from scratch in a new execution (no clone).
+     * Rerun a failed/cancelled run in a new execution (no clone).
      *
      * A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
-     * through molq; no parameters are cloned and no new Run is created. 409 unless
-     * the run is failed/cancelled (pending/succeeded/running are not rerun's job).
+     * through molq; no parameters are cloned and no new Run is created. Note the
+     * content-addressed cache may still serve deterministic tasks — pass
+     * ``fresh=true`` to bypass cache reads (persisted as a marker in the new
+     * execution slot, so whichever process executes it honors the request).
+     * 409 unless the run is failed/cancelled (pending/succeeded/running are not
+     * rerun's job). A stale ``running`` run with a dead owner is reaped to
+     * ``failed`` first (run-recovery bug 5).
      * @param projectId
      * @param experimentId
      * @param runId
      * @param ws
+     * @param fresh Bypass content-addressed cache reads for the new execution: every task body actually re-runs (results are still written back to the cache). Same capability as the CLI's `molexp run --rerun --fresh`.
      * @returns RunContinueResponse Successful Response
      * @throws ApiError
      */
@@ -1004,6 +1100,7 @@ export class RunsService {
         experimentId: string,
         runId: string,
         ws: string,
+        fresh: boolean = false,
     ): CancelablePromise<RunContinueResponse> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -1013,6 +1110,9 @@ export class RunsService {
                 'experiment_id': experimentId,
                 'run_id': runId,
                 'ws': ws,
+            },
+            query: {
+                'fresh': fresh,
             },
             errors: {
                 422: `Validation Error`,
@@ -1026,7 +1126,9 @@ export class RunsService {
      * The reopened execution is re-dispatched on the same ``execution_id``; the
      * worker seeds already-completed nodes from disk and recomputes the rest.
      * 409 unless the run is failed/cancelled (pending/succeeded/running are not
-     * resume's job).
+     * resume's job). A stale ``running`` run with a dead owner is reaped to
+     * ``failed`` first, so it enters the retryable domain instead of 409-ing
+     * forever (run-recovery bug 5).
      * @param projectId
      * @param experimentId
      * @param runId

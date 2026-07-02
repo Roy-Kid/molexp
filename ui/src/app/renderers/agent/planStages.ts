@@ -14,12 +14,17 @@ export type DeliverableView =
   | "inputs"
   | "dryrun"
   | "review"
-  | "execution";
+  | "execution"
+  | "final"
+  | "audit";
 
 export interface PlanStage {
   kind: string;
   label: string;
   view?: DeliverableView;
+  /** True for the opt-in `--execute` tail — the rail hides these stages
+   * unless the plan actually produced their artifacts. */
+  executeTail?: boolean;
 }
 
 export const PLAN_STAGES: PlanStage[] = [
@@ -32,6 +37,8 @@ export const PLAN_STAGES: PlanStage[] = [
   { kind: "execution_result", label: "Compile & dry-run", view: "dryrun" },
   { kind: "analysis_result", label: "Review", view: "review" },
   { kind: "execution_report", label: "Execution report", view: "execution" },
+  { kind: "final_report", label: "Run & final report", view: "final", executeTail: true },
+  { kind: "audit_report", label: "Audit trail", view: "audit", executeTail: true },
 ];
 
 /** The stage selected by default when a plan session opens (the proposal). */

@@ -13,6 +13,7 @@ import { WorkflowSourceViewer } from "@/app/renderers/WorkflowSourceViewer";
 import { useNavigationState } from "@/app/state/useNavigationState";
 import type { RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/datetime";
 
 const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Element | null => {
   const workflow = snapshot.workflows.find((w) => w.id === selection.objectId);
@@ -33,10 +34,7 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
               <OverviewHighlight label="Status" value={workflow.status} />
               <OverviewHighlight label="Nodes" value={nodeCount} />
               <OverviewHighlight label="Edges" value={edgeCount} />
-              <OverviewHighlight
-                label="Updated"
-                value={new Date(workflow.updatedAt).toLocaleString()}
-              />
+              <OverviewHighlight label="Updated" value={formatDateTime(workflow.updatedAt)} />
             </OverviewHighlightGrid>
           </OverviewSection>
 
@@ -88,7 +86,10 @@ const WorkflowOverviewBody = ({ selection, snapshot }: RendererProps): JSX.Eleme
               label: "Experiment ID",
               value: <span className="font-mono text-xs">{workflow.experimentId}</span>,
             },
-            { label: "Last Updated", value: new Date(workflow.updatedAt).toLocaleString() },
+            {
+              label: "Last Updated",
+              value: <span title={workflow.updatedAt}>{formatDateTime(workflow.updatedAt)}</span>,
+            },
           ]}
         />
       </OverviewSection>

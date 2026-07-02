@@ -35,7 +35,10 @@ export const PlanProgressRail = ({
   onSelectStage: (kind: string) => void;
 }): JSX.Element => {
   const completed = completedStageKinds(events);
-  const lastDone = PLAN_STAGES.reduce((acc, s, i) => (completed.has(s.kind) ? i : acc), -1);
+  // The --execute tail is opt-in: its stages appear only when the plan
+  // actually produced their artifacts (a nine-step plan shows nine steps).
+  const stages = PLAN_STAGES.filter((s) => !s.executeTail || completed.has(s.kind));
+  const lastDone = stages.reduce((acc, s, i) => (completed.has(s.kind) ? i : acc), -1);
   const succeeded = status === "succeeded" || status === "completed";
   const failed = status === "failed" || status === "cancelled";
 
@@ -54,7 +57,7 @@ export const PlanProgressRail = ({
         <ol className="relative px-4 pb-4">
           {/* connector spine, behind the nodes (aligned to node centers) */}
           <div className="absolute bottom-5 left-[30px] top-4 w-px bg-border/70" aria-hidden />
-          {PLAN_STAGES.map((stage, i) => {
+          {stages.map((stage, i) => {
             const state = stateOf(i);
             const selected = stage.kind === selectedKind;
             return (

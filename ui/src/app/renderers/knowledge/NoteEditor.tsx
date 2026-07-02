@@ -1,7 +1,9 @@
+import "katex/dist/katex.min.css";
 import { defaultValueCtx, Editor, rootCtx } from "@milkdown/kit/core";
 import { listener, listenerCtx } from "@milkdown/kit/plugin/listener";
 import { commonmark } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
+import { math } from "@milkdown/plugin-math";
 import { Milkdown, MilkdownProvider, useEditor } from "@milkdown/react";
 import { Code2, Eye, Save } from "lucide-react";
 import { type JSX, lazy, Suspense, useCallback, useMemo, useState } from "react";
@@ -60,6 +62,7 @@ const MilkdownSurface = ({
       })
       .use(commonmark)
       .use(gfm)
+      .use(math)
       .use(listener),
   );
   return <Milkdown />;

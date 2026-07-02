@@ -42,6 +42,7 @@ import type { WorkspaceRunsFilters } from "@/app/runs/types";
 import { useWorkspaceRuns } from "@/app/runs/useWorkspaceRuns";
 import { workspaceApi } from "@/app/state/api";
 import type {
+  AgentSessionSummary,
   AssetSummary,
   ExperimentSummary,
   FileKind,
@@ -61,6 +62,8 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
+import { countLabel } from "@/lib/count-label";
 
 const errorDetail = (error: unknown): string => {
   if (error instanceof ApiError) {
@@ -92,13 +95,15 @@ interface ViewOption {
 
 // Order matters: the primary research flow is Experiments → Runs → Workflows →
 // Workspaces, with the secondary inventories (Assets, Agent Tasks) trailing.
+// Labels match each route's section name (see entities/breadcrumbTrail.ts) and
+// surface on the icon rail as tooltip + title + aria-label.
 const viewOptions: ViewOption[] = [
   { id: "projects", label: "Experiments", icon: Blocks },
   { id: "runs", label: "Runs", icon: PlayCircle },
-  { id: "workflow", label: "Workflow", icon: Workflow },
+  { id: "workflow", label: "Workflows", icon: Workflow },
   { id: "workspace", label: "Workspace", icon: FolderTree },
-  { id: "asset", label: "Asset", icon: Archive },
-  { id: "agent", label: "Agents", icon: Bot },
+  { id: "asset", label: "Assets", icon: Archive },
+  { id: "agent", label: "Agent Tasks", icon: Bot },
   { id: "knowledge", label: "Knowledge", icon: BookOpen },
 ];
 
@@ -271,7 +276,7 @@ const buildProjectNodes = (
     labelClassName: statusTextClass(project.status),
     icon: Blocks,
     iconClassName: "text-blue-500",
-    right: <CompactCount>{project.experiments.length} exp</CompactCount>,
+    right: <CompactCount>{countLabel(project.experiments.length, "exp")}</CompactCount>,
     onSelect: () => actions.onSelect({ objectType: "project", objectId: project.id }),
     actions: [
       {
@@ -307,7 +312,7 @@ const buildProjectNodes = (
       labelClassName: statusTextClass(experiment.status),
       icon: FlaskConical,
       iconClassName: "text-purple-500",
-      right: <CompactCount>{experiment.runs.length} runs</CompactCount>,
+      right: <CompactCount>{countLabel(experiment.runs.length, "run")}</CompactCount>,
       onSelect: () => actions.onSelect({ objectType: "experiment", objectId: experiment.id }),
       actions: [
         {
@@ -765,12 +770,12 @@ const buildWorkflowNodes = (
 };
 
 // Sidebar rows are narrow; show only the first sentence/clause of the
-// goal so the StatusBadge stays visible. Full text is on the entity
-// header inside the task view.
-const shortenGoal = (goal: string): string => {
-  const firstLine = goal.split("\n")[0]?.trim() ?? "";
-  const sentenceEnd = firstLine.search(/[.!?。！？]/);
-  const clipped = sentenceEnd > 0 ? firstLine.slice(0, sentenceEnd) : firstLine;
+// markdown-stripped task title so the StatusBadge stays visible. Full
+// text is on the row tooltip and the entity header inside the task view.
+const shortenTaskTitle = (session: AgentSessionSummary): string => {
+  const clean = agentTaskDisplayTitle(session, 200);
+  const sentenceEnd = clean.search(/[.!?。！？]/);
+  const clipped = sentenceEnd > 0 ? clean.slice(0, sentenceEnd) : clean;
   return clipped.length > 32 ? `${clipped.slice(0, 30).trim()}…` : clipped;
 };
 
@@ -783,7 +788,8 @@ const buildAgentNodes = (
     const isLive = session.status === "running";
     return {
       id: session.id,
-      label: shortenGoal(session.goal),
+      label: shortenTaskTitle(session),
+      hoverTitle: session.goal,
       icon: Bot,
       iconClassName: isLive ? "text-info animate-pulse" : "text-violet-500",
       right: (
@@ -1180,6 +1186,8 @@ export const LeftPanel = ({
                     variant={isActive ? "secondary" : "ghost"}
                     size="icon"
                     onClick={() => onViewChange(option.id)}
+                    title={option.label}
+                    aria-label={option.label}
                   >
                     <option.icon className="h-4 w-4" />
                   </Button>
@@ -1195,6 +1203,7 @@ export const LeftPanel = ({
                   variant={view === "settings" ? "secondary" : "ghost"}
                   size="icon"
                   onClick={() => onViewChange("settings")}
+                  title="Settings"
                   aria-label="Settings"
                 >
                   <Settings className="h-4 w-4" />

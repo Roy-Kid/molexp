@@ -99,6 +99,7 @@ export type { RepairProposedEvent } from './models/RepairProposedEvent';
 export type { RunActionResponse } from './models/RunActionResponse';
 export type { RunContinueResponse } from './models/RunContinueResponse';
 export type { RunCreateRequest } from './models/RunCreateRequest';
+export type { RunEventResponse } from './models/RunEventResponse';
 export type { RunExecutionResponse } from './models/RunExecutionResponse';
 export type { RunFileNode } from './models/RunFileNode';
 export type { RunFilesResponse } from './models/RunFilesResponse';

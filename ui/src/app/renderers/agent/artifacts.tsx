@@ -1,3 +1,4 @@
+import type { VegaLiteSpec } from "@molcrafts/molplot";
 import type { JSX } from "react";
 import { MolplotRawChart } from "@/plugins/molplot";
 
@@ -18,21 +19,25 @@ export const ArtifactBody = ({
   const inner = (payload.payload as Record<string, unknown> | undefined) ?? payload;
 
   if (kind === "plot") {
-    // Agent-emitted specs are untyped — we accept whatever they emit
-    // and let plotly validate at runtime via MolplotRawChart.
-    const data = Array.isArray(inner.data) ? (inner.data as unknown[]) : [];
-    const layout = (inner.layout as Record<string, unknown> | undefined) ?? {};
+    // Agent-emitted plot artifacts are now Vega-Lite specs — molplot moved off
+    // plotly to Vega-Lite. A VL spec is rendered as-is via MolplotRawChart;
+    // legacy plotly payloads ({data, layout}) are no longer renderable and show
+    // a migration hint instead of silently failing.
+    const isVegaLite =
+      "mark" in inner || "layer" in inner || "encoding" in inner || "$schema" in inner;
     return (
       <div className="space-y-2 rounded-md border border-border/60 bg-card p-3">
         {title && <p className="text-xs font-medium text-foreground">{title}</p>}
-        <MolplotRawChart
-          spec={{
-            data,
-            layout: { autosize: true, margin: { l: 48, r: 16, t: 16, b: 40 }, ...layout },
-            config: { displayModeBar: false, responsive: true },
-          }}
-          style={{ width: "100%", height: 300 }}
-        />
+        {isVegaLite ? (
+          <MolplotRawChart
+            spec={{ spec: inner as VegaLiteSpec }}
+            style={{ width: "100%", height: 300 }}
+          />
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Unsupported legacy plot spec — emit a Vega-Lite spec (molplot no longer renders plotly).
+          </p>
+        )}
       </div>
     );
   }

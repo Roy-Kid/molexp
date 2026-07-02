@@ -29,6 +29,7 @@ import { useNavigationState } from "@/app/state/useNavigationState";
 import type { ApiAssetResponse, AssetKind, RendererProps } from "@/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/datetime";
 import { formatBytes } from "@/lib/format-bytes";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -553,11 +554,11 @@ export const AssetViewer = ({ selection, snapshot }: RendererProps): JSX.Element
                     },
                     {
                       label: "Created",
-                      value: new Date(asset.created_at).toLocaleString(),
+                      value: <span title={asset.created_at}>{formatDateTime(asset.created_at)}</span>,
                     },
                     {
                       label: "Updated",
-                      value: new Date(asset.updated_at).toLocaleString(),
+                      value: <span title={asset.updated_at}>{formatDateTime(asset.updated_at)}</span>,
                     },
                   ]}
                 />

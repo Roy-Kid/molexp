@@ -20,6 +20,7 @@ import { ProjectsService } from "@/api/generated/services/ProjectsService";
 import { RunsService } from "@/api/generated/services/RunsService";
 import { WorkflowService } from "@/api/generated/services/WorkflowService";
 import { WorkspaceService } from "@/api/generated/services/WorkspaceService";
+import { AgentUnavailableError, probeOnce, resetAgentProbes } from "@/app/state/agentProbe";
 import type {
   AgentSessionSummary,
   ApiAgentSession,
@@ -991,6 +992,7 @@ export const mapAgentSessions = (sessions: ApiAgentSession[]): AgentSessionSumma
   return sessions.map((s) => ({
     id: s.taskId ?? s.sessionId,
     sessionId: s.sessionId,
+    title: s.title ?? "",
     goal: s.goal,
     status: s.status as AgentSessionSummary["status"],
     createdAt: s.createdAt,
@@ -1073,11 +1075,15 @@ export const agentApi = {
     return (data.tasks ?? []).map(normalizeAgentTask);
   },
 
-  getHealth: async (): Promise<ApiAgentHealth> => {
-    const response = await fetch("/api/agent/health");
-    if (!response.ok) throw new Error(`Failed to fetch agent health: ${response.statusText}`);
-    return response.json();
-  },
+  // Probe endpoint: routed through probeOnce so an unconfigured agent stack
+  // (503) is detected once and never re-requested (see agentProbe.ts).
+  getHealth: (): Promise<ApiAgentHealth> =>
+    probeOnce("agent-health", async () => {
+      const response = await fetch("/api/agent/health");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/health");
+      if (!response.ok) throw new Error(`Failed to fetch agent health: ${response.statusText}`);
+      return response.json();
+    }),
 
   createSession: async (
     description: string,
@@ -1384,11 +1390,15 @@ const _toProviderBody = (input: ProviderUpdateInput): Record<string, unknown> =>
 };
 
 export const agentAdminApi = {
-  getProvider: async (): Promise<ApiAgentProvider> => {
-    const response = await fetch("/api/agent/provider");
-    if (!response.ok) throw new Error(`Failed to fetch provider: ${response.statusText}`);
-    return response.json();
-  },
+  // Probe endpoint: routed through probeOnce so an unconfigured agent stack
+  // (503) is detected once and never re-requested (see agentProbe.ts).
+  getProvider: (): Promise<ApiAgentProvider> =>
+    probeOnce("agent-provider", async () => {
+      const response = await fetch("/api/agent/provider");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/provider");
+      if (!response.ok) throw new Error(`Failed to fetch provider: ${response.statusText}`);
+      return response.json();
+    }),
 
   updateProvider: async (input: ProviderUpdateInput): Promise<ApiAgentProvider> => {
     const response = await fetch("/api/agent/provider", {
@@ -1400,6 +1410,9 @@ export const agentAdminApi = {
       const detail = await response.text().catch(() => "");
       throw new Error(`Failed to update provider: ${response.statusText} ${detail}`);
     }
+    // A saved provider can turn an unconfigured stack into a live one —
+    // drop any cached "unavailable" probe outcomes so the UI re-probes.
+    resetAgentProbes();
     return response.json();
   },
 
@@ -1627,12 +1640,16 @@ export const agentAdminApi = {
 // ── Slash commands ────────────────────────────────────────────────────────
 
 export const commandsApi = {
-  list: async (): Promise<ApiCommand[]> => {
-    const response = await fetch("/api/agent/commands");
-    if (!response.ok) throw new Error(`Failed to fetch commands: ${response.statusText}`);
-    const data = await response.json();
-    return data.commands ?? [];
-  },
+  // Probe endpoint: routed through probeOnce so an unconfigured agent stack
+  // (503) is detected once and never re-requested (see agentProbe.ts).
+  list: (): Promise<ApiCommand[]> =>
+    probeOnce("agent-commands", async () => {
+      const response = await fetch("/api/agent/commands");
+      if (response.status === 503) throw new AgentUnavailableError("/api/agent/commands");
+      if (!response.ok) throw new Error(`Failed to fetch commands: ${response.statusText}`);
+      const data = await response.json();
+      return data.commands ?? [];
+    }),
 
   parse: async (raw: string): Promise<ApiCommandParse> => {
     const response = await fetch("/api/agent/commands/parse", {

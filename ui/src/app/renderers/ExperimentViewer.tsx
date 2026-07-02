@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
+import { formatDateTime } from "@/lib/datetime";
 
 const formatResultPreview = (results: Record<string, unknown>): string => {
   const entries = Object.entries(results);
@@ -311,8 +312,8 @@ export const ExperimentViewer = ({
       header: "Updated",
       width: "w-[160px]",
       cell: (run) => (
-        <span className="text-xs text-muted-foreground">
-          {new Date(run.updatedAt).toLocaleString()}
+        <span className="text-xs text-muted-foreground" title={run.updatedAt}>
+          {formatDateTime(run.updatedAt)}
         </span>
       ),
     },
@@ -427,8 +428,8 @@ export const ExperimentViewer = ({
             <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Updated
             </dt>
-            <dd className="mt-0.5 truncate text-sm text-foreground">
-              {new Date(experiment.updatedAt).toLocaleString()}
+            <dd className="mt-0.5 truncate text-sm text-foreground" title={experiment.updatedAt}>
+              {formatDateTime(experiment.updatedAt)}
             </dd>
           </div>
         </dl>

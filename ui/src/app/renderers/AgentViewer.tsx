@@ -28,6 +28,7 @@ import { Button } from "@/components/ui/button";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
+import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 import { AgentSettingsViewer } from "./AgentSettingsViewer";
 import { ConversationTurnView } from "./agent/conversation";
 import { DeliverablesPanel, hasDeliverables } from "./agent/DeliverablesPanel";
@@ -505,7 +506,14 @@ const HeaderSettingsAction = ({ onOpenSettings }: { onOpenSettings: () => void }
 );
 
 const SessionHeader = ({ session }: { session: ApiAgentSession }): JSX.Element => (
-  <EntityHeader icon={Bot} title={session.goal} status={session.status} />
+  // Markdown-stripped short title (plan tasks carry a curated report title);
+  // the raw multi-line goal stays reachable via the hover tooltip.
+  <EntityHeader
+    icon={Bot}
+    title={agentTaskDisplayTitle(session)}
+    titleTooltip={session.goal}
+    status={session.status}
+  />
 );
 
 const NewSessionHeader = ({ onOpenSettings }: { onOpenSettings: () => void }): JSX.Element => {

@@ -96,6 +96,7 @@ const snapshot: WorkspaceSnapshot = {
     {
       id: "ag1",
       sessionId: "s1",
+      title: "Investigate convergence",
       goal: "Investigate convergence",
       status: "running",
       createdAt: "2026-01-01",

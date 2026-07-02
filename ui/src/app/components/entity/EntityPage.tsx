@@ -28,6 +28,8 @@ export const EntityMetric = ({ label, value }: EntityMetricProps): JSX.Element =
 interface EntityHeaderProps {
   icon: ComponentType<{ className?: string }>;
   title: string;
+  /** Hover tooltip on the title, e.g. the untruncated source text. */
+  titleTooltip?: string;
   subtitle?: string;
   status?: string;
   /** Inline element rendered after the status badge (e.g. "Live" indicator). */
@@ -39,6 +41,7 @@ interface EntityHeaderProps {
 export const EntityHeader = ({
   icon: Icon,
   title,
+  titleTooltip,
   subtitle,
   status,
   titleAccessory,
@@ -57,7 +60,9 @@ export const EntityHeader = ({
               <Icon className="h-4 w-4 text-foreground" />
             </div>
             <div className="flex min-w-0 flex-1 items-center gap-2">
-              <h2 className="truncate text-base font-semibold text-foreground">{title}</h2>
+              <h2 className="truncate text-base font-semibold text-foreground" title={titleTooltip}>
+                {title}
+              </h2>
               {status && <StatusBadge status={status} />}
               {titleAccessory}
               {subtitle && (

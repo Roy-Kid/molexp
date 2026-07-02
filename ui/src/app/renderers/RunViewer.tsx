@@ -11,6 +11,7 @@ import { workspaceApi } from "@/app/state/api";
 import { useDiscoveredFileTypesForRun } from "@/app/state/useDiscoveredFileTypes";
 import type { ApiAssetResponse, RendererProps } from "@/app/types";
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/datetime";
 
 export const RunViewer = (props: RendererProps): JSX.Element => {
   const {
@@ -112,24 +113,30 @@ export const RunViewer = (props: RendererProps): JSX.Element => {
             <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Updated
             </dt>
-            <dd className="mt-0.5 truncate text-sm text-foreground">
-              {new Date(run.updatedAt).toLocaleString()}
+            <dd className="mt-0.5 truncate text-sm text-foreground" title={run.updatedAt}>
+              {formatDateTime(run.updatedAt)}
             </dd>
           </div>
           <div className="min-w-0">
             <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Started
             </dt>
-            <dd className="mt-0.5 truncate text-sm text-foreground">
-              {run.startedAt ? new Date(run.startedAt).toLocaleString() : "—"}
+            <dd
+              className="mt-0.5 truncate text-sm text-foreground"
+              title={run.startedAt ?? undefined}
+            >
+              {formatDateTime(run.startedAt)}
             </dd>
           </div>
           <div className="min-w-0">
             <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Finished
             </dt>
-            <dd className="mt-0.5 truncate text-sm text-foreground">
-              {run.finishedAt ? new Date(run.finishedAt).toLocaleString() : "—"}
+            <dd
+              className="mt-0.5 truncate text-sm text-foreground"
+              title={run.finishedAt ?? undefined}
+            >
+              {formatDateTime(run.finishedAt)}
             </dd>
           </div>
           {run.summary && (

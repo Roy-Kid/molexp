@@ -324,6 +324,15 @@ export const completedStageKinds = (events: ApiSessionEvent[]): Set<string> => {
   return kinds;
 };
 
+/**
+ * Which rows of an event list should render their timestamp. Backend
+ * bookkeeping stamps every step of a batch with the same ledger time, so a
+ * run of identical adjacent timestamps shows only its first — later rows
+ * keep the value on their hover tooltip only.
+ */
+export const visibleTimestampFlags = (events: readonly Pick<ApiSessionEvent, "ts">[]): boolean[] =>
+  events.map((event, idx) => idx === 0 || events[idx - 1]?.ts !== event.ts);
+
 /** One tool call's live state, folded from its started/completed delta pair. */
 export interface ToolCallState {
   id: string;

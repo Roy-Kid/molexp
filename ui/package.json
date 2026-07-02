@@ -19,6 +19,7 @@
   "dependencies": {
     "@flowgram.ai/free-layout-editor": "1.0.11",
     "@milkdown/kit": "^7.21.2",
+    "@milkdown/plugin-math": "^7.5.9",
     "@milkdown/react": "^7.21.2",
     "@molcrafts/molplot": "^0.0.1",
     "@molcrafts/molvis-core": "^0.1.0",
@@ -38,6 +39,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "katex": "^0.17.0",
     "lucide-react": "^1.17.0",
     "monaco-editor": "^0.55.1",
     "radix-ui": "^1.4.3",
@@ -47,8 +49,13 @@
     "react-resizable-panels": "^4.11.2",
     "react-router-dom": "^7.16.0",
     "reflect-metadata": "^0.2.2",
+    "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
     "tailwind-merge": "^3.6.0",
+    "vega": "^5.30.0",
+    "vega-embed": "^6.29.0",
+    "vega-lite": "^5.21.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

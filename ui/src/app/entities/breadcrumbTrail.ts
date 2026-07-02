@@ -9,6 +9,7 @@
 
 import { entityPath, SECTION_PATH } from "@/app/entities/paths";
 import type { BreadcrumbItem, LeftPanelView, Selection, WorkspaceSnapshot } from "@/app/types";
+import { agentTaskDisplayTitle } from "@/lib/agent-task-title";
 
 const SECTION_ROOT: Record<LeftPanelView, BreadcrumbItem> = {
   projects: { label: "Experiments", to: SECTION_PATH.projects },
@@ -89,7 +90,9 @@ export const buildTrail = (
       if (selection.objectId === "new") return [root, crumb("New Task")];
       if (selection.objectId === "settings") return [root, crumb("Settings")];
       const session = snapshot.agentSessions.find((s) => s.id === selection.objectId);
-      return [root, crumb(session?.goal ?? selection.objectId)];
+      // Markdown-stripped short title — goals are free-form drafts and would
+      // otherwise leak "# …" markers into the trail.
+      return [root, crumb(session ? agentTaskDisplayTitle(session, 60) : selection.objectId)];
     }
     case "knowledge": {
       if (!selection.objectId) return [crumb(root.label)];

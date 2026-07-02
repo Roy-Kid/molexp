@@ -7,6 +7,7 @@ import type { RunSummary, WorkflowSummary } from "@/app/types";
 import { normalizeTaskGraph } from "@/components/workflow/flowgram-document";
 import type { TaskGraphJson } from "@/components/workflow/task-graph-ir";
 import { parseWorkflowIr, WorkflowGraph } from "@/components/workflow/workflow-graph";
+import { formatDateTime } from "@/lib/datetime";
 
 const formatTimeOfDay = (iso: string | null): string => {
   if (!iso) return "—";
@@ -183,12 +184,20 @@ export const RunExecutionsPanel = ({
             </div>
             <div className="min-w-0">
               <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">Start</dt>
-              <dd className="mt-0.5 truncate text-foreground">{effectiveExecution.startedAt}</dd>
+              <dd
+                className="mt-0.5 truncate text-foreground"
+                title={effectiveExecution.startedAt ?? undefined}
+              >
+                {formatDateTime(effectiveExecution.startedAt)}
+              </dd>
             </div>
             <div className="min-w-0">
               <dt className="text-[11px] uppercase tracking-wide text-muted-foreground">End</dt>
-              <dd className="mt-0.5 truncate text-foreground">
-                {effectiveExecution.finishedAt ?? "-"}
+              <dd
+                className="mt-0.5 truncate text-foreground"
+                title={effectiveExecution.finishedAt ?? undefined}
+              >
+                {formatDateTime(effectiveExecution.finishedAt)}
               </dd>
             </div>
             <div className="min-w-0">

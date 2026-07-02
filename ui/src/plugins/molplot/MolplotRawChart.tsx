@@ -9,13 +9,12 @@ interface MolplotRawChartProps {
 }
 
 /**
- * React wrapper around molvis-core's ``RawChart`` — for callers that
- * receive arbitrary plotly specs (e.g. agent-emitted visualizations).
+ * React wrapper around molplot's ``RawChart`` — for callers that receive
+ * arbitrary Vega-Lite specs (e.g. agent-emitted visualizations).
  *
- * Spec updates flow through ``RawChart.update()`` (a cheap
- * ``plotly.react`` diff) rather than tearing down + re-mounting, so an
- * SSE-driven caller that hands a new spec object every render gets
- * incremental redraws and preserves zoom/pan state.
+ * Spec updates flow through ``RawChart.update()`` (a cheap re-embed) rather than
+ * tearing down + re-mounting, so an SSE-driven caller that hands a new spec
+ * object every render gets incremental redraws.
  */
 export const MolplotRawChart = ({ spec, className, style }: MolplotRawChartProps): JSX.Element => {
   const containerRef = useRef<HTMLDivElement | null>(null);

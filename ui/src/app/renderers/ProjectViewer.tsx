@@ -33,6 +33,7 @@ import type {
   SemanticStatus,
 } from "@/app/types";
 import { Button } from "@/components/ui/button";
+import { formatDateTime } from "@/lib/datetime";
 
 const StatusDistributionBar = ({ counts }: { counts: ExperimentRollup["counts"] }): JSX.Element => {
   if (counts.total === 0) {
@@ -282,8 +283,8 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       header: "Updated",
       width: "w-[160px]",
       cell: (exp) => (
-        <span className="text-muted-foreground">
-          {new Date(exp.updatedAt).toLocaleDateString()}
+        <span className="text-muted-foreground" title={exp.updatedAt}>
+          {formatDateTime(exp.updatedAt)}
         </span>
       ),
     },
@@ -352,8 +353,8 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
       header: "Updated",
       width: "w-[180px]",
       cell: (asset) => (
-        <span className="text-muted-foreground">
-          {new Date(asset.updated_at).toLocaleDateString()}
+        <span className="text-muted-foreground" title={asset.updated_at}>
+          {formatDateTime(asset.updated_at)}
         </span>
       ),
     },
@@ -377,8 +378,8 @@ export const ProjectViewer = ({ selection, snapshot, onRefresh }: RendererProps)
             <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               Updated
             </dt>
-            <dd className="mt-0.5 truncate text-sm text-foreground">
-              {new Date(project.updatedAt).toLocaleString()}
+            <dd className="mt-0.5 truncate text-sm text-foreground" title={project.updatedAt}>
+              {formatDateTime(project.updatedAt)}
             </dd>
           </div>
           {project.summary && (

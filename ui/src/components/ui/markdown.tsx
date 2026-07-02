@@ -1,6 +1,10 @@
+import "katex/dist/katex.min.css";
 import type { JSX } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import { normalizeDisplayMath } from "@/lib/markdown-math";
 import { cn } from "@/lib/utils";
 
 /**
@@ -11,6 +15,14 @@ import { cn } from "@/lib/utils";
  * molcrafts theme tokens — same fidelity as the CLI's rich renderer:
  * fenced code in bordered muted blocks, GFM tables with hairline grids,
  * tight editor-density rhythm throughout.
+ *
+ * Math renders through remark-math + rehype-katex: `$...$` inline and
+ * `$$...$$` display formulas (the notation LLM-generated reports and
+ * knowledge notes carry). Whole-line `$$…$$` is normalized to the fenced
+ * form first (see lib/markdown-math.ts) — remark-math otherwise parses it
+ * as INLINE math and KaTeX renders it squashed and un-centered. KaTeX runs
+ * with `strict: "ignore"` so Unicode inside formulas (σ, ε, Å) renders
+ * instead of warning.
  */
 
 const MARKDOWN_CLASS = [
@@ -45,6 +57,9 @@ const MARKDOWN_CLASS = [
   // misc
   "[&_hr]:my-3 [&_hr]:border-border [&_strong]:font-semibold",
   "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded-md [&_img]:border [&_img]:border-border/60",
+  // KaTeX math — display blocks get breathing room + safe horizontal scroll
+  "[&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden",
+  "[&_.katex-display]:py-0.5 [&_.katex]:text-[1.06em]",
 ].join(" ");
 
 export const MarkdownContent = ({
@@ -56,7 +71,8 @@ export const MarkdownContent = ({
 }): JSX.Element => (
   <div className={cn(MARKDOWN_CLASS, className)}>
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[[rehypeKatex, { strict: "ignore" }]]}
       components={{
         a: ({ children, href }) => (
           <a href={href} target="_blank" rel="noreferrer">
@@ -65,7 +81,7 @@ export const MarkdownContent = ({
         ),
       }}
     >
-      {text}
+      {normalizeDisplayMath(text)}
     </ReactMarkdown>
   </div>
 );

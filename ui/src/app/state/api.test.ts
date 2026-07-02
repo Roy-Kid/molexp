@@ -330,6 +330,19 @@ describe("mapAgentSessions", () => {
     expect(result.goal).toBe("Run baseline experiment");
   });
 
+  it("maps the server title (curated for plan tasks)", () => {
+    const [result] = mapAgentSessions([rawSession]);
+    expect(result.title).toBe("Baseline experiment");
+  });
+
+  it("defaults title to an empty string when absent", () => {
+    const { title: _drop, ...withoutTitle } = rawSession;
+    const [result] = mapAgentSessions([
+      withoutTitle as Parameters<typeof mapAgentSessions>[0][number],
+    ]);
+    expect(result.title).toBe("");
+  });
+
   it("maps status", () => {
     const [result] = mapAgentSessions([rawSession]);
     expect(result.status).toBe("completed");
