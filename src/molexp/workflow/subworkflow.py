@@ -16,7 +16,7 @@ run_context-forwarding contract
 -------------------------------
 ``SubWorkflow.execute`` runs the inner spec via
 a ``sub_runner`` closure that the engine injects as ``ctx._inputs`` (see
-``_pydantic_graph.node._make_sub_runner``). ``SubWorkflow`` is a pure
+``_engine.node._make_sub_runner``). ``SubWorkflow`` is a pure
 ``{inputs, config}`` task — it never touches a ``run_context``. The injected
 closure runs the inner spec through the engine bound, via the engine's PRIVATE
 run-context channel, to the same workspace / run the outer execution received.
@@ -101,7 +101,7 @@ class SubWorkflow(Task):
         """Run the inner workflow through the engine and return its terminal output.
 
         Uses the engine-injected ``sub_runner`` capability (``ctx._inputs``) to run
-        the inner spec with ``ctx._config``. On a non-``"completed"`` inner status,
+        the inner spec with ``ctx._config``. On a non-``"succeeded"`` inner status,
         raises a :class:`RuntimeError` so the failure propagates (under
         ``wf.parallel`` the engine's ``ParallelExecutionError`` aggregation wraps
         it).
@@ -122,7 +122,7 @@ class SubWorkflow(Task):
                 "it must be executed through WorkflowRuntime, not called directly."
             )
         result = await sub_runner(self._inner, ctx._config)
-        if result.status != "completed":
+        if result.status != "succeeded":
             raise RuntimeError(
                 f"SubWorkflow inner workflow {self._inner.name!r} ended with "
                 f"status {result.status!r}"

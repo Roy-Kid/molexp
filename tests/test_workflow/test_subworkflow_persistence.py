@@ -88,7 +88,7 @@ async def test_parent_workflow_json_describes_outer_graph_after_success(
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(outer, run_context=ctx)
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     doc = _load_doc(run, result.execution_id)
     # OUTER graph only — never the inner spec's document.
     assert doc["workflow_name"] == "outer-doc"
@@ -96,7 +96,7 @@ async def test_parent_workflow_json_describes_outer_graph_after_success(
     assert set(statuses) == {"sub"}
     assert not (set(statuses) & INNER_TASKS)
     assert statuses["sub"] == "completed"
-    assert doc["status"] == "completed"
+    assert doc["status"] == "succeeded"
 
     # Resume seeding reads only outer-node outputs.
     seeds = read_node_outputs(run.run_dir, result.execution_id)
@@ -154,14 +154,14 @@ async def test_parallel_subworkflow_fanout_does_not_corrupt_parent_doc(
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(wf.compile(), run_context=ctx)
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     doc = _load_doc(run, result.execution_id)
     assert doc["workflow_name"] == "outer-doc-parallel"
     statuses = _task_statuses(doc)
     assert set(statuses) == {"enumerate", "sub", "collect"}
     assert not (set(statuses) & INNER_TASKS)
     assert statuses == {"enumerate": "completed", "sub": "completed", "collect": "completed"}
-    assert doc["status"] == "completed"
+    assert doc["status"] == "succeeded"
 
     seeds = read_node_outputs(run.run_dir, result.execution_id)
     assert set(seeds) == {"enumerate", "sub", "collect"}

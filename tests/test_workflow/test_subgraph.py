@@ -199,7 +199,7 @@ async def test_seed_outputs_lets_subgraph_observe_upstream_value() -> None:
 
     sub = spec.subgraph(["b"])
     result = await WorkflowRuntime().execute(sub, seed_outputs={"a": "SEEDED"})
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["b"] == "consumed:SEEDED"
     assert captured["inputs"] == "SEEDED"
 
@@ -212,7 +212,7 @@ async def test_seed_outputs_skips_upstream_execution() -> None:
     spec, recorder = _build_chain()
     # Run the full spec but seed `a` and `b` — only `c` and `d` should run.
     result = await WorkflowRuntime().execute(spec, seed_outputs={"a": "A_SEED", "b": "B_SEED"})
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert "a" not in recorder
     assert "b" not in recorder
     assert "c" in recorder and "d" in recorder
@@ -238,6 +238,6 @@ async def test_seed_outputs_default_none_preserves_legacy_behavior() -> None:
     produce identical output ordering to the pre-extension behavior."""
     spec, recorder = _build_chain()
     result = await WorkflowRuntime().execute(spec)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert recorder == ["a", "b", "c", "d"]
     assert set(result.outputs) == {"a", "b", "c", "d"}

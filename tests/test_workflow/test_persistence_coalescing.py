@@ -3,7 +3,7 @@
 Every per-task status transition used to rewrite the entire
 ``executions/<exec_id>/workflow.json`` document synchronously: a 1000-element
 ``wf.parallel`` meant O(N²) bytes written. The coalescing writer
-(:mod:`molexp.workflow._pydantic_graph.persistence`) keeps the authoritative
+(:mod:`molexp.workflow._engine.persistence`) keeps the authoritative
 document in memory during an execution, marks it dirty per transition, and
 flushes at a bounded staleness (``WORKFLOW_JSON_MAX_STALENESS_S`` — a
 performance knob, never a correctness gate).
@@ -34,7 +34,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
-from molexp.workflow._pydantic_graph import persistence
+from molexp.workflow._engine import persistence
 
 if TYPE_CHECKING:
     from molexp._typing import JSONValue
@@ -104,7 +104,7 @@ async def test_parallel_write_count_bounded_and_final_document_byte_equivalent(
     monkeypatch.setattr(persistence, "WORKFLOW_JSON_MAX_STALENESS_S", 0.0)
     sync_dir = tmp_path / "sync"
     result = await WorkflowRuntime().execute(compiled, run_dir=sync_dir, execution_id="exec-1")
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     sync_writes = count_writes["n"]
     sync_bytes = (sync_dir / "executions" / "exec-1" / "workflow.json").read_bytes()
 
@@ -113,7 +113,7 @@ async def test_parallel_write_count_bounded_and_final_document_byte_equivalent(
     monkeypatch.setattr(persistence, "WORKFLOW_JSON_MAX_STALENESS_S", 0.2)
     coal_dir = tmp_path / "coalesced"
     result = await WorkflowRuntime().execute(compiled, run_dir=coal_dir, execution_id="exec-1")
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     coalesced_writes = count_writes["n"]
     coalesced_bytes = (coal_dir / "executions" / "exec-1" / "workflow.json").read_bytes()
 
@@ -185,9 +185,9 @@ async def test_execution_success_lands_on_disk_mid_interval(tmp_path, monkeypatc
         return value + 1
 
     result = await WorkflowRuntime().execute(wf.compile(), run_dir=tmp_path, execution_id="exec-s")
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     doc = _doc(tmp_path, "exec-s")
-    assert doc["status"] == "completed"
+    assert doc["status"] == "succeeded"
     assert _task_statuses(doc) == {"a": "completed", "b": "completed"}
     by_name = {t["task_id"]: t for t in doc["task_configs"]}
     assert by_name["b"]["outputs"] == 42
@@ -260,6 +260,6 @@ async def test_no_persist_execution_performs_zero_document_writes(tmp_path, coun
     result = await WorkflowRuntime().execute(
         compiled, run_dir=tmp_path, execution_id="exec-n", persist=False
     )
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert count_writes["n"] == 0
     assert not (tmp_path / "executions").exists()

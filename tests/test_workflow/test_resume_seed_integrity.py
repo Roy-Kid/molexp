@@ -32,7 +32,7 @@ from molexp.workflow import (
     WorkflowRuntime,
     read_node_outputs,
 )
-from molexp.workflow._pydantic_graph.persistence import filter_resume_seeds
+from molexp.workflow._engine.persistence import filter_resume_seeds
 
 # ── module-level per-task execution counters ─────────────────────────────────
 _COUNTERS: dict[str, int] = {}
@@ -85,7 +85,7 @@ def _wf_json_path(run_dir: Path, execution_id: str) -> Path:
 async def test_completed_node_persists_snapshot_key(tmp_path: Path) -> None:
     compiled = _compiled_returning("old")
     result = await WorkflowRuntime().execute(compiled, run_dir=tmp_path)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     doc = json.loads(_wf_json_path(tmp_path, result.execution_id).read_text())
     (record,) = [t for t in doc["task_configs"] if t["task_id"] == "step"]
     assert record["status"] == "completed"
@@ -108,7 +108,7 @@ async def test_intact_seed_skips_body(tmp_path: Path) -> None:
     r2 = await WorkflowRuntime().execute(
         compiled, run_dir=tmp_path, execution_id=r1.execution_id, seed_outputs=seeds
     )
-    assert r2.status == "completed"
+    assert r2.status == "succeeded"
     assert r2.outputs["step"] == "old"
     assert _COUNTERS["step"] == 1  # body NOT rerun — seed verified intact
 
@@ -131,7 +131,7 @@ async def test_changed_code_seed_dropped_and_recomputed(tmp_path: Path) -> None:
     r2 = await WorkflowRuntime().execute(
         v2, run_dir=tmp_path, execution_id=r1.execution_id, seed_outputs=seeds
     )
-    assert r2.status == "completed"
+    assert r2.status == "succeeded"
     assert r2.outputs["step"] == "new"  # NOT the stale "old"
     assert _COUNTERS["step"] == 2  # body reran
 
@@ -154,7 +154,7 @@ async def test_lossy_output_flagged_and_never_seeded(tmp_path: Path) -> None:
 
     compiled = wf.compile()
     r1 = await WorkflowRuntime().execute(compiled, run_dir=tmp_path)
-    assert r1.status == "completed"
+    assert r1.status == "succeeded"
     assert _COUNTERS["step"] == 1
 
     doc = json.loads(_wf_json_path(tmp_path, r1.execution_id).read_text())
@@ -172,7 +172,7 @@ async def test_lossy_output_flagged_and_never_seeded(tmp_path: Path) -> None:
     r2 = await WorkflowRuntime().execute(
         compiled, run_dir=tmp_path, execution_id=r1.execution_id, seed_outputs=forced
     )
-    assert r2.status == "completed"
+    assert r2.status == "succeeded"
     assert _COUNTERS["step"] == 2  # recomputed, not seeded
 
 
@@ -198,7 +198,7 @@ async def test_seed_without_persisted_snapshot_key_dropped(tmp_path: Path) -> No
     r2 = await WorkflowRuntime().execute(
         compiled, run_dir=tmp_path, execution_id=r1.execution_id, seed_outputs=seeds
     )
-    assert r2.status == "completed"
+    assert r2.status == "succeeded"
     assert _COUNTERS["step"] == 2  # …but cannot be verified ⇒ recomputed
 
 
@@ -213,7 +213,7 @@ async def test_seeds_without_prior_document_pass_through(tmp_path: Path) -> None
     result = await WorkflowRuntime().execute(
         compiled, run_dir=tmp_path, seed_outputs={"step": "from-memory"}
     )
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["step"] == "from-memory"
     assert _COUNTERS.get("step", 0) == 0  # seeded, body skipped
 

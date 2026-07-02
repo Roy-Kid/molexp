@@ -145,8 +145,8 @@ def test_snapshot_identity_independent_of_inputs() -> None:
 
 def _root_inputs_payload(root: dict) -> dict:
     """The cache ``inputs`` payload for a root task carrying injected *root*."""
-    from molexp.workflow._pydantic_graph.node_cache import _cache_inputs
-    from molexp.workflow._pydantic_graph.state import WorkflowState
+    from molexp.workflow._engine.node_cache import _cache_inputs
+    from molexp.workflow._engine.state import WorkflowState
 
     state = WorkflowState()
     state.root_inputs["t"] = root
@@ -178,8 +178,8 @@ def test_root_input_workdir_is_canonicalized_out() -> None:
 def test_plain_task_cache_payload_shape_unchanged() -> None:
     # A task with NO injected root inputs keeps the shipped {"inputs": …}
     # payload — existing cache entries stay valid.
-    from molexp.workflow._pydantic_graph.node_cache import _cache_inputs
-    from molexp.workflow._pydantic_graph.state import WorkflowState
+    from molexp.workflow._engine.node_cache import _cache_inputs
+    from molexp.workflow._engine.state import WorkflowState
 
     assert _cache_inputs("t", WorkflowState(), {"up": 1}) == {"inputs": {"up": 1}}
 

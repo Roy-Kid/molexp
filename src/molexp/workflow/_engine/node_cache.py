@@ -1,6 +1,6 @@
 """Content-addressed result caching for per-task node bodies.
 
-Wraps :func:`molexp.workflow._pydantic_graph.node.run_task_body` with the
+Wraps :func:`molexp.workflow._engine.node.run_task_body` with the
 cache get/put dance: collect + JSON-safe the inputs, look up by
 ``(snapshot, inputs)``, re-register cached artifacts on a hit, and store the
 result + produced-artifact manifest on a miss. Kept apart from the dispatch
@@ -197,7 +197,9 @@ async def run_task_body_cached(
     cache_inputs = _cache_inputs(name, state, inputs, delivered)
     cacheable = _is_json_safe(cache_inputs)
 
-    if cacheable:
+    # ``bypass_cache`` (the --fresh escape hatch) skips the READ only: the
+    # body always runs, and the fresh result still lands in the cache below.
+    if cacheable and not deps.bypass_cache:
         try:
             payload = cache.get(snapshot, cache_inputs)
         except Exception:

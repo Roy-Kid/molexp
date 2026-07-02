@@ -53,7 +53,7 @@ def test_compile_emits_compiled_workflow_with_snapshots_version_graph():
         assert entry.code_hash == compiled.snapshots[entry.name].code_hash
     # a non-None executable graph — the engine's structural ExecutionPlan
     # (one node per task; values-on-edges execution, no pg lowering).
-    from molexp.workflow._pydantic_graph.plan import ExecutionPlan
+    from molexp.workflow._engine.plan import ExecutionPlan
 
     assert isinstance(compiled.graph, ExecutionPlan)
     assert set(compiled.graph.task_names) == {"fetch", "train"}

@@ -36,7 +36,7 @@ from ._graph_decl import (
 from .protocols import JSONValue, TaskOutput
 
 if TYPE_CHECKING:
-    from ._pydantic_graph.compiler import CompiledGraph
+    from ._engine.compiler import CompiledGraph
     from .binding import WorkflowBinding
     from .ir import WorkflowGraphIR
     from .registry import TaskTypeRegistry

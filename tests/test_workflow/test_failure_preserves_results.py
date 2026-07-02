@@ -71,6 +71,6 @@ async def test_seed_outputs_resumes_from_preserved_results():
 
     resumed = await WorkflowRuntime().execute(wf2.compile(), seed_outputs=failed.outputs)
 
-    assert resumed.status == "completed"
+    assert resumed.status == "succeeded"
     assert resumed.outputs["boom"] == "boom-fixed"
     assert good_runs["n"] == 1  # seeded on resume, body skipped

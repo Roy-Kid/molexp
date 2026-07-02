@@ -9,7 +9,7 @@ After the rectification:
 - ``CompiledWorkflow`` has no ``graph`` / ``node_classes`` attributes.
 - ``compiled.task_by_name`` values are the user-registered ``Task`` /
   ``Actor`` instances themselves, not codegen subclasses.
-- ``make_task_node_class`` is gone from ``_pydantic_graph/node.py``.
+- ``make_task_node_class`` is gone from ``_engine/node.py``.
 """
 
 from __future__ import annotations
@@ -19,23 +19,26 @@ import pytest
 from molexp.workflow import Actor, Task, TaskContext, WorkflowCompiler, WorkflowRuntime
 
 
-def test_task_is_not_pg_basenode_subclass():
-    from pydantic_graph import BaseNode as PgBaseNode
+def _pg_bases(cls: type) -> list[str]:
+    """MRO entries defined by pydantic_graph, checked by module name so this
+    test works without pydantic_graph installed (molexp no longer depends
+    on it — it may be absent entirely)."""
+    return [c.__qualname__ for c in cls.__mro__ if c.__module__.startswith("pydantic_graph")]
 
-    assert not issubclass(Task, PgBaseNode), (
+
+def test_task_is_not_pg_basenode_subclass():
+    assert not _pg_bases(Task), (
         "Task must not inherit from pydantic_graph.BaseNode; it is a plain "
         "molexp abstraction (the scheduler invokes its execute() directly)."
     )
 
 
 def test_actor_is_not_pg_basenode_subclass():
-    from pydantic_graph import BaseNode as PgBaseNode
-
-    assert not issubclass(Actor, PgBaseNode), "Actor must not inherit from pydantic_graph.BaseNode."
+    assert not _pg_bases(Actor), "Actor must not inherit from pydantic_graph.BaseNode."
 
 
 def test_make_task_node_class_is_gone():
-    from molexp.workflow._pydantic_graph import node as node_mod
+    from molexp.workflow._engine import node as node_mod
 
     assert not hasattr(node_mod, "make_task_node_class"), (
         "make_task_node_class (per-task pg BaseNode codegen) must be removed; "
@@ -115,5 +118,5 @@ async def test_workflow_executes_without_per_task_codegen():
         return value + 1
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs == {"a": 1, "b": 2}

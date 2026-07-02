@@ -125,7 +125,7 @@ class TestSuccess:
             .compile()
         )
         result = await WorkflowRuntime().execute(spec)
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         out = result.outputs["cmd"]
         assert out.returncode == 0
         assert out.stdout == "ok"
@@ -154,7 +154,7 @@ class TestSuccess:
             .compile()
         )
         result = await WorkflowRuntime().execute(spec)
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["cmd"].returncode == 0
         assert result.outputs["cmd"].stdout == "produced"
 

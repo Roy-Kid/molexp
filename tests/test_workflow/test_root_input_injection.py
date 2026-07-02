@@ -45,7 +45,7 @@ async def test_root_task_receives_params_via_ctx_inputs(tmp_path: pathlib.Path) 
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert captured["mode"] == "block"
     assert captured["n_litfsi"] == 54
     # The remaining run params are absorbed by **params.
@@ -70,7 +70,7 @@ async def test_injected_workdir_is_non_navigable_path(tmp_path: pathlib.Path) ->
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     workdir = captured["workdir"]
     # RED LINE: a bare Path, NOT a navigable handle (no .folder()/.artifact/etc.).
     assert isinstance(workdir, pathlib.Path)
@@ -102,7 +102,7 @@ async def test_every_task_gets_ctx_workdir(tmp_path: pathlib.Path) -> None:
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(compiled, run_context=ctx)
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # Non-root tasks now also receive a workdir (the whole point of ctx.workdir).
     assert isinstance(captured["root_workdir"], pathlib.Path)
     assert isinstance(captured["child_workdir"], pathlib.Path)
@@ -155,7 +155,7 @@ async def test_subworkflow_entry_merges_element_with_params_and_workdir(
     with run.start() as ctx:
         result = await WorkflowRuntime().execute(outer.compile(), run_context=ctx)
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     merged = captured["entry_inputs"]
     assert isinstance(merged, dict)
     # Forwarded element keys are present...

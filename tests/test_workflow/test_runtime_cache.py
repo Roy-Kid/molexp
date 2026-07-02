@@ -282,7 +282,7 @@ async def test_failing_cache_put_warns_once_per_task(
     """A permanently failing cache backend must be VISIBLE: the first put
     failure per (execution, task) logs a WARNING (not debug), while the run
     itself degrades gracefully and completes uncached."""
-    from molexp.workflow._pydantic_graph import node_cache
+    from molexp.workflow._engine import node_cache
 
     warned: list[str] = []
     monkeypatch.setattr(node_cache.logger, "warning", lambda msg: warned.append(str(msg)))
@@ -303,7 +303,7 @@ async def test_failing_cache_put_warns_once_per_task(
     cache = Caching(store=_FailingPutStore())
 
     result = await WorkflowRuntime().execute(compiled, cache=cache)
-    assert result.status == "completed"  # graceful degradation — run unaffected
+    assert result.status == "succeeded"  # graceful degradation — run unaffected
     assert result.outputs["second"] == 2
     assert _COUNTERS == {"first": 1, "second": 1}
 

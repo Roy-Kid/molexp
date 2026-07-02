@@ -74,7 +74,7 @@ async def test_branch_workflow_from_public_imports() -> None:
     wf.branch("classify", routes={"accept": "accepted", "reject": "rejected"})
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert seen["inputs"] == {"score": 0.9}, (
         "the branch-routed value must arrive at the target as ctx.inputs"
     )
@@ -97,7 +97,7 @@ async def test_branch_single_edge_form() -> None:
     wf.branch("src", "go", "dst")
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["dst"] == "got:payload"
 
 
@@ -132,7 +132,7 @@ async def test_loop_workflow_from_public_imports() -> None:
     wf.loop(body=["step"], until="check", max_iters=10, on_exit="report")
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # First iteration has no incoming value; later ones see the previous
     # iteration's routed output as ctx.inputs (values-on-edges).
     assert head_inputs == [None, 1, 2]
@@ -162,5 +162,5 @@ async def test_loop_max_iters_forces_exit_with_warning() -> None:
     with pytest.warns(LoopMaxItersExceeded):
         result = await WorkflowRuntime().execute(wf.compile())
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert runs[0] == 3

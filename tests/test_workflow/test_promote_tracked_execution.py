@@ -76,7 +76,7 @@ class TestImportableTrackedPath:
         (run,) = exp.list_runs()
         with run.start() as ctx:
             result = asyncio.run(WorkflowRuntime().execute(spec, run_context=ctx))
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["_double"] == {"doubled": 4}
         assert run.status == "succeeded"
 
@@ -142,11 +142,11 @@ class TestInMemoryPathUnchanged:
 
         compiled = promote_callable(_local, "wf")
         result = asyncio.run(WorkflowRuntime().execute(compiled))
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["_local"] == {"seen": 7}
 
     def test_lambda_executes_in_memory(self):
         compiled = promote_callable(lambda inputs, config: 42, "wf")  # noqa: ARG005
         result = asyncio.run(WorkflowRuntime().execute(compiled))
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["<lambda>"] == 42

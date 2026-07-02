@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from molexp.workflow._pydantic_graph.persistence import read_node_outputs
+from molexp.workflow._engine.persistence import read_node_outputs
 
 
 def _write_workflow_json(run_dir: Path, execution_id: str, document: object) -> None:

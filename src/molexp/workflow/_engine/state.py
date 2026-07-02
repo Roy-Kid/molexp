@@ -119,6 +119,10 @@ class WorkflowDeps:
             ``None`` (default) disables caching — the per-task Step hook
             behaves exactly as before. The runtime resolves the effective
             cache and populates this field per execution.
+        bypass_cache: When true, cache READS are skipped for this execution —
+            every task body actually runs — while results are still written
+            back to the cache (the ``--fresh`` escape hatch; see
+            ``WorkflowRuntime.execute(bypass_cache=...)``).
         snapshots: ``task_name → TaskSnapshot`` (the compiled artifact's
             per-task static identity). The cache hook keys on
             ``snapshots[name].key | input_hash``.
@@ -138,6 +142,7 @@ class WorkflowDeps:
     loop_max_iters: Mapping[str, int] = field(default_factory=dict)
     parallel_limiters: Mapping[str, anyio.CapacityLimiter] = field(default_factory=dict)
     cache: Caching | None = None
+    bypass_cache: bool = False
     snapshots: Mapping[str, TaskSnapshot] = field(default_factory=dict)
     # Engine-side materialization layer (content-addressed workdir + task
     # return-value persistence). ``None`` disables it (behaviour unchanged).

@@ -1,8 +1,8 @@
-"""Lowering design pins — values-on-edges ExecutionPlan, no pg execution.
+"""Lowering design pins — values-on-edges ExecutionPlan, molexp-owned engine.
 
 The workflow DAG is lowered to a frozen, molexp-owned
-:class:`~molexp.workflow._pydantic_graph.plan.ExecutionPlan`; the engine
-(:mod:`molexp.workflow._pydantic_graph.engine`) executes it with
+:class:`~molexp.workflow._engine.plan.ExecutionPlan`; the engine
+(:mod:`molexp.workflow._engine.engine`) executes it with
 values-on-edges semantics. These tests pin:
 
 * ac-001 — the old single-track scheduler (``WorkflowStep`` / ``_dispatch`` /
@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 from molexp.workflow import TaskContext, WorkflowCompiler, WorkflowRuntime
-from molexp.workflow._pydantic_graph.plan import START, ExecutionPlan
+from molexp.workflow._engine.plan import START, ExecutionPlan
 from molexp.workflow.types import (
     BranchEdges,
     CycleError,
@@ -34,18 +34,18 @@ from molexp.workflow.types import (
     WorkflowError,
 )
 
-PG_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "_pydantic_graph"
+ENGINE_ROOT = Path(__file__).resolve().parents[2] / "src" / "molexp" / "workflow" / "_engine"
 
 
-def _pg_sources() -> str:
-    return "\n".join(p.read_text() for p in PG_ROOT.glob("*.py"))
+def _engine_sources() -> str:
+    return "\n".join(p.read_text() for p in ENGINE_ROOT.glob("*.py"))
 
 
 # ── ac-001: deleted scheduler internals + timing constants ───────────────────
 
 
 def test_old_scheduler_internals_deleted() -> None:
-    src = _pg_sources()
+    src = _engine_sources()
     for forbidden in (
         "class WorkflowStep",
         "_dispatch",
@@ -64,7 +64,7 @@ def test_no_timing_constants_for_coordination() -> None:
     the quiescence deadlock window must stay deleted. Deadlock detection is
     an exact graph property (unsatisfiable dependency = no runnable node
     while triggered nodes remain), never a timer."""
-    src = _pg_sources()
+    src = _engine_sources()
     for forbidden in (
         "_DEP_BARRIER_POLL_S",
         "_DEADLOCK_QUIESCENT_POLLS",
@@ -79,21 +79,21 @@ def test_no_timing_constants_for_coordination() -> None:
 
 def test_engine_owns_execution_no_pg_graph_lowering() -> None:
     """The compiler emits a plain ExecutionPlan; pg's GraphBuilder / Join /
-    Decision lowering is gone. pydantic_graph survives only as the ``End``
-    sentinel re-export."""
+    Decision lowering is gone, and NO engine module imports pydantic_graph
+    (the dependency was removed — the engine is fully molexp-owned)."""
     import re
 
-    compiler_src = (PG_ROOT / "compiler.py").read_text()
+    compiler_src = (ENGINE_ROOT / "compiler.py").read_text()
     for forbidden in ("GraphBuilder", "gb.join(", "gb.decision(", "reduce_null"):
         assert forbidden not in compiler_src
     assert "ExecutionPlan" in compiler_src
     import_pattern = re.compile(
         r"^\s*(?:from\s+pydantic_graph\b|import\s+pydantic_graph\b)", re.MULTILINE
     )
-    for module in ("engine.py", "plan.py", "compiler.py", "state.py"):
-        src = (PG_ROOT / module).read_text()
+    for path in sorted(ENGINE_ROOT.glob("*.py")):
+        src = path.read_text()
         assert not import_pattern.search(src), (
-            f"{module} must not import pydantic_graph — the engine is molexp-owned."
+            f"{path.name} must not import pydantic_graph — the engine is molexp-owned."
         )
 
 
@@ -252,7 +252,7 @@ def test_diamond_outputs_preserved() -> None:
         return left + right
 
     result = asyncio.run(WorkflowRuntime().execute(wf.compile()))
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs == {
         "root": 1,
         "left": {"left": 11},

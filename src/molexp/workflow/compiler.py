@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
+from ._engine.compiler import WorkflowGraphCompiler
 from ._graph_decl import (
     DependentParamsFn,
     LoopDecl,
@@ -23,7 +24,6 @@ from ._graph_decl import (
     WorkflowTopology,
 )
 from ._helpers import _callable_name, _stable_workflow_id, _to_snake_case
-from ._pydantic_graph.compiler import WorkflowGraphCompiler
 from .binding import default_binding_registry
 from .compiled import CompiledWorkflow
 from .protocols import Streamable, TaskBody, TaskOutput, UserDeps

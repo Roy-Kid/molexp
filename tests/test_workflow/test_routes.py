@@ -5,7 +5,6 @@ Spec: .claude/specs/03-molexp-workflow-cycles.md
 
 from dataclasses import dataclass
 
-import pydantic_graph
 import pytest
 
 from molexp.workflow import Actor, End, Task, WorkflowCompiler, WorkflowRuntime
@@ -23,17 +22,26 @@ def test_next_and_end_importable():
     assert isinstance(End(None), End)
 
 
-def test_end_is_pydantic_graph_end():
-    """`molexp.workflow.End` is a re-export of `pydantic_graph.End` — single
-    source of truth, no duplicate sentinel (workflow-rectification §2)."""
-    assert End is pydantic_graph.End
+def test_end_is_molexp_owned():
+    """`molexp.workflow.End` is molexp's own sentinel (defined in
+    `workflow.types`) — the pydantic_graph dependency was removed; the
+    single source of truth lives in this repo."""
+    from molexp.workflow.types import End as TypesEnd
+
+    assert End is TypesEnd
+    assert End.__module__ == "molexp.workflow.types"
+    assert End().data is None  # bare End() is valid
+    assert End(7).data == 7
 
 
 def test_task_does_not_inherit_basenode():
-    """After the rectification, `Task` and `Actor` are plain abstract classes;
-    only `WorkflowStep` inherits `pydantic_graph.BaseNode` (single-track)."""
-    assert not issubclass(Task, pydantic_graph.BaseNode)
-    assert not issubclass(Actor, pydantic_graph.BaseNode)
+    """`Task` and `Actor` are plain abstract classes — nothing in their MRO
+    comes from pydantic_graph (checked by module name; the library may not
+    even be installed)."""
+    for cls in (Task, Actor):
+        assert not [c for c in cls.__mro__ if c.__module__.startswith("pydantic_graph")], (
+            f"{cls.__name__} must not inherit from pydantic_graph classes"
+        )
 
 
 # ── Unconditional control edge ──────────────────────────────────────────────
@@ -59,7 +67,7 @@ async def test_unconditional_advances_frontier():
     wf.control("alpha", "beta")
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs == {"alpha": "alpha-out", "beta": "beta-out"}
 
 
@@ -84,7 +92,7 @@ async def test_branch_routes_selected_by_next_label():
         return "bad-ran"
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs.get("good") == "good-ran"
     assert "bad" not in result.outputs
 
@@ -115,7 +123,7 @@ async def test_counter_loop_via_control_edge():
         return counter.n
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["tick"] == _Counter(n=3)
     assert result.outputs["emit"] == 3
 
@@ -138,7 +146,7 @@ async def test_self_loop_entry_accepted():
     spec = wf.compile()
     assert spec is not None  # compile didn't reject self-loop entry
     result = await WorkflowRuntime().execute(spec)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["counter"] == _Counter(n=2)
 
 
@@ -167,7 +175,7 @@ async def test_loop_back_to_entry_accepted():
         return "implemented"
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["plan"] == "plan-v2"  # ran twice
     assert result.outputs["implement"] == "implemented"
 
@@ -217,7 +225,7 @@ async def test_next_without_output_for_decision_node():
         return "took-b"
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # Decision node didn't record an output.
     assert "route" not in result.outputs
     assert result.outputs.get("leg_a") == "took-a"
@@ -280,7 +288,7 @@ async def test_actor_with_next():
         return "sunk"
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["sink"] == "sunk"
 
 
@@ -391,7 +399,7 @@ async def test_loop_overwrites_results():
     wf.loop(body=["compute"], until="check", max_iters=10)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["compute"] == 3
     assert counter[0] == 3
 
@@ -423,7 +431,7 @@ async def test_loop_exit_advances_frontier():
     wf.loop(body=["step"], until="gate", max_iters=10, on_exit="emit")
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["emit"] == "emitted"
     assert result.outputs["step"] == 2
 
@@ -457,7 +465,7 @@ async def test_loop_max_iters_guard():
     with pytest.warns(LoopMaxItersExceeded):
         result = await WorkflowRuntime().execute(wf.compile())
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert runs[0] == 3
 
 
@@ -541,13 +549,13 @@ def test_make_execution_id_increments_on_existing_attempts(tmp_path):
     assert eid == "exec-abc123-2"
 
 
-def test_submit_molq_plugins_do_not_reach_into_pydantic_graph():
+def test_submit_molq_plugins_do_not_reach_into_engine():
     """ac-009 — `submit_molq` plugins must use the public `make_execution_id`."""
     import re
     from pathlib import Path
 
     plugin_dir = Path(__file__).resolve().parents[2] / "src" / "molexp" / "plugins"
-    pattern = re.compile(r"_pydantic_graph")
+    pattern = re.compile(r"workflow[./]_engine")
     violations: list[str] = []
     for path in plugin_dir.rglob("*.py"):
         if "__pycache__" in path.parts:
@@ -561,7 +569,7 @@ def test_submit_molq_plugins_do_not_reach_into_pydantic_graph():
                     f"{path.relative_to(plugin_dir.parent.parent.parent)}:{lineno}: {line.strip()}"
                 )
     assert not violations, (
-        "Plugins must not reach into molexp.workflow._pydantic_graph; "
+        "Plugins must not reach into molexp.workflow._engine; "
         "use the public `from molexp.workflow import make_execution_id` instead.\n"
         "Violations:\n  " + "\n  ".join(violations)
     )

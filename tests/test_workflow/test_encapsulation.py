@@ -1,11 +1,11 @@
-"""Encapsulation lint — pydantic_graph imports must stay inside the seam.
+"""Encapsulation lint — zero pydantic_graph imports anywhere under src/.
 
-Spec 04 §1: ``from pydantic_graph`` / ``import pydantic_graph`` is allowed
-only inside the engine package ``src/molexp/workflow/_pydantic_graph/``
-plus the single base-class declaration in ``src/molexp/workflow/task.py``.
-Every other file under ``src/molexp/`` must use molexp-named symbols
-(``Task``, ``Actor``, ``Next``, ``End``, ``WorkflowSpec``, …) so users —
-and intra-package callers — never see the underlying engine name.
+The dependency was removed: the engine (``workflow/_engine/``, formerly
+``_pydantic_graph/``) is molexp-owned and ``End`` lives in
+``molexp.workflow.types``. There is no seam any more — NO file under
+``src/molexp/`` may ``import pydantic_graph``, and every module must use
+molexp-named symbols (``Task``, ``Actor``, ``Next``, ``End``,
+``WorkflowSpec``, …).
 
 The check is a grep walker rather than an AST parser: line-level matching
 catches the failure mode that matters (a stray ``from pydantic_graph
@@ -23,20 +23,6 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "molexp"
-
-ALLOWED_PREFIXES: tuple[Path, ...] = (
-    SRC_ROOT / "workflow" / "_pydantic_graph",
-    SRC_ROOT / "agent" / "_pydantic_graph",
-)
-# After the workflow-rectification spec:
-# - ``task.py`` no longer imports pydantic_graph (Task / Actor are plain ABCs).
-# - ``types.py`` re-exports ``pydantic_graph.End`` so molexp.workflow.End is
-#   pg.End — the single sentinel source of truth.
-ALLOWED_FILES: frozenset[Path] = frozenset(
-    {
-        SRC_ROOT / "workflow" / "types.py",
-    }
-)
 
 IMPORT_PATTERN = re.compile(
     r"^\s*(?:from\s+pydantic_graph(?:\.[\w.]+)?\s+import\b|import\s+pydantic_graph\b)"
@@ -67,54 +53,40 @@ def _executable_lines(path: Path) -> list[tuple[int, str]]:
     return sorted(keep.items())
 
 
-def _is_allowed(path: Path) -> bool:
-    if path in ALLOWED_FILES:
-        return True
-    for prefix in ALLOWED_PREFIXES:
-        try:
-            path.relative_to(prefix)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
 def _python_files() -> list[Path]:
     return [
         p for p in SRC_ROOT.rglob("*.py") if "__pycache__" not in p.parts and "dist" not in p.parts
     ]
 
 
-def test_pydantic_graph_imports_confined_to_seam() -> None:
-    """ac-001 — only `_pydantic_graph/*.py` and `workflow/task.py` may import pydantic_graph."""
+def test_no_pydantic_graph_imports_anywhere_in_src() -> None:
+    """Zero-dependency invariant — NO file under src/molexp/ may import
+    pydantic_graph (there is no allowed seam; the engine is molexp-owned)."""
     violations: list[str] = []
     for path in _python_files():
-        if _is_allowed(path):
-            continue
         for lineno, line in _executable_lines(path):
             if IMPORT_PATTERN.match(line):
                 rel = path.relative_to(PROJECT_ROOT)
                 violations.append(f"{rel}:{lineno}: {line.strip()}")
 
     assert not violations, (
-        "pydantic_graph imports leaked outside the encapsulation seam.\n"
-        "Allowed locations:\n"
-        "  - src/molexp/workflow/_pydantic_graph/*.py\n"
-        "  - src/molexp/workflow/task.py (the BaseNode inheritance seam)\n\n"
+        "pydantic_graph imported under src/ — molexp dropped the dependency "
+        "entirely; the workflow engine (workflow/_engine/) is molexp-owned "
+        "and End lives in molexp.workflow.types.\n"
         "Violations:\n  " + "\n  ".join(violations)
     )
 
 
-# Match the bare engine name `pydantic_graph` but NOT molexp's internal
-# `_pydantic_graph` package path (which IS the encapsulation seam).
+# Match the bare `pydantic_graph` name but NOT molexp's internal
+# `_engine` package path (nor prose mentioning `_pydantic_graph` history).
 _BARE_PYDANTIC_GRAPH = re.compile(r"(?<![._a-zA-Z0-9])pydantic_graph")
 
 
 def test_workflow_init_does_not_reexport_pydantic_graph_names() -> None:
-    """The public surface uses molexp names only; ``End`` / ``BaseNode`` etc.
-    must not be re-exported from ``pydantic_graph`` through
-    ``molexp.workflow.__init__``. Imports from the internal
-    ``._pydantic_graph`` engine package are allowed — that is the seam.
+    """The public surface uses molexp names only; the retired
+    ``pydantic_graph`` name must not appear in ``molexp.workflow.__init__``
+    at all. Imports from the internal ``._engine`` package are fine —
+    that package is molexp-owned.
     """
     init_path = SRC_ROOT / "workflow" / "__init__.py"
     source = init_path.read_text(encoding="utf-8")

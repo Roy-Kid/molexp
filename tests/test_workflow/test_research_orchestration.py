@@ -35,7 +35,7 @@ class TestDependentParams:
             return float(T)
 
         result = await WorkflowRuntime().execute(wf.compile())
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["mechanical"] == pytest.approx(0.42)
 
     async def test_no_dependent_params_keeps_config_unchanged(self) -> None:

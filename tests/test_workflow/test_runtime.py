@@ -52,7 +52,7 @@ class TestFunctionalExecution:
             return x * 2
 
         result = await WorkflowRuntime().execute(wf.compile())
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["double"] == 10
 
     async def test_chain(self):
@@ -96,7 +96,7 @@ class TestFunctionalExecution:
             return True
 
         result = await WorkflowRuntime().execute(wf.compile(), run_context=run_ctx)
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["inspect"] is True
 
     async def test_runtime_runs_with_duck_typed_run_context_no_workspace(self, tmp_path):
@@ -112,7 +112,7 @@ class TestFunctionalExecution:
             return "ok"
 
         result = await WorkflowRuntime().execute(wf.compile(), run_context=run_ctx)
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["step"] == "ok"
 
         executions = run_ctx.work_dir / "executions"
@@ -156,7 +156,7 @@ class TestFunctionalExecution:
             return 7
 
         result = await WorkflowRuntime().execute(wf.compile(), run_dir=tmp_path / "rd")
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         wf_jsons = list((tmp_path / "rd" / "executions").rglob("workflow.json"))
         assert wf_jsons
 
@@ -256,3 +256,48 @@ class TestParallelExecution:
 
         result = await WorkflowRuntime().execute(wf.compile())
         assert result.outputs["merge"] == 32
+
+
+@pytest.mark.asyncio
+async def test_bare_execution_scratch_root_gives_every_task_a_workdir(tmp_path: Path) -> None:
+    """``scratch_root=`` closes the ctx.workdir contract for bare executions.
+
+    The plan-materialized driver runs ``WorkflowRuntime().execute(compiled,
+    config=...)`` with NO tracked Run — but the workflow-source contract tells
+    task bodies to use ``ctx.workdir`` for scratch files. Without a Run there
+    is no materialization layer and ``ctx.workdir`` was ``None`` (production:
+    ``TypeError: unsupported operand type(s) for /: 'NoneType' and 'str'`` in
+    a generated verify task). ``scratch_root`` mounts the content-addressed
+    materialization store at an explicit location instead.
+    """
+    wf = WorkflowCompiler(name="scratch-demo")
+
+    @wf.task
+    async def write_report(ctx: TaskContext) -> dict:
+        assert ctx.workdir is not None
+        path = ctx.workdir / "report.json"
+        path.write_text("{}")
+        return {"report": str(path)}
+
+    scratch = tmp_path / "scratch"
+    result = await WorkflowRuntime().execute(wf.compile(), scratch_root=scratch)
+    assert result.status == "succeeded"
+    report = Path(result.outputs["write_report"]["report"])
+    assert report.exists()
+    assert scratch in report.parents
+
+
+@pytest.mark.asyncio
+async def test_bare_execution_without_scratch_root_keeps_workdir_none(tmp_path: Path) -> None:
+    """No silent default: a bare execution that mounts no scratch_root keeps
+    ``ctx.workdir`` as ``None`` (tests and embedders must opt in explicitly —
+    a cwd default would litter every caller's working directory)."""
+    wf = WorkflowCompiler(name="no-scratch")
+
+    @wf.task
+    async def probe(ctx: TaskContext) -> dict:
+        return {"workdir": ctx.workdir}
+
+    result = await WorkflowRuntime().execute(wf.compile())
+    assert result.status == "succeeded"
+    assert result.outputs["probe"]["workdir"] is None

@@ -19,7 +19,7 @@ PERSISTENCE_FILE = (
     / "src"
     / "molexp"
     / "workflow"
-    / "_pydantic_graph"
+    / "_engine"
     / "persistence.py"
 )
 

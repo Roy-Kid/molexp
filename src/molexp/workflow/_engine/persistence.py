@@ -26,6 +26,17 @@ Atomic writes route through the cross-layer
 ``workspace.atomic_write_json`` itself re-exports), so the atomicity guarantee
 is shared infra, not a workflow-layer reinvention — and the workflow layer no
 longer needs a runtime import of ``workspace`` for it.
+
+.. note:: **Status-vocabulary migration (run-recovery, 2026-07).** The
+   document's TOP-LEVEL ``status`` (the workflow *result* status written by
+   :func:`mark_workflow_finished`) now uses the run-terminal vocabulary
+   ``"succeeded"`` / ``"failed"`` instead of the old ``"completed"``. Writers
+   only emit the new word; readers of previously persisted documents must
+   treat a legacy ``"completed"`` as ``"succeeded"`` (the server route and
+   ``WorkflowResult`` both normalize). Per-*task* node statuses inside
+   ``task_configs`` (``pending`` / ``running`` / ``completed`` / ``failed`` /
+   ``skipped``) are a DIFFERENT axis and deliberately keep ``"completed"`` —
+   :func:`read_node_outputs` / :func:`filter_resume_seeds` are unchanged.
 """
 
 from __future__ import annotations

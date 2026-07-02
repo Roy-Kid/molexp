@@ -76,6 +76,6 @@ async def test_slow_upstream_does_not_trip_guard():
         return "joined"
 
     result = await asyncio.wait_for(WorkflowRuntime().execute(wf.compile()), timeout=10)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["join"] == "joined"
     assert result.outputs["slow"] == "slow-out"

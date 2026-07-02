@@ -49,7 +49,7 @@ async def test_loop_back_value_delivered_via_inputs() -> None:
     wf.loop(body=["head"], until="check", max_iters=10)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # Iteration 1 has no incoming value; iterations 2 and 3 receive the
     # previous iteration's routed output through ctx.inputs.
     assert seen_inputs == [None, 1, 2]
@@ -74,7 +74,7 @@ async def test_self_loop_value_delivered_via_inputs() -> None:
         return n, Next("again" if n < 3 else "done")
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert seen_inputs == [None, 1, 2]
     assert result.outputs["tick"] == 3
 
@@ -100,7 +100,7 @@ async def test_branch_routed_value_delivered_via_inputs() -> None:
         return delivered
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert seen["inputs"] == {"payload": 42}, (
         "a branch-routed (value, Next(label)) must arrive at the dep-less target by-name"
     )
@@ -135,7 +135,7 @@ async def test_declared_depends_on_wins_over_delivered_value() -> None:
     wf.entry("base")  # both src (constructor) and base are entries
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert seen["inputs"] == "base-out"
 
 
@@ -184,7 +184,7 @@ async def test_loop_back_merges_with_root_inputs(tmp_path) -> None:
     result = await WorkflowRuntime().execute(
         wf.compile(), run_context=_RunContextStub(tmp_path / "run")
     )
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert len(seen_inputs) == 2
     # First iteration: engine-injected root inputs only.
     assert seen_inputs[0]["params"] == {"alpha": 7}

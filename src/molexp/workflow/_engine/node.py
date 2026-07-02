@@ -7,10 +7,9 @@ outputs — via the declared ``depends_on`` interface, the engine-injected
 ``root_inputs``, or the value carried on the activating trigger edge
 (branch-routed / loop-back delivery).
 
-``Task`` and ``Actor`` are plain abstract classes (no pg ``BaseNode``
-inheritance) — the engine invokes ``execute(ctx)`` / ``run(ctx)``
-directly via duck typing. ``End`` is the re-exported
-``pydantic_graph.End`` sentinel (the layer's remaining pg surface).
+``Task`` and ``Actor`` are plain abstract classes — the engine invokes
+``execute(ctx)`` / ``run(ctx)`` directly via duck typing. ``End`` is the
+molexp-owned terminator sentinel from :mod:`molexp.workflow.types`.
 
 Module surface:
 
@@ -23,13 +22,12 @@ Module surface:
 
 from __future__ import annotations
 
+import asyncio
 import inspect
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-
-from pydantic_graph import End
 
 from ..context import TaskContext
 from ..outputs import RegisterArtifact, RegisterMetric
@@ -42,6 +40,7 @@ from ..protocols import (
 from ..task import Actor, Task
 from ..types import (
     BranchEdges,
+    End,
     MissingRouteError,
     MissingUpstreamResultError,
     Next,
@@ -465,6 +464,31 @@ def _bound_call(
     return func(*args, **kwargs)
 
 
+async def _call_batch_body(
+    func: Callable,
+    task_ctx: TaskContext,
+    inputs: TaskInput,
+    config: JSONMapping,
+    depends_on: list[str],
+) -> TaskOutput:
+    """Invoke a batch task body — sync or async — bound by name.
+
+    Async bodies are awaited in place. Sync bodies run in a worker thread
+    (``asyncio.to_thread``, mirroring ``promote._EntryTask``) so a blocking
+    body — pure computation, ``time.sleep``-style I/O — never stalls
+    same-level siblings sharing the event loop. A sync callable that returns
+    an awaitable (e.g. an un-marked coroutine factory) is still awaited,
+    preserving the promoted-callable semantics.
+    """
+    if inspect.iscoroutinefunction(func):
+        return await _bound_call(func, task_ctx, inputs, config, depends_on)
+    args, kwargs = _bind_call_args(func, task_ctx, inputs, config, depends_on)
+    result = await asyncio.to_thread(func, *args, **kwargs)
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
 async def _drain_stream(
     fn: Callable,
     task_ctx: TaskContext,
@@ -505,9 +529,12 @@ async def _invoke_body_with_ctx(
     """
     body = registration.fn_or_class
 
-    # OOP Task subclass — invoke .execute(ctx, **inputs-by-name).
+    # OOP Task subclass — invoke .execute(ctx, **inputs-by-name); the body
+    # may be declared sync or async (see _call_batch_body).
     if isinstance(body, Task):
-        return await _bound_call(body.execute, task_ctx, inputs, config, registration.depends_on)
+        return await _call_batch_body(
+            body.execute, task_ctx, inputs, config, registration.depends_on
+        )
 
     # OOP Actor subclass — drain the async generator (inputs bind by name).
     if isinstance(body, Actor):
@@ -515,7 +542,9 @@ async def _invoke_body_with_ctx(
 
     # Third-party Runnable (anything with .execute) — protocol path.
     if isinstance(body, Runnable):
-        return await _bound_call(body.execute, task_ctx, inputs, config, registration.depends_on)
+        return await _call_batch_body(
+            body.execute, task_ctx, inputs, config, registration.depends_on
+        )
 
     # Third-party Streamable (anything with .run async generator).
     if isinstance(body, Streamable):
@@ -529,12 +558,10 @@ async def _invoke_body_with_ctx(
         actor_fn = cast("Callable[..., AsyncIterator[TaskOutput]]", body)
         return await _drain_stream(actor_fn, task_ctx, inputs, config, registration.depends_on)
 
-    # Decorator-task: plain async function — bind params by name (ctx optional).
+    # Decorator-task: plain function (sync or async) — bind params by name
+    # (ctx optional).
     if callable(body):
-        return await cast(
-            "Awaitable[TaskOutput]",
-            _bound_call(body, task_ctx, inputs, config, registration.depends_on),
-        )
+        return await _call_batch_body(body, task_ctx, inputs, config, registration.depends_on)
 
     raise TypeError(
         f"Task '{registration.name}' is neither Task / Actor / Runnable / "

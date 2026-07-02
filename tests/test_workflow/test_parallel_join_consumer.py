@@ -27,9 +27,9 @@ from __future__ import annotations
 import pytest
 
 from molexp.workflow import WorkflowCompiler, WorkflowRuntime
+from molexp.workflow._engine.node import _collect_upstream_outputs
+from molexp.workflow._engine.state import WorkflowState
 from molexp.workflow._graph_decl import TaskRegistration
-from molexp.workflow._pydantic_graph.node import _collect_upstream_outputs
-from molexp.workflow._pydantic_graph.state import WorkflowState
 from molexp.workflow.types import MissingUpstreamResultError
 
 # ── ac-001: downstream consumer of a parallel join + a sibling dep ───────────
@@ -77,7 +77,7 @@ async def test_join_consumer_sees_real_join_output_alongside_sibling() -> None:
 
     result = await WorkflowRuntime().execute(wf.compile())
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # J's actual reduced output is sum([1, 4, 9]) == 14 — never None.
     assert result.outputs["J"] == 14
     assert result.outputs["X"] == "x-out"

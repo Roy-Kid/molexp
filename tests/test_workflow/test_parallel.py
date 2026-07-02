@@ -92,7 +92,7 @@ async def test_parallel_happy_path() -> None:
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=3)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["body"] == [1, 4, 9]
     assert result.outputs["join"] == 14
 
@@ -123,7 +123,7 @@ async def test_parallel_preserves_iteration_order() -> None:
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=5)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # Iteration order, not completion order.
     assert result.outputs["body"] == [0.05, 0.04, 0.03, 0.02, 0.01]
     assert result.outputs["join"] == [0.05, 0.04, 0.03, 0.02, 0.01]
@@ -170,7 +170,7 @@ async def test_max_concurrency_throttle() -> None:
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=2)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["join"] == 5
     assert observed_max <= 2, f"Expected in-flight cap of 2, observed {observed_max}"
 
@@ -240,7 +240,7 @@ async def test_parallel_records_run_count_for_observability() -> None:
     wf.parallel(map_over="enumerate", body="body", join="join", max_concurrency=4)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert len(result.outputs["body"]) == 4
     assert result.outputs["join"] == 4
 

@@ -50,9 +50,14 @@ code (CLI / server / cluster workers) can recover it via
 ``default_binding_registry.for_experiment(experiment)``.
 """
 
+from ._engine.persistence import read_node_outputs, seed_from_execution
+from ._engine.runtime import (
+    WorkflowRuntime,
+    fresh_requested,
+    make_execution_id,
+    request_fresh_execution,
+)
 from ._names import generate_name
-from ._pydantic_graph.persistence import read_node_outputs, seed_from_execution
-from ._pydantic_graph.runtime import WorkflowRuntime, make_execution_id
 from .binding import WorkflowBinding, WorkflowBindingRegistry, default_binding_registry
 from .cache import Caching
 from .cache_store import CacheStore, FileCacheStore
@@ -75,6 +80,15 @@ from .contract import (
     default_validation_checks,
     validate_workflow_contract,
 )
+
+# NOTE: importing ``.execute`` also registers the workspace-side
+# ``set_run_executor`` seam that backs ``Run.execute`` / ``RunSet.execute``.
+from .execute import (
+    RunFailedError,
+    RunNotExecutableError,
+    aexecute_run,
+    execute_run,
+)
 from .ir import (
     EdgeKind,
     GraphEdgeIR,
@@ -93,7 +107,6 @@ from .registry import TaskTypeRegistry, default_registry
 from .snapshot import TaskSnapshot
 from .snapshot_ref import WorkflowSnapshotRef
 from .subworkflow import SubWorkflow
-from .sweep import SweepMap
 from .task import Actor, Task
 from .types import (
     BranchEdges,
@@ -151,11 +164,12 @@ __all__ = [
     "ParallelExecutionError",
     "RegisterArtifact",
     "RegisterMetric",
+    "RunFailedError",
+    "RunNotExecutableError",
     "Runnable",
     "Severity",
     "Streamable",
     "SubWorkflow",
-    "SweepMap",
     "Task",
     "TaskContext",
     "TaskIO",
@@ -186,16 +200,20 @@ __all__ = [
     "WorkflowSnapshotRef",
     "WorkflowVersion",
     "WorkflowVersionConflictError",
+    "aexecute_run",
     "build_workflow_graph_ir",
     "default_binding_registry",
     "default_codec",
     "default_registry",
     "default_validation_checks",
+    "execute_run",
+    "fresh_requested",
     "generate_name",
     "make_execution_id",
     "promote_callable",
     "read_node_outputs",
     "render_workflow_mermaid",
+    "request_fresh_execution",
     "resolve_callable_entrypoint",
     "resolve_spec_entrypoint",
     "seed_from_execution",

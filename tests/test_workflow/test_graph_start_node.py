@@ -2,7 +2,7 @@
 
 The bug we hit: pydantic-graph 1.x requires the start node to be passed
 explicitly via ``inputs=``. Three call sites in
-``molexp.workflow._pydantic_graph.runtime`` used to call ``_GRAPH.run``
+``molexp.workflow._engine.runtime`` used to call ``_GRAPH.run``
 without it, so every workflow execution exploded with
 ``ValueError: Node None is not of type WorkflowStep`` mid-run.
 
@@ -43,7 +43,7 @@ def test_single_task_workflow_executes(tmp_path):
     with RunContext(run) as ctx:
         result = asyncio.run(WorkflowRuntime().execute(spec, run_context=ctx))
 
-    assert result.status == "completed", (
+    assert result.status == "succeeded", (
         f"workflow execute regressed — likely missing inputs=WorkflowStep in _GRAPH.run; "
         f"got result={result!r}"
     )
@@ -75,5 +75,5 @@ def test_two_task_chain_workflow_executes(tmp_path):
     with RunContext(run) as ctx:
         result = asyncio.run(WorkflowRuntime().execute(spec, run_context=ctx))
 
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs == {"first": 1, "second": 2}

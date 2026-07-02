@@ -108,7 +108,7 @@ async def test_subworkflow_runs_multi_step_inner_returns_terminal() -> None:
         .compile()
     )
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # load=[2,4,8] → normalize=[0.25,0.5,1.0] → scale=1.75
     assert result.outputs["sub"] == pytest.approx(1.75)
 
@@ -122,7 +122,7 @@ async def test_subworkflow_single_step_inner_returns_terminal() -> None:
         .compile()
     )
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["sub"] == 42
 
 
@@ -136,7 +136,7 @@ async def test_subworkflow_accepts_compiled_workflow() -> None:
         .compile()
     )
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["sub"] == pytest.approx(1.75)
 
 
@@ -149,7 +149,7 @@ async def test_subworkflow_explicit_output_selection() -> None:
         .compile()
     )
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["sub"] == pytest.approx([0.25, 0.5, 1.0])
 
 
@@ -168,7 +168,7 @@ async def test_subworkflow_feeds_downstream_task() -> None:
         .compile()
     )
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["double"] == pytest.approx(3.5)
 
 
@@ -217,7 +217,7 @@ async def test_subworkflow_runs_inner_via_injected_sub_runner() -> None:
 
     sentinel = object()
     result = await WorkflowRuntime().execute(outer, run_context=sentinel)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert ran == [True]
     assert result.outputs["sub"] == "ok"
 
@@ -255,7 +255,7 @@ async def test_subworkflow_as_parallel_body() -> None:
     assert {t.name for t in compiled._tasks} == {"enumerate", "sub", "collect"}
 
     result = await WorkflowRuntime().execute(compiled)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # One inner output (1.75) per element, in iteration order.
     assert result.outputs["sub"] == pytest.approx([1.75, 1.75, 1.75, 1.75])
     assert result.outputs["collect"] == pytest.approx([1.75, 1.75, 1.75, 1.75])
@@ -282,7 +282,7 @@ async def test_subworkflow_parallel_body_single_task_inner() -> None:
     assert {t.name for t in compiled._tasks} == {"enumerate", "sub", "collect"}
 
     result = await WorkflowRuntime().execute(compiled)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["collect"] == [42, 42, 42]
 
 
@@ -352,7 +352,7 @@ async def test_subworkflow_parallel_body_forwards_element() -> None:
     wf.parallel(map_over="enumerate", body="sub", join="collect", max_concurrency=2)
 
     result = await WorkflowRuntime().execute(wf.compile())
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     # seed(x)=x → scale=x*10, one DISTINCT output per element (not all identical).
     assert result.outputs["collect"] == [10, 20, 30]
 
@@ -373,7 +373,7 @@ async def test_subworkflow_chained_forwards_upstream_output() -> None:
         .compile()
     )
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["sub"] == 70  # seed(7) → scale 70
 
 
@@ -398,14 +398,14 @@ async def test_subworkflow_bare_root_runs_inner_unchanged() -> None:
 
     outer = WorkflowCompiler(name="outer-two-roots").add(SubWorkflow(inner), name="sub").compile()
     result = await WorkflowRuntime().execute(outer)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["sub"] == 3
 
 
 def test_resolve_single_root_ambiguous_raises() -> None:
     """Forwarding into a multi-root inner spec raises a clear error pointing the
     user at declaring a single entry."""
-    from molexp.workflow._pydantic_graph.runtime import _resolve_single_root
+    from molexp.workflow._engine.runtime import _resolve_single_root
 
     inner = WorkflowCompiler(name="inner-ambiguous-roots")
 
@@ -424,7 +424,7 @@ def test_resolve_single_root_ambiguous_raises() -> None:
 def test_resolve_single_root_honors_explicit_entry() -> None:
     """An explicit single ``entry=`` resolves to that entry (the forwarded-input
     destination), independent of the root computation."""
-    from molexp.workflow._pydantic_graph.runtime import _resolve_single_root
+    from molexp.workflow._engine.runtime import _resolve_single_root
 
     inner = WorkflowCompiler(name="inner-explicit-entry", entry="head")
 

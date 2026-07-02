@@ -20,15 +20,16 @@ Pipeline:
 5. **Lowering** — :meth:`_build_plan` lowers the compiled out-edges, entry
    frontier, back-edges (cycles), per-task trigger sources, and the
    ``wf.parallel`` declarations into a frozen
-   :class:`~molexp.workflow._pydantic_graph.plan.ExecutionPlan`. The engine
+   :class:`~molexp.workflow._engine.plan.ExecutionPlan`. The engine
    (:mod:`.engine`) executes the plan with **values-on-edges** semantics:
    each task's inputs are delivered from its upstreams' outputs, a task
    launches exactly when its dependencies are satisfied, and deadlock is
    detected structurally — no timing constants anywhere.
 
-This module is plain structural lowering; it does not import
-``pydantic_graph`` (the workflow layer's remaining pg surface is the ``End``
-sentinel re-export, confined to ``workflow/_pydantic_graph/``).
+This module is plain structural lowering, and the workflow layer has no
+``pydantic_graph`` dependency at all — the ``End`` sentinel is
+molexp-owned (``molexp.workflow.types.End``) and nothing under ``src/``
+may import ``pydantic_graph``.
 """
 
 from __future__ import annotations

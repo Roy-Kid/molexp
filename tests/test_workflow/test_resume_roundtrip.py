@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from molexp.workflow import Task, TaskContext, WorkflowCompiler, WorkflowRuntime
-from molexp.workflow._pydantic_graph.persistence import read_node_outputs
+from molexp.workflow._engine.persistence import read_node_outputs
 from molexp.workspace import Workspace
 
 
@@ -78,7 +78,7 @@ async def test_resume_roundtrip_seeds_and_reopens(tmp_path) -> None:
             execution_id=exec1,
         )
 
-    assert res2.status == "completed"
+    assert res2.status == "succeeded"
     assert res2.outputs["boom"] == "boom-fixed"
     assert good_runs["n"] == 1  # seeded on resume, body skipped
     assert len(run.execution_history) == 1  # reopened, not appended

@@ -6,21 +6,19 @@ result / execution-handle types and shared type variables.
 The workflow public surface is uniformly pydantic — value types are
 :class:`pydantic.BaseModel` (frozen). Runtime containers that hold
 live ``asyncio`` objects (e.g. :class:`WorkflowExecution`) remain plain
-Python classes per the project's typing rule. The only dataclass-based
-code in the workflow layer lives in the private ``_pydantic_graph/``
-shim, where the upstream :class:`pydantic_graph.BaseNode` protocol
-requires dataclass nodes — that constraint is imposed by the
-third-party library, not by molexp.
+Python classes per the project's typing rule. The one exception is the
+:class:`End` sentinel below — a frozen dataclass, kept dataclass-shaped
+for drop-in continuity with the ``pydantic_graph.End`` it replaced.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from .._typing import JSONValue, TaskOutput
-from ._pydantic_graph import End as End
 
 # ── Route routing token (public) ─────────────────────────────────────────────
 
@@ -53,10 +51,33 @@ class Next(BaseModel):
 
 
 # ── Workflow terminator ─────────────────────────────────────────────────────
-# ``End`` is re-exported from ``pydantic_graph`` so molexp does not maintain
-# a duplicate sentinel class. ``molexp.workflow.End is pydantic_graph.End``
-# is a runtime invariant; see § Workflow ↔ pydantic-graph boundary in
-# CLAUDE.md and ``test_pydantic_graph_boundary.py``.
+# ``End`` is molexp-owned. It was historically a re-export of
+# ``pydantic_graph.End``; that dependency has been removed entirely
+# (pydantic_graph is no longer a molexp dependency and must not be
+# imported anywhere under ``src/`` — see ``test_engine_boundary.py``).
+# The definition below is behavior-equivalent to the upstream sentinel
+# (generic frozen dataclass with a single ``data`` field), with one
+# ergonomic superset: ``data`` defaults to ``None`` so the documented
+# bare ``End()`` form is valid.
+
+
+@dataclass(frozen=True)
+class End[RunEndT]:
+    """Sentinel a task body returns (or yields) to terminate the workflow.
+
+    ``End()`` / ``End(None)`` terminates the current frame's out-edges;
+    ``(value, End())`` records ``value`` as the task's output AND
+    terminates. ``End`` is frame-scoped — concurrent same-frontier
+    siblings still record their outputs (see the engine docstring).
+
+    molexp-owned since the pydantic_graph dependency was removed; the
+    shape (generic frozen dataclass with a single ``data`` field)
+    deliberately matches the retired ``pydantic_graph.End`` so existing
+    call sites are unaffected.
+    """
+
+    data: RunEndT | None = None
+    """Optional payload carried on termination."""
 
 
 # ── Edge sum types (spec §3, §7) ────────────────────────────────────────────
@@ -211,13 +232,23 @@ class LoopMaxItersExceeded(UserWarning):
 
 
 class WorkflowResult(BaseModel):
-    """Result of a completed workflow execution.
+    """Result of a finished workflow execution.
 
     Attributes:
-        status: ``"completed"`` | ``"failed"`` | ``"cancelled"``
+        status: ``"succeeded"`` | ``"failed"`` | ``"cancelled"``
         outputs: Mapping of task name to task output.
         run_id: Associated workspace Run ID, if any.
         execution_id: Opaque ID for resumption support.
+
+    .. note:: **Status-vocabulary migration (run-recovery, 2026-07).**
+       The workflow-level result status now uses the same terminal vocabulary
+       as ``workspace.Run`` (``succeeded`` instead of the old ``completed``).
+       Writers only emit the new word; for backward compatibility the model
+       normalizes a legacy ``"completed"`` input to ``"succeeded"`` on
+       construction (e.g. when reconstructed from an old persisted document).
+       Per-*task* node statuses inside ``workflow.json`` (``pending`` /
+       ``running`` / ``completed`` / ``failed`` / ``skipped``) are a different
+       axis and are unchanged.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -226,6 +257,12 @@ class WorkflowResult(BaseModel):
     outputs: dict[str, TaskOutput]
     run_id: str | None = None
     execution_id: str | None = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _normalize_legacy_status(cls, value: object) -> object:
+        """Read-side compatibility: legacy ``"completed"`` means ``"succeeded"``."""
+        return "succeeded" if value == "completed" else value
 
     def __repr__(self) -> str:
         return f"WorkflowResult(status={self.status!r}, tasks={list(self.outputs.keys())})"

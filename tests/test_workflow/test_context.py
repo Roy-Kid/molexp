@@ -98,7 +98,7 @@ class TestDeprecatedStateChannel:
         assert backing == {"x": 1}
 
     def test_workflow_state_view_read_only_legacy_patterns(self):
-        from molexp.workflow._pydantic_graph.state import WorkflowState
+        from molexp.workflow._engine.state import WorkflowState
 
         state = WorkflowState()
         state.record("tick", 41)
@@ -127,7 +127,7 @@ class TestDeprecatedStateChannel:
         """Loop-iteration overwrites stay observable: each ``ctx.state`` access
         snapshots the CURRENT results; an already-taken view does not track
         later engine mutations."""
-        from molexp.workflow._pydantic_graph.state import WorkflowState
+        from molexp.workflow._engine.state import WorkflowState
 
         state = WorkflowState()
         state.record("n", 1)
@@ -159,7 +159,7 @@ class TestDeprecatedStateChannel:
             return legacy
 
         result = await WorkflowRuntime().execute(wf.compile())
-        assert result.status == "completed"
+        assert result.status == "succeeded"
         assert result.outputs["b"] == 7
 
 

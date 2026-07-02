@@ -9,9 +9,10 @@ layer:
 - ``molexp.plugins`` (optional capabilities)
 - ``molexp.server``, ``molexp.cli``, ``molexp.sweep`` (application shell)
 
-Additionally, ``pydantic_graph`` must only be imported from
-``workflow/_pydantic_graph/`` — the rest of the workflow layer is
-pg-agnostic and reachable without the dependency.
+Additionally, ``pydantic_graph`` must not be imported anywhere —
+molexp dropped the dependency; the engine under ``workflow/_engine/``
+is molexp-owned (see also ``test_engine_boundary.py`` for the
+src/-wide scan).
 
 History: until 2026-05-09 this guard *also* forbade
 ``molexp.workspace`` imports. The rectification spec inverts that
@@ -31,6 +32,7 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "molexp.plugins",
     "molexp.server",
     "molexp.cli",
+    "molexp.services",
     "molexp.sweep",
 )
 
@@ -81,18 +83,12 @@ def test_workflow_forbids_upstream_and_application_layers() -> None:
     )
 
 
-def test_pydantic_graph_imports_confined_to_pydantic_graph_subtree() -> None:
-    """``pydantic_graph`` may only appear under ``workflow/_pydantic_graph/``."""
+def test_no_pydantic_graph_imports_in_workflow() -> None:
+    """``pydantic_graph`` may not appear anywhere under ``workflow/`` —
+    the dependency was removed; the engine is molexp-owned."""
     hits = _imports_of("pydantic_graph", WORKFLOW_ROOT)
-    allowed = WORKFLOW_ROOT / "_pydantic_graph"
-    bad = [
-        f"{path.relative_to(WORKFLOW_ROOT)}:{lineno}: {module}"
-        for path, lineno, module in hits
-        if allowed not in path.parents
-    ]
-    assert not bad, "pydantic_graph imports outside workflow/_pydantic_graph/:\n  " + "\n  ".join(
-        bad
-    )
+    bad = [f"{path.relative_to(WORKFLOW_ROOT)}:{lineno}: {module}" for path, lineno, module in hits]
+    assert not bad, "pydantic_graph imports under workflow/:\n  " + "\n  ".join(bad)
 
 
 def test_compiled_graph_is_layer_private() -> None:

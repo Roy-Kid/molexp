@@ -15,7 +15,7 @@ the last write even when the engine raises). Resume is caller-driven via
 ``WorkflowResult.outputs`` + ``execute(seed_outputs=…)``.
 
 Each ``CompiledWorkflow`` carries a frozen
-:class:`~molexp.workflow._pydantic_graph.plan.ExecutionPlan` (see
+:class:`~molexp.workflow._engine.plan.ExecutionPlan` (see
 :mod:`.compiler`). The runtime builds fresh state + deps per execution and
 drives :func:`.engine.run_plan` — the values-on-edges scheduler; final
 outputs are read from the shared, mutated ``state.results``.
@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import traceback
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -187,7 +188,11 @@ def _get_active_execution_id(run_context: RunContextLike | None) -> str | None:
     return value if isinstance(value, str) and value else None
 
 
-def _record_run_failure(run_context: RunContextLike | None, error: str | None) -> None:
+def _record_run_failure(
+    run_context: RunContextLike | None,
+    error: str | None,
+    traceback_text: str | None = None,
+) -> None:
     """Mark task-failure on a duck-typed run_context via its typed
     :meth:`RunContextLike.mark_failed`.
 
@@ -196,10 +201,69 @@ def _record_run_failure(run_context: RunContextLike | None, error: str | None) -
     ``RunContext`` resolves an exception-free ``with ctx:`` exit to a failed
     run-status by consulting what ``mark_failed`` records, so the CLI surfaces
     the failure even though no exception reached it.
+
+    ``traceback_text`` forwards the formatted stack of the swallowed task
+    exception so the workspace can land a REAL traceback in
+    ``executions/<exec_id>/error.txt`` (not a placeholder note).
     """
     mark_failed = getattr(run_context, "mark_failed", None)
     if callable(mark_failed):
-        mark_failed(error)
+        mark_failed(error, traceback_text)
+
+
+def _record_run_success(run_context: RunContextLike | None) -> None:
+    """Mark workflow success on a duck-typed run_context (``mark_succeeded``).
+
+    The positive counterpart of :func:`_record_run_failure`: the workspace's
+    ``RunContext`` never defaults a previously-failed run back to succeeded on
+    a signal-less exit (run-recovery bug 1), so a workflow that genuinely ran
+    to completion must say so explicitly. Probed via ``getattr`` so duck-typed
+    stub contexts without the method are unaffected.
+    """
+    mark_succeeded = getattr(run_context, "mark_succeeded", None)
+    if callable(mark_succeeded):
+        mark_succeeded()
+
+
+# ── Fresh-execution (bypass-cache) request marker ────────────────────────────
+#
+# ``--rerun`` opens a new execution but the content-addressed cache may still
+# serve deterministic tasks. ``--fresh`` / ``?fresh=true`` requests a true
+# re-execution: cache READS are bypassed (bodies re-run; results are still
+# written back to the cache). The request must survive a process boundary —
+# the server derives the execution id but a molq worker executes it — so it is
+# persisted as a small marker file inside the execution slot.
+
+#: Filename of the per-execution bypass-cache request marker.
+FRESH_MARKER_FILENAME = "fresh.json"
+
+
+def request_fresh_execution(run_dir: str | Path, execution_id: str) -> Path:
+    """Persist a bypass-cache request for one execution attempt.
+
+    Writes ``<run_dir>/executions/<execution_id>/fresh.json``; whichever
+    process later executes that execution id (the in-process CLI runner or a
+    molq worker) picks it up via :func:`fresh_requested` and runs with cache
+    reads bypassed. Re-exported as ``molexp.workflow.request_fresh_execution``.
+
+    Returns the marker path.
+    """
+    from datetime import UTC, datetime
+
+    from molexp.atomicio import atomic_write_json
+
+    target = Path(run_dir) / "executions" / execution_id / FRESH_MARKER_FILENAME
+    target.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(
+        target,
+        {"bypass_cache": True, "requested_at": datetime.now(UTC).isoformat()},
+    )
+    return target
+
+
+def fresh_requested(run_dir: str | Path, execution_id: str) -> bool:
+    """Whether a bypass-cache request marker exists for this execution attempt."""
+    return (Path(run_dir) / "executions" / execution_id / FRESH_MARKER_FILENAME).exists()
 
 
 def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
@@ -213,8 +277,8 @@ def make_execution_id(run_id: str | None, run_dir: Path | None) -> str:
 
     Spec 04 §6 — promoted to the public API. Re-exported as
     :func:`molexp.workflow.make_execution_id`. ``submit_molq`` plugins
-    must use the public name; reaching into ``_pydantic_graph`` for
-    this helper is rejected by ``test_submit_molq_plugins_do_not_reach_into_pydantic_graph``.
+    must use the public name; reaching into ``_engine`` for
+    this helper is rejected by ``test_submit_molq_plugins_do_not_reach_into_engine``.
     """
     from molexp.workflow._names import generate_name
     from molexp.workspace.utils import derive_execution_id
@@ -285,6 +349,8 @@ class WorkflowRuntime:
         config: JSONMapping | None,
         deps: UserDeps,
         cache: Caching | None = None,
+        bypass_cache: bool = False,
+        scratch_root: Path | None = None,
     ) -> WorkflowDeps:
         """Build a fresh :class:`WorkflowDeps` for one execution.
 
@@ -339,6 +405,12 @@ class WorkflowRuntime:
             )
             if mat_root is not None:
                 materialization = FileMaterializationStore(mat_root)
+        elif scratch_root is not None:
+            # Bare execution (no tracked Run) with an explicitly mounted
+            # scratch location — the plan-materialized driver's channel for
+            # honouring the ctx.workdir contract. Never defaulted: a cwd
+            # fallback would litter every embedder's working directory.
+            materialization = FileMaterializationStore(scratch_root)
 
         return WorkflowDeps(
             run=run_for_deps,
@@ -353,6 +425,7 @@ class WorkflowRuntime:
             loop_max_iters=loop_max_iters,
             parallel_limiters=parallel_limiters,
             cache=cache,
+            bypass_cache=bypass_cache,
             snapshots=compiled.snapshots,
             materialization=materialization,
         )
@@ -420,25 +493,41 @@ class WorkflowRuntime:
         execution_id: str | None = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
         cache: Caching | None = None,
+        bypass_cache: bool = False,
         root_input: Any = _NO_ROOT_INPUT,  # noqa: ANN401
         persist: bool = True,
+        scratch_root: str | Path | None = None,
     ) -> WorkflowResult:
         """Run the workflow to completion and return a WorkflowResult.
+
+        ``scratch_root`` (optional) mounts the content-addressed
+        materialization store at an explicit location for a BARE execution
+        (no tracked Run), so ``ctx.workdir`` is available to task bodies —
+        the plan-materialized ``run_workflow.py`` driver passes
+        ``scratch_root=".materialize"`` (under its ``generated/`` cwd).
+        Ignored when the execution carries a ``run_context`` (the workspace
+        ``.materialize`` root wins); without either, ``ctx.workdir`` stays
+        ``None`` — never silently defaulted to the caller's cwd.
 
         ``seed_outputs`` (optional) pre-populates the initial state with
         already-known task outputs; see :meth:`Workflow.execute` for the
         full contract. ``cache`` (optional) opts the run into content-
         addressed task-result caching; see :func:`_resolve_cache` for the
-        precedence rules when it is omitted. ``root_input`` (optional) forwards a
-        value into the spec's single entry task as its ``ctx.inputs`` — the channel
-        a :class:`~molexp.workflow.SubWorkflow` uses to pass its node input (fan-out
-        element / upstream output) into the inner workflow. ``persist=False``
-        (engine-internal — set by the ``sub_runner`` capability for SubWorkflow
-        inner runs) disables ALL ``workflow.json`` persistence for this
-        execution, so a nested run inheriting the outer ``run_context`` never
-        rewrites the parent execution's document: after a run containing
-        SubWorkflows, ``executions/<exec_id>/workflow.json`` describes the
-        OUTER graph only.
+        precedence rules when it is omitted. ``bypass_cache=True`` (the
+        ``--fresh`` escape hatch) skips cache READS for this execution — every
+        task body actually runs — while results are still written back to the
+        cache; the same behaviour is triggered by a persisted
+        :func:`request_fresh_execution` marker in the execution slot (the
+        cross-process channel the server/molq path uses). ``root_input``
+        (optional) forwards a value into the spec's single entry task as its
+        ``ctx.inputs`` — the channel a :class:`~molexp.workflow.SubWorkflow`
+        uses to pass its node input (fan-out element / upstream output) into
+        the inner workflow. ``persist=False`` (engine-internal — set by the
+        ``sub_runner`` capability for SubWorkflow inner runs) disables ALL
+        ``workflow.json`` persistence for this execution, so a nested run
+        inheriting the outer ``run_context`` never rewrites the parent
+        execution's document: after a run containing SubWorkflows,
+        ``executions/<exec_id>/workflow.json`` describes the OUTER graph only.
         """
 
         # Validate seed_outputs FAIL-FAST before any IO / scheduling work.
@@ -452,6 +541,11 @@ class WorkflowRuntime:
             or _get_active_execution_id(run_context)
             or make_execution_id(run_id, resolved_run_dir)
         )
+
+        # A persisted fresh marker (written by the server rerun endpoint or the
+        # CLI scheduler path) requests the same bypass as an explicit kwarg.
+        if not bypass_cache and resolved_run_dir is not None:
+            bypass_cache = fresh_requested(resolved_run_dir, execution_id)
 
         persist_dir = resolved_run_dir if persist else None
 
@@ -496,33 +590,40 @@ class WorkflowRuntime:
                 config=config,
                 deps=deps,
                 cache=_resolve_cache(cache, self.cache, run_context),
+                bypass_cache=bypass_cache,
+                scratch_root=Path(scratch_root) if scratch_root is not None else None,
             )
 
             self._populate_root_inputs(compiled, state, workflow_deps, run_context, root_input)
 
             result_state: WorkflowState = await _run_compiled(compiled.graph, state, workflow_deps)
 
-            # Propagate task-failure to the workspace's RunContext so it can
-            # tag the final run.status as failed when the caller's
+            # Propagate the terminal signal to the workspace's RunContext so it
+            # resolves the final run.status when the caller's
             # ``with run.start() as ctx: workflow.execute(run_context=ctx)``
-            # block exits cleanly. Without this back-channel the failure
-            # only surfaces in WorkflowResult.status — which the CLI does
-            # not consult — and run.status defaults to ``succeeded``.
+            # block exits cleanly. Failure: without this back-channel the
+            # failure only surfaces in WorkflowResult.status — which the CLI
+            # does not consult. Success: the lifecycle never *defaults* a
+            # previously-failed run back to succeeded (run-recovery bug 1), so
+            # a genuinely completed workflow must say so. Only the OUTER run
+            # signals success (``persist`` is False for SubWorkflow inner runs).
             if result_state.failed and run_context is not None:
                 _record_run_failure(run_context, result_state.error)
+            elif not result_state.failed and persist and run_context is not None:
+                _record_run_success(run_context)
             if persist_dir is not None:
                 from .persistence import mark_workflow_finished
 
                 mark_workflow_finished(
                     persist_dir,
                     execution_id,
-                    status="failed" if result_state.failed else "completed",
+                    status="failed" if result_state.failed else "succeeded",
                     outputs=result_state.results,
                     error=result_state.error,
                 )
 
             return WorkflowResult(
-                status="failed" if result_state.failed else "completed",
+                status="failed" if result_state.failed else "succeeded",
                 outputs=result_state.results,
                 run_id=run_id,
                 execution_id=execution_id,
@@ -547,10 +648,13 @@ class WorkflowRuntime:
             # Carry the exception TYPE alongside the message ("ZeroDivisionError:
             # division by zero"), matching the task-level record engine.py writes,
             # so the workspace can persist a typed ErrorInfo instead of a bare
-            # message with no type.
+            # message with no type. The FULL formatted traceback rides along so
+            # the run's error.txt holds the real stack (the exception itself is
+            # swallowed here — this is its last chance to be captured).
             error_text = f"{type(exc).__name__}: {exc}"
+            tb_text = "".join(traceback.format_exception(exc))
             if run_context is not None:
-                _record_run_failure(run_context, error_text)
+                _record_run_failure(run_context, error_text, traceback_text=tb_text)
             if persist_dir is not None:
                 from .persistence import mark_workflow_finished
 
@@ -595,12 +699,13 @@ class WorkflowRuntime:
         execution_id: str | None = None,
         seed_outputs: Mapping[str, TaskOutput] | None = None,
         cache: Caching | None = None,
+        bypass_cache: bool = False,
     ) -> WorkflowExecution:
         """Launch workflow as background asyncio task.
 
-        See :meth:`execute` for ``seed_outputs`` semantics; the same
-        fail-fast validation applies before scheduling the background
-        task.
+        See :meth:`execute` for ``seed_outputs`` and ``bypass_cache``
+        semantics; the same fail-fast validation applies before scheduling
+        the background task.
         """
         # Fail-fast on bad seeds so the caller observes the ValueError
         # synchronously, not via an awaited handle.
@@ -612,6 +717,8 @@ class WorkflowRuntime:
             or _get_active_execution_id(run_context)
             or make_execution_id(run_id, resolved_run_dir)
         )
+        if not bypass_cache and resolved_run_dir is not None:
+            bypass_cache = fresh_requested(resolved_run_dir, execution_id)
 
         # Observability — see ``execute()`` for the rationale (initial write +
         # coalescing in-memory writer; closed in ``_bg``'s ``finally``).
@@ -638,12 +745,17 @@ class WorkflowRuntime:
                     config=config,
                     deps=deps,
                     cache=resolved_cache,
+                    bypass_cache=bypass_cache,
                 )
                 result_state: WorkflowState = await _run_compiled(
                     compiled.graph, seed_state, workflow_deps
                 )
+                if result_state.failed:
+                    _record_run_failure(run_context, result_state.error)
+                else:
+                    _record_run_success(run_context)
                 handle._result = WorkflowResult(
-                    status="failed" if result_state.failed else "completed",
+                    status="failed" if result_state.failed else "succeeded",
                     outputs=result_state.results,
                     run_id=run_id,
                     execution_id=execution_id,
@@ -654,7 +766,7 @@ class WorkflowRuntime:
                     mark_workflow_finished(
                         resolved_run_dir,
                         execution_id,
-                        status="failed" if result_state.failed else "completed",
+                        status="failed" if result_state.failed else "succeeded",
                         outputs=result_state.results,
                         error=result_state.error,
                     )
@@ -718,7 +830,7 @@ class WorkflowRuntime:
             result = await self.execute(
                 compiled, run_context=run_ctx, config=config, deps=deps, cache=cache
             )
-        if result.status != "completed":
+        if result.status != "succeeded":
             err = run.metadata.error
             err_msg = (
                 f"workflow {compiled.name!r} ended with status {result.status!r}: "

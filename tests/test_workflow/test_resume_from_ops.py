@@ -1,6 +1,6 @@
 """Workflow resume seeding sources execution history from ``_ops`` (wsokf-07).
 
-``workflow/_pydantic_graph/persistence.py``'s ``last_resumable_execution_id`` /
+``workflow/_engine/persistence.py``'s ``last_resumable_execution_id`` /
 ``seed_from_execution`` pick the most-recent non-succeeded execution from
 ``run.read_ops().executions`` (the OKF hot-state sidecar) instead of
 ``run.metadata.execution_history``.
@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import molexp as me
-from molexp.workflow._pydantic_graph.persistence import (
+from molexp.workflow._engine.persistence import (
     last_resumable_execution_id,
     seed_from_execution,
 )

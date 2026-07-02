@@ -1,7 +1,7 @@
 """Graph-structure analysis for workflow lowering.
 
 Pure functions over the compiled out-edge structure used by
-:class:`molexp.workflow._pydantic_graph.compiler.WorkflowGraphCompiler`:
+:class:`molexp.workflow._engine.compiler.WorkflowGraphCompiler`:
 target enumeration, back-edge (cycle) detection, and forward-indegree
 counting. No ``pydantic_graph`` import and no compiler state — just the
 lowered edge maps — so they live apart from the (large) compiler module.

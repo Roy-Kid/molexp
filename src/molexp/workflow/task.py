@@ -4,11 +4,11 @@
 :class:`~Streamable` protocols respectively. Using them is **optional** —
 any object whose signature matches the protocol works equally well.
 
-``Task`` and ``Actor`` are **plain abstract classes** — they do not
-inherit ``pydantic_graph.BaseNode``. Each task is lowered to a genuine
-pydantic-graph ``Step`` (one per task; see
-:mod:`molexp.workflow._pydantic_graph.compiler`); the Step body invokes
-``execute(ctx)`` / ``run(ctx)`` directly via duck typing.
+``Task`` and ``Actor`` are **plain abstract classes** — they inherit no
+third-party engine base class. Each task is lowered into the frozen
+:class:`~molexp.workflow._engine.plan.ExecutionPlan` (one node per task;
+see :mod:`molexp.workflow._engine.compiler`); the molexp-owned engine
+invokes ``execute(ctx)`` / ``run(ctx)`` directly via duck typing.
 
 Identity has three orthogonal parts: **code** (the ``execute`` body), **config**
 (the ``__init__`` arguments — a task instance *is* its config), and **input**
@@ -28,10 +28,10 @@ Simple (no generics)::
 
 Typed (state/input/output generics)::
 
-    class Fetch(Task[WorkflowState, str, DataFrame]):
-        async def execute(self, ctx: TaskContext[WorkflowState, str], source: str) -> DataFrame:
+    class Fetch(Task[WorkflowState, str, Trajectory]):
+        async def execute(self, ctx: TaskContext[WorkflowState, str], source: str) -> Trajectory:
             # source path binds by name, not via ambient deps.
-            return read_frame(source)
+            return read_trajectory(source)
 
 Third-party (no molexp import)::
 

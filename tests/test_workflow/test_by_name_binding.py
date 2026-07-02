@@ -30,7 +30,7 @@ def test_single_upstream_dict_binds_by_name() -> None:
         return {"sum": x + y}
 
     result = _run(wf)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["consume"] == {"sum": 7}
 
 
@@ -51,7 +51,7 @@ def test_multi_upstream_merges_by_name() -> None:
         return {"r": p + q}
 
     result = _run(wf)
-    assert result.status == "completed"
+    assert result.status == "succeeded"
     assert result.outputs["c"] == {"r": 3}
 
 
