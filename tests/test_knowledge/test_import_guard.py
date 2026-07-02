@@ -27,6 +27,7 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "molexp.harness",
     "molexp.server",
     "molexp.cli",
+    "molexp.services",
     "molexp.plugins",
     "molexp.sweep",
 )

@@ -13,7 +13,6 @@ requires-python = ">=3.12"
 
 dependencies = [
     "pydantic>=2.10",
-    "pydantic-graph>=1.105",
     "pyyaml>=6.0",
     "typer>=0.9.0",
     "rich>=14.3.4",
@@ -26,7 +25,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-agent = ["pydantic-ai>=1.0"]
+# pydantic-ai >=1.105: first line verified with the shared retries={"output": N}
+# spelling (the legacy output_retries= kwarg is removed in 2.0). No upper cap —
+# molexp tracks latest; the router's preflight() catches a constructor-level
+# incompatibility BEFORE any workspace write if a future major breaks Agent(...).
+# pytest + pytest-asyncio are RUNTIME dependencies of `molexp plan`: step 7
+# (ExecuteTests) runs the generated per-task tests as a subprocess of the same
+# interpreter, and molexp task bodies are async-first, so the generated tests
+# routinely carry @pytest.mark.asyncio.
+agent = ["pydantic-ai>=1.105", "pytest>=7.0", "pytest-asyncio>=0.21"]
 tensorboard = ["tensorboard>=2.15"]
 all = ["molexp[agent,tensorboard]"]
 dev = [

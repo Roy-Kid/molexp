@@ -8,8 +8,8 @@ Core packages:
 Workflow-layer conveniences are re-exported lazily at the top level —
 ``molexp.WorkflowCompiler``, ``molexp.TaskContext`` and
 ``molexp.WorkflowRuntime`` resolve on first attribute access (loading
-``molexp.workflow``, and thus ``pydantic_graph``, only at that point;
-plain ``import molexp`` stays light).
+the ``molexp.workflow`` engine machinery only at that point; plain
+``import molexp`` stays light).
 """
 
 __version__ = "0.3.0"
@@ -52,16 +52,24 @@ __all__ = [
     "WorkflowCompiler",
     "WorkflowRuntime",
     "Workspace",
+    "aexecute_run",
     "config",
     "entry",
+    "execute_run",
     "get_logger",
 ]
 
 #: Workflow-layer attributes re-exported lazily at the top level. Resolving
-#: any of them imports ``molexp.workflow`` (and transitively pydantic_graph)
-#: on first access only — ``import molexp`` must stay light
+#: any of them imports ``molexp.workflow`` (the engine machinery) on
+#: first access only — ``import molexp`` must stay light
 #: (tests/test_workspace/test_import_guard.py enforces this).
-_LAZY_WORKFLOW_ATTRS = ("WorkflowCompiler", "TaskContext", "WorkflowRuntime")
+_LAZY_WORKFLOW_ATTRS = (
+    "WorkflowCompiler",
+    "TaskContext",
+    "WorkflowRuntime",
+    "execute_run",
+    "aexecute_run",
+)
 
 
 # Lazy imports — heavy sub-packages are only loaded on first access.
