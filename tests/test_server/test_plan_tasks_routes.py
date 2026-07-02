@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 
 from molexp.server.app import create_app
 from molexp.server.dependencies import get_workspace
-from molexp.server.plan_runtime import gateway as plan_gateway
+from molexp.services.plan_runtime import gateway as plan_gateway
 
 # A WorkflowSource program that compiles to a real Workflow — ValidateWorkflowSource,
 # the route's display-persist step, AND step-7 CompileWorkflow (--compile-only) all
@@ -276,7 +276,7 @@ def test_grounded_plan_task_threads_capability_registry(
     called: list[str] = []
 
     async def _fake_aresolve(workspace_root: str, **_: Any) -> Any:
-        from molexp.harness import InMemoryCapabilityRegistry
+        from molexp.harness.registry import InMemoryCapabilityRegistry
         from molexp.harness.schemas import ToolCapability
 
         called.append(workspace_root)

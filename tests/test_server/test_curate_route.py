@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from molexp.harness.schemas.change_proposal import ObjectRef
-from molexp.server.curate_runtime import build_curation_proposal
+from molexp.services.curate_runtime import build_curation_proposal
 from molexp.workspace import Workspace
 
 _CURATE = "/api/workspace/curate"

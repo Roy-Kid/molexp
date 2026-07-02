@@ -93,7 +93,10 @@ class PlanDetailResponse(BaseModel):
     (step 3); ``tasks`` + ``workflowSource`` are the bound tasks + runnable source
     (steps 4-5); ``inputSet`` is the parameter-space sweep (step 6); ``dryRun`` is
     the compile/dry-run result (step 7); ``executionReport`` is the where/how
-    hand-off (step 9). All are ``None`` when the step has not run.
+    hand-off (step 9). The ``--execute`` tail adds ``execution`` (the REAL
+    workflow execution_result — same artifact kind as the dry-run, split by
+    ``metadata.mode``), ``finalReport``, and ``auditReport``. All are ``None``
+    when the step has not run.
     """
 
     runId: str
@@ -106,6 +109,9 @@ class PlanDetailResponse(BaseModel):
     experimentSpec: dict[str, Any] | None
     experimentSpecYaml: str | None
     capabilities: str | None
+    # The LLM's minimal capability pick (ids + reasoning) — what the UI shows
+    # FIRST; ``capabilities`` (the full grounded catalog) folds away behind it.
+    capabilitySelection: dict[str, Any] | None
     # The workflow IR (step 4): raw artifact + a curated workflow-spec YAML
     # (inputs, tasks with purpose + typed inputs/outputs, task→task edges).
     workflowIr: dict[str, Any] | None
@@ -121,6 +127,10 @@ class PlanDetailResponse(BaseModel):
     dryRun: dict[str, Any] | None
     planReview: dict[str, Any] | None
     executionReport: dict[str, Any] | None
+    # --execute tail: the real run + its grounded reports.
+    execution: dict[str, Any] | None
+    finalReport: dict[str, Any] | None
+    auditReport: dict[str, Any] | None
     # Every harness stage artifact this plan produced (kinds present on disk).
     artifactKinds: list[str]
     hasWorkflow: bool
@@ -161,6 +171,42 @@ def _read_json_kind(store: FileArtifactStore, root: Path, kind: str) -> dict[str
     except (ValueError, TypeError):
         return None
     return data if isinstance(data, dict) else None
+
+
+def _split_execution_results(
+    store: FileArtifactStore, root: Path
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Latest compile-mode and latest real ``execution_result``, split.
+
+    The plan's step-7 dry run and the ``--execute`` tail's real run share one
+    artifact kind; ``metadata.mode == "compile"`` marks the dry run. Reading
+    just the latest ref would let a newer real execution shadow the dry-run
+    view — so both are resolved independently.
+    """
+    dry: dict[str, Any] | None = None
+    real: dict[str, Any] | None = None
+    for ref in store.list_by_kind("execution_result"):
+        direct = root / "execution_result" / f"{ref.id}.json"
+        try:
+            raw: str | bytes = direct.read_text()
+        except OSError:
+            try:
+                raw = store.get(ref.id)
+            except Exception:
+                continue
+        try:
+            data = json.loads(raw)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        meta = data.get("metadata")
+        mode = meta.get("mode") if isinstance(meta, dict) else None
+        if mode == "compile":
+            dry = data  # refs iterate oldest→newest; keep the latest
+        else:
+            real = data
+    return dry, real
 
 
 def _read_text_kind(store: FileArtifactStore, root: Path, kind: str) -> str | None:
@@ -421,6 +467,7 @@ def get_plan(
     draft = user_plan.get("raw_text")
     spec = _read_json_kind(store, root, "experiment_spec")
     workflow_ir = _read_json_kind(store, root, "workflow_ir")
+    dry_run, real_execution = _split_execution_results(store, root)
     return PlanDetailResponse(
         runId=run.id,
         projectId=project_id,
@@ -432,6 +479,7 @@ def get_plan(
         experimentSpec=spec,
         experimentSpecYaml=_spec_to_yaml(spec, workflow_ir),
         capabilities=_read_text_kind(store, root, "capability_catalog"),
+        capabilitySelection=_read_json_kind(store, root, "capability_selection"),
         workflowIr=workflow_ir,
         workflowIrYaml=_workflow_ir_to_spec_yaml(workflow_ir),
         tasks=_read_tasks(experiment),
@@ -439,9 +487,12 @@ def get_plan(
         workflowFiles=_read_program_files(store, root, "workflow_source"),
         testFiles=_read_program_files(store, root, "test_source"),
         inputSet=_read_json_kind(store, root, "input_set"),
-        dryRun=_read_json_kind(store, root, "execution_result"),
+        dryRun=dry_run,
         planReview=_read_json_kind(store, root, "plan_review"),
         executionReport=_read_json_kind(store, root, "execution_report"),
+        execution=real_execution,
+        finalReport=_read_json_kind(store, root, "final_report"),
+        auditReport=_read_json_kind(store, root, "audit_report"),
         artifactKinds=_artifact_kinds(root),
         hasWorkflow=store.latest_by_kind("workflow_source") is not None,
     )

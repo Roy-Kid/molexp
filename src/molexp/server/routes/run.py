@@ -10,19 +10,24 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, ConfigDict
 
+from molexp._typing import JSONValue
 from molexp.plugins.submit_molq.cancel import try_cancel
 from molexp.plugins.submit_molq.submit import SubmitHandler
 from molexp.workflow import (
     WorkflowSnapshotRef,
     default_binding_registry,
     make_execution_id,
+    request_fresh_execution,
     resolve_spec_entrypoint,
 )
 from molexp.workspace import (
+    LOCAL_TARGET_NAME,
     RETRYABLE_STATUSES,
     Experiment,
     RunStatus,
+    reap_zombie_run,
 )
 from molexp.workspace import (
     ExperimentNotFoundError as WorkspaceExperimentNotFoundError,
@@ -33,6 +38,8 @@ from molexp.workspace import (
 from molexp.workspace import (
     RunNotFoundError as WorkspaceRunNotFoundError,
 )
+from molexp.workspace import resolve_compute_target as resolve_target
+from molexp.workspace.events import read_workspace_events
 from molexp.workspace.metrics import read_run_metrics
 from molexp.workspace.targets import get_target
 
@@ -55,7 +62,6 @@ from ..schemas import (
     RunStartRequest,
     RunStatusResponse,
 )
-from ..target_defaults import LOCAL_TARGET_NAME, resolve_target
 
 router = APIRouter(
     prefix="/projects/{project_id}/experiments/{experiment_id}/runs",
@@ -451,9 +457,13 @@ def get_run_execution(
         return RunExecutionResponse(execution_id=selected_id)
 
     data = json.loads(wf_file.read_text())
+    # Status-vocabulary migration (run-recovery): the workflow-level result
+    # status is now "succeeded"; documents persisted before the migration
+    # carry the legacy "completed" and are normalized on read.
+    raw_status = data.get("status", "running")
     return RunExecutionResponse(
         execution_id=data.get("execution_id", selected_id),
-        status=data.get("status", "running"),
+        status="succeeded" if raw_status == "completed" else raw_status,
         workflow=data,
     )
 
@@ -602,6 +612,10 @@ def start_run(
     run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
+    # A stale 'running' run whose owner died is reaped to 'failed' BEFORE the
+    # verb decides (same policy as the CLI — run-recovery bug 5); a live run
+    # is never touched.
+    reap_zombie_run(run)
     if run.status != "pending":
         raise HTTPException(
             status_code=409,
@@ -656,7 +670,9 @@ def resume_run(
     The reopened execution is re-dispatched on the same ``execution_id``; the
     worker seeds already-completed nodes from disk and recomputes the rest.
     409 unless the run is failed/cancelled (pending/succeeded/running are not
-    resume's job).
+    resume's job). A stale ``running`` run with a dead owner is reaped to
+    ``failed`` first, so it enters the retryable domain instead of 409-ing
+    forever (run-recovery bug 5).
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -664,6 +680,7 @@ def resume_run(
     run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
+    reap_zombie_run(run)
     _require_retryable(run, run_id)
 
     execution_id = _resumable_execution_id(run) or make_execution_id(run.id, Path(run.run_dir))
@@ -682,13 +699,26 @@ def rerun_run(
     project_id: str,
     experiment_id: str,
     run_id: str,
+    fresh: bool = Query(
+        default=False,
+        description=(
+            "Bypass content-addressed cache reads for the new execution: every "
+            "task body actually re-runs (results are still written back to the "
+            "cache). Same capability as the CLI's `molexp run --rerun --fresh`."
+        ),
+    ),
     workspace=Depends(get_workspace),  # noqa: ANN001
 ) -> RunContinueResponse:
-    """Rerun a failed/cancelled run from scratch in a new execution (no clone).
+    """Rerun a failed/cancelled run in a new execution (no clone).
 
     A fresh ``exec-{run_id}-N`` is derived and, for a targeted run, dispatched
-    through molq; no parameters are cloned and no new Run is created. 409 unless
-    the run is failed/cancelled (pending/succeeded/running are not rerun's job).
+    through molq; no parameters are cloned and no new Run is created. Note the
+    content-addressed cache may still serve deterministic tasks — pass
+    ``fresh=true`` to bypass cache reads (persisted as a marker in the new
+    execution slot, so whichever process executes it honors the request).
+    409 unless the run is failed/cancelled (pending/succeeded/running are not
+    rerun's job). A stale ``running`` run with a dead owner is reaped to
+    ``failed`` first (run-recovery bug 5).
     """
     experiment = _get_experiment(workspace, project_id, experiment_id)
     if not experiment:
@@ -696,9 +726,12 @@ def rerun_run(
     run = _get_run_or_none(experiment, run_id)
     if not run:
         raise RunNotFoundError(project_id, experiment_id, run_id)
+    reap_zombie_run(run)
     _require_retryable(run, run_id)
 
     execution_id = make_execution_id(run.id, Path(run.run_dir))
+    if fresh:
+        request_fresh_execution(str(run.run_dir), execution_id)
     _dispatch_continuation(workspace, run, execution_id)
     return RunContinueResponse(
         runId=run.id,
@@ -755,6 +788,57 @@ def cancel_run(
         status=run.status,
         message=warning,
     )
+
+
+class RunEventResponse(BaseModel):
+    """One workspace-timeline event related to a run (read side of the spine)."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str
+    seq: int
+    type: str
+    actor: str
+    created_at: datetime
+    payload: dict[str, JSONValue]
+    refs: list[str]
+
+
+@router.get("/{run_id}/events", response_model=list[RunEventResponse])
+def get_run_events(
+    project_id: str,
+    experiment_id: str,
+    run_id: str,
+    limit: int = Query(default=50, ge=1, le=500),
+    workspace=Depends(get_workspace),  # noqa: ANN001
+) -> list[RunEventResponse]:
+    """Return the run's recent workspace-timeline events, newest first.
+
+    Reads the default-on ``workspace.events.sqlite`` spine via the shared
+    :func:`molexp.workspace.events.read_workspace_events` (the same code path
+    ``molexp runs info`` uses). A workspace with no timeline yet (nothing has
+    emitted) returns ``[]``.
+    """
+    experiment = _get_experiment(workspace, project_id, experiment_id)
+    if not experiment:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+    run = _get_run_or_none(experiment, run_id)
+    if not run:
+        raise RunNotFoundError(project_id, experiment_id, run_id)
+
+    events = read_workspace_events(workspace.root, ref=run.id, limit=limit)
+    return [
+        RunEventResponse(
+            id=e.id,
+            seq=e.seq,
+            type=e.type,
+            actor=e.actor,
+            created_at=e.created_at,
+            payload=e.payload,
+            refs=e.refs,
+        )
+        for e in events
+    ]
 
 
 @router.get("/{run_id}/export")

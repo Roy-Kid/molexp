@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.server.plan_runtime import PlanTaskRegistry
+    from molexp.services.plan_runtime import PlanTaskRegistry
 
 _plan_runtime_registry: PlanTaskRegistry | None = None
 
@@ -20,7 +20,7 @@ def get_plan_runtime() -> PlanTaskRegistry:
     """Return the process-singleton :class:`PlanTaskRegistry` (lazily created)."""
     global _plan_runtime_registry
     if _plan_runtime_registry is None:
-        from molexp.server.plan_runtime import PlanTaskRegistry
+        from molexp.services.plan_runtime import PlanTaskRegistry
 
         _plan_runtime_registry = PlanTaskRegistry()
     return _plan_runtime_registry

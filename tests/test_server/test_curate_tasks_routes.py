@@ -28,13 +28,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from molexp.harness import InMemoryCapabilityRegistry, auto_grant_approver
 from molexp.harness.capabilities import curation_capabilities
 from molexp.harness.gateways.stub import StubAgentGateway
+from molexp.harness.registry import InMemoryCapabilityRegistry
+from molexp.harness.stages import auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.server.app import create_app
-from molexp.server.curate_runtime import gateway as curate_gateway
 from molexp.server.dependencies import get_workspace
+from molexp.services.curate_runtime import gateway as curate_gateway
 from molexp.workspace.utils import derive_run_id
 
 _BASE = "/api/projects/test-project/experiments/curate-exp/curate-tasks"
@@ -78,7 +79,7 @@ def _patched_registry(monkeypatch: pytest.MonkeyPatch) -> None:
         return InMemoryCapabilityRegistry(curation_capabilities())
 
     monkeypatch.setattr(
-        "molexp.server.curate_runtime.flow.aresolve_curation_capability_registry",
+        "molexp.services.curate_runtime.flow.aresolve_curation_capability_registry",
         _stub_registry,
     )
 
@@ -152,7 +153,7 @@ def test_route_matches_python_path_for_destructive_move(
     """ac-003 (parity) — a ``move_run`` driven over HTTP and the identical request
     driven directly from Python converge on the same on-disk state and the same
     artifact kinds."""
-    from molexp.server.curate_runtime.flow import run_curation_flow
+    from molexp.services.curate_runtime.flow import run_curation_flow
     from molexp.workspace import Workspace
 
     curate_gateway.set_curate_gateway_factory(_move_factory)
@@ -209,7 +210,7 @@ def test_route_is_thin_adapter_over_shared_flow(
 ) -> None:
     """ac-005 (route) — the route delegates to run_curation_flow exactly once with
     request-derived arguments (no discover/select/invoke logic of its own)."""
-    from molexp.server.curate_runtime.flow import CurationResult
+    from molexp.services.curate_runtime.flow import CurationResult
 
     curate_gateway.set_curate_gateway_factory(_scan_factory)
     recorded: list[str] = []
@@ -231,7 +232,7 @@ def test_route_is_thin_adapter_over_shared_flow(
             artifact_ids=[],
         )
 
-    monkeypatch.setattr("molexp.server.curate_runtime.flow.run_curation_flow", _rec)
+    monkeypatch.setattr("molexp.services.curate_runtime.flow.run_curation_flow", _rec)
 
     started = curate_client.post(_BASE, json={"request": "list everything", "model": "m"}).json()
     final = _await_terminal(curate_client, started["taskId"])

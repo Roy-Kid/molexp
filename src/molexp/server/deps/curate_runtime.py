@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from molexp.server.curate_runtime import CurateTaskRegistry
+    from molexp.services.curate_runtime import CurateTaskRegistry
 
 _curate_runtime_registry: CurateTaskRegistry | None = None
 
@@ -20,7 +20,7 @@ def get_curate_runtime() -> CurateTaskRegistry:
     """Return the process-singleton :class:`CurateTaskRegistry` (lazily created)."""
     global _curate_runtime_registry
     if _curate_runtime_registry is None:
-        from molexp.server.curate_runtime import CurateTaskRegistry
+        from molexp.services.curate_runtime import CurateTaskRegistry
 
         _curate_runtime_registry = CurateTaskRegistry()
     return _curate_runtime_registry

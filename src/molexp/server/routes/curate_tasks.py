@@ -7,7 +7,7 @@ background (auto-grant approvals, no LLM blocking the request).
 mutation summary are exposed so the UI can reflect the curation that ran.
 
 The route is the UI counterpart to the ``molexp curate`` CLI: same content-
-addressed Run, same :func:`~molexp.server.curate_runtime.flow.run_curation_flow`,
+addressed Run, same :func:`~molexp.services.curate_runtime.flow.run_curation_flow`,
 reached over HTTP instead of a TTY (Python ≡ UI — one backend code path).
 """
 
@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from molexp.server.dependencies import get_workspace
 
 if TYPE_CHECKING:
-    from molexp.server.curate_runtime import CurateTask
+    from molexp.services.curate_runtime import CurateTask
     from molexp.workspace import Workspace
 
 __all__ = ["router"]
@@ -67,7 +67,7 @@ class CurateTaskListResponse(BaseModel):
 def _configured_model() -> str | None:
     """Return the ``agent.model`` value from in-code ``molexp.config``, if any."""
     import molexp
-    from molexp.server.operator_config import AGENT_MODEL_KEY
+    from molexp.services.operator_config import AGENT_MODEL_KEY
 
     model = molexp.config.get(AGENT_MODEL_KEY)
     return model if isinstance(model, str) and model else None
@@ -110,8 +110,8 @@ async def create_curate_task(
     """
     from molexp._typing import JSONValue
     from molexp.ids import generate_id
-    from molexp.server.curate_runtime.gateway import build_curate_gateway
     from molexp.server.deps.curate_runtime import get_curate_runtime
+    from molexp.services.curate_runtime.gateway import build_curate_gateway
     from molexp.workspace.errors import RunNotFoundError
     from molexp.workspace.utils import derive_run_id
 

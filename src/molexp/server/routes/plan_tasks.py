@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 from molexp.server.dependencies import get_workspace
 
 if TYPE_CHECKING:
-    from molexp.server.plan_runtime.task import PlanTask
+    from molexp.services.plan_runtime.task import PlanTask
     from molexp.workspace import Workspace
 
 __all__ = ["router"]
@@ -71,7 +71,7 @@ class PlanTaskListResponse(BaseModel):
 def _configured_model() -> str | None:
     """Return the ``agent.model`` value from in-code ``molexp.config``, if any."""
     import molexp
-    from molexp.server.operator_config import AGENT_MODEL_KEY
+    from molexp.services.operator_config import AGENT_MODEL_KEY
 
     model = molexp.config.get(AGENT_MODEL_KEY)
     return model if isinstance(model, str) and model else None
@@ -112,7 +112,7 @@ async def create_plan_task(
     from molexp._typing import JSONValue
     from molexp.ids import generate_id
     from molexp.server.deps.plan_runtime import get_plan_runtime
-    from molexp.server.plan_runtime.gateway import build_plan_gateway
+    from molexp.services.plan_runtime.gateway import build_plan_gateway
     from molexp.workspace.errors import RunNotFoundError
     from molexp.workspace.utils import derive_run_id
 

@@ -15,7 +15,7 @@ def _seed_concepts(workspace) -> None:
     note = workspace.add_folder(Note(parent=workspace, name="cg-notes"))
     note.set_body("# CG notes\n\nNotes on coarse-grained zwitterions.")
     ref = workspace.add_folder(ReferenceConcept(parent=workspace, name="kremer1990"))
-    ref.write_ref_meta(
+    ref.write_reference_meta(
         ReferenceMeta(
             title="Dynamics of entangled linear polymer melts",
             authors=("Kremer", "Grest"),

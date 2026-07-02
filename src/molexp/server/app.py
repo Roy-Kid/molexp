@@ -158,7 +158,7 @@ def create_app(
     #    ``molexp.config`` — e.g. ``agent.model`` set via ``molexp config`` —
     #    so server routes see the same configuration the CLI documents.
     #    In-code registrations keep precedence.
-    from .operator_config import bridge_operator_config
+    from molexp.services.operator_config import bridge_operator_config
 
     bridge_operator_config()
 

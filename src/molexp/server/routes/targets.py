@@ -16,6 +16,7 @@ from molexp.workspace import (
     ComputeTarget,
     Workspace,
     add_target,
+    effective_targets,
     get_target,
     remove_target,
     to_transport,
@@ -29,7 +30,6 @@ from ..schemas import (
     TargetTestCheck,
     TargetTestResponse,
 )
-from ..target_defaults import effective_targets
 
 router = APIRouter(prefix="/targets", tags=["targets"])
 

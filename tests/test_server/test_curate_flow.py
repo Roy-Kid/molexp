@@ -1,6 +1,6 @@
 """In-process tests for the shared workspace-curation flow (link 05).
 
-Drives :func:`molexp.server.curate_runtime.flow.run_curation_flow` directly from
+Drives :func:`molexp.services.curate_runtime.flow.run_curation_flow` directly from
 Python (the route + CLI tests live elsewhere). The flow is the single backend
 code path both ``molexp curate`` and ``POST /curate`` will share: it persists the
 rendered capability catalog, asks the ``curation_planner`` agent for a structured
@@ -10,7 +10,7 @@ destructive capability through the ``side_effects`` -> ``ApprovalGate`` rule, an
 finally invokes the resolved callable in-process.
 
 These tests are **RED until the production module lands** — the top-level import
-of ``molexp.server.curate_runtime.flow`` fails at collection
+of ``molexp.services.curate_runtime.flow`` fails at collection
 (``ModuleNotFoundError``) because that package does not exist yet.
 
 Determinism: no wall-clock assertions, no network, no FS writes outside
@@ -32,16 +32,13 @@ from pathlib import Path
 
 import pytest
 
-from molexp.harness import (
-    Approver,
-    InMemoryCapabilityRegistry,
-    auto_grant_approver,
-)
 from molexp.harness.capabilities import curation_capabilities
 from molexp.harness.gateways.stub import StubAgentGateway
+from molexp.harness.registry import InMemoryCapabilityRegistry
 from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
+from molexp.harness.stages import Approver, auto_grant_approver
 from molexp.harness.store.file_artifact_store import FileArtifactStore
-from molexp.server.curate_runtime.flow import (
+from molexp.services.curate_runtime.flow import (
     CurationArgumentError,
     CurationInvocation,
     CurationResult,
@@ -123,7 +120,7 @@ async def _stub_registry(workspace_root: str) -> InMemoryCapabilityRegistry:
 def patched_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Monkeypatch the merged-registry seam so molmcp is never spawned."""
     monkeypatch.setattr(
-        "molexp.server.curate_runtime.flow.aresolve_curation_capability_registry",
+        "molexp.services.curate_runtime.flow.aresolve_curation_capability_registry",
         _stub_registry,
     )
 

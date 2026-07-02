@@ -1,6 +1,6 @@
 """curate-unify-01 — the shared ChangeProposal curation backend.
 
-RED-first: ``molexp.server.curate_runtime.proposal_flow`` does not exist yet.
+RED-first: ``molexp.services.curate_runtime.proposal_flow`` does not exist yet.
 Exercises the pure `capability → ChangeProposal` mapping and the
 `run_curation_proposal` backend (gate + executor, single approval) over a real
 on-disk Workspace.
@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from molexp.harness import approval_level_for
+from molexp.harness.change_proposal_gate import approval_level_for
 from molexp.harness.schemas import ApprovalDecision, ApprovalRequest
 from molexp.harness.schemas.change_proposal import ObjectRef
 from molexp.workspace import Workspace
@@ -48,7 +48,7 @@ async def _reject(request: ApprovalRequest) -> ApprovalDecision:
 
 def test_read_only_cap_maps_to_none() -> None:
     """ac-001 — read-only curation caps map to None (no proposal)."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal
+    from molexp.services.curate_runtime import curation_invocation_to_proposal
 
     for cap_id in (
         "molexp.curation.scan_workspace",
@@ -62,7 +62,7 @@ def test_read_only_cap_maps_to_none() -> None:
 
 def test_move_run_mapping() -> None:
     """ac-002 — move_run invocation maps to a valid asset_move ChangeProposal."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal
+    from molexp.services.curate_runtime import curation_invocation_to_proposal
 
     proposal = curation_invocation_to_proposal(
         "molexp.curation.move_run", {"run": "r1", "target_experiment": "e2"}
@@ -82,7 +82,7 @@ def test_move_run_mapping() -> None:
 
 def test_delete_folder_mapping() -> None:
     """ac-003 — delete_folder invocation maps to artifact_delete targeting a run ref."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal
+    from molexp.services.curate_runtime import curation_invocation_to_proposal
 
     proposal = curation_invocation_to_proposal("molexp.curation.delete_folder", {"folder": "r1"})
     assert proposal is not None
@@ -93,7 +93,7 @@ def test_delete_folder_mapping() -> None:
 
 def test_unknown_cap_raises() -> None:
     """ac-004 — an unknown / non-curation capability id fails loudly."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal
+    from molexp.services.curate_runtime import curation_invocation_to_proposal
 
     with pytest.raises(ValueError):
         curation_invocation_to_proposal("molexp.curation.not_a_thing", {})
@@ -104,7 +104,10 @@ def test_unknown_cap_raises() -> None:
 
 def test_backend_move_run_grant(tmp_path: Path) -> None:
     """ac-005 — a granted move_run executes: run relocated + change_proposal artifact."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal, run_curation_proposal
+    from molexp.services.curate_runtime import (
+        curation_invocation_to_proposal,
+        run_curation_proposal,
+    )
 
     ws = _workspace(tmp_path)
     run = _audit_run(ws)
@@ -121,7 +124,10 @@ def test_backend_move_run_grant(tmp_path: Path) -> None:
 
 def test_backend_delete_grant(tmp_path: Path) -> None:
     """ac-006 — a granted delete_folder(run) removes the run folder, executed."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal, run_curation_proposal
+    from molexp.services.curate_runtime import (
+        curation_invocation_to_proposal,
+        run_curation_proposal,
+    )
 
     ws = _workspace(tmp_path)
     run = _audit_run(ws)
@@ -135,7 +141,10 @@ def test_backend_delete_grant(tmp_path: Path) -> None:
 
 def test_backend_reject(tmp_path: Path) -> None:
     """ac-007 — a rejected proposal performs no mutation, records rejected."""
-    from molexp.server.curate_runtime import curation_invocation_to_proposal, run_curation_proposal
+    from molexp.services.curate_runtime import (
+        curation_invocation_to_proposal,
+        run_curation_proposal,
+    )
 
     ws = _workspace(tmp_path)
     run = _audit_run(ws)

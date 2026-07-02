@@ -137,7 +137,7 @@ def get_workspace_copilot(workspace=Depends(get_workspace)) -> WorkspaceSummaryR
     Next-actions are **advisory** and separated from execution — high-risk ones are
     flagged ``requiresProposal`` (they must go through a ``ChangeProposal`` first).
     """
-    from molexp.harness import summarize_workspace
+    from molexp.harness.copilot import summarize_workspace
 
     summary = summarize_workspace(assemble_workspace_context(workspace))
     return WorkspaceSummaryResponse.from_summary(summary)
@@ -683,8 +683,8 @@ async def curate_workspace(
     UI). ``approve=false`` (default) records the proposal and refuses; ``true``
     executes the mutation. Either way the §8 ``change_proposal`` artifact is the audit.
     """
-    from molexp.harness import auto_grant_approver
-    from molexp.server.curate_runtime import build_curation_proposal, run_curation_proposal
+    from molexp.harness.stages import auto_grant_approver
+    from molexp.services.curate_runtime import build_curation_proposal, run_curation_proposal
     from molexp.workspace.utils import derive_run_id
 
     try:

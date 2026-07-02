@@ -106,13 +106,12 @@ def _configured_model() -> str | None:
 
     The canonical key is ``"agent.model"`` (same spelling as the CLI's
     ``molexp config set agent.model <id>``; the server startup bridge —
-    :func:`molexp.server.operator_config.bridge_operator_config` — populates
+    :func:`molexp.services.operator_config.bridge_operator_config` — populates
     it from ``~/.molexp/config.json``). The legacy flat ``"agent_model"``
     key is still honoured for in-code users.
     """
     import molexp
-
-    from ..operator_config import AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY
+    from molexp.services.operator_config import AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY
 
     model = molexp.config.get(AGENT_MODEL_KEY) or molexp.config.get(LEGACY_AGENT_MODEL_KEY)
     return model if isinstance(model, str) and model else None

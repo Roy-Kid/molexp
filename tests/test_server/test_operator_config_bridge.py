@@ -3,7 +3,7 @@
 The CLI documents ``molexp config set agent.model <id>`` (persisted to
 ``~/.molexp/config.json``), but server routes resolve the model from the
 in-code ``molexp.config``. ``create_app`` must bridge the two — via the
-shared loader in :mod:`molexp.server.operator_config` — so a CLI-configured
+shared loader in :mod:`molexp.services.operator_config` — so a CLI-configured
 operator does not hit a 503 from ``/api/agent-tasks``.
 """
 
@@ -14,8 +14,8 @@ import json
 import pytest
 
 import molexp
-from molexp.server import operator_config
-from molexp.server.operator_config import (
+from molexp.services import operator_config
+from molexp.services.operator_config import (
     AGENT_MODEL_KEY,
     LEGACY_AGENT_MODEL_KEY,
     bridge_operator_config,
@@ -23,20 +23,20 @@ from molexp.server.operator_config import (
     load_operator_config,
 )
 
+_BRIDGED_KEYS = (AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY, "deepseek_api_key")
+
 
 @pytest.fixture(autouse=True)
 def _clean_molexp_config():
     """Snapshot/restore the process-global ``molexp.config`` keys we touch."""
     saved = {
-        key: molexp.config.get(key)
-        for key in (AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY)
-        if molexp.config.get(key) is not None
+        key: molexp.config.get(key) for key in _BRIDGED_KEYS if molexp.config.get(key) is not None
     }
-    for key in (AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY):
+    for key in _BRIDGED_KEYS:
         if molexp.config.get(key) is not None:
             del molexp.config[key]
     yield
-    for key in (AGENT_MODEL_KEY, LEGACY_AGENT_MODEL_KEY):
+    for key in _BRIDGED_KEYS:
         if molexp.config.get(key) is not None:
             del molexp.config[key]
     for key, value in saved.items():
@@ -87,6 +87,51 @@ class TestBridge:
     def test_no_file_is_a_noop(self, tmp_path):
         bridge_operator_config(tmp_path / "absent.json")
         assert molexp.config.get(AGENT_MODEL_KEY) is None
+
+
+class TestApiKeyBridge:
+    """``agent.<provider>_api_key`` entries bridge into ``molexp.config`` —
+    the persisted key path for ``molexp plan`` / ``molexp agent`` with
+    providers (DeepSeek) whose keys are never read from the environment."""
+
+    @pytest.fixture
+    def keyed_config_file(self, tmp_path):
+        path = tmp_path / "config.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "agent": {
+                        "model": "deepseek:deepseek-v4-flash",
+                        "deepseek_api_key": "sk-from-operator-config",
+                        "note": "not a key",
+                        "empty_api_key": "",
+                    }
+                }
+            )
+        )
+        return path
+
+    def test_configured_api_keys_extraction(self, keyed_config_file):
+        from molexp.services.operator_config import configured_api_keys
+
+        cfg = load_operator_config(keyed_config_file)
+        assert configured_api_keys(cfg) == {"deepseek_api_key": "sk-from-operator-config"}
+
+    def test_bridge_lands_key_in_molexp_config(self, keyed_config_file):
+        bridge_operator_config(keyed_config_file)
+        assert molexp.config.get("deepseek_api_key") == "sk-from-operator-config"
+        assert molexp.config.get(AGENT_MODEL_KEY) == "deepseek:deepseek-v4-flash"
+
+    def test_in_code_key_wins(self, keyed_config_file):
+        molexp.config["deepseek_api_key"] = "sk-in-code"
+        bridge_operator_config(keyed_config_file)
+        assert molexp.config.get("deepseek_api_key") == "sk-in-code"
+
+    def test_model_precedence_does_not_block_keys(self, keyed_config_file):
+        molexp.config[AGENT_MODEL_KEY] = "in-code:model"
+        bridge_operator_config(keyed_config_file)
+        assert molexp.config.get(AGENT_MODEL_KEY) == "in-code:model"
+        assert molexp.config.get("deepseek_api_key") == "sk-from-operator-config"
 
     def test_create_app_runs_the_bridge(self, config_file, monkeypatch):
         monkeypatch.setattr(operator_config, "OPERATOR_CONFIG_PATH", config_file)

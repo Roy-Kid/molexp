@@ -209,3 +209,99 @@ def test_list_all_plans_is_workspace_wide(client, experiment):
     assert plan["experimentId"] == EXPERIMENT_ID
     assert plan["runId"] == "planrun3"
     assert plan["title"] == "Workspace-wide plan"
+
+
+# ------------------------------------------------- --execute tail deliverables
+
+
+def _write_execute_tail_artifacts(run) -> None:
+    """Append the real-execution tail: a non-compile execution_result,
+    the final report, and the audit report."""
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    store = FileArtifactStore(root=Path(run.run_dir) / "artifacts")
+    store.put_json(
+        "execution_result",
+        {
+            "id": "er-2",
+            "bound_workflow_id": "bw-1",
+            "status": "succeeded",
+            "exit_code": 0,
+            "started_at": "2026-01-01T00:01:00+00:00",
+            "ended_at": "2026-01-01T00:02:00+00:00",
+            "metadata": {"mode": "run"},
+        },
+        created_by="test",
+        parent_ids=[],
+    )
+    store.put_json(
+        "final_report",
+        {
+            "title": "LJ scan — final report",
+            "objective": "verify minima",
+            "methods_summary": "ran the 2x2 grid",
+            "test_summary": "21 tests passed",
+            "execution_summary": "succeeded, exit 0",
+            "results": "E_min matches to 1e-4",
+            "conclusions": "hypothesis partially supported",
+            "limitations": "single run",
+            "next_steps": "finer grid",
+        },
+        created_by="test",
+        parent_ids=[],
+    )
+    store.put_json(
+        "audit_report",
+        {"id": "aud-1", "run_id": run.id, "stages": 13, "events": 42},
+        created_by="test",
+        parent_ids=[],
+    )
+
+
+def test_get_plan_surfaces_the_execute_tail(client, experiment):
+    """After `molexp plan --execute`, the detail must carry the REAL execution
+    (`execution`), the final report, and the audit report — and `dryRun` must
+    keep pointing at the compile-mode result, not be shadowed by the newer
+    real execution_result (both share one artifact kind, split by
+    metadata.mode)."""
+    run = experiment.add_run(params={"mode": "plan", "draft": "exec tail"}, id="planrunexec")
+    _write_full_plan_artifacts(run, title="Executed plan", draft="exec tail")
+    _write_execute_tail_artifacts(run)
+
+    body = client.get(f"{BASE}/planrunexec").json()
+    assert body["dryRun"]["metadata"]["mode"] == "compile"
+    assert body["execution"]["metadata"]["mode"] == "run"
+    assert body["execution"]["status"] == "succeeded"
+    assert body["finalReport"]["conclusions"] == "hypothesis partially supported"
+    assert body["auditReport"]["stages"] == 13
+
+
+def test_get_plan_without_execute_tail_has_none_fields(client, experiment):
+    run = experiment.add_run(params={"mode": "plan", "draft": "no tail"}, id="planrunnotail")
+    _write_full_plan_artifacts(run, title="Plan only", draft="no tail")
+
+    body = client.get(f"{BASE}/planrunnotail").json()
+    assert body["execution"] is None
+    assert body["finalReport"] is None
+    assert body["auditReport"] is None
+
+
+def test_get_plan_surfaces_the_capability_selection(client, experiment):
+    """The capabilities view must show WHAT WAS SELECTED (and why), not just
+    the raw catalog+prompt that goes to the LLM — the UI renders the
+    selection first and folds the catalog away."""
+    from molexp.harness.store.file_artifact_store import FileArtifactStore
+
+    run = experiment.add_run(params={"mode": "plan", "draft": "sel"}, id="planrunsel")
+    _write_full_plan_artifacts(run, title="Sel plan", draft="sel")
+    store = FileArtifactStore(root=Path(run.run_dir) / "artifacts")
+    store.put_json(
+        "capability_selection",
+        {"selected": [], "notes": "pure numerical computation; no catalog capability applies"},
+        created_by="test",
+        parent_ids=[],
+    )
+
+    body = client.get(f"{BASE}/planrunsel").json()
+    assert body["capabilitySelection"]["selected"] == []
+    assert "numerical" in body["capabilitySelection"]["notes"]
