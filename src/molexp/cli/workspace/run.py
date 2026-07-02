@@ -42,7 +42,7 @@ RunCandidate = tuple["Run | None", dict[str, JSONValue], str, "str | None"]
 _SCRIPT_ARG = Annotated[
     Path,
     typer.Argument(
-        help="Python script with me.entry(project) call.",
+        help="Python script with me.entry(ws) call.",
         exists=True,
         file_okay=True,
         dir_okay=False,
@@ -396,7 +396,7 @@ def _dispatch_runs(
 
 
 def _make_local_inprocess_handler(
-    profile_cfg: ProfileConfig, *, verb: str | None = None
+    profile_cfg: ProfileConfig, *, verb: str | None = None, fresh: bool = False
 ) -> RunHandler:
     import asyncio
 
@@ -421,6 +421,9 @@ def _make_local_inprocess_handler(
                     run_context=cast("RunContextLike", ctx),
                     execution_id=execution_id,
                     seed_outputs=seed_outputs,
+                    # --rerun --fresh: bypass cache reads so every task body
+                    # actually re-runs (results still land in the cache).
+                    bypass_cache=fresh,
                 )
             )
 
@@ -637,6 +640,7 @@ def _spawn_background_local_run(
     overrides: list[str],
     resume: bool,
     rerun: bool,
+    fresh: bool = False,
 ) -> None:
     """Spawn a detached local ``molexp run`` worker for long-running jobs."""
     log_dir = target_path / ".molexp" / "background"
@@ -663,6 +667,8 @@ def _spawn_background_local_run(
         cmd.append("--resume")
     if rerun:
         cmd.append("--rerun")
+    if fresh:
+        cmd.append("--fresh")
 
     with log_path.open("ab") as log:
         process = subprocess.Popen(
@@ -775,6 +781,7 @@ def _run_local_inprocess(
     continue_verb: str | None,
     target_path: Path,
     explicit_ws: bool,
+    fresh: bool = False,
 ) -> None:
     """Execute the run plan in-process, with a progress bar."""
     mode_label = _profile_mode_label(profile_cfg, "[green]local[/green]")
@@ -784,7 +791,7 @@ def _run_local_inprocess(
         continue_verb=continue_verb,
         workspace=target_path,
         explicit_workspace=explicit_ws,
-        run_handler=_make_local_inprocess_handler(profile_cfg, verb=continue_verb),
+        run_handler=_make_local_inprocess_handler(profile_cfg, verb=continue_verb, fresh=fresh),
         mode_label=mode_label,
         suppress_ok=True,
         show_progress=True,
@@ -805,6 +812,7 @@ def _submit_to_scheduler(
     resources: dict[str, JSONValue],
     scheduling: dict[str, JSONValue],
     block: bool,
+    fresh: bool = False,
 ) -> None:
     """Submit the run plan through molq and report (or monitor) the result."""
     from molexp.plugins.submit_molq.metadata import supported_schedulers
@@ -819,13 +827,31 @@ def _submit_to_scheduler(
         raise typer.Exit(1)
 
     assert selected_scheduler is not None
-    handler = make_submit_handler(
+    submit_handler = make_submit_handler(
         scheduler=selected_scheduler,
         cluster=cluster,
         resources=resources,
         scheduling=scheduling,
         target=selected_target,
     )
+    handler: RunHandler = submit_handler
+    if fresh:
+        # --rerun --fresh across a scheduler: the worker runs in another
+        # process (possibly another host), so the bypass-cache request rides a
+        # persisted marker in the execution slot. Derive the execution id here
+        # (the marker write claims the slot directory), persist the marker,
+        # and hand the SAME id to the submit handler so the worker reopens it.
+        from molexp.workflow import make_execution_id, request_fresh_execution
+
+        def _fresh_handler(
+            script_arg: Path, mol_run: Run, experiment: Experiment, project: Project
+        ) -> None:
+            run_dir = Path(str(mol_run.run_dir))
+            execution_id = make_execution_id(mol_run.id, run_dir)
+            request_fresh_execution(run_dir, execution_id)
+            submit_handler(script_arg, mol_run, experiment, project, execution_id=execution_id)
+
+        handler = _fresh_handler
     mode_label = _profile_mode_label(profile_cfg, f"[magenta]{selected_scheduler}[/magenta]")
 
     n, submitted = _dispatch_runs(
@@ -926,7 +952,22 @@ def run(
         bool,
         typer.Option(
             "--rerun",
-            help="Re-execute non-succeeded runs from scratch in a new execution (no seed).",
+            help=(
+                "Re-execute failed/cancelled runs in a new execution (no seed). "
+                "Deterministic tasks may still be served from the content-addressed "
+                "cache — add --fresh to bypass cache reads. Mutually exclusive with "
+                "--resume."
+            ),
+        ),
+    ] = False,
+    fresh: Annotated[
+        bool,
+        typer.Option(
+            "--fresh",
+            help=(
+                "With --rerun: bypass content-addressed cache reads so every task "
+                "body actually re-runs (results are still written back to the cache)."
+            ),
         ),
     ] = False,
     cpus: Annotated[
@@ -1005,6 +1046,12 @@ def run(
     if resume and rerun:
         rprint("[red]Error:[/red] --resume and --rerun are mutually exclusive.")
         raise typer.Exit(1)
+    if fresh and not rerun:
+        rprint(
+            "[red]Error:[/red] --fresh only applies together with --rerun "
+            "(it bypasses cache reads for the new execution)."
+        )
+        raise typer.Exit(1)
     continue_verb = "resume" if resume else ("rerun" if rerun else None)
 
     selected_target, selected_scheduler, is_local = _select_backend(
@@ -1029,6 +1076,7 @@ def run(
             overrides=overrides or [],
             resume=resume,
             rerun=rerun,
+            fresh=fresh,
         )
         return
 
@@ -1049,6 +1097,7 @@ def run(
             continue_verb=continue_verb,
             target_path=target.path,
             explicit_ws=explicit_ws,
+            fresh=fresh,
         )
         return
 
@@ -1065,6 +1114,7 @@ def run(
         resources={"cpus": cpus, "mem": mem, "gpus": gpus, "gpu_type": gpu_type, "time": time},
         scheduling={"queue": selected_queue, "account": account, "qos": qos},
         block=block,
+        fresh=fresh,
     )
 
 

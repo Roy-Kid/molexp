@@ -12,6 +12,17 @@ Model resolution mirrors ``molexp agent``: ``--model`` wins, else the
 ``agent.model`` key from ``molexp config``; with neither, the command fails
 with an actionable message.
 
+Zero-residue ordering: draft + model resolution and the agent-stack
+preflight (:meth:`PlanRuntime.preflight` → shared
+``services.plan_runtime.preflight_plan_router``) all run BEFORE the first
+workspace write, so a missing ``molexp[agent]`` extra, an unconfigured
+model, or a missing API key exits with a one-line message and leaves the
+target directory untouched.
+
+Output speaks the documented nine-step vocabulary
+(``PlanMode.step_groups``); the internal stage names fold into
+``-v/--verbose``.
+
 Heavy imports (``molexp.harness``, ``molexp.workspace``, the agent router)
 are deferred into the command body so plain ``molexp --help`` stays fast.
 """
@@ -26,8 +37,10 @@ import typer
 
 if TYPE_CHECKING:
     from molexp._typing import JSONValue
+    from molexp.agent.router import Router
     from molexp.harness.executors import Executor
     from molexp.harness.gateways.gateway import AgentGateway
+    from molexp.harness.modes.plan import PlanStep
     from molexp.harness.registry.capability_registry import CapabilityRegistry
     from molexp.harness.schemas import ApprovalDecision, ApprovalRequest, ModeResult
     from molexp.harness.store.file_artifact_store import FileArtifactStore
@@ -163,34 +176,33 @@ def _resolve_grounding(workspace_root: Path, *, ground: bool) -> CapabilityRegis
 
 class PlanRuntime:
     @staticmethod
-    def build_gateway(*, model: str, run: Run) -> AgentGateway:
+    def preflight(*, model: str) -> Router | None:
+        """Validate the agent stack + credentials BEFORE any disk write.
+
+        Delegates to :func:`molexp.services.plan_runtime.preflight_plan_router`
+        (shared with the server path): imports the agent stack, constructs the
+        router, and forces credential resolution — no network, no disk. Raises
+        :class:`~molexp.services.plan_runtime.PlanPreflightError` with a
+        one-line human-readable reason. A seam: tests monkeypatch this to a
+        no-op returning ``None`` alongside a stubbed :meth:`build_gateway`.
+        """
+        from molexp.services.plan_runtime import preflight_plan_router
+
+        return preflight_plan_router(model=model)
+
+    @staticmethod
+    def build_gateway(*, model: str, run: Run, router: Router | None = None) -> AgentGateway:
         """Build the production gateway for ``run`` from the resolved ``model``.
 
-        Wires a :class:`~molexp.agent.PydanticAIRouter` (every tier on the same
-        model id) into a ``RouterBackedAgentGateway`` whose artifact store shares
-        the run's artifact directory with the Mode-built context. A seam: tests
+        Delegates to the shared service builder
+        (:func:`molexp.services.plan_runtime.build_plan_gateway`) so the CLI
+        and the server construct the exact same gateway; ``router`` reuses the
+        instance :meth:`preflight` already validated. A seam: tests
         monkeypatch this to inject a ``StubAgentGateway`` instead.
         """
-        from molexp.agent import PydanticAIRouter
-        from molexp.agent.router import ModelTier
-        from molexp.harness import RouterBackedAgentGateway
-        from molexp.harness.gateways import (
-            plan_agent_responses,
-            plan_output_kinds,
-            plan_system_prompts,
-        )
-        from molexp.harness.store.file_artifact_store import FileArtifactStore
+        from molexp.services.plan_runtime import build_plan_gateway
 
-        store = FileArtifactStore(root=Path(run.run_dir / "artifacts"))
-        router = PydanticAIRouter(models=dict.fromkeys(ModelTier, model))
-        return RouterBackedAgentGateway(
-            router=router,
-            artifact_store=store,
-            agent_responses=plan_agent_responses(),
-            output_kind_by_agent=plan_output_kinds(),
-            system_prompt_by_agent=plan_system_prompts(),
-            model=model,
-        )
+        return build_plan_gateway(model=model, run=run, router=router)
 
     @staticmethod
     def build_executor() -> Executor:
@@ -286,10 +298,20 @@ def plan(
             "to disable.",
         ),
     ] = True,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose",
+            "-v",
+            help="Show the internal stage names inside each of the nine steps "
+            "(and the per-stage artifact table on completion).",
+        ),
+    ] = False,
 ) -> None:
     """Turn an experiment draft into validated molexp.workflow source (PlanMode)."""
     from molexp.cli._common import deterministic_run_id, rprint
     from molexp.harness import PlanMode, StageExecutionError
+    from molexp.services.plan_runtime import PlanPreflightError
     from molexp.workspace import Workspace
 
     draft_text = _resolve_draft(draft, file)
@@ -301,6 +323,18 @@ def plan(
             "[bold]molexp config set agent.model <id>[/bold]."
         )
         raise typer.Exit(1)
+
+    # Preflight — BEFORE any disk write. A missing agent extra, an unknown
+    # model, or a missing API key exits here with a one-line reason and
+    # leaves the workspace directory untouched (zero residue).
+    try:
+        router = PlanRuntime.preflight(model=resolved_model)
+    except PlanPreflightError as exc:
+        from rich.markup import escape
+
+        # escape(): the message may contain rich-markup-lookalikes ("[agent]").
+        rprint(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
 
     workspace_root = (workspace or Path.cwd()).resolve()
     ws = Workspace(workspace_root)
@@ -317,19 +351,35 @@ def plan(
         execute=execute,
         compute_target=_resolve_compute_target(run, ws),
     )
-    stage_names = [stage.name for stage in mode.stages(draft_text)]
+    groups = mode.step_groups(draft_text)
+    plan_steps = [g for g in groups if not g.tail]
     preview = draft_text.strip().splitlines()[0][:_DRAFT_PREVIEW_CHARS]
-    rprint(f"[bold]molexp plan[/bold] — {len(stage_names)} stages on run [bold]{run.id}[/bold]")
+    tail_note = " + execution tail" if execute else ""
+    rprint(
+        f"[bold]molexp plan[/bold] — {len(plan_steps)} steps{tail_note} "
+        f"on run [bold]{run.id}[/bold]"
+    )
     rprint(f"  model     : {resolved_model}")
     rprint(f"  draft     : {preview}")
     rprint(f"  workspace : {workspace_root}")
-    rprint(f"  stages    : {' -> '.join(stage_names)}")
+    rprint(f"  steps     : {' -> '.join(g.title for g in groups)}")
+    if verbose:
+        rprint("  stages    :")
+        for label, group in _numbered(groups):
+            chain = " -> ".join(stage.name for stage in group.stages)
+            rprint(f"    {label} {group.title:<24} {chain}")
 
-    gateway = PlanRuntime.build_gateway(model=resolved_model, run=run)
+    gateway = PlanRuntime.build_gateway(model=resolved_model, run=run, router=router)
     capability_registry = _resolve_grounding(workspace_root, ground=ground)
+    from molexp.services.plan_runtime import drive_plan_mode
+
     try:
+        # drive_plan_mode wraps the pipeline in the run lifecycle so the plan
+        # Run's status is honest (running -> succeeded | failed) — the same
+        # shared path the server's plan-tasks use.
         result = asyncio.run(
-            mode.run(
+            drive_plan_mode(
+                mode,
                 run=run,
                 user_input=draft_text,
                 gateway=gateway,
@@ -340,19 +390,25 @@ def plan(
         rprint(f"[red]Plan pipeline failed:[/red] {exc}")
         rprint(
             "[dim]Completed stages stay in the run's completion ledger — "
-            "re-running the same draft resumes from the failed stage.[/dim]"
+            "re-running the same draft resumes the pipeline; artifacts a "
+            "validator rejected are regenerated, not reused.[/dim]"
         )
         raise typer.Exit(1) from exc
 
-    rprint("\n[green]OK[/green] all stages completed — stage artifacts:")
-    for name, ref in zip(stage_names, result.stage_artifacts, strict=True):
-        rprint(f"  {name:<26} {ref.kind:<20} {ref.id}")
+    rprint(f"\n[green]OK[/green] all {len(plan_steps)} steps{tail_note} completed")
+    artifacts = iter(result.stage_artifacts)
+    for label, group in _numbered(groups):
+        refs = [next(artifacts) for _ in group.stages]
+        rprint(f"  {label} {group.title:<24} {len(refs)} artifact{'s' if len(refs) != 1 else ''}")
+        if verbose:
+            for stage, ref in zip(group.stages, refs, strict=True):
+                rprint(f"       {stage.name:<26} {ref.kind:<20} {ref.id}")
 
     # Materialize the SAME UI-facing records the server's `POST /plan-tasks`
     # writes — persist the workflow IR onto the experiment + record the Agents
     # session (with the deliverables locator) and Knowledge note — so a plan
     # produced here is identical, in the UI, to one generated from the web app.
-    from molexp.server.plan_runtime.materialize import materialize_plan_records
+    from molexp.services.plan_runtime.materialize import materialize_plan_records
 
     task_id = f"plan-{run.id}"
     materialize_plan_records(
@@ -376,6 +432,19 @@ def plan(
     )
 
 
+def _numbered(groups: list[PlanStep]) -> list[tuple[str, PlanStep]]:
+    """Label the nine plan steps ``1.`` … ``9.`` and the opt-in tail ``+``."""
+    labeled: list[tuple[str, PlanStep]] = []
+    step_no = 0
+    for group in groups:
+        if group.tail:
+            labeled.append(("+", group))
+        else:
+            step_no += 1
+            labeled.append((f"{step_no}.", group))
+    return labeled
+
+
 def _resolve_compute_target(run: Run, ws: Workspace) -> ComputeTarget | None:
     """Resolve the run's intended ``ComputeTarget`` from the workspace registry.
 
@@ -393,7 +462,7 @@ def _resolve_compute_target(run: Run, ws: Workspace) -> ComputeTarget | None:
 def _print_final_report(run: Run, result: ModeResult) -> None:
     """Print the final report produced by the ``--execute`` tail."""
     from molexp.cli._common import rprint
-    from molexp.harness import FinalReport
+    from molexp.harness.schemas import FinalReport
     from molexp.harness.store.file_artifact_store import FileArtifactStore
 
     report_ref = next((a for a in result.stage_artifacts if a.kind == "final_report"), None)

@@ -1,10 +1,11 @@
 """molexp CLI — flat command tree.
 
-Top-level verbs (``run`` / ``serve`` / ``monitor`` / ``explore`` / ``info`` /
-``exec`` / ``shell`` / ``sync`` / ``push`` / ``pull`` / ``init`` / ``agent``)
-and noun groups (``project`` / ``experiment`` / ``runs`` / ``asset`` /
-``target`` / ``session`` / ``config`` / ``mcp``) register directly on the app.
-Each workspace-bound command takes a ``-t/--target`` option (default: cwd) via
+Top-level verbs (``run`` / ``serve`` / ``monitor`` / ``explore`` / ``context`` /
+``info`` / ``exec`` / ``shell`` / ``sync`` / ``push`` / ``pull`` / ``init`` /
+``agent`` / ``plan``) and noun groups (``project`` / ``experiment`` / ``runs`` /
+``asset`` / ``target`` / ``session`` / ``config`` / ``mcp`` / ``curate`` /
+``git`` / ``knowledge``) register directly on the app. Each workspace-bound
+command takes a ``-t/--target`` option (default: cwd) via
 :mod:`molexp.cli._target`. There is no ``workspace`` god-group.
 """
 
@@ -73,6 +74,11 @@ app.add_typer(session_app, name="session")
 from molexp.cli.config_cmd import config_app  # noqa: E402
 
 app.add_typer(config_app, name="config")
+
+# ── knowledge group (OKF notes + literature) ─────────────────────────────────
+from molexp.cli.knowledge_cmd import knowledge_app  # noqa: E402
+
+app.add_typer(knowledge_app, name="knowledge")
 
 # ── Third-party CLI plugin discovery ─────────────────────────────────────────
 _logger = get_logger(__name__)

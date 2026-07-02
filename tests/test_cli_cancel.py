@@ -165,8 +165,12 @@ class TestRunsCancelExperimentScope:
         assert result.exit_code == 1
         assert "--project and --experiment" in result.output
 
-    def test_cancel_aborted_by_user(self, tmp_path):
+    def test_cancel_aborted_by_user(self, tmp_path, monkeypatch):
         ws_path, project, exp, run = _make_workspace(tmp_path)
+        # Interactive terminal: the confirmation prompt gates as before.
+        import molexp.cli.workspace.resources as resources
+
+        monkeypatch.setattr(resources, "_stdin_is_interactive", lambda: True)
 
         result = runner.invoke(
             app,
@@ -254,6 +258,53 @@ class TestRunsCancelByRunId:
 
         assert result.exit_code == 0
         assert "not found" in result.output.lower()
+
+
+class TestRunsCancelNonInteractive:
+    def test_no_yes_non_tty_errors_instead_of_blocking(self, tmp_path):
+        """A pipe/CI invocation without --yes must fail fast with guidance,
+        never sit blocked on the y/N prompt."""
+        ws_path, project, exp, run = _make_workspace(tmp_path)
+
+        result = runner.invoke(app, ["runs", "cancel", run.id, "-t", str(ws_path)])
+
+        assert result.exit_code == 1
+        assert "non-interactive" in result.output
+        assert "--yes" in result.output
+        reloaded = (
+            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
+        )
+        assert reloaded.status == "pending"
+
+
+class TestRunsCancelMisclassifiedIds:
+    def test_project_and_experiment_ids_error_with_usage_hint(self, tmp_path):
+        """`molexp runs cancel demo lr-scan` — container names passed where
+        RUN_IDS belong must error with the correct usage, not warn-and-skip."""
+        ws_path, project, exp, run = _make_workspace(tmp_path)
+
+        result = runner.invoke(
+            app,
+            ["runs", "cancel", project.id, exp.id, "--yes", "-t", str(ws_path)],
+        )
+
+        assert result.exit_code == 1
+        assert "looks like a project id" in result.output
+        assert "looks like an experiment id" in result.output
+        assert f"molexp runs list {project.id} {exp.id}" in result.output
+        reloaded = (
+            Workspace.load(ws_path).get_project(project.id).get_experiment(exp.id).get_run(run.id)
+        )
+        assert reloaded.status == "pending"
+
+    def test_experiment_id_alone_errors(self, tmp_path):
+        ws_path, _project, exp, _run = _make_workspace(tmp_path)
+
+        result = runner.invoke(app, ["runs", "cancel", exp.id, "--yes", "-t", str(ws_path)])
+
+        assert result.exit_code == 1
+        assert "looks like an experiment id" in result.output
+        assert "molexp runs list" in result.output
 
 
 class TestRunsCancelMolqIntegration:

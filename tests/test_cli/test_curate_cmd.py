@@ -1,6 +1,6 @@
 """``molexp curate`` — thin-adapter wiring via Typer CliRunner, no LLM.
 
-The shared backend (:func:`molexp.server.curate_runtime.flow.run_curation_flow`)
+The shared backend (:func:`molexp.services.curate_runtime.flow.run_curation_flow`)
 is monkeypatched to a recording stub, so these tests assert the CLI is a *thin
 adapter*: it resolves the model, files a content-addressed Run, builds the
 gateway, and delegates to the single flow exactly once with request-derived
@@ -34,7 +34,7 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     coroutine (the command wraps it in ``asyncio.run``) and returns a canned
     :class:`CurationResult`.
     """
-    from molexp.server.curate_runtime.flow import CurationResult
+    from molexp.services.curate_runtime.flow import CurationResult
 
     recorder: dict[str, Any] = {"calls": []}
 
@@ -64,7 +64,7 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
             artifact_ids=[],
         )
 
-    monkeypatch.setattr("molexp.server.curate_runtime.flow.run_curation_flow", _stub_flow)
+    monkeypatch.setattr("molexp.services.curate_runtime.flow.run_curation_flow", _stub_flow)
     # The gateway is built but unused by the stub flow — return a sentinel so no
     # real PydanticAIRouter is constructed.
     monkeypatch.setattr("molexp.cli.curate_cmd._build_gateway", lambda **_: object())

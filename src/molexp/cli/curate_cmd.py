@@ -101,7 +101,7 @@ def _configured_model() -> str | None:
 
 def _build_gateway(*, model: str, run: Run) -> AgentGateway:
     """Build the production curate gateway (a seam mirroring ``PlanRuntime``)."""
-    from molexp.server.curate_runtime.gateway import build_curate_gateway
+    from molexp.services.curate_runtime.gateway import build_curate_gateway
 
     return build_curate_gateway(model=model, run=run)
 
@@ -147,7 +147,7 @@ def curate_ask(
     """Plan + run one curation capability from a natural-language request (LLM)."""
     from molexp._typing import JSONValue
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.server.curate_runtime.flow import CurationArgumentError, run_curation_flow
+    from molexp.services.curate_runtime.flow import CurationArgumentError, run_curation_flow
     from molexp.workspace import Workspace
 
     request_text = _resolve_request(request, file)
@@ -222,7 +222,7 @@ def _execute_proposal(
     """Mint an audit run, gate + execute *proposal*, print the outcome (exit 1 if not executed)."""
     from molexp._typing import JSONValue
     from molexp.cli._common import deterministic_run_id, rprint
-    from molexp.server.curate_runtime import run_curation_proposal
+    from molexp.services.curate_runtime import run_curation_proposal
     from molexp.workspace import Workspace
 
     ws_root = (workspace or Path.cwd()).resolve()
@@ -280,7 +280,7 @@ def curate_move_run(
     yes: _YesOpt = False,
 ) -> None:
     """Relocate a run to another experiment (gated)."""
-    from molexp.server.curate_runtime import build_curation_proposal
+    from molexp.services.curate_runtime import build_curation_proposal
 
     proposal = _build_or_exit(
         lambda: build_curation_proposal("move_run", run=run, target_experiment=to)
@@ -304,7 +304,7 @@ def curate_delete_folder(
     yes: _YesOpt = False,
 ) -> None:
     """Delete a folder / run (gated, irreversible)."""
-    from molexp.server.curate_runtime import build_curation_proposal
+    from molexp.services.curate_runtime import build_curation_proposal
 
     proposal = _build_or_exit(lambda: build_curation_proposal("delete_folder", folder=folder))
     _execute_proposal(
@@ -329,7 +329,7 @@ def curate_rehome_asset(
     yes: _YesOpt = False,
 ) -> None:
     """Re-home a data asset into another experiment scope (gated)."""
-    from molexp.server.curate_runtime import build_curation_proposal
+    from molexp.services.curate_runtime import build_curation_proposal
 
     proposal = _build_or_exit(
         lambda: build_curation_proposal(

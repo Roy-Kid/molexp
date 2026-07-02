@@ -12,11 +12,11 @@ from molexp.cli._common import rprint
 
 # Single source of truth for the operator config path + loader — shared with
 # the server's startup bridge (server must not import molexp.cli, so the
-# loader lives in molexp.server.operator_config and the CLI delegates).
-from molexp.server.operator_config import (
+# loader lives in molexp.services.operator_config and the CLI delegates).
+from molexp.services.operator_config import (
     OPERATOR_CONFIG_PATH as _CONFIG_PATH,
 )
-from molexp.server.operator_config import (
+from molexp.services.operator_config import (
     load_operator_config as _load_operator_config,
 )
 

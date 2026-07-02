@@ -6,6 +6,7 @@ The ``mcp`` config group lives in the sibling :mod:`.mcp_config` module.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
 
@@ -21,6 +22,7 @@ from molexp.cli._common import (
     status_color,
 )
 from molexp.cli._target import TargetOption, resolve_workspace_target
+from molexp.workspace.run import RETRYABLE_STATUSES
 from molexp.workspace.target import LocalTarget
 
 _console = Console()
@@ -180,6 +182,37 @@ def experiment_list(
 run_app = typer.Typer(help="Run management commands", no_args_is_help=True)
 
 
+def _stdin_is_interactive() -> bool:
+    """Whether stdin is a real terminal (a seam so tests can fake a TTY)."""
+    return sys.stdin.isatty()
+
+
+def _classify_container_id(ws, candidate: str) -> str | None:  # noqa: ANN001
+    """Return ``"project"`` / ``"experiment"`` when *candidate* names one.
+
+    Used by ``runs cancel`` to catch the classic mix-up: ``runs list`` takes
+    ``PROJECT EXPERIMENT`` positionals while ``runs cancel`` takes bare
+    ``RUN_IDS`` — a container name passed as a run id must error with the
+    correct usage instead of a silent warn-and-skip.
+    """
+    from molexp.workspace import ExperimentNotFoundError, ProjectNotFoundError
+
+    try:
+        ws.get_project(candidate)
+    except ProjectNotFoundError:
+        pass
+    else:
+        return "project"
+    for proj in ws.list_projects():
+        try:
+            proj.get_experiment(candidate)
+        except ExperimentNotFoundError:
+            continue
+        else:
+            return "experiment"
+    return None
+
+
 @run_app.command("create")
 def run_create(
     project_id: Annotated[str, typer.Argument(help="Project ID")],
@@ -334,6 +367,7 @@ def run_cancel(
     from molexp.workspace import RunNotFoundError as _RunNotFound
 
     if run_ids:
+        misclassified: list[tuple[str, str]] = []
         for rid in run_ids:
             found = None
             for proj in ws.list_projects():
@@ -345,10 +379,26 @@ def run_cancel(
                     break
                 if found:
                     break
-            if found is None:
-                rprint(f"[yellow]Warning:[/yellow] Run {rid!r} not found — skipping.")
-            else:
+            if found is not None:
                 target_runs.append(found)
+                continue
+            kind = _classify_container_id(ws, rid)
+            if kind is not None:
+                misclassified.append((rid, kind))
+            else:
+                rprint(f"[yellow]Warning:[/yellow] Run {rid!r} not found — skipping.")
+        if misclassified:
+            for rid, kind in misclassified:
+                article = "an" if kind == "experiment" else "a"
+                rprint(
+                    f"[red]Error:[/red] {rid!r} looks like {article} {kind} id — "
+                    "`molexp runs cancel` takes RUN_IDS."
+                )
+            proj_hint = next((rid for rid, kind in misclassified if kind == "project"), None)
+            exp_hint = next((rid for rid, kind in misclassified if kind == "experiment"), None)
+            list_cmd = f"molexp runs list {proj_hint or '<project>'} {exp_hint or '<experiment>'}"
+            rprint(f"To target a run, use its id from: [bold]{list_cmd}[/bold]")
+            raise typer.Exit(1)
     else:
         if not project_id or not experiment_id:
             rprint("[red]Error:[/red] Provide run IDs, or both --project and --experiment.")
@@ -405,6 +455,13 @@ def run_cancel(
     _console.print(table)
 
     if not yes:
+        if not _stdin_is_interactive():
+            # Never block a pipe/CI invocation on the y/N prompt.
+            rprint(
+                "[red]Error:[/red] non-interactive session: pass --yes to confirm "
+                f"cancelling {len(target_runs)} run(s)."
+            )
+            raise typer.Exit(1)
         confirm = typer.prompt(f"\nCancel {len(target_runs)} job(s)? [y/N]", default="N")
         if confirm.strip().lower() not in ("y", "yes"):
             rprint("[dim]Aborted.[/dim]")
@@ -500,9 +557,13 @@ def run_info(
     rprint(f"[bold]Run:[/bold] {r.id}")
     rprint(f"  Status: {r.status}")
     # A failed run must say WHY, right under the status, with the one command to
-    # retry — the reason is captured in the canonical record (run.json).
+    # retry — the reason is captured in the canonical record (run.json). The
+    # error block is status-gated (run-recovery bug 2): a run that has since
+    # succeeded must not keep advertising a stale error + retry hint (the
+    # lifecycle also clears metadata.error on success; this is the display-side
+    # defense for records written before that fix).
     err = r.metadata.error
-    if err is not None:
+    if err is not None and r.status in RETRYABLE_STATUSES:
         rprint(f"  [red]Error:[/red] {err.type}: {err.message}")
         script = getattr(r.metadata, "script", None)
         hint = f"molexp run {script} --resume" if script else "molexp run <script> --resume"
@@ -517,6 +578,17 @@ def run_info(
         if r.metadata.config:
             rprint(f"  Config: {json.dumps(r.metadata.config, indent=2, default=str)}")
     rprint(f"  Parameters: {json.dumps(r.parameters, indent=2, default=str)}")
+    # Recent workspace-timeline events for this run (default-on event spine;
+    # the same read path the server's /events endpoint uses). Silent only when
+    # the workspace has no timeline yet (nothing has emitted).
+    from molexp.workspace.events import read_workspace_events
+
+    events = read_workspace_events(ws.root, ref=r.id, limit=5)
+    if events:
+        rprint("  Recent events:")
+        for ev in events:
+            ts = ev.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            rprint(f"    {ts}  {ev.type}  [dim]({ev.actor})[/dim]")
 
 
 # Attach prune subcommand from the prune module.
@@ -532,27 +604,81 @@ _prune.register(run_app)
 asset_app = typer.Typer(help="Asset management commands", no_args_is_help=True)
 
 
+_ASSET_SCOPE_KINDS = ("workspace", "project", "experiment", "run")
+
+
+def _format_asset_scope(scope) -> str:  # noqa: ANN001
+    """Render an ``AssetScope`` as ``kind:id/id/…`` (bare kind at workspace)."""
+    if not scope.ids:
+        return scope.kind
+    return f"{scope.kind}:{'/'.join(scope.ids)}"
+
+
 @asset_app.command("list")
 def asset_list(
+    scope: Annotated[
+        str | None,
+        typer.Option(
+            "--scope",
+            help="Filter by scope kind: workspace | project | experiment | run.",
+        ),
+    ] = None,
     limit: Annotated[int, typer.Option("--limit", "-l", help="Limit results")] = 50,
     target_spec: TargetOption = ".",
 ) -> None:
-    """List workspace-level assets."""
+    """List assets across ALL scopes (workspace, project, experiment, run).
+
+    The default view scans every scope's authoritative ``assets.json`` manifest
+    — the same count ``molexp context`` reports — with a Scope column locating
+    each asset. Use ``--scope`` to restrict to one scope kind.
+    """
     target, _transport, _fs = resolve_workspace_target(target_spec)
     if not isinstance(target, LocalTarget):
         _remote_only("asset list")
     ws = get_workspace(target.path if target.path != Path.cwd() else None)
-    assets = ws.assets.list_assets()[:limit]
-    if not assets:
-        rprint("[yellow]No assets found[/yellow]")
+
+    if scope is not None and scope not in _ASSET_SCOPE_KINDS:
+        rprint(
+            f"[red]Error:[/red] unknown scope {scope!r} — "
+            f"choose one of: {', '.join(_ASSET_SCOPE_KINDS)}."
+        )
+        raise typer.Exit(1)
+
+    from molexp.workspace.assets import scan
+
+    assets = scan.scan_assets(ws.root)
+    total = len(assets)
+    if scope is not None:
+        assets = [a for a in assets if a.scope.kind == scope]
+    shown = assets[:limit]
+
+    if not shown:
+        if scope is not None and total:
+            rprint(
+                f"[yellow]No {scope}-scope assets found[/yellow] "
+                f"— {total} asset(s) exist in other scopes (drop --scope to see them)."
+            )
+        else:
+            rprint("[yellow]No assets found[/yellow]")
         return
-    table = Table(title="Workspace Assets")
+    title = "Assets (all scopes)" if scope is None else f"Assets ({scope} scope)"
+    table = Table(title=title)
     table.add_column("Asset ID", style="cyan")
     table.add_column("Name", style="green")
+    table.add_column("Kind")
+    table.add_column("Scope", style="magenta")
     table.add_column("Created")
-    for a in assets:
-        table.add_row(a.asset_id[:12] + "...", a.name, a.created_at.strftime("%Y-%m-%d %H:%M"))
+    for a in shown:
+        table.add_row(
+            a.asset_id[:12] + "...",
+            a.name,
+            getattr(a, "kind", "-"),
+            _format_asset_scope(a.scope),
+            a.created_at.strftime("%Y-%m-%d %H:%M"),
+        )
     _console.print(table)
+    if len(assets) > len(shown):
+        rprint(f"[dim]Showing {len(shown)} of {len(assets)} — raise --limit to see more.[/dim]")
 
 
 # ---------------------------------------------------------------------------

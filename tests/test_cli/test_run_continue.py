@@ -9,7 +9,7 @@ Two continuation verbs replace the single run-level ``--resume``:
 
 These tests target the not-yet-written production surface:
   - the ``--rerun`` CLI flag on ``molexp run``
-  - ``molexp.workflow._pydantic_graph.persistence.last_resumable_execution_id``
+  - ``molexp.workflow._engine.persistence.last_resumable_execution_id``
     (formerly ``molexp.cli.workspace.run._last_resumable_execution_id``)
   - the resume-seeding / rerun-fresh wiring of the local run handler
 
@@ -130,10 +130,12 @@ def _history(workspace_root: Path) -> list[ExecutionRecord]:
 class _ExecuteRecorder:
     """Async stand-in for ``WorkflowRuntime.execute`` that records kwargs.
 
-    The body is intentionally trivial: the surrounding ``RunContext`` lifecycle
-    is responsible for appending / reopening the ``ExecutionRecord`` and marking
-    the run status, so a no-op execute lets the lifecycle close cleanly while we
-    inspect how the CLI seeded the call.
+    The body is intentionally trivial — we only inspect how the CLI seeded the
+    call — but it honors the runtime's terminal-signal contract: a workflow
+    that ran to completion calls ``run_context.mark_succeeded()`` (run-recovery
+    bug 1: the lifecycle never *defaults* a previously-failed run back to
+    succeeded on a signal-less exit, so a resume/rerun stub must signal like
+    the real runtime does).
     """
 
     def __init__(self) -> None:
@@ -145,6 +147,10 @@ class _ExecuteRecorder:
         **kwargs: Any,
     ) -> Any:
         self.calls.append(dict(kwargs))
+        run_context = kwargs.get("run_context")
+        mark_succeeded = getattr(run_context, "mark_succeeded", None)
+        if callable(mark_succeeded):
+            mark_succeeded()
 
         class _Result:
             def __init__(self) -> None:
@@ -215,7 +221,7 @@ def _seed_failed_execution(
 
 class TestLastResumableExecutionId:
     def test_returns_last_non_succeeded_record(self, tmp_path: Path) -> None:
-        from molexp.workflow._pydantic_graph.persistence import last_resumable_execution_id
+        from molexp.workflow._engine.persistence import last_resumable_execution_id
 
         ws = me.Workspace(tmp_path / "ws")
         run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
@@ -241,7 +247,7 @@ class TestLastResumableExecutionId:
         assert last_resumable_execution_id(run) == "exec-3"
 
     def test_skips_trailing_succeeded_to_find_earlier_failure(self, tmp_path: Path) -> None:
-        from molexp.workflow._pydantic_graph.persistence import last_resumable_execution_id
+        from molexp.workflow._engine.persistence import last_resumable_execution_id
 
         ws = me.Workspace(tmp_path / "ws")
         run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
@@ -265,7 +271,7 @@ class TestLastResumableExecutionId:
         assert last_resumable_execution_id(run) == "exec-2"
 
     def test_returns_none_for_empty_history(self, tmp_path: Path) -> None:
-        from molexp.workflow._pydantic_graph.persistence import last_resumable_execution_id
+        from molexp.workflow._engine.persistence import last_resumable_execution_id
 
         ws = me.Workspace(tmp_path / "ws")
         run = ws.add_project("demo").add_experiment("train").add_run(params={"seed": 0})
@@ -379,6 +385,39 @@ class TestRerunFreshExecution:
         call = recorder.call
         assert call.get("execution_id") is None, call
         assert not call.get("seed_outputs"), call
+        # A plain rerun keeps the content-addressed cache in play.
+        assert not call.get("bypass_cache"), call
+
+    def test_rerun_fresh_passes_bypass_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--rerun --fresh threads bypass_cache=True into the runtime
+        (run-recovery bug 4: the cache-read escape hatch)."""
+        workspace_root = tmp_path / "workspace"
+        script = tmp_path / "train.py"
+        molcfg = tmp_path / "molcfg.yaml"
+        _write_molcfg(molcfg)
+        _write_script(script, workspace_root)
+
+        _seed_failed_execution(workspace_root, node_outputs={"prep": {"value": 7}})
+        recorder = _patch_execute(monkeypatch)
+
+        result = runner.invoke(
+            app,
+            [
+                "run",
+                str(script),
+                "--local",
+                "--rerun",
+                "--fresh",
+                "--config",
+                str(molcfg),
+                "-t",
+                str(workspace_root),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        assert recorder.call.get("bypass_cache") is True, recorder.call
 
     def test_rerun_appends_new_execution_record(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

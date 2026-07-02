@@ -139,7 +139,10 @@ def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
     compile + pytest path is covered by the harness integration tests.
     """
 
-    def _fake_make_gateway(*, model: str, run: Any) -> Any:
+    def _fake_preflight(*, model: str) -> Any:
+        return None  # stub router: the stub gateway never touches an LLM
+
+    def _fake_make_gateway(*, model: str, run: Any, router: Any = None) -> Any:
         from molexp.harness.gateways.stub import StubAgentGateway
         from molexp.harness.store.file_artifact_store import FileArtifactStore
 
@@ -162,6 +165,7 @@ def _patch_gateway(monkeypatch: pytest.MonkeyPatch) -> None:
         gw.register("final_report_writer", _FINAL_REPORT, output_kind="final_report")
         return gw
 
+    monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.preflight", _fake_preflight)
     monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _fake_make_gateway)
     _patch_executor(monkeypatch)
 
@@ -188,16 +192,17 @@ class TestPlanCmd:
                 str(tmp_path),
                 "--model",
                 "stub-model",
+                "--verbose",
             ],
         )
 
         assert result.exit_code == 0, result.output
-        # Stage progress + artifact report rendered (the nine-step pipeline).
+        # Verbose mode unfolds the internal stage names inside the nine steps.
         assert "save_user_plan" in result.output
         assert "generate_experiment_spec" in result.output
         assert "approve_plan" in result.output
         assert "generate_execution_report" in result.output
-        assert "all stages completed" in result.output
+        assert "9 steps completed" in result.output
         # Artifacts + audit records landed where the CLI says they do.
         run_dirs = list(tmp_path.rglob("harness.sqlite"))
         assert len(run_dirs) == 1, "expected exactly one plan run with an audit db"
@@ -232,7 +237,7 @@ class TestPlanCmd:
 
         assert result.exit_code == 0, result.output
         assert "polymer melt" in result.output
-        assert "all stages completed" in result.output
+        assert "9 steps completed" in result.output
 
     @pytest.mark.integration
     def test_plan_without_model_exits_with_actionable_error(
@@ -282,7 +287,7 @@ class TestPlanCmd:
 
         # Second run: stage bodies are skipped (ledger hit), so even an
         # unregistered gateway (would raise on any LLM stage) completes.
-        def _empty_gateway(*, model: str, run: Any) -> Any:
+        def _empty_gateway(*, model: str, run: Any, router: Any = None) -> Any:
             from molexp.harness.gateways.stub import StubAgentGateway
             from molexp.harness.store.file_artifact_store import FileArtifactStore
 
@@ -291,7 +296,7 @@ class TestPlanCmd:
         monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_gateway", _empty_gateway)
         second = runner.invoke(app, args)
         assert second.exit_code == 0, second.output
-        assert "all stages completed" in second.output
+        assert "9 steps completed" in second.output
 
     def test_make_executor_seam_defaults_to_local_executor(self) -> None:
         from molexp.cli import plan_cmd
@@ -315,6 +320,7 @@ class TestPlanCmd:
                 "--model",
                 "stub-model",
                 "--execute",
+                "--verbose",
             ],
         )
 
@@ -431,11 +437,11 @@ class TestInteractiveApprover:
 
         default_run = runner.invoke(app, base)
         assert default_run.exit_code == 0, default_run.output
-        assert "all stages completed" in default_run.output
+        assert "9 steps completed" in default_run.output
 
         yes_run = runner.invoke(app, [*base, "--yes"])
         assert yes_run.exit_code == 0, yes_run.output
-        assert "all stages completed" in yes_run.output
+        assert "9 steps completed" in yes_run.output
 
     def test_auto_grants_when_assume_yes(self, tmp_path: Path) -> None:
         """ac-006 — InteractiveApprover auto-grants (no prompt) when --yes is set."""
@@ -523,3 +529,171 @@ def _patch_executor(monkeypatch: pytest.MonkeyPatch) -> None:
         return DryRunExecutor()
 
     monkeypatch.setattr("molexp.cli.plan_cmd.PlanRuntime.build_executor", _fake_make_executor)
+
+
+class TestPlanZeroResidue:
+    """A failed preflight leaves NOTHING on disk (plan P0).
+
+    All three failure classes — missing model, missing ``molexp[agent]``
+    extra, missing/invalid model credentials — must exit non-zero with a
+    one-line human-readable message (no traceback) BEFORE any workspace
+    write: the target directory must not even be created.
+    """
+
+    def _invoke_in_empty_dir(self, runner: CliRunner, tmp_path: Path, args: list[str]) -> Any:
+        target = tmp_path / "lab"
+        assert not target.exists()
+        result = runner.invoke(app, ["plan", "a draft", "--workspace", str(target), *args])
+        assert result.exit_code == 1, result.output
+        assert "Traceback" not in result.output
+        assert not target.exists(), "a failed preflight must leave no residue"
+        return result
+
+    def test_missing_model_exits_clean_with_no_residue(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("molexp.cli.plan_cmd._configured_model", lambda: None)
+        result = self._invoke_in_empty_dir(runner, tmp_path, [])
+        assert "No model configured" in result.output
+
+    def test_missing_agent_extra_names_install_command_and_no_residue(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Simulate a base install: pydantic_ai import fails -> one-line hint."""
+        import importlib.abc
+        import sys
+
+        class _Block(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> None:
+                if fullname == "pydantic_ai" or fullname.startswith("pydantic_ai."):
+                    raise ModuleNotFoundError(f"No module named {fullname!r}", name=fullname)
+                return
+
+        for mod in list(sys.modules):
+            if mod == "pydantic_ai" or mod.startswith(("pydantic_ai.", "molexp.agent._pydanticai")):
+                monkeypatch.delitem(sys.modules, mod, raising=False)
+        blocker = _Block()
+        sys.meta_path.insert(0, blocker)
+        try:
+            result = self._invoke_in_empty_dir(
+                runner, tmp_path, ["--model", "anthropic:claude-sonnet-4-5"]
+            )
+        finally:
+            sys.meta_path.remove(blocker)
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert 'pip install "molexp[agent]"' in " ".join(plain.split())
+
+    @pytest.mark.integration
+    def test_unknown_model_exits_clean_with_no_residue(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        """The REAL preflight path: an unknown model id fails before any write."""
+        result = self._invoke_in_empty_dir(runner, tmp_path, ["--model", "stub-model"])
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "'stub-model'" in plain
+
+    @pytest.mark.integration
+    def test_missing_api_key_exits_clean_with_no_residue(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The REAL preflight path: a missing provider key fails pre-write."""
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        result = self._invoke_in_empty_dir(
+            runner, tmp_path, ["--model", "anthropic:claude-sonnet-4-5"]
+        )
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.output)
+        assert "ANTHROPIC_API_KEY" in " ".join(plain.split())
+
+
+class TestPlanNineStepBanner:
+    """Banner + progress speak the documented nine-step vocabulary.
+
+    Internal stage names (save_user_plan, bind_molcrafts_tasks, ...) fold
+    into ``-v/--verbose``; the default output shows only the nine step
+    titles from docs/guide/plan-mode.md.
+    """
+
+    STEP_TITLES = (
+        "Draft proposal",
+        "Draft spec",
+        "Resolve capabilities",
+        "Workflow IR",
+        "Tasks + per-task tests",
+        "Input set",
+        "Compile / dry-run",
+        "Review",
+        "Execution report",
+    )
+
+    def _normalized(self, output: str) -> str:
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", output)
+        return " ".join(plain.split())
+
+    @pytest.mark.integration
+    def test_default_output_shows_steps_and_hides_stage_names(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_gateway(monkeypatch)
+        result = runner.invoke(
+            app,
+            ["plan", "Simulate NEMD", "--workspace", str(tmp_path), "--model", "stub-model"],
+        )
+        assert result.exit_code == 0, result.output
+        text = self._normalized(result.output)
+        assert "9 steps on run" in text
+        for title in self.STEP_TITLES:
+            assert title in text, f"step title {title!r} missing from banner"
+        # Internal stage names stay folded away without --verbose.
+        for stage_name in (
+            "save_user_plan",
+            "bind_molcrafts_tasks",
+            "materialize_execution",
+            "generate_execution_report",
+        ):
+            assert stage_name not in text, f"stage name {stage_name!r} leaked at default verbosity"
+        assert "9 steps completed" in text
+
+    @pytest.mark.integration
+    def test_verbose_unfolds_stage_names_inside_steps(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_gateway(monkeypatch)
+        result = runner.invoke(
+            app,
+            [
+                "plan",
+                "Simulate NEMD",
+                "--workspace",
+                str(tmp_path),
+                "--model",
+                "stub-model",
+                "-v",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        text = self._normalized(result.output)
+        for stage_name in ("save_user_plan", "bind_molcrafts_tasks", "materialize_execution"):
+            assert stage_name in text, f"stage name {stage_name!r} missing under -v"
+
+    @pytest.mark.integration
+    def test_execute_banner_marks_the_tail_not_a_tenth_step(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _patch_gateway(monkeypatch)
+        result = runner.invoke(
+            app,
+            [
+                "plan",
+                "Simulate NEMD",
+                "--workspace",
+                str(tmp_path),
+                "--model",
+                "stub-model",
+                "--execute",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        text = self._normalized(result.output)
+        assert "9 steps + execution tail" in text
+        assert "Execute" in text
+        assert "execute_workflow" not in text  # tail stage names also fold into -v

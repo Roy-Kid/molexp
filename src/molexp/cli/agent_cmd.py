@@ -52,10 +52,17 @@ def _configured_model() -> str | None:
     """Return the ``agent.model`` value from ``molexp config``, if any.
 
     Delegates to the shared operator-config loader so the CLI and the
-    server resolve the model from the same file and key.
+    server resolve the model from the same file and key; bridging also
+    lands any persisted ``agent.<provider>_api_key`` into ``molexp.config``
+    so provider construction finds it.
     """
-    from molexp.server.operator_config import configured_agent_model, load_operator_config
+    from molexp.services.operator_config import (
+        bridge_operator_config,
+        configured_agent_model,
+        load_operator_config,
+    )
 
+    bridge_operator_config()
     return configured_agent_model(load_operator_config())
 
 

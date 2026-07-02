@@ -5,9 +5,6 @@ Everything in this module is internal — command modules import from it.
 
 from __future__ import annotations
 
-import os
-import platform
-from datetime import UTC, datetime
 from pathlib import Path
 
 from rich import print as rprint
@@ -16,7 +13,13 @@ from rich.console import Console
 from molexp._typing import JSONValue
 from molexp.plugins.submit_molq.metadata import normalize_executor_info
 from molexp.workspace import Workspace
+
+# Zombie-run reaping moved into the workspace layer (run-recovery bug 5) so
+# the CLI and the server verbs consult ONE policy; these re-exports keep the
+# historical ``molexp.cli._common`` import path working.
 from molexp.workspace.run import Run
+from molexp.workspace.run_ops import HEARTBEAT_STALE_SECONDS
+from molexp.workspace.run_reaper import pid_alive, reap_zombie_run
 
 console = Console()
 
@@ -60,101 +63,10 @@ def deterministic_run_id(params: dict[str, JSONValue]) -> str:
     return derive_run_id(params)
 
 
-def pid_alive(pid: int) -> bool:
-    """Return ``True`` if a process with *pid* exists on this host."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
-
-
-# A cross-host ``running`` run is only considered a zombie when its
-# ownership heartbeat (refreshed every
-# ``molexp.workspace.run_lifecycle.HEARTBEAT_INTERVAL_SECONDS`` ≈ 30 s by
-# the owning worker) is stale beyond this generous threshold. Cross-host
-# execution via molq / SLURM is the product's core scenario — when in
-# doubt, leave the run alone rather than kill a live HPC job.
-CROSS_HOST_HEARTBEAT_STALE_SECONDS = 600.0  # 10 minutes
-
-
-def reap_zombie_run(run: Run) -> bool:
-    """Mark a stale ``RUNNING`` run as ``FAILED`` if its owner is dead.
-
-    Reads the run's hot state from the OKF ``_ops/run.json`` sidecar
-    (:class:`RunOpsState`) per wsokf-07. Same-host runs are pid-probed
-    directly: a recorded ``owner_pid`` that no longer exists on this host
-    means the owner died and the run is reaped.
-
-    Cross-host runs (molq / SLURM workers — the normal remote scenario)
-    cannot be pid-probed from here, so they are reaped **only** when their
-    ``heartbeat_at`` is stale beyond :data:`CROSS_HOST_HEARTBEAT_STALE_SECONDS`
-    (which equals ``run_ops.HEARTBEAT_STALE_SECONDS``). A fresh heartbeat, or a
-    sidecar with no heartbeat at all, leaves the run alone — never kill a
-    possibly-live HPC run on guesswork.
-
-    Returns ``True`` when the run was reaped (status flipped from
-    ``running`` to ``failed``), ``False`` when the owner is (or may still
-    be) alive.
-    """
-    from molexp.workspace.models import ErrorInfo, RunStatus
-
-    state = run.read_ops()
-    if state.status is not RunStatus.RUNNING:
-        return False
-
-    host = state.owner_host
-    same_host = host == platform.node()
-    now = datetime.now(UTC)
-
-    if same_host:
-        if state.owner_pid is not None and pid_alive(state.owner_pid):
-            return False  # live owner on this host
-        reason = (
-            f"Run was left in 'running' state by a prior invocation "
-            f"(pid={state.owner_pid or '?'} host={host or '?'}) whose process is "
-            "no longer alive.  Automatically marked FAILED."
-        )
-    else:
-        age = state.heartbeat_age(now)
-        if age is None or age.total_seconds() < CROSS_HOST_HEARTBEAT_STALE_SECONDS:
-            # Fresh heartbeat, or no heartbeat info yet (worker still
-            # starting) — assume alive.
-            return False
-        reason = (
-            f"Run was left in 'running' state on host {host or '?'} "
-            f"(pid={state.owner_pid or '?'}) and its heartbeat is "
-            f"{int(age.total_seconds())}s old "
-            f"(threshold {int(CROSS_HOST_HEARTBEAT_STALE_SECONDS)}s).  "
-            "Automatically marked FAILED."
-        )
-
-    # Status / finished / cleared-ownership are hot state → the OKF ``_ops``
-    # sidecar (wsokf-10). The ``error`` diagnostic stays in run.json (identity).
-    naive_now = datetime.now()
-    run.update_ops(
-        lambda s: s.model_copy(
-            update={
-                "status": RunStatus.FAILED,
-                "finished_at": naive_now,
-                "owner_pid": None,
-                "owner_host": None,
-                "heartbeat_at": None,
-            }
-        )
-    )
-    run._update_metadata(
-        error=ErrorInfo(
-            type="ZombieRun",
-            message=reason,
-            timestamp=naive_now,
-        ),
-    )
-    return True
+# Backward-compatible alias — the canonical constant lives in
+# ``molexp.workspace.run_ops.HEARTBEAT_STALE_SECONDS`` (one source of truth
+# for the cross-host staleness threshold).
+CROSS_HOST_HEARTBEAT_STALE_SECONDS = HEARTBEAT_STALE_SECONDS
 
 
 def run_executor_info(run: Run) -> dict[str, str]:
