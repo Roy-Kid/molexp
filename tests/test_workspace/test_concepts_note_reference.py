@@ -118,7 +118,7 @@ def test_reference_typed_meta_and_citation(tmp_path: Path) -> None:
     root.materialize()
     ref = _mount(root, ReferenceConcept(parent=root, name="smith2024"))
 
-    ref.write_ref_meta(ReferenceMeta(title="T", doi="10.1/x", year=2024))
+    ref.write_reference_meta(ReferenceMeta(title="T", doi="10.1/x", year=2024))
     got = ref.read_ref_meta()
     assert isinstance(got, ReferenceMeta)
     assert got.title == "T"
@@ -127,6 +127,19 @@ def test_reference_typed_meta_and_citation(tmp_path: Path) -> None:
 
     ref.set_citation("Smith et al. 2024")
     assert ref.citation() == "Smith et al. 2024"
+
+
+def test_write_ref_meta_is_deprecated_alias(tmp_path: Path) -> None:
+    """``write_ref_meta`` still works but warns; canonical spelling is
+    ``write_reference_meta`` (full word, matching ``Note.write_note_meta``)."""
+    root = Folder(name="bundle", kind="bundle.concept", root_path=str(tmp_path))
+    root.materialize()
+    ref = _mount(root, ReferenceConcept(parent=root, name="smith2024"))
+
+    with pytest.warns(DeprecationWarning, match="write_reference_meta"):
+        ref.write_ref_meta(ReferenceMeta(title="Alias", year=2024))
+
+    assert ref.read_ref_meta().title == "Alias"
 
 
 # ── typed-provenance-edge (P0.1): Note.cite threads the role (ac-004) ─────────

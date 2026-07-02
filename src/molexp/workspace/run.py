@@ -11,7 +11,7 @@ import contextlib
 from collections.abc import Callable, Iterator
 from datetime import datetime
 from pathlib import Path  # local-FS path for RunContext (LLM/worker-local I/O)
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
 from mollog import get_logger
 
@@ -51,7 +51,14 @@ from .runcontext import RunContext
 
 _logger = get_logger(__name__)
 
-__all__ = ["RETRYABLE_STATUSES", "Run", "RunContext", "RunStatus"]
+__all__ = [
+    "RETRYABLE_STATUSES",
+    "Run",
+    "RunContext",
+    "RunStatus",
+    "RunWorkflowExecutor",
+    "set_run_executor",
+]
 
 #: The run statuses ``resume`` / ``rerun`` apply to — the single source of
 #: truth for the retryable domain (consumed by both the CLI and the server
@@ -59,6 +66,60 @@ __all__ = ["RETRYABLE_STATUSES", "Run", "RunContext", "RunStatus"]
 #: ``succeeded`` is done, and a live ``running`` run must never get a second
 #: concurrent execution.
 RETRYABLE_STATUSES: frozenset[str] = frozenset({RunStatus.FAILED.value, RunStatus.CANCELLED.value})
+
+
+# ── Cross-layer run-execution seam ──────────────────────────────────────────
+#
+# Workspace MUST NOT import the workflow layer (hard layer-DAG invariant), yet
+# ``run.execute(workflow)`` should read fluently. Same inversion pattern as
+# ``experiment.set_workflow_executor``: the workflow layer implements the
+# Protocol below and registers itself at ``import molexp.workflow`` time
+# (see ``molexp.workflow.execute``), so by the time a caller holds a workflow
+# object to pass in, the seam is wired.
+
+
+class RunWorkflowExecutor(Protocol):
+    """One-step tracked execution of a workflow against a :class:`Run`.
+
+    Implemented by ``molexp.workflow.execute`` and registered via
+    :func:`set_run_executor`. ``workflow`` is opaque to workspace (a
+    ``CompiledWorkflow`` / ``WorkflowCompiler``, or ``None`` to resolve the
+    experiment's bound workflow); the return value is an opaque
+    ``molexp.workflow.WorkflowResult``.
+    """
+
+    def execute(
+        self, run: Run, workflow: object | None, *, rerun: bool = False, fresh: bool = False
+    ) -> object: ...
+
+    async def aexecute(
+        self, run: Run, workflow: object | None, *, rerun: bool = False, fresh: bool = False
+    ) -> object: ...
+
+
+_run_executor: RunWorkflowExecutor | None = None
+
+
+def set_run_executor(executor: RunWorkflowExecutor) -> None:
+    """Register the workflow-layer implementation backing :meth:`Run.execute`.
+
+    Called once at ``import molexp.workflow`` time. Until then,
+    :meth:`Run.execute` (and ``RunSet.execute``) fail fast — never a silent
+    fallback.
+    """
+    global _run_executor
+    _run_executor = executor
+
+
+def require_run_executor() -> RunWorkflowExecutor:
+    """Return the registered executor, or fail fast with guidance."""
+    if _run_executor is None:
+        raise RuntimeError(
+            "Run.execute needs the workflow layer; `import molexp.workflow` "
+            "(e.g. `from molexp.workflow import WorkflowCompiler`) registers "
+            "the executor."
+        )
+    return _run_executor
 
 
 # ── Run ─────────────────────────────────────────────────────────────────────
@@ -382,6 +443,38 @@ class Run(Folder):
         :meth:`__enter__` / :meth:`__aenter__`.
         """
         return RunContext(self, profile_config=profile_config, execution_id=execution_id)
+
+    def execute(self, workflow: object, /, *, rerun: bool = False, fresh: bool = False) -> object:
+        """Execute *workflow* against this run in one step and return the result.
+
+        Folds the driver dance — ``run.start()`` context, workflow-runtime
+        dispatch, asyncio plumbing — into a single synchronous call on the
+        same execution path ``molexp run`` uses (RunContext lifecycle: status
+        machine, ``_ops`` sidecar, heartbeat). *workflow* is a
+        ``CompiledWorkflow`` or an uncompiled ``WorkflowCompiler``
+        (auto-compiled). Returns a ``molexp.workflow.WorkflowResult`` whose
+        ``.outputs`` maps task name → output.
+
+        Verbs mirror the CLI: a ``pending`` run executes (first attempt); a
+        ``failed`` / ``cancelled`` run *resumes* its last execution, or opens
+        a fresh attempt with ``rerun=True`` (``--rerun``); ``fresh=True``
+        additionally bypasses the cache read and requires ``rerun=True``
+        (``--rerun --fresh``); a ``succeeded`` run and a live ``running`` run
+        always refuse (done is done; cancel first). A task failure raises
+        ``molexp.workflow.RunFailedError`` (the failed state is persisted;
+        never silent).
+
+        Must be called from sync code; inside a running event loop use
+        :meth:`aexecute`. Delegates through the :func:`set_run_executor`
+        seam so workspace never imports the workflow layer.
+        """
+        return require_run_executor().execute(self, workflow, rerun=rerun, fresh=fresh)
+
+    async def aexecute(
+        self, workflow: object, /, *, rerun: bool = False, fresh: bool = False
+    ) -> object:
+        """Async variant of :meth:`execute` — same semantics, awaitable."""
+        return await require_run_executor().aexecute(self, workflow, rerun=rerun, fresh=fresh)
 
     # ── Sugar: ``with run as ctx:`` / ``async with run as ctx:`` ────────
     #

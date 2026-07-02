@@ -25,6 +25,7 @@ via the :class:`~molexp.workspace.bundle.Bundle` façade.
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterable
 from typing import ClassVar, cast
 
@@ -109,7 +110,7 @@ class Note(Folder):
 
         The on-disk ``type`` is stamped to this Concept's ``kind`` (``note.note``)
         and ``id`` to its name, mirroring
-        :meth:`ReferenceConcept.write_ref_meta`, so :func:`concept_from_dir`
+        :meth:`ReferenceConcept.write_reference_meta`, so :func:`concept_from_dir`
         rebuilds a :class:`Note` and identity stays path-derived. Any other keys
         on *meta* are preserved verbatim (``ConceptMeta`` is ``extra="allow"``).
         """
@@ -166,7 +167,7 @@ class ReferenceConcept(Folder):
         fpath = self._fs.join(self.resolve(), META_YAML_FILENAME)
         return cast("ReferenceMeta", ReferenceMeta.from_yaml(self._fs.read_text(fpath)))
 
-    def write_ref_meta(self, meta: ReferenceMeta) -> None:
+    def write_reference_meta(self, meta: ReferenceMeta) -> None:
         """Atomically write this reference's typed bib ``meta.yaml``.
 
         The on-disk ``type`` is stamped to this Concept's ``kind``
@@ -178,6 +179,20 @@ class ReferenceConcept(Folder):
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})
         fpath = self._fs.join(self.path(), META_YAML_FILENAME)
         self._fs.atomic_write_text(fpath, meta.to_yaml())
+
+    def write_ref_meta(self, meta: ReferenceMeta) -> None:
+        """Deprecated alias for :meth:`write_reference_meta`.
+
+        Renamed to the full-word spelling that matches
+        :meth:`Note.write_note_meta`; this alias warns and delegates.
+        """
+        warnings.warn(
+            "ReferenceConcept.write_ref_meta is deprecated; "
+            "use ReferenceConcept.write_reference_meta instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.write_reference_meta(meta)
 
     def citation(self) -> str:
         """Return the human-readable citation text (its ``index.md``)."""

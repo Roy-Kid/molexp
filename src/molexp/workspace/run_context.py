@@ -30,6 +30,7 @@ class ContextStore:
     def __init__(self, run: Run, work_dir: Path) -> None:
         self._run = run
         self._work_dir = work_dir
+        self._wrote_results = False
         self._context: Context = Context(
             run_id=run.id,
             experiment_id=run.experiment.id,
@@ -41,8 +42,23 @@ class ContextStore:
     def context(self) -> Context:
         return self._context
 
+    @property
+    def wrote_results(self) -> bool:
+        """Whether :meth:`set_result` recorded anything during this attempt.
+
+        Consumed by :class:`~molexp.workspace.run_lifecycle.RunLifecycle` as a
+        positive work signal: a signal-less attempt on a previously
+        failed/cancelled run is a no-op and must not resolve to ``succeeded``.
+        """
+        return self._wrote_results
+
+    def reset_write_tracking(self) -> None:
+        """Clear the per-attempt write flag (called by the lifecycle on enter)."""
+        self._wrote_results = False
+
     def set_result(self, key: str, value: TaskOutput) -> None:
         self._context.results[key] = value
+        self._wrote_results = True
 
     def get_result(self, key: str) -> TaskOutput:
         return self._context.results.get(key)

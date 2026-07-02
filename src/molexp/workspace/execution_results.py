@@ -4,7 +4,7 @@ The workflow layer persists per-node state (status, outputs, and the
 ``outputs_lossy`` fidelity flag) into
 ``<run_dir>/executions/<execution_id>/workflow.json`` while a workflow
 executes (writer: ``mark_task_status`` in
-``molexp.workflow._pydantic_graph.persistence``). Workspace treats the
+``molexp.workflow._engine.persistence``). Workspace treats the
 rest of that document as opaque workflow state; this module reads ONLY
 the completed-node output records so :meth:`molexp.workspace.run.Run.get_result`
 can fall back to persisted node outputs when no driver-side

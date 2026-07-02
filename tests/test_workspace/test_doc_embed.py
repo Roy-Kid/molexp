@@ -76,7 +76,7 @@ def scene(tmp_path: Path) -> SimpleNamespace:
     # A ReferenceConcept mounted at the bundle root; its title lives in
     # ReferenceMeta (no index.md H1).
     ref = cast("ReferenceConcept", ws.add_folder(ReferenceConcept(parent=ws, name="smith2024")))
-    ref.write_ref_meta(ReferenceMeta(title="Smith 2024", year=2024))
+    ref.write_reference_meta(ReferenceMeta(title="Smith 2024", year=2024))
 
     b = Bundle(ws.resolve())
     doc = b.create_note("My Doc", body="# My Doc\n\nbody")

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
     from .param import ParamSpace
     from .project import Project
+    from .runset import RunSet
     from .workspace import Workspace
 
 from molexp._typing import JSONValue
@@ -416,7 +417,7 @@ class Experiment(Folder):
             target=resolved_target,
         )
         run = cast(Run, self.add_folder(child))
-        # Opt-in, non-fatal workspace-timeline milestone (integration P0.3).
+        # Default-on, non-fatal workspace-timeline milestone (integration P0.3).
         from .events import emit_workspace_event
 
         emit_workspace_event(
@@ -506,6 +507,70 @@ class Experiment(Folder):
             )
         _workflow_executor(self, workflow)
         return self
+
+    def sweep(
+        self,
+        workflow: object,
+        params: ParamSpace | Mapping[str, JSONValue] | None = None,
+    ) -> RunSet:
+        """Seed the *params* sweep for *workflow* and return the RunSet.
+
+        The batch-execution twin of :meth:`run` — identical seeding (one
+        content-addressed :class:`Run` per cell, idempotent) and identical
+        workflow association through the cross-layer
+        :class:`WorkflowExecutor` seam, but it returns the seeded
+        :class:`~molexp.workspace.runset.RunSet` so the caller can drive and
+        summarize the batch directly::
+
+            summary = exp.sweep(wf, {"lr": [1e-3, 1e-4], "batch": [16, 32]}).execute()
+            best = summary.min_by("loss")
+
+        ``params`` is a ``{axis: [values]}`` grid mapping (auto-upgraded to
+        :class:`~molexp.workspace.GridSpace`; every axis must map to a
+        *list* of values — a scalar axis fails fast) or any
+        :class:`~molexp.workspace.ParamSpace`. ``None`` seeds a single
+        parameter-free run. *workflow* may be an uncompiled
+        ``WorkflowCompiler``; it is compiled automatically.
+        """
+        from .param import GridSpace, ParamSpace
+        from .runset import RunSet
+
+        if params is None or isinstance(params, ParamSpace):
+            space: ParamSpace = params if params is not None else GridSpace({})
+        else:
+            grid = dict(params)
+            scalars = [axis for axis, values in grid.items() if not isinstance(values, list)]
+            if scalars:
+                raise ValueError(
+                    f"sweep params must map every axis to a list of values; "
+                    f"got a scalar for {', '.join(repr(a) for a in scalars)} — "
+                    f"wrap it in a list (e.g. {scalars[0]!r}: [{grid[scalars[0]]!r}])."
+                )
+            space = GridSpace(grid)
+        # Auto-compile an uncompiled WorkflowCompiler (duck-typed: a compiled
+        # workflow has no ``compile`` method; workspace never imports workflow).
+        compile_hook = getattr(workflow, "compile", None)
+        if callable(compile_hook):
+            workflow = compile_hook()
+        runs = self.add_runs(space)
+        if _workflow_executor is None:
+            raise RuntimeError(
+                "Experiment.sweep needs the workflow layer; `import molexp` "
+                "(not just `molexp.workspace`) registers the executor."
+            )
+        _workflow_executor(self, workflow)
+        return RunSet(runs, workflow=workflow)
+
+    def runs(self) -> RunSet:
+        """All existing runs as a :class:`~molexp.workspace.runset.RunSet`.
+
+        The batch view over :meth:`list_runs` — read back a finished sweep
+        (``exp.runs().collect().to_records()``) or execute still-pending runs
+        (the workflow resolves from the experiment's binding at execute time).
+        """
+        from .runset import RunSet
+
+        return RunSet(self.list_runs())
 
     def get_run(self, run_id: str) -> Run:
         return self.get_folder(run_id, cls=Run)

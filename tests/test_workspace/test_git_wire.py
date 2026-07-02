@@ -16,12 +16,10 @@ from pathlib import Path
 import pytest
 
 import molexp.workspace.git_projection as gp
-from molexp.harness import (
-    StageExecutionError,
-    enforce_side_effect_approvals,
-)
+from molexp.harness import StageExecutionError
 from molexp.harness.capabilities.curation import curation_capabilities
 from molexp.harness.core.run_context import HarnessRunContext
+from molexp.harness.policy import enforce_side_effect_approvals
 from molexp.harness.schemas.approval import ApprovalDecision, ApprovalRequest
 from molexp.harness.store.file_artifact_store import FileArtifactStore
 from molexp.harness.store.sqlite_event_log import SQLiteEventLog

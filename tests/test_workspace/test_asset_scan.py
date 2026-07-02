@@ -117,12 +117,16 @@ class TestNoDerivedSqliteIndex:
         assert list(root.rglob("*.sqlite")) == []
 
     def test_seeded_workspace_writes_only_manifests_no_sqlite(self, tmp_path):
+        from molexp.workspace.events import WORKSPACE_EVENTS_DB
+
         ws = _seed_workspace(tmp_path / "lab")  # 3 runs, assets persisted
         root = Path(str(ws.root))
         # Assets are queryable …
         assert len(scan.scan_assets(ws.root)) == 3 * ASSETS_PER_RUN
-        # … yet nothing was written to a derived SQLite index.
+        # … yet nothing was written to a derived SQLite ASSET index. (The
+        # run-lifecycle event spine is a sanctioned, non-asset sidecar — the
+        # default-on run milestones legitimately create it.)
         assert not (root / "catalog").exists()
-        assert list(root.rglob("*.sqlite")) == []
+        assert {p.name for p in root.rglob("*.sqlite")} <= {WORKSPACE_EVENTS_DB}
         # The authoritative record is the per-scope assets.json manifest.
         assert list(root.rglob("assets.json"))

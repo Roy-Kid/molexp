@@ -9,6 +9,18 @@ collaborator that *orchestrates* the others, so it holds a back-reference
 to the facade and reaches the Tier-2/3 collaborators through it; the
 reverse dependency (a store reaching back into the lifecycle) is
 forbidden.
+
+Exit-status resolution (run-recovery): success is a positive signal, never
+the default on a previously failed run. With no exception, the final status
+is (1) FAILED / SUCCEEDED when the workflow signalled via ``mark_failed`` /
+``mark_succeeded``; (2) otherwise SUCCEEDED when the attempt recorded new
+results or the run was not previously failed/cancelled (the documented
+manual-driver contract); (3) otherwise a **no-op attempt** — the run keeps
+its prior failed/cancelled status, the ExecutionRecord closes as
+``"aborted"``, and ``metadata.error`` is preserved. A SUCCEEDED terminal
+clears ``metadata.error``; an exception-free FAILED terminal also persists
+``executions/<exec_id>/error.txt`` (the engine swallows task exceptions, so
+this is the only chance to land the trace file).
 """
 
 from __future__ import annotations
@@ -65,6 +77,20 @@ def _error_info_from_context(ctx: RunContext, now: datetime) -> ErrorInfo | None
     return ErrorInfo(type=etype, message=message, timestamp=now)
 
 
+def _traceback_from_context(ctx: RunContext) -> str | None:
+    """The formatted task traceback ``mark_failed`` stashed, if any.
+
+    The workflow runtime forwards the swallowed task exception's formatted
+    stack via ``mark_failed(..., traceback_text=…)``; it lands in
+    ``context.errors["run"]["traceback"]``. ``None`` when the failure signal
+    carried no traceback (e.g. a manual ``mark_failed("msg")``).
+    """
+    run_err = ctx._ctx_store.context.errors.get("run")
+    if isinstance(run_err, dict):
+        return run_err.get("traceback") or None
+    return None
+
+
 class RunLifecycle:
     """Enter/exit orchestration for a :class:`RunContext`."""
 
@@ -78,13 +104,18 @@ class RunLifecycle:
         self._heartbeat_interval = heartbeat_interval
         self._heartbeat_stop: threading.Event | None = None
         self._heartbeat_thread: threading.Thread | None = None
+        self._status_on_enter: RunStatus | None = None
 
     def enter(self) -> None:
         ctx = self._ctx
         ctx.work_dir.mkdir(parents=True, exist_ok=True)
         ctx._ctx_store.load_existing_results()
+        ctx._ctx_store.reset_write_tracking()
         self._apply_profile_metadata()
         self._claim_ownership()
+        # Remember the status this attempt started from: a signal-less no-op
+        # attempt must restore it instead of defaulting to SUCCEEDED (bug 1).
+        self._status_on_enter = ctx.run.read_ops().status
         ctx.run._set_status(RunStatus.RUNNING)
         ctx._start_time = datetime.now()
         ctx._entered = True
@@ -139,7 +170,7 @@ class RunLifecycle:
         ctx._assets.append_run_log(f"execution started  exec_id={ctx._execution_id}")
         ctx._ctx_store.save()
         self._start_heartbeat()
-        # Opt-in, non-fatal workspace-timeline milestone (integration P0.3).
+        # Default-on, non-fatal workspace-timeline milestone (integration P0.3).
         self._emit_run_event("run.started", payload={"execution_id": ctx._execution_id})
 
     def exit(self, exc_type, exc_val, exc_tb) -> bool:  # noqa: ANN001
@@ -153,10 +184,21 @@ class RunLifecycle:
         assert execution_id is not None
         now = datetime.now()
         error_info: ErrorInfo | None = None
+        noop = False
         if exc_type is None:
+            # Three-state resolution (bug 1): FAILED / SUCCEEDED are explicit
+            # workflow signals (``mark_failed`` / ``mark_succeeded``); with NO
+            # signal, a previously failed/cancelled run that also recorded no
+            # new results is a no-op attempt — it keeps its prior status and
+            # its ExecutionRecord closes as "aborted". Success is never the
+            # default on a run that already failed. A run that was never
+            # failed keeps the legacy contract: a clean, exception-free
+            # attempt (manual-driver / artifact-only usage) resolves to
+            # SUCCEEDED.
             workflow_status = ctx._ctx_store.context.status.get("run")
-            final = RunStatus.FAILED if workflow_status == RunStatus.FAILED else RunStatus.SUCCEEDED
-            if final is RunStatus.FAILED:
+            status_on_enter = self._status_on_enter
+            if workflow_status == RunStatus.FAILED:
+                final = RunStatus.FAILED
                 # The engine caught the task exception into a FAILED workflow
                 # status (it does NOT re-raise, so the run stays resumable) and
                 # stashed the message on the context via ``mark_failed``. Lift it
@@ -166,6 +208,25 @@ class RunLifecycle:
                 error_info = _error_info_from_context(ctx, now)
                 if error_info is not None:
                     ctx.run._update_metadata(error=error_info)
+                    # The exception never propagated (the engine swallowed it),
+                    # so this is the only chance to land error.txt (bug 3) —
+                    # including the real traceback the runtime forwarded
+                    # through ``mark_failed(..., traceback_text=…)``.
+                    ctx._assets.save_error_report(
+                        error_type=error_info.type,
+                        message=error_info.message,
+                        traceback_text=_traceback_from_context(ctx),
+                    )
+            elif workflow_status == RunStatus.SUCCEEDED:
+                final = RunStatus.SUCCEEDED
+            elif (
+                status_on_enter in (RunStatus.FAILED, RunStatus.CANCELLED)
+                and not ctx._ctx_store.wrote_results
+            ):
+                final = status_on_enter
+                noop = True
+            else:
+                final = RunStatus.SUCCEEDED
         else:
             final = RunStatus.FAILED
             error_info = ErrorInfo(
@@ -176,9 +237,16 @@ class RunLifecycle:
             # ``error`` is identity/diagnostic — it stays in run.json (wsokf-10).
             ctx.run._update_metadata(error=error_info)
             ctx._assets.save_error_details(exc_type, exc_val, exc_tb)
+        if final is RunStatus.SUCCEEDED and ctx.run.metadata.error is not None:
+            # A successful terminal state must not keep describing an old
+            # failure (bug 2) — the canonical record tells the truth.
+            ctx.run._update_metadata(error=None)
+        # A no-op attempt closes its record as "aborted" — it neither
+        # succeeded nor failed; the run-level status stays what it was.
+        record_status = "aborted" if noop else final.value
         # Terminal hot-state — status / finished_at / closed executions / cleared
         # ownership — is written solely to the OKF ``_ops`` sidecar (wsokf-10).
-        closed_executions = tuple(ctx._executions.close_record(execution_id, final.value, now))
+        closed_executions = tuple(ctx._executions.close_record(execution_id, record_status, now))
         ctx.run.update_ops(
             lambda state: state.model_copy(
                 update={
@@ -194,20 +262,24 @@ class RunLifecycle:
         ctx._executions.update_metadata(
             execution_id,
             finished_at=now,
-            status=final.value,
+            status=record_status,
             error=error_info,
         )
         ctx._assets.append_run_log(
-            f"execution finished exec_id={ctx._execution_id}  status={final.value}"
+            f"execution finished exec_id={ctx._execution_id}  status={record_status}"
         )
         ctx._ctx_store.save()
         # Low-frequency git checkpoint at the Execution-settled boundary: one
         # commit per settled execution, and only when the projection DB already
         # exists (opt-in by existence). Best-effort — never breaks the run.
         self._checkpoint_git_on_settle()
-        # Opt-in, non-fatal workspace-timeline milestone (integration P0.3).
-        settled = "run.completed" if final is RunStatus.SUCCEEDED else "run.failed"
-        self._emit_run_event(settled, payload={"status": final.value, "execution_id": execution_id})
+        # Default-on, non-fatal workspace-timeline milestone (integration P0.3).
+        # A no-op attempt changed nothing — it emits no completion/failure event.
+        if not noop:
+            settled = "run.completed" if final is RunStatus.SUCCEEDED else "run.failed"
+            self._emit_run_event(
+                settled, payload={"status": final.value, "execution_id": execution_id}
+            )
         ctx._entered = False
         return False
 
@@ -218,12 +290,12 @@ class RunLifecycle:
         checkpoint_run_on_settle(self._ctx.run)
 
     def _emit_run_event(self, event_type, *, payload) -> None:  # noqa: ANN001
-        """Append an opt-in, non-fatal run milestone to the workspace event spine.
+        """Append a default-on, non-fatal run milestone to the workspace event spine.
 
         Resolves the workspace root from the run (the same
         ``run.experiment.project.workspace`` path :meth:`_checkpoint_git_on_settle`
         uses) and delegates to :func:`molexp.workspace.events.emit_workspace_event`,
-        which is a no-op unless the workspace opted in and swallows any failure.
+        which swallows any failure (the timeline never breaks a run).
         """
         from molexp.workspace.events import emit_workspace_event
 

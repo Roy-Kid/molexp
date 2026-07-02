@@ -146,7 +146,7 @@ class KnowledgeItem(Folder):
         """Atomically write this item's typed ``meta.yaml``.
 
         The on-disk ``type`` / ``id`` are stamped to this Concept's ``kind`` /
-        ``name`` (mirroring ``ReferenceConcept.write_ref_meta``) so
+        ``name`` (mirroring ``ReferenceConcept.write_reference_meta``) so
         :func:`concept_from_dir` rebuilds a :class:`KnowledgeItem`.
         """
         meta = meta.model_copy(update={"type": self._kind, "id": self._name})

@@ -196,7 +196,7 @@ class TestWorkflowWriterContract:
 
     @staticmethod
     def _seed_pending_task(run: Run, execution_id: str, name: str) -> Path:
-        from molexp.workflow._pydantic_graph.persistence import write_initial_workflow_json
+        from molexp.workflow._engine.persistence import write_initial_workflow_json
 
         run_dir = Path(str(run.run_dir))
         write_initial_workflow_json(run_dir, execution_id)
@@ -207,7 +207,7 @@ class TestWorkflowWriterContract:
         return run_dir
 
     def test_fallback_reads_output_written_by_mark_task_status(self, run):
-        from molexp.workflow._pydantic_graph.persistence import mark_task_status
+        from molexp.workflow._engine.persistence import mark_task_status
 
         with run.start():
             pass
@@ -219,7 +219,7 @@ class TestWorkflowWriterContract:
         assert run.get_result("train") == {"loss": 0.5}
 
     def test_lossy_flag_written_by_mark_task_status_is_respected(self, run):
-        from molexp.workflow._pydantic_graph.persistence import mark_task_status
+        from molexp.workflow._engine.persistence import mark_task_status
 
         with run.start():
             pass

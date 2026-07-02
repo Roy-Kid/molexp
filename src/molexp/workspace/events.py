@@ -32,6 +32,7 @@ __all__ = [
     "WorkspaceEventLog",
     "WorkspaceEventType",
     "emit_workspace_event",
+    "read_workspace_events",
 ]
 
 WORKSPACE_EVENTS_DB = "workspace.events.sqlite"
@@ -129,9 +130,37 @@ class WorkspaceEventLog:
             refs=refs,
         )
 
-    def list_events(self) -> list[WorkspaceEvent]:
-        """Return the whole-workspace timeline, ordered by ``seq``."""
-        return [self._row_to_event(row) for row in self._store.list_rows(_WORKSPACE_SCOPE)]
+    def list_events(
+        self,
+        *,
+        type: WorkspaceEventType | None = None,
+        ref: str | None = None,
+        newest_first: bool = False,
+        limit: int | None = None,
+    ) -> list[WorkspaceEvent]:
+        """Return the workspace timeline, optionally filtered.
+
+        The no-argument call keeps the original contract (every event, ordered
+        by ``seq`` ascending). Filters run before ordering/limiting:
+
+        Args:
+            type: Keep only events of this coordination type.
+            ref: Keep only events whose ``refs`` contain this object id
+                (``run_id`` / ``asset_id`` / content hash / path).
+            newest_first: Order by ``seq`` descending (most recent first).
+            limit: Truncate to at most this many events *after* ordering, so
+                ``newest_first=True, limit=N`` yields the N most recent.
+        """
+        events = [self._row_to_event(row) for row in self._store.list_rows(_WORKSPACE_SCOPE)]
+        if type is not None:
+            events = [e for e in events if e.type == type]
+        if ref is not None:
+            events = [e for e in events if ref in e.refs]
+        if newest_first:
+            events = list(reversed(events))
+        if limit is not None:
+            events = events[:limit]
+        return events
 
     @staticmethod
     def _row_to_event(row: tuple) -> WorkspaceEvent:
@@ -155,23 +184,23 @@ def emit_workspace_event(
     payload: dict[str, JSONValue] | None = None,
     refs: list[str] | None = None,
 ) -> WorkspaceEvent | None:
-    """Best-effort append to a workspace's event spine — **opt-in + non-fatal**.
+    """Best-effort append to a workspace's event spine — **default-on + non-fatal**.
 
     The workspace timeline is a *derived, rebuildable* sidecar, so emission never
     participates in the correctness of the operation that triggered it:
 
-    - **Opt-in by existence.** A workspace enables its timeline by constructing a
-      :class:`WorkspaceEventLog` once (which creates ``<root>/workspace.events.sqlite``).
-      Until then this is a no-op and **adds no file** — workspaces that have not
-      opted in stay byte-identical, so the hot-path emit sites (``run.created`` /
-      ``run.started`` / ``run.completed`` / ``run.failed``) are inert for them.
+    - **Default-on.** The first emit creates ``<root>/workspace.events.sqlite``;
+      no opt-in step exists. The wired emit sites are the low-frequency
+      run-lifecycle milestones (``run.created`` / ``run.started`` /
+      ``run.completed`` / ``run.failed`` — one row per run status change), which
+      is what makes the read surfaces (``molexp runs info`` "Recent events",
+      the server's ``/events`` endpoint) real UX on the default path.
     - **Non-fatal.** Any exception is swallowed and ``None`` is returned; an
       event-log failure must never break the run or asset op that emitted.
 
-    The run-lifecycle milestones are the high-value spine wired today. ``asset.added``
-    (from the artifact-save path) and ``knowledge.created`` (from the KnowledgeItem
-    write path) are a documented follow-up needing the same opt-in + root plumbing at
-    their (hotter / decoupled) sites.
+    ``asset.added`` (from the artifact-save path) and ``knowledge.created`` (from
+    the KnowledgeItem write path) are a documented follow-up: those sites are
+    hotter, so they need their own frequency budget before being wired.
 
     Args:
         root: The workspace root directory (callers resolve it from context they hold).
@@ -181,11 +210,40 @@ def emit_workspace_event(
         refs: Related object ids (``run_id`` / ``asset_id`` / ``"sha256:…"`` / path).
 
     Returns:
-        The appended :class:`WorkspaceEvent`, or ``None`` if disabled or on failure.
+        The appended :class:`WorkspaceEvent`, or ``None`` on failure.
     """
     try:
-        if not (Path(root) / WORKSPACE_EVENTS_DB).exists():
-            return None
         return WorkspaceEventLog(root).append(type, actor, payload=payload, refs=refs)
     except Exception:
         return None
+
+
+def read_workspace_events(
+    root: str | PathLike[str],
+    *,
+    type: WorkspaceEventType | None = None,
+    ref: str | None = None,
+    limit: int | None = None,
+) -> list[WorkspaceEvent]:
+    """Read a workspace's event timeline, most recent first.
+
+    The read counterpart of :func:`emit_workspace_event` — the consumer side
+    of the event spine (``molexp runs info`` and the server's run-events
+    endpoint both call this, one shared code path). A workspace with no
+    timeline yet (no ``workspace.events.sqlite`` at *root* — nothing has
+    emitted) has an empty timeline, so ``[]`` is returned without creating
+    the DB: reading is always side-effect free.
+
+    Args:
+        root: The workspace root directory.
+        type: Keep only events of this coordination type.
+        ref: Keep only events whose ``refs`` contain this object id
+            (typically a ``run_id``).
+        limit: Return at most this many (most recent) events.
+
+    Returns:
+        Matching :class:`WorkspaceEvent` rows, newest first.
+    """
+    if not (Path(root) / WORKSPACE_EVENTS_DB).exists():
+        return []
+    return WorkspaceEventLog(root).list_events(type=type, ref=ref, newest_first=True, limit=limit)

@@ -24,6 +24,11 @@ if TYPE_CHECKING:
     from .workspace import Workspace
 
 
+#: Name of the always-available built-in target: this machine, molq ``local``
+#: scheduler. A workspace that registers its own ``local`` target overrides it.
+LOCAL_TARGET_NAME = "local"
+
+
 # ---------------------------------------------------------------------------
 # Registry CRUD
 # ---------------------------------------------------------------------------
@@ -75,6 +80,47 @@ def remove_target(ws: Workspace, name: str) -> None:
         update={"targets": [t for t in ws.metadata.targets if t.name != name]}
     )
     ws.save()
+
+
+# ---------------------------------------------------------------------------
+# Built-in ``local`` target — the default any workspace can always resolve
+# ---------------------------------------------------------------------------
+
+
+def builtin_local_target(ws: Workspace) -> ComputeTarget:
+    """The default local target: this machine, molq ``local`` scheduler.
+
+    A run can always be started on *this machine* without first registering
+    a target. The registry stays the source of truth — this is a derived
+    convenience, never persisted.
+    """
+    return ComputeTarget(name=LOCAL_TARGET_NAME, scratch_root=str(ws.root))
+
+
+def effective_targets(ws: Workspace) -> list[ComputeTarget]:
+    """Registered targets, with the built-in ``local`` prepended unless the
+    workspace already registers a target named ``local``."""
+    registered = list_targets(ws)
+    if any(t.name == LOCAL_TARGET_NAME for t in registered):
+        return registered
+    return [builtin_local_target(ws), *registered]
+
+
+def resolve_compute_target(ws: Workspace, name: str) -> ComputeTarget:
+    """``get_target`` with the built-in ``local`` fallback.
+
+    The single named-target resolution path shared by the CLI
+    (``resolve_target("@name", ws)``) and the server (``routes/run.py``).
+
+    Raises:
+        KeyError: for any unregistered name other than ``local``.
+    """
+    try:
+        return get_target(ws, name)
+    except KeyError:
+        if name == LOCAL_TARGET_NAME:
+            return builtin_local_target(ws)
+        raise
 
 
 # ---------------------------------------------------------------------------

@@ -174,17 +174,47 @@ class RunAssets:
         self.log("run").append(f"{ts}  {message}")
 
     def save_error_details(self, exc_type, exc_val, exc_tb) -> None:  # noqa: ANN001
-        """Persist an ``ErrorTraceAsset`` for the current execution."""
+        """Persist an ``ErrorTraceAsset`` for an exception that propagated."""
         tb_lines = traceback.format_exception(exc_type, exc_val, exc_tb)
+        self.save_error_report(
+            error_type=exc_type.__name__,
+            message=str(exc_val),
+            traceback_text="".join(tb_lines),
+        )
+
+    def save_error_report(
+        self,
+        *,
+        error_type: str,
+        message: str,
+        traceback_text: str | None = None,
+    ) -> None:
+        """Persist ``executions/<exec_id>/error.txt`` + its ``ErrorTraceAsset``.
+
+        Shared by both failure paths: an exception that propagated out of the
+        ``with run.start():`` block (:meth:`save_error_details` supplies the
+        traceback) and the far more common engine-swallowed task failure,
+        where the workflow engine resolves the run to FAILED via
+        ``mark_failed`` without re-raising — the runtime forwards the
+        formatted task traceback through ``mark_failed(..., traceback_text=…)``
+        and the lifecycle passes it here, so error.txt carries the real stack.
+        The placeholder note below survives only for failure signals that
+        genuinely carried no traceback (e.g. a manual ``mark_failed("msg")``).
+        """
         exec_id = self._get_execution_id() or "unbound"
         rel_path = Path("executions") / exec_id / "error.txt"
         target = self._work_dir / rel_path
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(
-            f"Error: {datetime.now().isoformat()}\n"
-            f"Type: {exc_type.__name__}\n"
-            f"Message: {exc_val}\n\n" + "".join(tb_lines)
-        )
+        body = f"Error: {datetime.now().isoformat()}\nType: {error_type}\nMessage: {message}\n\n"
+        if traceback_text:
+            body += traceback_text
+        else:
+            body += (
+                "(No Python traceback was captured: the workflow engine recorded "
+                "this task failure without re-raising. Per-task detail lives in "
+                f"executions/{exec_id}/workflow.json and logs/.)\n"
+            )
+        target.write_text(body)
 
         now = datetime.now()
         asset = ErrorTraceAsset(
@@ -195,8 +225,8 @@ class RunAssets:
             created_at=now,
             updated_at=now,
             producer=self._producer(),
-            exception_type=exc_type.__name__,
-            message=str(exc_val),
+            exception_type=error_type,
+            message=message,
             execution_id=exec_id,
         )
         self._manifest.register(asset)

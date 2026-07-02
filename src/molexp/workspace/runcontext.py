@@ -307,20 +307,42 @@ class RunContext:
         profile_cfg = ProfileConfig(run.metadata.config, name=run.metadata.profile)
         return cls(run, profile_config=profile_cfg)
 
-    def mark_failed(self, error: str | None = None) -> None:
+    def mark_failed(self, error: str | None = None, traceback_text: str | None = None) -> None:
         """Record a run failure so an exception-free ``with ctx:`` exit still
         resolves the run-status to ``FAILED``.
 
         The workflow runtime calls this (through the ``RunContextLike``
         protocol) when a task body fails but the failure does not propagate as
-        an exception out of ``execute()`` — e.g. a ``wf.parallel`` element
-        captured its error. The lifecycle's ``exit`` consults
+        an exception out of ``execute()`` — the engine swallows the task
+        exception and signals here instead. The lifecycle's ``exit`` consults
         ``context.status["run"]`` to pick ``SUCCEEDED`` vs ``FAILED``.
+
+        ``traceback_text`` (optional) carries the formatted Python traceback of
+        the underlying task failure; the lifecycle persists it into
+        ``executions/<exec_id>/error.txt`` so the trace file holds the real
+        stack, not a placeholder note. Like ``error``, only the FIRST recorded
+        failure wins (``setdefault``).
         """
         context = self._ctx_store.context
         context.status["run"] = RunStatus.FAILED
         if error:
-            context.errors.setdefault("run", {"message": error})
+            record = {"message": error}
+            if traceback_text:
+                record["traceback"] = traceback_text
+            context.errors.setdefault("run", record)
+
+    def mark_succeeded(self) -> None:
+        """Record a positive completion signal for this attempt.
+
+        The workflow runtime calls this after a workflow finishes with no
+        failed task, so the lifecycle's ``exit`` can distinguish "the workflow
+        ran and succeeded" from "nothing ran at all". A recorded failure
+        always wins — ``mark_succeeded`` never downgrades a prior
+        :meth:`mark_failed` (run-recovery bug 1).
+        """
+        context = self._ctx_store.context
+        if context.status.get("run") != RunStatus.FAILED:
+            context.status["run"] = RunStatus.SUCCEEDED
 
     # ── Internal ────────────────────────────────────────────────────────
 

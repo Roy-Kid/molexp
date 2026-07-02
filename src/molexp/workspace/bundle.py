@@ -65,14 +65,18 @@ SOURCES_FILENAME = "sources.json"
 
 
 class Backlink(NamedTuple):
-    """A resolved reverse edge: a *source* Concept linking to a target, and its role.
+    """One resolved reverse edge, as returned by :meth:`Bundle.backlinks`.
 
-    The typed companion of a :meth:`Bundle.backlinks` result — the inverse of a
-    :meth:`Folder.typed_out_edges` entry.
+    A ``NamedTuple`` wrapper — **not** a bare Concept: it pairs the *source*
+    Concept whose ``index.md`` holds the link with the edge's declared *role*
+    (the inverse of a :meth:`Folder.typed_out_edges` :class:`Edge`). Unpack it
+    as ``source, role = backlink`` or read the fields by name.
 
     Attributes:
-        source: The Concept whose ``index.md`` holds the edge.
-        role: The declared :class:`~molexp.workspace.edges.EdgeRole` of the edge.
+        source: The Concept (a :class:`Folder` subclass) whose ``index.md``
+            holds the edge pointing at the queried target.
+        role: The declared :class:`~molexp.workspace.edges.EdgeRole` of that
+            edge (``"references"`` for untyped legacy links).
     """
 
     source: Folder
@@ -384,20 +388,21 @@ class Bundle:
         concept.delete()
 
     def backlinks(self, concept: Folder) -> list[Backlink]:
-        """Return every Concept whose edge points at *concept* (a derived view).
+        """Return the :class:`Backlink` rows whose edge points at *concept*.
 
-        Walks the bundle and reads each Concept's :meth:`Folder.typed_out_edges`,
-        collecting every *other* Concept with an edge resolving to *concept* as a
-        :class:`Backlink` carrying the source and its
-        :class:`~molexp.workspace.edges.EdgeRole` (the default ``references`` role
-        is included, never dropped). A rebuildable reverse view — no reverse index
-        is persisted (one-source-of-truth law).
+        Each result is a ``Backlink(source, role)`` wrapper — not the bare
+        source Concept: ``source`` is the Concept whose ``index.md`` holds the
+        edge, ``role`` its declared :class:`~molexp.workspace.edges.EdgeRole`
+        (the default ``references`` role is included, never dropped). Computed
+        by walking the bundle and reading each Concept's
+        :meth:`Folder.typed_out_edges` — a rebuildable derived view; no reverse
+        index is persisted (one-source-of-truth law).
 
         Args:
             concept: The link target to find backlinks for.
 
         Returns:
-            The :class:`Backlink` rows pointing at *concept*.
+            One :class:`Backlink` per edge resolving to *concept*.
         """
         target = self._norm(concept.resolve())
         result: list[Backlink] = []
@@ -544,7 +549,7 @@ class Bundle:
                 "ReferenceConcept",
                 host.add_folder(ReferenceConcept(parent=host, name=slug)),
             )
-            ref.write_ref_meta(
+            ref.write_reference_meta(
                 ReferenceMeta(
                     title=item.title,
                     authors=item.authors,

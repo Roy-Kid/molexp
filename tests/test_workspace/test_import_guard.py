@@ -30,6 +30,7 @@ FORBIDDEN_PREFIXES: tuple[str, ...] = (
     "molexp.plugins",
     "molexp.server",
     "molexp.cli",
+    "molexp.services",
     "molexp.sweep",
 )
 

@@ -1,8 +1,21 @@
-"""Unified Target resolution — local and remote workspaces share one representation.
+"""Unified Target family — one type system for every execution destination.
 
-SCP-style remote notation: ``user@host:/path`` or ``host:/path``.
-Registered compute targets: ``@target-name``.
-Local paths: ``/abs/path``, ``./rel``, or empty (cwd).
+:class:`~molexp.workspace.models.ComputeTarget` (``models.py``) is the
+canonical, persisted registry record (transport x scheduler axes).  This
+module contributes the *address views* — :class:`LocalTarget` and
+:class:`RemoteTarget` are thin ``ComputeTarget`` subclasses produced by
+parsing a CLI target spec, so every target in the system shares one field
+surface (``host`` / ``port`` / ``identity_file`` / ``ssh_opts`` /
+``scheduler`` / ``scratch_root``).  ``Target`` is the type alias for the
+whole family.
+
+Spec notation accepted by :func:`parse_target` / :func:`resolve_target`:
+
+* SCP-style remote: ``user@host:/path`` or ``host:/path``
+* Registered compute targets: ``@target-name`` (looked up in the workspace
+  registry via :func:`molexp.workspace.targets.resolve_compute_target`,
+  which includes the built-in ``local`` fallback)
+* Local paths: ``/abs/path``, ``./rel``, or empty (cwd)
 
 Session management caches Transport instances so repeated commands reuse
 the same SSH connection.  ``-i/--interactive`` mode builds on this.
@@ -17,40 +30,66 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from molq.options import SshTransportOptions
-from molq.transport import LocalTransport, SshTransport, Transport
+from molq.transport import Transport
 
 from .fs import FileSystem
 from .fs_local import LocalFileSystem
+from .models import ComputeTarget
+from .targets import resolve_compute_target, to_transport
 
 if TYPE_CHECKING:
     from molexp.workspace.workspace import Workspace
 
 
 # ---------------------------------------------------------------------------
-# Target types
+# Target types — address views over the canonical ComputeTarget
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class LocalTarget:
-    """A workspace on the local filesystem."""
+class LocalTarget(ComputeTarget):
+    """A workspace on the local filesystem (address view of ``ComputeTarget``).
 
-    path: Path
+    ``host`` is always ``None`` (LocalTransport); the parsed path is stored
+    in the canonical ``scratch_root`` slot and surfaced as a :class:`Path`
+    via :attr:`path`.
+    """
+
+    def __init__(self, path: Path | str | None = None, **data: object) -> None:
+        if path is not None:
+            data.setdefault("scratch_root", str(path))
+        data.setdefault("name", data.get("scratch_root", "local"))
+        super().__init__(**data)
+
+    @property
+    def path(self) -> Path:
+        """The workspace directory on this machine."""
+        return Path(self.scratch_root)
 
     def __str__(self) -> str:
         return str(self.path)
 
 
-@dataclass(frozen=True)
-class RemoteTarget:
-    """A workspace accessible via SSH transport."""
+class RemoteTarget(ComputeTarget):
+    """A workspace accessible via SSH transport (address view).
 
-    user: str | None
-    host: str
-    port: int | None
-    path: str
-    identity_file: str | None = None
+    Adds the split-out ``user`` slot on top of the canonical fields; the
+    remote path is stored in ``scratch_root`` and surfaced as :attr:`path`.
+    """
+
+    user: str | None = None
+
+    def __init__(self, *, path: str | None = None, **data: object) -> None:
+        if path is not None:
+            data.setdefault("scratch_root", path)
+        if "name" not in data:
+            user_part = f"{data['user']}@" if data.get("user") else ""
+            data["name"] = f"{user_part}{data.get('host', '')}:{data.get('scratch_root', '')}"
+        super().__init__(**data)
+
+    @property
+    def path(self) -> str:
+        """The workspace directory on the remote host."""
+        return self.scratch_root
 
     @property
     def scp_notation(self) -> str:
@@ -62,7 +101,8 @@ class RemoteTarget:
         return self.scp_notation
 
 
-Target = LocalTarget | RemoteTarget
+#: The unified target family — every target IS a ComputeTarget.
+Target = ComputeTarget
 
 
 # SCP pattern: [user@]host:path  (but not :// which is a URL)
@@ -74,8 +114,9 @@ def parse_target(raw: str | None) -> Target:
 
     Resolution order:
     1. ``None`` or empty → current directory (local)
-    2. ``@name`` → not resolved yet — returned as a sentinel; call
-       :func:`resolve_target` to look up the named compute target.
+    2. ``@name`` → not resolved here — raises :class:`TargetNeedsResolution`;
+       call :func:`resolve_target` with a workspace to look up the named
+       compute target.
     3. ``[user@]host:path`` (SCP-style) → :class:`RemoteTarget`
     4. Everything else → :class:`LocalTarget`
     """
@@ -83,9 +124,7 @@ def parse_target(raw: str | None) -> Target:
         return LocalTarget(Path.cwd())
 
     if raw.startswith("@"):
-        # Sentinel: caller must resolve via compute target registry.
-        # We still return a LocalTarget with a marker; resolve_target()
-        # handles the actual lookup.
+        # Caller must resolve via the compute-target registry.
         raise TargetNeedsResolution(raw)
 
     m = _SCP_RE.match(raw)
@@ -160,32 +199,43 @@ def _resolve_ssh_details(host: str) -> tuple[int | None, str | None]:
 def resolve_target(raw: str | None, ws: Workspace | None = None) -> tuple[Target, Transport]:
     """Fully resolve a target string into a (Target, Transport) pair.
 
-    When *ws* is provided, ``@name`` targets are looked up in the
-    workspace's compute-target registry.  Otherwise ``@name`` raises
+    The single resolution path shared by every CLI command.  When *ws* is
+    provided, ``@name`` targets are looked up in the workspace's
+    compute-target registry (with the built-in ``local`` fallback — the same
+    rule the server applies).  Otherwise ``@name`` raises
     :class:`TargetNeedsResolution`.
     """
-    from molexp.workspace.targets import get_target, to_transport
-
     if raw and raw.startswith("@"):
         name = raw[1:]
         if ws is None:
             raise TargetNeedsResolution(raw)
         try:
-            ct = get_target(ws, name)
+            ct = resolve_compute_target(ws, name)
         except KeyError:
             raise TargetNotFound(name) from None
         if ct.is_remote and ct.host:
             user, hostname = _split_user_host(ct.host)
             ssh_port, ssh_identity = _resolve_ssh_details(hostname)
             target: Target = RemoteTarget(
+                name=ct.name,
                 user=user,
                 host=hostname,
                 port=ct.port or ssh_port,
                 path=ct.scratch_root,
                 identity_file=ct.identity_file or ssh_identity,
+                ssh_opts=list(ct.ssh_opts),
+                scheduler=ct.scheduler,
+                default_resources=dict(ct.default_resources),
+                default_scheduling=dict(ct.default_scheduling),
             )
         else:
-            target = LocalTarget(Path(ct.scratch_root))
+            target = LocalTarget(
+                Path(ct.scratch_root),
+                name=ct.name,
+                scheduler=ct.scheduler,
+                default_resources=dict(ct.default_resources),
+                default_scheduling=dict(ct.default_scheduling),
+            )
         return target, to_transport(ct)
 
     target = parse_target(raw)
@@ -201,15 +251,13 @@ class TargetNotFound(Exception):
 
 
 def target_to_transport(target: Target) -> Transport:
-    """Build the molq Transport for *target*."""
-    if isinstance(target, LocalTarget):
-        return LocalTransport()
-    opts = SshTransportOptions(
-        host=target.host,
-        port=target.port,
-        identity_file=target.identity_file,
-    )
-    return SshTransport(options=opts)
+    """Build the molq Transport for *target*.
+
+    Thin delegate to :func:`molexp.workspace.targets.to_transport` — every
+    member of the unified family is a ``ComputeTarget``, so one transport
+    builder serves both the address views and the registry records.
+    """
+    return to_transport(target)
 
 
 def target_to_filesystem(target: Target) -> FileSystem:
@@ -218,14 +266,18 @@ def target_to_filesystem(target: Target) -> FileSystem:
     Local targets get a :class:`LocalFileSystem`; remote targets get a
     :class:`RemoteFileSystem` backed by an SSH transport.
     """
-    if isinstance(target, LocalTarget):
+    if not target.is_remote:
         return LocalFileSystem()
+    from molq.options import SshTransportOptions
+    from molq.transport import SshTransport
+
     from .fs_remote import RemoteFileSystem
 
     opts = SshTransportOptions(
-        host=target.host,
+        host=target.host or "",
         port=target.port,
         identity_file=target.identity_file,
+        ssh_opts=tuple(target.ssh_opts),
     )
     transport = SshTransport(options=opts)
     return RemoteFileSystem(transport)
@@ -237,8 +289,12 @@ def target_to_filesystem(target: Target) -> FileSystem:
 
 
 @dataclass
-class Session:
-    """A cached Transport connection to a remote target."""
+class SSHSession:
+    """A cached SSH Transport connection to a remote target.
+
+    (Renamed from ``Session`` — that name now belongs exclusively to the
+    agent layer's LLM conversation session.)
+    """
 
     name: str
     target: RemoteTarget
@@ -257,18 +313,18 @@ class Session:
 
 
 class SessionManager:
-    """Global registry of active sessions, keyed by SCP notation."""
+    """Global registry of active SSH sessions, keyed by SCP notation."""
 
-    _sessions: dict[str, Session] = {}  # noqa: RUF012
+    _sessions: dict[str, SSHSession] = {}  # noqa: RUF012
 
     @classmethod
-    def get(cls, target: RemoteTarget) -> Session | None:
+    def get(cls, target: RemoteTarget) -> SSHSession | None:
         """Return an existing session for *target*, or ``None``."""
         key = str(target)
         return cls._sessions.get(key)
 
     @classmethod
-    def get_or_create(cls, target: RemoteTarget) -> Session:
+    def get_or_create(cls, target: RemoteTarget) -> SSHSession:
         """Return an existing session or create + cache a new one."""
         key = str(target)
         if key in cls._sessions:
@@ -276,7 +332,7 @@ class SessionManager:
             session.touch()
             return session
         transport = target_to_transport(target)
-        session = Session(name=key, target=target, transport=transport)
+        session = SSHSession(name=key, target=target, transport=transport)
         cls._sessions[key] = session
         return session
 
@@ -299,12 +355,12 @@ class SessionManager:
         return count
 
     @classmethod
-    def get_by_name(cls, name: str) -> Session | None:
+    def get_by_name(cls, name: str) -> SSHSession | None:
         """Return a session by its name (SCP notation)."""
         return cls._sessions.get(name)
 
     @classmethod
-    def list_sessions(cls) -> list[Session]:
+    def list_sessions(cls) -> list[SSHSession]:
         """Return all active sessions sorted by last use."""
         return sorted(cls._sessions.values(), key=lambda s: s.last_used, reverse=True)
 
@@ -312,7 +368,7 @@ class SessionManager:
 __all__ = [
     "LocalTarget",
     "RemoteTarget",
-    "Session",
+    "SSHSession",
     "SessionManager",
     "Target",
     "TargetNeedsResolution",

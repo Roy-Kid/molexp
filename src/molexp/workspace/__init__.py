@@ -67,6 +67,7 @@ from .events import (
     WorkspaceEventLog,
     WorkspaceEventType,
     emit_workspace_event,
+    read_workspace_events,
 )
 from .experiment import Experiment
 from .folder import (
@@ -99,11 +100,13 @@ from .param import GridSpace, Params, ParamSpace, UniformSpace
 from .project import Project
 from .reference_meta import ReferenceMeta
 from .run import RETRYABLE_STATUSES, Run, RunContext, RunStatus
+from .run_reaper import pid_alive, reap_zombie_run
+from .runset import RunRecord, RunSet, RunSetResult
 from .target import (
     LocalTarget,
     RemoteTarget,
-    Session,
     SessionManager,
+    SSHSession,
     Target,
     TargetNotFound,
     parse_target,
@@ -111,11 +114,15 @@ from .target import (
     target_to_transport,
 )
 from .targets import (
+    LOCAL_TARGET_NAME,
     add_target,
+    builtin_local_target,
+    effective_targets,
     get_target,
     has_target,
     list_targets,
     remove_target,
+    resolve_compute_target,
     target_run_dir,
     to_transport,
 )
@@ -139,6 +146,8 @@ __all__ = [
     "DEFAULT_EDGE_ROLE",
     # OKF KnowledgeItem Concept (integration P0.4) — typed, source-linked
     "KNOWLEDGE_ITEM_KIND",
+    # Built-in ``local`` compute target (targets-merge)
+    "LOCAL_TARGET_NAME",
     # Retryable-status domain (resume / rerun verb selection)
     "RETRYABLE_STATUSES",
     # Folder kind taxonomy (unify-folder-abstraction-02)
@@ -223,9 +232,12 @@ __all__ = [
     "RunExistsError",
     "RunMetadata",
     "RunNotFoundError",
+    "RunRecord",
     "RunRef",
+    "RunSet",
+    "RunSetResult",
     "RunStatus",
-    "Session",
+    "SSHSession",
     "SessionManager",
     "SourceKind",
     "SourceRef",
@@ -253,13 +265,19 @@ __all__ = [
     # Atomic plain-text I/O — companion to atomic_write_json for
     # markdown reports / generated source previews / log snapshots.
     "atomic_write_text",
+    "builtin_local_target",
+    "effective_targets",
     "emit_workspace_event",
     "get_target",
     "has_target",
     "list_targets",
     "parse_target",
+    "pid_alive",
+    "read_workspace_events",
     "read_zotero_items",
+    "reap_zombie_run",
     "remove_target",
+    "resolve_compute_target",
     "resolve_target",
     "summarize_entity",
     "target_run_dir",

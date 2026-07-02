@@ -72,7 +72,7 @@ def test_callers_delegate_to_helper():
     single helper (no second copy of the derivation)."""
     import inspect
 
-    from molexp.workflow._pydantic_graph import runtime as rt
+    from molexp.workflow._engine import runtime as rt
     from molexp.workspace import run_execution
 
     assert "derive_execution_id" in inspect.getsource(rt.make_execution_id)
